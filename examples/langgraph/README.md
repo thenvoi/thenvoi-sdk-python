@@ -6,13 +6,13 @@ This guide explains all the ways you can integrate LangGraph agents with the The
 
 **If running from repository:**
 ```bash
-# From python-sdk/ directory
+# From thenvoi-sdk-python/ directory
 uv sync --extra langgraph
 ```
 
 **If using as external library:**
 ```bash
-uv pip install "git+https://github.com/thenvoi/python-sdk.git#egg=thenvoi-python-sdk[langgraph]"
+uv pip install "git+https://github.com/thenvoi/thenvoi-sdk-python.git[langgraph]"
 ```
 
 **Configuration:**

@@ -40,10 +40,10 @@ Install the SDK directly from GitHub into your own project:
 
 ```bash
 # Install base SDK
-uv pip install "git+https://github.com/thenvoi/python-sdk.git"
+uv pip install "git+https://github.com/thenvoi/thenvoi-sdk-python.git"
 
 # Or install with LangGraph support
-uv pip install "git+https://github.com/thenvoi/python-sdk.git#egg=thenvoi-python-sdk[langgraph]"
+uv pip install "git+https://github.com/thenvoi/thenvoi-sdk-python.git[langgraph]"
 ```
 
 Then set up your environment variables (see [Configuration](#configuration) section below).
@@ -56,8 +56,8 @@ If you want to try the examples directly:
 
 ```bash
 # Clone the repository
-git clone https://github.com/thenvoi/python-sdk.git
-cd python-sdk
+git clone https://github.com/thenvoi/thenvoi-sdk-python.git
+cd thenvoi-sdk-python
 
 # Install dependencies (uv will auto-create a virtual environment)
 uv sync --extra langgraph

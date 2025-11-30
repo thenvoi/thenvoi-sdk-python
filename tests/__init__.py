@@ -1,1 +1,1 @@
-"""Tests for thenvoi-python-sdk"""
+"""Tests for thenvoi-sdk"""
