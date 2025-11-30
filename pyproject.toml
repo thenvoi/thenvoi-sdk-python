@@ -1,0 +1,88 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "thenvoi-sdk"
+version = "0.1.0"
+description = "A Python SDK for Thenvoi API"
+readme = "README.md"
+requires-python = ">=3.11"
+authors = [{ name = "thenvoi" }]
+license = { text = "MIT" }
+keywords = ["sdk", "thenvoi", "api", "agents"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
+
+dependencies = [
+    "websockets>=10.0",
+    "httpx>=0.24.0",
+    "pydantic>=2.0.0", # nvidia-nat 1.2.1 requires pydantic==2.10.*
+    "typing-extensions>=4.0.0",
+    "phoenix-channels-python-client @ git+https://github.com/thenvoi/phoenix-channels-python-client-alpha.git",
+    "python-dotenv>=1.1.1",
+    "pyyaml>=6.0",
+]
+
+[project.optional-dependencies]
+langgraph = [
+    "langchain>=1.0.0",
+    "langchain-core>=1.0.0",
+    "langgraph>=1.0.0",
+    "langchain-openai>=0.3.0",
+    "langchain-community>=0.4.0",  # 0.4.0+ required for langchain 1.0 compatibility
+    "langchain-text-splitters>=0.3.0",
+    "openai>=1.0.0",
+    "beautifulsoup4>=4.12.0",
+]
+
+dev = [
+    "pytest>=7.0.0",
+    "pytest-asyncio>=0.21.0",
+    "pytest-mock>=3.10.0",
+    "pytest-cov>=4.0.0",
+    "httpx>=0.24.0",  # Already in main deps, for mocking
+    # Include langgraph for testing
+    "langchain>=1.0.0",
+    "langchain-core>=1.0.0",
+    "langgraph>=1.0.0",
+    "langchain-openai>=0.3.0",
+    "langchain-community>=0.4.0",
+    "langchain-text-splitters>=0.3.0",
+    "openai>=1.0.0",
+    "beautifulsoup4>=4.12.0",
+    # Development tools
+    "pre-commit>=3.0.0",
+    "ruff>=0.8.0",
+    "pyrefly>=0.18.0",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["thenvoi.*"]
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+include-package-data = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+addopts = "-v"
+
+[tool.pyrefly]
+project_excludes = [
+    "src/thenvoi/_vendor/**",  # Generated vendor code
+    "tests/**",                 # Tests use mocks with duck typing
+    "examples/**",              # Examples use local imports
+]
+
+[tool.ruff]
+exclude = ["src/thenvoi/_vendor"]

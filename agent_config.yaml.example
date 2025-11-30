@@ -1,0 +1,49 @@
+# Agent Configuration for External Agents
+#
+# IMPORTANT: Keep this file secure - it contains agent-specific API keys
+# Add agent_config.yaml to .gitignore to avoid committing secrets
+#
+# SETUP INSTRUCTIONS:
+# 1. Create external agents in the Thenvoi platform
+# 2. Generate an API key for each agent in the platform
+# 3. Copy the agent_id and api_key here
+# 4. The agent name and description are stored on the platform (not here)
+#
+# Each agent entry requires:
+#   agent_id: The unique ID from the platform (required)
+#   api_key: The agent-specific API key from the platform (required)
+
+# LangGraph Examples - Basic Integration (01-03)
+simple_agent:
+  agent_id: ""  # Required: Copy from platform after creating external agent
+  api_key: ""   # Required: Copy agent-specific API key from platform
+
+custom_tools_agent:
+  agent_id: ""
+  api_key: ""
+
+custom_personality_agent:
+  agent_id: ""
+  api_key: ""
+
+# LangGraph Examples - Composition (10-19)
+calculator_agent:
+  agent_id: ""
+  api_key: ""
+
+rag_agent:
+  agent_id: ""
+  api_key: ""
+
+sql_agent:
+  agent_id: ""
+  api_key: ""
+
+# LangGraph Examples - Custom Graph Architecture (20+)
+custom_agent_with_instructions:
+  agent_id: ""
+  api_key: ""
+
+custom_graph_agent:
+  agent_id: ""
+  api_key: ""
