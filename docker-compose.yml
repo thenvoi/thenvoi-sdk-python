@@ -1,0 +1,94 @@
+# Shared configuration using YAML anchors
+x-common-env: &common-env
+  THENVOI_REST_API_URL: ${THENVOI_REST_API_URL}
+  THENVOI_WS_URL: ${THENVOI_WS_URL}
+  OPENAI_API_KEY: ${OPENAI_API_KEY}
+  # Note: Agent-specific API keys are in agent_config.yaml (mounted as volume)
+
+x-common-build: &common-build
+  context: .
+
+services:
+  # LangGraph Examples - Basic Integration (01-03)
+  langgraph-01-simple:
+    build:
+      <<: *common-build
+      target: langgraph
+    environment:
+      <<: *common-env
+    volumes:
+      - ./agent_config.yaml:/app/agent_config.yaml
+    command: ["uv", "run", "--extra", "langgraph", "python", "examples/langgraph/01_simple_agent.py"]
+
+  langgraph-02-custom-tools:
+    build:
+      <<: *common-build
+      target: langgraph
+    environment:
+      <<: *common-env
+    volumes:
+      - ./agent_config.yaml:/app/agent_config.yaml
+    command: ["uv", "run", "--extra", "langgraph", "python", "examples/langgraph/02_custom_tools.py"]
+
+  langgraph-03-custom-personality:
+    build:
+      <<: *common-build
+      target: langgraph
+    environment:
+      <<: *common-env
+    volumes:
+      - ./agent_config.yaml:/app/agent_config.yaml
+    command: ["uv", "run", "--extra", "langgraph", "python", "examples/langgraph/03_custom_personality.py"]
+
+  # LangGraph Examples - Composition (10-19)
+  langgraph-10-calculator:
+    build:
+      <<: *common-build
+      target: langgraph
+    environment:
+      <<: *common-env
+    volumes:
+      - ./agent_config.yaml:/app/agent_config.yaml
+    command: ["uv", "run", "--extra", "langgraph", "python", "examples/langgraph/10_calculator_as_tool.py"]
+
+  langgraph-11-rag:
+    build:
+      <<: *common-build
+      target: langgraph
+    environment:
+      <<: *common-env
+    volumes:
+      - ./agent_config.yaml:/app/agent_config.yaml
+    command: ["uv", "run", "--extra", "langgraph", "python", "examples/langgraph/11_rag_as_tool.py"]
+
+  langgraph-12-sql-agent:
+    build:
+      <<: *common-build
+      target: langgraph
+    environment:
+      <<: *common-env
+    volumes:
+      - ./agent_config.yaml:/app/agent_config.yaml
+    command: ["uv", "run", "--extra", "langgraph", "python", "examples/langgraph/12_delegate_to_sql_agent.py"]
+
+  # LangGraph Examples - Custom Graph Architecture (20+)
+  langgraph-20-custom-agent-with-instructions:
+    build:
+      <<: *common-build
+      target: langgraph
+    environment:
+      <<: *common-env
+    volumes:
+      - ./agent_config.yaml:/app/agent_config.yaml
+    command: ["uv", "run", "--extra", "langgraph", "python", "examples/langgraph/20_custom_agent_with_instructions.py"]
+
+  langgraph-21-custom-graph:
+    build:
+      <<: *common-build
+      target: langgraph
+    environment:
+      <<: *common-env
+    volumes:
+      - ./agent_config.yaml:/app/agent_config.yaml
+    command: ["uv", "run", "--extra", "langgraph", "python", "examples/langgraph/21_custom_graph.py"]
+
