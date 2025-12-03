@@ -40,10 +40,10 @@ Install the SDK directly from GitHub into your own project:
 
 ```bash
 # Install base SDK
-uv pip install "git+https://github.com/thenvoi/thenvoi-sdk-python.git"
+uv add "git+https://github.com/thenvoi/thenvoi-sdk-python.git"
 
 # Or install with LangGraph support
-uv pip install "git+https://github.com/thenvoi/thenvoi-sdk-python.git[langgraph]"
+uv add "git+https://github.com/thenvoi/thenvoi-sdk-python.git[langgraph]"
 ```
 
 Then set up your environment variables (see [Configuration](#configuration) section below).
