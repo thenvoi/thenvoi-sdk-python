@@ -91,7 +91,7 @@ def get_thenvoi_tools(client: AsyncRestClient, agent_id: str) -> List:
 
         Args:
             content: The message content to send
-            mentions: JSON string of mentions with id and username. Use '[]' for no mentions, or '[{"id":"uuid","username":"name"}]' for mentions
+            mentions: JSON string of mentions (at least one required). Format: '[{"id":"uuid","username":"name"}]'
 
         Returns:
             Success message with details
@@ -102,6 +102,10 @@ def get_thenvoi_tools(client: AsyncRestClient, agent_id: str) -> List:
         if not isinstance(mentions_list, list):
             raise ValueError(
                 "Mentions must be a list of objects with 'id' and 'username'"
+            )
+        if len(mentions_list) == 0:
+            raise ValueError(
+                "At least one mention is required. Use get_participants to find users to mention."
             )
         for mention in mentions_list:
             if (
@@ -121,8 +125,6 @@ def get_thenvoi_tools(client: AsyncRestClient, agent_id: str) -> List:
             content=content,
             message_type=message_type,
             mentions=mentions_list,
-            sender_type="Agent",
-            sender_id=agent_id,
         )
         result = await client.chat_messages.create_chat_message(
             chat_id=room_id, message=message_request

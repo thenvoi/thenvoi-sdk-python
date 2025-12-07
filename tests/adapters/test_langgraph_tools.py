@@ -112,8 +112,8 @@ def test_list_available_participants_signature_does_not_expose_room_id():
 
 
 @pytest.mark.asyncio
-async def test_send_message_with_empty_mentions_sends_empty_array_not_null():
-    """CRITICAL: Empty mentions must be sent as [] not null to API."""
+async def test_send_message_rejects_empty_mentions():
+    """Empty mentions must be rejected - at least one mention is required."""
     # Create a mock client
     mock_client = AsyncMock()
     mock_result = AsyncMock()
@@ -127,22 +127,12 @@ async def test_send_message_with_empty_mentions_sends_empty_array_not_null():
     # Create config with thread_id (room_id)
     config = {"configurable": {"thread_id": "room-456"}}
 
-    # Call the tool with empty mentions array (what LLM sends)
-    await send_message_tool.ainvoke(
-        {"content": "Hello", "mentions": "[]"},  # Empty array as JSON string
-        config=config,
-    )
+    # Call the tool with empty mentions array - should raise ValueError
+    with pytest.raises(ValueError, match="At least one mention is required"):
+        await send_message_tool.ainvoke(
+            {"content": "Hello", "mentions": "[]"},  # Empty array as JSON string
+            config=config,
+        )
 
-    # Verify create_chat_message was called
-    assert mock_client.chat_messages.create_chat_message.called
-
-    # Get the actual call arguments
-    call_args = mock_client.chat_messages.create_chat_message.call_args
-    message_request = call_args.kwargs["message"]
-
-    # CRITICAL: mentions MUST be [] not None
-    # This was the bug that caused: '/message/mentions': ['null value where array expected']
-    assert message_request.mentions == [], (
-        f"Expected mentions=[], got mentions={message_request.mentions}. "
-        f"API requires array, not null."
-    )
+    # Verify create_chat_message was NOT called
+    assert not mock_client.chat_messages.create_chat_message.called
