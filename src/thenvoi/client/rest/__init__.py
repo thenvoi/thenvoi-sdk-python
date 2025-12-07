@@ -13,7 +13,7 @@ Usage:
     async_client = AsyncRestClient(api_key="your-api-key")
 """
 
-from thenvoi._vendor.thenvoi_client_rest import (
+from thenvoi_rest import (
     RestClient,
     AsyncRestClient,
     RestClientEnvironment,
