@@ -10,6 +10,7 @@ with the Thenvoi platform. Critical behaviors:
 
 import pytest
 from unittest.mock import AsyncMock
+from langchain_core.tools import ToolException
 from thenvoi.client.rest import AsyncRestClient
 from thenvoi.agent.langgraph.tools import get_thenvoi_tools
 
@@ -127,8 +128,8 @@ async def test_send_message_rejects_empty_mentions():
     # Create config with thread_id (room_id)
     config = {"configurable": {"thread_id": "room-456"}}
 
-    # Call the tool with empty mentions array - should raise ValueError
-    with pytest.raises(ValueError, match="At least one mention is required"):
+    # Call the tool with empty mentions array - should raise ToolException
+    with pytest.raises(ToolException, match="At least one mention is required"):
         await send_message_tool.ainvoke(
             {"content": "Hello", "mentions": "[]"},  # Empty array as JSON string
             config=config,

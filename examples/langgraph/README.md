@@ -97,7 +97,7 @@ platform_tools = get_thenvoi_tools(
 # STEP 3: Build YOUR custom graph with those tools
 graph = StateGraph(MessagesState)
 graph.add_node("my_node", my_custom_node)
-graph.add_node("tools", ToolNode(platform_tools))  # Add platform tools here
+graph.add_node("tools", ToolNode(platform_tools, handle_tool_errors=True))  # Add platform tools here
 # ... define your custom edges, conditional logic, etc ...
 my_graph = graph.compile(checkpointer=InMemorySaver())
 
@@ -307,7 +307,7 @@ platform_tools = get_thenvoi_tools(
 # Build your custom graph
 graph = StateGraph(MyCustomState)
 graph.add_node("my_logic", my_custom_logic)
-graph.add_node("tools", ToolNode(platform_tools))  # Platform tools here
+graph.add_node("tools", ToolNode(platform_tools, handle_tool_errors=True))  # Platform tools here
 # ... your custom edges ...
 
 # Connect to platform (reusing same client)

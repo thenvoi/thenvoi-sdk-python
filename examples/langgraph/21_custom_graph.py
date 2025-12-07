@@ -87,7 +87,8 @@ def create_agent_graph_with_platform_tools(platform_tools, system_instructions: 
     # Add nodes
     graph.add_node("agent", agent_node)
     # THIS is where platform tools are used! ToolNode executes whatever tool the LLM chose
-    graph.add_node("tools", ToolNode(platform_tools))
+    # handle_tool_errors=True ensures tool errors become ToolMessages instead of breaking the graph
+    graph.add_node("tools", ToolNode(platform_tools, handle_tool_errors=True))
 
     # Define edges
     graph.add_edge(START, "agent")
