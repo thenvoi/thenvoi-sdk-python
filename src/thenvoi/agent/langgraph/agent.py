@@ -8,9 +8,11 @@ Only implements LangGraph-specific logic.
 import logging
 from typing import Optional, Any, List
 
-from langchain.agents import create_agent as langgraph_create_agent
+from langchain_core.messages import AIMessage, SystemMessage
 from langchain_core.runnables.schema import StreamEvent
+from langgraph.graph import StateGraph, START, END, MessagesState
 from langgraph.pregel import Pregel
+from langgraph.prebuilt import ToolNode
 
 from thenvoi.agent.core import ThenvoiPlatformClient, RoomManager
 from thenvoi.client.streaming import MessageCreatedPayload
@@ -212,16 +214,48 @@ class ThenvoiLangGraphAgent:
         # Build system prompt using agent name from platform client
         system_prompt = self._build_system_prompt(platform_client.name)
 
-        # Build the LangGraph agent
-        graph = langgraph_create_agent(
-            self.llm,
-            tools=all_tools,
-            system_prompt=system_prompt,
-            checkpointer=self.checkpointer,
-        )
+        # Bind tools to LLM
+        llm_with_tools = self.llm.bind_tools(all_tools)
+
+        # Define the agent node (LLM decides what to do)
+        async def agent_node(state: MessagesState) -> dict[str, list]:
+            """LLM node - analyzes messages and decides which tools to call."""
+            messages = state["messages"]
+
+            # Add system message at the beginning if not already present
+            if not messages or not isinstance(messages[0], SystemMessage):
+                messages = [SystemMessage(content=system_prompt)] + messages
+
+            response = await llm_with_tools.ainvoke(messages)
+            return {"messages": [response]}
+
+        # Define conditional routing
+        def should_continue(state: MessagesState):
+            """Route to tools if LLM wants to call one, otherwise end."""
+            last_message = state["messages"][-1]
+            if isinstance(last_message, AIMessage) and last_message.tool_calls:
+                return "tools"
+            return END
+
+        # Build the graph
+        graph = StateGraph(MessagesState)
+
+        # Add nodes
+        graph.add_node("agent", agent_node)  # pyrefly: ignore[no-matching-overload]
+        # ToolNode with handle_tool_errors=True ensures tool errors become
+        # ToolMessages instead of breaking the graph state
+        graph.add_node("tools", ToolNode(all_tools, handle_tool_errors=True))
+
+        # Define edges
+        graph.add_edge(START, "agent")
+        graph.add_conditional_edges("agent", should_continue, ["tools", END])
+        graph.add_edge("tools", "agent")  # After tool runs, go back to LLM
+
+        # Compile with checkpointer
+        compiled = graph.compile(checkpointer=self.checkpointer)
 
         logger.debug("LangGraph agent built")
-        return graph
+        return compiled
 
     def _create_message_formatter(self) -> MessageFormatter:
         """Create message formatter that formats messages for the built-in agent."""
