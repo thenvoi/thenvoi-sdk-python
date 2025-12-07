@@ -19,6 +19,7 @@ from thenvoi_rest import (
     RestClientEnvironment,
     Agent,
     ChatMessageRequest,
+    ChatEventRequest,
     AddChatParticipantRequestParticipant,
     NotFoundError,
 )
@@ -31,6 +32,7 @@ __all__ = [
     # Types
     "Agent",
     "ChatMessageRequest",
+    "ChatEventRequest",
     "AddChatParticipantRequestParticipant",
     # Errors
     "NotFoundError",

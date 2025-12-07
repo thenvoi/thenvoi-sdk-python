@@ -20,31 +20,25 @@ from thenvoi.agent.langgraph.message_formatters import (
     MessageFormatter,
     default_messages_state_formatter,
 )
-from thenvoi.client.rest import ChatMessageRequest
+from thenvoi.client.rest import ChatEventRequest
 
 logger = logging.getLogger(__name__)
 
 
 # Shared utilities for both agent types
-async def _send_platform_message(
-    api_client, agent_id: str, room_id: str, content: str, message_type: str
+async def _send_platform_event(
+    api_client, room_id: str, content: str, message_type: str
 ):
-    """Send a message to the platform via API (shared utility)."""
-    message_request = ChatMessageRequest(
+    """Send an event to the platform via API (shared utility)."""
+    event_request = ChatEventRequest(
         content=content,
         message_type=message_type,
-        sender_type="Agent",
-        sender_id=agent_id,
     )
 
-    await api_client.chat_messages.create_chat_message(
-        chat_id=room_id, message=message_request
-    )
+    await api_client.chat_events.create_chat_event(chat_id=room_id, event=event_request)
 
 
-async def _handle_streaming_event(
-    event: StreamEvent, room_id: str, api_client, agent_id: str
-):
+async def _handle_streaming_event(event: StreamEvent, room_id: str, api_client):
     """
     Handle streaming events from LangGraph - shared by both agent types.
 
@@ -66,9 +60,7 @@ async def _handle_streaming_event(
         content = f"Calling {tool_name}({args_str})"
 
         logger.debug(f"[{room_id}] Tool call: {tool_name} with args: {args_str}")
-        await _send_platform_message(
-            api_client, agent_id, room_id, content, "tool_call"
-        )
+        await _send_platform_event(api_client, room_id, content, "tool_call")
 
     elif event_type == "on_tool_end":
         tool_name = event["name"]
@@ -89,9 +81,7 @@ async def _handle_streaming_event(
         logger.debug(
             f"[{room_id}] Tool result from {tool_name}: {output_str[:100]}{'...' if len(output_str) > 100 else ''}"
         )
-        await _send_platform_message(
-            api_client, agent_id, room_id, content, "tool_result"
-        )
+        await _send_platform_event(api_client, room_id, content, "tool_result")
 
 
 async def create_langgraph_agent(
@@ -323,9 +313,7 @@ class ConnectedGraphAgent:
 
     async def _handle_streaming_event(self, event: StreamEvent, room_id: str):
         """Handle streaming events from user's graph (delegates to shared utility)."""
-        await _handle_streaming_event(
-            event, room_id, self.platform.api_client, self.platform.agent_id
-        )
+        await _handle_streaming_event(event, room_id, self.platform.api_client)
 
     async def _handle_room_message(self, message: MessageCreatedPayload):
         """Handle incoming message - invoke user's graph directly."""
@@ -360,9 +348,8 @@ class ConnectedGraphAgent:
             )
             # Send error message to chat room
             error_content = f"Error processing message: {type(e).__name__}: {str(e)}"
-            await _send_platform_message(
+            await _send_platform_event(
                 self.platform.api_client,
-                self.platform.agent_id,
                 message.chat_room_id,
                 error_content,
                 "error",

@@ -1905,7 +1905,7 @@ wheels = [
 
 [[package]]
 name = "thenvoi-client-rest"
-version = "0.0.1rc3"
+version = "0.0.1rc4"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "httpx" },
@@ -1913,9 +1913,9 @@ dependencies = [
     { name = "pydantic-core" },
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/5a/9d/d291c830cace49943a2e3428ab37eb42aaa521a4c4a867e5ddbb0fdb677b/thenvoi_client_rest-0.0.1rc3.tar.gz", hash = "sha256:19227657d56e618cd23217dec04d55bc38352298526c51f4d138554bdda1ad06", size = 63496, upload-time = "2025-12-07T09:57:14.756Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/23/a9/fc483e8f6d02374792a0bbe968c9cc3f06a14f0515e88eda5a53ebceb729/thenvoi_client_rest-0.0.1rc4.tar.gz", hash = "sha256:cc2c9f5407f76df76e0e4cb2da030e4970b596a56da5a9f1bfd1f0ae3ec1ffa1", size = 65414, upload-time = "2025-12-07T15:11:33.698Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/32/73/032cc9dd66406cb7ad7f279699535d0057ca6cc400f790ab3b49a29204f8/thenvoi_client_rest-0.0.1rc3-py3-none-any.whl", hash = "sha256:1512fee3d9431608cdcb65d05852475b214b2f15bcc47cc9132c5ab09a4c594c", size = 144507, upload-time = "2025-12-07T09:57:13.721Z" },
+    { url = "https://files.pythonhosted.org/packages/c8/0b/cf40e90bf114b8a5086413daaa565cb32853b46c475d52cf287af76fe8d1/thenvoi_client_rest-0.0.1rc4-py3-none-any.whl", hash = "sha256:b5e2da8b4c0f0f270e3ccf12d81fc8219d5d4fcea40da46dd8050f2566629892", size = 151209, upload-time = "2025-12-07T15:11:32.748Z" },
 ]
 
 [[package]]
@@ -1988,7 +1988,7 @@ requires-dist = [
     { name = "python-dotenv", specifier = ">=1.1.1" },
     { name = "pyyaml", specifier = ">=6.0" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.8.0" },
-    { name = "thenvoi-client-rest", specifier = "==0.0.1rc3" },
+    { name = "thenvoi-client-rest", specifier = "==0.0.1rc4" },
 ]
 provides-extras = ["langgraph", "dev"]
 
