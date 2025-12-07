@@ -137,3 +137,28 @@ async def test_send_message_rejects_empty_mentions():
 
     # Verify create_chat_message was NOT called
     assert not mock_client.chat_messages.create_chat_message.called
+
+
+@pytest.mark.asyncio
+async def test_send_message_rejects_invalid_json():
+    """Invalid JSON in mentions must raise ToolException with helpful message."""
+    mock_client = AsyncMock()
+    mock_client.chat_messages.create_chat_message = AsyncMock()
+
+    tools = get_thenvoi_tools(client=mock_client, agent_id="agent-123")
+    send_message_tool = tools[0]
+
+    config = {"configurable": {"thread_id": "room-456"}}
+
+    # LLM sometimes outputs two arrays instead of one (malformed JSON)
+    malformed_mentions = (
+        '[{"id":"uuid1","username":"user1"}],[{"id":"uuid2","username":"user2"}]'
+    )
+
+    with pytest.raises(ToolException, match="Invalid JSON in mentions parameter"):
+        await send_message_tool.ainvoke(
+            {"content": "Hello", "mentions": malformed_mentions},
+            config=config,
+        )
+
+    assert not mock_client.chat_messages.create_chat_message.called

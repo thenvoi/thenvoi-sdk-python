@@ -98,7 +98,14 @@ def get_thenvoi_tools(client: AsyncRestClient, agent_id: str) -> List:
         """
         room_id = _get_room_id_from_config(config)
 
-        mentions_list = json.loads(mentions)
+        try:
+            mentions_list = json.loads(mentions)
+        except json.JSONDecodeError as e:
+            raise ToolException(
+                f"Invalid JSON in mentions parameter: {e}. "
+                f"Mentions must be a valid JSON array like: "
+                f'[{{"id":"uuid1","username":"user1"}},{{"id":"uuid2","username":"user2"}}]'
+            )
         if not isinstance(mentions_list, list):
             raise ToolException(
                 "Mentions must be a list of objects with 'id' and 'username'"
