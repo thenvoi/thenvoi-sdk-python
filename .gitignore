@@ -96,7 +96,7 @@ env.bak/
 venv.bak/
 
 # uv
-# Keep uv.lock for reproducible builds
+uv.lock
 # .python-version is already ignored above
 
 # Spyder project settings

@@ -16,6 +16,7 @@ jobs:
       uses: astral-sh/setup-uv@v4
       with:
         enable-cache: true
+        cache-dependency-glob: "**/pyproject.toml"
 
     - name: Set up Python
       uses: actions/setup-python@v6
@@ -23,7 +24,7 @@ jobs:
         python-version: '3.12'
 
     - name: Install dependencies
-      run: uv sync --frozen --extra dev
+      run: uv sync --extra dev
 
     - name: Run pre-commit hooks
       run: uv run pre-commit run --all-files
@@ -44,6 +45,7 @@ jobs:
       uses: astral-sh/setup-uv@v4
       with:
         enable-cache: true
+        cache-dependency-glob: "**/pyproject.toml"
 
     - name: Set up Python ${{ matrix.python-version }}
       uses: actions/setup-python@v6
@@ -51,7 +53,7 @@ jobs:
         python-version: ${{ matrix.python-version }}
 
     - name: Install dependencies
-      run: uv sync --frozen --extra dev
+      run: uv sync --extra dev
 
     - name: Run tests
       run: uv run pytest
