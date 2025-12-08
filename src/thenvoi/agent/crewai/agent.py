@@ -233,9 +233,16 @@ class ThenvoiCrewAIAgent:
             logger.debug(f"Formatted message: {formatted_message}")
 
             # Create a task for the CrewAI agent
+            # Include explicit instruction to use send_message tool
+            task_description = f"""{formatted_message}
+
+IMPORTANT: You MUST use the send_message tool to respond to the user. 
+Your response is NOT complete until you call send_message.
+Do NOT just provide a Final Answer - the user cannot see it unless you call send_message."""
+
             task = Task(
-                description=formatted_message,
-                expected_output="A helpful response to the user's message, sent via the send_message tool",
+                description=task_description,
+                expected_output="Confirmation that send_message tool was called to notify the user",
                 agent=self.crewai_agent,
             )
 
@@ -380,9 +387,17 @@ class ConnectedCrewAgent:
         """Build a default task from the message."""
         # Use the first agent in the crew
         agent = self.crew.agents[0] if self.crew.agents else None
+
+        # Include explicit instruction to use send_message tool
+        task_description = f"""{formatted_message}
+
+IMPORTANT: You MUST use the send_message tool to respond to the user.
+Your response is NOT complete until you call send_message.
+Do NOT just provide a Final Answer - the user cannot see it unless you call send_message."""
+
         return Task(
-            description=formatted_message,
-            expected_output="A helpful response to the user's message",
+            description=task_description,
+            expected_output="Confirmation that send_message tool was called to notify the user",
             agent=agent,
         )
 
