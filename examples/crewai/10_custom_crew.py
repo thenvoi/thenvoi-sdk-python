@@ -46,8 +46,7 @@ async def main():
 
     # Get platform tools using the same client
     platform_tools = get_thenvoi_tools(
-        client=platform_client.api_client,
-        agent_id=agent_id
+        client=platform_client.api_client, agent_id=agent_id
     )
 
     llm = ChatOpenAI(model="gpt-4o")
@@ -96,4 +95,3 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
-

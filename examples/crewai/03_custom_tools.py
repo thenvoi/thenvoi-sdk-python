@@ -56,7 +56,7 @@ class CalculatorTool(BaseTool):
             result = a / b
         else:
             return f"Error: Unknown operation '{operation}'"
-        
+
         return f"Result: {a} {operation} {b} = {result}"
 
 
@@ -87,8 +87,10 @@ class WeatherTool(BaseTool):
             "tokyo": "68°F, Clear",
             "paris": "64°F, Overcast",
         }
-        
-        weather = mock_weather.get(city.lower(), f"Weather data not available for {city}")
+
+        weather = mock_weather.get(
+            city.lower(), f"Weather data not available for {city}"
+        )
         return f"Current weather in {city}: {weather}"
 
 
@@ -130,4 +132,3 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
-

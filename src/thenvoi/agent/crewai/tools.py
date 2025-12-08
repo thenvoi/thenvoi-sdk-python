@@ -74,6 +74,7 @@ def get_thenvoi_tools(client: AsyncRestClient, agent_id: str) -> List[BaseTool]:
         if loop and loop.is_running():
             # We're in an async context, use nest_asyncio
             import nest_asyncio
+
             nest_asyncio.apply()
             return asyncio.get_event_loop().run_until_complete(coro)
         else:
@@ -110,12 +111,14 @@ def get_thenvoi_tools(client: AsyncRestClient, agent_id: str) -> List[BaseTool]:
     class SendMessageInput(BaseModel):
         content: str = Field(description="The message content to send")
         mentions: str = Field(
-            description="JSON string of mentions (at least one required). Format: '[{\"id\":\"uuid\",\"username\":\"name\"}]'"
+            description='JSON string of mentions (at least one required). Format: \'[{"id":"uuid","username":"name"}]\''
         )
 
     class AddParticipantInput(BaseModel):
         participant_id: str = Field(description="UUID of participant to add")
-        role: str = Field(default="member", description="Role to assign (member, admin, owner)")
+        role: str = Field(
+            default="member", description="Role to assign (member, admin, owner)"
+        )
 
     class RemoveParticipantInput(BaseModel):
         participant_id: str = Field(description="UUID of participant to remove")
@@ -141,7 +144,9 @@ Returns:
     Success message with details"""
         args_schema: Type[BaseModel] = SendMessageInput
 
-        def _run(self, content: str, mentions: str) -> str:
+        def _run(self, *args, **kwargs) -> str:
+            content: str = kwargs.get("content", args[0] if args else "")
+            mentions: str = kwargs.get("mentions", args[1] if len(args) > 1 else "[]")
             room_id = ThenvoiContext.get_room_id()
 
             mentions_list = json.loads(mentions)
@@ -159,7 +164,9 @@ Returns:
                     or "id" not in mention
                     or "username" not in mention
                 ):
-                    raise ValueError("Each mention must have 'id' and 'username' fields")
+                    raise ValueError(
+                        "Each mention must have 'id' and 'username' fields"
+                    )
 
             message_type = "text"  # Always use text type for agent messages
 
@@ -195,7 +202,9 @@ Returns:
     Success message with details"""
         args_schema: Type[BaseModel] = AddParticipantInput
 
-        def _run(self, participant_id: str, role: str = "member") -> str:
+        def _run(self, *args, **kwargs) -> str:
+            participant_id: str = kwargs.get("participant_id", args[0] if args else "")
+            role: str = kwargs.get("role", args[1] if len(args) > 1 else "member")
             room_id = ThenvoiContext.get_room_id()
 
             logger.debug(f"[add_participant] room_id: {room_id}, role: {role}")
@@ -225,7 +234,8 @@ Returns:
     Success message with details"""
         args_schema: Type[BaseModel] = RemoveParticipantInput
 
-        def _run(self, participant_id: str) -> str:
+        def _run(self, *args, **kwargs) -> str:
+            participant_id: str = kwargs.get("participant_id", args[0] if args else "")
             room_id = ThenvoiContext.get_room_id()
 
             logger.debug(f"[remove_participant] room_id: {room_id}")
@@ -249,7 +259,7 @@ Returns:
     List of participants with details"""
         args_schema: Type[BaseModel] = GetParticipantsInput
 
-        def _run(self) -> str:
+        def _run(self, *args, **kwargs) -> str:
             room_id = ThenvoiContext.get_room_id()
 
             logger.debug(f"[get_participants] room_id: {room_id}")
@@ -283,7 +293,10 @@ Returns:
     List of available participants"""
         args_schema: Type[BaseModel] = ListAvailableParticipantsInput
 
-        def _run(self, participant_type: str) -> str:
+        def _run(self, *args, **kwargs) -> str:
+            participant_type: str = kwargs.get(
+                "participant_type", args[0] if args else ""
+            )
             room_id = ThenvoiContext.get_room_id()
 
             if participant_type not in ["User", "Agent"]:

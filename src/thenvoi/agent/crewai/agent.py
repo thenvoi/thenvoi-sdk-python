@@ -150,7 +150,7 @@ class ThenvoiCrewAIAgent:
             additional_tools: Custom tools to add to agent (in addition to platform tools)
             custom_instructions: Additional instructions appended to base system prompt
             role: Optional custom role for the CrewAI agent
-            goal: Optional custom goal for the CrewAI agent  
+            goal: Optional custom goal for the CrewAI agent
             backstory: Optional custom backstory for the CrewAI agent
         """
         self.agent_id = agent_id
@@ -173,7 +173,9 @@ class ThenvoiCrewAIAgent:
         base_prompt = generate_crewai_agent_prompt(agent_name)
 
         if self.custom_instructions:
-            return f"{base_prompt}\n\nAdditional Instructions:\n{self.custom_instructions}"
+            return (
+                f"{base_prompt}\n\nAdditional Instructions:\n{self.custom_instructions}"
+            )
 
         return base_prompt
 
@@ -219,6 +221,7 @@ class ThenvoiCrewAIAgent:
 
         try:
             # Get sender name for formatting
+            assert self.room_manager is not None
             sender_name = await self.room_manager.get_participant_name(
                 message.sender_id, message.sender_type, message.chat_room_id
             )
@@ -257,6 +260,7 @@ class ThenvoiCrewAIAgent:
             )
             # Send error event to chat room
             error_content = f"Error processing message: {type(e).__name__}: {str(e)}"
+            assert self._platform_client is not None
             await _send_platform_event(
                 self._platform_client.api_client,
                 message.chat_room_id,
@@ -289,9 +293,7 @@ class ThenvoiCrewAIAgent:
         )
         await self._platform_client.fetch_agent_metadata()
 
-        logger.debug(
-            f"Building CrewAI agent for '{self._platform_client.name}'"
-        )
+        logger.debug(f"Building CrewAI agent for '{self._platform_client.name}'")
 
         # Step 2: Build the CrewAI agent
         self.crewai_agent = self._build_agent(self._platform_client)
@@ -405,14 +407,16 @@ class ConnectedCrewAgent:
 
             # Build task using provided builder or default
             if self.task_builder:
-                task = self.task_builder(formatted_message, message.chat_room_id)
+                _task = self.task_builder(formatted_message, message.chat_room_id)
             else:
-                task = self._default_task_builder(
+                _task = self._default_task_builder(
                     formatted_message, message.chat_room_id
                 )
 
-            # Execute with the task
-            result = self.crew.kickoff(inputs={"message": formatted_message})
+            # Execute with the task (task is available for future use)
+            result = self.crew.kickoff(
+                inputs={"message": formatted_message, "task": _task}
+            )
 
             logger.debug(f"User crew processed message: {result}")
 
@@ -563,4 +567,3 @@ async def connect_crew_to_platform(
     )
     await agent.start()
     return agent
-
