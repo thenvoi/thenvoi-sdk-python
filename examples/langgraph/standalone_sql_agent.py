@@ -71,7 +71,8 @@ def create_sql_agent(db_path: str = "Chinook.db"):
         return {"messages": [llm_with_tools.invoke(state["messages"])]}
 
     # Create tool node for executing tools
-    tool_node = ToolNode(tools)
+    # handle_tool_errors=True ensures tool errors become ToolMessages instead of breaking the graph
+    tool_node = ToolNode(tools, handle_tool_errors=True)
 
     # Routing function
     def should_continue(state: MessagesState) -> Literal["tools", END]:

@@ -10,6 +10,7 @@ with the Thenvoi platform. Critical behaviors:
 
 import pytest
 from unittest.mock import AsyncMock
+from langchain_core.tools import ToolException
 from thenvoi.client.rest import AsyncRestClient
 from thenvoi.agent.langgraph.tools import get_thenvoi_tools
 
@@ -127,12 +128,37 @@ async def test_send_message_rejects_empty_mentions():
     # Create config with thread_id (room_id)
     config = {"configurable": {"thread_id": "room-456"}}
 
-    # Call the tool with empty mentions array - should raise ValueError
-    with pytest.raises(ValueError, match="At least one mention is required"):
+    # Call the tool with empty mentions array - should raise ToolException
+    with pytest.raises(ToolException, match="At least one mention is required"):
         await send_message_tool.ainvoke(
             {"content": "Hello", "mentions": "[]"},  # Empty array as JSON string
             config=config,
         )
 
     # Verify create_chat_message was NOT called
+    assert not mock_client.chat_messages.create_chat_message.called
+
+
+@pytest.mark.asyncio
+async def test_send_message_rejects_invalid_json():
+    """Invalid JSON in mentions must raise ToolException with helpful message."""
+    mock_client = AsyncMock()
+    mock_client.chat_messages.create_chat_message = AsyncMock()
+
+    tools = get_thenvoi_tools(client=mock_client, agent_id="agent-123")
+    send_message_tool = tools[0]
+
+    config = {"configurable": {"thread_id": "room-456"}}
+
+    # LLM sometimes outputs two arrays instead of one (malformed JSON)
+    malformed_mentions = (
+        '[{"id":"uuid1","username":"user1"}],[{"id":"uuid2","username":"user2"}]'
+    )
+
+    with pytest.raises(ToolException, match="Invalid JSON in mentions parameter"):
+        await send_message_tool.ainvoke(
+            {"content": "Hello", "mentions": malformed_mentions},
+            config=config,
+        )
+
     assert not mock_client.chat_messages.create_chat_message.called

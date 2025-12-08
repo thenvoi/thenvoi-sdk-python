@@ -213,7 +213,8 @@ Answer:"""
 
     # Add nodes (grade_documents is an edge function, not a node!)
     workflow.add_node("generate_query_or_respond", generate_query_or_respond)
-    workflow.add_node("retrieve", ToolNode([retriever_tool]))
+    # handle_tool_errors=True ensures tool errors become ToolMessages instead of breaking the graph
+    workflow.add_node("retrieve", ToolNode([retriever_tool], handle_tool_errors=True))
     workflow.add_node("rewrite_question", rewrite_question)
     workflow.add_node("generate_answer", generate_answer)
 

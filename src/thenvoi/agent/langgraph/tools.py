@@ -9,7 +9,7 @@ The LLM should NOT decide which room to send to - it's determined by context.
 import json
 import logging
 from typing import List, TypedDict, cast
-from langchain_core.tools import tool
+from langchain_core.tools import tool, ToolException
 from langchain_core.runnables import RunnableConfig
 from thenvoi.client.rest import (
     AsyncRestClient,
@@ -98,13 +98,20 @@ def get_thenvoi_tools(client: AsyncRestClient, agent_id: str) -> List:
         """
         room_id = _get_room_id_from_config(config)
 
-        mentions_list = json.loads(mentions)
+        try:
+            mentions_list = json.loads(mentions)
+        except json.JSONDecodeError as e:
+            raise ToolException(
+                f"Invalid JSON in mentions parameter: {e}. "
+                f"Mentions must be a valid JSON array like: "
+                f'[{{"id":"uuid1","username":"user1"}},{{"id":"uuid2","username":"user2"}}]'
+            )
         if not isinstance(mentions_list, list):
-            raise ValueError(
+            raise ToolException(
                 "Mentions must be a list of objects with 'id' and 'username'"
             )
         if len(mentions_list) == 0:
-            raise ValueError(
+            raise ToolException(
                 "At least one mention is required. Use get_participants to find users to mention."
             )
         for mention in mentions_list:
@@ -113,7 +120,7 @@ def get_thenvoi_tools(client: AsyncRestClient, agent_id: str) -> List:
                 or "id" not in mention
                 or "username" not in mention
             ):
-                raise ValueError("Each mention must have 'id' and 'username' fields")
+                raise ToolException("Each mention must have 'id' and 'username' fields")
 
         message_type = "text"  # Always use text type for agent messages
 
@@ -230,7 +237,7 @@ def get_thenvoi_tools(client: AsyncRestClient, agent_id: str) -> List:
         room_id = _get_room_id_from_config(config)
 
         if participant_type not in ["User", "Agent"]:
-            raise ValueError(
+            raise ToolException(
                 f"participant_type must be 'User' or 'Agent', got: {participant_type}"
             )
 
