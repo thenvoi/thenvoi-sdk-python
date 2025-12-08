@@ -47,3 +47,21 @@ custom_agent_with_instructions:
 custom_graph_agent:
   agent_id: ""
   api_key: ""
+
+# CrewAI Examples - Basic Integration (01-03)
+simple_crewai_agent:
+  agent_id: ""
+  api_key: ""
+
+personality_crewai_agent:
+  agent_id: ""
+  api_key: ""
+
+tools_crewai_agent:
+  agent_id: ""
+  api_key: ""
+
+# CrewAI Examples - Custom Crew (10+)
+custom_crew_agent:
+  agent_id: ""
+  api_key: ""
