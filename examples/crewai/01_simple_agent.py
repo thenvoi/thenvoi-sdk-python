@@ -40,8 +40,6 @@ async def main():
         thenvoi_restapi_url=thenvoi_restapi_url,
     )
 
-    # Agent is now listening for messages!
-
 
 if __name__ == "__main__":
     asyncio.run(main())
