@@ -90,8 +90,6 @@ async def main():
         platform_client=platform_client,
     )
 
-    # Crew is now listening for messages!
-
 
 if __name__ == "__main__":
     asyncio.run(main())
