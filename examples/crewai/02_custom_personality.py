@@ -29,7 +29,8 @@ async def main():
         raise ValueError("THENVOI_REST_API_URL environment variable is required")
 
     # Load agent credentials from agent_config.yaml
-    agent_id, api_key = load_agent_config("personality_crewai_agent")
+    # Using simple_crewai_agent - change to personality_crewai_agent after adding credentials
+    agent_id, api_key = load_agent_config("simple_crewai_agent")
 
     # Create agent with custom personality
     await create_crewai_agent(

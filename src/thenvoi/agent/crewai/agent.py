@@ -422,16 +422,17 @@ Do NOT just provide a Final Answer - the user cannot see it unless you call send
 
             # Build task using provided builder or default
             if self.task_builder:
-                _task = self.task_builder(formatted_message, message.chat_room_id)
+                task = self.task_builder(formatted_message, message.chat_room_id)
             else:
-                _task = self._default_task_builder(
+                task = self._default_task_builder(
                     formatted_message, message.chat_room_id
                 )
 
-            # Execute with the task (task is available for future use)
-            result = self.crew.kickoff(
-                inputs={"message": formatted_message, "task": _task}
-            )
+            # Set the crew's tasks for this message
+            self.crew.tasks = [task]
+
+            # Execute the crew - only pass primitive types as inputs
+            result = self.crew.kickoff(inputs={"message": formatted_message})
 
             logger.debug(f"User crew processed message: {result}")
 
