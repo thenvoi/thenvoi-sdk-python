@@ -178,13 +178,7 @@ class RoomManager:
                     participant.id == participant_id
                     and participant.type == participant_type
                 ):
-                    if participant_type == "User":
-                        first = participant.first_name or ""
-                        last = participant.last_name or ""
-                        name = f"{first} {last}".strip()
-                        return name if name else "Unknown User"
-                    elif participant_type == "Agent":
-                        return participant.agent_name or "Unknown Agent"
+                    return participant.name or f"Unknown {participant_type}"
             return f"Unknown {participant_type}"
         except Exception as e:
             logger.error(f"Error getting participant name: {e}")
