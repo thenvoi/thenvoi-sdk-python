@@ -166,7 +166,9 @@ class RoomManager:
         """Get participant name from room participants (helper utility)."""
         try:
             participants_response = (
-                await self.api_client.agent_api.list_agent_chat_participants(chat_id=room_id)
+                await self.api_client.agent_api.list_agent_chat_participants(
+                    chat_id=room_id
+                )
             )
             if not participants_response.data:
                 return f"Unknown {participant_type}"

@@ -6,7 +6,7 @@ by streaming tool calls and results back to the platform.
 """
 
 import pytest
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock
 from thenvoi.agent.langgraph.agent import (
     _send_platform_event,
     _handle_streaming_event,
@@ -105,7 +105,9 @@ class TestHandleStreamingEvent:
         event = {
             "event": "on_tool_start",
             "name": "get_participants",
-            "data": {"input": {"config": {"thread_id": "room-123"}, "room_id": "room-123"}},
+            "data": {
+                "input": {"config": {"thread_id": "room-123"}, "room_id": "room-123"}
+            },
         }
 
         await _handle_streaming_event(event, "room-123", mock_client)
@@ -130,7 +132,9 @@ class TestHandleStreamingEvent:
         await _handle_streaming_event(event, "room-123", mock_client)
 
         call_kwargs = mock_client.agent_api.create_agent_chat_event.call_args.kwargs
-        assert "Calling simple_tool(simple string input)" in call_kwargs["event"].content
+        assert (
+            "Calling simple_tool(simple string input)" in call_kwargs["event"].content
+        )
 
     @pytest.mark.asyncio
     async def test_handles_on_tool_end_with_string_output(self):
@@ -151,7 +155,10 @@ class TestHandleStreamingEvent:
 
         assert call_kwargs["chat_id"] == "room-456"
         assert call_kwargs["event"].message_type == "tool_result"
-        assert "send_message result: Message sent successfully" in call_kwargs["event"].content
+        assert (
+            "send_message result: Message sent successfully"
+            in call_kwargs["event"].content
+        )
 
     @pytest.mark.asyncio
     async def test_handles_on_tool_end_with_content_attribute(self):

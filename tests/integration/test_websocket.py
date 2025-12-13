@@ -61,7 +61,8 @@ class TestWebSocketNotifications:
 
         # Add Agent 2 to the chat
         await api_client.agent_api.add_agent_chat_participant(
-            chat_id, participant=ParticipantRequest(participant_id=agent2_id, role="member")
+            chat_id,
+            participant=ParticipantRequest(participant_id=agent2_id, role="member"),
         )
         print(f"Added Agent 2 to chat: {agent2_name}")
 
@@ -108,13 +109,17 @@ class TestWebSocketNotifications:
                 print("Timeout waiting for WebSocket message")
 
         # Verify Agent 1 received the message
-        assert len(received_messages) > 0, "Agent 1 should have received at least one message"
+        assert len(received_messages) > 0, (
+            "Agent 1 should have received at least one message"
+        )
 
         # Find the message Agent 2 sent
         our_message = next(
             (m for m in received_messages if m.id == sent_message_id), None
         )
-        assert our_message is not None, f"Agent 1 should have received message {sent_message_id}"
+        assert our_message is not None, (
+            f"Agent 1 should have received message {sent_message_id}"
+        )
         assert our_message.content == message_content
         assert our_message.chat_room_id == chat_id
         print(f"Verified message content: '{our_message.content[:50]}...'")
@@ -175,13 +180,15 @@ class TestWebSocketNotifications:
                 print("Timeout waiting for room_added event")
 
         # Verify we received the room event
-        assert len(received_rooms) > 0, "Should have received at least one room_added event"
+        assert len(received_rooms) > 0, (
+            "Should have received at least one room_added event"
+        )
 
         # Find our room in received
-        our_room = next(
-            (r for r in received_rooms if r.id == created_chat_id), None
+        our_room = next((r for r in received_rooms if r.id == created_chat_id), None)
+        assert our_room is not None, (
+            f"Should have received room_added for {created_chat_id}"
         )
-        assert our_room is not None, f"Should have received room_added for {created_chat_id}"
         assert our_room.title == "WebSocket Room Test"
         print(f"Verified room title: '{our_room.title}'")
 
@@ -223,7 +230,8 @@ class TestWebSocketNotifications:
         assert user_peer is not None
 
         await api_client.agent_api.add_agent_chat_participant(
-            chat_id, participant=ParticipantRequest(participant_id=user_peer.id, role="member")
+            chat_id,
+            participant=ParticipantRequest(participant_id=user_peer.id, role="member"),
         )
         print(f"Added participant: {user_peer.name}")
 
@@ -232,7 +240,9 @@ class TestWebSocketNotifications:
 
         async def filtered_handler(payload: MessageCreatedPayload):
             """Only called for messages that pass RoomManager filter."""
-            print(f"  [Filtered] Message passed: {payload.id} from {payload.sender_type}")
+            print(
+                f"  [Filtered] Message passed: {payload.id} from {payload.sender_type}"
+            )
             filtered_messages.append(payload)
 
         ws = WebSocketClient(
@@ -281,7 +291,9 @@ class TestWebSocketNotifications:
         # 1. RoomManager filters out messages where sender_id == agent_id (own messages)
         # 2. AND it doesn't have agent @mention
         message_passed = any(m.id == msg_id for m in filtered_messages)
-        assert not message_passed, "Message without agent @mention should be filtered out"
+        assert not message_passed, (
+            "Message without agent @mention should be filtered out"
+        )
         print("Message without agent @mention was correctly filtered out")
 
         print("\nMessage filtering test passed!")
@@ -410,7 +422,9 @@ class TestWebSocketRoomManager:
                 print("Timeout waiting for room_added")
 
         # Verify room was added
-        assert new_room_id in rooms_added, f"Should have received room_added for {new_room_id}"
+        assert new_room_id in rooms_added, (
+            f"Should have received room_added for {new_room_id}"
+        )
         print(f"\nVerified: Room {new_room_id} was dynamically added")
 
         print("\nDynamic room addition test passed!")

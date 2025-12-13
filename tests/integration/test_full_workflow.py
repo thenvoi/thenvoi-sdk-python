@@ -125,7 +125,8 @@ class TestFullWorkflow:
         print("=" * 60)
 
         await api_client.agent_api.add_agent_chat_participant(
-            chat_id, participant=ParticipantRequest(participant_id=peer_id, role="member")
+            chat_id,
+            participant=ParticipantRequest(participant_id=peer_id, role="member"),
         )
         print(f"Added participant: {peer_name}")
 
@@ -151,7 +152,9 @@ class TestFullWorkflow:
         print("STEP 9: Send Message with Mention")
         print("=" * 60)
 
-        message_content = f"Hello @{peer_name}, this is an SDK integration test message!"
+        message_content = (
+            f"Hello @{peer_name}, this is an SDK integration test message!"
+        )
         mentions = [Mention(id=peer_id, name=peer_name)]
 
         response = await api_client.agent_api.create_agent_chat_message(
@@ -320,7 +323,8 @@ class TestMessageFailureLifecycle:
         peer_name = user_peer.name
 
         await api_client.agent_api.add_agent_chat_participant(
-            chat_id, participant=ParticipantRequest(participant_id=peer_id, role="member")
+            chat_id,
+            participant=ParticipantRequest(participant_id=peer_id, role="member"),
         )
         print(f"Added User peer: {peer_name}")
 
@@ -360,7 +364,9 @@ class TestMessageFailureLifecycle:
 class TestParticipantOperations:
     """Test participant add/remove operations."""
 
-    async def test_add_and_remove_participant(self, api_client, test_chat, test_peer_id):
+    async def test_add_and_remove_participant(
+        self, api_client, test_chat, test_peer_id
+    ):
         """Test adding and removing a participant from a chat."""
         print("\n" + "=" * 60)
         print("Testing: Add -> Verify -> Remove -> Verify Cycle")
@@ -389,7 +395,9 @@ class TestParticipantOperations:
 
         # Step 3: Remove participant
         print("\nStep 3: Removing participant...")
-        await api_client.agent_api.remove_agent_chat_participant(test_chat, test_peer_id)
+        await api_client.agent_api.remove_agent_chat_participant(
+            test_chat, test_peer_id
+        )
         print("Removed participant")
 
         # Step 4: Verify participant is removed

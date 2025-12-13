@@ -79,14 +79,14 @@ class TestMultiAgentChatRoom:
             chat_id,
             participant=ParticipantRequest(participant_id=agent2_id, role="member"),
         )
-        print(f"Agent 1 added Agent 2 to chat")
+        print("Agent 1 added Agent 2 to chat")
 
         # Agent 1 adds User to the chat
         await api_client.agent_api.add_agent_chat_participant(
             chat_id,
             participant=ParticipantRequest(participant_id=user_id, role="member"),
         )
-        print(f"Agent 1 added User to chat")
+        print("Agent 1 added User to chat")
 
         # Verify all participants are in the chat
         response = await api_client.agent_api.list_agent_chat_participants(chat_id)
@@ -111,7 +111,7 @@ class TestMultiAgentChatRoom:
         agent1_message_id = response.data.id
         print(f"\nAgent 1 sent message (ID: {agent1_message_id})")
         print(f"  Content: '{message_content}'")
-        print(f"  Mentions: User only (NOT Agent 2)")
+        print("  Mentions: User only (NOT Agent 2)")
 
         # Give the platform time to process
         await asyncio.sleep(0.5)
@@ -225,12 +225,14 @@ class TestMultiAgentChatRoom:
             )
             agent1_message_id = response.data.id
             print(f"\nAgent 1 sent message (ID: {agent1_message_id})")
-            print(f"  Mentions: User only (NOT Agent 2)")
+            print("  Mentions: User only (NOT Agent 2)")
 
             # Wait to see if Agent 2 receives the message
             await asyncio.sleep(1.5)
 
-        print(f"\nMessages received by Agent 2's raw WebSocket: {len(agent2_received_messages)}")
+        print(
+            f"\nMessages received by Agent 2's raw WebSocket: {len(agent2_received_messages)}"
+        )
 
         # Check if Agent 1's specific message was received
         agent1_message_received = any(
@@ -283,7 +285,7 @@ class TestMultiAgentChatRoom:
             chat_id,
             participant=ParticipantRequest(participant_id=agent2_id, role="member"),
         )
-        print(f"Added Agent 2 to chat")
+        print("Added Agent 2 to chat")
 
         # Agent 1 sends message mentioning Agent 2
         message_content = f"Hey @{agent2_name}, can you help with this?"
@@ -362,7 +364,7 @@ class TestMultiAgentChatRoom:
             chat_id,
             participant=ParticipantRequest(participant_id=agent2_id, role="member"),
         )
-        print(f"Added Agent 2 to chat")
+        print("Added Agent 2 to chat")
 
         # Agent 1 creates events: thought, tool_call, tool_result
         print("\n--- Agent 1 creating events ---")
@@ -409,17 +411,13 @@ class TestMultiAgentChatRoom:
         tool_result_event_id = response.data.id
         print(f"Agent 1 created tool_result event (ID: {tool_result_event_id})")
 
-        agent1_event_ids = {thought_event_id, tool_call_event_id, tool_result_event_id}
-
         await asyncio.sleep(0.5)
 
         # Agent 1 queries /context - should see its own events
         print("\n--- Agent 1 querying /context ---")
         response = await api_client.agent_api.get_agent_chat_context(chat_id)
         agent1_context = response.data or []
-        agent1_context_ids = {
-            item.id for item in agent1_context if hasattr(item, "id")
-        }
+        agent1_context_ids = {item.id for item in agent1_context if hasattr(item, "id")}
         print(f"Agent 1 received {len(agent1_context)} items in context")
 
         # Check which events Agent 1 sees
@@ -439,9 +437,7 @@ class TestMultiAgentChatRoom:
         print("\n--- Agent 2 querying /context ---")
         response = await api_client_2.agent_api.get_agent_chat_context(chat_id)
         agent2_context = response.data or []
-        agent2_context_ids = {
-            item.id for item in agent2_context if hasattr(item, "id")
-        }
+        agent2_context_ids = {item.id for item in agent2_context if hasattr(item, "id")}
         print(f"Agent 2 received {len(agent2_context)} items in context")
 
         # Check which of Agent 1's events Agent 2 sees
@@ -507,7 +503,7 @@ class TestMultiAgentChatRoom:
             chat_id,
             participant=ParticipantRequest(participant_id=agent2_id, role="member"),
         )
-        print(f"Both agents are in the chat")
+        print("Both agents are in the chat")
 
         # Agent 1 creates a thought event
         response = await api_client.agent_api.create_agent_chat_event(
@@ -537,9 +533,7 @@ class TestMultiAgentChatRoom:
         print("\n--- Agent 1 querying /context ---")
         response = await api_client.agent_api.get_agent_chat_context(chat_id)
         agent1_context = response.data or []
-        agent1_context_ids = {
-            item.id for item in agent1_context if hasattr(item, "id")
-        }
+        agent1_context_ids = {item.id for item in agent1_context if hasattr(item, "id")}
 
         agent1_sees_own_thought = agent1_thought_id in agent1_context_ids
         agent1_sees_agent2_thought = agent2_thought_id in agent1_context_ids
@@ -550,9 +544,7 @@ class TestMultiAgentChatRoom:
         print("\n--- Agent 2 querying /context ---")
         response = await api_client_2.agent_api.get_agent_chat_context(chat_id)
         agent2_context = response.data or []
-        agent2_context_ids = {
-            item.id for item in agent2_context if hasattr(item, "id")
-        }
+        agent2_context_ids = {item.id for item in agent2_context if hasattr(item, "id")}
 
         agent2_sees_own_thought = agent2_thought_id in agent2_context_ids
         agent2_sees_agent1_thought = agent1_thought_id in agent2_context_ids
@@ -561,9 +553,13 @@ class TestMultiAgentChatRoom:
 
         # Assertions
         assert agent1_sees_own_thought, "Agent 1 should see its own thought"
-        assert not agent1_sees_agent2_thought, "Agent 1 should NOT see Agent 2's thought"
+        assert not agent1_sees_agent2_thought, (
+            "Agent 1 should NOT see Agent 2's thought"
+        )
         assert agent2_sees_own_thought, "Agent 2 should see its own thought"
-        assert not agent2_sees_agent1_thought, "Agent 2 should NOT see Agent 1's thought"
+        assert not agent2_sees_agent1_thought, (
+            "Agent 2 should NOT see Agent 1's thought"
+        )
 
         print("\n" + "=" * 60)
         print("SUCCESS: Each agent sees only their own events")
