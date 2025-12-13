@@ -69,23 +69,12 @@ class RoomManager:
 
     async def get_agent_rooms(self) -> List[str]:
         """Get list of room IDs where this agent is a participant."""
-        response = await self.api_client.chat_rooms.list_chats()
+        response = await self.api_client.agent_api.list_agent_chats()
         if not response or not response.data:
             return []
 
-        agent_rooms = []
-        for room in response.data:
-            participants_response = (
-                await self.api_client.chat_participants.list_chat_participants(room.id)
-            )
-            if participants_response and participants_response.data:
-                for participant in participants_response.data:
-                    if participant.id == self.agent_id:
-                        agent_rooms.append(room.id)
-                        logger.debug(f"Found agent in room: {room.id}")
-                        break
-
-        return agent_rooms
+        # list_agent_chats already returns only rooms where agent is a participant
+        return [room.id for room in response.data]
 
     def _is_message_for_agent(self, message: MessageCreatedPayload) -> bool:
         """
@@ -177,7 +166,7 @@ class RoomManager:
         """Get participant name from room participants (helper utility)."""
         try:
             participants_response = (
-                await self.api_client.chat_participants.list_chat_participants(room_id)
+                await self.api_client.agent_api.list_agent_chat_participants(chat_id=room_id)
             )
             if not participants_response.data:
                 return f"Unknown {participant_type}"

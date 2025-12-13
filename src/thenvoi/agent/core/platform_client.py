@@ -11,7 +11,7 @@ Each framework decides its own message handling, routing, and formatting.
 
 import logging
 
-from thenvoi.client.rest import AsyncRestClient, Agent
+from thenvoi.client.rest import AsyncRestClient, AgentMe
 from thenvoi.client.streaming import WebSocketClient
 
 logger = logging.getLogger(__name__)
@@ -78,9 +78,9 @@ class ThenvoiPlatformClient:
         self.name: str
         self.description: str
         self.ws_client: WebSocketClient
-        self.platform_agent: Agent
+        self.platform_agent: AgentMe
 
-    async def fetch_agent_metadata(self) -> Agent:
+    async def fetch_agent_metadata(self) -> AgentMe:
         """
         Fetch agent metadata from platform.
 
@@ -91,15 +91,14 @@ class ThenvoiPlatformClient:
             Agent object from platform
 
         Raises:
-            NotFoundError: If agent_id is not found on platform (raised by API)
             UnauthorizedError: If API key is invalid (raised by API)
             ValueError: If agent metadata is missing required fields
             OpenAPISpecIncompleteError: If API returns None (should never happen)
         """
         logger.debug(f"Fetching metadata for agent ID: {self.agent_id}")
 
-        # API raises NotFoundError if agent doesn't exist, UnauthorizedError if bad API key
-        response = await self.api_client.agents.get_agent(self.agent_id)
+        # API raises UnauthorizedError if bad API key
+        response = await self.api_client.agent_api.get_agent_me()
 
         # Type safety check: OpenAPI spec allows response.data to be None but API never returns None
         # (it raises NotFoundError instead). This check satisfies type checker.

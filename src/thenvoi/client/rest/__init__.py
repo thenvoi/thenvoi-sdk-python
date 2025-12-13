@@ -1,39 +1,29 @@
 """
 Re-export wrapper for Thenvoi REST API client.
 
-This module re-exports the Fern-generated REST API client under the thenvoi.client.rest namespace.
-
 Usage:
-    from thenvoi.client.rest import RestClient, AsyncRestClient
-
-    # Sync client
-    client = RestClient(api_key="your-api-key")
-
-    # Async client
+    from thenvoi.client.rest import AsyncRestClient
     async_client = AsyncRestClient(api_key="your-api-key")
 """
 
 from thenvoi_rest import (
     RestClient,
     AsyncRestClient,
-    RestClientEnvironment,
-    Agent,
+    AgentMe,
     ChatMessageRequest,
     ChatEventRequest,
-    AddChatParticipantRequestParticipant,
+    ParticipantRequest,
     NotFoundError,
+    UnauthorizedError,
 )
 
 __all__ = [
-    # Clients
     "RestClient",
     "AsyncRestClient",
-    "RestClientEnvironment",
-    # Types
-    "Agent",
+    "AgentMe",
     "ChatMessageRequest",
     "ChatEventRequest",
-    "AddChatParticipantRequestParticipant",
-    # Errors
+    "ParticipantRequest",
     "NotFoundError",
+    "UnauthorizedError",
 ]

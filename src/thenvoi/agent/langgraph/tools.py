@@ -14,7 +14,7 @@ from langchain_core.runnables import RunnableConfig
 from thenvoi.client.rest import (
     AsyncRestClient,
     ChatMessageRequest,
-    AddChatParticipantRequestParticipant,
+    ParticipantRequest,
 )
 
 logger = logging.getLogger(__name__)
@@ -126,7 +126,7 @@ def get_thenvoi_tools(client: AsyncRestClient, agent_id: str) -> List:
             message_type=message_type,
             mentions=mentions_list,
         )
-        result = await client.chat_messages.create_chat_message(
+        result = await client.agent_api.create_agent_chat_message(
             chat_id=room_id, message=message_request
         )
 
@@ -153,10 +153,10 @@ def get_thenvoi_tools(client: AsyncRestClient, agent_id: str) -> List:
 
         logger.debug(f"[add_participant] room_id: {room_id}, role: {role}")
 
-        participant_request = AddChatParticipantRequestParticipant(
+        participant_request = ParticipantRequest(
             participant_id=participant_id, role=role
         )
-        result = await client.chat_participants.add_chat_participant(
+        result = await client.agent_api.add_agent_chat_participant(
             chat_id=room_id, participant=participant_request
         )
 
@@ -181,7 +181,7 @@ def get_thenvoi_tools(client: AsyncRestClient, agent_id: str) -> List:
 
         logger.debug(f"[remove_participant] room_id: {room_id}")
 
-        result = await client.chat_participants.remove_chat_participant(
+        result = await client.agent_api.remove_agent_chat_participant(
             chat_id=room_id, id=participant_id
         )
 
@@ -202,7 +202,7 @@ def get_thenvoi_tools(client: AsyncRestClient, agent_id: str) -> List:
 
         logger.debug(f"[get_participants] room_id: {room_id}")
 
-        result = await client.chat_participants.list_chat_participants(chat_id=room_id)
+        result = await client.agent_api.list_agent_chat_participants(chat_id=room_id)
 
         if not result or not result.data:
             return f"No participants found in room {room_id}"
@@ -238,14 +238,17 @@ def get_thenvoi_tools(client: AsyncRestClient, agent_id: str) -> List:
             f"[list_available_participants] room_id: {room_id}, type: {participant_type}"
         )
 
-        result = await client.chat_participants.get_available_chat_participants(
-            chat_id=room_id, participant_type=participant_type
-        )
+        result = await client.agent_api.list_agent_peers(not_in_chat=room_id)
 
         if not result or not result.data:
             return f"No available {participant_type}s found for room {room_id}"
 
-        participants = [_format_participant_info(p) for p in result.data]
+        # Filter by participant type
+        filtered_peers = [p for p in result.data if p.type == participant_type]
+        if not filtered_peers:
+            return f"No available {participant_type}s found for room {room_id}"
+
+        participants = [_format_participant_info(p) for p in filtered_peers]
 
         return (
             f"Found {len(participants)} available {participant_type}(s) for room {room_id}:\n"

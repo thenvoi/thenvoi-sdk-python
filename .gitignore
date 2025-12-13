@@ -148,3 +148,4 @@ agent_config.yaml
 # Markdown files except README
 *.md
 !README.md
+uv.toml

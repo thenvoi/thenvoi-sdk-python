@@ -9,7 +9,7 @@ These test the contract between SDK and platform:
 import pytest
 from unittest.mock import AsyncMock
 from thenvoi.agent.core.platform_client import ThenvoiPlatformClient
-from thenvoi.client.rest import NotFoundError
+from thenvoi.client.rest import UnauthorizedError
 
 
 async def test_fetches_metadata_for_existing_agent():
@@ -23,7 +23,7 @@ async def test_fetches_metadata_for_existing_agent():
 
     # Mock the API to return this agent
     mock_api = AsyncMock()
-    mock_api.agents.get_agent.return_value = AsyncMock(data=FakeAgent())
+    mock_api.agent_api.get_agent_me.return_value = AsyncMock(data=FakeAgent())
 
     # Create client
     client = ThenvoiPlatformClient(
@@ -44,24 +44,25 @@ async def test_fetches_metadata_for_existing_agent():
     assert client.description == "A test bot"
 
 
-async def test_raises_when_agent_not_found():
+async def test_raises_when_api_key_invalid():
     """
-    Should raise NotFoundError when agent doesn't exist on platform.
+    Should raise UnauthorizedError when API key is invalid.
 
-    Verified behavior: Real API raises NotFoundError (not returns data=None).
+    With the new agent_api.get_agent_me(), authentication is via API key,
+    so invalid keys raise UnauthorizedError.
     """
-    # Mock API to raise NotFoundError (matches real API behavior)
+    # Mock API to raise UnauthorizedError (matches real API behavior)
     mock_api = AsyncMock()
-    mock_api.agents.get_agent.side_effect = NotFoundError("Agent not found")
+    mock_api.agent_api.get_agent_me.side_effect = UnauthorizedError("Invalid API key")
 
     client = ThenvoiPlatformClient(
-        agent_id="nonexistent-agent",
-        api_key="test-key",
+        agent_id="agent-123",
+        api_key="invalid-key",
         ws_url="ws://localhost",
         thenvoi_restapi_url="http://localhost",
     )
     client.api_client = mock_api
 
-    # Should raise NotFoundError (real API behavior, verified with integration test)
-    with pytest.raises(NotFoundError):
+    # Should raise UnauthorizedError (real API behavior)
+    with pytest.raises(UnauthorizedError):
         await client.fetch_agent_metadata()
