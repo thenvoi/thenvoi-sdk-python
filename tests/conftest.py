@@ -2,38 +2,79 @@
 Pytest fixtures for thenvoi SDK tests.
 
 Provides mock objects for fast testing without real API calls.
+
+Key fixture pattern:
+- mock_agent_api: Explicit MagicMock of the agent_api namespace
+- mock_api_client: AsyncMock with agent_api attached
+- Tests should verify API calls using assert_called_once() and call_args
 """
 
 import pytest
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
+
 from thenvoi.client.streaming import MessageCreatedPayload, MessageMetadata, Mention
+from tests.fixtures import factory
 
 
 @pytest.fixture
-def mock_api_client():
-    """Mock AsyncRestClient for testing without real API calls."""
+def mock_agent_api() -> MagicMock:
+    """Create a mocked agent_api with all methods stubbed.
+
+    This is an explicit MagicMock - it will NOT auto-create any attributes.
+    Tests must set up return values for methods they want to call:
+
+        mock_agent_api.get_agent_me.return_value = factory.response(factory.agent_me())
+        mock_agent_api.list_agent_chats.return_value = factory.list_response([...])
+
+    This ensures tests verify the correct API methods are called.
+    """
+    agent_api = MagicMock()
+
+    # Pre-configure common methods with default responses
+    # Tests can override these as needed
+    agent_api.get_agent_me.return_value = factory.response(
+        factory.agent_me(id="agent-123", name="TestBot", description="Test agent")
+    )
+
+    agent_api.list_agent_chats.return_value = factory.list_response([
+        factory.chat_room(id="room-1"),
+        factory.chat_room(id="room-2"),
+    ])
+
+    agent_api.list_agent_chat_participants.return_value = factory.list_response([
+        factory.chat_participant(id="agent-123", name="TestBot", type="Agent"),
+    ])
+
+    agent_api.create_agent_chat_event.return_value = factory.response(
+        factory.chat_event()
+    )
+
+    agent_api.create_agent_chat_message.return_value = factory.response(
+        factory.chat_message()
+    )
+
+    return agent_api
+
+
+@pytest.fixture
+def mock_api_client(mock_agent_api: MagicMock) -> AsyncMock:
+    """Create a mocked AsyncRestClient with agent_api attached.
+
+    Uses the explicit mock_agent_api fixture to ensure API calls are verified.
+
+    Usage:
+        async def test_something(mock_api_client, mock_agent_api):
+            # Set up specific return value
+            mock_agent_api.get_agent_me.return_value = factory.response(...)
+
+            # Call your code
+            await some_function(mock_api_client)
+
+            # Verify the correct API was called
+            mock_agent_api.get_agent_me.assert_called_once()
+    """
     client = AsyncMock()
-
-    # Mock agent validation
-    client.agents.get_agent.return_value = AsyncMock(
-        data=AsyncMock(
-            id="agent-123", name="TestBot", description="Test agent for unit tests"
-        )
-    )
-
-    # Mock room listing
-    client.chat_rooms.list_chats.return_value = AsyncMock(
-        data=[
-            AsyncMock(id="room-1"),
-            AsyncMock(id="room-2"),
-        ]
-    )
-
-    # Mock participant listing
-    client.chat_participants.list_chat_participants.return_value = AsyncMock(
-        data=[AsyncMock(id="agent-123", type="Agent", agent_name="TestBot")]
-    )
-
+    client.agent_api = mock_agent_api
     return client
 
 

@@ -35,7 +35,7 @@ async def _send_platform_event(
         message_type=message_type,
     )
 
-    await api_client.chat_events.create_chat_event(chat_id=room_id, event=event_request)
+    await api_client.agent_api.create_agent_chat_event(chat_id=room_id, event=event_request)
 
 
 async def _handle_streaming_event(event: StreamEvent, room_id: str, api_client):
