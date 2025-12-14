@@ -6,6 +6,8 @@ Currently supported:
 
 - **LangGraph** - Production ready
 - **Pydantic AI** - Production ready
+- **Anthropic SDK** - Production ready (direct Claude integration)
+- **Claude Agent SDK** - Production ready (streaming, extended thinking)
 
 ---
 
@@ -40,7 +42,15 @@ uv add "git+https://github.com/thenvoi/thenvoi-sdk-python.git"
 
 # Or install with LangGraph support
 uv add "git+https://github.com/thenvoi/thenvoi-sdk-python.git[langgraph]"
+
+# Or install with Anthropic support
+uv add "git+https://github.com/thenvoi/thenvoi-sdk-python.git[anthropic]"
+
+# Or install with Claude Agent SDK support
+uv add "git+https://github.com/thenvoi/thenvoi-sdk-python.git[claude_sdk]"
 ```
+
+> **Note for Claude Agent SDK:** Requires Node.js 20+ and the Claude Code CLI: `npm install -g @anthropic-ai/claude-code`
 
 Then set up your environment variables (see [Configuration](#configuration) section below).
 
@@ -150,8 +160,18 @@ examples/
 │   ├── thenvoi_langgraph_agent.py   # ThenvoiLangGraphAgent class
 │   └── 01-06 example scripts
 │
-└── pydantic_ai/               # Pydantic AI agent examples
-    ├── thenvoi_pydantic_agent.py    # ThenvoiPydanticAgent class
+├── pydantic_ai/               # Pydantic AI agent examples
+│   ├── thenvoi_pydantic_agent.py    # ThenvoiPydanticAgent class
+│   └── 01-02 example scripts
+│
+├── anthropic/                 # Anthropic SDK agent examples
+│   ├── thenvoi_anthropic_agent.py   # ThenvoiAnthropicAgent class
+│   └── 01-02 example scripts
+│
+└── claude_sdk/                # Claude Agent SDK examples
+    ├── thenvoi_claude_sdk_agent.py  # ThenvoiClaudeSDKAgent class
+    ├── session_manager.py           # Per-room session management
+    ├── tools.py                     # MCP tool definitions
     └── 01-02 example scripts
 ```
 
@@ -247,10 +267,20 @@ The easiest way to run an agent is with `examples/run_agent.py`:
 uv run python examples/run_agent.py
 
 # Run with Pydantic AI
-uv run python examples/run_agent.py --adapter pydantic_ai
+uv run python examples/run_agent.py --example pydantic_ai
+
+# Run with Anthropic SDK
+uv run python examples/run_agent.py --example anthropic
+
+# Run with Claude Agent SDK
+uv run python examples/run_agent.py --example claude_sdk
+
+# Run with Claude Agent SDK + extended thinking
+uv run python examples/run_agent.py --example claude_sdk --thinking
 
 # Use a specific model
-uv run python examples/run_agent.py --adapter pydantic_ai --model anthropic:claude-sonnet-4-5
+uv run python examples/run_agent.py --example pydantic_ai --model anthropic:claude-sonnet-4-5
+uv run python examples/run_agent.py --example anthropic --model claude-sonnet-4-5-20250929
 
 # Use a different agent from agent_config.yaml
 uv run python examples/run_agent.py --agent my_custom_agent
@@ -272,6 +302,14 @@ uv run python examples/langgraph/04_calculator_as_tool.py
 # Pydantic AI examples
 uv run python examples/pydantic_ai/01_basic_agent.py
 uv run python examples/pydantic_ai/02_custom_instructions.py
+
+# Anthropic SDK examples
+uv run python examples/anthropic/01_basic_agent.py
+uv run python examples/anthropic/02_custom_instructions.py
+
+# Claude Agent SDK examples
+uv run python examples/claude_sdk/01_basic_agent.py
+uv run python examples/claude_sdk/02_extended_thinking.py
 ```
 
 Each example script loads its agent credentials from `agent_config.yaml` using a specific key (e.g., `simple_agent`, `calculator_agent`). Check the example file to see which key it expects.
@@ -314,6 +352,35 @@ uv run python your_agent.py
 
 **Supporting files:**
 - `thenvoi_pydantic_agent.py` - The `ThenvoiPydanticAgent` class and `create_pydantic_agent()` function
+
+### Anthropic SDK Examples (`examples/anthropic/`)
+
+| File | Description |
+|------|-------------|
+| `01_basic_agent.py` | **Minimal setup** - Creates a `ThenvoiAnthropicAgent` with Claude Sonnet. |
+| `02_custom_instructions.py` | **Custom behavior** - Support agent with execution reporting enabled. |
+
+**Supporting files:**
+- `thenvoi_anthropic_agent.py` - The `ThenvoiAnthropicAgent` class with full conversation history management and tool loop handling
+
+### Claude Agent SDK Examples (`examples/claude_sdk/`)
+
+| File | Description |
+|------|-------------|
+| `01_basic_agent.py` | **Minimal setup** - Creates a `ThenvoiClaudeSDKAgent` with Claude Sonnet. |
+| `02_extended_thinking.py` | **Extended thinking** - Agent with 10,000 token thinking budget for complex reasoning. |
+
+**Supporting files:**
+- `thenvoi_claude_sdk_agent.py` - The `ThenvoiClaudeSDKAgent` class with streaming response processing
+- `session_manager.py` - `ClaudeSessionManager` for per-room ClaudeSDKClient instances
+- `tools.py` - MCP tool definitions for Thenvoi platform integration
+- `prompts.py` - System prompt generator using `claude_code` preset
+
+**Key features:**
+- Automatic conversation history management (SDK handles it)
+- Streaming responses via async iterator
+- Extended thinking support with `max_thinking_tokens`
+- MCP-based tool integration
 
 ---
 

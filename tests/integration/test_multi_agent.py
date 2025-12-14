@@ -5,8 +5,8 @@ Validates that agents only see messages where they are @mentioned.
 Validates that agents do NOT see other agents' events (thoughts, tool_calls, tool_results).
 
 Setup:
-- Agent 1 (AR-2 Darter): Primary test agent
-- Agent 2 (MQ 12): Secondary test agent
+- Agent 1: Primary test agent
+- Agent 2: Secondary test agent
 - User: Owner of both agents
 
 Test scenarios:

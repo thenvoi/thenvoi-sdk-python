@@ -4,9 +4,13 @@ Run Thenvoi SDK agents.
 
 Usage:
     uv run python examples/run_agent.py                    # Default: langgraph
-    uv run python examples/run_agent.py --adapter langgraph
-    uv run python examples/run_agent.py --adapter pydantic_ai
-    uv run python examples/run_agent.py --adapter pydantic_ai --model anthropic:claude-sonnet-4-5
+    uv run python examples/run_agent.py --example langgraph
+    uv run python examples/run_agent.py --example pydantic_ai
+    uv run python examples/run_agent.py --example pydantic_ai --model anthropic:claude-sonnet-4-5
+    uv run python examples/run_agent.py --example anthropic
+    uv run python examples/run_agent.py --example anthropic --model claude-sonnet-4-5-20250929
+    uv run python examples/run_agent.py --example claude_sdk
+    uv run python examples/run_agent.py --example claude_sdk --thinking  # Enable extended thinking
 
 Configure agent in agent_config.yaml:
     uv run python examples/run_agent.py --agent test_agent
@@ -35,6 +39,8 @@ from dotenv import load_dotenv
 examples_root = Path(__file__).parent
 sys.path.insert(0, str(examples_root / "langgraph"))
 sys.path.insert(0, str(examples_root / "pydantic_ai"))
+sys.path.insert(0, str(examples_root / "anthropic"))
+sys.path.insert(0, str(examples_root / "claude_sdk"))
 
 from thenvoi.config import load_agent_config  # noqa: E402
 
@@ -123,6 +129,59 @@ async def run_pydantic_ai_agent(
     await agent.run()
 
 
+async def run_anthropic_agent(
+    agent_id: str,
+    api_key: str,
+    rest_url: str,
+    ws_url: str,
+    model: str,
+    custom_section: str,
+    logger: logging.Logger,
+):
+    """Run the Anthropic SDK agent."""
+    from thenvoi_anthropic_agent import ThenvoiAnthropicAgent
+
+    agent = ThenvoiAnthropicAgent(
+        model=model,
+        agent_id=agent_id,
+        api_key=api_key,
+        ws_url=ws_url,
+        rest_url=rest_url,
+        custom_section=custom_section,
+    )
+
+    logger.info(f"Starting Anthropic agent with model: {model}")
+    await agent.run()
+
+
+async def run_claude_sdk_agent(
+    agent_id: str,
+    api_key: str,
+    rest_url: str,
+    ws_url: str,
+    model: str,
+    custom_section: str,
+    enable_thinking: bool,
+    logger: logging.Logger,
+):
+    """Run the Claude Agent SDK agent."""
+    from thenvoi_claude_sdk_agent import ThenvoiClaudeSDKAgent
+
+    agent = ThenvoiClaudeSDKAgent(
+        model=model,
+        agent_id=agent_id,
+        api_key=api_key,
+        ws_url=ws_url,
+        rest_url=rest_url,
+        custom_section=custom_section,
+        max_thinking_tokens=10000 if enable_thinking else None,
+    )
+
+    thinking_str = " with extended thinking" if enable_thinking else ""
+    logger.info(f"Starting Claude SDK agent with model: {model}{thinking_str}")
+    await agent.run()
+
+
 async def main():
     parser = argparse.ArgumentParser(
         description="Run a Thenvoi SDK test agent",
@@ -130,18 +189,18 @@ async def main():
         epilog="""
 Examples:
   %(prog)s                                    # LangGraph with test_agent
-  %(prog)s --adapter pydantic_ai              # Pydantic AI with OpenAI
-  %(prog)s --adapter pydantic_ai --model anthropic:claude-3-5-sonnet-latest
+  %(prog)s --example pydantic_ai              # Pydantic AI with OpenAI
+  %(prog)s --example pydantic_ai --model anthropic:claude-3-5-sonnet-latest
   %(prog)s --agent my_custom_agent            # Use different agent config
   %(prog)s --log-level DEBUG                  # Enable debug logging
         """,
     )
     parser.add_argument(
-        "--adapter",
-        "-a",
-        choices=["langgraph", "pydantic_ai"],
+        "--example",
+        "-e",
+        choices=["langgraph", "pydantic_ai", "anthropic", "claude_sdk"],
         default="langgraph",
-        help="Which adapter to use (default: langgraph)",
+        help="Which example agent to run (default: langgraph)",
     )
     parser.add_argument(
         "--agent",
@@ -153,7 +212,7 @@ Examples:
         "--model",
         "-m",
         default="openai:gpt-4o",
-        help="Model for Pydantic AI adapter (default: openai:gpt-4o)",
+        help="Model for Pydantic AI/Anthropic examples (default: openai:gpt-4o)",
     )
     parser.add_argument(
         "--custom-section",
@@ -166,6 +225,12 @@ Examples:
         "-l",
         default=os.getenv("LOG_LEVEL", "INFO"),
         help="Logging level (default: INFO or LOG_LEVEL env var)",
+    )
+    parser.add_argument(
+        "--thinking",
+        "-t",
+        action="store_true",
+        help="Enable extended thinking for Claude SDK (default: False)",
     )
 
     args = parser.parse_args()
@@ -188,12 +253,12 @@ Examples:
         parser.error(f"Failed to load agent config '{args.agent}': {e}")
 
     logger.info(f"Agent: {args.agent} ({agent_id})")
-    logger.info(f"Adapter: {args.adapter}")
+    logger.info(f"Example: {args.example}")
     logger.info(f"REST URL: {rest_url}")
     logger.info(f"WS URL: {ws_url}")
 
     try:
-        if args.adapter == "langgraph":
+        if args.example == "langgraph":
             await run_langgraph_agent(
                 agent_id=agent_id,
                 api_key=api_key,
@@ -202,7 +267,7 @@ Examples:
                 custom_section=args.custom_section,
                 logger=logger,
             )
-        elif args.adapter == "pydantic_ai":
+        elif args.example == "pydantic_ai":
             await run_pydantic_ai_agent(
                 agent_id=agent_id,
                 api_key=api_key,
@@ -210,6 +275,35 @@ Examples:
                 ws_url=ws_url,
                 model=args.model,
                 custom_section=args.custom_section,
+                logger=logger,
+            )
+        elif args.example == "anthropic":
+            # For Anthropic example, use claude model format if default model is still set
+            model = args.model
+            if model == "openai:gpt-4o":
+                model = "claude-sonnet-4-5-20250929"
+            await run_anthropic_agent(
+                agent_id=agent_id,
+                api_key=api_key,
+                rest_url=rest_url,
+                ws_url=ws_url,
+                model=model,
+                custom_section=args.custom_section,
+                logger=logger,
+            )
+        elif args.example == "claude_sdk":
+            # For Claude SDK example, use claude model format if default model is still set
+            model = args.model
+            if model == "openai:gpt-4o":
+                model = "claude-sonnet-4-5-20250929"
+            await run_claude_sdk_agent(
+                agent_id=agent_id,
+                api_key=api_key,
+                rest_url=rest_url,
+                ws_url=ws_url,
+                model=model,
+                custom_section=args.custom_section,
+                enable_thinking=args.thinking,
                 logger=logger,
             )
     except KeyboardInterrupt:

@@ -23,11 +23,11 @@ from thenvoi_rest import AsyncRestClient, ChatRoomRequest
 class TestSettings(BaseSettings):
     """Settings for integration tests, loaded from .env.test."""
 
-    # Primary agent (AR-2 Darter)
+    # Primary agent
     thenvoi_api_key: str = ""
     test_agent_id: str = ""
 
-    # Secondary agent (MQ 12) - for multi-agent tests
+    # Secondary agent - for multi-agent tests
     thenvoi_api_key_2: str = ""
     test_agent_id_2: str = ""
 
@@ -101,7 +101,7 @@ def api_client() -> AsyncRestClient | None:
 
 @pytest.fixture
 def api_client_2() -> AsyncRestClient | None:
-    """Create a real async API client for the secondary agent (MQ 12).
+    """Create a real async API client for the secondary agent.
 
     Returns None if THENVOI_API_KEY_2 is not set.
     """
