@@ -145,6 +145,7 @@ src/thenvoi/
 └── config/                    # Configuration utilities
 
 examples/
+├── run_agent.py               # Quick-start script to run any agent
 ├── langgraph/                 # LangGraph agent examples
 │   ├── thenvoi_langgraph_agent.py   # ThenvoiLangGraphAgent class
 │   └── 01-06 example scripts
@@ -235,25 +236,55 @@ docker run --rm \
 
 ## Running Examples
 
-### From Repository (Option 2)
+### Quick Start with run_agent.py
 
-If you cloned the repository, run examples using `uv run`:
+The easiest way to run an agent is with `examples/run_agent.py`:
 
 ```bash
 # Make sure you've configured .env and agent_config.yaml first
-uv run --extra langgraph python examples/langgraph/01_simple_agent.py
+
+# Run with LangGraph (default)
+uv run python examples/run_agent.py
+
+# Run with Pydantic AI
+uv run python examples/run_agent.py --adapter pydantic_ai
+
+# Use a specific model
+uv run python examples/run_agent.py --adapter pydantic_ai --model anthropic:claude-sonnet-4-5
+
+# Use a different agent from agent_config.yaml
+uv run python examples/run_agent.py --agent my_custom_agent
+
+# See all options
+uv run python examples/run_agent.py --help
 ```
 
-### From Your Own Project (Option 1)
+### Running Individual Examples
 
-If you installed the SDK as an external library, you can still use `uv run`:
+You can also run the individual example scripts directly:
 
 ```bash
-# Run your agent with uv run (automatically manages dependencies)
+# LangGraph examples
+uv run python examples/langgraph/01_simple_agent.py
+uv run python examples/langgraph/02_custom_tools.py
+uv run python examples/langgraph/04_calculator_as_tool.py
+
+# Pydantic AI examples
+uv run python examples/pydantic_ai/01_basic_agent.py
+uv run python examples/pydantic_ai/02_custom_instructions.py
+```
+
+Each example script loads its agent credentials from `agent_config.yaml` using a specific key (e.g., `simple_agent`, `calculator_agent`). Check the example file to see which key it expects.
+
+### From Your Own Project
+
+If you installed the SDK as an external library, copy the agent class from `examples/` and run your own script:
+
+```bash
 uv run python your_agent.py
 ```
 
-**Note:** `uv run` automatically manages the virtual environment for you - no need to create or activate it manually.
+**Note:** `uv run` automatically manages the virtual environment - no need to activate it manually.
 
 ---
 
