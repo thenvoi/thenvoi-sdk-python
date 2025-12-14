@@ -5,11 +5,7 @@ This SDK allows you to connect external AI agents to the Thenvoi platform.
 Currently supported:
 
 - **LangGraph** - Production ready
-
-Coming soon:
-
-- **CrewAI** - Planned for future release
-- **NVIDIA NeMo** - Planned for future release
+- **Pydantic AI** - Production ready
 
 ---
 
@@ -130,15 +126,32 @@ agent_id, api_key = load_agent_config("calculator_agent")
 
 ```
 src/thenvoi/
-├── websocket/          # WebSocket client for platform communication
-│   └── client.py      # WebSocketApiClient
-├── core/              # Core interfaces and utilities
-│   ├── protocol.py    # ExternalAgentProtocol, ThenvoiMessage
-│   └── integration.py # ThenvoiIntegration
-└── adapters/          # Framework-specific implementations
-    ├── langgraph/     # LangGraph adapter
-    ├── crewai/        # CrewAI adapter (coming soon)
-    └── nvidia/        # NVIDIA NeMo adapter (coming soon)
+├── core/                       # SDK core
+│   ├── agent.py               # ThenvoiAgent - main coordinator
+│   ├── session.py             # AgentSession - per-room state
+│   ├── types.py               # AgentTools, PlatformMessage, configs
+│   ├── prompts.py             # System prompt rendering
+│   └── tool_definitions.py    # Pydantic models for tools
+│
+├── integrations/              # Framework-specific utilities
+│   └── langgraph/
+│       ├── langchain_tools.py # agent_tools_to_langchain()
+│       ├── graph_tools.py     # graph_as_tool()
+│       └── message_formatters.py
+│
+├── websocket/                 # WebSocket client for platform communication
+│   └── client.py
+├── client/                    # REST API client
+└── config/                    # Configuration utilities
+
+examples/
+├── langgraph/                 # LangGraph agent examples
+│   ├── thenvoi_langgraph_agent.py   # ThenvoiLangGraphAgent class
+│   └── 01-06 example scripts
+│
+└── pydantic_ai/               # Pydantic AI agent examples
+    ├── thenvoi_pydantic_agent.py    # ThenvoiPydanticAgent class
+    └── 01-02 example scripts
 ```
 
 ---
@@ -241,6 +254,35 @@ uv run python your_agent.py
 ```
 
 **Note:** `uv run` automatically manages the virtual environment for you - no need to create or activate it manually.
+
+---
+
+## Examples Overview
+
+### LangGraph Examples (`examples/langgraph/`)
+
+| File | Description |
+|------|-------------|
+| `01_simple_agent.py` | **Minimal setup** - Calls `create_langgraph_agent()` with an LLM. Connects to platform and responds using built-in tools (send_message, add_participant, etc.). |
+| `02_custom_tools.py` | **Custom tools** - Adds your own `@tool` functions (calculator, weather) via `additional_tools` parameter. |
+| `03_custom_personality.py` | **Custom behavior** - Uses `custom_instructions` to give the agent a pirate personality. |
+| `04_calculator_as_tool.py` | **Graph-as-tool** - Wraps a standalone LangGraph as a tool using `graph_as_tool()`. Main agent delegates math to calculator subgraph. |
+| `05_rag_as_tool.py` | **RAG subagent** - Wraps an Agentic RAG graph (retrieval + grading + rewriting) as a tool for research questions. |
+| `06_delegate_to_sql_agent.py` | **SQL subagent** - Wraps a SQL agent with its own LLM and database tools. Main agent delegates queries to SQL subgraph. |
+
+**Supporting files:**
+- `thenvoi_langgraph_agent.py` - The `ThenvoiLangGraphAgent` class and `create_langgraph_agent()` function
+- `standalone_calculator.py`, `standalone_rag.py`, `standalone_sql_agent.py` - Independent graphs used by examples 04-06
+
+### Pydantic AI Examples (`examples/pydantic_ai/`)
+
+| File | Description |
+|------|-------------|
+| `01_basic_agent.py` | **Minimal setup** - Creates a `ThenvoiPydanticAgent` with OpenAI. |
+| `02_custom_instructions.py` | **Custom behavior** - Support agent persona using Anthropic Claude. |
+
+**Supporting files:**
+- `thenvoi_pydantic_agent.py` - The `ThenvoiPydanticAgent` class and `create_pydantic_agent()` function
 
 ---
 
