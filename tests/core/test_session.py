@@ -13,8 +13,8 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock
 from datetime import datetime, timezone
 
-from thenvoi.agent.core.session import AgentSession
-from thenvoi.agent.core.types import PlatformMessage, ConversationContext
+from thenvoi.core.session import AgentSession
+from thenvoi.core.types import PlatformMessage, ConversationContext
 
 
 @pytest.fixture

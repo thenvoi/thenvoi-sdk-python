@@ -75,15 +75,15 @@ This is a [known issue in Pydantic AI](https://github.com/pydantic/pydantic-ai/i
 
 1. **Use Anthropic instead** (recommended for production):
    ```python
-   adapter = PydanticAIAdapter(
+   agent = ThenvoiPydanticAgent(
        model="anthropic:claude-3-5-sonnet-latest",
        ...
    )
    ```
 
-2. **Use the LangGraph adapter** - handles message history differently:
+2. **Use the LangGraph agent** - handles message history differently:
    ```python
-   from thenvoi.agent.langgraph import LangGraphAdapter
+   from thenvoi_langgraph_agent import ThenvoiLangGraphAgent
    ```
 
 3. **Simple conversations work fine** - the issue mainly occurs with complex multi-turn tool sequences.

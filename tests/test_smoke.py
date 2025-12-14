@@ -2,7 +2,7 @@
 Smoke tests - verify basic imports and setup work.
 """
 
-from thenvoi.agent.core import ThenvoiAgent, AgentSession, AgentTools
+from thenvoi.core import ThenvoiAgent, AgentSession, AgentTools
 
 
 def test_can_import_core():
@@ -12,20 +12,15 @@ def test_can_import_core():
     assert AgentTools is not None
 
 
-def test_can_import_langgraph():
-    """Verify we can import LangGraph adapter."""
-    from thenvoi.agent.langgraph import LangGraphAdapter, with_langgraph
+def test_can_import_langgraph_integrations():
+    """Verify we can import LangGraph integration utilities."""
+    from thenvoi.integrations.langgraph import (
+        agent_tools_to_langchain,
+        graph_as_tool,
+    )
 
-    assert LangGraphAdapter is not None
-    assert with_langgraph is not None
-
-
-def test_can_import_pydantic_ai():
-    """Verify we can import Pydantic AI adapter."""
-    from thenvoi.agent.pydantic_ai import PydanticAIAdapter, with_pydantic_ai
-
-    assert PydanticAIAdapter is not None
-    assert with_pydantic_ai is not None
+    assert agent_tools_to_langchain is not None
+    assert graph_as_tool is not None
 
 
 def test_fixtures_work(mock_api_client, mock_websocket, sample_room_message):

@@ -1,5 +1,5 @@
 """
-PydanticAIAdapter - connects Pydantic AI Agent to Thenvoi platform.
+ThenvoiPydanticAgent - Pydantic AI agent connected to Thenvoi platform.
 """
 
 from __future__ import annotations
@@ -15,7 +15,7 @@ from pydantic_ai.messages import (
     TextPart,
 )
 
-from thenvoi.agent.core import (
+from thenvoi.core import (
     ThenvoiAgent,
     PlatformMessage,
     AgentTools,
@@ -27,7 +27,7 @@ from thenvoi.agent.core import (
 logger = logging.getLogger(__name__)
 
 
-class PydanticAIAdapter:
+class ThenvoiPydanticAgent:
     """
     Pydantic AI adapter for Thenvoi platform.
 
@@ -46,7 +46,7 @@ class PydanticAIAdapter:
         session_config: Session configuration
 
     Usage:
-        adapter = PydanticAIAdapter(
+        adapter = ThenvoiPydanticAgent(
             model="openai:gpt-4o",
             agent_id="your-agent-id",
             api_key="your-api-key",
@@ -331,14 +331,14 @@ class PydanticAIAdapter:
             logger.debug(f"Room {room_id}: Cleaned up message history")
 
 
-async def with_pydantic_ai(
+async def create_pydantic_agent(
     model: str,
     agent_id: str,
     api_key: str,
     **kwargs,
-) -> PydanticAIAdapter:
+) -> ThenvoiPydanticAgent:
     """
-    Create and start a PydanticAIAdapter.
+    Create and start a ThenvoiPydanticAgent.
 
     Convenience function for quick setup.
 
@@ -346,16 +346,16 @@ async def with_pydantic_ai(
         model: Pydantic AI model string (e.g., "openai:gpt-4o")
         agent_id: Thenvoi agent ID
         api_key: Thenvoi API key
-        **kwargs: Additional arguments for PydanticAIAdapter
+        **kwargs: Additional arguments for ThenvoiPydanticAgent
 
     Returns:
-        Started PydanticAIAdapter instance
+        Started ThenvoiPydanticAgent instance
     """
-    adapter = PydanticAIAdapter(
+    agent = ThenvoiPydanticAgent(
         model=model,
         agent_id=agent_id,
         api_key=api_key,
         **kwargs,
     )
-    await adapter.start()
-    return adapter
+    await agent.start()
+    return agent

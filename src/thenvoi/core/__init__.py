@@ -22,7 +22,7 @@ KEY DESIGN:
     All communication is via AgentTools used by the LLM.
 
 Example:
-    from thenvoi.agent.core import ThenvoiAgent, PlatformMessage, AgentTools
+    from thenvoi.core import ThenvoiAgent, PlatformMessage, AgentTools
 
     agent = ThenvoiAgent(agent_id="...", api_key="...")
 

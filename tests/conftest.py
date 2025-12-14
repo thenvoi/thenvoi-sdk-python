@@ -14,7 +14,7 @@ from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock
 
 from thenvoi.client.streaming import MessageCreatedPayload, MessageMetadata, Mention
-from thenvoi.agent.core.types import PlatformMessage
+from thenvoi.core.types import PlatformMessage
 from tests.fixtures import factory
 
 

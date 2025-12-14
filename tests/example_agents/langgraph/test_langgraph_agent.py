@@ -1,5 +1,5 @@
 """
-Unit tests for LangGraphAdapter.
+Unit tests for ThenvoiLangGraphAgent (example agent).
 
 Tests:
 1. Constructor validation (requires graph or graph_factory)
@@ -10,19 +10,19 @@ Tests:
 
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
-
-from thenvoi.agent.langgraph.adapter import LangGraphAdapter
-from thenvoi.agent.core.types import PlatformMessage
 from datetime import datetime, timezone
+
+from thenvoi_langgraph_agent import ThenvoiLangGraphAgent
+from thenvoi.core.types import PlatformMessage
 
 
 class TestConstructor:
-    """Tests for LangGraphAdapter initialization."""
+    """Tests for ThenvoiLangGraphAgent initialization."""
 
     def test_requires_graph_or_graph_factory(self):
         """Should raise ValueError if neither graph nor graph_factory provided."""
         with pytest.raises(ValueError) as exc_info:
-            LangGraphAdapter(
+            ThenvoiLangGraphAgent(
                 agent_id="agent-123",
                 api_key="test-key",
                 # Neither graph nor graph_factory
@@ -32,8 +32,8 @@ class TestConstructor:
 
     def test_accepts_graph_factory(self):
         """Should accept graph_factory parameter."""
-        with patch("thenvoi.agent.langgraph.adapter.ThenvoiAgent"):
-            adapter = LangGraphAdapter(
+        with patch("thenvoi_langgraph_agent.ThenvoiAgent"):
+            adapter = ThenvoiLangGraphAgent(
                 graph_factory=lambda tools: MagicMock(),
                 agent_id="agent-123",
                 api_key="test-key",
@@ -43,8 +43,8 @@ class TestConstructor:
 
     def test_accepts_static_graph(self):
         """Should accept pre-built graph."""
-        with patch("thenvoi.agent.langgraph.adapter.ThenvoiAgent"):
-            adapter = LangGraphAdapter(
+        with patch("thenvoi_langgraph_agent.ThenvoiAgent"):
+            adapter = ThenvoiLangGraphAgent(
                 graph=MagicMock(),
                 agent_id="agent-123",
                 api_key="test-key",
@@ -66,14 +66,14 @@ class TestHandleMessage:
     @pytest.fixture
     def adapter(self, mock_graph):
         """Create adapter with mocked dependencies."""
-        with patch("thenvoi.agent.langgraph.adapter.ThenvoiAgent") as mock_thenvoi_cls:
+        with patch("thenvoi_langgraph_agent.ThenvoiAgent") as mock_thenvoi_cls:
             mock_thenvoi = AsyncMock()
             mock_thenvoi.agent_name = "TestBot"
             mock_thenvoi.agent_description = "A test agent"
             mock_thenvoi.active_sessions = {}
             mock_thenvoi_cls.return_value = mock_thenvoi
 
-            adapter = LangGraphAdapter(
+            adapter = ThenvoiLangGraphAgent(
                 graph_factory=lambda tools: mock_graph,
                 agent_id="agent-123",
                 api_key="test-key",
@@ -246,8 +246,8 @@ class TestHandleStreamEvent:
     @pytest.fixture
     def adapter(self):
         """Create adapter with mocked dependencies."""
-        with patch("thenvoi.agent.langgraph.adapter.ThenvoiAgent"):
-            return LangGraphAdapter(
+        with patch("thenvoi_langgraph_agent.ThenvoiAgent"):
+            return ThenvoiLangGraphAgent(
                 graph_factory=lambda tools: MagicMock(),
                 agent_id="agent-123",
                 api_key="test-key",
@@ -314,8 +314,8 @@ class TestCleanupSession:
 
         graph_factory.checkpointer = mock_checkpointer
 
-        with patch("thenvoi.agent.langgraph.adapter.ThenvoiAgent"):
-            adapter = LangGraphAdapter(
+        with patch("thenvoi_langgraph_agent.ThenvoiAgent"):
+            adapter = ThenvoiLangGraphAgent(
                 graph_factory=graph_factory,
                 agent_id="agent-123",
                 api_key="test-key",
@@ -327,8 +327,8 @@ class TestCleanupSession:
 
     async def test_handles_missing_checkpointer(self):
         """Should handle graph_factory without checkpointer."""
-        with patch("thenvoi.agent.langgraph.adapter.ThenvoiAgent"):
-            adapter = LangGraphAdapter(
+        with patch("thenvoi_langgraph_agent.ThenvoiAgent"):
+            adapter = ThenvoiLangGraphAgent(
                 graph_factory=lambda tools: MagicMock(),  # No checkpointer attribute
                 agent_id="agent-123",
                 api_key="test-key",

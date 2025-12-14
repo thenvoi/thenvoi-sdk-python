@@ -11,7 +11,7 @@ Tests critical flows by mocking WebSocket and capturing registered callbacks:
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from thenvoi.agent.core.agent import ThenvoiAgent
+from thenvoi.core.agent import ThenvoiAgent
 from thenvoi.client.streaming import (
     MessageCreatedPayload,
     MessageMetadata,
@@ -65,7 +65,7 @@ def mock_ws_client():
 def agent(mock_rest_client, mock_ws_client):
     """Create ThenvoiAgent with mocked dependencies."""
     # Patch at the module level where it's imported
-    with patch("thenvoi.agent.core.agent.AsyncRestClient") as mock_rest_cls:
+    with patch("thenvoi.core.agent.AsyncRestClient") as mock_rest_cls:
         mock_rest_cls.return_value = mock_rest_client
         agent = ThenvoiAgent(
             agent_id="agent-123",
@@ -81,7 +81,7 @@ def agent(mock_rest_client, mock_ws_client):
 
 async def start_agent_with_mock_ws(agent, mock_ws_client, on_message):
     """Helper to start agent with mocked WebSocket."""
-    with patch("thenvoi.agent.core.agent.WebSocketClient") as mock_ws_cls:
+    with patch("thenvoi.core.agent.WebSocketClient") as mock_ws_cls:
         mock_ws_cls.return_value = mock_ws_client
         await agent.start(on_message=on_message)
 
@@ -317,9 +317,7 @@ class TestCleanupCallback:
         async def cleanup_callback(room_id: str):
             cleanup_called_for.append(room_id)
 
-        with patch(
-            "thenvoi.agent.core.agent.AsyncRestClient", return_value=mock_rest_client
-        ):
+        with patch("thenvoi.core.agent.AsyncRestClient", return_value=mock_rest_client):
             agent = ThenvoiAgent(
                 agent_id="agent-123",
                 api_key="test-key",
@@ -370,9 +368,7 @@ class TestCleanupCallback:
         async def cleanup_callback(room_id: str):
             cleanup_called_for.append(room_id)
 
-        with patch(
-            "thenvoi.agent.core.agent.AsyncRestClient", return_value=mock_rest_client
-        ):
+        with patch("thenvoi.core.agent.AsyncRestClient", return_value=mock_rest_client):
             agent = ThenvoiAgent(
                 agent_id="agent-123",
                 api_key="test-key",
@@ -544,7 +540,7 @@ class TestGetNextMessage:
     @pytest.fixture
     def agent_with_client(self, mock_rest_client, mock_ws_client):
         """Create ThenvoiAgent with accessible mock client for testing."""
-        with patch("thenvoi.agent.core.agent.AsyncRestClient") as mock_rest_cls:
+        with patch("thenvoi.core.agent.AsyncRestClient") as mock_rest_cls:
             mock_rest_cls.return_value = mock_rest_client
             agent = ThenvoiAgent(
                 agent_id="agent-123",

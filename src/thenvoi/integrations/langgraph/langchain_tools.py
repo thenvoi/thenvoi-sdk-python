@@ -9,7 +9,7 @@ from typing import Any, Literal
 
 from langchain_core.tools import StructuredTool
 
-from thenvoi.agent.core.types import AgentTools
+from thenvoi.core.types import AgentTools
 
 
 def agent_tools_to_langchain(tools: AgentTools) -> list[Any]:

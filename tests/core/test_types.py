@@ -8,7 +8,7 @@ Tests:
 
 import pytest
 
-from thenvoi.agent.core.types import AgentTools
+from thenvoi.core.types import AgentTools
 
 
 class TestResolveMentions:

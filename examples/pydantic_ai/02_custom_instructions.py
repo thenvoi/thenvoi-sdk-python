@@ -13,7 +13,7 @@ import os
 from dotenv import load_dotenv
 
 from setup_logging import setup_logging
-from thenvoi.agent.pydantic_ai import PydanticAIAdapter
+from thenvoi_pydantic_agent import ThenvoiPydanticAgent
 from thenvoi.config import load_agent_config
 
 setup_logging()
@@ -50,7 +50,7 @@ async def main():
     # Load agent credentials from agent_config.yaml
     agent_id, api_key = load_agent_config("support_agent")
 
-    adapter = PydanticAIAdapter(
+    adapter = ThenvoiPydanticAgent(
         model="anthropic:claude-3-5-sonnet-latest",
         agent_id=agent_id,
         api_key=api_key,

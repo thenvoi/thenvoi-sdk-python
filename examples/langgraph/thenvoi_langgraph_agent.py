@@ -1,7 +1,7 @@
 """
-LangGraph adapter using the new ThenvoiAgent architecture.
+ThenvoiLangGraphAgent - LangGraph agent connected to Thenvoi platform.
 
-This adapter uses the three-class architecture:
+This agent uses the SDK's three-class architecture:
 - ThenvoiAgent: Coordinator
 - AgentSession: Per-room processing
 - AgentTools: Tools for LLM
@@ -18,8 +18,11 @@ import logging
 from typing import Any, Callable, List
 
 from langgraph.pregel import Pregel
+from langgraph.prebuilt import create_react_agent
+from langchain_core.language_models import BaseChatModel
+from langgraph.checkpoint.base import BaseCheckpointSaver
 
-from thenvoi.agent.core import (
+from thenvoi.core import (
     ThenvoiAgent,
     AgentTools,
     AgentConfig,
@@ -27,12 +30,12 @@ from thenvoi.agent.core import (
     SessionConfig,
     render_system_prompt,
 )
-from .langchain_tools import agent_tools_to_langchain
+from thenvoi.integrations.langgraph import agent_tools_to_langchain
 
 logger = logging.getLogger(__name__)
 
 
-class LangGraphAdapter:
+class ThenvoiLangGraphAgent:
     """
     LangGraph adapter using graph_factory pattern.
 
@@ -51,7 +54,7 @@ class LangGraphAdapter:
                 checkpointer=MemorySaver(),
             )
 
-        adapter = LangGraphAdapter(
+        adapter = ThenvoiLangGraphAgent(
             graph_factory=my_graph_factory,
             agent_id="...",
             api_key="...",
@@ -305,7 +308,7 @@ class LangGraphAdapter:
             logger.warning(f"Failed to clear session {room_id}: {e}")
 
 
-class LangGraphMCPAdapter(LangGraphAdapter):
+class ThenvoiLangGraphMCPAgent(ThenvoiLangGraphAgent):
     """
     LangGraph adapter that loads tools from MCP server.
 
@@ -322,7 +325,7 @@ class LangGraphMCPAdapter(LangGraphAdapter):
 
         Args:
             mcp_server_url: URL for thenvoi-mcp-server
-            **kwargs: Arguments passed to LangGraphAdapter
+            **kwargs: Arguments passed to ThenvoiLangGraphAgent
         """
         super().__init__(**kwargs)
         self.mcp_server_url = mcp_server_url
@@ -334,47 +337,57 @@ class LangGraphMCPAdapter(LangGraphAdapter):
         await super()._handle_message(msg, tools)
 
 
-# Convenience function
-async def with_langgraph(
-    graph_factory: Callable[[List[Any]], Pregel] | None = None,
-    graph: Pregel | None = None,
-    agent_id: str = "",
-    api_key: str = "",
+async def create_langgraph_agent(
+    agent_id: str,
+    api_key: str,
+    llm: BaseChatModel,
+    checkpointer: BaseCheckpointSaver | None = None,
     ws_url: str = "wss://api.thenvoi.com/ws",
-    rest_url: str = "https://api.thenvoi.com",
+    thenvoi_restapi_url: str = "https://api.thenvoi.com",
+    additional_tools: List[Any] | None = None,
+    custom_instructions: str = "",
     **kwargs,
-) -> LangGraphAdapter:
+) -> None:
     """
-    Quick integration for LangGraph agents.
+    Create and run a LangGraph agent connected to Thenvoi platform.
 
-    Provide either graph_factory (recommended) or pre-built graph.
+    This is a high-level convenience function that:
+    1. Creates a ReAct agent with the provided LLM
+    2. Adds Thenvoi platform tools automatically
+    3. Connects to the platform and runs until interrupted
+
+    Args:
+        agent_id: Thenvoi agent ID
+        api_key: Thenvoi API key
+        llm: LangChain chat model (e.g., ChatOpenAI)
+        checkpointer: LangGraph checkpointer for conversation memory
+        ws_url: WebSocket URL for real-time events
+        thenvoi_restapi_url: REST API URL
+        additional_tools: Extra tools to add alongside platform tools
+        custom_instructions: Custom instructions to add to system prompt
+        **kwargs: Additional arguments for ThenvoiLangGraphAgent
 
     Example:
-        # With factory (recommended - gets Thenvoi tools)
-        adapter = await with_langgraph(
-            graph_factory=lambda tools: create_react_agent(ChatOpenAI(), tools),
+        await create_langgraph_agent(
             agent_id="...",
             api_key="...",
+            llm=ChatOpenAI(model="gpt-4o"),
+            checkpointer=InMemorySaver(),
         )
-
-        # With pre-built graph
-        adapter = await with_langgraph(
-            graph=my_prebuilt_graph,
-            agent_id="...",
-            api_key="...",
-        )
-
-    Returns:
-        LangGraphAdapter (already started)
     """
-    adapter = LangGraphAdapter(
+    additional = additional_tools or []
+
+    def graph_factory(thenvoi_tools: List[Any]) -> Pregel:
+        all_tools = thenvoi_tools + additional
+        return create_react_agent(llm, all_tools, checkpointer=checkpointer)
+
+    adapter = ThenvoiLangGraphAgent(
         graph_factory=graph_factory,
-        graph=graph,
         agent_id=agent_id,
         api_key=api_key,
         ws_url=ws_url,
-        rest_url=rest_url,
+        rest_url=thenvoi_restapi_url,
+        custom_section=custom_instructions,
         **kwargs,
     )
-    await adapter.start()
-    return adapter
+    await adapter.run()
