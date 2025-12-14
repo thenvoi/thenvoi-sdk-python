@@ -16,12 +16,14 @@ from thenvoi_rest import (
     NotFoundError,
     UnauthorizedError,
 )
+from thenvoi_rest.types import ChatMessageRequestMentionsItem
 
 __all__ = [
     "RestClient",
     "AsyncRestClient",
     "AgentMe",
     "ChatMessageRequest",
+    "ChatMessageRequestMentionsItem",
     "ChatEventRequest",
     "ParticipantRequest",
     "NotFoundError",

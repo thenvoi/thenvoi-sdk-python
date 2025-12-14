@@ -10,9 +10,11 @@ Key fixture pattern:
 """
 
 import pytest
+from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock
 
 from thenvoi.client.streaming import MessageCreatedPayload, MessageMetadata, Mention
+from thenvoi.agent.core.types import PlatformMessage
 from tests.fixtures import factory
 
 
@@ -143,3 +145,108 @@ def dummy_message_handler():
         pass
 
     return handler
+
+
+# --- New Architecture Fixtures ---
+
+
+@pytest.fixture
+def mock_thenvoi_agent(mock_api_client, mock_websocket):
+    """Mock ThenvoiAgent for session/adapter tests.
+
+    Provides a mock coordinator with:
+    - agent_id and agent_name set
+    - Mock API client and WebSocket attached
+    - Empty active_sessions dict
+    - Mock internal methods for tools
+    """
+    agent = AsyncMock()
+    agent.agent_id = "agent-123"
+    agent.agent_name = "TestBot"
+    agent._api_client = mock_api_client
+    agent._ws_client = mock_websocket
+    agent.active_sessions = {}
+
+    # Mock internal methods used by AgentTools
+    agent._send_message_internal = AsyncMock(
+        return_value={"id": "msg-123", "status": "sent"}
+    )
+    agent._send_event_internal = AsyncMock(
+        return_value={"id": "evt-123", "status": "sent"}
+    )
+    agent._add_participant_internal = AsyncMock(
+        return_value={"id": "user-456", "name": "Test User", "role": "member"}
+    )
+    agent._remove_participant_internal = AsyncMock(
+        return_value={"id": "user-456", "name": "Test User", "status": "removed"}
+    )
+    agent._lookup_peers_internal = AsyncMock(
+        return_value={
+            "peers": [{"id": "peer-1", "name": "Peer One", "type": "Agent"}],
+            "metadata": {
+                "page": 1,
+                "page_size": 50,
+                "total_count": 1,
+                "total_pages": 1,
+            },
+        }
+    )
+    agent._get_participants_internal = AsyncMock(
+        return_value=[{"id": "agent-123", "name": "TestBot", "type": "Agent"}]
+    )
+    agent._create_chatroom_internal = AsyncMock(return_value="new-room-123")
+    agent.get_context = AsyncMock()
+
+    return agent
+
+
+@pytest.fixture
+def mock_agent_session():
+    """Mock AgentSession for isolated tests.
+
+    Provides a mock session with:
+    - room_id set
+    - is_llm_initialized tracking
+    - Empty participants list
+    """
+    session = AsyncMock()
+    session.room_id = "room-123"
+    session.is_llm_initialized = False
+    session.participants = []
+    session._last_participants_hash = None
+    return session
+
+
+@pytest.fixture
+def sample_platform_message():
+    """PlatformMessage fixture for new architecture.
+
+    A standard user message mentioning the TestBot agent.
+    """
+    return PlatformMessage(
+        id="msg-123",
+        room_id="room-123",
+        content="@TestBot hello",
+        sender_id="user-456",
+        sender_type="User",
+        sender_name="Test User",
+        message_type="text",
+        metadata={"mentions": [{"id": "agent-123", "name": "TestBot"}]},
+        created_at=datetime.now(timezone.utc),
+    )
+
+
+@pytest.fixture
+def sample_agent_platform_message():
+    """PlatformMessage from the agent itself (for filtering tests)."""
+    return PlatformMessage(
+        id="msg-456",
+        room_id="room-123",
+        content="Hello there!",
+        sender_id="agent-123",
+        sender_type="Agent",
+        sender_name="TestBot",
+        message_type="text",
+        metadata={},
+        created_at=datetime.now(timezone.utc),
+    )

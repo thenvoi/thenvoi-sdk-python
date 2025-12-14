@@ -564,3 +564,247 @@ class TestMultiAgentChatRoom:
         print("\n" + "=" * 60)
         print("SUCCESS: Each agent sees only their own events")
         print("=" * 60)
+
+    async def test_member_agent_can_list_peers_and_add_participants(
+        self, api_client, api_client_2, integration_settings
+    ):
+        """Test that a member agent can list peers and add participants to a chat.
+
+        This tests the SDK's add_participant flow where:
+        1. Agent 1 creates a chat (becomes owner)
+        2. Agent 1 adds Agent 2 as a member
+        3. Agent 2 (as member) lists peers
+        4. Agent 2 (as member) tries to add a User to the chat
+        5. Agent 2 (as member) tries to add another Agent to the chat
+
+        This validates whether members have permission to add participants.
+        """
+        print("\n" + "=" * 60)
+        print("Testing: Member agent adding participants")
+        print("=" * 60)
+
+        # Get Agent 1 info (will be owner)
+        response = await api_client.agent_api.get_agent_me()
+        agent1_id = response.data.id
+        agent1_name = response.data.name
+        print(f"Agent 1 (Owner): {agent1_name} (ID: {agent1_id})")
+
+        # Get Agent 2 info (will be member)
+        response = await api_client_2.agent_api.get_agent_me()
+        agent2_id = response.data.id
+        agent2_name = response.data.name
+        print(f"Agent 2 (Member): {agent2_name} (ID: {agent2_id})")
+
+        # Find a User peer (the owner of agents)
+        response = await api_client.agent_api.list_agent_peers()
+        user_peer = next((p for p in response.data if p.type == "User"), None)
+        assert user_peer is not None, "Need a User peer for this test"
+        user_id = user_peer.id
+        user_name = user_peer.name
+        print(f"User peer: {user_name} (ID: {user_id})")
+
+        # Find another Agent peer (not Agent 1 or Agent 2)
+        other_agent = next(
+            (
+                p
+                for p in response.data
+                if p.type == "Agent" and p.id not in [agent1_id, agent2_id]
+            ),
+            None,
+        )
+        if other_agent:
+            other_agent_id = other_agent.id
+            other_agent_name = other_agent.name
+            print(f"Other Agent peer: {other_agent_name} (ID: {other_agent_id})")
+        else:
+            other_agent_id = None
+            other_agent_name = None
+            print("No other Agent peer available for testing")
+
+        # Step 1: Agent 1 creates a chat (becomes OWNER)
+        print("\n--- Step 1: Agent 1 creates chat ---")
+        response = await api_client.agent_api.create_agent_chat(
+            chat=ChatRoomRequest(title="Member Add Participant Test")
+        )
+        chat_id = response.data.id
+        print(f"Agent 1 created chat: {chat_id}")
+
+        # Step 2: Agent 1 adds Agent 2 as MEMBER
+        print("\n--- Step 2: Agent 1 adds Agent 2 as member ---")
+        await api_client.agent_api.add_agent_chat_participant(
+            chat_id,
+            participant=ParticipantRequest(participant_id=agent2_id, role="member"),
+        )
+        print("Agent 1 added Agent 2 as member")
+
+        # Verify participants
+        response = await api_client.agent_api.list_agent_chat_participants(chat_id)
+        participants = response.data or []
+        print(f"Current participants ({len(participants)}):")
+        for p in participants:
+            print(f"  - {p.name} ({p.type}, role: {p.role})")
+
+        # Step 3: Agent 2 lists peers (should work)
+        print("\n--- Step 3: Agent 2 lists peers ---")
+        response = await api_client_2.agent_api.list_agent_peers(not_in_chat=chat_id)
+        peers = response.data or []
+        print(f"Agent 2 sees {len(peers)} peers not in chat:")
+        for p in peers[:5]:  # Show first 5
+            print(f"  - {p.name} ({p.type})")
+        if len(peers) > 5:
+            print(f"  ... and {len(peers) - 5} more")
+
+        # Step 4: Agent 2 (member) tries to add User
+        print("\n--- Step 4: Agent 2 (member) tries to add User ---")
+        add_user_success = False
+        try:
+            await api_client_2.agent_api.add_agent_chat_participant(
+                chat_id,
+                participant=ParticipantRequest(participant_id=user_id, role="member"),
+            )
+            add_user_success = True
+            print(f"SUCCESS: Agent 2 added User '{user_name}' to chat")
+        except Exception as e:
+            print(f"FAILED: Agent 2 could not add User: {type(e).__name__}")
+            if "403" in str(e) or "forbidden" in str(e).lower():
+                print("  -> 403 Forbidden: Members cannot add participants")
+
+        # Step 5: Agent 2 (member) tries to add another Agent
+        if other_agent_id:
+            print("\n--- Step 5: Agent 2 (member) tries to add another Agent ---")
+            add_agent_success = False
+            try:
+                await api_client_2.agent_api.add_agent_chat_participant(
+                    chat_id,
+                    participant=ParticipantRequest(
+                        participant_id=other_agent_id, role="member"
+                    ),
+                )
+                add_agent_success = True
+                print(f"SUCCESS: Agent 2 added Agent '{other_agent_name}' to chat")
+            except Exception as e:
+                print(f"FAILED: Agent 2 could not add Agent: {type(e).__name__}")
+                if "403" in str(e) or "forbidden" in str(e).lower():
+                    print("  -> 403 Forbidden: Members cannot add participants")
+        else:
+            add_agent_success = None
+
+        # Final participants check
+        print("\n--- Final participants ---")
+        response = await api_client.agent_api.list_agent_chat_participants(chat_id)
+        final_participants = response.data or []
+        print(f"Final participants ({len(final_participants)}):")
+        for p in final_participants:
+            print(f"  - {p.name} ({p.type}, role: {p.role})")
+
+        # Summary
+        print("\n" + "=" * 60)
+        print("SUMMARY:")
+        print(
+            f"  - Agent 2 (member) add User: {'SUCCESS' if add_user_success else 'FAILED (403)'}"
+        )
+        if other_agent_id:
+            print(
+                f"  - Agent 2 (member) add Agent: {'SUCCESS' if add_agent_success else 'FAILED (403)'}"
+            )
+        print("=" * 60)
+
+        # Note: We're not asserting success/failure here because we want to
+        # document the actual behavior. If members SHOULD be able to add
+        # participants, the platform needs to be updated.
+        #
+        # Current expected behavior: Members CANNOT add participants (403)
+        # If this test shows SUCCESS, then the platform allows members to add.
+
+    async def test_member_agent_promoted_to_admin_can_add_participants(
+        self, api_client, api_client_2, integration_settings
+    ):
+        """Test that a member promoted to admin CAN add participants.
+
+        This validates the fix: if we want agents to add participants,
+        they need to be admins, not just members.
+
+        1. Agent 1 creates chat (owner)
+        2. Agent 1 adds Agent 2 as ADMIN (not member)
+        3. Agent 2 (as admin) should be able to add other participants
+        """
+        print("\n" + "=" * 60)
+        print("Testing: Admin agent adding participants")
+        print("=" * 60)
+
+        # Get Agent 1 info
+        response = await api_client.agent_api.get_agent_me()
+        agent1_id = response.data.id
+        agent1_name = response.data.name
+        print(f"Agent 1 (Owner): {agent1_name} (ID: {agent1_id})")
+
+        # Get Agent 2 info
+        response = await api_client_2.agent_api.get_agent_me()
+        agent2_id = response.data.id
+        agent2_name = response.data.name
+        print(f"Agent 2 (will be Admin): {agent2_name} (ID: {agent2_id})")
+
+        # Find a User peer
+        response = await api_client.agent_api.list_agent_peers()
+        user_peer = next((p for p in response.data if p.type == "User"), None)
+        assert user_peer is not None, "Need a User peer for this test"
+        user_id = user_peer.id
+        user_name = user_peer.name
+        print(f"User peer: {user_name} (ID: {user_id})")
+
+        # Step 1: Agent 1 creates chat
+        print("\n--- Step 1: Agent 1 creates chat ---")
+        response = await api_client.agent_api.create_agent_chat(
+            chat=ChatRoomRequest(title="Admin Add Participant Test")
+        )
+        chat_id = response.data.id
+        print(f"Agent 1 created chat: {chat_id}")
+
+        # Step 2: Agent 1 adds Agent 2 as ADMIN
+        print("\n--- Step 2: Agent 1 adds Agent 2 as ADMIN ---")
+        await api_client.agent_api.add_agent_chat_participant(
+            chat_id,
+            participant=ParticipantRequest(participant_id=agent2_id, role="admin"),
+        )
+        print("Agent 1 added Agent 2 as ADMIN")
+
+        # Verify Agent 2's role
+        response = await api_client.agent_api.list_agent_chat_participants(chat_id)
+        participants = response.data or []
+        agent2_participant = next((p for p in participants if p.id == agent2_id), None)
+        assert agent2_participant is not None, "Agent 2 should be in chat"
+        print(f"Agent 2's role: {agent2_participant.role}")
+        assert agent2_participant.role == "admin", "Agent 2 should be admin"
+
+        # Step 3: Agent 2 (admin) adds User
+        print("\n--- Step 3: Agent 2 (admin) adds User ---")
+        add_success = False
+        try:
+            await api_client_2.agent_api.add_agent_chat_participant(
+                chat_id,
+                participant=ParticipantRequest(participant_id=user_id, role="member"),
+            )
+            add_success = True
+            print(f"SUCCESS: Agent 2 (admin) added User '{user_name}' to chat")
+        except Exception as e:
+            print(f"FAILED: Agent 2 (admin) could not add User: {e}")
+
+        # Verify User was added
+        response = await api_client.agent_api.list_agent_chat_participants(chat_id)
+        final_participants = response.data or []
+        user_in_chat = any(p.id == user_id for p in final_participants)
+
+        print(f"\nFinal participants ({len(final_participants)}):")
+        for p in final_participants:
+            print(f"  - {p.name} ({p.type}, role: {p.role})")
+
+        print("\n" + "=" * 60)
+        if add_success and user_in_chat:
+            print("SUCCESS: Admin agent CAN add participants")
+        else:
+            print("UNEXPECTED: Admin agent could not add participants")
+        print("=" * 60)
+
+        # Assert that admins CAN add participants
+        assert add_success, "Admin should be able to add participants"
+        assert user_in_chat, "User should now be in the chat"

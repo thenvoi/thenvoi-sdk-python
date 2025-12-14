@@ -142,6 +142,8 @@ phx_events_debug.log
 # Temporary files
 *.tmp
 *.bak
+refactoring-docs/
+run_test_agent.py
 
 # Agent configuration files
 agent_config.yaml
