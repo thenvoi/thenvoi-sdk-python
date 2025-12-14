@@ -20,6 +20,14 @@ def test_can_import_langgraph():
     assert with_langgraph is not None
 
 
+def test_can_import_pydantic_ai():
+    """Verify we can import Pydantic AI adapter."""
+    from thenvoi.agent.pydantic_ai import PydanticAIAdapter, with_pydantic_ai
+
+    assert PydanticAIAdapter is not None
+    assert with_pydantic_ai is not None
+
+
 def test_fixtures_work(mock_api_client, mock_websocket, sample_room_message):
     """Verify our test fixtures are properly configured."""
     assert mock_api_client is not None

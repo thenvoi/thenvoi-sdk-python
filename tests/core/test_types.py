@@ -50,65 +50,51 @@ class TestResolveMentions:
 class TestExecuteToolCall:
     """Tests for execute_tool_call() dispatcher."""
 
-    async def test_unknown_tool_raises_value_error(self, mock_thenvoi_agent):
-        """Unknown tool name should raise ValueError."""
+    async def test_unknown_tool_returns_error_string(self, mock_thenvoi_agent):
+        """Unknown tool name should return error string (not raise)."""
         tools = AgentTools(room_id="room-123", coordinator=mock_thenvoi_agent)
 
-        with pytest.raises(ValueError) as exc_info:
-            await tools.execute_tool_call("nonexistent_tool", {})
+        result = await tools.execute_tool_call("nonexistent_tool", {})
 
-        assert "Unknown tool: nonexistent_tool" in str(exc_info.value)
+        assert result == "Unknown tool: nonexistent_tool"
 
-    async def test_all_tools_are_mapped(self, mock_thenvoi_agent):
+    async def test_all_tools_are_mapped(self, mock_thenvoi_agent, mock_agent_session):
         """All expected tools should be in the dispatcher map."""
+        # Setup mock session with participants for mention resolution
+        mock_agent_session.participants = [{"id": "user-456", "name": "Test"}]
+        mock_thenvoi_agent.active_sessions = {"room-123": mock_agent_session}
+
         tools = AgentTools(room_id="room-123", coordinator=mock_thenvoi_agent)
 
-        expected_tools = [
-            "send_message",
-            "send_event",
-            "add_participant",
-            "remove_participant",
-            "lookup_peers",
-            "get_participants",
-            "create_chatroom",
-        ]
+        # Map each tool to valid arguments for Pydantic validation
+        tool_args = {
+            "send_message": {"content": "test", "mentions": ["Test"]},
+            "send_event": {"content": "test", "message_type": "thought"},
+            "add_participant": {"name": "Test"},
+            "remove_participant": {"name": "Test"},
+            "lookup_peers": {},
+            "get_participants": {},
+            "create_chatroom": {"name": "Test Room"},
+        }
 
         # This will raise ValueError if any tool is missing from the map
-        for tool_name in expected_tools:
+        for tool_name, args in tool_args.items():
             # We don't care about the result, just that it doesn't raise "Unknown tool"
             try:
-                await tools.execute_tool_call(
-                    tool_name,
-                    {"content": "test", "message_type": "thought", "name": "Test"},
-                )
-            except (KeyError, TypeError):
-                # Expected - we're passing incomplete args, but tool IS in the map
+                await tools.execute_tool_call(tool_name, args)
+            except (KeyError, TypeError, AttributeError):
+                # Expected - mock doesn't have all methods, but tool IS in the map
                 pass
 
 
 class TestSchemaGeneration:
     """Tests for tool schema generation - consumed by LLM, not REST API."""
 
-    def test_langchain_send_event_has_enum_constraint(self, mock_thenvoi_agent):
+    def test_openai_schema_send_event_has_enum_constraint(self, mock_thenvoi_agent):
         """CRITICAL: send_event message_type must have enum so LLM knows valid values."""
         tools = AgentTools(room_id="room-123", coordinator=mock_thenvoi_agent)
 
-        lc_tools = tools.to_langchain_tools()
-        send_event = next(t for t in lc_tools if t.name == "send_event")
-
-        schema = send_event.args_schema.model_json_schema()
-        assert "enum" in schema["properties"]["message_type"]
-        assert set(schema["properties"]["message_type"]["enum"]) == {
-            "thought",
-            "error",
-            "task",
-        }
-
-    def test_openai_send_event_has_enum_constraint(self, mock_thenvoi_agent):
-        """OpenAI schema should also have enum constraint."""
-        tools = AgentTools(room_id="room-123", coordinator=mock_thenvoi_agent)
-
-        openai_tools = tools.to_openai_tools()
+        openai_tools = tools.get_tool_schemas("openai")
         send_event = next(
             t for t in openai_tools if t["function"]["name"] == "send_event"
         )
@@ -120,3 +106,68 @@ class TestSchemaGeneration:
             "error",
             "task",
         }
+
+    def test_anthropic_schema_send_event_has_enum_constraint(self, mock_thenvoi_agent):
+        """Anthropic schema should also have enum constraint."""
+        tools = AgentTools(room_id="room-123", coordinator=mock_thenvoi_agent)
+
+        anthropic_tools = tools.get_tool_schemas("anthropic")
+        send_event = next(t for t in anthropic_tools if t["name"] == "send_event")
+
+        schema = send_event["input_schema"]
+        assert "enum" in schema["properties"]["message_type"]
+        assert set(schema["properties"]["message_type"]["enum"]) == {
+            "thought",
+            "error",
+            "task",
+        }
+
+    def test_openai_schema_has_all_tools(self, mock_thenvoi_agent):
+        """OpenAI schema should include all platform tools."""
+        tools = AgentTools(room_id="room-123", coordinator=mock_thenvoi_agent)
+
+        openai_tools = tools.get_tool_schemas("openai")
+        tool_names = {t["function"]["name"] for t in openai_tools}
+
+        expected = {
+            "send_message",
+            "send_event",
+            "add_participant",
+            "remove_participant",
+            "lookup_peers",
+            "get_participants",
+            "create_chatroom",
+        }
+        assert tool_names == expected
+
+    def test_anthropic_schema_has_all_tools(self, mock_thenvoi_agent):
+        """Anthropic schema should include all platform tools."""
+        tools = AgentTools(room_id="room-123", coordinator=mock_thenvoi_agent)
+
+        anthropic_tools = tools.get_tool_schemas("anthropic")
+        tool_names = {t["name"] for t in anthropic_tools}
+
+        expected = {
+            "send_message",
+            "send_event",
+            "add_participant",
+            "remove_participant",
+            "lookup_peers",
+            "get_participants",
+            "create_chatroom",
+        }
+        assert tool_names == expected
+
+    def test_tool_models_property(self, mock_thenvoi_agent):
+        """tool_models property should return Pydantic models registry."""
+        tools = AgentTools(room_id="room-123", coordinator=mock_thenvoi_agent)
+
+        models = tools.tool_models
+        assert "send_message" in models
+        assert "send_event" in models
+
+        # Verify they are actual Pydantic model classes
+        from pydantic import BaseModel
+
+        for name, model in models.items():
+            assert issubclass(model, BaseModel), f"{name} should be a Pydantic model"

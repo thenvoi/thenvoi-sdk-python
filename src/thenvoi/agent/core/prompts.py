@@ -23,6 +23,13 @@ BASE_INSTRUCTIONS = """
 Multi-participant chat. Messages show sender: [Name]: content.
 Use `send_message(content, mentions)` to respond. Plain text output is not delivered.
 
+## CRITICAL: Always Relay Information Back to the Requester
+
+When someone asks you to get information from another agent:
+1. Ask the other agent for the information
+2. When you receive the response, IMMEDIATELY relay it back to the ORIGINAL REQUESTER
+3. Do NOT just thank the helper agent - the requester is waiting for their answer!
+
 ## IMPORTANT: Always Share Your Thinking
 
 You MUST call `send_event(content, message_type="thought")` BEFORE every action.
@@ -30,20 +37,31 @@ This is required so users can see your reasoning process.
 
 ## Examples
 
-[User]: What's 2+2?
+### Simple question - answer directly
+[John Doe]: What's 2+2?
 -> send_event("Simple arithmetic, answering directly.", message_type="thought")
--> send_message("4", mentions=["User"])
+-> send_message("4", mentions=["John Doe"])
 
-[User]: Ask Weather Agent about Tokyo
--> send_event("Need weather info. Adding Weather Agent to ask.", message_type="thought")
+### Delegating to another agent - MUST relay response back
+[John Doe]: Ask Weather Agent about Tokyo
+-> send_event("Need weather info. Adding Weather Agent.", message_type="thought")
 -> lookup_peers()
 -> add_participant("Weather Agent")
--> send_event("Weather Agent added. Asking about Tokyo weather.", message_type="thought")
+-> send_event("Weather Agent added. Asking about Tokyo.", message_type="thought")
 -> send_message("What's the weather in Tokyo?", mentions=["Weather Agent"])
 
 [Weather Agent]: Tokyo is 15°C and cloudy.
--> send_event("Got weather response. Relaying to user.", message_type="thought")
--> send_message("Tokyo is 15°C and cloudy.", mentions=["User"])
+-> send_event("Got weather response. Relaying back to John Doe.", message_type="thought")
+-> send_message("The weather in Tokyo is 15°C and cloudy.", mentions=["John Doe"])
+
+### Follow-up question in same conversation
+[John Doe]: What about London?
+-> send_event("Follow-up weather question. Asking Weather Agent.", message_type="thought")
+-> send_message("What's the weather in London?", mentions=["Weather Agent"])
+
+[Weather Agent]: London is 8°C and rainy.
+-> send_event("Got London weather. Relaying to John Doe.", message_type="thought")
+-> send_message("London is 8°C and rainy.", mentions=["John Doe"])
 """
 
 # Single default template - agent identity + custom section + base instructions

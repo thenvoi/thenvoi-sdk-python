@@ -30,6 +30,7 @@ from .adapter import (
 )
 from .tools import get_thenvoi_tools
 from .graph_tools import graph_as_tool
+from .langchain_tools import agent_tools_to_langchain
 
 __all__ = [
     # Adapter
@@ -39,4 +40,5 @@ __all__ = [
     # Utilities
     "get_thenvoi_tools",
     "graph_as_tool",
+    "agent_tools_to_langchain",
 ]

@@ -29,6 +29,9 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+pydantic-ai = [
+    "pydantic-ai-slim>=1.0.0",
+]
 langgraph = [
     "langchain>=1.0.0",
     "langchain-core>=1.0.0",
@@ -46,6 +49,8 @@ dev = [
     "pytest-mock>=3.10.0",
     "pytest-cov>=4.0.0",
     "httpx>=0.24.0",  # Already in main deps, for mocking
+    # Include pydantic-ai for testing
+    "pydantic-ai-slim>=1.0.0",
     # Include langgraph for testing
     "langchain>=1.0.0",
     "langchain-core>=1.0.0",

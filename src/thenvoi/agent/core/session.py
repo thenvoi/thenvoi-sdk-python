@@ -96,6 +96,10 @@ class AgentSession:
             None  # Last sent to LLM
         )
 
+        # Message retry tracking
+        self._message_attempts: dict[str, int] = {}  # msg_id -> attempt count
+        self._permanently_failed: set[str] = set()  # Messages that exceeded max retries
+
     @property
     def thread_id(self) -> str:
         """
@@ -388,6 +392,14 @@ class AgentSession:
 
                 if ws_head_id is not None and next_msg.id == ws_head_id:
                     # SYNC POINT: Same message in both sources
+                    # Check if permanently failed first
+                    if next_msg.id in self._permanently_failed:
+                        logger.warning(
+                            f"Session {self.room_id}: Sync point message {next_msg.id} permanently failed, breaking sync"
+                        )
+                        self._remove_from_queue_head(next_msg.id)
+                        break
+
                     # Process it once, remove from WebSocket queue, then we're done
                     logger.info(
                         f"Session {self.room_id}: Sync point reached at message {next_msg.id}"
@@ -398,10 +410,24 @@ class AgentSession:
                     break
                 else:
                     # Not synced yet - process this /next message
+                    # But first check if it's permanently failed
+                    if next_msg.id in self._permanently_failed:
+                        logger.warning(
+                            f"Session {self.room_id}: Skipping permanently failed message {next_msg.id}, breaking sync"
+                        )
+                        break
+
                     logger.debug(
                         f"Session {self.room_id}: Processing backlog message {next_msg.id}"
                     )
                     await self._process_message(next_msg)
+
+                    # If message became permanently failed during processing, break sync
+                    if next_msg.id in self._permanently_failed:
+                        logger.warning(
+                            f"Session {self.room_id}: Message {next_msg.id} permanently failed, breaking sync"
+                        )
+                        break
 
         except Exception as e:
             logger.error(f"Session {self.room_id}: Sync error: {e}", exc_info=True)
@@ -453,12 +479,30 @@ class AgentSession:
         """
         Process single message through full lifecycle.
 
-        1. Mark message as processing
-        2. Hydrate context (if first message)
-        3. Create AgentTools for this message
-        4. Call adapter callback with tools
-        5. Mark message as processed (or failed)
+        1. Check if message has exceeded max retries
+        2. Mark message as processing
+        3. Hydrate context (if first message)
+        4. Create AgentTools for this message
+        5. Call adapter callback with tools
+        6. Mark message as processed (or failed)
         """
+        # Skip permanently failed messages
+        if msg.id in self._permanently_failed:
+            logger.debug(f"Skipping permanently failed message {msg.id}")
+            return
+
+        # Track attempts
+        attempts = self._message_attempts.get(msg.id, 0) + 1
+        self._message_attempts[msg.id] = attempts
+
+        if attempts > self.config.max_message_retries:
+            logger.error(
+                f"Message {msg.id} exceeded max retries ({self.config.max_message_retries}), "
+                "marking as permanently failed"
+            )
+            self._permanently_failed.add(msg.id)
+            return
+
         self.state = "processing"
         logger.info(f"Processing message {msg.id} in room {self.room_id}")
 
@@ -477,8 +521,9 @@ class AgentSession:
             # Call the adapter/handler with message and tools
             await self._on_message(msg, tools)
 
-            # Mark as processed
+            # Mark as processed - clear from attempts tracking
             await self._coordinator._mark_processed(msg.id, self.room_id)
+            self._message_attempts.pop(msg.id, None)
             logger.debug(f"Message {msg.id} processed successfully")
 
         except Exception as e:

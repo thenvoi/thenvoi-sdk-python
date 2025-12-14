@@ -27,6 +27,7 @@ from thenvoi.agent.core import (
     SessionConfig,
     render_system_prompt,
 )
+from .langchain_tools import agent_tools_to_langchain
 
 logger = logging.getLogger(__name__)
 
@@ -179,7 +180,7 @@ class LangGraphAdapter:
         )
 
         # Get LangChain tools from AgentTools
-        langchain_tools = tools.to_langchain_tools() + self.additional_tools
+        langchain_tools = agent_tools_to_langchain(tools) + self.additional_tools
 
         # Build or get graph
         if self.graph_factory:

@@ -48,6 +48,7 @@ from .prompts import (
     TEMPLATES,
     render_system_prompt,
 )
+from .tool_definitions import TOOL_MODELS
 
 __all__ = [
     # Core classes
@@ -65,4 +66,6 @@ __all__ = [
     "BASE_INSTRUCTIONS",
     "TEMPLATES",
     "render_system_prompt",
+    # Tool definitions
+    "TOOL_MODELS",
 ]
