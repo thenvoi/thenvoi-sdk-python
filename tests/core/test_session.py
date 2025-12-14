@@ -11,7 +11,7 @@ Tests critical logic:
 import asyncio
 import pytest
 from unittest.mock import AsyncMock, MagicMock
-from datetime import datetime
+from datetime import datetime, timezone
 
 from thenvoi.agent.core.session import AgentSession
 from thenvoi.agent.core.types import PlatformMessage, ConversationContext
@@ -28,7 +28,7 @@ def mock_coordinator():
             room_id="room-123",
             messages=[],
             participants=[],
-            hydrated_at=datetime.utcnow(),
+            hydrated_at=datetime.now(timezone.utc),
         )
     )
     coordinator._mark_processing = AsyncMock()
@@ -178,7 +178,7 @@ class TestGetHistoryForLLM:
                     },
                 ],
                 participants=[],
-                hydrated_at=datetime.utcnow(),
+                hydrated_at=datetime.now(timezone.utc),
             )
         )
 
@@ -201,7 +201,7 @@ class TestGetHistoryForLLM:
                     },
                 ],
                 participants=[],
-                hydrated_at=datetime.utcnow(),
+                hydrated_at=datetime.now(timezone.utc),
             )
         )
 
@@ -224,7 +224,7 @@ class TestGetHistoryForLLM:
                     },
                 ],
                 participants=[],
-                hydrated_at=datetime.utcnow(),
+                hydrated_at=datetime.now(timezone.utc),
             )
         )
 
@@ -259,7 +259,7 @@ class TestGetHistoryForLLM:
                     },
                 ],
                 participants=[],
-                hydrated_at=datetime.utcnow(),
+                hydrated_at=datetime.now(timezone.utc),
             )
         )
 
@@ -282,7 +282,7 @@ class TestGetHistoryForLLM:
                     },
                 ],
                 participants=[],
-                hydrated_at=datetime.utcnow(),
+                hydrated_at=datetime.now(timezone.utc),
             )
         )
 
@@ -363,7 +363,7 @@ class TestEnqueueMessage:
             sender_name="Test User",
             message_type="text",
             metadata={},
-            created_at=datetime.utcnow(),
+            created_at=datetime.now(timezone.utc),
         )
 
         session.enqueue_message(msg)
@@ -382,7 +382,7 @@ class TestEnqueueMessage:
                 sender_name="Test User",
                 message_type="text",
                 metadata={},
-                created_at=datetime.utcnow(),
+                created_at=datetime.now(timezone.utc),
             )
             session.enqueue_message(msg)
 
@@ -498,7 +498,7 @@ class TestSynchronizeWithNext:
             sender_name="User",
             message_type="text",
             metadata={},
-            created_at=datetime.utcnow(),
+            created_at=datetime.now(timezone.utc),
         )
         msg2 = PlatformMessage(
             id="backlog-2",
@@ -509,7 +509,7 @@ class TestSynchronizeWithNext:
             sender_name="User",
             message_type="text",
             metadata={},
-            created_at=datetime.utcnow(),
+            created_at=datetime.now(timezone.utc),
         )
         mock_coordinator._get_next_message = AsyncMock(side_effect=[msg1, msg2, None])
 
@@ -544,7 +544,7 @@ class TestSynchronizeWithNext:
             sender_name="User",
             message_type="text",
             metadata={},
-            created_at=datetime.utcnow(),
+            created_at=datetime.now(timezone.utc),
         )
         backlog_msg2 = PlatformMessage(
             id="backlog-2",
@@ -555,7 +555,7 @@ class TestSynchronizeWithNext:
             sender_name="User",
             message_type="text",
             metadata={},
-            created_at=datetime.utcnow(),
+            created_at=datetime.now(timezone.utc),
         )
         sync_point_msg = PlatformMessage(
             id="sync-point",
@@ -566,7 +566,7 @@ class TestSynchronizeWithNext:
             sender_name="User",
             message_type="text",
             metadata={},
-            created_at=datetime.utcnow(),
+            created_at=datetime.now(timezone.utc),
         )
 
         # WebSocket already has sync-point and a newer message
@@ -579,7 +579,7 @@ class TestSynchronizeWithNext:
             sender_name="User",
             message_type="text",
             metadata={},
-            created_at=datetime.utcnow(),
+            created_at=datetime.now(timezone.utc),
         )
         ws_newer = PlatformMessage(
             id="websocket-new",
@@ -590,7 +590,7 @@ class TestSynchronizeWithNext:
             sender_name="User",
             message_type="text",
             metadata={},
-            created_at=datetime.utcnow(),
+            created_at=datetime.now(timezone.utc),
         )
         session.enqueue_message(ws_sync_point)
         session.enqueue_message(ws_newer)
@@ -632,7 +632,7 @@ class TestSynchronizeWithNext:
             sender_name="User",
             message_type="text",
             metadata={},
-            created_at=datetime.utcnow(),
+            created_at=datetime.now(timezone.utc),
         )
         ws_msg = PlatformMessage(
             id="same-msg",
@@ -643,7 +643,7 @@ class TestSynchronizeWithNext:
             sender_name="User",
             message_type="text",
             metadata={},
-            created_at=datetime.utcnow(),
+            created_at=datetime.now(timezone.utc),
         )
 
         session.enqueue_message(ws_msg)
@@ -715,7 +715,7 @@ class TestProcessingLoop:
             sender_name="User",
             message_type="text",
             metadata={},
-            created_at=datetime.utcnow(),
+            created_at=datetime.now(timezone.utc),
         )
         backlog_msg2 = PlatformMessage(
             id="backlog-2",
@@ -726,7 +726,7 @@ class TestProcessingLoop:
             sender_name="User",
             message_type="text",
             metadata={},
-            created_at=datetime.utcnow(),
+            created_at=datetime.now(timezone.utc),
         )
 
         # WebSocket already has backlog-2 (overlap) and a newer message
@@ -739,7 +739,7 @@ class TestProcessingLoop:
             sender_name="User",
             message_type="text",
             metadata={},
-            created_at=datetime.utcnow(),
+            created_at=datetime.now(timezone.utc),
         )
         ws_new = PlatformMessage(
             id="websocket-1",
@@ -750,7 +750,7 @@ class TestProcessingLoop:
             sender_name="User",
             message_type="text",
             metadata={},
-            created_at=datetime.utcnow(),
+            created_at=datetime.now(timezone.utc),
         )
 
         # Setup: /next returns backlog-1, backlog-2, then None (but we sync on backlog-2)
@@ -800,7 +800,7 @@ class TestProcessingLoop:
             sender_name="User",
             message_type="text",
             metadata={},
-            created_at=datetime.utcnow(),
+            created_at=datetime.now(timezone.utc),
         )
 
         call_count = [0]
@@ -818,7 +818,7 @@ class TestProcessingLoop:
                     sender_name="User",
                     message_type="text",
                     metadata={},
-                    created_at=datetime.utcnow(),
+                    created_at=datetime.now(timezone.utc),
                 )
                 session.enqueue_message(ws_new)
                 return backlog_msg
@@ -861,7 +861,7 @@ class TestProcessingLoop:
             sender_name="User",
             message_type="text",
             metadata={},
-            created_at=datetime.utcnow(),
+            created_at=datetime.now(timezone.utc),
         )
         session.enqueue_message(msg)
         await asyncio.sleep(0.1)  # Let processing happen
@@ -904,7 +904,7 @@ class TestMessageLifecycle:
             sender_name="User",
             message_type="text",
             metadata={},
-            created_at=datetime.utcnow(),
+            created_at=datetime.now(timezone.utc),
         )
 
     async def test_transitions_state_to_processing(self, session, sample_msg):
@@ -1071,7 +1071,7 @@ class TestContextHydration:
                 room_id=room_id,
                 messages=[],
                 participants=[],
-                hydrated_at=datetime.utcnow(),
+                hydrated_at=datetime.now(timezone.utc),
             )
 
         mock_coordinator._get_participants_internal = track_participants
@@ -1087,7 +1087,7 @@ class TestContextHydration:
             room_id="room-123",
             messages=[{"id": "msg-1", "content": "Hello"}],
             participants=[{"id": "user-1", "name": "User"}],
-            hydrated_at=datetime.utcnow(),
+            hydrated_at=datetime.now(timezone.utc),
         )
         mock_coordinator._fetch_context = AsyncMock(return_value=context)
 
@@ -1117,7 +1117,7 @@ class TestContextHydration:
             room_id="room-123",
             messages=[],
             participants=[],
-            hydrated_at=datetime.utcnow(),
+            hydrated_at=datetime.now(timezone.utc),
         )
         mock_coordinator._fetch_context = AsyncMock(return_value=context)
 
@@ -1136,7 +1136,7 @@ class TestContextHydration:
             room_id="room-123",
             messages=[{"id": "cached"}],
             participants=[],
-            hydrated_at=datetime.utcnow(),
+            hydrated_at=datetime.now(timezone.utc),
         )
         session._context_cache = context
 
@@ -1151,13 +1151,13 @@ class TestContextHydration:
             room_id="room-123",
             messages=[{"id": "old"}],
             participants=[],
-            hydrated_at=datetime.utcnow(),
+            hydrated_at=datetime.now(timezone.utc),
         )
         new_context = ConversationContext(
             room_id="room-123",
             messages=[{"id": "new"}],
             participants=[],
-            hydrated_at=datetime.utcnow(),
+            hydrated_at=datetime.now(timezone.utc),
         )
         session._context_cache = old_context
         mock_coordinator._fetch_context = AsyncMock(return_value=new_context)
@@ -1174,7 +1174,7 @@ class TestContextHydration:
         from datetime import timedelta
 
         # Create stale context (older than TTL)
-        stale_time = datetime.utcnow() - timedelta(
+        stale_time = datetime.now(timezone.utc) - timedelta(
             seconds=session.config.context_cache_ttl_seconds + 10
         )
         stale_context = ConversationContext(
@@ -1187,7 +1187,7 @@ class TestContextHydration:
             room_id="room-123",
             messages=[{"id": "fresh"}],
             participants=[],
-            hydrated_at=datetime.utcnow(),
+            hydrated_at=datetime.now(timezone.utc),
         )
         session._context_cache = stale_context
         mock_coordinator._fetch_context = AsyncMock(return_value=fresh_context)

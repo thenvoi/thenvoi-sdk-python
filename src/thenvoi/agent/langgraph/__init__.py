@@ -1,7 +1,7 @@
 """
 LangGraph adapter for Thenvoi platform.
 
-NEW ARCHITECTURE (Recommended):
+Usage:
     from thenvoi.agent.langgraph import LangGraphAdapter, with_langgraph
 
     # With graph_factory (recommended - gets Thenvoi tools)
@@ -19,49 +19,23 @@ NEW ARCHITECTURE (Recommended):
     )
     await adapter.run()
 
-LEGACY API (deprecated but still works):
-    from thenvoi.agent.langgraph import create_langgraph_agent
-
-    agent = await create_langgraph_agent(
-        agent_id=agent_id,
-        api_key=api_key,
-        llm=ChatOpenAI(model="gpt-4o"),
-        checkpointer=InMemorySaver(),
-        ws_url=ws_url,
-        thenvoi_restapi_url=thenvoi_restapi_url,
-    )
-
 Utilities (for custom integration):
     from thenvoi.agent.langgraph import get_thenvoi_tools
 """
 
-# New architecture (recommended)
 from .adapter import (
     LangGraphAdapter,
     LangGraphMCPAdapter,
     with_langgraph,
 )
-
-# Legacy API (deprecated but kept for backwards compatibility)
-from .agent import (
-    create_langgraph_agent,
-    ThenvoiLangGraphAgent,
-    connect_graph_to_platform,
-    ConnectedGraphAgent,
-)
 from .tools import get_thenvoi_tools
 from .graph_tools import graph_as_tool
 
 __all__ = [
-    # New architecture
+    # Adapter
     "LangGraphAdapter",
     "LangGraphMCPAdapter",
     "with_langgraph",
-    # Legacy (deprecated)
-    "create_langgraph_agent",
-    "ThenvoiLangGraphAgent",
-    "connect_graph_to_platform",
-    "ConnectedGraphAgent",
     # Utilities
     "get_thenvoi_tools",
     "graph_as_tool",

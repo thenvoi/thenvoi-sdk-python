@@ -2,21 +2,22 @@
 Smoke tests - verify basic imports and setup work.
 """
 
-from thenvoi.agent.core import ThenvoiPlatformClient, RoomManager
+from thenvoi.agent.core import ThenvoiAgent, AgentSession, AgentTools
 
 
 def test_can_import_core():
     """Verify we can import core modules."""
-    assert ThenvoiPlatformClient is not None
-    assert RoomManager is not None
+    assert ThenvoiAgent is not None
+    assert AgentSession is not None
+    assert AgentTools is not None
 
 
 def test_can_import_langgraph():
     """Verify we can import LangGraph adapter."""
-    from thenvoi.agent.langgraph import ThenvoiLangGraphAgent, create_langgraph_agent
+    from thenvoi.agent.langgraph import LangGraphAdapter, with_langgraph
 
-    assert ThenvoiLangGraphAgent is not None
-    assert create_langgraph_agent is not None
+    assert LangGraphAdapter is not None
+    assert with_langgraph is not None
 
 
 def test_fixtures_work(mock_api_client, mock_websocket, sample_room_message):

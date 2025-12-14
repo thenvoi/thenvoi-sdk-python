@@ -49,17 +49,15 @@ from .prompts import (
     render_system_prompt,
 )
 
-# Legacy exports for backwards compatibility (deprecated)
-from .platform_client import ThenvoiPlatformClient
-from .room_manager import RoomManager
-
 __all__ = [
-    # New architecture
+    # Core classes
     "ThenvoiAgent",
     "AgentSession",
     "AgentTools",
+    # Configuration
     "AgentConfig",
     "SessionConfig",
+    # Data types
     "PlatformMessage",
     "ConversationContext",
     "MessageHandler",
@@ -67,7 +65,4 @@ __all__ = [
     "BASE_INSTRUCTIONS",
     "TEMPLATES",
     "render_system_prompt",
-    # Legacy (deprecated)
-    "ThenvoiPlatformClient",
-    "RoomManager",
 ]
