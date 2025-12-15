@@ -9,13 +9,28 @@ Key fixture pattern:
 - Tests should verify API calls using assert_called_once() and call_args
 """
 
-import pytest
+import os
 from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock
 
+import pytest
+
+from tests.fixtures import factory
 from thenvoi.client.streaming import MessageCreatedPayload, MessageMetadata, Mention
 from thenvoi.core.types import PlatformMessage
-from tests.fixtures import factory
+
+
+def pytest_ignore_collect(collection_path):
+    """Skip integration tests in CI environment.
+
+    GitHub Actions sets CI=true automatically.
+    This allows CI to run unit tests while skipping integration tests
+    that require API credentials.
+    """
+    if os.environ.get("CI") == "true":
+        if "integration" in str(collection_path):
+            return True
+    return False
 
 
 @pytest.fixture
