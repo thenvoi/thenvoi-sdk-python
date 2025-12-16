@@ -81,6 +81,54 @@ CHATEVENTMESSAGETYPE_EXAMPLE = 'tool_call'
 PARTICIPANTROLE_VALUES = ['owner', 'admin', 'member']
 PARTICIPANTROLE_EXAMPLE = 'member'
 
+# ============================================================================
+# User API (human_api) Examples
+# ============================================================================
+
+# UserProfile - User's profile information
+USER_PROFILE = {
+    'id': '7fa85f64-5717-4562-b3fc-2c963f66afa6',
+    'name': 'Test User',
+    'email': 'test@example.com',
+    'inserted_at': '2025-01-15T10:30:00Z',
+    'updated_at': '2025-01-15T14:45:00Z',
+}
+
+# OwnedAgent - Agent owned by a user (for list_my_agents)
+OWNED_AGENT = {
+    'id': '550e8400-e29b-41d4-a716-446655440000',
+    'name': 'Weather Assistant',
+    'description': 'Provides weather updates and forecasts using external APIs',
+    'owner_id': '7fa85f64-5717-4562-b3fc-2c963f66afa6',
+    'is_external': True,
+    'inserted_at': '2025-01-15T10:30:00Z',
+    'updated_at': '2025-01-15T14:45:00Z',
+}
+
+# RegisteredAgent - Response from register_my_agent (includes credentials)
+REGISTERED_AGENT = {
+    'agent': {
+        'id': '660e8400-e29b-41d4-a716-446655440001',
+        'name': 'SDK Test Agent',
+        'description': 'Agent created by SDK integration tests',
+        'owner_id': '7fa85f64-5717-4562-b3fc-2c963f66afa6',
+        'is_external': True,
+        'inserted_at': '2025-01-15T10:30:00Z',
+        'updated_at': '2025-01-15T10:30:00Z',
+    },
+    'credentials': {
+        'api_key': 'thnv_1234567890_TestApiKeyForUnitTests',
+    },
+}
+
+# DeletedAgent - Response from delete_my_agent
+DELETED_AGENT = {
+    'id': '550e8400-e29b-41d4-a716-446655440000',
+    'name': 'Weather Assistant',
+    'description': 'Provides weather updates and forecasts using external APIs',
+    'executions_deleted': 0,
+}
+
 # Combined examples dict for easy access
 EXAMPLES = {
     'AgentMe': AGENTME,
@@ -89,6 +137,10 @@ EXAMPLES = {
     'ChatParticipant': CHATPARTICIPANT,
     'ChatMessage': CHATMESSAGE,
     'ChatEvent': CHATEVENT,
+    'UserProfile': USER_PROFILE,
+    'OwnedAgent': OWNED_AGENT,
+    'RegisteredAgent': REGISTERED_AGENT,
+    'DeletedAgent': DELETED_AGENT,
 }
 
 # fmt: on

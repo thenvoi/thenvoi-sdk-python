@@ -442,3 +442,73 @@ uv sync                     # For base SDK only
 ### Lockfile
 
 This project uses `uv.lock` for reproducible builds.
+
+### Running Tests
+
+#### Unit Tests
+
+Unit tests run without any external dependencies:
+
+```bash
+uv run pytest tests/ --ignore=tests/integration/
+```
+
+#### Integration Tests
+
+Integration tests require a running Thenvoi API server and valid credentials.
+
+**1. Set up test credentials:**
+
+```bash
+cp .env.test.example .env.test
+```
+
+Edit `.env.test` with your credentials:
+
+```bash
+# Server URLs
+THENVOI_BASE_URL=http://localhost:4000
+THENVOI_WS_URL=ws://localhost:4000/api/v1/socket/websocket
+
+# Primary test agent (required for basic tests)
+THENVOI_API_KEY=<your-agent-api-key>
+TEST_AGENT_ID=<agent-uuid>
+
+# Secondary test agent (required for multi-agent tests)
+THENVOI_API_KEY_2=<your-second-agent-api-key>
+TEST_AGENT_ID_2=<second-agent-uuid>
+
+# User API key (required for dynamic agent tests)
+THENVOI_API_KEY_USER=<your-user-api-key>
+```
+
+**Required credentials by test type:**
+
+| Test Type | Required Credentials |
+|-----------|---------------------|
+| Basic agent tests | `THENVOI_API_KEY`, `TEST_AGENT_ID` |
+| Multi-agent tests | Above + `THENVOI_API_KEY_2`, `TEST_AGENT_ID_2` |
+| Dynamic agent tests | Above + `THENVOI_API_KEY_USER` |
+
+**2. Run integration tests:**
+
+```bash
+# Run all integration tests
+uv run pytest tests/integration/ -v
+
+# Run specific test files
+uv run pytest tests/integration/test_smoke.py -v           # Basic connectivity
+uv run pytest tests/integration/test_multi_agent.py -v     # Multi-agent scenarios
+uv run pytest tests/integration/test_dynamic_agent.py -v   # Dynamic agent creation
+
+# Run with output visible
+uv run pytest tests/integration/ -v -s
+```
+
+**3. Run all tests (unit + integration):**
+
+```bash
+uv run pytest tests/ -v
+```
+
+Tests will automatically skip if required credentials are not configured.

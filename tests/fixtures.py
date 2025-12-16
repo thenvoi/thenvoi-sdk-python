@@ -20,7 +20,11 @@ from tests.examples import (
     CHATEVENT,
     CHATPARTICIPANT,
     CHATROOM,
+    DELETED_AGENT,
+    OWNED_AGENT,
     PEER,
+    REGISTERED_AGENT,
+    USER_PROFILE,
 )
 
 
@@ -224,6 +228,88 @@ class MockDataFactory:
         response.meta = meta
         response.model_dump = model_dump
         return response
+
+    # =========================================================================
+    # User API (human_api) Factory Methods
+    # =========================================================================
+
+    @staticmethod
+    def user_profile(
+        id: Optional[str] = None,
+        name: Optional[str] = None,
+        email: Optional[str] = None,
+    ) -> Mock:
+        """Create a mock UserProfile object with OpenAPI example defaults."""
+        return make_pydantic_mock(
+            id=id or USER_PROFILE["id"],
+            name=name or USER_PROFILE["name"],
+            email=email or USER_PROFILE["email"],
+            inserted_at=USER_PROFILE["inserted_at"],
+            updated_at=USER_PROFILE["updated_at"],
+        )
+
+    @staticmethod
+    def owned_agent(
+        id: Optional[str] = None,
+        name: Optional[str] = None,
+        description: Optional[str] = None,
+        owner_id: Optional[str] = None,
+        is_external: bool = True,
+    ) -> Mock:
+        """Create a mock OwnedAgent object for list_my_agents response."""
+        return make_pydantic_mock(
+            id=id or OWNED_AGENT["id"],
+            name=name or OWNED_AGENT["name"],
+            description=description or OWNED_AGENT["description"],
+            owner_id=owner_id or OWNED_AGENT["owner_id"],
+            is_external=is_external,
+            inserted_at=OWNED_AGENT["inserted_at"],
+            updated_at=OWNED_AGENT["updated_at"],
+        )
+
+    @staticmethod
+    def registered_agent(
+        agent_id: Optional[str] = None,
+        name: Optional[str] = None,
+        description: Optional[str] = None,
+        api_key: Optional[str] = None,
+    ) -> Mock:
+        """Create a mock RegisteredAgent response (includes agent and credentials).
+
+        This is the response from register_my_agent - the API key is returned
+        only once and should be stored securely.
+        """
+        agent = make_pydantic_mock(
+            id=agent_id or REGISTERED_AGENT["agent"]["id"],
+            name=name or REGISTERED_AGENT["agent"]["name"],
+            description=description or REGISTERED_AGENT["agent"]["description"],
+            owner_id=REGISTERED_AGENT["agent"]["owner_id"],
+            is_external=REGISTERED_AGENT["agent"]["is_external"],
+            inserted_at=REGISTERED_AGENT["agent"]["inserted_at"],
+            updated_at=REGISTERED_AGENT["agent"]["updated_at"],
+        )
+        credentials = make_pydantic_mock(
+            api_key=api_key or REGISTERED_AGENT["credentials"]["api_key"],
+        )
+        return make_pydantic_mock(
+            agent=agent,
+            credentials=credentials,
+        )
+
+    @staticmethod
+    def deleted_agent(
+        id: Optional[str] = None,
+        name: Optional[str] = None,
+        description: Optional[str] = None,
+        executions_deleted: int = 0,
+    ) -> Mock:
+        """Create a mock DeletedAgent response from delete_my_agent."""
+        return make_pydantic_mock(
+            id=id or DELETED_AGENT["id"],
+            name=name or DELETED_AGENT["name"],
+            description=description or DELETED_AGENT["description"],
+            executions_deleted=executions_deleted,
+        )
 
 
 # Singleton factory instance for convenience

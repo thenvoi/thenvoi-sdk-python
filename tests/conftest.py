@@ -78,10 +78,54 @@ def mock_agent_api() -> MagicMock:
 
 
 @pytest.fixture
-def mock_api_client(mock_agent_api: MagicMock) -> AsyncMock:
-    """Create a mocked AsyncRestClient with agent_api attached.
+def mock_human_api() -> MagicMock:
+    """Create a mocked human_api with all methods stubbed.
 
-    Uses the explicit mock_agent_api fixture to ensure API calls are verified.
+    This is an explicit MagicMock for the User API (human_api namespace).
+    Tests must set up return values for methods they want to call.
+
+    Available methods:
+    - get_my_profile() - User's profile
+    - list_my_agents() - List owned agents
+    - register_my_agent() - Register new agent (returns API key)
+    - delete_my_agent() - Delete an agent
+    - list_my_chats() - List user's chat rooms
+    - create_my_chat_room() - Create new chat room
+    - etc.
+    """
+    human_api = MagicMock()
+
+    # Profile
+    human_api.get_my_profile.return_value = factory.response(factory.user_profile())
+
+    # Agents
+    human_api.list_my_agents.return_value = factory.list_response(
+        [factory.owned_agent()]
+    )
+    human_api.register_my_agent.return_value = factory.response(
+        factory.registered_agent()
+    )
+    human_api.delete_my_agent.return_value = factory.response(factory.deleted_agent())
+
+    # Chats (similar to agent_api)
+    human_api.list_my_chats.return_value = factory.list_response(
+        [factory.chat_room(id="room-1")]
+    )
+    human_api.create_my_chat_room.return_value = factory.response(factory.chat_room())
+    human_api.get_my_chat_room.return_value = factory.response(factory.chat_room())
+    human_api.list_my_chat_participants.return_value = factory.list_response(
+        [factory.chat_participant()]
+    )
+    human_api.list_my_peers.return_value = factory.list_response([factory.peer()])
+
+    return human_api
+
+
+@pytest.fixture
+def mock_api_client(mock_agent_api: MagicMock, mock_human_api: MagicMock) -> AsyncMock:
+    """Create a mocked AsyncRestClient with both agent_api and human_api attached.
+
+    Uses explicit mock fixtures to ensure API calls are verified.
 
     Usage:
         async def test_something(mock_api_client, mock_agent_api):
@@ -93,9 +137,17 @@ def mock_api_client(mock_agent_api: MagicMock) -> AsyncMock:
 
             # Verify the correct API was called
             mock_agent_api.get_agent_me.assert_called_once()
+
+        async def test_user_api(mock_api_client, mock_human_api):
+            # Set up user API return value
+            mock_human_api.list_my_agents.return_value = factory.list_response([...])
+
+            # Verify user API calls
+            mock_human_api.register_my_agent.assert_called_once()
     """
     client = AsyncMock()
     client.agent_api = mock_agent_api
+    client.human_api = mock_human_api
     return client
 
 

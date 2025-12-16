@@ -12,13 +12,16 @@ from tests.conftest_integration import (
     get_base_url,
     get_test_agent_id,
     get_test_agent_id_2,
+    get_user_api_key,
     get_ws_url,
     integration_settings,
     requires_api,
     requires_multi_agent,
+    requires_user_api,
     test_chat,
     test_peer_id,
     test_settings,
+    user_api_client,
 )
 
 __all__ = [
@@ -29,11 +32,14 @@ __all__ = [
     "get_base_url",
     "get_test_agent_id",
     "get_test_agent_id_2",
+    "get_user_api_key",
     "get_ws_url",
     "integration_settings",
     "requires_api",
     "requires_multi_agent",
+    "requires_user_api",
     "test_chat",
     "test_peer_id",
     "test_settings",
+    "user_api_client",
 ]

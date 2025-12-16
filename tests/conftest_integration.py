@@ -31,6 +31,9 @@ class TestSettings(BaseSettings):
     thenvoi_api_key_2: str = ""
     test_agent_id_2: str = ""
 
+    # User API key - for dynamic agent creation/deletion
+    thenvoi_api_key_user: str = ""
+
     # Server URLs
     thenvoi_base_url: str = "http://localhost:4000"
     thenvoi_ws_url: str = "ws://localhost:4000/api/v1/socket/websocket"
@@ -52,6 +55,10 @@ def get_api_key() -> str | None:
 
 def get_api_key_2() -> str | None:
     return test_settings.thenvoi_api_key_2 or None
+
+
+def get_user_api_key() -> str | None:
+    return test_settings.thenvoi_api_key_user or None
 
 
 def get_base_url() -> str:
@@ -81,6 +88,12 @@ requires_multi_agent = pytest.mark.skipif(
     reason="Both THENVOI_API_KEY and THENVOI_API_KEY_2 required for multi-agent tests",
 )
 
+# Skip marker for user API tests (requires user API key)
+requires_user_api = pytest.mark.skipif(
+    not get_user_api_key(),
+    reason="THENVOI_API_KEY_USER environment variable not set",
+)
+
 
 @pytest.fixture
 def api_client() -> AsyncRestClient | None:
@@ -106,6 +119,27 @@ def api_client_2() -> AsyncRestClient | None:
     Returns None if THENVOI_API_KEY_2 is not set.
     """
     api_key = get_api_key_2()
+    if not api_key:
+        return None
+
+    return AsyncRestClient(
+        api_key=api_key,
+        base_url=get_base_url(),
+    )
+
+
+@pytest.fixture
+def user_api_client() -> AsyncRestClient | None:
+    """Create a real async API client with user API key.
+
+    This client uses the User API (human_api) for operations like:
+    - Registering new agents
+    - Listing owned agents
+    - Deleting agents
+
+    Returns None if THENVOI_API_KEY_USER is not set.
+    """
+    api_key = get_user_api_key()
     if not api_key:
         return None
 
