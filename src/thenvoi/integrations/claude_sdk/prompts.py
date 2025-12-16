@@ -7,12 +7,14 @@ instructions appended for multi-participant chat room behavior.
 
 from __future__ import annotations
 
+from claude_agent_sdk.types import SystemPromptPreset
+
 
 def generate_claude_sdk_agent_prompt(
     agent_name: str,
     agent_description: str = "An AI assistant",
     custom_section: str | None = None,
-) -> dict:
+) -> SystemPromptPreset:
     """
     Generate system prompt for Claude SDK agent on Thenvoi platform.
 
@@ -140,4 +142,6 @@ Action: mcp__thenvoi__send_message
 {custom_text}
 """
 
-    return {"type": "preset", "preset": "claude_code", "append": thenvoi_instructions}
+    return SystemPromptPreset(
+        type="preset", preset="claude_code", append=thenvoi_instructions
+    )

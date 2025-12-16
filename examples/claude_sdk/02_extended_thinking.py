@@ -33,7 +33,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from setup_logging import setup_logging
-from thenvoi_claude_sdk_agent import ThenvoiClaudeSDKAgent
+from thenvoi.integrations.claude_sdk import ThenvoiClaudeSDKAgent
 
 
 async def main():

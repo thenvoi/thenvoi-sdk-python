@@ -14,7 +14,7 @@ import os
 from dotenv import load_dotenv
 
 from setup_logging import setup_logging
-from thenvoi_anthropic_agent import ThenvoiAnthropicAgent
+from thenvoi.integrations.anthropic import ThenvoiAnthropicAgent
 from thenvoi.config import load_agent_config
 
 setup_logging()

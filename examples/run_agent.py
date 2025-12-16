@@ -30,19 +30,10 @@ import argparse
 import asyncio
 import logging
 import os
-import sys
-from pathlib import Path
 
 from dotenv import load_dotenv
 
-# Add examples directories to path for agent imports
-examples_root = Path(__file__).parent
-sys.path.insert(0, str(examples_root / "langgraph"))
-sys.path.insert(0, str(examples_root / "pydantic_ai"))
-sys.path.insert(0, str(examples_root / "anthropic"))
-sys.path.insert(0, str(examples_root / "claude_sdk"))
-
-from thenvoi.config import load_agent_config  # noqa: E402
+from thenvoi.config import load_agent_config
 
 # Load environment from .env
 load_dotenv()
@@ -88,7 +79,7 @@ async def run_langgraph_agent(
     logger: logging.Logger,
 ):
     """Run the LangGraph agent."""
-    from thenvoi_langgraph_agent import ThenvoiLangGraphAgent
+    from thenvoi.integrations.langgraph import ThenvoiLangGraphAgent
 
     agent = ThenvoiLangGraphAgent(
         graph_factory=create_langgraph_factory(),
@@ -114,7 +105,7 @@ async def run_pydantic_ai_agent(
     logger: logging.Logger,
 ):
     """Run the Pydantic AI agent."""
-    from thenvoi_pydantic_agent import ThenvoiPydanticAgent
+    from thenvoi.integrations.pydantic_ai import ThenvoiPydanticAgent
 
     agent = ThenvoiPydanticAgent(
         model=model,
@@ -139,7 +130,7 @@ async def run_anthropic_agent(
     logger: logging.Logger,
 ):
     """Run the Anthropic SDK agent."""
-    from thenvoi_anthropic_agent import ThenvoiAnthropicAgent
+    from thenvoi.integrations.anthropic import ThenvoiAnthropicAgent
 
     agent = ThenvoiAnthropicAgent(
         model=model,
@@ -165,7 +156,7 @@ async def run_claude_sdk_agent(
     logger: logging.Logger,
 ):
     """Run the Claude Agent SDK agent."""
-    from thenvoi_claude_sdk_agent import ThenvoiClaudeSDKAgent
+    from thenvoi.integrations.claude_sdk import ThenvoiClaudeSDKAgent
 
     agent = ThenvoiClaudeSDKAgent(
         model=model,

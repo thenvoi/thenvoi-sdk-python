@@ -79,19 +79,29 @@ def render_system_prompt(
     agent_description: str = "An AI assistant",
     custom_section: str = "",
     template: str = "default",
+    include_base_instructions: bool = True,
 ) -> str:
     """
-    Render system prompt: agent identity + custom section + base instructions.
+    Render system prompt: agent identity + custom section + optionally base instructions.
 
     Args:
         agent_name: Agent's name
         agent_description: Agent's description
         custom_section: User's custom instructions
         template: Template name (default: "default")
+        include_base_instructions: Whether to include SDK's BASE_INSTRUCTIONS.
+                                   Set False if providing fully custom behavior.
 
     Returns:
         Rendered system prompt
     """
+    if not include_base_instructions:
+        # Return minimal prompt without opinionated BASE_INSTRUCTIONS
+        return f"""You are {agent_name}, {agent_description}.
+
+{custom_section}
+""".strip()
+
     template_str = TEMPLATES.get(template, TEMPLATES["default"])
     return template_str.format(
         agent_name=agent_name,

@@ -120,6 +120,57 @@ In a future update, we'll add an example showing connection to a real Thenvoi MC
 - Real-time platform integration
 - Reduced latency
 
+## Docker Usage
+
+You can run the examples using Docker without installing Node.js or Python dependencies locally.
+
+### Using Docker Compose (Recommended)
+
+```bash
+# Navigate to the claude_sdk example directory
+cd examples/claude_sdk
+
+# Set environment variables (or use .env file)
+export THENVOI_AGENT_ID="your-agent-id"
+export THENVOI_API_KEY="your-api-key"
+export ANTHROPIC_API_KEY="your-anthropic-api-key"
+
+# Run the basic agent
+docker compose up 01-basic
+
+# Run the extended thinking example
+docker compose up 02-extended-thinking
+```
+
+### Using Docker Directly
+
+```bash
+# Build from project root
+docker build -f examples/claude_sdk/Dockerfile -t claude-sdk-example .
+
+# Run the basic agent
+docker run --rm \
+  -e THENVOI_AGENT_ID="your-agent-id" \
+  -e THENVOI_API_KEY="your-api-key" \
+  -e ANTHROPIC_API_KEY="your-anthropic-api-key" \
+  -e THENVOI_REST_API_URL="${THENVOI_REST_API_URL:-}" \
+  -e THENVOI_WS_URL="${THENVOI_WS_URL:-}" \
+  claude-sdk-example
+
+# Run extended thinking example
+docker run --rm \
+  -e THENVOI_AGENT_ID="your-agent-id" \
+  -e THENVOI_API_KEY="your-api-key" \
+  -e ANTHROPIC_API_KEY="your-anthropic-api-key" \
+  claude-sdk-example \
+  uv run --extra claude_sdk python examples/claude_sdk/02_extended_thinking.py
+```
+
+The Dockerfile automatically installs:
+- Node.js 20+
+- Claude Code CLI (`@anthropic-ai/claude-code`)
+- Python dependencies with `claude_sdk` extras
+
 ## Troubleshooting
 
 ### "claude: command not found"
@@ -128,11 +179,15 @@ Install the Claude Code CLI:
 npm install -g @anthropic-ai/claude-code
 ```
 
+Or use Docker (see [Docker Usage](#docker-usage) above).
+
 ### "ModuleNotFoundError: No module named 'claude_agent_sdk'"
 Install the claude_sdk extras:
 ```bash
 pip install thenvoi[claude_sdk]
 ```
+
+Or use Docker (see [Docker Usage](#docker-usage) above).
 
 ### Session not found for room
 Ensure the agent is properly connected to the Thenvoi platform and has joined the room.

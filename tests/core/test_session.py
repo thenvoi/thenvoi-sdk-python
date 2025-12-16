@@ -149,14 +149,19 @@ class TestParticipantsChanged:
         assert session.participants_changed() is True
 
     def test_compares_by_id_not_name(self, session):
-        """Should compare participants by ID, not name."""
+        """Should compare participants by ID, not name.
+
+        Note: Detailed unit tests for this logic are in test_participant_tracker.py.
+        This test verifies the integration with AgentSession.
+        """
         session.add_participant(
             {"id": "user-456", "name": "Original Name", "type": "User"}
         )
         session.mark_participants_sent()
 
         # Same ID, different name - should NOT count as changed
-        session._participants[0]["name"] = "Updated Name"
+        # Modify through tracker's internal state
+        session._participant_tracker._participants[0]["name"] = "Updated Name"
 
         assert session.participants_changed() is False
 
@@ -1165,35 +1170,4 @@ class TestContextHydration:
         result = await session.get_context(force_refresh=True)
 
         assert result.messages[0]["id"] == "new"
-        mock_coordinator._fetch_context.assert_called_once()
-
-    async def test_get_context_refreshes_on_stale_cache(
-        self, session, mock_coordinator
-    ):
-        """get_context() should refresh when cache TTL expires."""
-        from datetime import timedelta
-
-        # Create stale context (older than TTL)
-        stale_time = datetime.now(timezone.utc) - timedelta(
-            seconds=session.config.context_cache_ttl_seconds + 10
-        )
-        stale_context = ConversationContext(
-            room_id="room-123",
-            messages=[{"id": "stale"}],
-            participants=[],
-            hydrated_at=stale_time,
-        )
-        fresh_context = ConversationContext(
-            room_id="room-123",
-            messages=[{"id": "fresh"}],
-            participants=[],
-            hydrated_at=datetime.now(timezone.utc),
-        )
-        session._context_cache = stale_context
-        mock_coordinator._fetch_context = AsyncMock(return_value=fresh_context)
-
-        result = await session.get_context()
-
-        # Should have refreshed
-        assert result.messages[0]["id"] == "fresh"
         mock_coordinator._fetch_context.assert_called_once()

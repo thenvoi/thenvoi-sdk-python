@@ -15,19 +15,20 @@ from pydantic_ai.messages import (
     TextPart,
 )
 
+from thenvoi.agents import BaseFrameworkAgent
 from thenvoi.core import (
-    ThenvoiAgent,
     PlatformMessage,
     AgentTools,
     AgentConfig,
     SessionConfig,
     render_system_prompt,
 )
+from thenvoi.core.session import AgentSession
 
 logger = logging.getLogger(__name__)
 
 
-class ThenvoiPydanticAgent:
+class ThenvoiPydanticAgent(BaseFrameworkAgent):
     """
     Pydantic AI adapter for Thenvoi platform.
 
@@ -67,11 +68,7 @@ class ThenvoiPydanticAgent:
         config: AgentConfig | None = None,
         session_config: SessionConfig | None = None,
     ):
-        self.model = model
-        self.system_prompt = system_prompt
-        self.custom_section = custom_section
-
-        self.thenvoi = ThenvoiAgent(
+        super().__init__(
             agent_id=agent_id,
             api_key=api_key,
             ws_url=ws_url,
@@ -80,32 +77,23 @@ class ThenvoiPydanticAgent:
             session_config=session_config,
         )
 
+        self.model = model
+        self.system_prompt = system_prompt
+        self.custom_section = custom_section
+
         self._agent: Agent[AgentTools, None] | None = None
-        self._agent_name: str | None = None
         # Conversation history per room (Pydantic AI is stateless, we maintain state)
         self._message_history: dict[str, list] = {}
 
-    async def start(self):
-        """Start the adapter and begin processing messages."""
-        # Register cleanup callback for when agent leaves rooms
-        self.thenvoi._on_session_cleanup = self._cleanup_session
-        await self.thenvoi.start(on_message=self._handle_message)
-        # Cache agent name after start (use public property)
-        self._agent_name = self.thenvoi.agent_name
-
-    async def stop(self):
-        """Stop the adapter."""
-        await self.thenvoi.stop()
-
-    async def run(self):
-        """Start and run until interrupted."""
-        await self.start()
-        await self.thenvoi.run()
+    async def _on_started(self) -> None:
+        """Create the Pydantic AI agent after metadata is fetched."""
+        self._agent = self._create_agent()
+        logger.info(f"Pydantic AI adapter started for agent: {self.agent_name}")
 
     def _create_agent(self) -> Agent[AgentTools, None]:
         """Create Pydantic AI Agent with platform tools."""
         system = self.system_prompt or render_system_prompt(
-            agent_name=self._agent_name or "Agent",
+            agent_name=self.agent_name,
             custom_section=self.custom_section or "",
         )
 
@@ -231,42 +219,44 @@ class ThenvoiPydanticAgent:
 
         return agent
 
-    async def _handle_message(self, msg: PlatformMessage, tools: AgentTools):
+    async def _handle_message(
+        self,
+        msg: PlatformMessage,
+        tools: AgentTools,
+        session: AgentSession,
+        history: list[dict[str, Any]] | None,
+        participants_msg: str | None,
+    ) -> None:
         """Handle incoming platform message."""
-        # Lazy-create agent on first message
         if self._agent is None:
+            # Safety: create agent if not yet created (should be done in _on_started)
             self._agent = self._create_agent()
 
         room_id = msg.room_id
-        session = self.thenvoi.active_sessions.get(room_id)
+        is_first_message = history is not None
 
-        # Initialize message history for this room if needed
-        is_first_message = room_id not in self._message_history
-
+        # Initialize message history for this room on first message
         if is_first_message:
+            if history:
+                self._message_history[room_id] = self._convert_platform_history(history)
+                logger.debug(
+                    f"Room {room_id}: Converted {len(history)} platform messages "
+                    f"to {len(self._message_history[room_id])} Pydantic AI messages"
+                )
+            else:
+                self._message_history[room_id] = []
+        elif room_id not in self._message_history:
+            # Safety: ensure history exists even if not first message
             self._message_history[room_id] = []
 
-            # On first message in room, load platform history and convert to
-            # proper Pydantic AI message objects
-            if session:
-                try:
-                    platform_history = await session.get_history_for_llm(
-                        exclude_message_id=msg.id
-                    )
-                    if platform_history:
-                        pydantic_messages = self._convert_platform_history(
-                            platform_history
-                        )
-                        self._message_history[room_id] = pydantic_messages
-                        logger.debug(
-                            f"Room {room_id}: Converted {len(platform_history)} "
-                            f"platform messages to {len(pydantic_messages)} "
-                            "Pydantic AI messages"
-                        )
-                except Exception as e:
-                    logger.warning(f"Room {room_id}: Failed to load history: {e}")
-
-                session.mark_llm_initialized()
+        # Inject participants message if changed
+        if participants_msg:
+            self._message_history[room_id].append(
+                ModelRequest(
+                    parts=[UserPromptPart(content=f"[System]: {participants_msg}")]
+                )
+            )
+            logger.debug(f"Room {room_id}: Injected participant update into history")
 
         # Build user message with sender prefix
         user_message = msg.format_for_llm()

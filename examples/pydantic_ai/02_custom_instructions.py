@@ -13,7 +13,7 @@ import os
 from dotenv import load_dotenv
 
 from setup_logging import setup_logging
-from thenvoi_pydantic_agent import ThenvoiPydanticAgent
+from thenvoi.integrations.pydantic_ai import ThenvoiPydanticAgent
 from thenvoi.config import load_agent_config
 
 setup_logging()

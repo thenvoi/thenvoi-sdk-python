@@ -13,24 +13,25 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Any
+from typing import Any, cast
 
 from anthropic import AsyncAnthropic
-from anthropic.types import Message, ToolUseBlock
+from anthropic.types import Message, MessageParam, ToolParam, ToolUseBlock
 
+from thenvoi.agents import BaseFrameworkAgent
 from thenvoi.core import (
-    ThenvoiAgent,
     AgentTools,
     AgentConfig,
     PlatformMessage,
     SessionConfig,
     render_system_prompt,
 )
+from thenvoi.core.session import AgentSession
 
 logger = logging.getLogger(__name__)
 
 
-class ThenvoiAnthropicAgent:
+class ThenvoiAnthropicAgent(BaseFrameworkAgent):
     """
     Anthropic SDK adapter for Thenvoi platform.
 
@@ -83,6 +84,15 @@ class ThenvoiAnthropicAgent:
         config: AgentConfig | None = None,
         session_config: SessionConfig | None = None,
     ):
+        super().__init__(
+            agent_id=agent_id,
+            api_key=api_key,
+            ws_url=ws_url,
+            rest_url=rest_url,
+            config=config,
+            session_config=session_config,
+        )
+
         self.model = model
         self.system_prompt = system_prompt
         self.custom_section = custom_section
@@ -92,16 +102,6 @@ class ThenvoiAnthropicAgent:
         # Anthropic client (uses ANTHROPIC_API_KEY env var if not provided)
         self.client = AsyncAnthropic(api_key=anthropic_api_key)
 
-        # Thenvoi coordinator
-        self.thenvoi = ThenvoiAgent(
-            agent_id=agent_id,
-            api_key=api_key,
-            ws_url=ws_url,
-            rest_url=rest_url,
-            config=config,
-            session_config=session_config,
-        )
-
         # Per-room conversation history (Anthropic SDK is stateless)
         self._message_history: dict[str, list[dict[str, Any]]] = {}
         # Rendered system prompt (set after start)
@@ -109,39 +109,23 @@ class ThenvoiAnthropicAgent:
         # Max tool iterations to prevent infinite loops
         self._max_tool_iterations = 10
 
-    @property
-    def agent_name(self) -> str:
-        """Get agent name from Thenvoi coordinator."""
-        return self.thenvoi.agent_name
-
-    async def start(self) -> None:
-        """Start the adapter and begin processing messages."""
-        # Register cleanup callback
-        self.thenvoi._on_session_cleanup = self._cleanup_session
-        await self.thenvoi.start(on_message=self._handle_message)
-
-        # Render system prompt with agent info
+    async def _on_started(self) -> None:
+        """Render system prompt after agent metadata is fetched."""
         self._system_prompt = self.system_prompt or render_system_prompt(
-            agent_name=self.thenvoi.agent_name,
-            agent_description=self.thenvoi.agent_description,
+            agent_name=self.agent_name,
+            agent_description=self.agent_description,
             custom_section=self.custom_section or "",
         )
+        logger.info(f"Anthropic adapter started for agent: {self.agent_name}")
 
-        logger.info(f"Anthropic adapter started for agent: {self.thenvoi.agent_name}")
-
-    async def stop(self) -> None:
-        """Stop the adapter."""
-        await self.thenvoi.stop()
-
-    async def run(self) -> None:
-        """Start and run until interrupted."""
-        await self.start()
-        try:
-            await self.thenvoi.run()
-        finally:
-            await self.stop()
-
-    async def _handle_message(self, msg: PlatformMessage, tools: AgentTools) -> None:
+    async def _handle_message(
+        self,
+        msg: PlatformMessage,
+        tools: AgentTools,
+        session: AgentSession,
+        history: list[dict[str, Any]] | None,
+        participants_msg: str | None,
+    ) -> None:
         """
         Handle incoming message.
 
@@ -152,70 +136,26 @@ class ThenvoiAnthropicAgent:
         - Tool loop runs until no more tool_use blocks
         """
         room_id = msg.room_id
+        is_first_message = history is not None
 
         logger.debug(f"Handling message {msg.id} in room {room_id}")
 
-        # Get session for this room
-        session = self.thenvoi.active_sessions.get(room_id)
-        if not session:
-            logger.error(f"No session for room {room_id}")
-            return
-
-        # Check session state
-        is_first_message = room_id not in self._message_history
-        participants_changed = session.participants_changed()
-
-        logger.debug(
-            f"Room {room_id}: is_first_message={is_first_message}, "
-            f"participants_changed={participants_changed}"
-        )
-
-        # Initialize history for this room
+        # Initialize history for this room on first message
         if is_first_message:
+            if history:
+                self._message_history[room_id] = self._convert_platform_history(history)
+                logger.info(
+                    f"Room {room_id}: Loaded {len(history)} historical messages"
+                )
+            else:
+                self._message_history[room_id] = []
+                logger.info(f"Room {room_id}: No historical messages found")
+        elif room_id not in self._message_history:
+            # Safety: ensure history exists even if not first message
             self._message_history[room_id] = []
 
-            # Load platform history
-            try:
-                logger.info(
-                    f"Room {room_id}: Loading platform history (first message)..."
-                )
-                platform_history = await session.get_history_for_llm(
-                    exclude_message_id=msg.id
-                )
-                logger.info(
-                    f"Room {room_id}: Platform returned {len(platform_history) if platform_history else 0} messages"
-                )
-                if platform_history:
-                    converted = self._convert_platform_history(platform_history)
-                    self._message_history[room_id] = converted
-                    logger.info(
-                        f"Room {room_id}: Loaded {len(platform_history)} historical messages"
-                    )
-                    # Log first few messages for debugging
-                    for i, h in enumerate(platform_history[:3]):
-                        logger.debug(
-                            f"  History[{i}]: role={h.get('role')}, "
-                            f"sender={h.get('sender_name')}, "
-                            f"content={h.get('content', '')[:50]}..."
-                        )
-                else:
-                    logger.info(f"Room {room_id}: No historical messages found")
-            except Exception as e:
-                logger.warning(
-                    f"Room {room_id}: Failed to load history: {e}", exc_info=True
-                )
-
-            session.mark_llm_initialized()
-        else:
-            # Not first message - using existing in-memory history
-            logger.info(
-                f"Room {room_id}: Using existing history "
-                f"({len(self._message_history.get(room_id, []))} messages in memory)"
-            )
-
         # Inject participants message if changed
-        if participants_changed:
-            participants_msg = session.build_participants_message()
+        if participants_msg:
             self._message_history[room_id].append(
                 {
                     "role": "user",
@@ -226,7 +166,6 @@ class ThenvoiAnthropicAgent:
                 f"Room {room_id}: Participants updated: "
                 f"{[p.get('name') for p in session.participants]}"
             )
-            session.mark_participants_sent()
 
         # Add current message
         user_message = msg.format_for_llm()
@@ -237,14 +176,14 @@ class ThenvoiAnthropicAgent:
             }
         )
 
-        # Log message count - this is important for debugging hydration
+        # Log message count
         total_messages = len(self._message_history[room_id])
         logger.info(
             f"Room {room_id}: Calling Anthropic with {total_messages} messages "
             f"(first_msg={is_first_message})"
         )
 
-        # Get tool schemas
+        # Get tool schemas in Anthropic format
         tool_schemas = tools.get_tool_schemas("anthropic")
 
         # Tool loop
@@ -311,7 +250,7 @@ class ThenvoiAnthropicAgent:
     async def _call_anthropic(
         self,
         messages: list[dict[str, Any]],
-        tools: list[dict[str, Any]],
+        tools: list[ToolParam],
     ) -> Message:
         """
         Call Anthropic API with messages and tools.
@@ -327,7 +266,7 @@ class ThenvoiAnthropicAgent:
             model=self.model,
             max_tokens=self.max_tokens,
             system=self._system_prompt,
-            messages=messages,
+            messages=cast(list[MessageParam], messages),
             tools=tools,
         )
 
@@ -463,17 +402,6 @@ class ThenvoiAnthropicAgent:
                 messages.append({"role": "user", "content": formatted})
 
         return messages
-
-    async def _report_error(self, tools: AgentTools, error: str) -> None:
-        """Report an error via send_event."""
-        try:
-            await tools.send_event(
-                content=f"Error: {error}",
-                message_type="error",
-                metadata={"error_type": "anthropic_api_error"},
-            )
-        except Exception:
-            pass  # Best effort
 
     async def _cleanup_session(self, room_id: str) -> None:
         """Clean up message history when agent leaves a room."""

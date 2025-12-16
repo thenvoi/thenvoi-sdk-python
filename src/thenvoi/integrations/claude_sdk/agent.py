@@ -17,7 +17,7 @@ Architecture:
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import Any, Literal
 
 try:
     from claude_agent_sdk import (
@@ -37,22 +37,23 @@ except ImportError as e:
         "Or: uv add claude-agent-sdk"
     ) from e
 
+from thenvoi.agents import BaseFrameworkAgent
 from thenvoi.core import (
-    ThenvoiAgent,
     AgentTools,
     AgentConfig,
     PlatformMessage,
     SessionConfig,
 )
+from thenvoi.core.session import AgentSession
 
-from session_manager import ClaudeSessionManager
-from prompts import generate_claude_sdk_agent_prompt
-from tools import create_thenvoi_mcp_server, THENVOI_TOOLS
+from .session_manager import ClaudeSessionManager
+from .prompts import generate_claude_sdk_agent_prompt
+from .tools import create_thenvoi_mcp_server, THENVOI_TOOLS
 
 logger = logging.getLogger(__name__)
 
 
-class ThenvoiClaudeSDKAgent:
+class ThenvoiClaudeSDKAgent(BaseFrameworkAgent):
     """
     Claude Agent SDK adapter for Thenvoi platform.
 
@@ -92,6 +93,8 @@ class ThenvoiClaudeSDKAgent:
         npm install -g @anthropic-ai/claude-code
     """
 
+    PermissionMode = Literal["default", "acceptEdits", "plan", "bypassPermissions"]
+
     def __init__(
         self,
         model: str = "claude-sonnet-4-5-20250929",
@@ -99,19 +102,13 @@ class ThenvoiClaudeSDKAgent:
         api_key: str = "",
         custom_section: str | None = None,
         max_thinking_tokens: int | None = None,
-        permission_mode: str = "acceptEdits",
+        permission_mode: PermissionMode = "acceptEdits",
         ws_url: str = "wss://api.thenvoi.com/ws",
         rest_url: str = "https://api.thenvoi.com",
         config: AgentConfig | None = None,
         session_config: SessionConfig | None = None,
     ):
-        self.model = model
-        self.custom_section = custom_section
-        self.max_thinking_tokens = max_thinking_tokens
-        self.permission_mode = permission_mode
-
-        # Thenvoi coordinator
-        self.thenvoi = ThenvoiAgent(
+        super().__init__(
             agent_id=agent_id,
             api_key=api_key,
             ws_url=ws_url,
@@ -120,28 +117,24 @@ class ThenvoiClaudeSDKAgent:
             session_config=session_config,
         )
 
+        self.model = model
+        self.custom_section = custom_section
+        self.max_thinking_tokens = max_thinking_tokens
+        self.permission_mode: ThenvoiClaudeSDKAgent.PermissionMode = permission_mode
+
         # Session manager and MCP server (created after start)
         self._session_manager: ClaudeSessionManager | None = None
         self._mcp_server = None
 
-    @property
-    def agent_name(self) -> str:
-        """Get agent name from Thenvoi coordinator."""
-        return self.thenvoi.agent_name
-
-    async def start(self) -> None:
-        """Start the adapter and begin processing messages."""
-        # Register cleanup callback
-        self.thenvoi._on_session_cleanup = self._cleanup_session
-        await self.thenvoi.start(on_message=self._handle_message)
-
+    async def _on_started(self) -> None:
+        """Create MCP server and session manager after agent metadata is fetched."""
         # Create MCP server with coordinator (tools call coordinator methods)
         self._mcp_server = create_thenvoi_mcp_server(self.thenvoi)
 
         # Generate system prompt with agent info
         system_prompt = generate_claude_sdk_agent_prompt(
-            agent_name=self.thenvoi.agent_name,
-            agent_description=self.thenvoi.agent_description,
+            agent_name=self.agent_name,
+            agent_description=self.agent_description,
             custom_section=self.custom_section,
         )
 
@@ -162,25 +155,24 @@ class ThenvoiClaudeSDKAgent:
         self._session_manager = ClaudeSessionManager(sdk_options)
 
         logger.info(
-            f"Claude SDK adapter started for agent: {self.thenvoi.agent_name} "
+            f"Claude SDK adapter started for agent: {self.agent_name} "
             f"(model={self.model}, thinking={self.max_thinking_tokens})"
         )
 
     async def stop(self) -> None:
-        """Stop the adapter."""
+        """Stop the adapter and cleanup session manager."""
         if self._session_manager:
             await self._session_manager.cleanup_all()
-        await self.thenvoi.stop()
+        await super().stop()
 
-    async def run(self) -> None:
-        """Start and run until interrupted."""
-        await self.start()
-        try:
-            await self.thenvoi.run()
-        finally:
-            await self.stop()
-
-    async def _handle_message(self, msg: PlatformMessage, tools: AgentTools) -> None:
+    async def _handle_message(
+        self,
+        msg: PlatformMessage,
+        tools: AgentTools,
+        session: AgentSession,
+        history: list[dict[str, Any]] | None,
+        participants_msg: str | None,
+    ) -> None:
         """
         Handle incoming message.
 
@@ -189,6 +181,7 @@ class ThenvoiClaudeSDKAgent:
         - Stream response and log events (tools execute via MCP)
         """
         room_id = msg.room_id
+        is_first_message = history is not None
 
         logger.debug(f"Handling message {msg.id} in room {room_id}")
 
@@ -196,23 +189,8 @@ class ThenvoiClaudeSDKAgent:
             logger.error("Session manager not initialized")
             return
 
-        # Get session for this room
-        session = self.thenvoi.active_sessions.get(room_id)
-        if not session:
-            logger.error(f"No session for room {room_id}")
-            return
-
         # Get or create Claude SDK client for this room
         client = await self._session_manager.get_or_create_session(room_id)
-
-        # Check if this is first message for hydration
-        is_first_message = not session.is_llm_initialized
-        participants_changed = session.participants_changed()
-
-        logger.debug(
-            f"Room {room_id}: is_first_message={is_first_message}, "
-            f"participants_changed={participants_changed}"
-        )
 
         # Build message with room_id context
         messages_to_send = []
@@ -221,47 +199,24 @@ class ThenvoiClaudeSDKAgent:
         room_context = f"[room_id: {room_id}]"
 
         # Hydrate history on first message
-        if is_first_message:
-            try:
-                logger.info(
-                    f"Room {room_id}: Loading platform history (first message)..."
-                )
-                platform_history = await session.get_history_for_llm(
-                    exclude_message_id=msg.id
+        if is_first_message and history:
+            history_text = self._format_history_for_context(history, room_id)
+            if history_text:
+                messages_to_send.append(
+                    f"Previous conversation history:\n{history_text}"
                 )
                 logger.info(
-                    f"Room {room_id}: Platform returned "
-                    f"{len(platform_history) if platform_history else 0} messages"
+                    f"Room {room_id}: Injected {len(history)} "
+                    "historical messages as context"
                 )
-
-                if platform_history:
-                    history_text = self._format_history_for_context(
-                        platform_history, room_id
-                    )
-                    if history_text:
-                        messages_to_send.append(
-                            f"Previous conversation history:\n{history_text}"
-                        )
-                        logger.info(
-                            f"Room {room_id}: Injected {len(platform_history)} "
-                            "historical messages as context"
-                        )
-            except Exception as e:
-                logger.warning(
-                    f"Room {room_id}: Failed to load history: {e}", exc_info=True
-                )
-
-            session.mark_llm_initialized()
 
         # Inject participants message if changed
-        if participants_changed:
-            participants_msg = session.build_participants_message()
+        if participants_msg:
             messages_to_send.append(f"{room_context}[System]: {participants_msg}")
             logger.info(
                 f"Room {room_id}: Participants updated: "
                 f"{[p.get('name') for p in session.participants]}"
             )
-            session.mark_participants_sent()
 
         # Add current message with room_id context
         user_message = f"{room_context}{msg.format_for_llm()}"
@@ -284,14 +239,7 @@ class ThenvoiClaudeSDKAgent:
 
         except Exception as e:
             logger.error(f"Error processing message: {e}", exc_info=True)
-            # Try to report error to chat
-            try:
-                await tools.send_event(
-                    content=f"Error: {e}",
-                    message_type="error",
-                )
-            except Exception:
-                pass
+            await self._report_error(tools, str(e))
             raise
 
         logger.debug(f"Message {msg.id} processed successfully")
@@ -339,7 +287,7 @@ class ThenvoiClaudeSDKAgent:
         self, platform_history: list[dict[str, Any]], room_id: str
     ) -> str:
         """Format platform history with room_id context."""
-        lines = []
+        lines: list[str] = []
         room_context = f"[room_id: {room_id}]"
         for h in platform_history:
             sender_name = h.get("sender_name", "Unknown")

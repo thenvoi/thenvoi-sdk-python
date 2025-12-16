@@ -13,13 +13,15 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
-from typing import TYPE_CHECKING, Any, Awaitable, Callable, Literal
+from typing import TYPE_CHECKING, Any, Awaitable, Callable, Literal, overload
 
 from pydantic import BaseModel
 
 from .tool_definitions import TOOL_MODELS
 
 if TYPE_CHECKING:
+    from anthropic.types import ToolParam
+
     from .agent import ThenvoiAgent
 
 
@@ -38,6 +40,7 @@ class SessionConfig:
     context_cache_ttl_seconds: int = 300
     max_context_messages: int = 100
     max_message_retries: int = 1  # Max attempts per message before permanently failing
+    enable_context_hydration: bool = True  # Whether to fetch history from platform API
 
 
 @dataclass
@@ -272,9 +275,13 @@ class AgentTools:
         """Get Pydantic models for all tools."""
         return TOOL_MODELS
 
+    @overload
+    def get_tool_schemas(self, format: Literal["anthropic"]) -> list[ToolParam]: ...
+    @overload
+    def get_tool_schemas(self, format: Literal["openai"]) -> list[dict[str, Any]]: ...
     def get_tool_schemas(
         self, format: Literal["openai", "anthropic"]
-    ) -> list[dict[str, Any]]:
+    ) -> list[dict[str, Any]] | list[ToolParam]:
         """
         Get tool schemas in provider-specific format.
 
@@ -284,7 +291,7 @@ class AgentTools:
         Returns:
             List of tool definitions in the requested format
         """
-        tools = []
+        tools: list[Any] = []
         for name, model in TOOL_MODELS.items():
             schema = model.model_json_schema()
             # Remove Pydantic-specific keys

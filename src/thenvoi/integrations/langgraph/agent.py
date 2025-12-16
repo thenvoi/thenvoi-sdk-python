@@ -18,24 +18,25 @@ import logging
 from typing import Any, Callable, List
 
 from langgraph.pregel import Pregel
-from langgraph.prebuilt import create_react_agent
+from langchain.agents import create_agent
 from langchain_core.language_models import BaseChatModel
 from langgraph.checkpoint.base import BaseCheckpointSaver
 
+from thenvoi.agents import BaseFrameworkAgent
 from thenvoi.core import (
-    ThenvoiAgent,
     AgentTools,
     AgentConfig,
     PlatformMessage,
     SessionConfig,
     render_system_prompt,
 )
-from thenvoi.integrations.langgraph import agent_tools_to_langchain
+from thenvoi.core.session import AgentSession
+from .langchain_tools import agent_tools_to_langchain
 
 logger = logging.getLogger(__name__)
 
 
-class ThenvoiLangGraphAgent:
+class ThenvoiLangGraphAgent(BaseFrameworkAgent):
     """
     LangGraph adapter using graph_factory pattern.
 
@@ -97,14 +98,7 @@ class ThenvoiLangGraphAgent:
         if not graph_factory and not graph:
             raise ValueError("Must provide either graph_factory or graph")
 
-        self.graph_factory = graph_factory
-        self._static_graph = graph
-        self.prompt_template = prompt_template
-        self.custom_section = custom_section
-        self.additional_tools = additional_tools or []
-
-        # Create ThenvoiAgent coordinator
-        self.thenvoi = ThenvoiAgent(
+        super().__init__(
             agent_id=agent_id,
             api_key=api_key,
             ws_url=ws_url,
@@ -112,6 +106,12 @@ class ThenvoiLangGraphAgent:
             config=config,
             session_config=session_config,
         )
+
+        self.graph_factory = graph_factory
+        self._static_graph = graph
+        self.prompt_template = prompt_template
+        self.custom_section = custom_section
+        self.additional_tools = additional_tools or []
 
         # Will be set after start()
         self._system_prompt: str = ""
@@ -121,36 +121,24 @@ class ThenvoiLangGraphAgent:
         """Get rendered system prompt."""
         return self._system_prompt
 
-    async def start(self) -> None:
-        """Start the adapter."""
-        # Start thenvoi (fetches agent metadata)
-        # Pass cleanup callback to clear checkpointer on session destroy
-        self.thenvoi._on_session_cleanup = self._cleanup_session
-        await self.thenvoi.start(on_message=self._handle_message)
-
-        # Render system prompt with agent info
+    async def _on_started(self) -> None:
+        """Render system prompt after agent metadata is fetched."""
         self._system_prompt = render_system_prompt(
             template=self.prompt_template,
-            agent_name=self.thenvoi.agent_name,
-            agent_description=self.thenvoi.agent_description,
+            agent_name=self.agent_name,
+            agent_description=self.agent_description,
             custom_section=self.custom_section,
         )
+        logger.info(f"LangGraph adapter started for agent: {self.agent_name}")
 
-        logger.info(f"LangGraph adapter started for agent: {self.thenvoi.agent_name}")
-
-    async def stop(self) -> None:
-        """Stop the adapter."""
-        await self.thenvoi.stop()
-
-    async def run(self) -> None:
-        """Start and run until interrupted."""
-        await self.start()
-        try:
-            await self.thenvoi.run()
-        finally:
-            await self.stop()
-
-    async def _handle_message(self, msg: PlatformMessage, tools: AgentTools) -> None:
+    async def _handle_message(
+        self,
+        msg: PlatformMessage,
+        tools: AgentTools,
+        session: AgentSession,
+        history: list[dict[str, Any]] | None,
+        participants_msg: str | None,
+    ) -> None:
         """
         Handle incoming message.
 
@@ -158,29 +146,15 @@ class ThenvoiLangGraphAgent:
         LLM uses tools.send_message() to respond.
 
         KEY DESIGN:
-        - System prompt sent ONLY on first message (session tracks via is_llm_initialized)
+        - System prompt sent ONLY on first message (history is not None)
         - Historical messages injected on first message to prime checkpointer
-        - Participant list injected ONLY when it changes (session tracks)
+        - Participant list injected ONLY when it changes (participants_msg is not None)
         - Subsequent messages: user message only (unless participants changed)
         """
         room_id = msg.room_id  # = thread_id for LangGraph
+        is_first_message = history is not None
 
         logger.debug(f"Handling message {msg.id} in room {room_id}")
-
-        # Get session for this room
-        session = self.thenvoi.active_sessions.get(room_id)
-        if not session:
-            logger.error(f"No session for room {room_id}")
-            return
-
-        # Check session state
-        is_first_message = not session.is_llm_initialized
-        participants_changed = session.participants_changed()
-
-        logger.debug(
-            f"Room {room_id}: is_first_message={is_first_message}, "
-            f"participants_changed={participants_changed}"
-        )
 
         # Get LangChain tools from AgentTools
         langchain_tools = agent_tools_to_langchain(tools) + self.additional_tools
@@ -199,13 +173,14 @@ class ThenvoiLangGraphAgent:
 
         if is_first_message:
             # FIRST MESSAGE: Include system prompt + historical context
-            messages.append(("system", self._system_prompt))
-            logger.info(f"Room {room_id}: Sending system prompt (first message)")
+            # Only inject system prompt if using graph_factory (pre-compiled graph has its own)
+            if self.graph_factory:
+                messages.append(("system", self._system_prompt))
+                logger.info(f"Room {room_id}: Sending system prompt (first message)")
             logger.debug(f"System prompt:\n{self._system_prompt}")
 
-            # Load and inject historical messages from session
-            try:
-                history = await session.get_history_for_llm(exclude_message_id=msg.id)
+            # Inject historical messages
+            if history:
                 for hist in history:
                     role = hist["role"]
                     content = hist["content"]
@@ -216,18 +191,14 @@ class ThenvoiLangGraphAgent:
                         messages.append(("assistant", content))
                     else:
                         messages.append(("user", f"[{sender_name}]: {content}"))
-            except Exception as e:
-                logger.warning(f"Room {room_id}: Failed to load history: {e}")
-
-            session.mark_llm_initialized()
 
         # Inject participants message ONLY if changed
-        if participants_changed:
-            messages.append(("system", session.build_participants_message()))
+        if participants_msg:
+            messages.append(("system", participants_msg))
             logger.info(
-                f"Room {room_id}: Participants updated: {[p.get('name') for p in session.participants]}"
+                f"Room {room_id}: Participants updated: "
+                f"{[p.get('name') for p in session.participants]}"
             )
-            session.mark_participants_sent()
 
         # Add current message (always)
         messages.append(("user", msg.format_for_llm()))
@@ -250,15 +221,8 @@ class ThenvoiLangGraphAgent:
 
         except Exception as e:
             logger.error(f"Error processing message {msg.id}: {e}", exc_info=True)
-            # Send error via event (no mentions required)
-            try:
-                await tools.send_event(
-                    content=f"Error processing message: {e}",
-                    message_type="error",
-                    metadata={"error_type": type(e).__name__},
-                )
-            except Exception:
-                pass  # Best effort
+            await self._report_error(tools, f"Error processing message: {e}")
+            raise
 
     async def _handle_stream_event(
         self, event: Any, room_id: str, tools: AgentTools
@@ -330,11 +294,18 @@ class ThenvoiLangGraphMCPAgent(ThenvoiLangGraphAgent):
         super().__init__(**kwargs)
         self.mcp_server_url = mcp_server_url
 
-    async def _handle_message(self, msg: PlatformMessage, tools: AgentTools) -> None:
+    async def _handle_message(
+        self,
+        msg: PlatformMessage,
+        tools: AgentTools,
+        session: AgentSession,
+        history: list[dict[str, Any]] | None,
+        participants_msg: str | None,
+    ) -> None:
         """Handle message with MCP tools."""
         # TODO: Load tools from MCP server instead of AgentTools
         # For now, delegate to parent
-        await super()._handle_message(msg, tools)
+        await super()._handle_message(msg, tools, session, history, participants_msg)
 
 
 async def create_langgraph_agent(
@@ -379,7 +350,7 @@ async def create_langgraph_agent(
 
     def graph_factory(thenvoi_tools: List[Any]) -> Pregel:
         all_tools = thenvoi_tools + additional
-        return create_react_agent(llm, all_tools, checkpointer=checkpointer)
+        return create_agent(model=llm, tools=all_tools, checkpointer=checkpointer)
 
     adapter = ThenvoiLangGraphAgent(
         graph_factory=graph_factory,

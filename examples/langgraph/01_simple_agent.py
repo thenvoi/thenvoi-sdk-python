@@ -12,7 +12,7 @@ from langchain_openai import ChatOpenAI
 from langgraph.checkpoint.memory import InMemorySaver
 
 from setup_logging import setup_logging
-from thenvoi_langgraph_agent import create_langgraph_agent
+from thenvoi.integrations.langgraph import create_langgraph_agent
 from thenvoi.config import load_agent_config
 
 setup_logging()

@@ -19,8 +19,7 @@ from langgraph.checkpoint.memory import InMemorySaver
 
 from standalone_calculator import create_calculator_graph
 from setup_logging import setup_logging
-from thenvoi_langgraph_agent import create_langgraph_agent
-from thenvoi.integrations.langgraph import graph_as_tool
+from thenvoi.integrations.langgraph import create_langgraph_agent, graph_as_tool
 from thenvoi.config import load_agent_config
 
 setup_logging()

@@ -49,6 +49,13 @@ from .prompts import (
     render_system_prompt,
 )
 from .tool_definitions import TOOL_MODELS
+from .formatters import (
+    format_message_for_llm,
+    format_history_for_llm,
+    build_participants_message,
+)
+from .participant_tracker import ParticipantTracker
+from .retry_tracker import MessageRetryTracker
 
 __all__ = [
     # Core classes
@@ -68,4 +75,11 @@ __all__ = [
     "render_system_prompt",
     # Tool definitions
     "TOOL_MODELS",
+    # Formatters (pure functions)
+    "format_message_for_llm",
+    "format_history_for_llm",
+    "build_participants_message",
+    # Trackers (sync, unit-testable)
+    "ParticipantTracker",
+    "MessageRetryTracker",
 ]

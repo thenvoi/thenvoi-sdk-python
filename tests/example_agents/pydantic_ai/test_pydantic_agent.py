@@ -12,7 +12,7 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 from datetime import datetime, timezone
 
-from thenvoi_pydantic_agent import ThenvoiPydanticAgent, create_pydantic_agent
+from thenvoi.integrations.pydantic_ai import ThenvoiPydanticAgent, create_pydantic_agent
 from thenvoi.core.types import PlatformMessage
 
 
@@ -21,7 +21,7 @@ class TestConstructor:
 
     def test_initializes_with_required_params(self):
         """Should initialize with required parameters."""
-        with patch("thenvoi_pydantic_agent.ThenvoiAgent"):
+        with patch("thenvoi.agents.base.ThenvoiAgent"):
             adapter = ThenvoiPydanticAgent(
                 model="openai:gpt-4o",
                 agent_id="agent-123",
@@ -33,7 +33,7 @@ class TestConstructor:
 
     def test_accepts_custom_section(self):
         """Should accept custom_section parameter."""
-        with patch("thenvoi_pydantic_agent.ThenvoiAgent"):
+        with patch("thenvoi.agents.base.ThenvoiAgent"):
             adapter = ThenvoiPydanticAgent(
                 model="openai:gpt-4o",
                 agent_id="agent-123",
@@ -45,7 +45,7 @@ class TestConstructor:
 
     def test_accepts_system_prompt_override(self):
         """Should accept system_prompt parameter."""
-        with patch("thenvoi_pydantic_agent.ThenvoiAgent"):
+        with patch("thenvoi.agents.base.ThenvoiAgent"):
             adapter = ThenvoiPydanticAgent(
                 model="openai:gpt-4o",
                 agent_id="agent-123",
@@ -62,7 +62,7 @@ class TestAgentCreation:
     @pytest.fixture
     def adapter(self):
         """Create adapter with mocked dependencies."""
-        with patch("thenvoi_pydantic_agent.ThenvoiAgent") as mock_thenvoi_cls:
+        with patch("thenvoi.agents.base.ThenvoiAgent") as mock_thenvoi_cls:
             mock_thenvoi = AsyncMock()
             mock_thenvoi._agent_name = "TestBot"
             mock_thenvoi.active_sessions = {}
@@ -78,7 +78,7 @@ class TestAgentCreation:
 
     def test_creates_agent_with_tools(self, adapter):
         """Should create Pydantic AI Agent with all platform tools registered."""
-        with patch("thenvoi_pydantic_agent.Agent") as mock_agent_cls:
+        with patch("thenvoi.integrations.pydantic_ai.agent.Agent") as mock_agent_cls:
             mock_agent = MagicMock()
             mock_agent.tool = MagicMock(return_value=lambda x: x)
             mock_agent_cls.return_value = mock_agent
@@ -95,12 +95,14 @@ class TestAgentCreation:
         """Should include custom_section in system prompt."""
         adapter.custom_section = "Be concise."
 
-        with patch("thenvoi_pydantic_agent.Agent") as mock_agent_cls:
+        with patch("thenvoi.integrations.pydantic_ai.agent.Agent") as mock_agent_cls:
             mock_agent = MagicMock()
             mock_agent.tool = MagicMock(return_value=lambda x: x)
             mock_agent_cls.return_value = mock_agent
 
-            with patch("thenvoi_pydantic_agent.render_system_prompt") as mock_render:
+            with patch(
+                "thenvoi.integrations.pydantic_ai.agent.render_system_prompt"
+            ) as mock_render:
                 mock_render.return_value = "rendered prompt"
                 adapter._create_agent()
 
@@ -115,7 +117,7 @@ class TestHandleMessage:
     @pytest.fixture
     def adapter(self):
         """Create adapter with mocked dependencies."""
-        with patch("thenvoi_pydantic_agent.ThenvoiAgent") as mock_thenvoi_cls:
+        with patch("thenvoi.agents.base.ThenvoiAgent") as mock_thenvoi_cls:
             mock_thenvoi = AsyncMock()
             mock_thenvoi._agent_name = "TestBot"
             mock_thenvoi.active_sessions = {}
@@ -137,6 +139,8 @@ class TestHandleMessage:
         session.participants = [{"id": "user-456", "name": "Test User", "type": "User"}]
         session.mark_llm_initialized = MagicMock()
         session.get_history_for_llm = AsyncMock(return_value=[])
+        # Default: no participant changes (tests can override)
+        session.participants_changed = MagicMock(return_value=False)
         return session
 
     @pytest.fixture
@@ -168,7 +172,7 @@ class TestHandleMessage:
         """Agent should be lazily created on first message."""
         adapter.thenvoi.active_sessions = {"room-123": mock_session}
 
-        with patch("thenvoi_pydantic_agent.Agent") as mock_agent_cls:
+        with patch("thenvoi.integrations.pydantic_ai.agent.Agent") as mock_agent_cls:
             mock_agent = MagicMock()
             mock_agent.tool = MagicMock(return_value=lambda x: x)
             mock_agent.run = AsyncMock(return_value=MagicMock(output="response"))
@@ -176,14 +180,14 @@ class TestHandleMessage:
 
             assert adapter._agent is None
 
-            await adapter._handle_message(sample_message, mock_tools)
+            await adapter._dispatch_message(sample_message, mock_tools)
 
             assert adapter._agent is not None
 
-    async def test_loads_history_on_first_message(
+    async def test_converts_history_to_pydantic_format(
         self, adapter, mock_session, sample_message, mock_tools
     ):
-        """First message should load platform history and pass via message_history."""
+        """History should be converted to Pydantic AI ModelRequest/ModelResponse format."""
         mock_session.get_history_for_llm = AsyncMock(
             return_value=[
                 {"role": "user", "content": "Previous message", "sender_name": "User"},
@@ -198,11 +202,10 @@ class TestHandleMessage:
 
         captured_kwargs = {}
 
-        with patch("thenvoi_pydantic_agent.Agent") as mock_agent_cls:
+        with patch("thenvoi.integrations.pydantic_ai.agent.Agent") as mock_agent_cls:
             mock_agent = MagicMock()
             mock_agent.tool = MagicMock(return_value=lambda x: x)
 
-            # Mock all_messages to return something for history update
             mock_result = MagicMock()
             mock_result.all_messages = MagicMock(return_value=[])
 
@@ -213,46 +216,18 @@ class TestHandleMessage:
             mock_agent.run = capture_run
             mock_agent_cls.return_value = mock_agent
 
-            await adapter._handle_message(sample_message, mock_tools)
+            await adapter._dispatch_message(sample_message, mock_tools)
 
-        # Should have called get_history_for_llm
-        mock_session.get_history_for_llm.assert_called_once()
-
-        # Should have marked as initialized
-        mock_session.mark_llm_initialized.assert_called_once()
-
-        # History should be passed via message_history parameter
+        # History should be passed via message_history parameter (Pydantic AI specific)
         assert "message_history" in captured_kwargs
-        assert len(captured_kwargs["message_history"]) == 2
+        history = captured_kwargs["message_history"]
+        assert len(history) == 2
 
-    async def test_skips_history_load_on_subsequent_messages(
-        self, adapter, mock_session, sample_message, mock_tools
-    ):
-        """Subsequent messages should use cached history, not reload from platform."""
-        adapter.thenvoi.active_sessions = {"room-123": mock_session}
-        # Pre-populate message history to simulate subsequent message
-        adapter._message_history["room-123"] = []
+        # Verify Pydantic AI message format (ModelRequest for user, ModelResponse for assistant)
+        from pydantic_ai.messages import ModelRequest, ModelResponse
 
-        with patch("thenvoi_pydantic_agent.Agent") as mock_agent_cls:
-            mock_agent = MagicMock()
-            mock_agent.tool = MagicMock(return_value=lambda x: x)
-
-            mock_result = MagicMock()
-            mock_result.all_messages = MagicMock(return_value=[])
-
-            async def capture_run(prompt, **kwargs):
-                return mock_result
-
-            mock_agent.run = capture_run
-            mock_agent_cls.return_value = mock_agent
-
-            await adapter._handle_message(sample_message, mock_tools)
-
-        # Should NOT call get_history_for_llm on subsequent messages
-        mock_session.get_history_for_llm.assert_not_called()
-
-        # Should NOT mark as initialized again
-        mock_session.mark_llm_initialized.assert_not_called()
+        assert isinstance(history[0], ModelRequest)  # User message
+        assert isinstance(history[1], ModelResponse)  # Assistant message
 
 
 class TestCreatePydanticAgent:
@@ -260,17 +235,26 @@ class TestCreatePydanticAgent:
 
     async def test_creates_and_starts_agent(self):
         """Should create and start the agent."""
-        with patch("thenvoi_pydantic_agent.ThenvoiAgent") as mock_thenvoi_cls:
+        with patch("thenvoi.agents.base.ThenvoiAgent") as mock_thenvoi_cls:
             mock_thenvoi = AsyncMock()
-            mock_thenvoi._agent_name = "TestBot"
+            mock_thenvoi.agent_name = "TestBot"
+            mock_thenvoi.agent_description = "A test bot"
             mock_thenvoi.start = AsyncMock()
             mock_thenvoi_cls.return_value = mock_thenvoi
 
-            agent = await create_pydantic_agent(
-                model="openai:gpt-4o",
-                agent_id="agent-123",
-                api_key="test-key",
-            )
+            # Also mock the Pydantic AI Agent to avoid OpenAI API call
+            with patch(
+                "thenvoi.integrations.pydantic_ai.agent.Agent"
+            ) as mock_agent_cls:
+                mock_agent = MagicMock()
+                mock_agent.tool = MagicMock(return_value=lambda x: x)
+                mock_agent_cls.return_value = mock_agent
 
-            assert agent is not None
-            mock_thenvoi.start.assert_called_once()
+                agent = await create_pydantic_agent(
+                    model="openai:gpt-4o",
+                    agent_id="agent-123",
+                    api_key="test-key",
+                )
+
+                assert agent is not None
+                mock_thenvoi.start.assert_called_once()
