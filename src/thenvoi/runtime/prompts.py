@@ -4,7 +4,7 @@ System prompt rendering for Thenvoi agents.
 Combines agent identity + custom instructions + base environment instructions.
 
 Example:
-    from thenvoi.core.prompts import render_system_prompt
+    from thenvoi.runtime.prompts import render_system_prompt
 
     prompt = render_system_prompt(
         agent_name="DataBot",

@@ -11,7 +11,7 @@ class MessageRetryTracker:
     """
     Tracks message processing attempts and permanent failures.
 
-    Used by AgentSession to:
+    Used by ExecutionContext to:
     - Prevent infinite retry loops
     - Skip permanently failed messages
     """

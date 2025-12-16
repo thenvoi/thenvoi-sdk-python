@@ -1,10 +1,11 @@
 """
 ThenvoiLangGraphAgent - LangGraph agent connected to Thenvoi platform.
 
-This agent uses the SDK's three-class architecture:
-- ThenvoiAgent: Coordinator
-- AgentSession: Per-room processing
-- AgentTools: Tools for LLM
+Uses the SDK's runtime layer:
+- ThenvoiLink: WebSocket + REST transport
+- AgentRuntime: Room presence + execution management
+- ExecutionContext: Per-room context and event handling
+- AgentTools: Tool interface for LLM
 
 KEY DESIGN:
     SDK does NOT send messages.
@@ -23,14 +24,14 @@ from langchain_core.language_models import BaseChatModel
 from langgraph.checkpoint.base import BaseCheckpointSaver
 
 from thenvoi.agents import BaseFrameworkAgent
-from thenvoi.core import (
-    AgentTools,
+from thenvoi.runtime import (
     AgentConfig,
+    AgentTools,
+    ExecutionContext,
     PlatformMessage,
     SessionConfig,
     render_system_prompt,
 )
-from thenvoi.core.session import AgentSession
 from .langchain_tools import agent_tools_to_langchain
 
 logger = logging.getLogger(__name__)
@@ -135,7 +136,7 @@ class ThenvoiLangGraphAgent(BaseFrameworkAgent):
         self,
         msg: PlatformMessage,
         tools: AgentTools,
-        session: AgentSession,
+        ctx: ExecutionContext,
         history: list[dict[str, Any]] | None,
         participants_msg: str | None,
     ) -> None:
@@ -197,7 +198,7 @@ class ThenvoiLangGraphAgent(BaseFrameworkAgent):
             messages.append(("system", participants_msg))
             logger.info(
                 f"Room {room_id}: Participants updated: "
-                f"{[p.get('name') for p in session.participants]}"
+                f"{[p.get('name') for p in ctx.participants]}"
             )
 
         # Add current message (always)
@@ -298,14 +299,14 @@ class ThenvoiLangGraphMCPAgent(ThenvoiLangGraphAgent):
         self,
         msg: PlatformMessage,
         tools: AgentTools,
-        session: AgentSession,
+        ctx: ExecutionContext,
         history: list[dict[str, Any]] | None,
         participants_msg: str | None,
     ) -> None:
         """Handle message with MCP tools."""
         # TODO: Load tools from MCP server instead of AgentTools
         # For now, delegate to parent
-        await super()._handle_message(msg, tools, session, history, participants_msg)
+        await super()._handle_message(msg, tools, ctx, history, participants_msg)
 
 
 async def create_langgraph_agent(

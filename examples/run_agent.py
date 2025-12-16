@@ -95,6 +95,18 @@ async def run_langgraph_agent(
     await agent.run()
 
 
+PYDANTIC_AI_INSTRUCTIONS = """
+## CRITICAL: Your Capabilities and Limitations
+
+**You have NO internet access and NO real-time data.**
+- You CANNOT look up weather, news, stock prices, or any current information
+- You MUST NOT invent or guess factual information like temperatures, prices, or dates
+- For real-time data (weather, etc.), you MUST delegate to specialized agents (e.g., Weather Agent)
+
+If you don't know something and can't delegate to another agent, say "I don't know" - never make up information.
+"""
+
+
 async def run_pydantic_ai_agent(
     agent_id: str,
     api_key: str,
@@ -107,13 +119,16 @@ async def run_pydantic_ai_agent(
     """Run the Pydantic AI agent."""
     from thenvoi.integrations.pydantic_ai import ThenvoiPydanticAgent
 
+    # Append capability instructions to custom section
+    full_custom_section = custom_section + PYDANTIC_AI_INSTRUCTIONS
+
     agent = ThenvoiPydanticAgent(
         model=model,
         agent_id=agent_id,
         api_key=api_key,
         ws_url=ws_url,
         rest_url=rest_url,
-        custom_section=custom_section,
+        custom_section=full_custom_section,
     )
 
     logger.info(f"Starting Pydantic AI agent with model: {model}")
@@ -179,11 +194,15 @@ async def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  %(prog)s                                    # LangGraph with test_agent
-  %(prog)s --example pydantic_ai              # Pydantic AI with OpenAI
-  %(prog)s --example pydantic_ai --model anthropic:claude-3-5-sonnet-latest
-  %(prog)s --agent my_custom_agent            # Use different agent config
-  %(prog)s --log-level DEBUG                  # Enable debug logging
+  uv run python examples/run_agent.py                                     # LangGraph (default)
+  uv run python examples/run_agent.py --example langgraph                 # LangGraph with OpenAI
+  uv run python examples/run_agent.py --example pydantic_ai               # Pydantic AI with OpenAI
+  uv run python examples/run_agent.py --example pydantic_ai --model anthropic:claude-sonnet-4-5
+  uv run python examples/run_agent.py --example anthropic                 # Anthropic SDK
+  uv run python examples/run_agent.py --example claude_sdk                # Claude Agent SDK
+  uv run python examples/run_agent.py --example claude_sdk --thinking     # With extended thinking
+  uv run python examples/run_agent.py --agent my_custom_agent             # Use different agent config
+  uv run python examples/run_agent.py --log-level DEBUG                   # Enable debug logging
         """,
     )
     parser.add_argument(

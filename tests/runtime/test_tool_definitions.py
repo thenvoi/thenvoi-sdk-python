@@ -11,7 +11,7 @@ Tests:
 import pytest
 from pydantic import ValidationError
 
-from thenvoi.core.tool_definitions import (
+from thenvoi.runtime.tools import (
     TOOL_MODELS,
     SendMessageInput,
     SendEventInput,

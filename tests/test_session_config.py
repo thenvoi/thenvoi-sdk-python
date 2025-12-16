@@ -3,16 +3,17 @@ Session configuration tests - verify enable_context_hydration behavior.
 
 Tests cover:
 - SessionConfig defaults
-- get_history_for_llm() returns empty when hydration disabled
-- _process_message() skips hydration when disabled
+- get_history_for_llm() behavior when hydration disabled
+- Event processing skips hydration when disabled
 """
 
 import pytest
 from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock
 
-from thenvoi.core.types import SessionConfig, PlatformMessage
-from thenvoi.core.session import AgentSession
+from thenvoi.runtime.types import SessionConfig
+from thenvoi.runtime.execution import ExecutionContext
+from thenvoi.platform.event import PlatformEvent
 
 
 class TestSessionConfigDefaults:
@@ -38,63 +39,59 @@ class TestGetHistoryForLLMHydrationDisabled:
     """Test get_history_for_llm() when hydration is disabled."""
 
     @pytest.fixture
-    def mock_coordinator(self):
-        """Create a mock ThenvoiAgent coordinator."""
-        coordinator = AsyncMock()
-        coordinator.agent_id = "agent-123"
-        coordinator._get_participants_internal = AsyncMock(return_value=[])
-        coordinator._fetch_context = AsyncMock()
-        return coordinator
-
-    @pytest.fixture
-    def mock_api_client(self):
-        """Create a mock API client."""
-        return AsyncMock()
+    def mock_link(self):
+        """Create a mock ThenvoiLink."""
+        link = MagicMock()
+        link.rest = MagicMock()
+        link.rest.agent_api = MagicMock()
+        link.rest.agent_api.list_agent_chat_participants = AsyncMock(
+            return_value=MagicMock(data=[])
+        )
+        link.rest.agent_api.get_agent_chat_context = AsyncMock(
+            return_value=MagicMock(data=[])
+        )
+        link.get_next_message = AsyncMock(return_value=None)
+        link.mark_processing = AsyncMock()
+        link.mark_processed = AsyncMock()
+        link.mark_failed = AsyncMock()
+        return link
 
     @pytest.fixture
     def dummy_handler(self):
-        """Create a dummy message handler."""
+        """Create a dummy execution handler."""
 
-        async def handler(msg, tools):
+        async def handler(ctx, event):
             pass
 
         return handler
 
-    @pytest.mark.asyncio
-    async def test_returns_empty_when_hydration_disabled(
-        self, mock_api_client, mock_coordinator, dummy_handler
-    ):
+    def test_returns_empty_when_hydration_disabled(self, mock_link, dummy_handler):
         """Should return empty list when enable_context_hydration is False."""
         config = SessionConfig(enable_context_hydration=False)
-        session = AgentSession(
+        ctx = ExecutionContext(
             room_id="room-123",
-            api_client=mock_api_client,
-            on_message=dummy_handler,
-            coordinator=mock_coordinator,
+            link=mock_link,
+            on_execute=dummy_handler,
             config=config,
         )
 
-        history = await session.get_history_for_llm()
+        history = ctx.get_history_for_llm()
 
         assert history == []
-        # Should NOT have called _hydrate_context or fetch_context
-        mock_coordinator._fetch_context.assert_not_called()
 
-    @pytest.mark.asyncio
-    async def test_returns_empty_with_exclude_id_when_hydration_disabled(
-        self, mock_api_client, mock_coordinator, dummy_handler
+    def test_returns_empty_with_exclude_id_when_hydration_disabled(
+        self, mock_link, dummy_handler
     ):
         """Should return empty list even with exclude_message_id parameter."""
         config = SessionConfig(enable_context_hydration=False)
-        session = AgentSession(
+        ctx = ExecutionContext(
             room_id="room-123",
-            api_client=mock_api_client,
-            on_message=dummy_handler,
-            coordinator=mock_coordinator,
+            link=mock_link,
+            on_execute=dummy_handler,
             config=config,
         )
 
-        history = await session.get_history_for_llm(exclude_message_id="msg-456")
+        history = ctx.get_history_for_llm(exclude_message_id="msg-456")
 
         assert history == []
 
@@ -103,172 +100,161 @@ class TestGetHistoryForLLMHydrationEnabled:
     """Test get_history_for_llm() when hydration is enabled (default)."""
 
     @pytest.fixture
-    def mock_coordinator(self):
-        """Create a mock ThenvoiAgent coordinator."""
-        from thenvoi.core.types import ConversationContext
-
-        coordinator = AsyncMock()
-        coordinator.agent_id = "agent-123"
-        coordinator._get_participants_internal = AsyncMock(return_value=[])
-        coordinator._fetch_context = AsyncMock(
-            return_value=ConversationContext(
-                room_id="room-123",
-                messages=[
-                    {
-                        "id": "msg-1",
-                        "content": "Hello",
-                        "sender_type": "User",
-                        "sender_name": "Alice",
-                    },
-                    {
-                        "id": "msg-2",
-                        "content": "Hi there!",
-                        "sender_type": "Agent",
-                        "sender_name": "TestBot",
-                    },
-                ],
-                participants=[],
-                hydrated_at=datetime.now(timezone.utc),
-            )
+    def mock_link(self):
+        """Create a mock ThenvoiLink with context data."""
+        link = MagicMock()
+        link.rest = MagicMock()
+        link.rest.agent_api = MagicMock()
+        link.rest.agent_api.list_agent_chat_participants = AsyncMock(
+            return_value=MagicMock(data=[])
         )
-        return coordinator
 
-    @pytest.fixture
-    def mock_api_client(self):
-        """Create a mock API client."""
-        return AsyncMock()
+        # Mock context response
+        mock_msg1 = MagicMock()
+        mock_msg1.id = "msg-1"
+        mock_msg1.content = "Hello"
+        mock_msg1.sender_id = "user-1"
+        mock_msg1.sender_type = "User"
+        mock_msg1.sender_name = "Alice"
+        mock_msg1.message_type = "text"
+        mock_msg1.inserted_at = datetime.now(timezone.utc).isoformat()
+
+        mock_msg2 = MagicMock()
+        mock_msg2.id = "msg-2"
+        mock_msg2.content = "Hi there!"
+        mock_msg2.sender_id = "agent-1"
+        mock_msg2.sender_type = "Agent"
+        mock_msg2.sender_name = "TestBot"
+        mock_msg2.message_type = "text"
+        mock_msg2.inserted_at = datetime.now(timezone.utc).isoformat()
+
+        link.rest.agent_api.get_agent_chat_context = AsyncMock(
+            return_value=MagicMock(data=[mock_msg1, mock_msg2])
+        )
+        link.get_next_message = AsyncMock(return_value=None)
+        link.mark_processing = AsyncMock()
+        link.mark_processed = AsyncMock()
+        link.mark_failed = AsyncMock()
+        return link
 
     @pytest.fixture
     def dummy_handler(self):
-        """Create a dummy message handler."""
+        """Create a dummy execution handler."""
 
-        async def handler(msg, tools):
+        async def handler(ctx, event):
             pass
 
         return handler
 
     @pytest.mark.asyncio
     async def test_fetches_and_returns_history_when_enabled(
-        self, mock_api_client, mock_coordinator, dummy_handler
+        self, mock_link, dummy_handler
     ):
         """Should fetch and return history when enable_context_hydration is True."""
         config = SessionConfig(enable_context_hydration=True)
-        session = AgentSession(
+        ctx = ExecutionContext(
             room_id="room-123",
-            api_client=mock_api_client,
-            on_message=dummy_handler,
-            coordinator=mock_coordinator,
+            link=mock_link,
+            on_execute=dummy_handler,
             config=config,
         )
 
-        history = await session.get_history_for_llm()
+        # Hydrate context first
+        await ctx.hydrate()
+        history = ctx.get_history_for_llm()
 
         assert len(history) == 2
         assert history[0]["role"] == "user"
         assert history[0]["content"] == "Hello"
         assert history[1]["role"] == "assistant"
         assert history[1]["content"] == "Hi there!"
-        # Should have called _fetch_context
-        mock_coordinator._fetch_context.assert_called_once()
+        # Should have called get_agent_chat_context
+        mock_link.rest.agent_api.get_agent_chat_context.assert_called_once()
 
 
-class TestProcessMessageHydration:
-    """Test _process_message() hydration behavior."""
+class TestProcessEventHydration:
+    """Test _process_event() hydration behavior."""
 
     @pytest.fixture
-    def mock_coordinator(self):
-        """Create a mock ThenvoiAgent coordinator."""
-        from thenvoi.core.types import ConversationContext, AgentTools
-
-        coordinator = AsyncMock()
-        coordinator.agent_id = "agent-123"
-        coordinator._get_participants_internal = AsyncMock(return_value=[])
-        coordinator._fetch_context = AsyncMock(
-            return_value=ConversationContext(
-                room_id="room-123",
-                messages=[],
-                participants=[],
-                hydrated_at=datetime.now(timezone.utc),
-            )
+    def mock_link(self):
+        """Create a mock ThenvoiLink."""
+        link = MagicMock()
+        link.rest = MagicMock()
+        link.rest.agent_api = MagicMock()
+        link.rest.agent_api.list_agent_chat_participants = AsyncMock(
+            return_value=MagicMock(data=[])
         )
-        coordinator._mark_processing = AsyncMock()
-        coordinator._mark_processed = AsyncMock()
-        coordinator._mark_failed = AsyncMock()
-
-        # Mock _create_agent_tools to return a mock AgentTools
-        mock_tools = MagicMock(spec=AgentTools)
-        coordinator._create_agent_tools = MagicMock(return_value=mock_tools)
-
-        return coordinator
-
-    @pytest.fixture
-    def mock_api_client(self):
-        """Create a mock API client."""
-        return AsyncMock()
+        link.rest.agent_api.get_agent_chat_context = AsyncMock(
+            return_value=MagicMock(data=[])
+        )
+        link.get_next_message = AsyncMock(return_value=None)
+        link.mark_processing = AsyncMock()
+        link.mark_processed = AsyncMock()
+        link.mark_failed = AsyncMock()
+        return link
 
     @pytest.fixture
-    def sample_message(self):
-        """Create a sample platform message."""
-        return PlatformMessage(
-            id="msg-123",
+    def sample_event(self):
+        """Create a sample platform event."""
+        return PlatformEvent(
+            type="message_created",
             room_id="room-123",
-            content="Hello",
-            sender_id="user-456",
-            sender_type="User",
-            sender_name="Alice",
-            message_type="text",
-            metadata={},
-            created_at=datetime.now(timezone.utc),
+            payload={
+                "id": "msg-123",
+                "content": "Hello",
+                "sender_id": "user-456",
+                "sender_type": "User",
+                "sender_name": "Alice",
+                "message_type": "text",
+                "metadata": {"mentions": [], "status": "sent"},
+                "chat_room_id": "room-123",
+                "inserted_at": datetime.now(timezone.utc).isoformat(),
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+            },
         )
 
     @pytest.mark.asyncio
-    async def test_skips_hydration_when_disabled(
-        self, mock_api_client, mock_coordinator, sample_message
-    ):
-        """Should NOT call _hydrate_context when enable_context_hydration is False."""
+    async def test_skips_hydration_when_disabled(self, mock_link, sample_event):
+        """Should NOT call hydrate() when enable_context_hydration is False."""
         handler_called = False
 
-        async def track_handler(msg, tools):
+        async def track_handler(ctx, event):
             nonlocal handler_called
             handler_called = True
 
         config = SessionConfig(enable_context_hydration=False)
-        session = AgentSession(
+        ctx = ExecutionContext(
             room_id="room-123",
-            api_client=mock_api_client,
-            on_message=track_handler,
-            coordinator=mock_coordinator,
+            link=mock_link,
+            on_execute=track_handler,
             config=config,
         )
 
-        await session._process_message(sample_message)
+        await ctx._process_event(sample_event)
 
         assert handler_called
         # Should NOT have fetched context
-        mock_coordinator._fetch_context.assert_not_called()
+        mock_link.rest.agent_api.get_agent_chat_context.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_hydrates_context_when_enabled(
-        self, mock_api_client, mock_coordinator, sample_message
-    ):
-        """Should call _hydrate_context when enable_context_hydration is True."""
+    async def test_hydrates_context_when_enabled(self, mock_link, sample_event):
+        """Should call hydrate() when enable_context_hydration is True."""
         handler_called = False
 
-        async def track_handler(msg, tools):
+        async def track_handler(ctx, event):
             nonlocal handler_called
             handler_called = True
 
         config = SessionConfig(enable_context_hydration=True)
-        session = AgentSession(
+        ctx = ExecutionContext(
             room_id="room-123",
-            api_client=mock_api_client,
-            on_message=track_handler,
-            coordinator=mock_coordinator,
+            link=mock_link,
+            on_execute=track_handler,
             config=config,
         )
 
-        await session._process_message(sample_message)
+        await ctx._process_event(sample_event)
 
         assert handler_called
         # Should have fetched context
-        mock_coordinator._fetch_context.assert_called_once()
+        mock_link.rest.agent_api.get_agent_chat_context.assert_called_once()

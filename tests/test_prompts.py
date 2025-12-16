@@ -5,7 +5,7 @@ Tests cover:
 - render_system_prompt() with include_base_instructions parameter
 """
 
-from thenvoi.core.prompts import render_system_prompt, BASE_INSTRUCTIONS
+from thenvoi.runtime.prompts import render_system_prompt, BASE_INSTRUCTIONS
 
 
 class TestRenderSystemPromptDefaults:

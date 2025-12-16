@@ -10,7 +10,7 @@ This agent uses the Claude Agent SDK for LLM interactions, which provides:
 Architecture:
     - MCP tools execute real API calls (not stubs)
     - room_id is passed in each message, Claude passes it to tools
-    - Tools call coordinator methods directly
+    - Tools call REST API directly
     - No interception needed - MCP handles everything
 """
 
@@ -38,13 +38,13 @@ except ImportError as e:
     ) from e
 
 from thenvoi.agents import BaseFrameworkAgent
-from thenvoi.core import (
-    AgentTools,
+from thenvoi.runtime import (
     AgentConfig,
+    AgentTools,
+    ExecutionContext,
     PlatformMessage,
     SessionConfig,
 )
-from thenvoi.core.session import AgentSession
 
 from .session_manager import ClaudeSessionManager
 from .prompts import generate_claude_sdk_agent_prompt
@@ -62,7 +62,7 @@ class ThenvoiClaudeSDKAgent(BaseFrameworkAgent):
     extended thinking support.
 
     Architecture:
-    - MCP tools execute real API calls via coordinator
+    - MCP tools execute real API calls via REST client
     - room_id is included in each message to Claude
     - Claude passes room_id to tool calls
     - No tool interception needed - MCP handles execution
@@ -128,8 +128,8 @@ class ThenvoiClaudeSDKAgent(BaseFrameworkAgent):
 
     async def _on_started(self) -> None:
         """Create MCP server and session manager after agent metadata is fetched."""
-        # Create MCP server with coordinator (tools call coordinator methods)
-        self._mcp_server = create_thenvoi_mcp_server(self.thenvoi)
+        # Create MCP server with self (provides _*_internal methods for tools)
+        self._mcp_server = create_thenvoi_mcp_server(self)
 
         # Generate system prompt with agent info
         system_prompt = generate_claude_sdk_agent_prompt(
@@ -169,7 +169,7 @@ class ThenvoiClaudeSDKAgent(BaseFrameworkAgent):
         self,
         msg: PlatformMessage,
         tools: AgentTools,
-        session: AgentSession,
+        ctx: ExecutionContext,
         history: list[dict[str, Any]] | None,
         participants_msg: str | None,
     ) -> None:
@@ -215,7 +215,7 @@ class ThenvoiClaudeSDKAgent(BaseFrameworkAgent):
             messages_to_send.append(f"{room_context}[System]: {participants_msg}")
             logger.info(
                 f"Room {room_id}: Participants updated: "
-                f"{[p.get('name') for p in session.participants]}"
+                f"{[p.get('name') for p in ctx.participants]}"
             )
 
         # Add current message with room_id context

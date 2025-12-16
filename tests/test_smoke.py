@@ -2,13 +2,14 @@
 Smoke tests - verify basic imports and setup work.
 """
 
-from thenvoi.core import ThenvoiAgent, AgentSession, AgentTools
+from thenvoi import ThenvoiLink, AgentRuntime, ExecutionContext, AgentTools
 
 
-def test_can_import_core():
-    """Verify we can import core modules."""
-    assert ThenvoiAgent is not None
-    assert AgentSession is not None
+def test_can_import_runtime():
+    """Verify we can import runtime modules."""
+    assert ThenvoiLink is not None
+    assert AgentRuntime is not None
+    assert ExecutionContext is not None
     assert AgentTools is not None
 
 

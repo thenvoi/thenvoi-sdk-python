@@ -1,6 +1,6 @@
 """Unit tests for pure formatting functions."""
 
-from thenvoi.core.formatters import (
+from thenvoi.runtime.formatters import (
     format_message_for_llm,
     format_history_for_llm,
     build_participants_message,
@@ -94,14 +94,16 @@ class TestBuildParticipantsMessage:
         result = build_participants_message(participants)
         assert "Alice" in result
         assert "Bot" in result
-        assert "u1" in result
+        # IDs are intentionally NOT shown to prevent LLM from using them in mentions
+        assert "u1" not in result
         assert "User" in result
 
     def test_includes_mention_instruction(self):
         participants = [{"id": "1", "name": "Test", "type": "User"}]
         result = build_participants_message(participants)
         assert "send_message" in result
-        assert "mentions" in result
+        # Instruction now says to use EXACT name, not ID
+        assert "EXACT name" in result
 
     def test_handles_missing_fields(self):
         participants = [{"id": "1"}]  # Missing name and type

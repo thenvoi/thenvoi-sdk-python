@@ -1,0 +1,384 @@
+"""Tests for RoomPresence."""
+
+from unittest.mock import AsyncMock, MagicMock
+
+import pytest
+
+from thenvoi.platform.event import PlatformEvent
+from thenvoi.runtime.presence import RoomPresence
+
+
+@pytest.fixture
+def mock_link():
+    """Mock ThenvoiLink for testing RoomPresence."""
+    link = MagicMock()
+    link.agent_id = "agent-123"
+    link.is_connected = False
+    link.on_event = None
+
+    # Async methods
+    link.connect = AsyncMock()
+    link.subscribe_agent_rooms = AsyncMock()
+    link.subscribe_room = AsyncMock()
+    link.unsubscribe_room = AsyncMock()
+
+    # REST client mock
+    link.rest = MagicMock()
+    link.rest.agent_api = MagicMock()
+    link.rest.agent_api.list_agent_chats = AsyncMock(return_value=MagicMock(data=[]))
+
+    return link
+
+
+class TestRoomPresenceConstruction:
+    """Test RoomPresence initialization."""
+
+    def test_init_stores_link(self, mock_link):
+        """Should store link reference."""
+        presence = RoomPresence(mock_link)
+
+        assert presence.link is mock_link
+        assert presence.rooms == set()
+
+    def test_init_with_room_filter(self, mock_link):
+        """Should accept room filter."""
+
+        def my_filter(room):
+            return room.get("type") == "task"
+
+        presence = RoomPresence(mock_link, room_filter=my_filter)
+
+        assert presence.room_filter is my_filter
+
+    def test_init_callbacks_none(self, mock_link):
+        """Should start with no callbacks."""
+        presence = RoomPresence(mock_link)
+
+        assert presence.on_room_joined is None
+        assert presence.on_room_left is None
+        assert presence.on_room_event is None
+
+
+class TestRoomPresenceStart:
+    """Test RoomPresence.start()."""
+
+    async def test_start_sets_event_handler(self, mock_link):
+        """start() should set link.on_event."""
+        presence = RoomPresence(mock_link, auto_subscribe_existing=False)
+
+        await presence.start()
+
+        assert mock_link.on_event is not None
+
+    async def test_start_connects_if_not_connected(self, mock_link):
+        """start() should connect link if not already connected."""
+        mock_link.is_connected = False
+        presence = RoomPresence(mock_link, auto_subscribe_existing=False)
+
+        await presence.start()
+
+        mock_link.connect.assert_called_once()
+
+    async def test_start_skips_connect_if_connected(self, mock_link):
+        """start() should not reconnect if already connected."""
+        mock_link.is_connected = True
+        presence = RoomPresence(mock_link, auto_subscribe_existing=False)
+
+        await presence.start()
+
+        mock_link.connect.assert_not_called()
+
+    async def test_start_subscribes_to_agent_rooms(self, mock_link):
+        """start() should subscribe to agent rooms channel."""
+        presence = RoomPresence(mock_link, auto_subscribe_existing=False)
+
+        await presence.start()
+
+        mock_link.subscribe_agent_rooms.assert_called_once_with("agent-123")
+
+    async def test_start_subscribes_existing_rooms(self, mock_link):
+        """start() should subscribe to existing rooms by default."""
+        # Mock existing rooms
+        room1 = MagicMock()
+        room1.id = "room-1"
+        room1.model_dump.return_value = {"id": "room-1"}
+        room2 = MagicMock()
+        room2.id = "room-2"
+        room2.model_dump.return_value = {"id": "room-2"}
+        mock_link.rest.agent_api.list_agent_chats.return_value = MagicMock(
+            data=[room1, room2]
+        )
+
+        presence = RoomPresence(mock_link, auto_subscribe_existing=True)
+        await presence.start()
+
+        assert "room-1" in presence.rooms
+        assert "room-2" in presence.rooms
+        assert mock_link.subscribe_room.call_count == 2
+
+
+class TestRoomPresenceStop:
+    """Test RoomPresence.stop()."""
+
+    async def test_stop_clears_rooms(self, mock_link):
+        """stop() should clear tracked rooms."""
+        presence = RoomPresence(mock_link, auto_subscribe_existing=False)
+        presence.rooms.add("room-1")
+        presence.rooms.add("room-2")
+
+        await presence.stop()
+
+        assert presence.rooms == set()
+
+    async def test_stop_calls_on_room_left(self, mock_link):
+        """stop() should call on_room_left for each room."""
+        presence = RoomPresence(mock_link, auto_subscribe_existing=False)
+        presence.rooms.add("room-1")
+        presence.rooms.add("room-2")
+
+        left_rooms = []
+
+        async def on_left(room_id):
+            left_rooms.append(room_id)
+
+        presence.on_room_left = on_left
+
+        await presence.stop()
+
+        assert set(left_rooms) == {"room-1", "room-2"}
+
+
+class TestRoomPresenceRoomAdded:
+    """Test room_added event handling."""
+
+    async def test_room_added_subscribes_to_room(self, mock_link):
+        """room_added should subscribe to room channels."""
+        presence = RoomPresence(mock_link, auto_subscribe_existing=False)
+        await presence.start()
+
+        event = PlatformEvent(
+            type="room_added",
+            room_id="room-123",
+            payload={"id": "room-123", "title": "Test Room"},
+        )
+        await presence._handle_room_added(event)
+
+        mock_link.subscribe_room.assert_called_with("room-123")
+
+    async def test_room_added_tracks_room(self, mock_link):
+        """room_added should track room in presence.rooms."""
+        presence = RoomPresence(mock_link, auto_subscribe_existing=False)
+        await presence.start()
+
+        event = PlatformEvent(
+            type="room_added",
+            room_id="room-123",
+            payload={"id": "room-123"},
+        )
+        await presence._handle_room_added(event)
+
+        assert "room-123" in presence.rooms
+
+    async def test_room_added_calls_callback(self, mock_link):
+        """room_added should call on_room_joined callback."""
+        presence = RoomPresence(mock_link, auto_subscribe_existing=False)
+        await presence.start()
+
+        joined_rooms = []
+
+        async def on_joined(room_id, payload):
+            joined_rooms.append((room_id, payload))
+
+        presence.on_room_joined = on_joined
+
+        event = PlatformEvent(
+            type="room_added",
+            room_id="room-123",
+            payload={"id": "room-123", "title": "Test"},
+        )
+        await presence._handle_room_added(event)
+
+        assert joined_rooms == [("room-123", {"id": "room-123", "title": "Test"})]
+
+    async def test_room_added_respects_filter(self, mock_link):
+        """room_added should respect room_filter."""
+
+        def only_task_rooms(room):
+            return room.get("type") == "task"
+
+        presence = RoomPresence(
+            mock_link, room_filter=only_task_rooms, auto_subscribe_existing=False
+        )
+        await presence.start()
+
+        # Non-task room should be filtered
+        event = PlatformEvent(
+            type="room_added",
+            room_id="room-123",
+            payload={"id": "room-123", "type": "direct"},
+        )
+        await presence._handle_room_added(event)
+
+        assert "room-123" not in presence.rooms
+        mock_link.subscribe_room.assert_not_called()
+
+
+class TestRoomPresenceRoomRemoved:
+    """Test room_removed event handling."""
+
+    async def test_room_removed_unsubscribes(self, mock_link):
+        """room_removed should unsubscribe from room."""
+        presence = RoomPresence(mock_link, auto_subscribe_existing=False)
+        await presence.start()
+        presence.rooms.add("room-123")
+
+        event = PlatformEvent(
+            type="room_removed",
+            room_id="room-123",
+            payload={"id": "room-123"},
+        )
+        await presence._handle_room_removed(event)
+
+        mock_link.unsubscribe_room.assert_called_with("room-123")
+
+    async def test_room_removed_untracks_room(self, mock_link):
+        """room_removed should remove from presence.rooms."""
+        presence = RoomPresence(mock_link, auto_subscribe_existing=False)
+        await presence.start()
+        presence.rooms.add("room-123")
+
+        event = PlatformEvent(
+            type="room_removed",
+            room_id="room-123",
+            payload={"id": "room-123"},
+        )
+        await presence._handle_room_removed(event)
+
+        assert "room-123" not in presence.rooms
+
+    async def test_room_removed_calls_callback(self, mock_link):
+        """room_removed should call on_room_left callback."""
+        presence = RoomPresence(mock_link, auto_subscribe_existing=False)
+        await presence.start()
+        presence.rooms.add("room-123")
+
+        left_rooms = []
+
+        async def on_left(room_id):
+            left_rooms.append(room_id)
+
+        presence.on_room_left = on_left
+
+        event = PlatformEvent(
+            type="room_removed",
+            room_id="room-123",
+            payload={"id": "room-123"},
+        )
+        await presence._handle_room_removed(event)
+
+        assert left_rooms == ["room-123"]
+
+
+class TestRoomPresenceRoomEvents:
+    """Test room-specific event handling."""
+
+    async def test_room_event_forwards_to_callback(self, mock_link):
+        """Room events should be forwarded to on_room_event."""
+        presence = RoomPresence(mock_link, auto_subscribe_existing=False)
+        await presence.start()
+        presence.rooms.add("room-123")
+
+        received_events = []
+
+        async def on_event(room_id, event):
+            received_events.append((room_id, event))
+
+        presence.on_room_event = on_event
+
+        event = PlatformEvent(
+            type="message_created",
+            room_id="room-123",
+            payload={"id": "msg-1", "content": "Hello"},
+        )
+        await presence._handle_room_event(event)
+
+        assert len(received_events) == 1
+        assert received_events[0][0] == "room-123"
+        assert received_events[0][1].payload["content"] == "Hello"
+
+    async def test_room_event_ignores_untracked_room(self, mock_link):
+        """Events for untracked rooms should be ignored."""
+        presence = RoomPresence(mock_link, auto_subscribe_existing=False)
+        await presence.start()
+        # Don't add room-123 to tracked rooms
+
+        received_events = []
+
+        async def on_event(room_id, event):
+            received_events.append((room_id, event))
+
+        presence.on_room_event = on_event
+
+        event = PlatformEvent(
+            type="message_created",
+            room_id="room-123",
+            payload={"id": "msg-1"},
+        )
+        await presence._handle_room_event(event)
+
+        assert received_events == []
+
+
+class TestRoomPresenceEventRouting:
+    """Test _on_platform_event routing."""
+
+    async def test_routes_room_added(self, mock_link):
+        """Should route room_added events correctly."""
+        presence = RoomPresence(mock_link, auto_subscribe_existing=False)
+        await presence.start()
+
+        event = PlatformEvent(
+            type="room_added",
+            room_id="room-123",
+            payload={"id": "room-123"},
+        )
+        await presence._on_platform_event(event)
+
+        assert "room-123" in presence.rooms
+
+    async def test_routes_room_removed(self, mock_link):
+        """Should route room_removed events correctly."""
+        presence = RoomPresence(mock_link, auto_subscribe_existing=False)
+        await presence.start()
+        presence.rooms.add("room-123")
+
+        event = PlatformEvent(
+            type="room_removed",
+            room_id="room-123",
+            payload={"id": "room-123"},
+        )
+        await presence._on_platform_event(event)
+
+        assert "room-123" not in presence.rooms
+
+    async def test_routes_message_to_room_event(self, mock_link):
+        """Should route message events to on_room_event."""
+        presence = RoomPresence(mock_link, auto_subscribe_existing=False)
+        await presence.start()
+        presence.rooms.add("room-123")
+
+        received = []
+
+        async def on_event(room_id, event):
+            received.append(event.type)
+
+        presence.on_room_event = on_event
+
+        event = PlatformEvent(
+            type="message_created",
+            room_id="room-123",
+            payload={"id": "msg-1"},
+        )
+        await presence._on_platform_event(event)
+
+        assert received == ["message_created"]

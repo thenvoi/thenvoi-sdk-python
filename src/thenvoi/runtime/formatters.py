@@ -58,12 +58,11 @@ def build_participants_message(participants: list[dict]) -> str:
     for p in participants:
         p_type = p.get("type", "Unknown")
         p_name = p.get("name", "Unknown")
-        p_id = p.get("id", "")
-        lines.append(f"- {p_name} (ID: {p_id}, Type: {p_type})")
+        lines.append(f"- {p_name} ({p_type})")
 
     lines.append("")
     lines.append(
-        "When using send_message, include mentions with ID and name from this list."
+        "To mention a participant in send_message, use their EXACT name (e.g., 'Weather Agent', not an ID)."
     )
 
     return "\n".join(lines)

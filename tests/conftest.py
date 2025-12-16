@@ -17,7 +17,7 @@ import pytest
 
 from tests.fixtures import factory
 from thenvoi.client.streaming import MessageCreatedPayload, MessageMetadata, Mention
-from thenvoi.core.types import PlatformMessage
+from thenvoi.runtime.types import PlatformMessage
 
 
 def pytest_ignore_collect(collection_path):

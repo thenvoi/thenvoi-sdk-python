@@ -12,7 +12,7 @@ class ParticipantTracker:
     """
     Tracks room participants and detects changes.
 
-    Used by AgentSession to:
+    Used by ExecutionContext to:
     - Track participants via WebSocket events
     - Detect when LLM needs to be notified of changes
     """

@@ -1,5 +1,5 @@
 """
-Tests for AgentSession asyncio shutdown pattern.
+Tests for ExecutionContext asyncio shutdown pattern.
 
 Tests cover:
 - Instant cancellation via task.cancel() (no timeout waiting)
@@ -12,22 +12,28 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock
 from datetime import datetime, timezone
 
-from thenvoi.core.session import AgentSession
-from thenvoi.core.types import PlatformMessage, SessionConfig
+from thenvoi.runtime.execution import ExecutionContext
+from thenvoi.runtime.types import SessionConfig
+from thenvoi.platform.event import PlatformEvent
 
 
-def make_message(msg_id: str, room_id: str = "room-123") -> PlatformMessage:
-    """Helper to create test messages."""
-    return PlatformMessage(
-        id=msg_id,
+def make_event(msg_id: str, room_id: str = "room-123") -> PlatformEvent:
+    """Helper to create test platform events."""
+    return PlatformEvent(
+        type="message_created",
         room_id=room_id,
-        content=f"Content for {msg_id}",
-        sender_id="user-456",
-        sender_type="User",
-        sender_name="Test User",
-        message_type="text",
-        metadata={},
-        created_at=datetime.now(timezone.utc),
+        payload={
+            "id": msg_id,
+            "content": f"Content for {msg_id}",
+            "sender_id": "user-456",
+            "sender_type": "User",
+            "sender_name": "Test User",
+            "message_type": "text",
+            "metadata": {"mentions": [], "status": "sent"},
+            "chat_room_id": room_id,
+            "inserted_at": datetime.now(timezone.utc).isoformat(),
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        },
     )
 
 
@@ -35,119 +41,175 @@ class TestIsRunningProperty:
     """Tests for is_running property reflecting task state."""
 
     @pytest.fixture
-    def session(self):
-        """Create session with mocked dependencies."""
-        mock_api = AsyncMock()
-        mock_handler = AsyncMock()
-        mock_coordinator = MagicMock()
-        mock_coordinator._get_next_message = AsyncMock(return_value=None)
-        return AgentSession(
+    def mock_link(self):
+        """Create mock ThenvoiLink."""
+        link = MagicMock()
+        link.rest = MagicMock()
+        link.rest.agent_api = MagicMock()
+        link.rest.agent_api.list_agent_chat_participants = AsyncMock(
+            return_value=MagicMock(data=[])
+        )
+        link.rest.agent_api.get_agent_chat_context = AsyncMock(
+            return_value=MagicMock(data=[])
+        )
+        link.get_next_message = AsyncMock(return_value=None)
+        link.mark_processing = AsyncMock()
+        link.mark_processed = AsyncMock()
+        link.mark_failed = AsyncMock()
+        return link
+
+    @pytest.fixture
+    def ctx(self, mock_link):
+        """Create ExecutionContext with mocked dependencies."""
+
+        async def handler(ctx, event):
+            pass
+
+        return ExecutionContext(
             room_id="room-123",
-            api_client=mock_api,
-            on_message=mock_handler,
-            coordinator=mock_coordinator,
+            link=mock_link,
+            on_execute=handler,
         )
 
-    def test_is_running_false_before_start(self, session):
+    def test_is_running_false_before_start(self, ctx):
         """is_running should be False before start()."""
-        assert session.is_running is False
+        assert ctx.is_running is False
 
-    async def test_is_running_true_after_start(self, session):
+    @pytest.mark.asyncio
+    async def test_is_running_true_after_start(self, ctx):
         """is_running should be True after start()."""
-        await session.start()
+        await ctx.start()
         try:
-            assert session.is_running is True
+            assert ctx.is_running is True
         finally:
-            await session.stop()
+            await ctx.stop()
 
-    async def test_is_running_false_after_stop(self, session):
+    @pytest.mark.asyncio
+    async def test_is_running_false_after_stop(self, ctx):
         """is_running should be False after stop()."""
-        await session.start()
-        await session.stop()
-        assert session.is_running is False
+        await ctx.start()
+        await ctx.stop()
+        assert ctx.is_running is False
 
 
 class TestInstantShutdown:
     """Tests for instant cancellation without timeout waiting."""
 
     @pytest.fixture
-    def session(self):
-        """Create session with mocked dependencies."""
-        mock_api = AsyncMock()
-        mock_handler = AsyncMock()
-        mock_coordinator = MagicMock()
-        mock_coordinator._get_next_message = AsyncMock(return_value=None)
-        return AgentSession(
+    def mock_link(self):
+        """Create mock ThenvoiLink."""
+        link = MagicMock()
+        link.rest = MagicMock()
+        link.rest.agent_api = MagicMock()
+        link.rest.agent_api.list_agent_chat_participants = AsyncMock(
+            return_value=MagicMock(data=[])
+        )
+        link.rest.agent_api.get_agent_chat_context = AsyncMock(
+            return_value=MagicMock(data=[])
+        )
+        link.get_next_message = AsyncMock(return_value=None)
+        link.mark_processing = AsyncMock()
+        link.mark_processed = AsyncMock()
+        link.mark_failed = AsyncMock()
+        return link
+
+    @pytest.fixture
+    def ctx(self, mock_link):
+        """Create ExecutionContext with mocked dependencies."""
+
+        async def handler(ctx, event):
+            pass
+
+        return ExecutionContext(
             room_id="room-123",
-            api_client=mock_api,
-            on_message=mock_handler,
-            coordinator=mock_coordinator,
+            link=mock_link,
+            on_execute=handler,
         )
 
-    async def test_stop_returns_quickly_when_idle(self, session):
+    @pytest.mark.asyncio
+    async def test_stop_returns_quickly_when_idle(self, ctx):
         """stop() should return quickly even when waiting on empty queue."""
-        await session.start()
+        await ctx.start()
 
         # Give loop time to reach queue.get()
         await asyncio.sleep(0.01)
 
         # Stop should be instant (no 60-second timeout)
         start = asyncio.get_event_loop().time()
-        await session.stop()
+        await ctx.stop()
         elapsed = asyncio.get_event_loop().time() - start
 
         # Should complete in well under 1 second
         assert elapsed < 0.5, f"stop() took {elapsed}s - should be instant"
 
-    async def test_stop_is_idempotent(self, session):
+    @pytest.mark.asyncio
+    async def test_stop_is_idempotent(self, ctx):
         """Multiple stop() calls should be safe."""
-        await session.start()
-        await session.stop()
-        await session.stop()  # Should not raise
-        await session.stop()  # Should not raise
+        await ctx.start()
+        await ctx.stop()
+        await ctx.stop()  # Should not raise
+        await ctx.stop()  # Should not raise
 
-        assert session.is_running is False
+        assert ctx.is_running is False
 
-    async def test_stop_before_start_is_safe(self, session):
+    @pytest.mark.asyncio
+    async def test_stop_before_start_is_safe(self, ctx):
         """stop() without start() should be safe."""
-        await session.stop()  # Should not raise
-        assert session.is_running is False
+        await ctx.stop()  # Should not raise
+        assert ctx.is_running is False
 
 
 class TestCancellationDuringSync:
     """Tests for cancellation during synchronization phase."""
 
     @pytest.fixture
-    def slow_sync_session(self):
-        """Create session with slow /next that can be cancelled."""
-        mock_api = AsyncMock()
-        mock_handler = AsyncMock()
-        mock_coordinator = MagicMock()
+    def mock_link_slow_sync(self):
+        """Create mock ThenvoiLink with slow /next that can be cancelled."""
+        link = MagicMock()
+        link.rest = MagicMock()
+        link.rest.agent_api = MagicMock()
+        link.rest.agent_api.list_agent_chat_participants = AsyncMock(
+            return_value=MagicMock(data=[])
+        )
+        link.rest.agent_api.get_agent_chat_context = AsyncMock(
+            return_value=MagicMock(data=[])
+        )
 
         # Simulate slow /next API that can be cancelled
         async def slow_get_next(room_id):
             await asyncio.sleep(10)  # Would take 10 seconds if not cancelled
             return None
 
-        mock_coordinator._get_next_message = slow_get_next
+        link.get_next_message = slow_get_next
+        link.mark_processing = AsyncMock()
+        link.mark_processed = AsyncMock()
+        link.mark_failed = AsyncMock()
+        return link
 
-        return AgentSession(
+    @pytest.fixture
+    def slow_sync_ctx(self, mock_link_slow_sync):
+        """Create ExecutionContext with slow sync."""
+
+        async def handler(ctx, event):
+            pass
+
+        return ExecutionContext(
             room_id="room-123",
-            api_client=mock_api,
-            on_message=mock_handler,
-            coordinator=mock_coordinator,
+            link=mock_link_slow_sync,
+            on_execute=handler,
         )
 
-    async def test_stop_cancels_sync_immediately(self, slow_sync_session):
+    @pytest.mark.asyncio
+    async def test_stop_cancels_sync_immediately(self, slow_sync_ctx):
         """stop() should cancel sync phase immediately."""
-        await slow_sync_session.start()
+        await slow_sync_ctx.start()
 
         # Give time to enter sync
         await asyncio.sleep(0.01)
 
         # Stop should be instant despite slow sync
         start = asyncio.get_event_loop().time()
-        await slow_sync_session.stop()
+        await slow_sync_ctx.stop()
         elapsed = asyncio.get_event_loop().time() - start
 
         # Should complete in well under 1 second (not 10 seconds)
@@ -155,47 +217,59 @@ class TestCancellationDuringSync:
 
 
 class TestCancellationDuringProcessing:
-    """Tests for cancellation during message processing."""
+    """Tests for cancellation during event processing."""
 
     @pytest.fixture
-    def session_with_slow_handler(self):
-        """Create session with slow message handler."""
-        mock_api = AsyncMock()
-        mock_coordinator = MagicMock()
-        mock_coordinator._get_next_message = AsyncMock(return_value=None)
-        mock_coordinator._mark_processing = AsyncMock()
-        mock_coordinator._mark_processed = AsyncMock()
-        mock_coordinator._create_agent_tools = MagicMock()
+    def mock_link(self):
+        """Create mock ThenvoiLink."""
+        link = MagicMock()
+        link.rest = MagicMock()
+        link.rest.agent_api = MagicMock()
+        link.rest.agent_api.list_agent_chat_participants = AsyncMock(
+            return_value=MagicMock(data=[])
+        )
+        link.rest.agent_api.get_agent_chat_context = AsyncMock(
+            return_value=MagicMock(data=[])
+        )
+        link.get_next_message = AsyncMock(return_value=None)
+        link.mark_processing = AsyncMock()
+        link.mark_processed = AsyncMock()
+        link.mark_failed = AsyncMock()
+        return link
 
-        async def slow_handler(msg, tools):
+    @pytest.fixture
+    def ctx_with_slow_handler(self, mock_link):
+        """Create ExecutionContext with slow handler."""
+
+        async def slow_handler(ctx, event):
             await asyncio.sleep(10)  # Would take 10 seconds
 
-        return AgentSession(
+        return ExecutionContext(
             room_id="room-123",
-            api_client=mock_api,
-            on_message=slow_handler,
-            coordinator=mock_coordinator,
+            link=mock_link,
+            on_execute=slow_handler,
             config=SessionConfig(enable_context_hydration=False),
         )
 
-    async def test_stop_cancels_processing(self, session_with_slow_handler):
-        """stop() should cancel message processing."""
-        session = session_with_slow_handler
-        await session.start()
+    @pytest.mark.asyncio
+    async def test_stop_cancels_processing(self, ctx_with_slow_handler):
+        """stop() should cancel event processing."""
+        ctx = ctx_with_slow_handler
+        await ctx.start()
 
         # Wait for sync to complete
         await asyncio.sleep(0.05)
 
-        # Enqueue a message to trigger processing
-        msg = make_message("msg-001")
-        session.enqueue_message(msg)
+        # Enqueue an event to trigger processing
+        event = make_event("msg-001")
+        await ctx.on_event(event)
 
         # Give time to start processing
         await asyncio.sleep(0.05)
 
         # Stop should cancel processing
         start = asyncio.get_event_loop().time()
-        await session.stop()
+        await ctx.stop()
         elapsed = asyncio.get_event_loop().time() - start
 
         # Should complete quickly (not wait 10 seconds for handler)

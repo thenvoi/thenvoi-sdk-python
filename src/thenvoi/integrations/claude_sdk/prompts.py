@@ -98,6 +98,17 @@ Plain text responses will NOT be delivered. Always call the tool.
 }}
 ```
 
+**mcp__thenvoi__send_event** - Send status events (thoughts, errors, task updates)
+```json
+{{
+  "room_id": "abc-123-def",
+  "content": "Searching for weather data...",
+  "message_type": "thought"
+}}
+```
+- `message_type`: "thought" (reasoning), "error" (problems), "task" (progress)
+- Use to share your thinking process or report errors
+
 ### Mentioning Participants
 
 To mention someone:

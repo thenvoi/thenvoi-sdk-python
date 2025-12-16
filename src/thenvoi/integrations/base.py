@@ -10,10 +10,10 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from thenvoi.core.session import AgentSession
+    from thenvoi.runtime.execution import ExecutionContext
 
 
-def check_and_format_participants(session: "AgentSession") -> str | None:
+def check_and_format_participants(ctx: "ExecutionContext") -> str | None:
     """
     Check if participants changed and return formatted message if so.
 
@@ -21,21 +21,23 @@ def check_and_format_participants(session: "AgentSession") -> str | None:
     consistent participant notification across all implementations.
 
     Usage:
-        participants_msg = check_and_format_participants(session)
+        participants_msg = check_and_format_participants(ctx)
         if participants_msg:
             # Inject into LLM context as system/user message
             ...
 
     Args:
-        session: The AgentSession to check
+        ctx: The ExecutionContext to check
 
     Returns:
         Formatted participant message if changed, None otherwise.
         Automatically calls mark_participants_sent() if changed.
     """
-    if not session.participants_changed():
+    from thenvoi.runtime.formatters import build_participants_message
+
+    if not ctx.participants_changed():
         return None
 
-    msg = session.build_participants_message()
-    session.mark_participants_sent()
+    msg = build_participants_message(ctx.participants)
+    ctx.mark_participants_sent()
     return msg

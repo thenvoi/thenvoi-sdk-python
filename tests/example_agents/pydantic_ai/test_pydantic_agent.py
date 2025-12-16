@@ -13,45 +13,49 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from datetime import datetime, timezone
 
 from thenvoi.integrations.pydantic_ai import ThenvoiPydanticAgent, create_pydantic_agent
-from thenvoi.core.types import PlatformMessage
+from thenvoi.runtime.types import PlatformMessage
+from thenvoi.runtime.execution import ExecutionContext
 
 
 class TestConstructor:
     """Tests for ThenvoiPydanticAgent initialization."""
 
-    def test_initializes_with_required_params(self):
+    @patch("thenvoi.agents.base.ThenvoiLink")
+    @patch("thenvoi.agents.base.AgentRuntime")
+    def test_initializes_with_required_params(self, mock_runtime_cls, mock_link_cls):
         """Should initialize with required parameters."""
-        with patch("thenvoi.agents.base.ThenvoiAgent"):
-            adapter = ThenvoiPydanticAgent(
-                model="openai:gpt-4o",
-                agent_id="agent-123",
-                api_key="test-key",
-            )
+        adapter = ThenvoiPydanticAgent(
+            model="openai:gpt-4o",
+            agent_id="agent-123",
+            api_key="test-key",
+        )
 
         assert adapter.model == "openai:gpt-4o"
         assert adapter._agent is None  # Lazy created
 
-    def test_accepts_custom_section(self):
+    @patch("thenvoi.agents.base.ThenvoiLink")
+    @patch("thenvoi.agents.base.AgentRuntime")
+    def test_accepts_custom_section(self, mock_runtime_cls, mock_link_cls):
         """Should accept custom_section parameter."""
-        with patch("thenvoi.agents.base.ThenvoiAgent"):
-            adapter = ThenvoiPydanticAgent(
-                model="openai:gpt-4o",
-                agent_id="agent-123",
-                api_key="test-key",
-                custom_section="You are helpful.",
-            )
+        adapter = ThenvoiPydanticAgent(
+            model="openai:gpt-4o",
+            agent_id="agent-123",
+            api_key="test-key",
+            custom_section="You are helpful.",
+        )
 
         assert adapter.custom_section == "You are helpful."
 
-    def test_accepts_system_prompt_override(self):
+    @patch("thenvoi.agents.base.ThenvoiLink")
+    @patch("thenvoi.agents.base.AgentRuntime")
+    def test_accepts_system_prompt_override(self, mock_runtime_cls, mock_link_cls):
         """Should accept system_prompt parameter."""
-        with patch("thenvoi.agents.base.ThenvoiAgent"):
-            adapter = ThenvoiPydanticAgent(
-                model="openai:gpt-4o",
-                agent_id="agent-123",
-                api_key="test-key",
-                system_prompt="Custom system prompt",
-            )
+        adapter = ThenvoiPydanticAgent(
+            model="openai:gpt-4o",
+            agent_id="agent-123",
+            api_key="test-key",
+            system_prompt="Custom system prompt",
+        )
 
         assert adapter.system_prompt == "Custom system prompt"
 
@@ -60,21 +64,50 @@ class TestAgentCreation:
     """Tests for _create_agent method."""
 
     @pytest.fixture
+    def mock_ctx(self):
+        """Create mock ExecutionContext."""
+        ctx = MagicMock(spec=ExecutionContext)
+        ctx.room_id = "room-123"
+        ctx.is_llm_initialized = False
+        ctx.participants = [{"id": "user-456", "name": "Test User", "type": "User"}]
+        ctx.participants_changed = MagicMock(return_value=False)
+        ctx.mark_llm_initialized = MagicMock()
+        ctx.mark_participants_sent = MagicMock()
+        ctx.get_context = AsyncMock(
+            return_value=MagicMock(messages=[], participants=[])
+        )
+        ctx.link = MagicMock()
+        ctx.link.rest = MagicMock()
+        return ctx
+
+    @pytest.fixture
     def adapter(self):
         """Create adapter with mocked dependencies."""
-        with patch("thenvoi.agents.base.ThenvoiAgent") as mock_thenvoi_cls:
-            mock_thenvoi = AsyncMock()
-            mock_thenvoi._agent_name = "TestBot"
-            mock_thenvoi.active_sessions = {}
-            mock_thenvoi_cls.return_value = mock_thenvoi
+        with patch("thenvoi.agents.base.ThenvoiLink") as mock_link_cls:
+            with patch("thenvoi.agents.base.AgentRuntime") as mock_runtime_cls:
+                mock_link = MagicMock()
+                mock_link.agent_id = "agent-123"
+                mock_link.rest = MagicMock()
+                mock_link.rest.agent_api = MagicMock()
+                agent_me = MagicMock()
+                agent_me.name = "TestBot"
+                agent_me.description = "A test agent"
+                mock_link.rest.agent_api.get_agent_me = AsyncMock(
+                    return_value=MagicMock(data=agent_me)
+                )
+                mock_link_cls.return_value = mock_link
 
-            adapter = ThenvoiPydanticAgent(
-                model="openai:gpt-4o",
-                agent_id="agent-123",
-                api_key="test-key",
-            )
-            adapter._agent_name = "TestBot"
-            return adapter
+                mock_runtime = MagicMock()
+                mock_runtime.start = AsyncMock()
+                mock_runtime_cls.return_value = mock_runtime
+
+                adapter = ThenvoiPydanticAgent(
+                    model="openai:gpt-4o",
+                    agent_id="agent-123",
+                    api_key="test-key",
+                )
+                adapter._agent_name = "TestBot"
+                return adapter
 
     def test_creates_agent_with_tools(self, adapter):
         """Should create Pydantic AI Agent with all platform tools registered."""
@@ -115,33 +148,50 @@ class TestHandleMessage:
     """Tests for _handle_message method."""
 
     @pytest.fixture
-    def adapter(self):
-        """Create adapter with mocked dependencies."""
-        with patch("thenvoi.agents.base.ThenvoiAgent") as mock_thenvoi_cls:
-            mock_thenvoi = AsyncMock()
-            mock_thenvoi._agent_name = "TestBot"
-            mock_thenvoi.active_sessions = {}
-            mock_thenvoi_cls.return_value = mock_thenvoi
-
-            adapter = ThenvoiPydanticAgent(
-                model="openai:gpt-4o",
-                agent_id="agent-123",
-                api_key="test-key",
-            )
-            adapter._agent_name = "TestBot"
-            return adapter
+    def mock_ctx(self):
+        """Create mock ExecutionContext."""
+        ctx = MagicMock(spec=ExecutionContext)
+        ctx.room_id = "room-123"
+        ctx.is_llm_initialized = False
+        ctx.participants = [{"id": "user-456", "name": "Test User", "type": "User"}]
+        ctx.participants_changed = MagicMock(return_value=False)
+        ctx.mark_llm_initialized = MagicMock()
+        ctx.mark_participants_sent = MagicMock()
+        ctx.get_context = AsyncMock(
+            return_value=MagicMock(messages=[], participants=[])
+        )
+        ctx.link = MagicMock()
+        ctx.link.rest = MagicMock()
+        return ctx
 
     @pytest.fixture
-    def mock_session(self):
-        """Create a mock session."""
-        session = MagicMock()
-        session.is_llm_initialized = False
-        session.participants = [{"id": "user-456", "name": "Test User", "type": "User"}]
-        session.mark_llm_initialized = MagicMock()
-        session.get_history_for_llm = AsyncMock(return_value=[])
-        # Default: no participant changes (tests can override)
-        session.participants_changed = MagicMock(return_value=False)
-        return session
+    def adapter(self):
+        """Create adapter with mocked dependencies."""
+        with patch("thenvoi.agents.base.ThenvoiLink") as mock_link_cls:
+            with patch("thenvoi.agents.base.AgentRuntime") as mock_runtime_cls:
+                mock_link = MagicMock()
+                mock_link.agent_id = "agent-123"
+                mock_link.rest = MagicMock()
+                mock_link.rest.agent_api = MagicMock()
+                agent_me = MagicMock()
+                agent_me.name = "TestBot"
+                agent_me.description = "A test agent"
+                mock_link.rest.agent_api.get_agent_me = AsyncMock(
+                    return_value=MagicMock(data=agent_me)
+                )
+                mock_link_cls.return_value = mock_link
+
+                mock_runtime = MagicMock()
+                mock_runtime.start = AsyncMock()
+                mock_runtime_cls.return_value = mock_runtime
+
+                adapter = ThenvoiPydanticAgent(
+                    model="openai:gpt-4o",
+                    agent_id="agent-123",
+                    api_key="test-key",
+                )
+                adapter._agent_name = "TestBot"
+                return adapter
 
     @pytest.fixture
     def sample_message(self):
@@ -167,11 +217,9 @@ class TestHandleMessage:
         return tools
 
     async def test_lazy_creates_agent_on_first_message(
-        self, adapter, mock_session, sample_message, mock_tools
+        self, adapter, mock_ctx, sample_message, mock_tools
     ):
         """Agent should be lazily created on first message."""
-        adapter.thenvoi.active_sessions = {"room-123": mock_session}
-
         with patch("thenvoi.integrations.pydantic_ai.agent.Agent") as mock_agent_cls:
             mock_agent = MagicMock()
             mock_agent.tool = MagicMock(return_value=lambda x: x)
@@ -180,26 +228,16 @@ class TestHandleMessage:
 
             assert adapter._agent is None
 
-            await adapter._dispatch_message(sample_message, mock_tools)
+            await adapter._handle_message(
+                sample_message, mock_tools, mock_ctx, None, None
+            )
 
             assert adapter._agent is not None
 
     async def test_converts_history_to_pydantic_format(
-        self, adapter, mock_session, sample_message, mock_tools
+        self, adapter, mock_ctx, sample_message, mock_tools
     ):
         """History should be converted to Pydantic AI ModelRequest/ModelResponse format."""
-        mock_session.get_history_for_llm = AsyncMock(
-            return_value=[
-                {"role": "user", "content": "Previous message", "sender_name": "User"},
-                {
-                    "role": "assistant",
-                    "content": "Previous response",
-                    "sender_name": "Bot",
-                },
-            ]
-        )
-        adapter.thenvoi.active_sessions = {"room-123": mock_session}
-
         captured_kwargs = {}
 
         with patch("thenvoi.integrations.pydantic_ai.agent.Agent") as mock_agent_cls:
@@ -216,7 +254,17 @@ class TestHandleMessage:
             mock_agent.run = capture_run
             mock_agent_cls.return_value = mock_agent
 
-            await adapter._dispatch_message(sample_message, mock_tools)
+            history = [
+                {"role": "user", "content": "Previous message", "sender_name": "User"},
+                {
+                    "role": "assistant",
+                    "content": "Previous response",
+                    "sender_name": "Bot",
+                },
+            ]
+            await adapter._handle_message(
+                sample_message, mock_tools, mock_ctx, history, None
+            )
 
         # History should be passed via message_history parameter (Pydantic AI specific)
         assert "message_history" in captured_kwargs
@@ -235,26 +283,40 @@ class TestCreatePydanticAgent:
 
     async def test_creates_and_starts_agent(self):
         """Should create and start the agent."""
-        with patch("thenvoi.agents.base.ThenvoiAgent") as mock_thenvoi_cls:
-            mock_thenvoi = AsyncMock()
-            mock_thenvoi.agent_name = "TestBot"
-            mock_thenvoi.agent_description = "A test bot"
-            mock_thenvoi.start = AsyncMock()
-            mock_thenvoi_cls.return_value = mock_thenvoi
-
-            # Also mock the Pydantic AI Agent to avoid OpenAI API call
-            with patch(
-                "thenvoi.integrations.pydantic_ai.agent.Agent"
-            ) as mock_agent_cls:
-                mock_agent = MagicMock()
-                mock_agent.tool = MagicMock(return_value=lambda x: x)
-                mock_agent_cls.return_value = mock_agent
-
-                agent = await create_pydantic_agent(
-                    model="openai:gpt-4o",
-                    agent_id="agent-123",
-                    api_key="test-key",
+        with patch("thenvoi.agents.base.ThenvoiLink") as mock_link_cls:
+            with patch("thenvoi.agents.base.AgentRuntime") as mock_runtime_cls:
+                mock_link = MagicMock()
+                mock_link.agent_id = "agent-123"
+                mock_link.disconnect = AsyncMock()
+                mock_link.run_forever = AsyncMock()
+                mock_link.rest = MagicMock()
+                mock_link.rest.agent_api = MagicMock()
+                agent_me = MagicMock()
+                agent_me.name = "TestBot"
+                agent_me.description = "A test bot"
+                mock_link.rest.agent_api.get_agent_me = AsyncMock(
+                    return_value=MagicMock(data=agent_me)
                 )
+                mock_link_cls.return_value = mock_link
 
-                assert agent is not None
-                mock_thenvoi.start.assert_called_once()
+                mock_runtime = MagicMock()
+                mock_runtime.start = AsyncMock()
+                mock_runtime.stop = AsyncMock()
+                mock_runtime_cls.return_value = mock_runtime
+
+                # Also mock the Pydantic AI Agent to avoid OpenAI API call
+                with patch(
+                    "thenvoi.integrations.pydantic_ai.agent.Agent"
+                ) as mock_agent_cls:
+                    mock_agent = MagicMock()
+                    mock_agent.tool = MagicMock(return_value=lambda x: x)
+                    mock_agent_cls.return_value = mock_agent
+
+                    agent = await create_pydantic_agent(
+                        model="openai:gpt-4o",
+                        agent_id="agent-123",
+                        api_key="test-key",
+                    )
+
+                    assert agent is not None
+                    mock_runtime.start.assert_called_once()

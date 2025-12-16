@@ -58,22 +58,21 @@ class ThenvoiApiClient(Protocol):
     ) -> dict[str, Any]: ...
 
 
-def create_thenvoi_mcp_server(coordinator: Any):
+def create_thenvoi_mcp_server(agent: Any):
     """
     Create MCP SDK server for Thenvoi platform tools.
 
     Creates an in-process MCP server that exposes Thenvoi platform tools.
-    Tools receive room_id from Claude and execute real API calls via
-    the coordinator.
+    Tools receive room_id from Claude and execute real API calls via AgentTools.
 
     Args:
-        coordinator: ThenvoiAgent instance that provides API operations
+        agent: Agent instance with link.rest and runtime.executions
 
     Returns:
         MCP SDK server configuration
 
     Example:
-        server = create_thenvoi_mcp_server(thenvoi_agent)
+        server = create_thenvoi_mcp_server(agent)
 
         options = ClaudeAgentOptions(
             mcp_servers={"thenvoi": server},
@@ -84,6 +83,7 @@ def create_thenvoi_mcp_server(coordinator: Any):
         Claude receives room_id in the system prompt and must pass it
         to each tool call.
     """
+    from thenvoi.runtime.tools import AgentTools
 
     def _make_result(data: Any) -> dict[str, Any]:
         """Format tool result for MCP response."""
@@ -101,42 +101,18 @@ def create_thenvoi_mcp_server(coordinator: Any):
             "is_error": True,
         }
 
-    def _resolve_mentions(
-        room_id: str, mention_names: list[str]
-    ) -> tuple[list[dict[str, str]], list[str]]:
-        """
-        Resolve mention names to {id, name} dicts using session participants.
-
-        Returns:
-            Tuple of (resolved_mentions, not_found_names)
-        """
-        if not mention_names:
-            return [], []
-
-        session = coordinator.active_sessions.get(room_id)
-        participants = session.participants if session else []
-
-        # Build name -> participant lookup (case-insensitive)
-        name_to_participant = {p.get("name", "").lower(): p for p in participants}
-
-        resolved = []
-        not_found = []
-        for name in mention_names:
-            if isinstance(name, str):
-                participant = name_to_participant.get(name.lower())
-                if participant and participant.get("id"):
-                    resolved.append(
-                        {"id": participant["id"], "name": participant.get("name", name)}
-                    )
-                else:
-                    not_found.append(name)
-
-        return resolved, not_found
+    def _get_tools(room_id: str) -> AgentTools:
+        """Get AgentTools for a room, with participants from execution context."""
+        executions = agent.runtime.executions if agent.runtime else {}
+        execution = executions.get(room_id)
+        participants = execution.participants if execution else []
+        return AgentTools(room_id, agent.link.rest, participants)
 
     def _get_participant_names(room_id: str) -> list[str]:
         """Get list of participant names in room."""
-        session = coordinator.active_sessions.get(room_id)
-        participants = session.participants if session else []
+        executions = agent.runtime.executions if agent.runtime else {}
+        execution = executions.get(room_id)
+        participants = execution.participants if execution else []
         return [p.get("name", "") for p in participants if p.get("name")]
 
     @tool(
@@ -156,7 +132,7 @@ def create_thenvoi_mcp_server(coordinator: Any):
             mentions_str = args.get("mentions", "[]")
 
             # Parse mentions JSON (names like ["Alice", "Bob"])
-            mention_names = []
+            mention_names: list[str] = []
             if mentions_str:
                 try:
                     mention_names = (
@@ -169,24 +145,17 @@ def create_thenvoi_mcp_server(coordinator: Any):
 
             logger.info(f"[{room_id}] send_message: {content[:100]}...")
 
-            # Resolve names to {id, name} dicts using session participants
-            resolved_mentions, not_found = _resolve_mentions(room_id, mention_names)
-
-            # Return error if any mentions weren't found
-            if not_found:
+            # Get AgentTools for this room and send message
+            tools = _get_tools(room_id)
+            try:
+                await tools.send_message(content, mention_names)
+            except ValueError as e:
+                # Mention resolution failed
                 available = _get_participant_names(room_id)
                 return _make_error(
-                    f"Mention(s) not found: {not_found}. "
-                    f"Available participants: {available}. "
+                    f"{e}. Available participants: {available}. "
                     f"Use exact participant names from the list."
                 )
-
-            # Call actual API via coordinator
-            await coordinator._send_message_internal(
-                room_id=room_id,
-                content=content,
-                mentions=resolved_mentions,
-            )
 
             return _make_result(
                 {
@@ -217,11 +186,8 @@ def create_thenvoi_mcp_server(coordinator: Any):
 
             logger.debug(f"[{room_id}] send_event: type={message_type}")
 
-            await coordinator._send_event_internal(
-                room_id=room_id,
-                content=content,
-                message_type=message_type,
-            )
+            tools = _get_tools(room_id)
+            await tools.send_event(content, message_type)
 
             return _make_result(
                 {
@@ -252,11 +218,30 @@ def create_thenvoi_mcp_server(coordinator: Any):
 
             logger.info(f"[{room_id}] add_participant: {name} as {role}")
 
-            result = await coordinator._add_participant_internal(
-                room_id=room_id,
-                name=name,
-                role=role,
+            tools = _get_tools(room_id)
+            result = await tools.add_participant(name, role)
+
+            # NOTE: Race condition fix for participant mentions
+            # WebSocket will eventually send participant_added event which updates
+            # ExecutionContext.participants (see execution.py:701-702), but that happens
+            # async. If Claude immediately tries to @mention the new participant,
+            # mention resolution fails because WS event hasn't arrived yet.
+            # We update the cache here to allow immediate mentions after add_participant.
+            executions = agent.runtime.executions if agent.runtime else {}
+            execution = executions.get(room_id)
+            logger.debug(
+                f"[{room_id}] add_participant: runtime={agent.runtime}, executions={list(executions.keys())}, execution={execution}"
             )
+            if execution:
+                new_participant = {
+                    "id": result["id"],
+                    "name": result["name"],
+                    "type": "Agent",  # Default, could be User
+                }
+                execution.add_participant(new_participant)
+                logger.info(
+                    f"[{room_id}] Updated participants cache: added {result['name']}, total={len(execution.participants)}"
+                )
 
             return _make_result(
                 {
@@ -286,10 +271,15 @@ def create_thenvoi_mcp_server(coordinator: Any):
 
             logger.info(f"[{room_id}] remove_participant: {name}")
 
-            result = await coordinator._remove_participant_internal(
-                room_id=room_id,
-                name=name,
-            )
+            tools = _get_tools(room_id)
+            result = await tools.remove_participant(name)
+
+            # NOTE: Race condition fix - same as add_participant (see above)
+            # Update cache immediately so removed participant can't be mentioned.
+            executions = agent.runtime.executions if agent.runtime else {}
+            execution = executions.get(room_id)
+            if execution:
+                execution.remove_participant(result["id"])
 
             return _make_result(
                 {
@@ -317,7 +307,8 @@ def create_thenvoi_mcp_server(coordinator: Any):
 
             logger.debug(f"[{room_id}] get_participants")
 
-            participants = await coordinator._get_participants_internal(room_id)
+            tools = _get_tools(room_id)
+            participants = await tools.get_participants()
 
             return _make_result(
                 {
@@ -351,11 +342,8 @@ def create_thenvoi_mcp_server(coordinator: Any):
                 f"[{room_id}] lookup_peers: page={page}, page_size={page_size}"
             )
 
-            result = await coordinator._lookup_peers_internal(
-                page=page,
-                page_size=page_size,
-                not_in_chat=room_id,
-            )
+            tools = _get_tools(room_id)
+            result = await tools.lookup_peers(page, page_size)
 
             return _make_result(
                 {

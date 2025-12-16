@@ -19,14 +19,14 @@ from anthropic import AsyncAnthropic
 from anthropic.types import Message, MessageParam, ToolParam, ToolUseBlock
 
 from thenvoi.agents import BaseFrameworkAgent
-from thenvoi.core import (
-    AgentTools,
+from thenvoi.runtime import (
     AgentConfig,
+    AgentTools,
+    ExecutionContext,
     PlatformMessage,
     SessionConfig,
     render_system_prompt,
 )
-from thenvoi.core.session import AgentSession
 
 logger = logging.getLogger(__name__)
 
@@ -122,7 +122,7 @@ class ThenvoiAnthropicAgent(BaseFrameworkAgent):
         self,
         msg: PlatformMessage,
         tools: AgentTools,
-        session: AgentSession,
+        ctx: ExecutionContext,
         history: list[dict[str, Any]] | None,
         participants_msg: str | None,
     ) -> None:
@@ -164,7 +164,7 @@ class ThenvoiAnthropicAgent(BaseFrameworkAgent):
             )
             logger.info(
                 f"Room {room_id}: Participants updated: "
-                f"{[p.get('name') for p in session.participants]}"
+                f"{[p.get('name') for p in ctx.participants]}"
             )
 
         # Add current message

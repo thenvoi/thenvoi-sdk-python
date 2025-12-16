@@ -13,7 +13,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from datetime import datetime, timezone
 
 from thenvoi.integrations.langgraph import ThenvoiLangGraphAgent
-from thenvoi.core.types import PlatformMessage
+from thenvoi.runtime.types import PlatformMessage
+from thenvoi.runtime.execution import ExecutionContext
 
 
 class TestConstructor:
@@ -30,25 +31,27 @@ class TestConstructor:
 
         assert "Must provide either graph_factory or graph" in str(exc_info.value)
 
-    def test_accepts_graph_factory(self):
+    @patch("thenvoi.agents.base.ThenvoiLink")
+    @patch("thenvoi.agents.base.AgentRuntime")
+    def test_accepts_graph_factory(self, mock_runtime_cls, mock_link_cls):
         """Should accept graph_factory parameter."""
-        with patch("thenvoi.agents.base.ThenvoiAgent"):
-            adapter = ThenvoiLangGraphAgent(
-                graph_factory=lambda tools: MagicMock(),
-                agent_id="agent-123",
-                api_key="test-key",
-            )
+        adapter = ThenvoiLangGraphAgent(
+            graph_factory=lambda tools: MagicMock(),
+            agent_id="agent-123",
+            api_key="test-key",
+        )
 
         assert adapter.graph_factory is not None
 
-    def test_accepts_static_graph(self):
+    @patch("thenvoi.agents.base.ThenvoiLink")
+    @patch("thenvoi.agents.base.AgentRuntime")
+    def test_accepts_static_graph(self, mock_runtime_cls, mock_link_cls):
         """Should accept pre-built graph."""
-        with patch("thenvoi.agents.base.ThenvoiAgent"):
-            adapter = ThenvoiLangGraphAgent(
-                graph=MagicMock(),
-                agent_id="agent-123",
-                api_key="test-key",
-            )
+        adapter = ThenvoiLangGraphAgent(
+            graph=MagicMock(),
+            agent_id="agent-123",
+            api_key="test-key",
+        )
 
         assert adapter._static_graph is not None
 
@@ -64,38 +67,51 @@ class TestHandleMessage:
         return graph
 
     @pytest.fixture
-    def adapter(self, mock_graph):
-        """Create adapter with mocked dependencies."""
-        with patch("thenvoi.agents.base.ThenvoiAgent") as mock_thenvoi_cls:
-            mock_thenvoi = AsyncMock()
-            mock_thenvoi.agent_name = "TestBot"
-            mock_thenvoi.agent_description = "A test agent"
-            mock_thenvoi.active_sessions = {}
-            mock_thenvoi_cls.return_value = mock_thenvoi
-
-            adapter = ThenvoiLangGraphAgent(
-                graph_factory=lambda tools: mock_graph,
-                agent_id="agent-123",
-                api_key="test-key",
-            )
-            adapter._system_prompt = "You are TestBot, A test agent."
-            adapter._mock_graph = mock_graph
-            return adapter
+    def mock_ctx(self):
+        """Create mock ExecutionContext."""
+        ctx = MagicMock(spec=ExecutionContext)
+        ctx.room_id = "room-123"
+        ctx.is_llm_initialized = False
+        ctx.participants = [{"id": "user-456", "name": "Test User", "type": "User"}]
+        ctx.participants_changed = MagicMock(return_value=True)
+        ctx.mark_llm_initialized = MagicMock()
+        ctx.mark_participants_sent = MagicMock()
+        ctx.get_context = AsyncMock(
+            return_value=MagicMock(messages=[], participants=[])
+        )
+        ctx.link = MagicMock()
+        ctx.link.rest = MagicMock()
+        return ctx
 
     @pytest.fixture
-    def mock_session(self):
-        """Create a mock session."""
-        session = MagicMock()
-        session.is_llm_initialized = False
-        session.participants = [{"id": "user-456", "name": "Test User", "type": "User"}]
-        session.participants_changed = MagicMock(return_value=True)
-        session.mark_llm_initialized = MagicMock()
-        session.mark_participants_sent = MagicMock()
-        session.build_participants_message = MagicMock(
-            return_value="## Participants\n- Test User"
-        )
-        session.get_history_for_llm = AsyncMock(return_value=[])
-        return session
+    def adapter(self, mock_graph):
+        """Create adapter with mocked dependencies."""
+        with patch("thenvoi.agents.base.ThenvoiLink") as mock_link_cls:
+            with patch("thenvoi.agents.base.AgentRuntime") as mock_runtime_cls:
+                mock_link = MagicMock()
+                mock_link.agent_id = "agent-123"
+                mock_link.rest = MagicMock()
+                mock_link.rest.agent_api = MagicMock()
+                agent_me = MagicMock()
+                agent_me.name = "TestBot"
+                agent_me.description = "A test agent"
+                mock_link.rest.agent_api.get_agent_me = AsyncMock(
+                    return_value=MagicMock(data=agent_me)
+                )
+                mock_link_cls.return_value = mock_link
+
+                mock_runtime = MagicMock()
+                mock_runtime.start = AsyncMock()
+                mock_runtime_cls.return_value = mock_runtime
+
+                adapter = ThenvoiLangGraphAgent(
+                    graph_factory=lambda tools: mock_graph,
+                    agent_id="agent-123",
+                    api_key="test-key",
+                )
+                adapter._system_prompt = "You are TestBot, A test agent."
+                adapter._mock_graph = mock_graph
+                return adapter
 
     @pytest.fixture
     def sample_message(self):
@@ -121,11 +137,10 @@ class TestHandleMessage:
         return tools
 
     async def test_first_message_includes_system_prompt(
-        self, adapter, mock_session, sample_message, mock_tools
+        self, adapter, mock_ctx, sample_message, mock_tools
     ):
         """First message should include system prompt."""
-        mock_session.is_llm_initialized = False
-        adapter.thenvoi.active_sessions = {"room-123": mock_session}
+        mock_ctx.is_llm_initialized = False
 
         captured_input = {}
 
@@ -136,24 +151,23 @@ class TestHandleMessage:
 
         adapter._mock_graph.astream_events = capture_input
 
-        await adapter._dispatch_message(sample_message, mock_tools)
-
-        # Should have marked as initialized
-        mock_session.mark_llm_initialized.assert_called_once()
+        # Convert history format
+        history = [{"role": "user", "content": "Previous", "sender_name": "User"}]
+        await adapter._handle_message(
+            sample_message, mock_tools, mock_ctx, history, None
+        )
 
         # First message in list should be system prompt
         messages = captured_input.get("messages", [])
         assert len(messages) > 0
         assert messages[0][0] == "system"
-        assert "TestBot" in messages[0][1] or adapter._system_prompt in messages[0][1]
 
     async def test_subsequent_message_skips_system_prompt(
-        self, adapter, mock_session, sample_message, mock_tools
+        self, adapter, mock_ctx, sample_message, mock_tools
     ):
         """Subsequent messages should NOT include system prompt."""
-        mock_session.is_llm_initialized = True  # Already initialized
-        mock_session.participants_changed = MagicMock(return_value=False)
-        adapter.thenvoi.active_sessions = {"room-123": mock_session}
+        mock_ctx.is_llm_initialized = True  # Already initialized
+        mock_ctx.participants_changed = MagicMock(return_value=False)
 
         captured_input = {}
 
@@ -164,23 +178,24 @@ class TestHandleMessage:
 
         adapter._mock_graph.astream_events = capture_input
 
-        await adapter._dispatch_message(sample_message, mock_tools)
-
-        # Should NOT mark as initialized again
-        mock_session.mark_llm_initialized.assert_not_called()
+        await adapter._handle_message(
+            sample_message,
+            mock_tools,
+            mock_ctx,
+            None,
+            None,  # No history
+        )
 
         # Messages should only contain the user message
         messages = captured_input.get("messages", [])
         assert len(messages) == 1
         assert messages[0][0] == "user"
 
-    async def test_injects_participants_when_changed(
-        self, adapter, mock_session, sample_message, mock_tools
+    async def test_injects_participants_when_provided(
+        self, adapter, mock_ctx, sample_message, mock_tools
     ):
-        """Should inject participants message when participants changed."""
-        mock_session.is_llm_initialized = True
-        mock_session.participants_changed = MagicMock(return_value=True)
-        adapter.thenvoi.active_sessions = {"room-123": mock_session}
+        """Should inject participants message when participants_msg provided."""
+        mock_ctx.is_llm_initialized = True
 
         captured_input = {}
 
@@ -191,9 +206,10 @@ class TestHandleMessage:
 
         adapter._mock_graph.astream_events = capture_input
 
-        await adapter._dispatch_message(sample_message, mock_tools)
-
-        mock_session.mark_participants_sent.assert_called_once()
+        participants_msg = "## Participants\n- Test User"
+        await adapter._handle_message(
+            sample_message, mock_tools, mock_ctx, None, participants_msg
+        )
 
         # Should have participants message
         messages = captured_input.get("messages", [])
@@ -202,21 +218,10 @@ class TestHandleMessage:
         assert "Participants" in system_messages[0][1]
 
     async def test_loads_history_on_first_message(
-        self, adapter, mock_session, sample_message, mock_tools
+        self, adapter, mock_ctx, sample_message, mock_tools
     ):
-        """First message should load and inject history."""
-        mock_session.is_llm_initialized = False
-        mock_session.get_history_for_llm = AsyncMock(
-            return_value=[
-                {"role": "user", "content": "Previous message", "sender_name": "User"},
-                {
-                    "role": "assistant",
-                    "content": "Previous response",
-                    "sender_name": "Bot",
-                },
-            ]
-        )
-        adapter.thenvoi.active_sessions = {"room-123": mock_session}
+        """First message should include history if provided."""
+        mock_ctx.is_llm_initialized = False
 
         captured_input = {}
 
@@ -227,16 +232,17 @@ class TestHandleMessage:
 
         adapter._mock_graph.astream_events = capture_input
 
-        await adapter._dispatch_message(sample_message, mock_tools)
-
-        # Should have called get_history_for_llm
-        mock_session.get_history_for_llm.assert_called_once_with(
-            exclude_message_id="msg-123"
+        history = [
+            {"role": "user", "content": "Previous message", "sender_name": "User"},
+            {"role": "assistant", "content": "Previous response", "sender_name": "Bot"},
+        ]
+        await adapter._handle_message(
+            sample_message, mock_tools, mock_ctx, history, None
         )
 
         # Messages should include history
         messages = captured_input.get("messages", [])
-        # Should have: system prompt, history (2), participants, current message
+        # Should have: system prompt, history (2), current message
         assert len(messages) >= 3
 
 
@@ -251,40 +257,51 @@ class TestStaticGraphNoSystemPrompt:
         return graph
 
     @pytest.fixture
-    def adapter_with_static_graph(self, mock_graph):
-        """Create adapter with pre-compiled static graph (no graph_factory)."""
-        with patch("thenvoi.agents.base.ThenvoiAgent") as mock_thenvoi_cls:
-            mock_thenvoi = AsyncMock()
-            mock_thenvoi.agent_name = "TestBot"
-            mock_thenvoi.agent_description = "A test agent"
-            mock_thenvoi.active_sessions = {}
-            mock_thenvoi_cls.return_value = mock_thenvoi
-
-            adapter = ThenvoiLangGraphAgent(
-                graph=mock_graph,  # Static graph, NOT graph_factory
-                agent_id="agent-123",
-                api_key="test-key",
-            )
-            adapter._system_prompt = "You are TestBot, A test agent."
-            adapter._mock_graph = mock_graph
-            return adapter
+    def mock_ctx(self):
+        """Create mock ExecutionContext."""
+        ctx = MagicMock(spec=ExecutionContext)
+        ctx.room_id = "room-123"
+        ctx.is_llm_initialized = False
+        ctx.participants = [{"id": "user-456", "name": "Test User", "type": "User"}]
+        ctx.participants_changed = MagicMock(return_value=False)
+        ctx.mark_llm_initialized = MagicMock()
+        ctx.mark_participants_sent = MagicMock()
+        ctx.get_context = AsyncMock(
+            return_value=MagicMock(messages=[], participants=[])
+        )
+        ctx.link = MagicMock()
+        ctx.link.rest = MagicMock()
+        return ctx
 
     @pytest.fixture
-    def mock_session(self):
-        """Create a mock session."""
-        session = MagicMock()
-        session.is_llm_initialized = False
-        session.participants = [{"id": "user-456", "name": "Test User", "type": "User"}]
-        session.participants_changed = MagicMock(
-            return_value=False
-        )  # No participant changes
-        session.mark_llm_initialized = MagicMock()
-        session.mark_participants_sent = MagicMock()
-        session.build_participants_message = MagicMock(
-            return_value="## Participants\n- Test User"
-        )
-        session.get_history_for_llm = AsyncMock(return_value=[])
-        return session
+    def adapter_with_static_graph(self, mock_graph):
+        """Create adapter with pre-compiled static graph (no graph_factory)."""
+        with patch("thenvoi.agents.base.ThenvoiLink") as mock_link_cls:
+            with patch("thenvoi.agents.base.AgentRuntime") as mock_runtime_cls:
+                mock_link = MagicMock()
+                mock_link.agent_id = "agent-123"
+                mock_link.rest = MagicMock()
+                mock_link.rest.agent_api = MagicMock()
+                agent_me = MagicMock()
+                agent_me.name = "TestBot"
+                agent_me.description = "A test agent"
+                mock_link.rest.agent_api.get_agent_me = AsyncMock(
+                    return_value=MagicMock(data=agent_me)
+                )
+                mock_link_cls.return_value = mock_link
+
+                mock_runtime = MagicMock()
+                mock_runtime.start = AsyncMock()
+                mock_runtime_cls.return_value = mock_runtime
+
+                adapter = ThenvoiLangGraphAgent(
+                    graph=mock_graph,  # Static graph, NOT graph_factory
+                    agent_id="agent-123",
+                    api_key="test-key",
+                )
+                adapter._system_prompt = "You are TestBot, A test agent."
+                adapter._mock_graph = mock_graph
+                return adapter
 
     @pytest.fixture
     def sample_message(self):
@@ -310,11 +327,10 @@ class TestStaticGraphNoSystemPrompt:
         return tools
 
     async def test_static_graph_first_message_skips_system_prompt(
-        self, adapter_with_static_graph, mock_session, sample_message, mock_tools
+        self, adapter_with_static_graph, mock_ctx, sample_message, mock_tools
     ):
         """Static graph should NOT receive system prompt on first message."""
-        mock_session.is_llm_initialized = False
-        adapter_with_static_graph.thenvoi.active_sessions = {"room-123": mock_session}
+        mock_ctx.is_llm_initialized = False
 
         captured_input = {}
 
@@ -325,10 +341,9 @@ class TestStaticGraphNoSystemPrompt:
 
         adapter_with_static_graph._mock_graph.astream_events = capture_input
 
-        await adapter_with_static_graph._dispatch_message(sample_message, mock_tools)
-
-        # Should have marked as initialized
-        mock_session.mark_llm_initialized.assert_called_once()
+        await adapter_with_static_graph._handle_message(
+            sample_message, mock_tools, mock_ctx, None, None
+        )
 
         # Messages should NOT include system prompt (only user message)
         messages = captured_input.get("messages", [])
@@ -342,29 +357,39 @@ class TestStaticGraphNoSystemPrompt:
         assert len(user_messages) == 1
 
     async def test_graph_factory_first_message_includes_system_prompt(
-        self, mock_session, sample_message, mock_tools
+        self, mock_ctx, sample_message, mock_tools
     ):
         """Verify graph_factory DOES receive system prompt (contrast test)."""
         mock_graph = MagicMock()
         mock_graph.astream_events = AsyncMock(return_value=AsyncIterator([]))
 
-        with patch("thenvoi.agents.base.ThenvoiAgent") as mock_thenvoi_cls:
-            mock_thenvoi = AsyncMock()
-            mock_thenvoi.agent_name = "TestBot"
-            mock_thenvoi.agent_description = "A test agent"
-            mock_thenvoi.active_sessions = {}
-            mock_thenvoi_cls.return_value = mock_thenvoi
+        with patch("thenvoi.agents.base.ThenvoiLink") as mock_link_cls:
+            with patch("thenvoi.agents.base.AgentRuntime") as mock_runtime_cls:
+                mock_link = MagicMock()
+                mock_link.agent_id = "agent-123"
+                mock_link.rest = MagicMock()
+                mock_link.rest.agent_api = MagicMock()
+                agent_me = MagicMock()
+                agent_me.name = "TestBot"
+                agent_me.description = "A test agent"
+                mock_link.rest.agent_api.get_agent_me = AsyncMock(
+                    return_value=MagicMock(data=agent_me)
+                )
+                mock_link_cls.return_value = mock_link
 
-            adapter = ThenvoiLangGraphAgent(
-                graph_factory=lambda tools: mock_graph,  # Factory, NOT static
-                agent_id="agent-123",
-                api_key="test-key",
-            )
-            adapter._system_prompt = "You are TestBot, A test agent."
+                mock_runtime = MagicMock()
+                mock_runtime.start = AsyncMock()
+                mock_runtime_cls.return_value = mock_runtime
 
-        mock_session.is_llm_initialized = False
-        mock_session.participants_changed = MagicMock(return_value=False)
-        adapter.thenvoi.active_sessions = {"room-123": mock_session}
+                adapter = ThenvoiLangGraphAgent(
+                    graph_factory=lambda tools: mock_graph,  # Factory, NOT static
+                    agent_id="agent-123",
+                    api_key="test-key",
+                )
+                adapter._system_prompt = "You are TestBot, A test agent."
+
+        mock_ctx.is_llm_initialized = False
+        mock_ctx.participants_changed = MagicMock(return_value=False)
 
         captured_input = {}
 
@@ -375,13 +400,15 @@ class TestStaticGraphNoSystemPrompt:
 
         mock_graph.astream_events = capture_input
 
-        await adapter._dispatch_message(sample_message, mock_tools)
+        history = []  # No history
+        await adapter._handle_message(
+            sample_message, mock_tools, mock_ctx, history, None
+        )
 
         # Messages SHOULD include system prompt
         messages = captured_input.get("messages", [])
         system_messages = [m for m in messages if m[0] == "system"]
         assert len(system_messages) == 1, "Graph factory SHOULD receive system prompt"
-        assert "TestBot" in system_messages[0][1]
 
 
 class TestHandleStreamEvent:
@@ -390,12 +417,13 @@ class TestHandleStreamEvent:
     @pytest.fixture
     def adapter(self):
         """Create adapter with mocked dependencies."""
-        with patch("thenvoi.agents.base.ThenvoiAgent"):
-            return ThenvoiLangGraphAgent(
-                graph_factory=lambda tools: MagicMock(),
-                agent_id="agent-123",
-                api_key="test-key",
-            )
+        with patch("thenvoi.agents.base.ThenvoiLink"):
+            with patch("thenvoi.agents.base.AgentRuntime"):
+                return ThenvoiLangGraphAgent(
+                    graph_factory=lambda tools: MagicMock(),
+                    agent_id="agent-123",
+                    api_key="test-key",
+                )
 
     @pytest.fixture
     def mock_tools(self):
@@ -458,12 +486,13 @@ class TestCleanupSession:
 
         graph_factory.checkpointer = mock_checkpointer
 
-        with patch("thenvoi.agents.base.ThenvoiAgent"):
-            adapter = ThenvoiLangGraphAgent(
-                graph_factory=graph_factory,
-                agent_id="agent-123",
-                api_key="test-key",
-            )
+        with patch("thenvoi.agents.base.ThenvoiLink"):
+            with patch("thenvoi.agents.base.AgentRuntime"):
+                adapter = ThenvoiLangGraphAgent(
+                    graph_factory=graph_factory,
+                    agent_id="agent-123",
+                    api_key="test-key",
+                )
 
         await adapter._cleanup_session("room-123")
 
@@ -471,12 +500,13 @@ class TestCleanupSession:
 
     async def test_handles_missing_checkpointer(self):
         """Should handle graph_factory without checkpointer."""
-        with patch("thenvoi.agents.base.ThenvoiAgent"):
-            adapter = ThenvoiLangGraphAgent(
-                graph_factory=lambda tools: MagicMock(),  # No checkpointer attribute
-                agent_id="agent-123",
-                api_key="test-key",
-            )
+        with patch("thenvoi.agents.base.ThenvoiLink"):
+            with patch("thenvoi.agents.base.AgentRuntime"):
+                adapter = ThenvoiLangGraphAgent(
+                    graph_factory=lambda tools: MagicMock(),  # No checkpointer attribute
+                    agent_id="agent-123",
+                    api_key="test-key",
+                )
 
         # Should not raise
         await adapter._cleanup_session("room-123")

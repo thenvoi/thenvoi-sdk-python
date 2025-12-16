@@ -6,9 +6,13 @@ import logging
 from abc import ABC, abstractmethod
 from typing import Any
 
-from thenvoi.core.agent import ThenvoiAgent
-from thenvoi.core.session import AgentSession
-from thenvoi.core.types import AgentConfig, AgentTools, PlatformMessage, SessionConfig
+from thenvoi.platform.link import ThenvoiLink
+from thenvoi.platform.event import PlatformEvent
+from thenvoi.runtime.runtime import AgentRuntime
+from thenvoi.runtime.execution import ExecutionContext
+from thenvoi.runtime.tools import AgentTools
+from thenvoi.runtime.types import AgentConfig, PlatformMessage, SessionConfig
+from thenvoi.runtime.formatters import format_history_for_llm
 from thenvoi.integrations.base import check_and_format_participants
 
 logger = logging.getLogger(__name__)
@@ -18,8 +22,14 @@ class BaseFrameworkAgent(ABC):
     """
     Base class for framework agents.
 
+    Uses the new runtime layer:
+    - ThenvoiLink: WebSocket + REST transport
+    - AgentRuntime: Room presence + execution management
+    - ExecutionContext: Per-room context and event handling
+    - AgentTools: Tool interface for LLM
+
     Handles:
-    - ThenvoiAgent lifecycle (start/stop/run)
+    - AgentRuntime lifecycle (start/stop/run)
     - First message detection + history loading
     - Participant change detection
 
@@ -38,97 +48,192 @@ class BaseFrameworkAgent(ABC):
         config: AgentConfig | None = None,
         session_config: SessionConfig | None = None,
     ):
-        self.thenvoi = ThenvoiAgent(
-            agent_id=agent_id,
-            api_key=api_key,
-            ws_url=ws_url,
-            rest_url=rest_url,
-            config=config,
-            session_config=session_config,
-        )
+        self._agent_id = agent_id
+        self._api_key = api_key
+        self._ws_url = ws_url
+        self._rest_url = rest_url
+        self._config = config or AgentConfig()
+        self._session_config = session_config or SessionConfig()
+
+        # Will be set during start()
+        self._link: ThenvoiLink | None = None
+        self._runtime: AgentRuntime | None = None
+        self._agent_name: str = ""
+        self._agent_description: str = ""
 
     # --- Properties ---
 
     @property
     def agent_name(self) -> str:
-        """Get agent name from Thenvoi coordinator."""
-        return self.thenvoi.agent_name
+        """Get agent name from platform."""
+        return self._agent_name
 
     @property
     def agent_description(self) -> str:
-        """Get agent description from Thenvoi coordinator."""
-        return self.thenvoi.agent_description
+        """Get agent description from platform."""
+        return self._agent_description
+
+    @property
+    def link(self) -> ThenvoiLink:
+        """Get the ThenvoiLink instance."""
+        if not self._link:
+            raise RuntimeError("Agent not started")
+        return self._link
+
+    @property
+    def runtime(self) -> AgentRuntime:
+        """Get the AgentRuntime instance."""
+        if not self._runtime:
+            raise RuntimeError("Agent not started")
+        return self._runtime
 
     # --- Lifecycle ---
 
     async def start(self) -> None:
         """Start the agent."""
-        self.thenvoi._on_session_cleanup = self._cleanup_session
-        await self.thenvoi.start(on_message=self._dispatch_message)
+        # Create link
+        self._link = ThenvoiLink(
+            agent_id=self._agent_id,
+            api_key=self._api_key,
+            ws_url=self._ws_url,
+            rest_url=self._rest_url,
+        )
+
+        # Fetch agent metadata
+        await self._fetch_agent_metadata()
+
+        # Create runtime with our execution handler
+        self._runtime = AgentRuntime(
+            link=self._link,
+            agent_id=self._agent_id,
+            on_execute=self._dispatch_message,
+            session_config=self._session_config,
+            on_session_cleanup=self._cleanup_session,
+        )
+
+        await self._runtime.start()
         await self._on_started()
 
     async def stop(self) -> None:
         """Stop the agent."""
-        await self.thenvoi.stop()
+        if self._runtime:
+            await self._runtime.stop()
+        if self._link:
+            await self._link.disconnect()
 
     async def run(self) -> None:
         """Start and run until interrupted."""
         await self.start()
         try:
-            await self.thenvoi.run()
+            if self._link:
+                await self._link.run_forever()
         finally:
             await self.stop()
 
+    # --- Internal methods ---
+
+    async def _fetch_agent_metadata(self) -> None:
+        """Fetch agent metadata from platform."""
+        if not self._link:
+            raise RuntimeError("Link not initialized")
+
+        response = await self._link.rest.agent_api.get_agent_me()
+        if not response.data:
+            raise RuntimeError("Failed to fetch agent metadata")
+
+        agent = response.data
+        if not agent.description:
+            raise ValueError(f"Agent {self._agent_id} has no description")
+
+        self._agent_name = agent.name
+        self._agent_description = agent.description
+
+        logger.debug(f"Fetched metadata for agent: {self._agent_name}")
+
     # --- Common pre-processing ---
 
-    async def _dispatch_message(self, msg: PlatformMessage, tools: AgentTools) -> None:
-        """Pre-process message and delegate to framework handler."""
-        room_id = msg.room_id
-        session = self.thenvoi.active_sessions.get(room_id)
-
-        if not session:
-            logger.warning(f"Room {room_id}: No session found")
+    async def _dispatch_message(
+        self, ctx: ExecutionContext, event: PlatformEvent
+    ) -> None:
+        """Pre-process event and delegate to framework handler."""
+        # Only handle message events
+        if not event.is_message:
             return
 
-        is_first = not session.is_llm_initialized
+        room_id = ctx.room_id
+        msg_data = event.as_message()
+
+        # Skip messages from self to avoid infinite loops
+        if msg_data.sender_type == "Agent" and msg_data.sender_id == self._agent_id:
+            logger.debug(f"Room {room_id}: Skipping own message {msg_data.id}")
+            return
+
+        # Convert to PlatformMessage
+        from datetime import datetime
+
+        msg = PlatformMessage(
+            id=msg_data.id,
+            room_id=msg_data.chat_room_id,
+            content=msg_data.content,
+            sender_id=msg_data.sender_id,
+            sender_type=msg_data.sender_type,
+            sender_name=None,  # Will be hydrated if needed
+            message_type=msg_data.message_type,
+            metadata={
+                "mentions": [
+                    {"id": m.id, "username": m.username}
+                    for m in msg_data.metadata.mentions
+                ],
+                "status": msg_data.metadata.status,
+            },
+            created_at=datetime.fromisoformat(
+                msg_data.inserted_at.replace("Z", "+00:00")
+            ),
+        )
+
+        is_first = not ctx.is_llm_initialized
 
         logger.debug(
             f"Room {room_id}: is_first={is_first}, "
-            f"participants_changed={session.participants_changed()}"
+            f"participants_changed={ctx.participants_changed()}"
         )
 
         # Load history on first message
         history: list[dict[str, Any]] | None = None
         if is_first:
-            history = await self._load_history(session, msg)
-            session.mark_llm_initialized()
+            history = await self._load_history(ctx, msg)
+            ctx.mark_llm_initialized()
 
         # Check participants
-        participants_msg = check_and_format_participants(session)
+        participants_msg = check_and_format_participants(ctx)
         if participants_msg:
             logger.info(f"Room {room_id}: Participants updated")
+
+        # Create tools for this context
+        tools = AgentTools.from_context(ctx)
 
         await self._handle_message(
             msg=msg,
             tools=tools,
-            session=session,
+            ctx=ctx,
             history=history,
             participants_msg=participants_msg,
         )
 
     async def _load_history(
-        self, session: AgentSession, msg: PlatformMessage
+        self, ctx: ExecutionContext, msg: PlatformMessage
     ) -> list[dict[str, Any]]:
         """Load platform history for first message."""
         try:
-            logger.info(f"Room {session.room_id}: Loading history...")
-            history = await session.get_history_for_llm(exclude_message_id=msg.id)
+            logger.info(f"Room {ctx.room_id}: Loading history...")
+            context = await ctx.get_context()
+            history = format_history_for_llm(context.messages, exclude_id=msg.id)
             logger.info(
-                f"Room {session.room_id}: Got {len(history) if history else 0} messages"
+                f"Room {ctx.room_id}: Got {len(history) if history else 0} messages"
             )
             return history or []
         except Exception as e:
-            logger.warning(f"Room {session.room_id}: Failed to load history: {e}")
+            logger.warning(f"Room {ctx.room_id}: Failed to load history: {e}")
             return []
 
     async def _report_error(self, tools: AgentTools, error: str) -> None:
@@ -145,7 +250,7 @@ class BaseFrameworkAgent(ABC):
         self,
         msg: PlatformMessage,
         tools: AgentTools,
-        session: AgentSession,
+        ctx: ExecutionContext,
         history: list[dict[str, Any]] | None,
         participants_msg: str | None,
     ) -> None:

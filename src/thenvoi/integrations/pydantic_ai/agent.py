@@ -16,14 +16,14 @@ from pydantic_ai.messages import (
 )
 
 from thenvoi.agents import BaseFrameworkAgent
-from thenvoi.core import (
-    PlatformMessage,
-    AgentTools,
+from thenvoi.runtime import (
     AgentConfig,
+    AgentTools,
+    ExecutionContext,
+    PlatformMessage,
     SessionConfig,
     render_system_prompt,
 )
-from thenvoi.core.session import AgentSession
 
 logger = logging.getLogger(__name__)
 
@@ -223,7 +223,7 @@ class ThenvoiPydanticAgent(BaseFrameworkAgent):
         self,
         msg: PlatformMessage,
         tools: AgentTools,
-        session: AgentSession,
+        ctx: ExecutionContext,
         history: list[dict[str, Any]] | None,
         participants_msg: str | None,
     ) -> None:

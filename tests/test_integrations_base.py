@@ -15,42 +15,43 @@ class TestCheckAndFormatParticipants:
         """Should return None when participants haven't changed."""
         from thenvoi.integrations.base import check_and_format_participants
 
-        session = MagicMock()
-        session.participants_changed.return_value = False
+        ctx = MagicMock()
+        ctx.participants_changed.return_value = False
 
-        result = check_and_format_participants(session)
+        result = check_and_format_participants(ctx)
 
         assert result is None
-        session.build_participants_message.assert_not_called()
-        session.mark_participants_sent.assert_not_called()
+        ctx.mark_participants_sent.assert_not_called()
 
     def test_returns_message_when_changed(self):
         """Should return formatted message when participants changed."""
         from thenvoi.integrations.base import check_and_format_participants
 
-        session = MagicMock()
-        session.participants_changed.return_value = True
-        session.build_participants_message.return_value = (
-            "## Current Participants\n- Alice"
-        )
+        ctx = MagicMock()
+        ctx.participants_changed.return_value = True
+        ctx.participants = [
+            {"id": "user-1", "name": "Alice", "type": "User"},
+        ]
 
-        result = check_and_format_participants(session)
+        result = check_and_format_participants(ctx)
 
-        assert result == "## Current Participants\n- Alice"
-        session.build_participants_message.assert_called_once()
-        session.mark_participants_sent.assert_called_once()
+        # Should contain participant info and usage hint
+        assert "## Current Participants" in result
+        assert "Alice" in result
+        assert "send_message" in result
+        ctx.mark_participants_sent.assert_called_once()
 
     def test_marks_participants_sent_automatically(self):
         """Should automatically call mark_participants_sent() when returning message."""
         from thenvoi.integrations.base import check_and_format_participants
 
-        session = MagicMock()
-        session.participants_changed.return_value = True
-        session.build_participants_message.return_value = "Participants list"
+        ctx = MagicMock()
+        ctx.participants_changed.return_value = True
+        ctx.participants = [{"id": "user-1", "name": "Alice", "type": "User"}]
 
-        check_and_format_participants(session)
+        check_and_format_participants(ctx)
 
-        session.mark_participants_sent.assert_called_once()
+        ctx.mark_participants_sent.assert_called_once()
 
 
 class TestIntegrationsImport:
