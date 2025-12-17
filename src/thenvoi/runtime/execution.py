@@ -28,7 +28,12 @@ from typing import (
     runtime_checkable,
 )
 
-from thenvoi.platform.event import PlatformEvent
+from thenvoi.platform.event import (
+    MessageEvent,
+    ParticipantAddedEvent,
+    ParticipantRemovedEvent,
+    PlatformEvent,
+)
 
 from .types import ConversationContext, PlatformMessage, SessionConfig
 from .retry_tracker import MessageRetryTracker
@@ -81,7 +86,7 @@ class ExecutionContext:
 
     Example:
         async def on_execute(ctx: ExecutionContext, event: PlatformEvent):
-            if event.is_message:
+            if isinstance(event, MessageEvent):
                 tools = AgentTools.from_context(ctx)
                 history = ctx.get_history_for_llm()
                 # Run LLM with context and tools...
@@ -220,8 +225,8 @@ class ExecutionContext:
         Tracks first WebSocket message ID for crash recovery sync.
         """
         # Track first WebSocket message ID for sync point
-        if event.is_message and self._first_ws_msg_id is None:
-            msg_id = event.payload.get("id")
+        if isinstance(event, MessageEvent) and self._first_ws_msg_id is None:
+            msg_id = event.payload.id
             if msg_id:
                 self._first_ws_msg_id = msg_id
                 logger.debug(f"Sync point marker set: {msg_id}")
@@ -636,21 +641,21 @@ class ExecutionContext:
                 metadata["status"] = "sent"
 
             # Create event from message for handler
-            event = PlatformEvent(
-                type="message_created",
+            from thenvoi.client.streaming import MessageCreatedPayload, MessageMetadata
+
+            event = MessageEvent(
                 room_id=self.room_id,
-                payload={
-                    "id": msg.id,
-                    "content": msg.content,
-                    "sender_id": msg.sender_id,
-                    "sender_type": msg.sender_type,
-                    "sender_name": msg.sender_name,
-                    "message_type": msg.message_type,
-                    "metadata": metadata,
-                    "chat_room_id": self.room_id,
-                    "inserted_at": created_at_str,
-                    "updated_at": created_at_str,
-                },
+                payload=MessageCreatedPayload(
+                    id=msg.id,
+                    content=msg.content,
+                    sender_id=msg.sender_id,
+                    sender_type=msg.sender_type,
+                    message_type=msg.message_type,
+                    metadata=MessageMetadata(**metadata),
+                    chat_room_id=self.room_id,
+                    inserted_at=created_at_str,
+                    updated_at=created_at_str,
+                ),
             )
 
             # Call execution handler
@@ -688,7 +693,7 @@ class ExecutionContext:
         while not self.queue.empty():
             try:
                 event = self.queue.get_nowait()
-                if event.is_message and event.payload.get("id") == msg_id:
+                if isinstance(event, MessageEvent) and event.payload.id == msg_id:
                     logger.debug(f"Removed duplicate from WS queue: {msg_id}")
                     continue
                 items.append(event)
@@ -710,17 +715,15 @@ class ExecutionContext:
         4. Execute handler
         5. Mark as processed (success) or failed (exception)
         """
-        msg_id = event.payload.get("id") if event.is_message else None
+        msg_id = event.payload.id if isinstance(event, MessageEvent) else None
 
         # For messages: check if we should skip
-        if event.is_message and msg_id:
+        if isinstance(event, MessageEvent) and msg_id:
             # Skip messages from self (agent's own messages) to avoid infinite loops
-            sender_id = event.payload.get("sender_id")
-            sender_type = event.payload.get("sender_type")
             if (
                 self._agent_id
-                and sender_type == "Agent"
-                and sender_id == self._agent_id
+                and event.payload.sender_type == "Agent"
+                and event.payload.sender_id == self._agent_id
             ):
                 logger.debug(f"Skipping self-message {msg_id}")
                 return
@@ -749,7 +752,7 @@ class ExecutionContext:
 
         try:
             # For messages: mark as processing on server
-            if event.is_message and msg_id:
+            if isinstance(event, MessageEvent) and msg_id:
                 await self.link.mark_processing(self.room_id, msg_id)
 
             # Hydrate context on first event if enabled
@@ -757,16 +760,16 @@ class ExecutionContext:
                 await self.hydrate()
 
             # Handle participant events internally
-            if event.is_participant_added:
-                self.add_participant(event.payload)
-            elif event.is_participant_removed:
-                self.remove_participant(event.payload.get("id", ""))
+            if isinstance(event, ParticipantAddedEvent):
+                self.add_participant(event.payload.model_dump())
+            elif isinstance(event, ParticipantRemovedEvent):
+                self.remove_participant(event.payload.id)
 
             # Call execution handler
             await self._on_execute(self, event)
 
             # For messages: mark as processed on server
-            if event.is_message and msg_id:
+            if isinstance(event, MessageEvent) and msg_id:
                 await self.link.mark_processed(self.room_id, msg_id)
                 self._retry_tracker.mark_success(msg_id)
 
@@ -780,7 +783,7 @@ class ExecutionContext:
         except Exception as e:
             logger.error(f"Error processing {event.type}: {e}", exc_info=True)
             # For messages: mark as failed on server
-            if event.is_message and msg_id:
+            if isinstance(event, MessageEvent) and msg_id:
                 await self.link.mark_failed(self.room_id, msg_id, str(e))
 
         finally:

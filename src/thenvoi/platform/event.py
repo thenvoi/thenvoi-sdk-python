@@ -1,74 +1,80 @@
 """
-PlatformEvent - Single event type for all platform events.
+Platform events using tagged union pattern.
 
-Reuses existing payload models from streaming/client.py.
+Events are strongly typed using discriminated unions, enabling type-safe
+pattern matching and automatic type narrowing.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from typing import Any, Optional
+from dataclasses import dataclass
+from typing import Any, Literal
 
-# Reuse existing payload models - don't recreate
+# Import payload models from streaming client
 from thenvoi.client.streaming import (
     MessageCreatedPayload,
     RoomAddedPayload,
     RoomRemovedPayload,
+    ParticipantAddedPayload,
+    ParticipantRemovedPayload,
 )
 
 
 @dataclass
-class PlatformEvent:
-    """
-    Single event type for all platform events.
+class MessageEvent:
+    """Message created event."""
 
-    Wraps WebSocket events with consistent interface.
-    Typed accessors use existing payload models from streaming/client.py.
-    """
+    type: Literal["message_created"] = "message_created"
+    room_id: str | None = None
+    payload: MessageCreatedPayload = None  # type: ignore
+    raw: dict[str, Any] | None = None
 
-    type: str
-    room_id: Optional[str]
-    payload: dict[str, Any]
-    raw: Optional[dict[str, Any]] = field(default=None, repr=False)
 
-    # --- Typed accessors (reuse existing models) ---
+@dataclass
+class RoomAddedEvent:
+    """Room added event."""
 
-    def as_message(self) -> MessageCreatedPayload:
-        """Get payload as MessageCreatedPayload."""
-        if self.type != "message_created":
-            raise TypeError(f"Expected message_created, got {self.type}")
-        return MessageCreatedPayload(**self.payload)
+    type: Literal["room_added"] = "room_added"
+    room_id: str | None = None
+    payload: RoomAddedPayload = None  # type: ignore
+    raw: dict[str, Any] | None = None
 
-    def as_room_added(self) -> RoomAddedPayload:
-        """Get payload as RoomAddedPayload."""
-        if self.type != "room_added":
-            raise TypeError(f"Expected room_added, got {self.type}")
-        return RoomAddedPayload(**self.payload)
 
-    def as_room_removed(self) -> RoomRemovedPayload:
-        """Get payload as RoomRemovedPayload."""
-        if self.type != "room_removed":
-            raise TypeError(f"Expected room_removed, got {self.type}")
-        return RoomRemovedPayload(**self.payload)
+@dataclass
+class RoomRemovedEvent:
+    """Room removed event."""
 
-    # --- Convenience checks ---
+    type: Literal["room_removed"] = "room_removed"
+    room_id: str | None = None
+    payload: RoomRemovedPayload = None  # type: ignore
+    raw: dict[str, Any] | None = None
 
-    @property
-    def is_message(self) -> bool:
-        return self.type == "message_created"
 
-    @property
-    def is_room_added(self) -> bool:
-        return self.type == "room_added"
+@dataclass
+class ParticipantAddedEvent:
+    """Participant added event."""
 
-    @property
-    def is_room_removed(self) -> bool:
-        return self.type == "room_removed"
+    type: Literal["participant_added"] = "participant_added"
+    room_id: str | None = None
+    payload: ParticipantAddedPayload = None  # type: ignore
+    raw: dict[str, Any] | None = None
 
-    @property
-    def is_participant_added(self) -> bool:
-        return self.type == "participant_added"
 
-    @property
-    def is_participant_removed(self) -> bool:
-        return self.type == "participant_removed"
+@dataclass
+class ParticipantRemovedEvent:
+    """Participant removed event."""
+
+    type: Literal["participant_removed"] = "participant_removed"
+    room_id: str | None = None
+    payload: ParticipantRemovedPayload = None  # type: ignore
+    raw: dict[str, Any] | None = None
+
+
+# Union type for all platform events
+PlatformEvent = (
+    MessageEvent
+    | RoomAddedEvent
+    | RoomRemovedEvent
+    | ParticipantAddedEvent
+    | ParticipantRemovedEvent
+)

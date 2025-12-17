@@ -7,7 +7,7 @@ from abc import ABC, abstractmethod
 from typing import Any
 
 from thenvoi.platform.link import ThenvoiLink
-from thenvoi.platform.event import PlatformEvent
+from thenvoi.platform.event import MessageEvent, PlatformEvent
 from thenvoi.runtime.runtime import AgentRuntime
 from thenvoi.runtime.execution import ExecutionContext
 from thenvoi.runtime.tools import AgentTools
@@ -157,11 +157,11 @@ class BaseFrameworkAgent(ABC):
     ) -> None:
         """Pre-process event and delegate to framework handler."""
         # Only handle message events
-        if not event.is_message:
+        if not isinstance(event, MessageEvent):
             return
 
         room_id = ctx.room_id
-        msg_data = event.as_message()
+        msg_data = event.payload
 
         # Skip messages from self to avoid infinite loops
         if msg_data.sender_type == "Agent" and msg_data.sender_id == self._agent_id:

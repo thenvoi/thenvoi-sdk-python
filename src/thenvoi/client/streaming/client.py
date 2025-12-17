@@ -81,6 +81,24 @@ class RoomRemovedPayload(BaseModel):
     removed_at: str
 
 
+class ParticipantAddedPayload(BaseModel):
+    """Payload for participant_added events."""
+
+    model_config = ConfigDict(extra="allow")
+
+    id: str
+    name: str
+    type: str
+
+
+class ParticipantRemovedPayload(BaseModel):
+    """Payload for participant_removed events."""
+
+    model_config = ConfigDict(extra="allow")
+
+    id: str
+
+
 class WebSocketClient:
     def __init__(self, ws_url: str, api_key: str, agent_id: Optional[str] = None):
         self.ws_url = ws_url
