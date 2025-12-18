@@ -181,12 +181,24 @@ async def test_chat(api_client: AsyncRestClient | None):
 async def test_peer_id(api_client: AsyncRestClient | None) -> str | None:
     """Get a peer ID that can be used for testing participant operations.
 
-    Returns the first available peer (agent or user) that can be added to chats.
+    Returns the first available peer that is NOT the agent's owner.
+    This avoids P4 protection rule (agent cannot remove its own owner).
     """
     if api_client is None:
         pytest.skip("THENVOI_API_KEY not set")
 
+    # Get agent's owner_uuid to exclude from peer selection
+    agent_me = await api_client.agent_api.get_agent_me()
+    agent_owner_uuid = (
+        str(agent_me.data.owner_uuid) if agent_me.data.owner_uuid else None
+    )
+
     response = await api_client.agent_api.list_agent_peers()
     if response.data:
+        # Prefer a peer that is NOT the agent's owner (to avoid P4 protection rule)
+        for peer in response.data:
+            if peer.id != agent_owner_uuid:
+                return peer.id
+        # Fallback to first peer if all peers are the owner (unlikely)
         return response.data[0].id
     return None
