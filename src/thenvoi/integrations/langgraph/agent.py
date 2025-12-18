@@ -180,9 +180,13 @@ class ThenvoiLangGraphAgent(BaseFrameworkAgent):
                 logger.info(f"Room {room_id}: Sending system prompt (first message)")
             logger.debug(f"System prompt:\n{self._system_prompt}")
 
-            # Inject historical messages
+            # Inject historical messages (only text messages, skip events)
             if history:
                 for hist in history:
+                    # Only rebuild text messages, not events (thought, error, task, etc.)
+                    if hist["message_type"] != "text":
+                        continue
+
                     role = hist["role"]
                     content = hist["content"]
                     sender_name = hist["sender_name"]

@@ -9,49 +9,86 @@ from thenvoi.runtime.formatters import (
 
 class TestFormatMessageForLlm:
     def test_agent_sender_maps_to_assistant(self):
-        msg = {"sender_type": "Agent", "content": "Hello", "sender_name": "Bot"}
+        msg = {
+            "sender_type": "Agent",
+            "content": "Hello",
+            "sender_name": "Bot",
+            "message_type": "text",
+        }
         result = format_message_for_llm(msg)
         assert result["role"] == "assistant"
         assert result["content"] == "Hello"
         assert result["sender_name"] == "Bot"
+        assert result["message_type"] == "text"
 
     def test_user_sender_maps_to_user(self):
-        msg = {"sender_type": "User", "content": "Hi", "sender_name": "Alice"}
+        msg = {
+            "sender_type": "User",
+            "content": "Hi",
+            "sender_name": "Alice",
+            "message_type": "text",
+        }
         result = format_message_for_llm(msg)
         assert result["role"] == "user"
 
     def test_unknown_sender_maps_to_user(self):
-        msg = {"sender_type": "", "content": "Test"}
+        msg = {
+            "sender_type": "",
+            "content": "Test",
+            "sender_name": None,
+            "message_type": "text",
+        }
         result = format_message_for_llm(msg)
         assert result["role"] == "user"
 
     def test_fallback_sender_name_to_type(self):
-        # Falls back to sender_type if no name
-        msg = {"sender_type": "Agent", "content": ""}
+        # Falls back to sender_type if sender_name is None
+        msg = {
+            "sender_type": "Agent",
+            "content": "",
+            "sender_name": None,
+            "message_type": "text",
+        }
         result = format_message_for_llm(msg)
         assert result["sender_name"] == "Agent"
 
-    def test_fallback_sender_name_to_name_field(self):
-        # Falls back to "name" field if sender_name missing
-        msg = {"sender_type": "User", "content": "Hi", "name": "Bob"}
-        result = format_message_for_llm(msg)
-        assert result["sender_name"] == "Bob"
-
     def test_includes_sender_type(self):
-        msg = {"sender_type": "Agent", "content": "Test", "sender_name": "Bot"}
+        msg = {
+            "sender_type": "Agent",
+            "content": "Test",
+            "sender_name": "Bot",
+            "message_type": "text",
+        }
         result = format_message_for_llm(msg)
         assert result["sender_type"] == "Agent"
+
+    def test_includes_message_type(self):
+        msg = {
+            "sender_type": "Agent",
+            "content": "Thinking...",
+            "sender_name": "Bot",
+            "message_type": "thought",
+        }
+        result = format_message_for_llm(msg)
+        assert result["message_type"] == "thought"
 
 
 class TestFormatHistoryForLlm:
     def test_formats_multiple_messages(self):
         messages = [
-            {"id": "1", "sender_type": "User", "content": "Hi", "sender_name": "Alice"},
+            {
+                "id": "1",
+                "sender_type": "User",
+                "content": "Hi",
+                "sender_name": "Alice",
+                "message_type": "text",
+            },
             {
                 "id": "2",
                 "sender_type": "Agent",
                 "content": "Hello",
                 "sender_name": "Bot",
+                "message_type": "text",
             },
         ]
         result = format_history_for_llm(messages)
@@ -61,8 +98,20 @@ class TestFormatHistoryForLlm:
 
     def test_excludes_message_by_id(self):
         messages = [
-            {"id": "1", "content": "First", "sender_type": "User"},
-            {"id": "2", "content": "Second", "sender_type": "User"},
+            {
+                "id": "1",
+                "content": "First",
+                "sender_type": "User",
+                "sender_name": "Alice",
+                "message_type": "text",
+            },
+            {
+                "id": "2",
+                "content": "Second",
+                "sender_type": "User",
+                "sender_name": "Bob",
+                "message_type": "text",
+            },
         ]
         result = format_history_for_llm(messages, exclude_id="1")
         assert len(result) == 1
@@ -74,8 +123,20 @@ class TestFormatHistoryForLlm:
 
     def test_none_exclude_id_includes_all(self):
         messages = [
-            {"id": "1", "content": "First", "sender_type": "User"},
-            {"id": "2", "content": "Second", "sender_type": "User"},
+            {
+                "id": "1",
+                "content": "First",
+                "sender_type": "User",
+                "sender_name": "Alice",
+                "message_type": "text",
+            },
+            {
+                "id": "2",
+                "content": "Second",
+                "sender_type": "User",
+                "sender_name": "Bob",
+                "message_type": "text",
+            },
         ]
         result = format_history_for_llm(messages, exclude_id=None)
         assert len(result) == 2

@@ -339,19 +339,19 @@ class ExecutionContext:
 
             messages = []
             if context_response.data:
+                # context_response.data is List[ChatMessage] from thenvoi_rest
+                # ChatMessage has required fields: id, content, message_type, sender_id, sender_type
+                # and optional: sender_name, inserted_at, metadata, etc.
                 for item in context_response.data:
-                    sender_name = getattr(item, "sender_name", None) or getattr(
-                        item, "name", None
-                    )
                     messages.append(
                         {
                             "id": item.id,
-                            "content": getattr(item, "content", ""),
-                            "sender_id": getattr(item, "sender_id", ""),
-                            "sender_type": getattr(item, "sender_type", ""),
-                            "sender_name": sender_name,
-                            "message_type": getattr(item, "message_type", "text"),
-                            "created_at": getattr(item, "inserted_at", None),
+                            "content": item.content,
+                            "sender_id": item.sender_id,
+                            "sender_type": item.sender_type,
+                            "sender_name": item.sender_name,
+                            "message_type": item.message_type,
+                            "created_at": item.inserted_at,
                         }
                     )
 

@@ -8,19 +8,20 @@ def format_message_for_llm(msg: dict) -> dict:
     Map platform message to LLM format.
 
     Args:
-        msg: Platform message dict with sender_type, content, sender_name
+        msg: Platform message dict from hydration (ChatMessage fields)
 
     Returns:
-        Dict with role, content, sender_name, sender_type
+        Dict with role, content, sender_name, sender_type, message_type
     """
-    sender_type = msg.get("sender_type", "")
-    sender_name = msg.get("sender_name") or msg.get("name") or sender_type
+    sender_type = msg["sender_type"]
+    sender_name = msg["sender_name"] or sender_type
 
     return {
         "role": "assistant" if sender_type == "Agent" else "user",
-        "content": msg.get("content", ""),
+        "content": msg["content"],
         "sender_name": sender_name,
         "sender_type": sender_type,
+        "message_type": msg["message_type"],
     }
 
 
