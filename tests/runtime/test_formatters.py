@@ -42,6 +42,41 @@ class TestFormatMessageForLlm:
         result = format_message_for_llm(msg)
         assert result["sender_type"] == "Agent"
 
+    def test_preserves_message_type(self):
+        # text message
+        msg = {"sender_type": "Agent", "content": "Hello", "message_type": "text"}
+        result = format_message_for_llm(msg)
+        assert result["message_type"] == "text"
+
+        # tool_call message
+        msg = {"sender_type": "Agent", "content": "{...}", "message_type": "tool_call"}
+        result = format_message_for_llm(msg)
+        assert result["message_type"] == "tool_call"
+
+        # tool_result message
+        msg = {
+            "sender_type": "Agent",
+            "content": "{...}",
+            "message_type": "tool_result",
+        }
+        result = format_message_for_llm(msg)
+        assert result["message_type"] == "tool_result"
+
+        # thought message
+        msg = {
+            "sender_type": "Agent",
+            "content": "thinking...",
+            "message_type": "thought",
+        }
+        result = format_message_for_llm(msg)
+        assert result["message_type"] == "thought"
+
+    def test_defaults_message_type_to_text(self):
+        # Missing message_type defaults to "text"
+        msg = {"sender_type": "Agent", "content": "Hello"}
+        result = format_message_for_llm(msg)
+        assert result["message_type"] == "text"
+
 
 class TestFormatHistoryForLlm:
     def test_formats_multiple_messages(self):

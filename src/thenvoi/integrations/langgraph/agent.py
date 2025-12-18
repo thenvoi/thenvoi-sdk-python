@@ -16,11 +16,13 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from typing import Any, Callable, List
 
 from langgraph.pregel import Pregel
 from langchain.agents import create_agent
 from langchain_core.language_models import BaseChatModel
+from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 from langgraph.checkpoint.base import BaseCheckpointSaver
 
 from thenvoi.agents import BaseFrameworkAgent
@@ -132,6 +134,117 @@ class ThenvoiLangGraphAgent(BaseFrameworkAgent):
         )
         logger.info(f"LangGraph adapter started for agent: {self.agent_name}")
 
+    def _extract_tool_call_id(self, output: str) -> str | None:
+        """Extract tool_call_id from tool output string.
+
+        Output format: "content='...' name='...' tool_call_id='call_xxx'"
+        """
+        match = re.search(r"tool_call_id='([^']+)'", output)
+        return match.group(1) if match else None
+
+    def _reconstruct_messages(
+        self, history: list[dict[str, Any]]
+    ) -> list[AIMessage | HumanMessage | ToolMessage]:
+        """Reconstruct LangGraph messages from platform history.
+
+        Parses stored tool events and creates proper LangChain message types:
+        - tool_call + tool_result pairs -> AIMessage with tool_calls + ToolMessage
+        - text -> HumanMessage or AIMessage
+
+        Tool calls and results must be paired because the tool_call_id (required
+        for both AIMessage.tool_calls[].id and ToolMessage.tool_call_id) only
+        appears in the tool_result's output.
+        """
+        messages: list[AIMessage | HumanMessage | ToolMessage] = []
+        pending_tool_calls: list[dict[str, Any]] = []
+
+        for hist in history:
+            message_type = hist.get("message_type", "text")
+            content = hist.get("content", "")
+            role = hist.get("role")
+            sender_name = hist.get("sender_name", "")
+
+            if message_type == "tool_call":
+                # Store pending - we need tool_result to get the tool_call_id
+                try:
+                    event = json.loads(content)
+                    pending_tool_calls.append(event)
+                except json.JSONDecodeError:
+                    logger.warning(f"Failed to parse tool_call event: {content[:100]}")
+
+            elif message_type == "tool_result":
+                # Parse stored event JSON
+                try:
+                    event = json.loads(content)
+                    tool_name = event.get("name", "unknown")
+                    output = event.get("data", {}).get("output", "")
+
+                    # Extract tool_call_id from output string
+                    tool_call_id = self._extract_tool_call_id(str(output))
+                    if not tool_call_id:
+                        # Fallback to run_id if no tool_call_id found
+                        tool_call_id = event.get("run_id", "unknown")
+
+                    # Find matching pending tool_call by name
+                    matching_call = None
+                    for i, call in enumerate(pending_tool_calls):
+                        if call.get("name") == tool_name:
+                            matching_call = pending_tool_calls.pop(i)
+                            break
+
+                    if matching_call:
+                        tool_input = matching_call.get("data", {}).get("input", {})
+
+                        # Create AIMessage with tool_calls using correct tool_call_id
+                        messages.append(
+                            AIMessage(
+                                content="",
+                                tool_calls=[
+                                    {
+                                        "id": tool_call_id,
+                                        "name": tool_name,
+                                        "args": tool_input,
+                                    }
+                                ],
+                            )
+                        )
+
+                    # Create ToolMessage with matching tool_call_id
+                    messages.append(
+                        ToolMessage(
+                            content=str(output),
+                            tool_call_id=tool_call_id,
+                        )
+                    )
+                except json.JSONDecodeError:
+                    logger.warning(
+                        f"Failed to parse tool_result event: {content[:100]}"
+                    )
+
+            elif message_type == "text":
+                if role == "assistant":
+                    # SKIP assistant text messages - they're redundant with tool_call/tool_result
+                    # Including them teaches LLM to respond with text instead of using tools
+                    logger.debug(f"Skipping redundant assistant text: {content[:50]}")
+                else:
+                    messages.append(HumanMessage(content=f"[{sender_name}]: {content}"))
+
+            # Skip other message types (thought, error, task, etc.)
+
+        # Warn about unmatched tool calls
+        if pending_tool_calls:
+            logger.warning(
+                f"Found {len(pending_tool_calls)} tool_calls without matching tool_results"
+            )
+            for call in pending_tool_calls:
+                logger.warning(
+                    f"Unmatched tool_call: name={call.get('name')}, "
+                    f"run_id={call.get('run_id')}, "
+                    f"input={call.get('data', {}).get('input', {})}"
+                )
+
+        return messages
+
     async def _handle_message(
         self,
         msg: PlatformMessage,
@@ -155,7 +268,9 @@ class ThenvoiLangGraphAgent(BaseFrameworkAgent):
         room_id = msg.room_id  # = thread_id for LangGraph
         is_first_message = history is not None
 
-        logger.debug(f"Handling message {msg.id} in room {room_id}")
+        logger.info(
+            f"[HANDLE] Message {msg.id} in room {room_id}, is_first={history is not None}"
+        )
 
         # Get LangChain tools from AgentTools
         langchain_tools = agent_tools_to_langchain(tools) + self.additional_tools
@@ -170,7 +285,8 @@ class ThenvoiLangGraphAgent(BaseFrameworkAgent):
             raise RuntimeError("No graph available")
 
         # Build messages list for this invocation
-        messages = []
+        # Mixed types: tuples for system/user, LangChain messages for history
+        messages: list[Any] = []
 
         if is_first_message:
             # FIRST MESSAGE: Include system prompt + historical context
@@ -180,18 +296,20 @@ class ThenvoiLangGraphAgent(BaseFrameworkAgent):
                 logger.info(f"Room {room_id}: Sending system prompt (first message)")
             logger.debug(f"System prompt:\n{self._system_prompt}")
 
-            # Inject historical messages
+            # Inject historical messages - reconstruct proper LangGraph message types
             if history:
-                for hist in history:
-                    role = hist["role"]
-                    content = hist["content"]
-                    sender_name = hist["sender_name"]
-
-                    # Format for LangGraph
-                    if role == "assistant":
-                        messages.append(("assistant", content))
-                    else:
-                        messages.append(("user", f"[{sender_name}]: {content}"))
+                logger.info(f"[HISTORY] Raw history has {len(history)} items")
+                for i, h in enumerate(history):
+                    logger.info(
+                        f"[HISTORY] [{i}] type={h.get('message_type', 'text')} role={h.get('role')} sender={h.get('sender_name', '?')}"
+                    )
+                reconstructed = self._reconstruct_messages(history)
+                messages.extend(reconstructed)
+                logger.info(
+                    f"[HISTORY] Reconstructed {len(reconstructed)} LangChain messages"
+                )
+                for i, m in enumerate(reconstructed):
+                    logger.info(f"[HISTORY] [{i}] {type(m).__name__}: {str(m)[:200]}")
 
         # Inject participants message ONLY if changed
         if participants_msg:
@@ -206,7 +324,12 @@ class ThenvoiLangGraphAgent(BaseFrameworkAgent):
 
         graph_input = {"messages": messages}
 
-        logger.debug(f"Room {room_id}: Sending {len(messages)} messages to LangGraph")
+        logger.info(f"[INVOKE] Sending {len(messages)} messages to LangGraph")
+        for i, m in enumerate(messages):
+            if isinstance(m, tuple):
+                logger.info(f"[INVOKE] [{i}] tuple: {m[0]} - {str(m[1])[:100]}")
+            else:
+                logger.info(f"[INVOKE] [{i}] {type(m).__name__}: {str(m)[:100]}")
 
         # Run LangGraph - LLM uses tools.send_message() internally
         try:
@@ -218,7 +341,7 @@ class ThenvoiLangGraphAgent(BaseFrameworkAgent):
             ):
                 await self._handle_stream_event(event, room_id, tools)
 
-            logger.debug(f"Message {msg.id} processed successfully")
+            logger.info(f"[DONE] Message {msg.id} processed successfully")
 
         except Exception as e:
             logger.error(f"Error processing message {msg.id}: {e}", exc_info=True)
@@ -231,9 +354,19 @@ class ThenvoiLangGraphAgent(BaseFrameworkAgent):
         """Handle streaming events from LangGraph - send raw events to platform."""
         event_type = event.get("event")
 
+        # Log all events for debugging
+        if event_type in (
+            "on_chat_model_start",
+            "on_chat_model_end",
+            "on_chat_model_stream",
+        ):
+            logger.info(f"[STREAM] {event_type}: {event.get('name', '?')}")
+        elif event_type in ("on_chain_start", "on_chain_end"):
+            logger.info(f"[STREAM] {event_type}: {event.get('name', '?')}")
+
         if event_type == "on_tool_start":
             tool_name = event.get("name", "unknown")
-            logger.debug(f"[{room_id}] Tool started: {tool_name}")
+            logger.info(f"[STREAM] on_tool_start: {tool_name}")
 
             # Send raw LangGraph event
             try:
@@ -247,7 +380,7 @@ class ThenvoiLangGraphAgent(BaseFrameworkAgent):
 
         elif event_type == "on_tool_end":
             tool_name = event.get("name", "unknown")
-            logger.debug(f"[{room_id}] Tool ended: {tool_name}")
+            logger.info(f"[STREAM] on_tool_end: {tool_name}")
 
             # Send raw LangGraph event
             try:
