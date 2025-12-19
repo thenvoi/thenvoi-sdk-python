@@ -4,9 +4,11 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from thenvoi.platform.event import PlatformEvent
 from thenvoi.runtime.execution import ExecutionContext
 from thenvoi.runtime.runtime import AgentRuntime
+
+# Import test helpers from conftest
+from tests.conftest import make_message_event
 
 
 @pytest.fixture
@@ -15,7 +17,6 @@ def mock_link():
     link = MagicMock()
     link.agent_id = "agent-123"
     link.is_connected = False
-    link.on_event = None
 
     # Async methods
     link.connect = AsyncMock()
@@ -28,6 +29,19 @@ def mock_link():
     link.rest = MagicMock()
     link.rest.agent_api = MagicMock()
     link.rest.agent_api.list_agent_chats = AsyncMock(return_value=MagicMock(data=[]))
+
+    # Message lifecycle methods
+    link.get_next_message = AsyncMock(return_value=None)
+    link.mark_processing = AsyncMock()
+    link.mark_processed = AsyncMock()
+    link.mark_failed = AsyncMock()
+
+    # Make link iterable for async for
+    async def empty_aiter():
+        return
+        yield
+
+    link.__aiter__ = lambda self: empty_aiter()
     link.rest.agent_api.list_agent_chat_participants = AsyncMock(
         return_value=MagicMock(data=[])
     )
@@ -187,10 +201,10 @@ class TestAgentRuntimeEventRouting:
 
         await runtime._create_execution("room-123")
 
-        event = PlatformEvent(
-            type="message_created",
+        event = make_message_event(
             room_id="room-123",
-            payload={"id": "msg-1", "content": "Hello"},
+            msg_id="msg-1",
+            content="Hello",
         )
         await runtime._on_room_event("room-123", event)
 
@@ -203,10 +217,9 @@ class TestAgentRuntimeEventRouting:
         """Events for unknown rooms should be ignored."""
         runtime = AgentRuntime(mock_link, "agent-123", mock_handler)
 
-        event = PlatformEvent(
-            type="message_created",
+        event = make_message_event(
             room_id="unknown-room",
-            payload={"id": "msg-1"},
+            msg_id="msg-1",
         )
 
         # Should not raise

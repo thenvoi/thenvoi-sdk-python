@@ -13,7 +13,9 @@ from unittest.mock import AsyncMock, MagicMock
 
 from thenvoi.runtime.types import SessionConfig
 from thenvoi.runtime.execution import ExecutionContext
-from thenvoi.platform.event import PlatformEvent
+
+# Import test helpers from conftest
+from tests.conftest import make_message_event
 
 
 class TestSessionConfigDefaults:
@@ -196,21 +198,12 @@ class TestProcessEventHydration:
     @pytest.fixture
     def sample_event(self):
         """Create a sample platform event."""
-        return PlatformEvent(
-            type="message_created",
+        return make_message_event(
             room_id="room-123",
-            payload={
-                "id": "msg-123",
-                "content": "Hello",
-                "sender_id": "user-456",
-                "sender_type": "User",
-                "sender_name": "Alice",
-                "message_type": "text",
-                "metadata": {"mentions": [], "status": "sent"},
-                "chat_room_id": "room-123",
-                "inserted_at": datetime.now(timezone.utc).isoformat(),
-                "updated_at": datetime.now(timezone.utc).isoformat(),
-            },
+            msg_id="msg-123",
+            content="Hello",
+            sender_id="user-456",
+            sender_type="User",
         )
 
     @pytest.mark.asyncio

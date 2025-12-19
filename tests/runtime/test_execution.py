@@ -5,9 +5,15 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from thenvoi.platform.event import PlatformEvent
 from thenvoi.runtime.execution import Execution, ExecutionContext
 from thenvoi.runtime.types import SessionConfig
+
+# Import test helpers from conftest
+from tests.conftest import (
+    make_message_event,
+    make_participant_added_event,
+    make_participant_removed_event,
+)
 
 
 @pytest.fixture
@@ -152,11 +158,7 @@ class TestExecutionContextEvents:
         """on_event() should add event to queue."""
         ctx = ExecutionContext("room-123", mock_link, mock_handler)
 
-        event = PlatformEvent(
-            type="message_created",
-            room_id="room-123",
-            payload={"id": "msg-1"},
-        )
+        event = make_message_event(room_id="room-123", msg_id="msg-1")
         await ctx.on_event(event)
 
         assert ctx.queue.qsize() == 1
@@ -167,11 +169,7 @@ class TestExecutionContextEvents:
 
         await ctx.start()
 
-        event = PlatformEvent(
-            type="message_created",
-            room_id="room-123",
-            payload={"id": "msg-1", "content": "Hello"},
-        )
+        event = make_message_event(room_id="room-123", msg_id="msg-1", content="Hello")
         await ctx.on_event(event)
 
         # Wait for processing
@@ -190,11 +188,7 @@ class TestExecutionContextEvents:
 
         await ctx.start()
 
-        event = PlatformEvent(
-            type="message_created",
-            room_id="room-123",
-            payload={"id": "msg-1"},
-        )
+        event = make_message_event(room_id="room-123", msg_id="msg-1")
 
         # Send same message twice
         await ctx.on_event(event)
@@ -356,10 +350,11 @@ class TestExecutionContextParticipantEvents:
 
         await ctx.start()
 
-        event = PlatformEvent(
-            type="participant_added",
+        event = make_participant_added_event(
             room_id="room-123",
-            payload={"id": "user-2", "name": "User Two", "type": "User"},
+            participant_id="user-2",
+            name="User Two",
+            type="User",
         )
         await ctx.on_event(event)
         await asyncio.sleep(0.1)
@@ -377,10 +372,9 @@ class TestExecutionContextParticipantEvents:
 
         await ctx.start()
 
-        event = PlatformEvent(
-            type="participant_removed",
+        event = make_participant_removed_event(
             room_id="room-123",
-            payload={"id": "user-1"},
+            participant_id="user-1",
         )
         await ctx.on_event(event)
         await asyncio.sleep(0.1)
@@ -425,11 +419,7 @@ class TestCrashRecoverySync:
 
         assert ctx._first_ws_msg_id is None
 
-        event = PlatformEvent(
-            type="message_created",
-            room_id="room-123",
-            payload={"id": "msg-ws-001"},
-        )
+        event = make_message_event(room_id="room-123", msg_id="msg-ws-001")
         await ctx.on_event(event)
 
         assert ctx._first_ws_msg_id == "msg-ws-001"
@@ -440,16 +430,8 @@ class TestCrashRecoverySync:
         """Subsequent WebSocket messages should not change the marker."""
         ctx = ExecutionContext("room-123", mock_link_with_next, mock_handler)
 
-        event1 = PlatformEvent(
-            type="message_created",
-            room_id="room-123",
-            payload={"id": "msg-ws-001"},
-        )
-        event2 = PlatformEvent(
-            type="message_created",
-            room_id="room-123",
-            payload={"id": "msg-ws-002"},
-        )
+        event1 = make_message_event(room_id="room-123", msg_id="msg-ws-001")
+        event2 = make_message_event(room_id="room-123", msg_id="msg-ws-002")
 
         await ctx.on_event(event1)
         await ctx.on_event(event2)
@@ -508,7 +490,7 @@ class TestCrashRecoverySync:
         assert mock_handler.call_count >= 1
         # The first call should be for backlog message
         call_args = mock_handler.call_args_list[0][0]
-        assert call_args[1].payload["id"] == "msg-backlog-001"
+        assert call_args[1].payload.id == "msg-backlog-001"
 
         await ctx.stop()
 
@@ -542,11 +524,7 @@ class TestCrashRecoverySync:
         )
 
         # Enqueue WS message first (sets marker)
-        ws_event = PlatformEvent(
-            type="message_created",
-            room_id="room-123",
-            payload={"id": "msg-sync-001"},
-        )
+        ws_event = make_message_event(room_id="room-123", msg_id="msg-sync-001")
         await ctx.on_event(ws_event)
         assert ctx._first_ws_msg_id == "msg-sync-001"
 
@@ -590,11 +568,7 @@ class TestCrashRecoverySync:
         )
 
         # Enqueue the same message via WS
-        ws_event = PlatformEvent(
-            type="message_created",
-            room_id="room-123",
-            payload={"id": "msg-sync-001"},
-        )
+        ws_event = make_message_event(room_id="room-123", msg_id="msg-sync-001")
         await ctx.on_event(ws_event)
 
         # Queue should have 1 item
@@ -770,11 +744,7 @@ class TestCancellationDuringProcessing:
         await asyncio.sleep(0.05)
 
         # Enqueue a message to trigger processing
-        event = PlatformEvent(
-            type="message_created",
-            room_id="room-123",
-            payload={"id": "msg-001", "content": "Test"},
-        )
+        event = make_message_event(room_id="room-123", msg_id="msg-001", content="Test")
         await ctx.on_event(event)
 
         # Give time to start processing

@@ -10,7 +10,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Awaitable, Callable
 
-from thenvoi.platform.event import MessageEvent, PlatformEvent
+from thenvoi.platform.event import PlatformEvent
 
 from .execution import Execution, ExecutionContext, ExecutionHandler
 from .presence import RoomPresence

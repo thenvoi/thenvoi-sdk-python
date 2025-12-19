@@ -16,10 +16,12 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from typing import Any
 
 from thenvoi.agents import BaseFrameworkAgent
-from thenvoi.platform.event import PlatformEvent
 from thenvoi.runtime.execution import ExecutionContext
 from thenvoi.runtime.tools import AgentTools
 from thenvoi.runtime.types import PlatformMessage
+
+# Import test helpers from conftest
+from tests.conftest import make_message_event, make_participant_added_event
 
 
 class ConcreteAgent(BaseFrameworkAgent):
@@ -207,20 +209,12 @@ class TestDispatchMessage:
         await agent.start()
 
         # Create message event
-        event = PlatformEvent(
-            type="message_created",
+        event = make_message_event(
             room_id="room-123",
-            payload={
-                "id": "msg-2",
-                "content": "Hello",
-                "sender_id": "user-1",
-                "sender_type": "User",
-                "message_type": "text",
-                "chat_room_id": "room-123",
-                "inserted_at": "2024-01-01T00:00:00Z",
-                "updated_at": "2024-01-01T00:00:00Z",
-                "metadata": {"mentions": [], "status": "sent"},
-            },
+            msg_id="msg-2",
+            content="Hello",
+            sender_id="user-1",
+            sender_type="User",
         )
 
         await agent._dispatch_message(mock_ctx, event)
@@ -248,20 +242,12 @@ class TestDispatchMessage:
         agent = ConcreteAgent(agent_id="agent-123", api_key="key")
         await agent.start()
 
-        event = PlatformEvent(
-            type="message_created",
+        event = make_message_event(
             room_id="room-123",
-            payload={
-                "id": "msg-2",
-                "content": "Hello",
-                "sender_id": "user-1",
-                "sender_type": "User",
-                "message_type": "text",
-                "chat_room_id": "room-123",
-                "inserted_at": "2024-01-01T00:00:00Z",
-                "updated_at": "2024-01-01T00:00:00Z",
-                "metadata": {"mentions": [], "status": "sent"},
-            },
+            msg_id="msg-2",
+            content="Hello",
+            sender_id="user-1",
+            sender_type="User",
         )
 
         await agent._dispatch_message(mock_ctx, event)
@@ -286,10 +272,10 @@ class TestDispatchMessage:
         agent = ConcreteAgent(agent_id="agent-123", api_key="key")
         await agent.start()
 
-        event = PlatformEvent(
-            type="participant_added",
+        event = make_participant_added_event(
             room_id="room-123",
-            payload={"id": "user-2", "name": "User Two"},
+            participant_id="user-2",
+            name="User Two",
         )
 
         await agent._dispatch_message(mock_ctx, event)
@@ -316,20 +302,12 @@ class TestParticipantChanges:
         agent = ConcreteAgent(agent_id="agent-123", api_key="key")
         await agent.start()
 
-        event = PlatformEvent(
-            type="message_created",
+        event = make_message_event(
             room_id="room-123",
-            payload={
-                "id": "msg-1",
-                "content": "Hello",
-                "sender_id": "user-1",
-                "sender_type": "User",
-                "message_type": "text",
-                "chat_room_id": "room-123",
-                "inserted_at": "2024-01-01T00:00:00Z",
-                "updated_at": "2024-01-01T00:00:00Z",
-                "metadata": {"mentions": [], "status": "sent"},
-            },
+            msg_id="msg-1",
+            content="Hello",
+            sender_id="user-1",
+            sender_type="User",
         )
 
         await agent._dispatch_message(mock_ctx, event)

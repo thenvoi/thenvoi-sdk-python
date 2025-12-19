@@ -7,11 +7,11 @@ Handles agent's presence across rooms. Does NOT handle what happens inside rooms
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Awaitable, Callable, Set
 
 from thenvoi.platform.event import (
-    MessageEvent,
     RoomAddedEvent,
     RoomRemovedEvent,
     PlatformEvent,
@@ -39,7 +39,6 @@ class RoomPresence:
 
         async def on_joined(room_id: str, payload: dict):
             print(f"Joined room {room_id}")
-            await link.subscribe_room(room_id)
 
         async def on_event(room_id: str, event: PlatformEvent):
             if isinstance(event, MessageEvent):
@@ -49,6 +48,7 @@ class RoomPresence:
         presence.on_room_event = on_event
 
         await presence.start()
+        # Presence now consumes events via async iterator internally
         await link.run_forever()
     """
 
@@ -80,18 +80,18 @@ class RoomPresence:
             None
         )
 
+        # Internal task for consuming events from link
+        self._event_task: asyncio.Task | None = None
+
     async def start(self) -> None:
         """
         Start presence management.
 
         1. Connect link if not connected
-        2. Set up event handler
-        3. Subscribe to agent room events
-        4. Subscribe to existing rooms (if configured)
+        2. Subscribe to agent room events
+        3. Subscribe to existing rooms (if configured)
+        4. Spawn task to consume events from link
         """
-        # Set up our event handler
-        self.link.on_event = self._on_platform_event
-
         # Connect if needed
         if not self.link.is_connected:
             await self.link.connect()
@@ -103,15 +103,37 @@ class RoomPresence:
         if self.auto_subscribe_existing:
             await self._subscribe_to_existing_rooms()
 
+        # Spawn task to consume events from link's async iterator
+        self._event_task = asyncio.create_task(self._consume_events())
+
         logger.info(f"RoomPresence started for agent {self.link.agent_id}")
+
+    async def _consume_events(self) -> None:
+        """Consume events from link's async iterator."""
+        try:
+            async for event in self.link:
+                await self._on_platform_event(event)
+        except asyncio.CancelledError:
+            logger.debug("Event consumer task cancelled")
+        except Exception as e:
+            logger.error(f"Error in event consumer: {e}", exc_info=True)
 
     async def stop(self) -> None:
         """
         Stop presence management.
 
-        Unsubscribes from all rooms and clears state.
+        Cancels event consumer, unsubscribes from all rooms and clears state.
         Does NOT disconnect the link (caller may want to reuse it).
         """
+        # Cancel event consumer task
+        if self._event_task and not self._event_task.done():
+            self._event_task.cancel()
+            try:
+                await self._event_task
+            except asyncio.CancelledError:
+                pass
+            self._event_task = None
+
         # Notify left for all rooms
         for room_id in list(self.rooms):
             if self.on_room_left:
@@ -145,8 +167,8 @@ class RoomPresence:
         Extracted from ThenvoiAgent._on_room_added().
         """
         room_id = event.room_id
-        if not room_id:
-            logger.warning("room_added event without room_id")
+        if not room_id or not event.payload:
+            logger.warning("room_added event without room_id or payload")
             return
 
         payload = event.payload.model_dump()

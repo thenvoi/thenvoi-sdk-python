@@ -26,7 +26,7 @@ class MessageEvent:
 
     type: Literal["message_created"] = "message_created"
     room_id: str | None = None
-    payload: MessageCreatedPayload = None  # type: ignore
+    payload: MessageCreatedPayload | None = None
     raw: dict[str, Any] | None = None
 
 
@@ -36,7 +36,7 @@ class RoomAddedEvent:
 
     type: Literal["room_added"] = "room_added"
     room_id: str | None = None
-    payload: RoomAddedPayload = None  # type: ignore
+    payload: RoomAddedPayload | None = None
     raw: dict[str, Any] | None = None
 
 
@@ -46,7 +46,7 @@ class RoomRemovedEvent:
 
     type: Literal["room_removed"] = "room_removed"
     room_id: str | None = None
-    payload: RoomRemovedPayload = None  # type: ignore
+    payload: RoomRemovedPayload | None = None
     raw: dict[str, Any] | None = None
 
 
@@ -56,7 +56,7 @@ class ParticipantAddedEvent:
 
     type: Literal["participant_added"] = "participant_added"
     room_id: str | None = None
-    payload: ParticipantAddedPayload = None  # type: ignore
+    payload: ParticipantAddedPayload | None = None
     raw: dict[str, Any] | None = None
 
 
@@ -66,7 +66,7 @@ class ParticipantRemovedEvent:
 
     type: Literal["participant_removed"] = "participant_removed"
     room_id: str | None = None
-    payload: ParticipantRemovedPayload = None  # type: ignore
+    payload: ParticipantRemovedPayload | None = None
     raw: dict[str, Any] | None = None
 
 

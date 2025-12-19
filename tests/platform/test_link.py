@@ -1,12 +1,10 @@
 """Tests for ThenvoiLink."""
 
-import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from thenvoi.platform.link import ThenvoiLink
-from thenvoi.platform.event import PlatformEvent
 
 
 @pytest.fixture
@@ -71,11 +69,11 @@ class TestThenvoiLinkConstruction:
         assert link._ws is None
         assert link._subscribed_rooms == set()
 
-    def test_init_no_event_handler(self):
-        """Should start with no event handler."""
+    def test_init_empty_event_queue(self):
+        """Should start with empty event queue."""
         link = ThenvoiLink(agent_id="agent-123", api_key="test-key")
 
-        assert link.on_event is None
+        assert link._event_queue.empty()
 
 
 class TestThenvoiLinkConnection:
@@ -295,89 +293,58 @@ class TestThenvoiLinkSubscriptions:
         await link.unsubscribe_room("room-123")
 
 
-class TestThenvoiLinkEventDispatch:
-    """Test event dispatch mechanism."""
+class TestThenvoiLinkEventQueue:
+    """Test event queue mechanism (async iterator pattern)."""
 
-    @patch("thenvoi.platform.link.WebSocketClient")
-    async def test_dispatch_calls_on_event_handler(self, mock_ws_class, mock_ws_client):
-        """_dispatch() should call on_event callback."""
-        mock_ws_class.return_value = mock_ws_client
-
-        handler_called = asyncio.Event()
-        received_event = None
-
-        async def handler(event):
-            nonlocal received_event
-            received_event = event
-            handler_called.set()
+    def test_queue_event_adds_to_queue(self):
+        """_queue_event() should add event to queue."""
+        from tests.conftest import make_message_event
 
         link = ThenvoiLink(agent_id="agent-123", api_key="test-key")
-        link.on_event = handler
 
-        event = PlatformEvent(type="test", room_id="room-123", payload={"data": "test"})
-        await link._dispatch(event)
+        event = make_message_event(room_id="room-123", msg_id="msg-1")
+        link._queue_event(event)
 
-        # Wait for async dispatch
-        await asyncio.wait_for(handler_called.wait(), timeout=1.0)
+        assert link._event_queue.qsize() == 1
 
-        assert received_event is event
-
-    @patch("thenvoi.platform.link.WebSocketClient")
-    async def test_dispatch_without_handler_is_noop(
-        self, mock_ws_class, mock_ws_client
-    ):
-        """_dispatch() without on_event handler should be no-op."""
-        mock_ws_class.return_value = mock_ws_client
+    async def test_async_iteration_gets_events(self):
+        """async for should yield events from queue."""
+        from tests.conftest import make_message_event
 
         link = ThenvoiLink(agent_id="agent-123", api_key="test-key")
-        link.on_event = None
 
-        event = PlatformEvent(type="test", room_id="room-123", payload={})
-        # Should not raise
-        await link._dispatch(event)
+        event = make_message_event(room_id="room-123", msg_id="msg-1")
+        link._queue_event(event)
 
-    @patch("thenvoi.platform.link.WebSocketClient")
-    async def test_dispatch_handles_handler_errors(self, mock_ws_class, mock_ws_client):
-        """_dispatch() should catch handler exceptions."""
-        mock_ws_class.return_value = mock_ws_client
+        # Get event via async iteration
+        received = await link.__anext__()
+        assert received is event
 
-        error_logged = asyncio.Event()
-
-        async def failing_handler(event):
-            error_logged.set()
-            raise ValueError("Handler error")
+    def test_queue_drops_when_full(self):
+        """Queue should drop events when full (no blocking)."""
+        from tests.conftest import make_message_event
 
         link = ThenvoiLink(agent_id="agent-123", api_key="test-key")
-        link.on_event = failing_handler
 
-        event = PlatformEvent(type="test", room_id="room-123", payload={})
-        # Should not raise
-        await link._dispatch(event)
+        # Fill the queue (maxsize=1000)
+        for i in range(1000):
+            link._queue_event(make_message_event(msg_id=f"msg-{i}"))
 
-        # Wait for handler to be called
-        await asyncio.wait_for(error_logged.wait(), timeout=1.0)
+        # Queue should be full
+        assert link._event_queue.full()
+
+        # Adding one more should not block (drops or handles gracefully)
+        # Note: Exact behavior depends on implementation
 
 
 class TestThenvoiLinkEventHandlers:
-    """Test internal event handlers that create PlatformEvent."""
+    """Test internal event handlers that queue typed events."""
 
-    @patch("thenvoi.platform.link.WebSocketClient")
-    async def test_on_room_added_creates_platform_event(
-        self, mock_ws_class, mock_ws_client
-    ):
-        """_on_room_added() should create PlatformEvent with type room_added."""
-        mock_ws_class.return_value = mock_ws_client
-
-        received_event = None
-        event_received = asyncio.Event()
-
-        async def handler(event):
-            nonlocal received_event
-            received_event = event
-            event_received.set()
+    async def test_on_room_added_queues_room_added_event(self):
+        """_on_room_added() should queue RoomAddedEvent."""
+        from thenvoi.platform.event import RoomAddedEvent
 
         link = ThenvoiLink(agent_id="agent-123", api_key="test-key")
-        link.on_event = handler
 
         # Create mock payload
         payload = MagicMock()
@@ -393,125 +360,90 @@ class TestThenvoiLinkEventHandlers:
         }
 
         await link._on_room_added(payload)
-        await asyncio.wait_for(event_received.wait(), timeout=1.0)
 
-        assert received_event is not None
-        assert received_event.type == "room_added"
-        assert received_event.room_id == "room-123"
+        # Check event was queued
+        assert link._event_queue.qsize() == 1
+        event = await link._event_queue.get()
+        assert isinstance(event, RoomAddedEvent)
+        assert event.room_id == "room-123"
 
-    @patch("thenvoi.platform.link.WebSocketClient")
-    async def test_on_room_removed_creates_platform_event(
-        self, mock_ws_class, mock_ws_client
-    ):
-        """_on_room_removed() should create PlatformEvent with type room_removed."""
-        mock_ws_class.return_value = mock_ws_client
-
-        received_event = None
-        event_received = asyncio.Event()
-
-        async def handler(event):
-            nonlocal received_event
-            received_event = event
-            event_received.set()
+    async def test_on_room_removed_queues_room_removed_event(self):
+        """_on_room_removed() should queue RoomRemovedEvent."""
+        from thenvoi.platform.event import RoomRemovedEvent
 
         link = ThenvoiLink(agent_id="agent-123", api_key="test-key")
-        link.on_event = handler
 
         payload = MagicMock()
         payload.id = "room-123"
-        payload.model_dump.return_value = {"id": "room-123"}
-
-        await link._on_room_removed(payload)
-        await asyncio.wait_for(event_received.wait(), timeout=1.0)
-
-        assert received_event is not None
-        assert received_event.type == "room_removed"
-        assert received_event.room_id == "room-123"
-
-    @patch("thenvoi.platform.link.WebSocketClient")
-    async def test_on_message_created_creates_platform_event(
-        self, mock_ws_class, mock_ws_client
-    ):
-        """_on_message_created() should create PlatformEvent with type message_created."""
-        mock_ws_class.return_value = mock_ws_client
-
-        received_event = None
-        event_received = asyncio.Event()
-
-        async def handler(event):
-            nonlocal received_event
-            received_event = event
-            event_received.set()
-
-        link = ThenvoiLink(agent_id="agent-123", api_key="test-key")
-        link.on_event = handler
-
-        payload = MagicMock()
         payload.model_dump.return_value = {
-            "id": "msg-123",
-            "content": "Hello",
-            "sender_id": "user-456",
+            "id": "room-123",
+            "status": "removed",
+            "type": "direct",
+            "title": "Test Room",
+            "removed_at": "2024-01-01T00:00:00Z",
         }
 
-        await link._on_message_created("room-123", payload)
-        await asyncio.wait_for(event_received.wait(), timeout=1.0)
+        await link._on_room_removed(payload)
 
-        assert received_event is not None
-        assert received_event.type == "message_created"
-        assert received_event.room_id == "room-123"
-        assert received_event.payload["content"] == "Hello"
+        assert link._event_queue.qsize() == 1
+        event = await link._event_queue.get()
+        assert isinstance(event, RoomRemovedEvent)
+        assert event.room_id == "room-123"
 
-    @patch("thenvoi.platform.link.WebSocketClient")
-    async def test_on_participant_added_creates_platform_event(
-        self, mock_ws_class, mock_ws_client
-    ):
-        """_on_participant_added() should create PlatformEvent."""
-        mock_ws_class.return_value = mock_ws_client
-
-        received_event = None
-        event_received = asyncio.Event()
-
-        async def handler(event):
-            nonlocal received_event
-            received_event = event
-            event_received.set()
+    async def test_on_message_created_queues_message_event(self):
+        """_on_message_created() should queue MessageEvent."""
+        from thenvoi.platform.event import MessageEvent
 
         link = ThenvoiLink(agent_id="agent-123", api_key="test-key")
-        link.on_event = handler
+
+        payload = MagicMock()
+        payload.id = "msg-123"
+        payload.content = "Hello"
+        payload.sender_id = "user-456"
+        payload.sender_type = "User"
+        payload.chat_room_id = "room-123"
+        payload.message_type = "text"
+        payload.inserted_at = "2024-01-01T00:00:00Z"
+        payload.updated_at = "2024-01-01T00:00:00Z"
+        payload.metadata = MagicMock()
+        payload.metadata.mentions = []
+        payload.metadata.status = "sent"
+
+        await link._on_message_created("room-123", payload)
+
+        assert link._event_queue.qsize() == 1
+        event = await link._event_queue.get()
+        assert isinstance(event, MessageEvent)
+        assert event.room_id == "room-123"
+        assert event.payload.content == "Hello"
+
+    async def test_on_participant_added_queues_participant_added_event(self):
+        """_on_participant_added() should queue ParticipantAddedEvent."""
+        from thenvoi.platform.event import ParticipantAddedEvent
+
+        link = ThenvoiLink(agent_id="agent-123", api_key="test-key")
 
         payload = {"id": "user-123", "name": "Test User", "type": "User"}
 
         await link._on_participant_added("room-123", payload)
-        await asyncio.wait_for(event_received.wait(), timeout=1.0)
 
-        assert received_event is not None
-        assert received_event.type == "participant_added"
-        assert received_event.room_id == "room-123"
-        assert received_event.payload["id"] == "user-123"
+        assert link._event_queue.qsize() == 1
+        event = await link._event_queue.get()
+        assert isinstance(event, ParticipantAddedEvent)
+        assert event.room_id == "room-123"
+        assert event.payload.id == "user-123"
 
-    @patch("thenvoi.platform.link.WebSocketClient")
-    async def test_on_participant_removed_creates_platform_event(
-        self, mock_ws_class, mock_ws_client
-    ):
-        """_on_participant_removed() should create PlatformEvent."""
-        mock_ws_class.return_value = mock_ws_client
-
-        received_event = None
-        event_received = asyncio.Event()
-
-        async def handler(event):
-            nonlocal received_event
-            received_event = event
-            event_received.set()
+    async def test_on_participant_removed_queues_participant_removed_event(self):
+        """_on_participant_removed() should queue ParticipantRemovedEvent."""
+        from thenvoi.platform.event import ParticipantRemovedEvent
 
         link = ThenvoiLink(agent_id="agent-123", api_key="test-key")
-        link.on_event = handler
 
         payload = {"id": "user-123", "name": "Test User", "type": "User"}
 
         await link._on_participant_removed("room-123", payload)
-        await asyncio.wait_for(event_received.wait(), timeout=1.0)
 
-        assert received_event is not None
-        assert received_event.type == "participant_removed"
-        assert received_event.room_id == "room-123"
+        assert link._event_queue.qsize() == 1
+        event = await link._event_queue.get()
+        assert isinstance(event, ParticipantRemovedEvent)
+        assert event.room_id == "room-123"

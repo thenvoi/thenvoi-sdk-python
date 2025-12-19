@@ -10,31 +10,12 @@ Tests cover:
 import asyncio
 import pytest
 from unittest.mock import AsyncMock, MagicMock
-from datetime import datetime, timezone
 
 from thenvoi.runtime.execution import ExecutionContext
 from thenvoi.runtime.types import SessionConfig
-from thenvoi.platform.event import PlatformEvent
 
-
-def make_event(msg_id: str, room_id: str = "room-123") -> PlatformEvent:
-    """Helper to create test platform events."""
-    return PlatformEvent(
-        type="message_created",
-        room_id=room_id,
-        payload={
-            "id": msg_id,
-            "content": f"Content for {msg_id}",
-            "sender_id": "user-456",
-            "sender_type": "User",
-            "sender_name": "Test User",
-            "message_type": "text",
-            "metadata": {"mentions": [], "status": "sent"},
-            "chat_room_id": room_id,
-            "inserted_at": datetime.now(timezone.utc).isoformat(),
-            "updated_at": datetime.now(timezone.utc).isoformat(),
-        },
-    )
+# Import test helpers from conftest
+from tests.conftest import make_message_event
 
 
 class TestIsRunningProperty:
@@ -261,7 +242,7 @@ class TestCancellationDuringProcessing:
         await asyncio.sleep(0.05)
 
         # Enqueue an event to trigger processing
-        event = make_event("msg-001")
+        event = make_message_event(room_id="room-123", msg_id="msg-001")
         await ctx.on_event(event)
 
         # Give time to start processing

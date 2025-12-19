@@ -162,6 +162,8 @@ class BaseFrameworkAgent(ABC):
 
         room_id = ctx.room_id
         msg_data = event.payload
+        if not msg_data:
+            return
 
         # Skip messages from self to avoid infinite loops
         if msg_data.sender_type == "Agent" and msg_data.sender_id == self._agent_id:

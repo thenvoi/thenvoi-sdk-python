@@ -226,7 +226,7 @@ class ExecutionContext:
         """
         # Track first WebSocket message ID for sync point
         if isinstance(event, MessageEvent) and self._first_ws_msg_id is None:
-            msg_id = event.payload.id
+            msg_id = event.payload.id if event.payload else None
             if msg_id:
                 self._first_ws_msg_id = msg_id
                 logger.debug(f"Sync point marker set: {msg_id}")
@@ -522,7 +522,12 @@ class ExecutionContext:
                     # Pop duplicate from queue
                     try:
                         head = self.queue.get_nowait()
-                        if head.payload.get("id") != next_msg.id:
+                        head_id = (
+                            head.payload.id
+                            if hasattr(head, "payload") and head.payload
+                            else None
+                        )
+                        if head_id != next_msg.id:
                             # Put it back if it's not the duplicate
                             self.queue.put_nowait(head)
                     except asyncio.QueueEmpty:
@@ -693,7 +698,11 @@ class ExecutionContext:
         while not self.queue.empty():
             try:
                 event = self.queue.get_nowait()
-                if isinstance(event, MessageEvent) and event.payload.id == msg_id:
+                if (
+                    isinstance(event, MessageEvent)
+                    and event.payload
+                    and event.payload.id == msg_id
+                ):
                     logger.debug(f"Removed duplicate from WS queue: {msg_id}")
                     continue
                 items.append(event)
@@ -715,15 +724,16 @@ class ExecutionContext:
         4. Execute handler
         5. Mark as processed (success) or failed (exception)
         """
-        msg_id = event.payload.id if isinstance(event, MessageEvent) else None
+        payload = event.payload if isinstance(event, MessageEvent) else None
+        msg_id = payload.id if payload else None
 
         # For messages: check if we should skip
-        if isinstance(event, MessageEvent) and msg_id:
+        if isinstance(event, MessageEvent) and msg_id and payload:
             # Skip messages from self (agent's own messages) to avoid infinite loops
             if (
                 self._agent_id
-                and event.payload.sender_type == "Agent"
-                and event.payload.sender_id == self._agent_id
+                and payload.sender_type == "Agent"
+                and payload.sender_id == self._agent_id
             ):
                 logger.debug(f"Skipping self-message {msg_id}")
                 return
@@ -760,9 +770,9 @@ class ExecutionContext:
                 await self.hydrate()
 
             # Handle participant events internally
-            if isinstance(event, ParticipantAddedEvent):
+            if isinstance(event, ParticipantAddedEvent) and event.payload:
                 self.add_participant(event.payload.model_dump())
-            elif isinstance(event, ParticipantRemovedEvent):
+            elif isinstance(event, ParticipantRemovedEvent) and event.payload:
                 self.remove_participant(event.payload.id)
 
             # Call execution handler

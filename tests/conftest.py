@@ -344,7 +344,7 @@ def make_message_event(
     content: str = "Test message",
     sender_id: str = "user-456",
     sender_type: str = "User",
-    **kwargs
+    **kwargs,
 ) -> MessageEvent:
     """Helper to create MessageEvent for tests."""
     payload = MessageCreatedPayload(
@@ -362,9 +362,7 @@ def make_message_event(
 
 
 def make_room_added_event(
-    room_id: str = "room-123",
-    title: str = "Test Room",
-    **kwargs
+    room_id: str = "room-123", title: str = "Test Room", **kwargs
 ) -> RoomAddedEvent:
     """Helper to create RoomAddedEvent for tests."""
     payload = RoomAddedPayload(
@@ -382,9 +380,7 @@ def make_room_added_event(
 
 
 def make_room_removed_event(
-    room_id: str = "room-123",
-    title: str = "Test Room",
-    **kwargs
+    room_id: str = "room-123", title: str = "Test Room", **kwargs
 ) -> RoomRemovedEvent:
     """Helper to create RoomRemovedEvent for tests."""
     payload = RoomRemovedPayload(

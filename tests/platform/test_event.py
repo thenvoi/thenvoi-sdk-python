@@ -1,7 +1,5 @@
 """Tests for platform events using tagged union pattern."""
 
-import pytest
-
 from thenvoi.platform.event import (
     MessageEvent,
     RoomAddedEvent,
@@ -290,7 +288,9 @@ class TestEventPatternMatching:
             ),
             ParticipantAddedEvent(
                 room_id="room-1",
-                payload=ParticipantAddedPayload(id="user-2", name="User 2", type="User"),
+                payload=ParticipantAddedPayload(
+                    id="user-2", name="User 2", type="User"
+                ),
             ),
         ]
 

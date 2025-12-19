@@ -13,27 +13,9 @@ from datetime import datetime, timezone
 
 from thenvoi.runtime.execution import ExecutionContext
 from thenvoi.runtime.types import PlatformMessage, SessionConfig
-from thenvoi.platform.event import PlatformEvent
 
-
-def make_event(msg_id: str, room_id: str = "room-123") -> PlatformEvent:
-    """Helper to create test platform events."""
-    return PlatformEvent(
-        type="message_created",
-        room_id=room_id,
-        payload={
-            "id": msg_id,
-            "content": f"Content for {msg_id}",
-            "sender_id": "user-456",
-            "sender_type": "User",
-            "sender_name": "Test User",
-            "message_type": "text",
-            "metadata": {"mentions": [], "status": "sent"},
-            "chat_room_id": room_id,
-            "inserted_at": datetime.now(timezone.utc).isoformat(),
-            "updated_at": datetime.now(timezone.utc).isoformat(),
-        },
-    )
+# Import test helpers from conftest
+from tests.conftest import make_message_event
 
 
 def make_message(msg_id: str, room_id: str = "room-123") -> PlatformMessage:
@@ -90,7 +72,7 @@ class TestFirstWsMessageIdMarker:
         """First enqueued message event should set _first_ws_msg_id."""
         assert ctx._first_ws_msg_id is None
 
-        event = make_event("msg-001")
+        event = make_message_event(msg_id="msg-001")
         await ctx.on_event(event)
 
         assert ctx._first_ws_msg_id == "msg-001"
@@ -98,9 +80,9 @@ class TestFirstWsMessageIdMarker:
     @pytest.mark.asyncio
     async def test_subsequent_event_does_not_change_marker(self, ctx):
         """Subsequent events should not change the marker."""
-        event1 = make_event("msg-001")
-        event2 = make_event("msg-002")
-        event3 = make_event("msg-003")
+        event1 = make_message_event(msg_id="msg-001")
+        event2 = make_message_event(msg_id="msg-002")
+        event3 = make_message_event(msg_id="msg-003")
 
         await ctx.on_event(event1)
         await ctx.on_event(event2)
@@ -112,7 +94,7 @@ class TestFirstWsMessageIdMarker:
     @pytest.mark.asyncio
     async def test_marker_preserved_after_queue_empty(self, ctx):
         """Marker should be preserved even if queue becomes empty."""
-        event = make_event("msg-001")
+        event = make_message_event(msg_id="msg-001")
         await ctx.on_event(event)
 
         # Drain the queue
@@ -161,7 +143,7 @@ class TestLruDedupeCache:
     @pytest.mark.asyncio
     async def test_processed_event_added_to_cache(self, ctx):
         """Processed message events should be added to LRU cache."""
-        event = make_event("msg-001")
+        event = make_message_event(msg_id="msg-001")
 
         await ctx._process_event(event)
 
@@ -170,7 +152,7 @@ class TestLruDedupeCache:
     @pytest.mark.asyncio
     async def test_duplicate_event_skipped(self, ctx):
         """Duplicate message events should be skipped."""
-        event = make_event("msg-001")
+        event = make_message_event(msg_id="msg-001")
 
         # Process first time
         await ctx._process_event(event)
@@ -187,14 +169,14 @@ class TestLruDedupeCache:
 
         # Process 5 events
         for i in range(5):
-            event = make_event(f"msg-{i:03d}")
+            event = make_message_event(msg_id=f"msg-{i:03d}")
             await ctx._process_event(event)
 
         assert len(ctx._processed_ids) == 5
         assert "msg-000" in ctx._processed_ids
 
         # Process 6th event - should evict msg-000
-        event6 = make_event("msg-005")
+        event6 = make_message_event(msg_id="msg-005")
         await ctx._process_event(event6)
 
         assert len(ctx._processed_ids) == 5
@@ -206,16 +188,16 @@ class TestLruDedupeCache:
         """Accessing duplicate should refresh its LRU position."""
         # Process 3 events
         for i in range(3):
-            event = make_event(f"msg-{i:03d}")
+            event = make_message_event(msg_id=f"msg-{i:03d}")
             await ctx._process_event(event)
 
         # Access msg-000 again (duplicate) - should move to end
-        event0_dup = make_event("msg-000")
+        event0_dup = make_message_event(msg_id="msg-000")
         await ctx._process_event(event0_dup)
 
         # Process 3 more to fill and overflow
         for i in range(3, 6):
-            event = make_event(f"msg-{i:03d}")
+            event = make_message_event(msg_id=f"msg-{i:03d}")
             await ctx._process_event(event)
 
         # msg-000 should still be there (was refreshed)
@@ -289,7 +271,7 @@ class TestSynchronizeWithNext:
         sync_msg = make_message("sync-001")
 
         # Enqueue sync message via WebSocket
-        sync_event = make_event("sync-001")
+        sync_event = make_message_event(msg_id="sync-001")
         await ctx.on_event(sync_event)
         assert ctx._first_ws_msg_id == "sync-001"
 
