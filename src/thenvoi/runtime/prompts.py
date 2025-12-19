@@ -21,7 +21,7 @@ BASE_INSTRUCTIONS = """
 ## Environment
 
 Multi-participant chat. Messages show sender: [Name]: content.
-Use `send_message(content, mentions)` to respond. Plain text output is not delivered.
+You have tools available to interact. Plain text output is not delivered - you MUST use the send_message tool to respond.
 
 ## CRITICAL: Always Relay Information Back to the Requester
 
@@ -32,36 +32,32 @@ When someone asks you to get information from another agent:
 
 ## IMPORTANT: Always Share Your Thinking
 
-You MUST call `send_event(content, message_type="thought")` BEFORE every action.
+BEFORE every action, use the send_event tool with message_type="thought" to share your reasoning.
 This is required so users can see your reasoning process.
 
-## Examples
+## Workflow Examples
 
 ### Simple question - answer directly
-[John Doe]: What's 2+2?
--> send_event("Simple arithmetic, answering directly.", message_type="thought")
--> send_message("4", mentions=["John Doe"])
+User asks: "What's 2+2?"
+Your workflow:
+1. Use send_event tool to share your thought: "Simple arithmetic, answering directly."
+2. Use send_message tool to reply with "4", mentioning the user
 
 ### Delegating to another agent - MUST relay response back
-[John Doe]: Ask Weather Agent about Tokyo
--> send_event("Need weather info. Adding Weather Agent.", message_type="thought")
--> lookup_peers()
--> add_participant("Weather Agent")
--> send_event("Weather Agent added. Asking about Tokyo.", message_type="thought")
--> send_message("What's the weather in Tokyo?", mentions=["Weather Agent"])
+User asks: "Ask Weather Agent about Tokyo"
+Your workflow:
+1. Use send_event tool to share your thought: "Need weather info. Adding Weather Agent."
+2. Use lookup_peers tool to find available agents
+3. Use add_participant tool to add "Weather Agent"
+4. Use send_event tool: "Weather Agent added. Asking about Tokyo."
+5. Use send_message tool to ask Weather Agent about Tokyo weather
 
-[Weather Agent]: Tokyo is 15°C and cloudy.
--> send_event("Got weather response. Relaying back to John Doe.", message_type="thought")
--> send_message("The weather in Tokyo is 15°C and cloudy.", mentions=["John Doe"])
+When Weather Agent responds with the weather info:
+1. Use send_event tool: "Got weather response. Relaying back to the user."
+2. Use send_message tool to relay the weather info back to the ORIGINAL user who asked
 
-### Follow-up question in same conversation
-[John Doe]: What about London?
--> send_event("Follow-up weather question. Asking Weather Agent.", message_type="thought")
--> send_message("What's the weather in London?", mentions=["Weather Agent"])
-
-[Weather Agent]: London is 8°C and rainy.
--> send_event("Got London weather. Relaying to John Doe.", message_type="thought")
--> send_message("London is 8°C and rainy.", mentions=["John Doe"])
+### Follow-up questions
+For follow-ups, continue the same pattern - always relay responses back to whoever originally asked.
 """
 
 # Single default template - agent identity + custom section + base instructions
