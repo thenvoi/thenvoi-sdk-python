@@ -16,7 +16,23 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from tests.fixtures import factory
-from thenvoi.client.streaming import MessageCreatedPayload, MessageMetadata, Mention
+from thenvoi.client.streaming import (
+    MessageCreatedPayload,
+    MessageMetadata,
+    Mention,
+    RoomAddedPayload,
+    RoomRemovedPayload,
+    RoomOwner,
+    ParticipantAddedPayload,
+    ParticipantRemovedPayload,
+)
+from thenvoi.platform.event import (
+    MessageEvent,
+    RoomAddedEvent,
+    RoomRemovedEvent,
+    ParticipantAddedEvent,
+    ParticipantRemovedEvent,
+)
 from thenvoi.runtime.types import PlatformMessage
 
 
@@ -317,3 +333,85 @@ def sample_agent_platform_message():
         metadata={},
         created_at=datetime.now(timezone.utc),
     )
+
+
+# --- Helper Functions for Creating Test Events ---
+
+
+def make_message_event(
+    room_id: str = "room-123",
+    msg_id: str = "msg-123",
+    content: str = "Test message",
+    sender_id: str = "user-456",
+    sender_type: str = "User",
+    **kwargs
+) -> MessageEvent:
+    """Helper to create MessageEvent for tests."""
+    payload = MessageCreatedPayload(
+        id=msg_id,
+        content=content,
+        message_type=kwargs.get("message_type", "text"),
+        sender_id=sender_id,
+        sender_type=sender_type,
+        chat_room_id=room_id,
+        inserted_at=kwargs.get("inserted_at", "2024-01-01T00:00:00Z"),
+        updated_at=kwargs.get("updated_at", "2024-01-01T00:00:00Z"),
+        metadata=kwargs.get("metadata", MessageMetadata(mentions=[], status="sent")),
+    )
+    return MessageEvent(room_id=room_id, payload=payload)
+
+
+def make_room_added_event(
+    room_id: str = "room-123",
+    title: str = "Test Room",
+    **kwargs
+) -> RoomAddedEvent:
+    """Helper to create RoomAddedEvent for tests."""
+    payload = RoomAddedPayload(
+        id=room_id,
+        title=title,
+        owner=kwargs.get(
+            "owner", RoomOwner(id="user-1", name="Test User", type="User")
+        ),
+        status=kwargs.get("status", "active"),
+        type=kwargs.get("type", "direct"),
+        created_at=kwargs.get("created_at", "2024-01-01T00:00:00Z"),
+        participant_role=kwargs.get("participant_role", "member"),
+    )
+    return RoomAddedEvent(room_id=room_id, payload=payload)
+
+
+def make_room_removed_event(
+    room_id: str = "room-123",
+    title: str = "Test Room",
+    **kwargs
+) -> RoomRemovedEvent:
+    """Helper to create RoomRemovedEvent for tests."""
+    payload = RoomRemovedPayload(
+        id=room_id,
+        status=kwargs.get("status", "removed"),
+        type=kwargs.get("type", "direct"),
+        title=title,
+        removed_at=kwargs.get("removed_at", "2024-01-01T00:00:00Z"),
+    )
+    return RoomRemovedEvent(room_id=room_id, payload=payload)
+
+
+def make_participant_added_event(
+    room_id: str = "room-123",
+    participant_id: str = "user-456",
+    name: str = "Test User",
+    type: str = "User",
+) -> ParticipantAddedEvent:
+    """Helper to create ParticipantAddedEvent for tests."""
+    payload = ParticipantAddedPayload(id=participant_id, name=name, type=type)
+    return ParticipantAddedEvent(room_id=room_id, payload=payload)
+
+
+def make_participant_removed_event(
+    room_id: str = "room-123",
+    participant_id: str = "user-456",
+) -> ParticipantRemovedEvent:
+    """Helper to create ParticipantRemovedEvent for tests."""
+    payload = ParticipantRemovedPayload(id=participant_id)
+    return ParticipantRemovedEvent(room_id=room_id, payload=payload)

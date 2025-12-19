@@ -10,7 +10,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Awaitable, Callable
 
-from thenvoi.platform.event import PlatformEvent
+from thenvoi.platform.event import MessageEvent, PlatformEvent
 
 from .execution import Execution, ExecutionContext, ExecutionHandler
 from .presence import RoomPresence
@@ -41,7 +41,7 @@ class AgentRuntime:
         link = ThenvoiLink(agent_id, api_key, ...)
 
         async def on_execute(ctx: ExecutionContext, event: PlatformEvent):
-            if event.is_message:
+            if isinstance(event, MessageEvent):
                 tools = AgentTools.from_context(ctx)
                 # Process message with LLM...
 

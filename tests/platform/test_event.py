@@ -1,224 +1,341 @@
-"""Tests for PlatformEvent."""
+"""Tests for platform events using tagged union pattern."""
 
 import pytest
 
-from thenvoi.platform.event import PlatformEvent
+from thenvoi.platform.event import (
+    MessageEvent,
+    RoomAddedEvent,
+    RoomRemovedEvent,
+    ParticipantAddedEvent,
+    ParticipantRemovedEvent,
+    PlatformEvent,
+)
 from thenvoi.client.streaming import (
     MessageCreatedPayload,
     RoomAddedPayload,
     RoomRemovedPayload,
+    ParticipantAddedPayload,
+    ParticipantRemovedPayload,
+    MessageMetadata,
+    RoomOwner,
 )
 
 
-class TestPlatformEventConstruction:
-    """Test PlatformEvent construction and basic fields."""
+class TestMessageEvent:
+    """Test MessageEvent construction and usage."""
 
     def test_construct_message_event(self):
-        """Construct a message_created event."""
-        event = PlatformEvent(
-            type="message_created",
+        """Construct a MessageEvent with typed payload."""
+        payload = MessageCreatedPayload(
+            id="msg-456",
+            content="Hello",
+            message_type="text",
+            sender_id="user-789",
+            sender_type="User",
+            chat_room_id="room-123",
+            inserted_at="2024-01-01T00:00:00Z",
+            updated_at="2024-01-01T00:00:00Z",
+            metadata=MessageMetadata(mentions=[], status="sent"),
+        )
+
+        event = MessageEvent(
             room_id="room-123",
-            payload={
-                "id": "msg-456",
-                "content": "Hello",
-                "message_type": "text",
-                "sender_id": "user-789",
-                "sender_type": "User",
-                "chat_room_id": "room-123",
-                "inserted_at": "2024-01-01T00:00:00Z",
-                "updated_at": "2024-01-01T00:00:00Z",
-                "metadata": {"mentions": [], "status": "sent"},
-            },
+            payload=payload,
         )
 
         assert event.type == "message_created"
         assert event.room_id == "room-123"
-        assert event.payload["content"] == "Hello"
+        assert event.payload.content == "Hello"
+        assert event.payload.id == "msg-456"
         assert event.raw is None
 
+    def test_message_event_isinstance(self):
+        """Test isinstance check for MessageEvent."""
+        payload = MessageCreatedPayload(
+            id="msg-1",
+            content="Test",
+            message_type="text",
+            sender_id="user-1",
+            sender_type="User",
+            chat_room_id="room-1",
+            inserted_at="2024-01-01T00:00:00Z",
+            updated_at="2024-01-01T00:00:00Z",
+            metadata=MessageMetadata(mentions=[], status="sent"),
+        )
+
+        event = MessageEvent(room_id="room-1", payload=payload)
+
+        assert isinstance(event, MessageEvent)
+        assert not isinstance(event, RoomAddedEvent)
+        assert not isinstance(event, RoomRemovedEvent)
+
+
+class TestRoomAddedEvent:
+    """Test RoomAddedEvent construction and usage."""
+
     def test_construct_room_added_event(self):
-        """Construct a room_added event."""
-        event = PlatformEvent(
-            type="room_added",
+        """Construct a RoomAddedEvent with typed payload."""
+        payload = RoomAddedPayload(
+            id="room-123",
+            title="Test Room",
+            owner=RoomOwner(id="user-1", name="Test User", type="User"),
+            status="active",
+            type="direct",
+            created_at="2024-01-01T00:00:00Z",
+            participant_role="member",
+        )
+
+        event = RoomAddedEvent(
             room_id="room-123",
-            payload={
-                "id": "room-123",
-                "title": "Test Room",
-                "inserted_at": "2024-01-01T00:00:00Z",
-                "updated_at": "2024-01-01T00:00:00Z",
-            },
+            payload=payload,
         )
 
         assert event.type == "room_added"
         assert event.room_id == "room-123"
-        assert event.payload["title"] == "Test Room"
+        assert event.payload.title == "Test Room"
+        assert event.payload.id == "room-123"
 
-    def test_construct_with_raw_payload(self):
+    def test_room_added_event_isinstance(self):
+        """Test isinstance check for RoomAddedEvent."""
+        payload = RoomAddedPayload(
+            id="room-1",
+            title="Room",
+            owner=RoomOwner(id="user-1", name="User", type="User"),
+            status="active",
+            type="direct",
+            created_at="2024-01-01T00:00:00Z",
+            participant_role="member",
+        )
+
+        event = RoomAddedEvent(room_id="room-1", payload=payload)
+
+        assert isinstance(event, RoomAddedEvent)
+        assert not isinstance(event, MessageEvent)
+        assert not isinstance(event, RoomRemovedEvent)
+
+
+class TestRoomRemovedEvent:
+    """Test RoomRemovedEvent construction and usage."""
+
+    def test_construct_room_removed_event(self):
+        """Construct a RoomRemovedEvent with typed payload."""
+        payload = RoomRemovedPayload(
+            id="room-123",
+            status="removed",
+            type="direct",
+            title="Test Room",
+            removed_at="2024-01-01T00:00:00Z",
+        )
+
+        event = RoomRemovedEvent(
+            room_id="room-123",
+            payload=payload,
+        )
+
+        assert event.type == "room_removed"
+        assert event.room_id == "room-123"
+        assert event.payload.status == "removed"
+
+    def test_room_removed_event_isinstance(self):
+        """Test isinstance check for RoomRemovedEvent."""
+        payload = RoomRemovedPayload(
+            id="room-1",
+            status="removed",
+            type="direct",
+            title="Room",
+            removed_at="2024-01-01T00:00:00Z",
+        )
+
+        event = RoomRemovedEvent(room_id="room-1", payload=payload)
+
+        assert isinstance(event, RoomRemovedEvent)
+        assert not isinstance(event, MessageEvent)
+        assert not isinstance(event, RoomAddedEvent)
+
+
+class TestParticipantEvents:
+    """Test ParticipantAddedEvent and ParticipantRemovedEvent."""
+
+    def test_construct_participant_added_event(self):
+        """Construct a ParticipantAddedEvent with typed payload."""
+        payload = ParticipantAddedPayload(
+            id="user-123",
+            name="Test User",
+            type="User",
+        )
+
+        event = ParticipantAddedEvent(
+            room_id="room-123",
+            payload=payload,
+        )
+
+        assert event.type == "participant_added"
+        assert event.room_id == "room-123"
+        assert event.payload.id == "user-123"
+        assert event.payload.name == "Test User"
+
+    def test_construct_participant_removed_event(self):
+        """Construct a ParticipantRemovedEvent with typed payload."""
+        payload = ParticipantRemovedPayload(id="user-123")
+
+        event = ParticipantRemovedEvent(
+            room_id="room-123",
+            payload=payload,
+        )
+
+        assert event.type == "participant_removed"
+        assert event.room_id == "room-123"
+        assert event.payload.id == "user-123"
+
+    def test_participant_event_isinstance(self):
+        """Test isinstance checks for participant events."""
+        added = ParticipantAddedEvent(
+            room_id="room-1",
+            payload=ParticipantAddedPayload(id="user-1", name="User", type="User"),
+        )
+        removed = ParticipantRemovedEvent(
+            room_id="room-1",
+            payload=ParticipantRemovedPayload(id="user-1"),
+        )
+
+        assert isinstance(added, ParticipantAddedEvent)
+        assert isinstance(removed, ParticipantRemovedEvent)
+        assert not isinstance(added, MessageEvent)
+        assert not isinstance(removed, RoomAddedEvent)
+
+
+class TestEventPatternMatching:
+    """Test pattern matching with match statements."""
+
+    def test_match_message_event(self):
+        """Match statement correctly identifies MessageEvent."""
+        payload = MessageCreatedPayload(
+            id="msg-1",
+            content="Test",
+            message_type="text",
+            sender_id="user-1",
+            sender_type="User",
+            chat_room_id="room-1",
+            inserted_at="2024-01-01T00:00:00Z",
+            updated_at="2024-01-01T00:00:00Z",
+            metadata=MessageMetadata(mentions=[], status="sent"),
+        )
+
+        event: PlatformEvent = MessageEvent(room_id="room-1", payload=payload)
+        result = None
+
+        match event:
+            case MessageEvent(payload=msg):
+                result = f"message: {msg.content}"
+            case RoomAddedEvent():
+                result = "room_added"
+            case _:
+                result = "unknown"
+
+        assert result == "message: Test"
+
+    def test_match_room_added_event(self):
+        """Match statement correctly identifies RoomAddedEvent."""
+        payload = RoomAddedPayload(
+            id="room-1",
+            title="Room",
+            owner=RoomOwner(id="user-1", name="User", type="User"),
+            status="active",
+            type="direct",
+            created_at="2024-01-01T00:00:00Z",
+            participant_role="member",
+        )
+
+        event: PlatformEvent = RoomAddedEvent(room_id="room-1", payload=payload)
+        result = None
+
+        match event:
+            case MessageEvent():
+                result = "message"
+            case RoomAddedEvent(room_id=rid):
+                result = f"room_added: {rid}"
+            case _:
+                result = "unknown"
+
+        assert result == "room_added: room-1"
+
+    def test_match_with_multiple_events(self):
+        """Match statement works with multiple event types."""
+        events = [
+            MessageEvent(
+                room_id="room-1",
+                payload=MessageCreatedPayload(
+                    id="msg-1",
+                    content="Hello",
+                    message_type="text",
+                    sender_id="user-1",
+                    sender_type="User",
+                    chat_room_id="room-1",
+                    inserted_at="2024-01-01T00:00:00Z",
+                    updated_at="2024-01-01T00:00:00Z",
+                    metadata=MessageMetadata(mentions=[], status="sent"),
+                ),
+            ),
+            RoomAddedEvent(
+                room_id="room-1",
+                payload=RoomAddedPayload(
+                    id="room-1",
+                    title="Room",
+                    owner=RoomOwner(id="user-1", name="User", type="User"),
+                    status="active",
+                    type="direct",
+                    created_at="2024-01-01T00:00:00Z",
+                    participant_role="member",
+                ),
+            ),
+            ParticipantAddedEvent(
+                room_id="room-1",
+                payload=ParticipantAddedPayload(id="user-2", name="User 2", type="User"),
+            ),
+        ]
+
+        results = []
+        for event in events:
+            match event:
+                case MessageEvent():
+                    results.append("message")
+                case RoomAddedEvent():
+                    results.append("room_added")
+                case ParticipantAddedEvent():
+                    results.append("participant_added")
+                case _:
+                    results.append("unknown")
+
+        assert results == ["message", "room_added", "participant_added"]
+
+
+class TestEventWithRawPayload:
+    """Test events with raw WebSocket payload."""
+
+    def test_event_with_raw_payload(self):
         """Event can store raw WebSocket payload for debugging."""
         raw = {
             "channel": "chat_room:room-123",
             "event": "message_created",
             "payload": {},
         }
-        event = PlatformEvent(
-            type="message_created",
+
+        payload = MessageCreatedPayload(
+            id="msg-1",
+            content="Test",
+            message_type="text",
+            sender_id="user-1",
+            sender_type="User",
+            chat_room_id="room-1",
+            inserted_at="2024-01-01T00:00:00Z",
+            updated_at="2024-01-01T00:00:00Z",
+            metadata=MessageMetadata(mentions=[], status="sent"),
+        )
+
+        event = MessageEvent(
             room_id="room-123",
-            payload={"id": "msg-1"},
+            payload=payload,
             raw=raw,
         )
 
         assert event.raw == raw
-
-
-class TestPlatformEventTypeChecks:
-    """Test is_* property helpers."""
-
-    def test_is_message(self):
-        event = PlatformEvent(type="message_created", room_id="r1", payload={})
-        assert event.is_message is True
-        assert event.is_room_added is False
-        assert event.is_room_removed is False
-        assert event.is_participant_added is False
-        assert event.is_participant_removed is False
-
-    def test_is_room_added(self):
-        event = PlatformEvent(type="room_added", room_id="r1", payload={})
-        assert event.is_room_added is True
-        assert event.is_message is False
-
-    def test_is_room_removed(self):
-        event = PlatformEvent(type="room_removed", room_id="r1", payload={})
-        assert event.is_room_removed is True
-        assert event.is_message is False
-
-    def test_is_participant_added(self):
-        event = PlatformEvent(type="participant_added", room_id="r1", payload={})
-        assert event.is_participant_added is True
-        assert event.is_message is False
-
-    def test_is_participant_removed(self):
-        event = PlatformEvent(type="participant_removed", room_id="r1", payload={})
-        assert event.is_participant_removed is True
-        assert event.is_message is False
-
-
-class TestPlatformEventTypedAccessors:
-    """Test as_* methods that convert to typed payload models."""
-
-    def test_as_message_success(self):
-        """as_message() returns MessageCreatedPayload when type matches."""
-        event = PlatformEvent(
-            type="message_created",
-            room_id="room-123",
-            payload={
-                "id": "msg-456",
-                "content": "Hello world",
-                "message_type": "text",
-                "sender_id": "user-789",
-                "sender_type": "User",
-                "chat_room_id": "room-123",
-                "inserted_at": "2024-01-01T00:00:00Z",
-                "updated_at": "2024-01-01T00:00:00Z",
-                "metadata": {"mentions": [], "status": "sent"},
-            },
-        )
-
-        msg = event.as_message()
-
-        assert isinstance(msg, MessageCreatedPayload)
-        assert msg.id == "msg-456"
-        assert msg.content == "Hello world"
-        assert msg.sender_id == "user-789"
-        assert msg.sender_type == "User"
-
-    def test_as_message_wrong_type_raises(self):
-        """as_message() raises TypeError for non-message events."""
-        event = PlatformEvent(type="room_added", room_id="r1", payload={})
-
-        with pytest.raises(TypeError) as exc_info:
-            event.as_message()
-
-        assert "Expected message_created, got room_added" in str(exc_info.value)
-
-    def test_as_room_added_success(self):
-        """as_room_added() returns RoomAddedPayload when type matches."""
-        event = PlatformEvent(
-            type="room_added",
-            room_id="room-123",
-            payload={
-                "id": "room-123",
-                "title": "Test Room",
-                "owner": {"id": "user-1", "name": "Test User", "type": "User"},
-                "status": "active",
-                "type": "direct",
-                "created_at": "2024-01-01T00:00:00Z",
-                "participant_role": "member",
-            },
-        )
-
-        room = event.as_room_added()
-
-        assert isinstance(room, RoomAddedPayload)
-        assert room.id == "room-123"
-        assert room.title == "Test Room"
-        assert room.status == "active"
-
-    def test_as_room_added_wrong_type_raises(self):
-        """as_room_added() raises TypeError for non-room_added events."""
-        event = PlatformEvent(type="message_created", room_id="r1", payload={})
-
-        with pytest.raises(TypeError) as exc_info:
-            event.as_room_added()
-
-        assert "Expected room_added, got message_created" in str(exc_info.value)
-
-    def test_as_room_removed_success(self):
-        """as_room_removed() returns RoomRemovedPayload when type matches."""
-        event = PlatformEvent(
-            type="room_removed",
-            room_id="room-123",
-            payload={
-                "id": "room-123",
-                "status": "removed",
-                "type": "direct",
-                "title": "Test Room",
-                "removed_at": "2024-01-01T00:00:00Z",
-            },
-        )
-
-        room = event.as_room_removed()
-
-        assert isinstance(room, RoomRemovedPayload)
-        assert room.id == "room-123"
-        assert room.status == "removed"
-
-    def test_as_room_removed_wrong_type_raises(self):
-        """as_room_removed() raises TypeError for non-room_removed events."""
-        event = PlatformEvent(type="message_created", room_id="r1", payload={})
-
-        with pytest.raises(TypeError) as exc_info:
-            event.as_room_removed()
-
-        assert "Expected room_removed, got message_created" in str(exc_info.value)
-
-
-class TestPlatformEventEdgeCases:
-    """Edge cases and special scenarios."""
-
-    def test_event_with_none_room_id(self):
-        """Some events may have no room_id."""
-        event = PlatformEvent(
-            type="system_event", room_id=None, payload={"status": "ok"}
-        )
-
-        assert event.room_id is None
-        assert event.payload["status"] == "ok"
-
-    def test_event_payload_is_dict_copy_safe(self):
-        """Payload should be safely accessible as dict."""
-        payload = {"id": "123", "nested": {"key": "value"}}
-        event = PlatformEvent(type="test", room_id="r1", payload=payload)
-
-        # Mutating original doesn't affect event (if caller passes copy)
-        # Note: PlatformEvent stores reference, caller should pass copy if needed
-        assert event.payload["nested"]["key"] == "value"

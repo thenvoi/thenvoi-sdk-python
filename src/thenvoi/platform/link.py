@@ -10,12 +10,19 @@ from __future__ import annotations
 import asyncio
 import logging
 from datetime import datetime, timezone
-from typing import TYPE_CHECKING, Awaitable, Callable, Set
+from typing import TYPE_CHECKING, Set
 
 from thenvoi.client.rest import AsyncRestClient
 from thenvoi.client.streaming import WebSocketClient
 
-from .event import PlatformEvent
+from .event import (
+    MessageEvent,
+    RoomAddedEvent,
+    RoomRemovedEvent,
+    ParticipantAddedEvent,
+    ParticipantRemovedEvent,
+    PlatformEvent,
+)
 
 if TYPE_CHECKING:
     from thenvoi.client.streaming import (
@@ -37,17 +44,15 @@ class ThenvoiLink:
 
     Example:
         link = ThenvoiLink(agent_id="...", api_key="...")
-
-        async def handle_event(event: PlatformEvent):
-            if event.is_message:
-                print(f"Message: {event.payload['content']}")
-            elif event.is_room_added:
-                await link.subscribe_room(event.room_id)
-
-        link.on_event = handle_event
         await link.connect()
         await link.subscribe_agent_rooms(agent_id)
-        await link.run_forever()
+
+        async for event in link:
+            match event:
+                case MessageEvent(payload=msg):
+                    print(f"Message: {msg.content}")
+                case RoomAddedEvent(room_id=rid):
+                    await link.subscribe_room(rid)
     """
 
     def __init__(
@@ -72,12 +77,22 @@ class ThenvoiLink:
         # Subscription tracking (from ThenvoiAgent._subscribed_rooms)
         self._subscribed_rooms: Set[str] = set()
 
-        # Single event callback (replaces ThenvoiAgent's multiple handlers)
-        self.on_event: Callable[[PlatformEvent], Awaitable[None]] | None = None
+        # Event queue for async iteration
+        self._event_queue: asyncio.Queue[PlatformEvent] = asyncio.Queue(maxsize=1000)
 
     @property
     def is_connected(self) -> bool:
         return self._is_connected
+
+    # --- Async iterator protocol ---
+
+    def __aiter__(self):
+        """Return self to allow async iteration over events."""
+        return self
+
+    async def __anext__(self) -> PlatformEvent:
+        """Get next event from the queue. Blocks until an event is available."""
+        return await self._event_queue.get()
 
     # --- Connection lifecycle (from ThenvoiAgent.start/stop/run) ---
 
@@ -191,32 +206,27 @@ class ThenvoiLink:
 
     # --- Event handlers (from ThenvoiAgent, unified into PlatformEvent) ---
 
-    async def _dispatch(self, event: PlatformEvent) -> None:
-        """Dispatch event via callback. Non-blocking via create_task."""
-        if self.on_event:
-            asyncio.create_task(self._safe_dispatch(event))
-
-    async def _safe_dispatch(self, event: PlatformEvent) -> None:
-        """Dispatch with exception handling."""
+    def _queue_event(self, event: PlatformEvent) -> None:
+        """Queue event for async iteration. Logs warning if queue is full."""
         try:
-            if self.on_event:
-                await self.on_event(event)
-        except Exception as e:
-            logger.error(f"Event handler error for {event.type}: {e}", exc_info=True)
+            self._event_queue.put_nowait(event)
+        except asyncio.QueueFull:
+            logger.warning(
+                f"Event queue full, dropping {event.type} event for room {event.room_id}"
+            )
 
     async def _on_room_added(self, payload: "RoomAddedPayload") -> None:
         """
         Handle room_added from WebSocket.
 
         From ThenvoiAgent._on_room_added() lines 619-630.
-        Now creates PlatformEvent instead of calling _subscribe_to_room/_create_session.
+        Now creates RoomAddedEvent and queues it for async iteration.
         """
-        event = PlatformEvent(
-            type="room_added",
+        event = RoomAddedEvent(
             room_id=payload.id,
-            payload=payload.model_dump(),
+            payload=payload,
         )
-        await self._dispatch(event)
+        self._queue_event(event)
 
     async def _on_room_removed(self, payload: "RoomRemovedPayload") -> None:
         """
@@ -224,12 +234,11 @@ class ThenvoiLink:
 
         From ThenvoiAgent._on_room_removed() lines 632-643.
         """
-        event = PlatformEvent(
-            type="room_removed",
+        event = RoomRemovedEvent(
             room_id=payload.id,
-            payload=payload.model_dump(),
+            payload=payload,
         )
-        await self._dispatch(event)
+        self._queue_event(event)
 
     async def _on_message_created(
         self, room_id: str, payload: "MessageCreatedPayload"
@@ -238,14 +247,13 @@ class ThenvoiLink:
         Handle message_created from WebSocket.
 
         From ThenvoiAgent._on_message_created() lines 645-682.
-        Now creates PlatformEvent instead of routing to session.
+        Now creates MessageEvent and queues it for async iteration.
         """
-        event = PlatformEvent(
-            type="message_created",
+        event = MessageEvent(
             room_id=room_id,
-            payload=payload.model_dump(),
+            payload=payload,
         )
-        await self._dispatch(event)
+        self._queue_event(event)
 
     async def _on_participant_added(self, room_id: str, payload: dict) -> None:
         """
@@ -253,12 +261,13 @@ class ThenvoiLink:
 
         From ThenvoiAgent._on_participant_added() lines 771-786.
         """
-        event = PlatformEvent(
-            type="participant_added",
+        from thenvoi.client.streaming import ParticipantAddedPayload
+
+        event = ParticipantAddedEvent(
             room_id=room_id,
-            payload=payload if isinstance(payload, dict) else dict(payload),
+            payload=ParticipantAddedPayload(**payload),
         )
-        await self._dispatch(event)
+        self._queue_event(event)
 
     async def _on_participant_removed(self, room_id: str, payload: dict) -> None:
         """
@@ -266,12 +275,13 @@ class ThenvoiLink:
 
         From ThenvoiAgent._on_participant_removed() lines 788-805.
         """
-        event = PlatformEvent(
-            type="participant_removed",
+        from thenvoi.client.streaming import ParticipantRemovedPayload
+
+        event = ParticipantRemovedEvent(
             room_id=room_id,
-            payload=payload if isinstance(payload, dict) else dict(payload),
+            payload=ParticipantRemovedPayload(**payload),
         )
-        await self._dispatch(event)
+        self._queue_event(event)
 
     # --- Message lifecycle (SDK internal operations) ---
 

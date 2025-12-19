@@ -10,7 +10,12 @@ from __future__ import annotations
 import logging
 from typing import Awaitable, Callable, Set
 
-from thenvoi.platform.event import PlatformEvent
+from thenvoi.platform.event import (
+    MessageEvent,
+    RoomAddedEvent,
+    RoomRemovedEvent,
+    PlatformEvent,
+)
 from thenvoi.platform.link import ThenvoiLink
 
 logger = logging.getLogger(__name__)
@@ -37,8 +42,8 @@ class RoomPresence:
             await link.subscribe_room(room_id)
 
         async def on_event(room_id: str, event: PlatformEvent):
-            if event.is_message:
-                print(f"Message in {room_id}: {event.payload['content']}")
+            if isinstance(event, MessageEvent):
+                print(f"Message in {room_id}: {event.payload.content}")
 
         presence.on_room_joined = on_joined
         presence.on_room_event = on_event
@@ -124,15 +129,16 @@ class RoomPresence:
 
         Routes to appropriate handler based on event type.
         """
-        if event.is_room_added:
-            await self._handle_room_added(event)
-        elif event.is_room_removed:
-            await self._handle_room_removed(event)
-        elif event.room_id:
-            # Room-specific event - forward to on_room_event
-            await self._handle_room_event(event)
+        match event:
+            case RoomAddedEvent():
+                await self._handle_room_added(event)
+            case RoomRemovedEvent():
+                await self._handle_room_removed(event)
+            case _ if event.room_id:
+                # Room-specific event - forward to on_room_event
+                await self._handle_room_event(event)
 
-    async def _handle_room_added(self, event: PlatformEvent) -> None:
+    async def _handle_room_added(self, event: RoomAddedEvent) -> None:
         """
         Handle room_added event.
 
@@ -143,7 +149,7 @@ class RoomPresence:
             logger.warning("room_added event without room_id")
             return
 
-        payload = event.payload
+        payload = event.payload.model_dump()
 
         # Apply filter if configured
         if self.room_filter and not self.room_filter(payload):
@@ -165,7 +171,7 @@ class RoomPresence:
 
         logger.info(f"Agent joined room: {room_id}")
 
-    async def _handle_room_removed(self, event: PlatformEvent) -> None:
+    async def _handle_room_removed(self, event: RoomRemovedEvent) -> None:
         """
         Handle room_removed event.
 
