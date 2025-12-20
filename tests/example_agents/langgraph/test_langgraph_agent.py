@@ -512,6 +512,261 @@ class TestCleanupSession:
         await adapter._cleanup_session("room-123")
 
 
+class TestReconstructMessages:
+    """Tests for _reconstruct_messages tool call/result pairing."""
+
+    @pytest.fixture
+    def adapter(self):
+        """Create adapter for testing _reconstruct_messages."""
+        with patch("thenvoi.agents.base.ThenvoiLink"):
+            with patch("thenvoi.agents.base.AgentRuntime"):
+                return ThenvoiLangGraphAgent(
+                    graph_factory=lambda tools: MagicMock(),
+                    agent_id="agent-123",
+                    api_key="test-key",
+                )
+
+    def test_matches_tool_call_and_result_by_run_id(self, adapter):
+        """Should match tool_call and tool_result by run_id."""
+        import json
+
+        history = [
+            {
+                "message_type": "tool_call",
+                "content": json.dumps(
+                    {
+                        "event": "on_tool_start",
+                        "name": "send_message",
+                        "run_id": "run-123",
+                        "data": {"input": {"content": "Hello"}},
+                    }
+                ),
+            },
+            {
+                "message_type": "tool_result",
+                "content": json.dumps(
+                    {
+                        "event": "on_tool_end",
+                        "name": "send_message",
+                        "run_id": "run-123",
+                        "data": {
+                            "input": {"content": "Hello"},
+                            "output": "content='success' tool_call_id='call_abc123'",
+                        },
+                    }
+                ),
+            },
+        ]
+
+        messages = adapter._reconstruct_messages(history)
+
+        # Should have AIMessage with tool_calls + ToolMessage
+        assert len(messages) == 2
+        assert messages[0].tool_calls[0]["name"] == "send_message"
+        assert messages[0].tool_calls[0]["args"] == {"content": "Hello"}
+        assert messages[1].tool_call_id == "call_abc123"
+
+    def test_matches_back_to_back_same_tool_by_run_id(self, adapter):
+        """Back-to-back calls to same tool should match correctly by run_id."""
+        import json
+
+        history = [
+            # First send_message call
+            {
+                "message_type": "tool_call",
+                "content": json.dumps(
+                    {
+                        "event": "on_tool_start",
+                        "name": "send_message",
+                        "run_id": "run-111",
+                        "data": {"input": {"content": "First message"}},
+                    }
+                ),
+            },
+            # Second send_message call (same tool name!)
+            {
+                "message_type": "tool_call",
+                "content": json.dumps(
+                    {
+                        "event": "on_tool_start",
+                        "name": "send_message",
+                        "run_id": "run-222",
+                        "data": {"input": {"content": "Second message"}},
+                    }
+                ),
+            },
+            # Result for SECOND call arrives first (out of order)
+            {
+                "message_type": "tool_result",
+                "content": json.dumps(
+                    {
+                        "event": "on_tool_end",
+                        "name": "send_message",
+                        "run_id": "run-222",
+                        "data": {
+                            "input": {"content": "Second message"},
+                            "output": "content='ok' tool_call_id='call_222'",
+                        },
+                    }
+                ),
+            },
+            # Result for FIRST call arrives second
+            {
+                "message_type": "tool_result",
+                "content": json.dumps(
+                    {
+                        "event": "on_tool_end",
+                        "name": "send_message",
+                        "run_id": "run-111",
+                        "data": {
+                            "input": {"content": "First message"},
+                            "output": "content='ok' tool_call_id='call_111'",
+                        },
+                    }
+                ),
+            },
+        ]
+
+        messages = adapter._reconstruct_messages(history)
+
+        # Should have 4 messages: 2 AIMessage + 2 ToolMessage
+        assert len(messages) == 4
+
+        # First pair should be run-222 (result arrived first)
+        assert messages[0].tool_calls[0]["args"]["content"] == "Second message"
+        assert messages[1].tool_call_id == "call_222"
+
+        # Second pair should be run-111
+        assert messages[2].tool_calls[0]["args"]["content"] == "First message"
+        assert messages[3].tool_call_id == "call_111"
+
+    def test_fallback_to_name_matching_without_run_id(self, adapter):
+        """Should fall back to name-based LIFO matching when run_id missing."""
+        import json
+
+        history = [
+            {
+                "message_type": "tool_call",
+                "content": json.dumps(
+                    {
+                        "event": "on_tool_start",
+                        "name": "lookup_peers",
+                        # No run_id
+                        "data": {"input": {}},
+                    }
+                ),
+            },
+            {
+                "message_type": "tool_result",
+                "content": json.dumps(
+                    {
+                        "event": "on_tool_end",
+                        "name": "lookup_peers",
+                        # No run_id
+                        "data": {
+                            "input": {},
+                            "output": "content='peers' tool_call_id='call_peers'",
+                        },
+                    }
+                ),
+            },
+        ]
+
+        messages = adapter._reconstruct_messages(history)
+
+        # Should still match by name
+        assert len(messages) == 2
+        assert messages[0].tool_calls[0]["name"] == "lookup_peers"
+        assert messages[1].tool_call_id == "call_peers"
+
+    def test_unmatched_result_emits_tool_message_only(self, adapter):
+        """tool_result without matching tool_call should emit ToolMessage only."""
+        import json
+
+        history = [
+            # Only tool_result, no matching tool_call
+            {
+                "message_type": "tool_result",
+                "content": json.dumps(
+                    {
+                        "event": "on_tool_end",
+                        "name": "send_message",
+                        "run_id": "orphan-run",
+                        "data": {
+                            "input": {"content": "Hello"},
+                            "output": "content='ok' tool_call_id='call_orphan'",
+                        },
+                    }
+                ),
+            },
+        ]
+
+        messages = adapter._reconstruct_messages(history)
+
+        # Should only have ToolMessage, no fabricated AIMessage
+        assert len(messages) == 1
+        assert messages[0].tool_call_id == "call_orphan"
+        assert messages[0].content == "content='ok' tool_call_id='call_orphan'"
+
+    def test_mixed_tools_match_correctly(self, adapter):
+        """Multiple different tools should match correctly."""
+        import json
+
+        history = [
+            {
+                "message_type": "tool_call",
+                "content": json.dumps(
+                    {
+                        "name": "send_event",
+                        "run_id": "run-event",
+                        "data": {
+                            "input": {"content": "thinking", "message_type": "thought"}
+                        },
+                    }
+                ),
+            },
+            {
+                "message_type": "tool_call",
+                "content": json.dumps(
+                    {
+                        "name": "lookup_peers",
+                        "run_id": "run-peers",
+                        "data": {"input": {}},
+                    }
+                ),
+            },
+            {
+                "message_type": "tool_result",
+                "content": json.dumps(
+                    {
+                        "name": "send_event",
+                        "run_id": "run-event",
+                        "data": {"output": "tool_call_id='call_event'"},
+                    }
+                ),
+            },
+            {
+                "message_type": "tool_result",
+                "content": json.dumps(
+                    {
+                        "name": "lookup_peers",
+                        "run_id": "run-peers",
+                        "data": {"output": "tool_call_id='call_peers'"},
+                    }
+                ),
+            },
+        ]
+
+        messages = adapter._reconstruct_messages(history)
+
+        # Should have 4 messages, correctly paired
+        assert len(messages) == 4
+        assert messages[0].tool_calls[0]["name"] == "send_event"
+        assert messages[1].tool_call_id == "call_event"
+        assert messages[2].tool_calls[0]["name"] == "lookup_peers"
+        assert messages[3].tool_call_id == "call_peers"
+
+
 # Helper for async iteration
 class AsyncIterator:
     """Helper to create async iterator from list."""

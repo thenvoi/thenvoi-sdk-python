@@ -151,12 +151,14 @@ class ThenvoiLangGraphAgent(BaseFrameworkAgent):
         - tool_call + tool_result pairs -> AIMessage with tool_calls + ToolMessage
         - text -> HumanMessage or AIMessage
 
-        Tool calls and results must be paired because the tool_call_id (required
-        for both AIMessage.tool_calls[].id and ToolMessage.tool_call_id) only
-        appears in the tool_result's output.
+        Tool calls and results are paired by run_id (most reliable) or by name
+        as fallback. The tool_call_id is extracted from the tool_result output.
         """
         messages: list[AIMessage | HumanMessage | ToolMessage] = []
-        pending_tool_calls: list[dict[str, Any]] = []
+        # Map run_id -> tool_call event for reliable matching
+        pending_by_run_id: dict[str, dict[str, Any]] = {}
+        # Fallback: list of tool_calls without run_id, matched by name (LIFO)
+        pending_by_name: dict[str, list[dict[str, Any]]] = {}
 
         for hist in history:
             message_type = hist.get("message_type", "text")
@@ -165,10 +167,19 @@ class ThenvoiLangGraphAgent(BaseFrameworkAgent):
             sender_name = hist.get("sender_name", "")
 
             if message_type == "tool_call":
-                # Store pending - we need tool_result to get the tool_call_id
+                # Store pending - indexed by run_id for reliable matching
                 try:
                     event = json.loads(content)
-                    pending_tool_calls.append(event)
+                    run_id = event.get("run_id")
+                    tool_name = event.get("name", "unknown")
+
+                    if run_id:
+                        pending_by_run_id[run_id] = event
+                    else:
+                        # Fallback: store by name (as stack for LIFO matching)
+                        if tool_name not in pending_by_name:
+                            pending_by_name[tool_name] = []
+                        pending_by_name[tool_name].append(event)
                 except json.JSONDecodeError:
                     logger.warning(f"Failed to parse tool_call event: {content[:100]}")
 
@@ -177,20 +188,29 @@ class ThenvoiLangGraphAgent(BaseFrameworkAgent):
                 try:
                     event = json.loads(content)
                     tool_name = event.get("name", "unknown")
+                    run_id = event.get("run_id")
                     output = event.get("data", {}).get("output", "")
 
                     # Extract tool_call_id from output string
                     tool_call_id = self._extract_tool_call_id(str(output))
                     if not tool_call_id:
                         # Fallback to run_id if no tool_call_id found
-                        tool_call_id = event.get("run_id", "unknown")
+                        tool_call_id = run_id or "unknown"
 
-                    # Find matching pending tool_call by name
+                    # Find matching pending tool_call
                     matching_call = None
-                    for i, call in enumerate(pending_tool_calls):
-                        if call.get("name") == tool_name:
-                            matching_call = pending_tool_calls.pop(i)
-                            break
+
+                    # First: try to match by run_id (most reliable)
+                    if run_id and run_id in pending_by_run_id:
+                        matching_call = pending_by_run_id.pop(run_id)
+
+                    # Fallback: match by name (LIFO - pop from end of stack)
+                    if not matching_call and tool_name in pending_by_name:
+                        name_stack = pending_by_name[tool_name]
+                        if name_stack:
+                            matching_call = name_stack.pop()
+                            if not name_stack:
+                                del pending_by_name[tool_name]
 
                     if matching_call:
                         tool_input = matching_call.get("data", {}).get("input", {})
@@ -207,6 +227,12 @@ class ThenvoiLangGraphAgent(BaseFrameworkAgent):
                                     }
                                 ],
                             )
+                        )
+                    else:
+                        # No matching tool_call - emit ToolMessage only, don't fabricate AIMessage
+                        logger.warning(
+                            f"tool_result without matching tool_call: "
+                            f"name={tool_name}, run_id={run_id}"
                         )
 
                     # Create ToolMessage with matching tool_call_id
@@ -232,16 +258,23 @@ class ThenvoiLangGraphAgent(BaseFrameworkAgent):
             # Skip other message types (thought, error, task, etc.)
 
         # Warn about unmatched tool calls
-        if pending_tool_calls:
+        unmatched_count = len(pending_by_run_id) + sum(
+            len(v) for v in pending_by_name.values()
+        )
+        if unmatched_count:
             logger.warning(
-                f"Found {len(pending_tool_calls)} tool_calls without matching tool_results"
+                f"Found {unmatched_count} tool_calls without matching tool_results"
             )
-            for call in pending_tool_calls:
+            for run_id, call in pending_by_run_id.items():
                 logger.warning(
-                    f"Unmatched tool_call: name={call.get('name')}, "
-                    f"run_id={call.get('run_id')}, "
-                    f"input={call.get('data', {}).get('input', {})}"
+                    f"Unmatched tool_call: name={call.get('name')}, run_id={run_id}"
                 )
+            for name, calls in pending_by_name.items():
+                for call in calls:
+                    logger.warning(
+                        f"Unmatched tool_call: name={name}, "
+                        f"input={call.get('data', {}).get('input', {})}"
+                    )
 
         return messages
 
