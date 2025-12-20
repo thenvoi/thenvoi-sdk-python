@@ -151,8 +151,40 @@ class ThenvoiLangGraphAgent(BaseFrameworkAgent):
         - tool_call + tool_result pairs -> AIMessage with tool_calls + ToolMessage
         - text -> HumanMessage or AIMessage
 
-        Tool calls and results are paired by run_id (most reliable) or by name
-        as fallback. The tool_call_id is extracted from the tool_result output.
+        ## LangGraph Event Format
+
+        Tool events are stored as JSON with this structure (from astream_events v2):
+
+            {
+                "event": "on_tool_start" | "on_tool_end",
+                "name": "send_message",
+                "run_id": "unique-uuid-per-invocation",
+                "data": {
+                    "input": {...args...},  # on_tool_start
+                    "output": "..."         # on_tool_end
+                }
+            }
+
+        The `run_id` is the SAME for both on_tool_start and on_tool_end of a single
+        tool invocation, making it reliable for pairing even when:
+        - Multiple tools run in parallel
+        - Same tool is called back-to-back
+        - Results arrive out of order
+
+        ## Matching Strategy
+
+        1. **Primary: run_id** - Store pending tool_calls in dict keyed by run_id.
+           When tool_result arrives, look up by run_id for O(1) matching.
+
+        2. **Fallback: LIFO by name** - For events without run_id, use a stack per
+           tool name. Most recent pending call matches first (handles sequential
+           calls to same tool).
+
+        3. **No match found** - Emit ToolMessage only, don't fabricate AIMessage.
+           This keeps LLM conversation state consistent with incomplete history.
+
+        See `thenvoi.integrations.base` for general principles on tool pairing
+        and message type filtering that apply to all framework integrations.
         """
         messages: list[AIMessage | HumanMessage | ToolMessage] = []
         # Map run_id -> tool_call event for reliable matching
