@@ -226,10 +226,8 @@ class ExecutionContext:
         """
         # Track first WebSocket message ID for sync point
         if isinstance(event, MessageEvent) and self._first_ws_msg_id is None:
-            msg_id = event.payload.id if event.payload else None
-            if msg_id:
-                self._first_ws_msg_id = msg_id
-                logger.debug(f"Sync point marker set: {msg_id}")
+            self._first_ws_msg_id = event.payload.id
+            logger.debug(f"Sync point marker set: {self._first_ws_msg_id}")
 
         self.queue.put_nowait(event)
         logger.debug(f"Event {event.type} enqueued for room {self.room_id}")
@@ -698,11 +696,7 @@ class ExecutionContext:
         while not self.queue.empty():
             try:
                 event = self.queue.get_nowait()
-                if (
-                    isinstance(event, MessageEvent)
-                    and event.payload
-                    and event.payload.id == msg_id
-                ):
+                if isinstance(event, MessageEvent) and event.payload.id == msg_id:
                     logger.debug(f"Removed duplicate from WS queue: {msg_id}")
                     continue
                 items.append(event)
@@ -724,11 +718,11 @@ class ExecutionContext:
         4. Execute handler
         5. Mark as processed (success) or failed (exception)
         """
-        payload = event.payload if isinstance(event, MessageEvent) else None
-        msg_id = payload.id if payload else None
-
         # For messages: check if we should skip
-        if isinstance(event, MessageEvent) and msg_id and payload:
+        if isinstance(event, MessageEvent):
+            msg_id = event.payload.id
+            payload = event.payload
+
             # Skip messages from self (agent's own messages) to avoid infinite loops
             if (
                 self._agent_id
@@ -762,24 +756,25 @@ class ExecutionContext:
 
         try:
             # For messages: mark as processing on server
-            if isinstance(event, MessageEvent) and msg_id:
-                await self.link.mark_processing(self.room_id, msg_id)
+            if isinstance(event, MessageEvent):
+                await self.link.mark_processing(self.room_id, event.payload.id)
 
             # Hydrate context on first event if enabled
             if not self._context_hydrated and self.config.enable_context_hydration:
                 await self.hydrate()
 
             # Handle participant events internally
-            if isinstance(event, ParticipantAddedEvent) and event.payload:
+            if isinstance(event, ParticipantAddedEvent):
                 self.add_participant(event.payload.model_dump())
-            elif isinstance(event, ParticipantRemovedEvent) and event.payload:
+            elif isinstance(event, ParticipantRemovedEvent):
                 self.remove_participant(event.payload.id)
 
             # Call execution handler
             await self._on_execute(self, event)
 
             # For messages: mark as processed on server
-            if isinstance(event, MessageEvent) and msg_id:
+            if isinstance(event, MessageEvent):
+                msg_id = event.payload.id
                 await self.link.mark_processed(self.room_id, msg_id)
                 self._retry_tracker.mark_success(msg_id)
 
@@ -793,8 +788,8 @@ class ExecutionContext:
         except Exception as e:
             logger.error(f"Error processing {event.type}: {e}", exc_info=True)
             # For messages: mark as failed on server
-            if isinstance(event, MessageEvent) and msg_id:
-                await self.link.mark_failed(self.room_id, msg_id, str(e))
+            if isinstance(event, MessageEvent):
+                await self.link.mark_failed(self.room_id, event.payload.id, str(e))
 
         finally:
             self.state = "idle"
