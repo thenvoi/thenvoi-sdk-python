@@ -156,7 +156,7 @@ class RoomPresence:
                 await self._handle_room_added(event)
             case RoomRemovedEvent():
                 await self._handle_room_removed(event)
-            case _ if event.room_id:
+            case _:
                 # Room-specific event - forward to on_room_event
                 await self._handle_room_event(event)
 
@@ -167,10 +167,6 @@ class RoomPresence:
         Extracted from ThenvoiAgent._on_room_added().
         """
         room_id = event.room_id
-        if not room_id or not event.payload:
-            logger.warning("room_added event without room_id or payload")
-            return
-
         payload = event.payload.model_dump()
 
         # Apply filter if configured
@@ -200,9 +196,6 @@ class RoomPresence:
         Extracted from ThenvoiAgent._on_room_removed().
         """
         room_id = event.room_id
-        if not room_id:
-            logger.warning("room_removed event without room_id")
-            return
 
         # Unsubscribe from room channels
         await self.link.unsubscribe_room(room_id)
@@ -226,8 +219,6 @@ class RoomPresence:
         Forwards to on_room_event callback.
         """
         room_id = event.room_id
-        if not room_id:
-            return
 
         # Only forward events for rooms we're tracking
         if room_id not in self.rooms:

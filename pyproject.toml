@@ -22,7 +22,7 @@ classifiers = [
 ]
 
 dependencies = [
-    "thenvoi-client-rest==0.0.1",
+    "thenvoi-client-rest @ git+https://github.com/thenvoi/fern-python-sdk.git@testing",
     "phoenix-channels-python-client @ git+https://github.com/thenvoi/phoenix-channels-python-client-alpha.git",
     "python-dotenv>=1.1.1",
     "pyyaml>=6.0",
@@ -77,7 +77,7 @@ dev = [
 
 [tool.setuptools.packages.find]
 where = ["src"]
-include = ["thenvoi.*"]
+include = ["thenvoi", "thenvoi.*"]
 
 [tool.setuptools]
 package-dir = {"" = "src"}

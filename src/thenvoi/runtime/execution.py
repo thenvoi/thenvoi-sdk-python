@@ -520,12 +520,7 @@ class ExecutionContext:
                     # Pop duplicate from queue
                     try:
                         head = self.queue.get_nowait()
-                        head_id = (
-                            head.payload.id
-                            if hasattr(head, "payload") and head.payload
-                            else None
-                        )
-                        if head_id != next_msg.id:
+                        if head.payload.id != next_msg.id:
                             # Put it back if it's not the duplicate
                             self.queue.put_nowait(head)
                     except asyncio.QueueEmpty:
