@@ -20,53 +20,53 @@ from thenvoi.client.streaming import (
 )
 
 
-@dataclass
+@dataclass(kw_only=True)
 class MessageEvent:
     """Message created event."""
 
     type: Literal["message_created"] = "message_created"
-    room_id: str | None = None
-    payload: MessageCreatedPayload | None = None
+    room_id: str
+    payload: MessageCreatedPayload
     raw: dict[str, Any] | None = None
 
 
-@dataclass
+@dataclass(kw_only=True)
 class RoomAddedEvent:
     """Room added event."""
 
     type: Literal["room_added"] = "room_added"
-    room_id: str | None = None
-    payload: RoomAddedPayload | None = None
+    room_id: str
+    payload: RoomAddedPayload
     raw: dict[str, Any] | None = None
 
 
-@dataclass
+@dataclass(kw_only=True)
 class RoomRemovedEvent:
     """Room removed event."""
 
     type: Literal["room_removed"] = "room_removed"
-    room_id: str | None = None
-    payload: RoomRemovedPayload | None = None
+    room_id: str
+    payload: RoomRemovedPayload
     raw: dict[str, Any] | None = None
 
 
-@dataclass
+@dataclass(kw_only=True)
 class ParticipantAddedEvent:
     """Participant added event."""
 
     type: Literal["participant_added"] = "participant_added"
-    room_id: str | None = None
-    payload: ParticipantAddedPayload | None = None
+    room_id: str
+    payload: ParticipantAddedPayload
     raw: dict[str, Any] | None = None
 
 
-@dataclass
+@dataclass(kw_only=True)
 class ParticipantRemovedEvent:
     """Participant removed event."""
 
     type: Literal["participant_removed"] = "participant_removed"
-    room_id: str | None = None
-    payload: ParticipantRemovedPayload | None = None
+    room_id: str
+    payload: ParticipantRemovedPayload
     raw: dict[str, Any] | None = None
 
 
