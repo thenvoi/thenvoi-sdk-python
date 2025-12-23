@@ -53,7 +53,6 @@ class ThenvoiAnthropicAgent(BaseFrameworkAgent):
         system_prompt: Optional custom system prompt (overrides default)
         custom_section: Optional custom section to add to default prompt
         max_tokens: Maximum tokens in response (default: 4096)
-        enable_execution_reporting: Whether to report tool calls/results as events
         ws_url: WebSocket URL for real-time events
         rest_url: REST API URL
         config: Agent configuration
@@ -78,7 +77,6 @@ class ThenvoiAnthropicAgent(BaseFrameworkAgent):
         system_prompt: str | None = None,
         custom_section: str | None = None,
         max_tokens: int = 4096,
-        enable_execution_reporting: bool = False,
         ws_url: str = "wss://api.thenvoi.com/ws",
         rest_url: str = "https://api.thenvoi.com",
         config: AgentConfig | None = None,
@@ -97,7 +95,6 @@ class ThenvoiAnthropicAgent(BaseFrameworkAgent):
         self.system_prompt = system_prompt
         self.custom_section = custom_section
         self.max_tokens = max_tokens
-        self.enable_execution_reporting = enable_execution_reporting
 
         # Anthropic client (uses ANTHROPIC_API_KEY env var if not provided)
         self.client = AsyncAnthropic(api_key=anthropic_api_key)
@@ -330,13 +327,19 @@ class ThenvoiAnthropicAgent(BaseFrameworkAgent):
 
             logger.debug(f"Executing tool: {tool_name} with input: {tool_input}")
 
-            # Report tool call if enabled
-            if self.enable_execution_reporting:
-                await tools.send_event(
-                    content=f"Calling {tool_name}",
-                    message_type="tool_call",
-                    metadata={"tool": tool_name, "input": tool_input},
-                )
+            # Report tool call (required for history reconstruction)
+            await tools.send_event(
+                content=json.dumps(
+                    {
+                        "run_id": tool_use_id,
+                        "name": tool_name,
+                        "data": {"input": tool_input},
+                    },
+                    default=str,
+                ),
+                message_type="tool_call",
+                metadata=None,
+            )
 
             # Execute tool
             try:
@@ -352,15 +355,19 @@ class ThenvoiAnthropicAgent(BaseFrameworkAgent):
                 is_error = True
                 logger.error(f"Tool {tool_name} failed: {e}")
 
-            # Report tool result if enabled
-            if self.enable_execution_reporting:
-                await tools.send_event(
-                    content=f"Result: {result_str[:200]}..."
-                    if len(result_str) > 200
-                    else f"Result: {result_str}",
-                    message_type="tool_result",
-                    metadata={"tool": tool_name, "is_error": is_error},
-                )
+            # Report tool result (required for history reconstruction)
+            await tools.send_event(
+                content=json.dumps(
+                    {
+                        "run_id": tool_use_id,
+                        "name": tool_name,
+                        "data": {"output": result_str, "is_error": is_error},
+                    },
+                    default=str,
+                ),
+                message_type="tool_result",
+                metadata=None,
+            )
 
             tool_results.append(
                 {
@@ -379,29 +386,175 @@ class ThenvoiAnthropicAgent(BaseFrameworkAgent):
         """
         Convert platform history to Anthropic message format.
 
+        Handles message_type: "text", "tool_call", "tool_result"
+        Pairs tool_calls with tool_results using run_id (primary) or name (LIFO fallback).
+
         Platform history format:
-            {"role": "user"|"assistant", "content": str, "sender_name": str}
+            {"message_type": "text"|"tool_call"|"tool_result", "content": str, ...}
 
         Anthropic format:
-            {"role": "user"|"assistant", "content": str}
-
-        Note: For user messages, we prepend the sender name prefix.
+            {"role": "user"|"assistant", "content": str | list[ContentBlock]}
         """
-        messages = []
+        messages: list[dict[str, Any]] = []
 
-        for h in platform_history:
-            role = h.get("role", "user")
-            content = h.get("content", "")
-            sender_name = h.get("sender_name", "Unknown")
+        # Pending tool calls for pairing (matching LangGraph strategy)
+        pending_by_run_id: dict[str, dict[str, Any]] = {}
+        pending_by_name: dict[str, list[dict[str, Any]]] = {}
 
-            if role == "assistant":
-                messages.append({"role": "assistant", "content": content})
+        for hist in platform_history:
+            message_type = hist.get("message_type", "text")
+            content = hist.get("content", "")
+            role = hist.get("role")
+            sender_name = hist.get("sender_name", "Unknown")
+
+            if message_type == "tool_call":
+                # Parse and store pending tool call
+                try:
+                    event = json.loads(content)
+                    run_id = event.get("run_id")
+                    tool_name = event.get("name", "unknown")
+
+                    if run_id:
+                        pending_by_run_id[run_id] = event
+                    else:
+                        # Fallback: store by name (LIFO stack)
+                        if tool_name not in pending_by_name:
+                            pending_by_name[tool_name] = []
+                        pending_by_name[tool_name].append(event)
+                except json.JSONDecodeError:
+                    logger.warning(f"Failed to parse tool_call: {content[:100]}")
+
+            elif message_type == "tool_result":
+                # Match to pending tool_call, emit assistant + user messages
+                try:
+                    event = json.loads(content)
+                    tool_name = event.get("name", "unknown")
+                    run_id = event.get("run_id")
+                    output = event.get("data", {}).get("output", "")
+                    is_error = event.get("data", {}).get("is_error", False)
+
+                    # Use run_id as tool_use_id (matches how we store it)
+                    tool_use_id = run_id or f"tool_{tool_name}"
+
+                    # Find matching pending tool_call
+                    matching_call = None
+
+                    # Primary: match by run_id
+                    if run_id and run_id in pending_by_run_id:
+                        matching_call = pending_by_run_id.pop(run_id)
+
+                    # Fallback: match by name (LIFO)
+                    if not matching_call and tool_name in pending_by_name:
+                        if pending_by_name[tool_name]:
+                            matching_call = pending_by_name[tool_name].pop()
+
+                    if matching_call:
+                        tool_input = matching_call.get("data", {}).get("input", {})
+
+                        # Emit assistant message with tool_use block
+                        messages.append(
+                            {
+                                "role": "assistant",
+                                "content": [
+                                    {
+                                        "type": "tool_use",
+                                        "id": tool_use_id,
+                                        "name": tool_name,
+                                        "input": tool_input,
+                                    }
+                                ],
+                            }
+                        )
+                    else:
+                        logger.warning(
+                            f"tool_result without matching tool_call: "
+                            f"name={tool_name}, run_id={run_id}"
+                        )
+
+                    # Emit user message with tool_result block
+                    messages.append(
+                        {
+                            "role": "user",
+                            "content": [
+                                {
+                                    "type": "tool_result",
+                                    "tool_use_id": tool_use_id,
+                                    "content": str(output),
+                                    "is_error": is_error,
+                                }
+                            ],
+                        }
+                    )
+
+                except json.JSONDecodeError:
+                    logger.warning(f"Failed to parse tool_result: {content[:100]}")
+
+            elif message_type == "text":
+                if role == "assistant":
+                    # Skip assistant text - redundant with tool_call/tool_result
+                    logger.debug(f"Skipping redundant assistant text: {content[:50]}")
+                else:
+                    # User text message
+                    formatted = f"[{sender_name}]: {content}"
+                    messages.append({"role": "user", "content": formatted})
+
+            # Skip other message types (thought, error, task, etc.)
+
+        # Warn about unmatched tool calls
+        unmatched = len(pending_by_run_id) + sum(
+            len(v) for v in pending_by_name.values()
+        )
+        if unmatched:
+            logger.warning(
+                f"Found {unmatched} tool_calls without matching tool_results"
+            )
+
+        return self._batch_consecutive_messages(messages)
+
+    def _batch_consecutive_messages(
+        self, messages: list[dict[str, Any]]
+    ) -> list[dict[str, Any]]:
+        """
+        Batch consecutive same-role messages into single messages.
+
+        Anthropic requires alternating user/assistant roles. This merges
+        consecutive messages with the same role into a single message
+        with multiple content blocks.
+        """
+        if not messages:
+            return messages
+
+        batched: list[dict[str, Any]] = []
+        current: dict[str, Any] | None = None
+
+        for msg in messages:
+            if current and current["role"] == msg["role"]:
+                # Same role - merge content blocks
+                current_content = current["content"]
+                msg_content = msg["content"]
+
+                # Normalize to lists
+                if isinstance(current_content, str):
+                    current["content"] = [{"type": "text", "text": current_content}]
+                if isinstance(msg_content, str):
+                    msg_content = [{"type": "text", "text": msg_content}]
+
+                current["content"].extend(msg_content)
             else:
-                # Prepend sender name for user messages
-                formatted = f"[{sender_name}]: {content}"
-                messages.append({"role": "user", "content": formatted})
+                # Different role - start new message
+                if current:
+                    batched.append(current)
+                current = {
+                    "role": msg["role"],
+                    "content": msg["content"]
+                    if isinstance(msg["content"], list)
+                    else msg["content"],
+                }
 
-        return messages
+        if current:
+            batched.append(current)
+
+        return batched
 
     async def _cleanup_session(self, room_id: str) -> None:
         """Clean up message history when agent leaves a room."""

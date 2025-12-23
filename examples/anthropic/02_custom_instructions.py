@@ -58,8 +58,6 @@ async def main():
         ws_url=ws_url,
         rest_url=rest_url,
         custom_section=CUSTOM_PROMPT,
-        # Enable execution reporting to see tool calls in the chat
-        enable_execution_reporting=True,
     )
 
     print("Starting support agent...")
