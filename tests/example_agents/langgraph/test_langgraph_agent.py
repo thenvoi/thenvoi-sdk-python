@@ -551,7 +551,7 @@ class TestReconstructMessages:
                         "run_id": "run-123",
                         "data": {
                             "input": {"content": "Hello"},
-                            "output": "content='success' tool_call_id='call_abc123'",
+                            "output": "content='success'",
                         },
                     }
                 ),
@@ -564,7 +564,8 @@ class TestReconstructMessages:
         assert len(messages) == 2
         assert messages[0].tool_calls[0]["name"] == "send_message"
         assert messages[0].tool_calls[0]["args"] == {"content": "Hello"}
-        assert messages[1].tool_call_id == "call_abc123"
+        # tool_call_id uses run_id as the canonical identifier
+        assert messages[1].tool_call_id == "run-123"
 
     def test_matches_back_to_back_same_tool_by_run_id(self, adapter):
         """Back-to-back calls to same tool should match correctly by run_id."""
@@ -605,7 +606,7 @@ class TestReconstructMessages:
                         "run_id": "run-222",
                         "data": {
                             "input": {"content": "Second message"},
-                            "output": "content='ok' tool_call_id='call_222'",
+                            "output": "content='ok'",
                         },
                     }
                 ),
@@ -620,7 +621,7 @@ class TestReconstructMessages:
                         "run_id": "run-111",
                         "data": {
                             "input": {"content": "First message"},
-                            "output": "content='ok' tool_call_id='call_111'",
+                            "output": "content='ok'",
                         },
                     }
                 ),
@@ -634,11 +635,11 @@ class TestReconstructMessages:
 
         # First pair should be run-222 (result arrived first)
         assert messages[0].tool_calls[0]["args"]["content"] == "Second message"
-        assert messages[1].tool_call_id == "call_222"
+        assert messages[1].tool_call_id == "run-222"
 
         # Second pair should be run-111
         assert messages[2].tool_calls[0]["args"]["content"] == "First message"
-        assert messages[3].tool_call_id == "call_111"
+        assert messages[3].tool_call_id == "run-111"
 
     def test_fallback_to_name_matching_without_run_id(self, adapter):
         """Should fall back to name-based LIFO matching when run_id missing."""
@@ -665,7 +666,7 @@ class TestReconstructMessages:
                         # No run_id
                         "data": {
                             "input": {},
-                            "output": "content='peers' tool_call_id='call_peers'",
+                            "output": "content='peers'",
                         },
                     }
                 ),
@@ -677,10 +678,11 @@ class TestReconstructMessages:
         # Should still match by name
         assert len(messages) == 2
         assert messages[0].tool_calls[0]["name"] == "lookup_peers"
-        assert messages[1].tool_call_id == "call_peers"
+        # Without run_id, falls back to "tool_{name}" format
+        assert messages[1].tool_call_id == "tool_lookup_peers"
 
-    def test_unmatched_result_emits_tool_message_only(self, adapter):
-        """tool_result without matching tool_call should emit ToolMessage only."""
+    def test_unmatched_result_is_skipped(self, adapter):
+        """tool_result without matching tool_call should be skipped (no incomplete exchanges)."""
         import json
 
         history = [
@@ -694,7 +696,7 @@ class TestReconstructMessages:
                         "run_id": "orphan-run",
                         "data": {
                             "input": {"content": "Hello"},
-                            "output": "content='ok' tool_call_id='call_orphan'",
+                            "output": "content='ok'",
                         },
                     }
                 ),
@@ -703,10 +705,9 @@ class TestReconstructMessages:
 
         messages = adapter._reconstruct_messages(history)
 
-        # Should only have ToolMessage, no fabricated AIMessage
-        assert len(messages) == 1
-        assert messages[0].tool_call_id == "call_orphan"
-        assert messages[0].content == "content='ok' tool_call_id='call_orphan'"
+        # Unmatched tool_results are skipped - we don't emit incomplete exchanges
+        # This keeps LLM conversation state consistent
+        assert len(messages) == 0
 
     def test_mixed_tools_match_correctly(self, adapter):
         """Multiple different tools should match correctly."""
@@ -741,7 +742,7 @@ class TestReconstructMessages:
                     {
                         "name": "send_event",
                         "run_id": "run-event",
-                        "data": {"output": "tool_call_id='call_event'"},
+                        "data": {"output": "event sent"},
                     }
                 ),
             },
@@ -751,7 +752,7 @@ class TestReconstructMessages:
                     {
                         "name": "lookup_peers",
                         "run_id": "run-peers",
-                        "data": {"output": "tool_call_id='call_peers'"},
+                        "data": {"output": "[peer1, peer2]"},
                     }
                 ),
             },
@@ -762,9 +763,9 @@ class TestReconstructMessages:
         # Should have 4 messages, correctly paired
         assert len(messages) == 4
         assert messages[0].tool_calls[0]["name"] == "send_event"
-        assert messages[1].tool_call_id == "call_event"
+        assert messages[1].tool_call_id == "run-event"
         assert messages[2].tool_calls[0]["name"] == "lookup_peers"
-        assert messages[3].tool_call_id == "call_peers"
+        assert messages[3].tool_call_id == "run-peers"
 
 
 # Helper for async iteration
