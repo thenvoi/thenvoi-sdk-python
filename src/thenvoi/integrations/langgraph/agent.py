@@ -16,7 +16,6 @@ from __future__ import annotations
 
 import json
 import logging
-import re
 from typing import Any, Callable, List
 
 from langgraph.pregel import Pregel
@@ -26,6 +25,8 @@ from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 from langgraph.checkpoint.base import BaseCheckpointSaver
 
 from thenvoi.agents import BaseFrameworkAgent
+from thenvoi.integrations.history import parse_platform_history
+from thenvoi.integrations.history.adapters.langgraph import to_langgraph_messages
 from thenvoi.runtime import (
     AgentConfig,
     AgentTools,
@@ -134,181 +135,16 @@ class ThenvoiLangGraphAgent(BaseFrameworkAgent):
         )
         logger.info(f"LangGraph adapter started for agent: {self.agent_name}")
 
-    def _extract_tool_call_id(self, output: str) -> str | None:
-        """Extract tool_call_id from tool output string.
-
-        Output format: "content='...' name='...' tool_call_id='call_xxx'"
-        """
-        match = re.search(r"tool_call_id='([^']+)'", output)
-        return match.group(1) if match else None
-
     def _reconstruct_messages(
         self, history: list[dict[str, Any]]
     ) -> list[AIMessage | HumanMessage | ToolMessage]:
         """Reconstruct LangGraph messages from platform history.
 
-        Parses stored tool events and creates proper LangChain message types:
-        - tool_call + tool_result pairs -> AIMessage with tool_calls + ToolMessage
-        - text -> HumanMessage or AIMessage
-
-        ## LangGraph Event Format
-
-        Tool events are stored as JSON with this structure (from astream_events v2):
-
-            {
-                "event": "on_tool_start" | "on_tool_end",
-                "name": "send_message",
-                "run_id": "unique-uuid-per-invocation",
-                "data": {
-                    "input": {...args...},  # on_tool_start
-                    "output": "..."         # on_tool_end
-                }
-            }
-
-        The `run_id` is the SAME for both on_tool_start and on_tool_end of a single
-        tool invocation, making it reliable for pairing even when:
-        - Multiple tools run in parallel
-        - Same tool is called back-to-back
-        - Results arrive out of order
-
-        ## Matching Strategy
-
-        1. **Primary: run_id** - Store pending tool_calls in dict keyed by run_id.
-           When tool_result arrives, look up by run_id for O(1) matching.
-
-        2. **Fallback: LIFO by name** - For events without run_id, use a stack per
-           tool name. Most recent pending call matches first (handles sequential
-           calls to same tool).
-
-        3. **No match found** - Emit ToolMessage only, don't fabricate AIMessage.
-           This keeps LLM conversation state consistent with incomplete history.
-
-        See `thenvoi.integrations.base` for general principles on tool pairing
-        and message type filtering that apply to all framework integrations.
+        Uses the shared history parser for tool call/result pairing,
+        then the LangGraph adapter for format conversion.
         """
-        messages: list[AIMessage | HumanMessage | ToolMessage] = []
-        # Map run_id -> tool_call event for reliable matching
-        pending_by_run_id: dict[str, dict[str, Any]] = {}
-        # Fallback: list of tool_calls without run_id, matched by name (LIFO)
-        pending_by_name: dict[str, list[dict[str, Any]]] = {}
-
-        for hist in history:
-            message_type = hist.get("message_type", "text")
-            content = hist.get("content", "")
-            role = hist.get("role")
-            sender_name = hist.get("sender_name", "")
-
-            if message_type == "tool_call":
-                # Store pending - indexed by run_id for reliable matching
-                try:
-                    event = json.loads(content)
-                    run_id = event.get("run_id")
-                    tool_name = event.get("name", "unknown")
-
-                    if run_id:
-                        pending_by_run_id[run_id] = event
-                    else:
-                        # Fallback: store by name (as stack for LIFO matching)
-                        if tool_name not in pending_by_name:
-                            pending_by_name[tool_name] = []
-                        pending_by_name[tool_name].append(event)
-                except json.JSONDecodeError:
-                    logger.warning(f"Failed to parse tool_call event: {content[:100]}")
-
-            elif message_type == "tool_result":
-                # Parse stored event JSON
-                try:
-                    event = json.loads(content)
-                    tool_name = event.get("name", "unknown")
-                    run_id = event.get("run_id")
-                    output = event.get("data", {}).get("output", "")
-
-                    # Extract tool_call_id from output string
-                    tool_call_id = self._extract_tool_call_id(str(output))
-                    if not tool_call_id:
-                        # Fallback to run_id if no tool_call_id found
-                        tool_call_id = run_id or "unknown"
-
-                    # Find matching pending tool_call
-                    matching_call = None
-
-                    # First: try to match by run_id (most reliable)
-                    if run_id and run_id in pending_by_run_id:
-                        matching_call = pending_by_run_id.pop(run_id)
-
-                    # Fallback: match by name (LIFO - pop from end of stack)
-                    if not matching_call and tool_name in pending_by_name:
-                        name_stack = pending_by_name[tool_name]
-                        if name_stack:
-                            matching_call = name_stack.pop()
-                            if not name_stack:
-                                del pending_by_name[tool_name]
-
-                    if matching_call:
-                        tool_input = matching_call.get("data", {}).get("input", {})
-
-                        # Create AIMessage with tool_calls using correct tool_call_id
-                        messages.append(
-                            AIMessage(
-                                content="",
-                                tool_calls=[
-                                    {
-                                        "id": tool_call_id,
-                                        "name": tool_name,
-                                        "args": tool_input,
-                                    }
-                                ],
-                            )
-                        )
-                    else:
-                        # No matching tool_call - emit ToolMessage only, don't fabricate AIMessage
-                        logger.warning(
-                            f"tool_result without matching tool_call: "
-                            f"name={tool_name}, run_id={run_id}"
-                        )
-
-                    # Create ToolMessage with matching tool_call_id
-                    messages.append(
-                        ToolMessage(
-                            content=str(output),
-                            tool_call_id=tool_call_id,
-                        )
-                    )
-                except json.JSONDecodeError:
-                    logger.warning(
-                        f"Failed to parse tool_result event: {content[:100]}"
-                    )
-
-            elif message_type == "text":
-                if role == "assistant":
-                    # SKIP assistant text messages - they're redundant with tool_call/tool_result
-                    # Including them teaches LLM to respond with text instead of using tools
-                    logger.debug(f"Skipping redundant assistant text: {content[:50]}")
-                else:
-                    messages.append(HumanMessage(content=f"[{sender_name}]: {content}"))
-
-            # Skip other message types (thought, error, task, etc.)
-
-        # Warn about unmatched tool calls
-        unmatched_count = len(pending_by_run_id) + sum(
-            len(v) for v in pending_by_name.values()
-        )
-        if unmatched_count:
-            logger.warning(
-                f"Found {unmatched_count} tool_calls without matching tool_results"
-            )
-            for run_id, call in pending_by_run_id.items():
-                logger.warning(
-                    f"Unmatched tool_call: name={call.get('name')}, run_id={run_id}"
-                )
-            for name, calls in pending_by_name.items():
-                for call in calls:
-                    logger.warning(
-                        f"Unmatched tool_call: name={name}, "
-                        f"input={call.get('data', {}).get('input', {})}"
-                    )
-
-        return messages
+        normalized = parse_platform_history(history)
+        return to_langgraph_messages(normalized)
 
     async def _handle_message(
         self,
