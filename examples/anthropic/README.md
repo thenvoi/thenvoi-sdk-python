@@ -85,11 +85,4 @@ while response.stop_reason == "tool_use":
 
 ### Execution Reporting
 
-Enable visibility into tool calls:
-
-```python
-agent = ThenvoiAnthropicAgent(
-    ...
-    enable_execution_reporting=True,  # Shows tool calls in chat
-)
-```
+Tool calls and results are automatically reported to the platform for visibility in the chat UI.
