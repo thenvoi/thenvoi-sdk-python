@@ -19,7 +19,9 @@ from langgraph.checkpoint.memory import InMemorySaver
 
 from standalone_calculator import create_calculator_graph
 from setup_logging import setup_logging
-from thenvoi.integrations.langgraph import create_langgraph_agent, graph_as_tool
+from thenvoi import Agent
+from thenvoi.adapters import LangGraphAdapter
+from thenvoi.integrations.langgraph import graph_as_tool
 from thenvoi.config import load_agent_config
 
 setup_logging()
@@ -30,11 +32,11 @@ logger = logging.getLogger(__name__)
 async def main():
     load_dotenv()
     ws_url = os.getenv("THENVOI_WS_URL")
-    thenvoi_restapi_url = os.getenv("THENVOI_REST_API_URL")
+    rest_url = os.getenv("THENVOI_REST_API_URL")
 
     if not ws_url:
         raise ValueError("THENVOI_WS_URL environment variable is required")
-    if not thenvoi_restapi_url:
+    if not rest_url:
         raise ValueError("THENVOI_REST_API_URL environment variable is required")
 
     # Load agent credentials from agent_config.yaml
@@ -62,16 +64,25 @@ async def main():
     logger.info("Calculator wrapped as a tool")
 
     logger.info("Step 3: Creating Thenvoi agent with calculator tool...")
-    await create_langgraph_agent(
-        agent_id=agent_id,
-        api_key=api_key,
+
+    # Create adapter with calculator tool
+    adapter = LangGraphAdapter(
         llm=ChatOpenAI(model="gpt-4o"),
         checkpointer=InMemorySaver(),
-        ws_url=ws_url,
-        thenvoi_restapi_url=thenvoi_restapi_url,
-        # Add the calculator tool alongside platform tools (send_message, etc.)
         additional_tools=[calculator_tool],
     )
+
+    # Create and start agent
+    agent = Agent.create(
+        adapter=adapter,
+        agent_id=agent_id,
+        api_key=api_key,
+        ws_url=ws_url,
+        rest_url=rest_url,
+    )
+
+    print("Starting agent with calculator tool...")
+    await agent.run()
 
 
 if __name__ == "__main__":

@@ -1,12 +1,7 @@
 """
-ThenvoiAnthropicAgent - Anthropic SDK agent connected to Thenvoi platform.
+Anthropic adapter using SimpleAdapter pattern.
 
-This agent uses the Anthropic Python SDK directly for LLM interactions,
-with full control over conversation history and tool loop management.
-
-KEY DESIGN:
-    SDK does NOT send messages directly.
-    Anthropic agent uses tools.send_message() to respond.
+Extracted from thenvoi.integrations.anthropic.agent.ThenvoiAnthropicAgent.
 """
 
 from __future__ import annotations
@@ -18,79 +13,43 @@ from typing import Any, cast
 from anthropic import AsyncAnthropic
 from anthropic.types import Message, MessageParam, ToolParam, ToolUseBlock
 
-from thenvoi.agents import BaseFrameworkAgent
-from thenvoi.runtime import (
-    AgentConfig,
-    AgentTools,
-    ExecutionContext,
-    PlatformMessage,
-    SessionConfig,
-    render_system_prompt,
-)
+from thenvoi.core.protocols import AgentToolsProtocol
+from thenvoi.core.simple_adapter import SimpleAdapter
+from thenvoi.core.types import PlatformMessage
+from thenvoi.converters.anthropic import AnthropicHistoryConverter, AnthropicMessages
+from thenvoi.runtime.prompts import render_system_prompt
 
 logger = logging.getLogger(__name__)
 
 
-class ThenvoiAnthropicAgent(BaseFrameworkAgent):
+class AnthropicAdapter(SimpleAdapter[AnthropicMessages]):
     """
-    Anthropic SDK adapter for Thenvoi platform.
+    Anthropic SDK adapter using SimpleAdapter pattern.
 
-    This adapter uses the Anthropic Python SDK directly for Claude interactions,
+    Uses the Anthropic Python SDK directly for Claude interactions,
     with manual conversation history and tool loop management.
 
-    Features:
-    - Per-room conversation history management
-    - Platform history hydration on first message
-    - Participant tracking with automatic updates
-    - Tool calling with Anthropic format
-    - Event reporting (tool calls, results, errors)
-
-    Args:
-        model: Claude model ID (e.g., "claude-sonnet-4-5-20250929")
-        agent_id: Thenvoi agent ID
-        api_key: Thenvoi API key
-        anthropic_api_key: Optional Anthropic API key (defaults to ANTHROPIC_API_KEY env var)
-        system_prompt: Optional custom system prompt (overrides default)
-        custom_section: Optional custom section to add to default prompt
-        max_tokens: Maximum tokens in response (default: 4096)
-        enable_execution_reporting: Whether to report tool calls/results as events
-        ws_url: WebSocket URL for real-time events
-        rest_url: REST API URL
-        config: Agent configuration
-        session_config: Session configuration
-
-    Usage:
-        agent = ThenvoiAnthropicAgent(
-            model="claude-sonnet-4-20250514",
-            agent_id="your-agent-id",
-            api_key="your-thenvoi-api-key",
+    Example:
+        adapter = AnthropicAdapter(
+            model="claude-sonnet-4-5-20250929",
             custom_section="You are a helpful assistant.",
         )
+        agent = Agent.create(adapter=adapter, agent_id="...", api_key="...")
         await agent.run()
     """
 
     def __init__(
         self,
         model: str = "claude-sonnet-4-5-20250929",
-        agent_id: str = "",
-        api_key: str = "",
         anthropic_api_key: str | None = None,
         system_prompt: str | None = None,
         custom_section: str | None = None,
         max_tokens: int = 4096,
         enable_execution_reporting: bool = False,
-        ws_url: str = "wss://api.thenvoi.com/ws",
-        rest_url: str = "https://api.thenvoi.com",
-        config: AgentConfig | None = None,
-        session_config: SessionConfig | None = None,
+        history_converter: AnthropicHistoryConverter | None = None,
     ):
         super().__init__(
-            agent_id=agent_id,
-            api_key=api_key,
-            ws_url=ws_url,
-            rest_url=rest_url,
-            config=config,
-            session_config=session_config,
+            history_converter=history_converter or AnthropicHistoryConverter()
         )
 
         self.model = model
@@ -109,22 +68,27 @@ class ThenvoiAnthropicAgent(BaseFrameworkAgent):
         # Max tool iterations to prevent infinite loops
         self._max_tool_iterations = 10
 
-    async def _on_started(self) -> None:
+    # --- Copied from ThenvoiAnthropicAgent._on_started ---
+    async def on_started(self, agent_name: str, agent_description: str) -> None:
         """Render system prompt after agent metadata is fetched."""
+        await super().on_started(agent_name, agent_description)
         self._system_prompt = self.system_prompt or render_system_prompt(
-            agent_name=self.agent_name,
-            agent_description=self.agent_description,
+            agent_name=agent_name,
+            agent_description=agent_description,
             custom_section=self.custom_section or "",
         )
-        logger.info(f"Anthropic adapter started for agent: {self.agent_name}")
+        logger.info(f"Anthropic adapter started for agent: {agent_name}")
 
-    async def _handle_message(
+    # --- Adapted from ThenvoiAnthropicAgent._handle_message ---
+    async def on_message(
         self,
         msg: PlatformMessage,
-        tools: AgentTools,
-        ctx: ExecutionContext,
-        history: list[dict[str, Any]] | None,
+        tools: AgentToolsProtocol,
+        history: AnthropicMessages,  # Already converted by SimpleAdapter
         participants_msg: str | None,
+        *,
+        is_session_bootstrap: bool,
+        room_id: str,
     ) -> None:
         """
         Handle incoming message.
@@ -135,15 +99,13 @@ class ThenvoiAnthropicAgent(BaseFrameworkAgent):
         - Participant list injected ONLY when it changes
         - Tool loop runs until no more tool_use blocks
         """
-        room_id = msg.room_id
-        is_first_message = history is not None
-
         logger.debug(f"Handling message {msg.id} in room {room_id}")
 
         # Initialize history for this room on first message
-        if is_first_message:
+        # Note: history is already converted by SimpleAdapter via history_converter
+        if is_session_bootstrap:
             if history:
-                self._message_history[room_id] = self._convert_platform_history(history)
+                self._message_history[room_id] = list(history)
                 logger.info(
                     f"Room {room_id}: Loaded {len(history)} historical messages"
                 )
@@ -162,10 +124,7 @@ class ThenvoiAnthropicAgent(BaseFrameworkAgent):
                     "content": f"[System]: {participants_msg}",
                 }
             )
-            logger.info(
-                f"Room {room_id}: Participants updated: "
-                f"{[p.get('name') for p in ctx.participants]}"
-            )
+            logger.info(f"Room {room_id}: Participants updated")
 
         # Add current message
         user_message = msg.format_for_llm()
@@ -180,11 +139,11 @@ class ThenvoiAnthropicAgent(BaseFrameworkAgent):
         total_messages = len(self._message_history[room_id])
         logger.info(
             f"Room {room_id}: Calling Anthropic with {total_messages} messages "
-            f"(first_msg={is_first_message})"
+            f"(first_msg={is_session_bootstrap})"
         )
 
-        # Get tool schemas in Anthropic format
-        tool_schemas = tools.get_tool_schemas("anthropic")
+        # Get tool schemas in Anthropic format (typed helper)
+        tool_schemas = tools.get_anthropic_tool_schemas()
 
         # Tool loop
         iteration = 0
@@ -247,6 +206,14 @@ class ThenvoiAnthropicAgent(BaseFrameworkAgent):
             f"(history now has {len(self._message_history[room_id])} messages)"
         )
 
+    # --- Copied from ThenvoiAnthropicAgent._cleanup_session ---
+    async def on_cleanup(self, room_id: str) -> None:
+        """Clean up message history when agent leaves a room."""
+        if room_id in self._message_history:
+            del self._message_history[room_id]
+            logger.debug(f"Room {room_id}: Cleaned up message history")
+
+    # --- Copied from ThenvoiAnthropicAgent._call_anthropic ---
     async def _call_anthropic(
         self,
         messages: list[dict[str, Any]],
@@ -270,6 +237,7 @@ class ThenvoiAnthropicAgent(BaseFrameworkAgent):
             tools=tools,
         )
 
+    # --- Copied from ThenvoiAnthropicAgent._extract_text_content ---
     def _extract_text_content(self, content: list) -> str:
         """Extract text content from response content blocks."""
         from anthropic.types import TextBlock
@@ -280,6 +248,7 @@ class ThenvoiAnthropicAgent(BaseFrameworkAgent):
                 texts.append(block.text)
         return " ".join(texts) if texts else ""
 
+    # --- Copied from ThenvoiAnthropicAgent._serialize_content_blocks ---
     def _serialize_content_blocks(self, content: list) -> list[dict[str, Any]]:
         """Serialize content blocks to dict format for message history."""
         from anthropic.types import TextBlock
@@ -305,15 +274,16 @@ class ThenvoiAnthropicAgent(BaseFrameworkAgent):
                     )
         return serialized
 
+    # --- Copied from ThenvoiAnthropicAgent._process_tool_calls ---
     async def _process_tool_calls(
-        self, response: Message, tools: AgentTools
+        self, response: Message, tools: AgentToolsProtocol
     ) -> list[dict[str, Any]]:
         """
         Process tool_use blocks from response and execute tools.
 
         Args:
             response: Anthropic Message with tool_use blocks
-            tools: AgentTools instance for execution
+            tools: AgentToolsProtocol instance for execution
 
         Returns:
             List of tool_result content blocks for next API call
@@ -373,68 +343,10 @@ class ThenvoiAnthropicAgent(BaseFrameworkAgent):
 
         return tool_results
 
-    def _convert_platform_history(
-        self, platform_history: list[dict[str, Any]]
-    ) -> list[dict[str, Any]]:
-        """
-        Convert platform history to Anthropic message format.
-
-        Platform history format:
-            {"role": "user"|"assistant", "content": str, "sender_name": str}
-
-        Anthropic format:
-            {"role": "user"|"assistant", "content": str}
-
-        Note: For user messages, we prepend the sender name prefix.
-        """
-        messages = []
-
-        for h in platform_history:
-            role = h.get("role", "user")
-            content = h.get("content", "")
-            sender_name = h.get("sender_name", "Unknown")
-
-            if role == "assistant":
-                messages.append({"role": "assistant", "content": content})
-            else:
-                # Prepend sender name for user messages
-                formatted = f"[{sender_name}]: {content}"
-                messages.append({"role": "user", "content": formatted})
-
-        return messages
-
-    async def _cleanup_session(self, room_id: str) -> None:
-        """Clean up message history when agent leaves a room."""
-        if room_id in self._message_history:
-            del self._message_history[room_id]
-            logger.debug(f"Room {room_id}: Cleaned up message history")
-
-
-async def create_anthropic_agent(
-    model: str,
-    agent_id: str,
-    api_key: str,
-    **kwargs,
-) -> ThenvoiAnthropicAgent:
-    """
-    Create and start a ThenvoiAnthropicAgent.
-
-    Convenience function for quick setup.
-
-    Args:
-        model: Claude model ID (e.g., "claude-sonnet-4-5-20250929")
-        agent_id: Thenvoi agent ID
-        api_key: Thenvoi API key
-        **kwargs: Additional arguments for ThenvoiAnthropicAgent
-
-    Returns:
-        Started ThenvoiAnthropicAgent instance
-    """
-    agent = ThenvoiAnthropicAgent(
-        model=model,
-        agent_id=agent_id,
-        api_key=api_key,
-        **kwargs,
-    )
-    await agent.start()
-    return agent
+    # --- Copied from BaseFrameworkAgent._report_error ---
+    async def _report_error(self, tools: AgentToolsProtocol, error: str) -> None:
+        """Send error event (best effort)."""
+        try:
+            await tools.send_event(content=f"Error: {error}", message_type="error")
+        except Exception:
+            pass

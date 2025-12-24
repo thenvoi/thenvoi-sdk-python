@@ -14,7 +14,8 @@ import os
 from dotenv import load_dotenv
 
 from setup_logging import setup_logging
-from thenvoi.integrations.anthropic import ThenvoiAnthropicAgent
+from thenvoi import Agent
+from thenvoi.adapters import AnthropicAdapter
 from thenvoi.config import load_agent_config
 
 setup_logging()
@@ -34,14 +35,19 @@ async def main():
     # Load agent credentials from agent_config.yaml
     agent_id, api_key = load_agent_config("anthropic_agent")
 
-    # Create and start agent
-    agent = ThenvoiAnthropicAgent(
+    # Create adapter with framework-specific settings
+    adapter = AnthropicAdapter(
         model="claude-sonnet-4-5-20250929",
+        custom_section="You are a helpful assistant. Be concise and friendly.",
+    )
+
+    # Create and start agent
+    agent = Agent.create(
+        adapter=adapter,
         agent_id=agent_id,
         api_key=api_key,
         ws_url=ws_url,
         rest_url=rest_url,
-        custom_section="You are a helpful assistant. Be concise and friendly.",
     )
 
     print("Starting Anthropic agent...")

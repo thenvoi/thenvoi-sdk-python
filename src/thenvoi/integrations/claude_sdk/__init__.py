@@ -1,14 +1,23 @@
 """
 Claude Agent SDK integration for Thenvoi SDK.
 
-This module provides:
-- ThenvoiClaudeSDKAgent: Main adapter class for Claude Agent SDK
-- create_claude_sdk_agent: Convenience function to create and run agent
+NOTE: The old ThenvoiClaudeSDKAgent has been removed.
+Use the new composition-based pattern instead:
+
+    from thenvoi import Agent
+    from thenvoi.adapters import ClaudeSDKAdapter
+
+    adapter = ClaudeSDKAdapter(model="claude-sonnet-4-5-20250929")
+    agent = Agent.create(adapter=adapter, agent_id="...", api_key="...")
+    await agent.run()
+
+Internal modules (session_manager, prompts) are used by the new adapter.
 """
 
-from .agent import ThenvoiClaudeSDKAgent, create_claude_sdk_agent
+from .session_manager import ClaudeSessionManager
+from .prompts import generate_claude_sdk_agent_prompt
 
 __all__ = [
-    "ThenvoiClaudeSDKAgent",
-    "create_claude_sdk_agent",
+    "ClaudeSessionManager",
+    "generate_claude_sdk_agent_prompt",
 ]

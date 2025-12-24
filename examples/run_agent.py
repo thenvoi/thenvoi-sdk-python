@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Run Thenvoi SDK agents.
+Run Thenvoi SDK agents using the composition pattern.
 
 Usage:
     uv run python examples/run_agent.py                    # Default: langgraph
@@ -33,6 +33,7 @@ import os
 
 from dotenv import load_dotenv
 
+from thenvoi import Agent
 from thenvoi.config import load_agent_config
 
 # Load environment from .env
@@ -49,52 +50,6 @@ def setup_logging(level: str = "INFO") -> logging.Logger:
     return logging.getLogger(__name__)
 
 
-def create_langgraph_factory():
-    """
-    Create a LangGraph graph factory with a persistent checkpointer.
-
-    The checkpointer is created ONCE and reused for all messages.
-    Each room's conversation is isolated by thread_id (room_id).
-    """
-    from langchain_openai import ChatOpenAI
-    from langgraph.prebuilt import create_react_agent
-    from langgraph.checkpoint.memory import MemorySaver
-
-    checkpointer = MemorySaver()
-    llm = ChatOpenAI(model="gpt-4o")
-
-    def factory(tools):
-        return create_react_agent(llm, tools, checkpointer=checkpointer)
-
-    factory.checkpointer = checkpointer
-    return factory
-
-
-async def run_langgraph_agent(
-    agent_id: str,
-    api_key: str,
-    rest_url: str,
-    ws_url: str,
-    custom_section: str,
-    logger: logging.Logger,
-):
-    """Run the LangGraph agent."""
-    from thenvoi.integrations.langgraph import ThenvoiLangGraphAgent
-
-    agent = ThenvoiLangGraphAgent(
-        graph_factory=create_langgraph_factory(),
-        agent_id=agent_id,
-        api_key=api_key,
-        ws_url=ws_url,
-        rest_url=rest_url,
-        prompt_template="default",
-        custom_section=custom_section,
-    )
-
-    logger.info("Starting LangGraph agent...")
-    await agent.run()
-
-
 PYDANTIC_AI_INSTRUCTIONS = """
 ## CRITICAL: Your Capabilities and Limitations
 
@@ -107,6 +62,38 @@ If you don't know something and can't delegate to another agent, say "I don't kn
 """
 
 
+async def run_langgraph_agent(
+    agent_id: str,
+    api_key: str,
+    rest_url: str,
+    ws_url: str,
+    custom_section: str,
+    logger: logging.Logger,
+):
+    """Run the LangGraph agent."""
+    from langchain_openai import ChatOpenAI
+    from langgraph.checkpoint.memory import InMemorySaver
+
+    from thenvoi.adapters import LangGraphAdapter
+
+    adapter = LangGraphAdapter(
+        llm=ChatOpenAI(model="gpt-4o"),
+        checkpointer=InMemorySaver(),
+        custom_section=custom_section,
+    )
+
+    agent = Agent.create(
+        adapter=adapter,
+        agent_id=agent_id,
+        api_key=api_key,
+        ws_url=ws_url,
+        rest_url=rest_url,
+    )
+
+    logger.info("Starting LangGraph agent...")
+    await agent.run()
+
+
 async def run_pydantic_ai_agent(
     agent_id: str,
     api_key: str,
@@ -117,18 +104,22 @@ async def run_pydantic_ai_agent(
     logger: logging.Logger,
 ):
     """Run the Pydantic AI agent."""
-    from thenvoi.integrations.pydantic_ai import ThenvoiPydanticAgent
+    from thenvoi.adapters import PydanticAIAdapter
 
     # Append capability instructions to custom section
     full_custom_section = custom_section + PYDANTIC_AI_INSTRUCTIONS
 
-    agent = ThenvoiPydanticAgent(
+    adapter = PydanticAIAdapter(
         model=model,
+        custom_section=full_custom_section,
+    )
+
+    agent = Agent.create(
+        adapter=adapter,
         agent_id=agent_id,
         api_key=api_key,
         ws_url=ws_url,
         rest_url=rest_url,
-        custom_section=full_custom_section,
     )
 
     logger.info(f"Starting Pydantic AI agent with model: {model}")
@@ -145,15 +136,19 @@ async def run_anthropic_agent(
     logger: logging.Logger,
 ):
     """Run the Anthropic SDK agent."""
-    from thenvoi.integrations.anthropic import ThenvoiAnthropicAgent
+    from thenvoi.adapters import AnthropicAdapter
 
-    agent = ThenvoiAnthropicAgent(
+    adapter = AnthropicAdapter(
         model=model,
+        custom_section=custom_section,
+    )
+
+    agent = Agent.create(
+        adapter=adapter,
         agent_id=agent_id,
         api_key=api_key,
         ws_url=ws_url,
         rest_url=rest_url,
-        custom_section=custom_section,
     )
 
     logger.info(f"Starting Anthropic agent with model: {model}")
@@ -171,16 +166,20 @@ async def run_claude_sdk_agent(
     logger: logging.Logger,
 ):
     """Run the Claude Agent SDK agent."""
-    from thenvoi.integrations.claude_sdk import ThenvoiClaudeSDKAgent
+    from thenvoi.adapters import ClaudeSDKAdapter
 
-    agent = ThenvoiClaudeSDKAgent(
+    adapter = ClaudeSDKAdapter(
         model=model,
+        custom_section=custom_section,
+        max_thinking_tokens=10000 if enable_thinking else None,
+    )
+
+    agent = Agent.create(
+        adapter=adapter,
         agent_id=agent_id,
         api_key=api_key,
         ws_url=ws_url,
         rest_url=rest_url,
-        custom_section=custom_section,
-        max_thinking_tokens=10000 if enable_thinking else None,
     )
 
     thinking_str = " with extended thinking" if enable_thinking else ""

@@ -40,6 +40,9 @@ Example (Framework-light pattern):
     await link.run_forever()
 """
 
+# Composition layer (new pattern)
+from .agent import Agent
+
 # Platform layer
 from .platform import ThenvoiLink, PlatformEvent
 
@@ -67,6 +70,8 @@ from .runtime import (
 )
 
 __all__ = [
+    # Composition
+    "Agent",
     # Platform
     "ThenvoiLink",
     "PlatformEvent",

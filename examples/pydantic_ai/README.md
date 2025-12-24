@@ -1,19 +1,57 @@
-# Pydantic AI Examples
+# Pydantic AI Examples for Thenvoi
 
-Examples showing how to use the Thenvoi SDK with Pydantic AI.
+Examples showing how to use the Thenvoi SDK with Pydantic AI using the composition-based pattern.
 
 ## Prerequisites
 
-Install with Pydantic AI support:
+**Install with Pydantic AI support:**
 ```bash
-pip install "thenvoi-sdk[pydantic-ai]"
+uv add "git+https://github.com/thenvoi/thenvoi-sdk-python.git[pydantic_ai]"
+
 # Plus your model provider:
 pip install "pydantic-ai-slim[openai]"  # or [anthropic], [google], etc.
 ```
 
+**Or from repository:**
+```bash
+uv sync --extra pydantic_ai
+```
+
+---
+
+## Quick Start
+
+```python
+from thenvoi import Agent
+from thenvoi.adapters import PydanticAIAdapter
+
+adapter = PydanticAIAdapter(
+    model="openai:gpt-4o",
+    custom_section="You are a helpful assistant.",
+)
+
+agent = Agent.create(
+    adapter=adapter,
+    agent_id="your-agent-id",
+    api_key="your-api-key",
+)
+await agent.run()
+```
+
+---
+
+## Examples
+
+| File | Description |
+|------|-------------|
+| `01_basic_agent.py` | **Minimal setup** - Simple agent with PydanticAIAdapter. |
+| `02_custom_instructions.py` | **Custom behavior** - Agent with custom system prompt. |
+
+---
+
 ## Configuration
 
-Create an `agent_config.yaml` in the examples directory:
+Create an `agent_config.yaml`:
 
 ```yaml
 pydantic_agent:
@@ -33,19 +71,16 @@ export OPENAI_API_KEY="your-openai-key"  # for OpenAI models
 export ANTHROPIC_API_KEY="your-anthropic-key"  # for Anthropic models
 ```
 
-## Examples
-
-| File | Description |
-|------|-------------|
-| `01_basic_agent.py` | Simple agent that responds to messages |
-| `02_custom_instructions.py` | Agent with custom system prompt |
+---
 
 ## Running Examples
 
 ```bash
-cd examples/pydantic_ai
-python 01_basic_agent.py
+uv run python examples/pydantic_ai/01_basic_agent.py
+uv run python examples/pydantic_ai/02_custom_instructions.py
 ```
+
+---
 
 ## Model Strings
 
@@ -58,6 +93,8 @@ Pydantic AI uses model strings in the format `provider:model-name`:
 - `google:gemini-1.5-pro`
 
 See [Pydantic AI documentation](https://ai.pydantic.dev/) for more model options.
+
+---
 
 ## Known Issues
 
@@ -75,15 +112,15 @@ This is a [known issue in Pydantic AI](https://github.com/pydantic/pydantic-ai/i
 
 1. **Use Anthropic instead** (recommended for production):
    ```python
-   agent = ThenvoiPydanticAgent(
+   adapter = PydanticAIAdapter(
        model="anthropic:claude-3-5-sonnet-latest",
        ...
    )
    ```
 
-2. **Use the LangGraph agent** - handles message history differently:
+2. **Use the LangGraph adapter** - handles message history differently:
    ```python
-   from thenvoi_langgraph_agent import ThenvoiLangGraphAgent
+   from thenvoi.adapters import LangGraphAdapter
    ```
 
 3. **Simple conversations work fine** - the issue mainly occurs with complex multi-turn tool sequences.

@@ -1,13 +1,37 @@
 # Thenvoi Python SDK
 
-This SDK allows you to connect external AI agents to the Thenvoi platform.
+Connect your AI agents to the Thenvoi collaborative platform.
 
-Currently supported:
-
+**Supported Frameworks:**
 - **LangGraph** - Production ready
 - **Pydantic AI** - Production ready
 - **Anthropic SDK** - Production ready (direct Claude integration)
 - **Claude Agent SDK** - Production ready (streaming, extended thinking)
+
+---
+
+## Quick Start
+
+```python
+from thenvoi import Agent
+from thenvoi.adapters import LangGraphAdapter
+from langchain_openai import ChatOpenAI
+from langgraph.checkpoint.memory import InMemorySaver
+
+# Create adapter with your LLM
+adapter = LangGraphAdapter(
+    llm=ChatOpenAI(model="gpt-4o"),
+    checkpointer=InMemorySaver(),
+)
+
+# Create and run agent
+agent = Agent.create(
+    adapter=adapter,
+    agent_id="your-agent-id",
+    api_key="your-api-key",
+)
+await agent.run()
+```
 
 ---
 
@@ -32,55 +56,34 @@ brew install uv
 
 ## Installation
 
-### Option 1: Install as External Library (Recommended for Your Own Projects)
-
-Install the SDK directly from GitHub into your own project:
+### Option 1: Install as External Library (Recommended)
 
 ```bash
 # Install base SDK
 uv add "git+https://github.com/thenvoi/thenvoi-sdk-python.git"
 
-# Or install with LangGraph support
+# Or install with specific framework support
 uv add "git+https://github.com/thenvoi/thenvoi-sdk-python.git[langgraph]"
-
-# Or install with Anthropic support
 uv add "git+https://github.com/thenvoi/thenvoi-sdk-python.git[anthropic]"
-
-# Or install with Claude Agent SDK support
+uv add "git+https://github.com/thenvoi/thenvoi-sdk-python.git[pydantic_ai]"
 uv add "git+https://github.com/thenvoi/thenvoi-sdk-python.git[claude_sdk]"
 ```
 
-> **Note for Claude Agent SDK:** Requires Node.js 20+ and the Claude Code CLI: `npm install -g @anthropic-ai/claude-code`
+> **Note for Claude Agent SDK:** Requires Node.js 20+ and Claude Code CLI: `npm install -g @anthropic-ai/claude-code`
 
-Then set up your environment variables (see [Configuration](#configuration) section below).
-
-You can reference the [examples directory](examples/) for code samples and copy what you need into your own project.
-
-### Option 2: Run Examples from Repository (For Testing and Learning)
-
-If you want to try the examples directly:
+### Option 2: Run Examples from Repository
 
 ```bash
-# Clone the repository
 git clone https://github.com/thenvoi/thenvoi-sdk-python.git
 cd thenvoi-sdk-python
 
-# Install dependencies (uv will auto-create a virtual environment)
+# Install dependencies
 uv sync --extra langgraph
 
 # Configure environment
 cp .env.example .env  # Edit with your credentials
-cp agent_config.yaml.example agent_config.yaml  # Add your agent credentials
+cp agent_config.yaml.example agent_config.yaml  # Add agent credentials
 ```
-
-Then run examples using `uv run` (see [Running Examples](#running-the-agents-local-installation) below).
-
-**Note on Configuration:**
-- Examples in this repository load configuration from `.env` and `agent_config.yaml` files
-- When using the SDK as an external library in your own projects, you can pass these parameters however you prefer (environment variables, config files, function arguments, etc.)
-- The `.env` and `agent_config.yaml` pattern is recommended but not required
-
-> **Security Note:** Never commit API keys to version control. The `.env` and `agent_config.yaml` files are git-ignored.
 
 ---
 
@@ -106,7 +109,7 @@ Before running your agent, you must create an external agent on the Thenvoi plat
 Add the credentials to your `agent_config.yaml` file:
 
 ```yaml
-calculator_agent:
+my_agent:
   agent_id: "paste-your-agent-id-here"
   api_key: "paste-your-api-key-here"
 ```
@@ -118,12 +121,12 @@ The examples use this config file to load agent credentials:
 ```python
 from thenvoi.config import load_agent_config
 
-agent_id, api_key = load_agent_config("calculator_agent")
+agent_id, api_key = load_agent_config("my_agent")
 ```
 
 ### Important Notes
 
-- ✅ **External agents** run outside the Thenvoi platform (your LangGraph agents)
+- ✅ **External agents** run outside the Thenvoi platform (your Python code)
 - ✅ Each external agent has a **unique API key** for authentication
 - ✅ Agent names must be **unique** within your organization
 - ✅ Name and description are managed on the platform, not in config file
@@ -132,58 +135,230 @@ agent_id, api_key = load_agent_config("calculator_agent")
 
 ---
 
+## Usage by Framework
+
+### LangGraph
+
+```python
+from thenvoi import Agent
+from thenvoi.adapters import LangGraphAdapter
+from langchain_openai import ChatOpenAI
+from langgraph.checkpoint.memory import InMemorySaver
+
+adapter = LangGraphAdapter(
+    llm=ChatOpenAI(model="gpt-4o"),
+    checkpointer=InMemorySaver(),
+)
+
+agent = Agent.create(
+    adapter=adapter,
+    agent_id=agent_id,
+    api_key=api_key,
+    ws_url="wss://api.thenvoi.com/ws",
+    rest_url="https://api.thenvoi.com",
+)
+await agent.run()
+```
+
+### Pydantic AI
+
+```python
+from thenvoi import Agent
+from thenvoi.adapters import PydanticAIAdapter
+
+adapter = PydanticAIAdapter(
+    model="openai:gpt-4o",
+    custom_section="You are a helpful assistant.",
+)
+
+agent = Agent.create(
+    adapter=adapter,
+    agent_id=agent_id,
+    api_key=api_key,
+)
+await agent.run()
+```
+
+### Anthropic SDK
+
+```python
+from thenvoi import Agent
+from thenvoi.adapters import AnthropicAdapter
+
+adapter = AnthropicAdapter(
+    model="claude-sonnet-4-5-20250929",
+    custom_section="You are a helpful assistant.",
+)
+
+agent = Agent.create(
+    adapter=adapter,
+    agent_id=agent_id,
+    api_key=api_key,
+)
+await agent.run()
+```
+
+### Claude Agent SDK
+
+```python
+from thenvoi import Agent
+from thenvoi.adapters import ClaudeSDKAdapter
+
+adapter = ClaudeSDKAdapter(
+    model="claude-sonnet-4-5-20250929",
+    max_thinking_tokens=10000,  # Enable extended thinking
+    enable_execution_reporting=True,
+)
+
+agent = Agent.create(
+    adapter=adapter,
+    agent_id=agent_id,
+    api_key=api_key,
+)
+await agent.run()
+```
+
+---
+
 ## Package Structure
 
 ```
 src/thenvoi/
-├── core/                       # SDK core
-│   ├── agent.py               # ThenvoiAgent - main coordinator
-│   ├── session.py             # AgentSession - per-room state
-│   ├── types.py               # AgentTools, PlatformMessage, configs
+├── agent.py                    # Agent compositor with create() factory
+│
+├── adapters/                   # Framework adapters (composition pattern)
+│   ├── langgraph.py           # LangGraphAdapter
+│   ├── anthropic.py           # AnthropicAdapter
+│   ├── pydantic_ai.py         # PydanticAIAdapter
+│   └── claude_sdk.py          # ClaudeSDKAdapter
+│
+├── platform/                   # Transport layer
+│   ├── link.py                # ThenvoiLink - WebSocket + REST client
+│   └── events.py              # PlatformEvent - typed events
+│
+├── runtime/                    # Runtime layer
+│   ├── agent_runtime.py       # AgentRuntime - convenience wrapper
+│   ├── room_presence.py       # RoomPresence - cross-room lifecycle
+│   ├── execution.py           # Execution + ExecutionContext
+│   ├── agent_tools.py         # AgentTools - platform operations
+│   ├── types.py               # PlatformMessage, configs
 │   ├── prompts.py             # System prompt rendering
-│   ├── tool_definitions.py    # Pydantic models for tools
-│   ├── formatters.py          # Pure functions for message formatting
-│   ├── participant_tracker.py # Participant change tracking
-│   └── retry_tracker.py       # Message retry tracking
+│   ├── formatters.py          # Message formatting utilities
+│   └── trackers.py            # Participant + retry tracking
 │
-├── agents/                     # Base classes for framework agents
-│   └── base.py                # BaseFrameworkAgent - shared lifecycle
-│
-├── integrations/              # Framework-specific agent adapters
-│   ├── base.py                # Shared utilities for all integrations
-│   │
+├── integrations/               # Framework-specific utilities
 │   ├── langgraph/
-│   │   ├── agent.py           # ThenvoiLangGraphAgent, create_langgraph_agent()
 │   │   ├── langchain_tools.py # agent_tools_to_langchain()
 │   │   ├── graph_tools.py     # graph_as_tool()
 │   │   └── message_formatters.py
-│   │
-│   ├── pydantic_ai/
-│   │   └── agent.py           # ThenvoiPydanticAgent, create_pydantic_agent()
-│   │
-│   ├── anthropic/
-│   │   └── agent.py           # ThenvoiAnthropicAgent, create_anthropic_agent()
-│   │
+│   ├── pydantic_ai/           # Pydantic AI utilities
+│   ├── anthropic/             # Anthropic utilities
 │   └── claude_sdk/
-│       ├── agent.py           # ThenvoiClaudeSDKAgent, create_claude_sdk_agent()
-│       ├── session_manager.py # Per-room ClaudeSDKClient management
-│       ├── prompts.py         # System prompt generator
-│       └── tools.py           # MCP tool definitions
+│       ├── session_manager.py # Per-room session management
+│       └── prompts.py         # Claude-specific prompts
 │
-├── client/
-│   └── streaming/             # WebSocket client for platform communication
+├── converters/                 # History conversion utilities
+│   ├── anthropic.py           # AnthropicHistoryConverter
+│   ├── pydantic_ai.py         # PydanticAIHistoryConverter
+│   └── claude_sdk.py          # ClaudeSDKHistoryConverter
+│
+├── client/                     # Low-level WebSocket client
+│   └── streaming/
 │       └── client.py
 │
-└── config/                    # Configuration utilities
-    └── loader.py              # Load agent config from YAML
+└── config/                     # Configuration utilities
+    └── loader.py
 
 examples/
-├── run_agent.py               # Quick-start script to run any agent
-├── langgraph/                 # LangGraph examples (01-06 scripts)
-│   └── standalone_*.py        # Independent graphs for composition
-├── pydantic_ai/               # Pydantic AI examples (01-02 scripts)
-├── anthropic/                 # Anthropic SDK examples (01-02 scripts)
-└── claude_sdk/                # Claude Agent SDK examples (01-02 scripts)
+├── run_agent.py               # Quick-start script for any framework
+├── langgraph/                 # LangGraph examples (01-06)
+├── pydantic_ai/               # Pydantic AI examples (01-02)
+├── anthropic/                 # Anthropic SDK examples (01-02)
+└── claude_sdk/                # Claude Agent SDK examples (01-02)
+```
+
+---
+
+## Examples Overview
+
+### LangGraph Examples (`examples/langgraph/`)
+
+| File | Description |
+|------|-------------|
+| `01_simple_agent.py` | **Minimal setup** - Uses `Agent.create()` with LangGraphAdapter. Connects to platform and responds using built-in tools. |
+| `02_custom_tools.py` | **Custom tools** - Adds your own `@tool` functions (calculator, weather) via `additional_tools` parameter. |
+| `03_custom_personality.py` | **Custom behavior** - Uses `custom_instructions` to give the agent a pirate personality. |
+| `04_calculator_as_tool.py` | **Graph-as-tool** - Wraps a standalone LangGraph as a tool using `graph_as_tool()`. Main agent delegates math to calculator subgraph. |
+| `05_rag_as_tool.py` | **RAG subagent** - Wraps an Agentic RAG graph (retrieval + grading + rewriting) as a tool for research questions. |
+| `06_delegate_to_sql_agent.py` | **SQL subagent** - Wraps a SQL agent with its own LLM and database tools. Main agent delegates queries to SQL subgraph. |
+
+**Supporting files:** `standalone_calculator.py`, `standalone_rag.py`, `standalone_sql_agent.py` - Independent graphs used by examples 04-06.
+
+### Pydantic AI Examples (`examples/pydantic_ai/`)
+
+| File | Description |
+|------|-------------|
+| `01_basic_agent.py` | **Minimal setup** - Creates agent with PydanticAIAdapter using OpenAI. |
+| `02_custom_instructions.py` | **Custom behavior** - Support agent persona using Anthropic Claude. |
+
+### Anthropic SDK Examples (`examples/anthropic/`)
+
+| File | Description |
+|------|-------------|
+| `01_basic_agent.py` | **Minimal setup** - Creates agent with AnthropicAdapter using Claude Sonnet. |
+| `02_custom_instructions.py` | **Custom behavior** - Support agent with execution reporting enabled. |
+
+### Claude Agent SDK Examples (`examples/claude_sdk/`)
+
+| File | Description |
+|------|-------------|
+| `01_basic_agent.py` | **Minimal setup** - Creates agent with ClaudeSDKAdapter using Claude Sonnet. |
+| `02_extended_thinking.py` | **Extended thinking** - Agent with 10,000 token thinking budget for complex reasoning. |
+
+**Key features:**
+- Automatic conversation history management (SDK handles it)
+- Streaming responses via async iterator
+- Extended thinking support with `max_thinking_tokens`
+- MCP-based tool integration
+
+---
+
+## Running Examples
+
+### Quick Start with run_agent.py
+
+```bash
+# LangGraph (default)
+uv run python examples/run_agent.py
+
+# Pydantic AI
+uv run python examples/run_agent.py --example pydantic_ai
+
+# Anthropic SDK
+uv run python examples/run_agent.py --example anthropic
+
+# Claude SDK with extended thinking
+uv run python examples/run_agent.py --example claude_sdk --thinking
+
+# See all options
+uv run python examples/run_agent.py --help
+```
+
+### Individual Examples
+
+```bash
+# LangGraph
+uv run python examples/langgraph/01_simple_agent.py
+uv run python examples/langgraph/02_custom_tools.py
+
+# Pydantic AI
+uv run python examples/pydantic_ai/01_basic_agent.py
+
+# Anthropic SDK
+uv run python examples/anthropic/01_basic_agent.py
+
+# Claude SDK
+uv run python examples/claude_sdk/01_basic_agent.py
 ```
 
 ---
@@ -219,24 +394,16 @@ Add your agent IDs and API keys to `agent_config.yaml`.
 
 ### Running Examples with Docker Compose
 
-Run any example using docker compose:
-
 ```bash
 # LangGraph examples
 docker compose up langgraph-01-simple
 docker compose up langgraph-02-custom-tools
 docker compose up langgraph-03-custom-personality
-```
 
-#### Rebuilding After Changes
-
-If you've updated dependencies or the Dockerfile, rebuild containers:
-
-```bash
-# Rebuild a specific service
+# Rebuild after changes
 docker compose up --build langgraph-01-simple
 
-# Rebuild and force recreate all containers
+# Force recreate all containers
 docker compose up --build --force-recreate
 
 # Clean rebuild (removes cached layers)
@@ -245,8 +412,6 @@ docker compose up
 ```
 
 ### Running with Docker (without compose)
-
-If you prefer to build and run manually:
 
 ```bash
 # Build
@@ -265,150 +430,33 @@ docker run --rm \
 
 ---
 
-## Running Examples
+## Configuration
 
-### Quick Start with run_agent.py
-
-The easiest way to run an agent is with `examples/run_agent.py`:
+### Environment Variables
 
 ```bash
-# Make sure you've configured .env and agent_config.yaml first
+# Platform URLs
+THENVOI_REST_API_URL=https://api.thenvoi.com
+THENVOI_WS_URL=wss://api.thenvoi.com/ws
 
-# Run with LangGraph (default)
-uv run python examples/run_agent.py
-
-# Run with Pydantic AI
-uv run python examples/run_agent.py --example pydantic_ai
-
-# Run with Anthropic SDK
-uv run python examples/run_agent.py --example anthropic
-
-# Run with Claude Agent SDK
-uv run python examples/run_agent.py --example claude_sdk
-
-# Run with Claude Agent SDK + extended thinking
-uv run python examples/run_agent.py --example claude_sdk --thinking
-
-# Use a specific model
-uv run python examples/run_agent.py --example pydantic_ai --model anthropic:claude-sonnet-4-5
-uv run python examples/run_agent.py --example anthropic --model claude-sonnet-4-5-20250929
-
-# Use a different agent from agent_config.yaml
-uv run python examples/run_agent.py --agent my_custom_agent
-
-# See all options
-uv run python examples/run_agent.py --help
+# LLM API Keys
+OPENAI_API_KEY=sk-...
+ANTHROPIC_API_KEY=sk-ant-...
 ```
 
-### Running Individual Examples
+### Agent Config (agent_config.yaml)
 
-You can also run the individual example scripts directly:
+```yaml
+my_agent:
+  agent_id: "your-agent-uuid"
+  api_key: "your-api-key"
 
-```bash
-# LangGraph examples
-uv run python examples/langgraph/01_simple_agent.py
-uv run python examples/langgraph/02_custom_tools.py
-uv run python examples/langgraph/04_calculator_as_tool.py
-
-# Pydantic AI examples
-uv run python examples/pydantic_ai/01_basic_agent.py
-uv run python examples/pydantic_ai/02_custom_instructions.py
-
-# Anthropic SDK examples
-uv run python examples/anthropic/01_basic_agent.py
-uv run python examples/anthropic/02_custom_instructions.py
-
-# Claude Agent SDK examples
-uv run python examples/claude_sdk/01_basic_agent.py
-uv run python examples/claude_sdk/02_extended_thinking.py
+custom_tools_agent:
+  agent_id: "another-agent-uuid"
+  api_key: "another-api-key"
 ```
 
-Each example script loads its agent credentials from `agent_config.yaml` using a specific key (e.g., `simple_agent`, `calculator_agent`). Check the example file to see which key it expects.
-
-### From Your Own Project
-
-If you installed the SDK as an external library, import directly from the package:
-
-```python
-from thenvoi.integrations.langgraph import ThenvoiLangGraphAgent, create_langgraph_agent
-# Or other integrations:
-# from thenvoi.integrations.pydantic_ai import ThenvoiPydanticAgent
-# from thenvoi.integrations.anthropic import ThenvoiAnthropicAgent
-# from thenvoi.integrations.claude_sdk import ThenvoiClaudeSDKAgent
-```
-
-Then run your script:
-
-```bash
-uv run python your_agent.py
-```
-
-**Note:** `uv run` automatically manages the virtual environment - no need to activate it manually.
-
----
-
-## Examples Overview
-
-### LangGraph Examples (`examples/langgraph/`)
-
-| File | Description |
-|------|-------------|
-| `01_simple_agent.py` | **Minimal setup** - Calls `create_langgraph_agent()` with an LLM. Connects to platform and responds using built-in tools (send_message, add_participant, etc.). |
-| `02_custom_tools.py` | **Custom tools** - Adds your own `@tool` functions (calculator, weather) via `additional_tools` parameter. |
-| `03_custom_personality.py` | **Custom behavior** - Uses `custom_instructions` to give the agent a pirate personality. |
-| `04_calculator_as_tool.py` | **Graph-as-tool** - Wraps a standalone LangGraph as a tool using `graph_as_tool()`. Main agent delegates math to calculator subgraph. |
-| `05_rag_as_tool.py` | **RAG subagent** - Wraps an Agentic RAG graph (retrieval + grading + rewriting) as a tool for research questions. |
-| `06_delegate_to_sql_agent.py` | **SQL subagent** - Wraps a SQL agent with its own LLM and database tools. Main agent delegates queries to SQL subgraph. |
-
-**Import from package:**
-```python
-from thenvoi.integrations.langgraph import ThenvoiLangGraphAgent, create_langgraph_agent, graph_as_tool
-```
-
-**Supporting files in examples:**
-- `standalone_calculator.py`, `standalone_rag.py`, `standalone_sql_agent.py` - Independent graphs used by examples 04-06
-
-### Pydantic AI Examples (`examples/pydantic_ai/`)
-
-| File | Description |
-|------|-------------|
-| `01_basic_agent.py` | **Minimal setup** - Creates a `ThenvoiPydanticAgent` with OpenAI. |
-| `02_custom_instructions.py` | **Custom behavior** - Support agent persona using Anthropic Claude. |
-
-**Import from package:**
-```python
-from thenvoi.integrations.pydantic_ai import ThenvoiPydanticAgent, create_pydantic_agent
-```
-
-### Anthropic SDK Examples (`examples/anthropic/`)
-
-| File | Description |
-|------|-------------|
-| `01_basic_agent.py` | **Minimal setup** - Creates a `ThenvoiAnthropicAgent` with Claude Sonnet. |
-| `02_custom_instructions.py` | **Custom behavior** - Support agent with execution reporting enabled. |
-
-**Import from package:**
-```python
-from thenvoi.integrations.anthropic import ThenvoiAnthropicAgent, create_anthropic_agent
-```
-
-### Claude Agent SDK Examples (`examples/claude_sdk/`)
-
-| File | Description |
-|------|-------------|
-| `01_basic_agent.py` | **Minimal setup** - Creates a `ThenvoiClaudeSDKAgent` with Claude Sonnet. |
-| `02_extended_thinking.py` | **Extended thinking** - Agent with 10,000 token thinking budget for complex reasoning. |
-
-**Import from package:**
-```python
-from thenvoi.integrations.claude_sdk import ThenvoiClaudeSDKAgent, create_claude_sdk_agent
-```
-
-**Key features:**
-- Automatic conversation history management (SDK handles it)
-- Streaming responses via async iterator
-- Extended thinking support with `max_thinking_tokens`
-- MCP-based tool integration
+> **Security:** Never commit API keys. Both `.env` and `agent_config.yaml` are git-ignored.
 
 ---
 
@@ -416,32 +464,10 @@ from thenvoi.integrations.claude_sdk import ThenvoiClaudeSDKAgent, create_claude
 
 ### Adding Dependencies
 
-Use `uv add` instead of manually editing `pyproject.toml`:
-
 ```bash
-# Add a regular dependency
 uv add package-name
-
-# Add an optional dependency
-uv add --optional nvidia package-name
 uv add --optional langgraph package-name
-
-# Update existing dependency
-uv add package-name>=2.0
 ```
-
-### Syncing Dependencies
-
-After pulling changes or updating `pyproject.toml`:
-
-```bash
-uv sync --extra langgraph   # For LangGraph adapter
-uv sync                     # For base SDK only
-```
-
-### Lockfile
-
-This project uses `uv.lock` for reproducible builds.
 
 ### Running Tests
 
@@ -512,3 +538,101 @@ uv run pytest tests/ -v
 ```
 
 Tests will automatically skip if required credentials are not configured.
+
+---
+
+## Architecture
+
+### Composition Pattern
+
+The SDK uses composition over inheritance:
+
+```
+Agent.create(adapter, ...)
+    │
+    ├── Adapter (your LLM framework)
+    │   └── on_started(), on_message(), on_cleanup()
+    │
+    ├── PlatformRuntime (room lifecycle)
+    │   └── RoomPresence → Execution per room
+    │
+    └── ThenvoiLink (WebSocket + REST transport)
+```
+
+### Building Custom Adapters
+
+Implement the `SimpleAdapter` protocol:
+
+```python
+from thenvoi.adapters.base import SimpleAdapter
+
+class MyAdapter(SimpleAdapter[MyHistoryType]):
+    async def on_started(self, agent_name: str, agent_description: str) -> None:
+        """Called when agent starts."""
+        pass
+
+    async def on_message(
+        self,
+        ctx: ExecutionContext,
+        tools: AgentTools,
+        history: MyHistoryType,
+    ) -> None:
+        """Handle incoming message."""
+        # Your LLM logic here
+        await tools.send_message("Hello!")
+
+    async def on_cleanup(self) -> None:
+        """Called when agent stops."""
+        pass
+```
+
+---
+
+## LangGraph Utilities
+
+### Wrap Graph as Tool
+
+```python
+from thenvoi.integrations.langgraph import graph_as_tool
+
+calculator_tool = graph_as_tool(
+    calculator_graph,
+    name="calculator",
+    description="Evaluates math expressions"
+)
+
+adapter = LangGraphAdapter(
+    llm=llm,
+    checkpointer=checkpointer,
+    additional_tools=[calculator_tool],
+)
+```
+
+### Convert Platform Tools to LangChain
+
+```python
+from thenvoi.integrations.langgraph import agent_tools_to_langchain
+
+langchain_tools = agent_tools_to_langchain(agent_tools)
+```
+
+---
+
+## Platform Tools
+
+All adapters automatically have access to:
+
+| Tool | Description |
+|------|-------------|
+| `send_message` | Send a message to the chat room |
+| `add_participant` | Add a user or agent to the room |
+| `remove_participant` | Remove a participant from the room |
+| `get_participants` | List current room participants |
+| `list_available_participants` | List users/agents that can be added |
+
+---
+
+## Help & Feedback
+
+- **Documentation:** See `examples/` for complete working examples
+- **Issues:** https://github.com/thenvoi/thenvoi-sdk-python/issues

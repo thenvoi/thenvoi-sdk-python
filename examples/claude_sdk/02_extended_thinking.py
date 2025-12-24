@@ -33,7 +33,8 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from setup_logging import setup_logging
-from thenvoi.integrations.claude_sdk import ThenvoiClaudeSDKAgent
+from thenvoi import Agent
+from thenvoi.adapters import ClaudeSDKAdapter
 
 
 async def main():
@@ -48,11 +49,9 @@ async def main():
         print("Error: THENVOI_AGENT_ID and THENVOI_API_KEY must be set")
         sys.exit(1)
 
-    # Create agent with extended thinking enabled
-    agent = ThenvoiClaudeSDKAgent(
+    # Create adapter with extended thinking enabled
+    adapter = ClaudeSDKAdapter(
         model="claude-sonnet-4-5-20250929",
-        agent_id=agent_id,
-        api_key=api_key,
         custom_section="""You are a thoughtful AI assistant that excels at
 complex problem-solving. When faced with challenging questions:
 1. Break down the problem into smaller parts
@@ -61,6 +60,13 @@ complex problem-solving. When faced with challenging questions:
 4. Provide clear, well-reasoned answers""",
         max_thinking_tokens=10000,  # Enable extended thinking
         enable_execution_reporting=True,  # Report thinking as events
+    )
+
+    # Create and start agent
+    agent = Agent.create(
+        adapter=adapter,
+        agent_id=agent_id,
+        api_key=api_key,
     )
 
     print("Starting Claude SDK agent with extended thinking...")

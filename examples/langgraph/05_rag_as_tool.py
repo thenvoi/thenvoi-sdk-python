@@ -28,7 +28,9 @@ from langgraph.checkpoint.memory import InMemorySaver
 
 from standalone_rag import create_rag_graph
 from setup_logging import setup_logging
-from thenvoi.integrations.langgraph import create_langgraph_agent, graph_as_tool
+from thenvoi import Agent
+from thenvoi.adapters import LangGraphAdapter
+from thenvoi.integrations.langgraph import graph_as_tool
 from thenvoi.config import load_agent_config
 
 setup_logging()
@@ -39,11 +41,11 @@ logger = logging.getLogger(__name__)
 async def main():
     load_dotenv()
     ws_url = os.getenv("THENVOI_WS_URL")
-    thenvoi_restapi_url = os.getenv("THENVOI_REST_API_URL")
+    rest_url = os.getenv("THENVOI_REST_API_URL")
 
     if not ws_url:
         raise ValueError("THENVOI_WS_URL environment variable is required")
-    if not thenvoi_restapi_url:
+    if not rest_url:
         raise ValueError("THENVOI_REST_API_URL environment variable is required")
 
     # Load agent configuration from agent_config.yaml
@@ -114,16 +116,25 @@ User: "tell nvidia about reward hacking"
 3. send_message(content="@Nvidia_Agent, [answer from research]", mentions='[{"id":"xxx","username":"Nvidia_Agent"}]')
 """
 
-    await create_langgraph_agent(
-        agent_id=agent_id,
-        api_key=api_key,
+    # Create adapter with RAG tool
+    adapter = LangGraphAdapter(
         llm=ChatOpenAI(model="gpt-4o"),
         checkpointer=InMemorySaver(),
-        ws_url=ws_url,
-        thenvoi_restapi_url=thenvoi_restapi_url,
         additional_tools=[rag_tool],
-        custom_instructions=rag_instructions,
+        custom_section=rag_instructions,
     )
+
+    # Create and start agent
+    agent = Agent.create(
+        adapter=adapter,
+        agent_id=agent_id,
+        api_key=api_key,
+        ws_url=ws_url,
+        rest_url=rest_url,
+    )
+
+    print("Starting agent with RAG tool...")
+    await agent.run()
 
 
 if __name__ == "__main__":

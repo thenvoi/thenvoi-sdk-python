@@ -1,6 +1,6 @@
-# Anthropic SDK Examples
+# Anthropic SDK Examples for Thenvoi
 
-Examples for creating Thenvoi agents using the Anthropic Python SDK directly.
+Examples for creating Thenvoi agents using the Anthropic Python SDK with the composition-based pattern.
 
 ## Overview
 
@@ -13,16 +13,41 @@ with full control over conversation history and tool loop management.
 2. **Thenvoi Platform** - Create an external agent and get credentials
 3. **Dependencies** - Install with `uv sync --extra anthropic`
 
+---
+
+## Quick Start
+
+```python
+from thenvoi import Agent
+from thenvoi.adapters import AnthropicAdapter
+
+adapter = AnthropicAdapter(
+    model="claude-sonnet-4-5-20250929",
+    custom_section="You are a helpful assistant.",
+)
+
+agent = Agent.create(
+    adapter=adapter,
+    agent_id="your-agent-id",
+    api_key="your-api-key",
+)
+await agent.run()
+```
+
+---
+
 ## Examples
 
 | File | Description |
 |------|-------------|
-| `01_basic_agent.py` | **Minimal setup** - Simple agent using Claude Sonnet with default settings |
-| `02_custom_instructions.py` | **Custom behavior** - Technical support agent with detailed instructions and execution reporting |
+| `01_basic_agent.py` | **Minimal setup** - Simple agent using Claude Sonnet with default settings. |
+| `02_custom_instructions.py` | **Custom behavior** - Technical support agent with detailed instructions and execution reporting. |
+
+---
 
 ## Architecture
 
-The `ThenvoiAnthropicAgent` provides:
+The `AnthropicAdapter` provides:
 
 - **Per-room conversation history** - Maintains chat history per room (Anthropic SDK is stateless)
 - **Platform history hydration** - Loads existing messages when joining a room
@@ -30,18 +55,17 @@ The `ThenvoiAnthropicAgent` provides:
 - **Tool calling** - Full Anthropic tool use loop with automatic execution
 - **Event reporting** - Optional visibility into tool calls and results
 
+---
+
 ## Running Examples
 
 ```bash
 # From repository root
-cd examples/anthropic
-
-# Basic agent
-python 01_basic_agent.py
-
-# Custom instructions with execution reporting
-python 02_custom_instructions.py
+uv run python examples/anthropic/01_basic_agent.py
+uv run python examples/anthropic/02_custom_instructions.py
 ```
+
+---
 
 ## Configuration
 
@@ -57,30 +81,17 @@ support_agent:
   api_key: "your-thenvoi-api-key"
 ```
 
+---
+
 ## Key Features
 
-### Conversation History
-
-The adapter maintains per-room conversation history:
+### Custom Instructions
 
 ```python
-# History is automatically managed per room
-agent._message_history[room_id] = [
-    {"role": "user", "content": "[Alice]: Hello"},
-    {"role": "assistant", "content": [...tool_use blocks...]},
-    {"role": "user", "content": [...tool_results...]},
-]
-```
-
-### Tool Loop
-
-The adapter handles the full Anthropic tool loop:
-
-```python
-while response.stop_reason == "tool_use":
-    # Execute tool calls
-    # Add results to history
-    # Call API again
+adapter = AnthropicAdapter(
+    model="claude-sonnet-4-5-20250929",
+    custom_section="You are a technical support agent. Be concise and helpful.",
+)
 ```
 
 ### Execution Reporting
@@ -88,8 +99,22 @@ while response.stop_reason == "tool_use":
 Enable visibility into tool calls:
 
 ```python
-agent = ThenvoiAnthropicAgent(
-    ...
+adapter = AnthropicAdapter(
+    model="claude-sonnet-4-5-20250929",
     enable_execution_reporting=True,  # Shows tool calls in chat
 )
 ```
+
+---
+
+## Available Platform Tools
+
+All Anthropic agents automatically have access to:
+
+| Tool | Description |
+|------|-------------|
+| `send_message` | Send a message to the chat room |
+| `add_participant` | Add a user or agent to the room |
+| `remove_participant` | Remove a participant from the room |
+| `get_participants` | List current room participants |
+| `list_available_participants` | List users/agents that can be added |

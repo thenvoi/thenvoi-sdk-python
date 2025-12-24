@@ -1,5 +1,7 @@
 """
-ThenvoiPydanticAgent - Pydantic AI agent connected to Thenvoi platform.
+Pydantic AI adapter using SimpleAdapter pattern.
+
+Extracted from thenvoi.integrations.pydantic_ai.agent.ThenvoiPydanticAgent.
 """
 
 from __future__ import annotations
@@ -10,87 +12,65 @@ from typing import Any
 from pydantic_ai import Agent, RunContext
 from pydantic_ai.messages import (
     ModelRequest,
-    ModelResponse,
     UserPromptPart,
-    TextPart,
 )
 
-from thenvoi.agents import BaseFrameworkAgent
-from thenvoi.runtime import (
-    AgentConfig,
-    AgentTools,
-    ExecutionContext,
-    PlatformMessage,
-    SessionConfig,
-    render_system_prompt,
+from thenvoi.core.protocols import AgentToolsProtocol
+from thenvoi.core.simple_adapter import SimpleAdapter
+from thenvoi.core.types import PlatformMessage
+from thenvoi.converters.pydantic_ai import (
+    PydanticAIHistoryConverter,
+    PydanticAIMessages,
 )
+from thenvoi.runtime.prompts import render_system_prompt
 
 logger = logging.getLogger(__name__)
 
 
-class ThenvoiPydanticAgent(BaseFrameworkAgent):
+class PydanticAIAdapter(SimpleAdapter[PydanticAIMessages]):
     """
-    Pydantic AI adapter for Thenvoi platform.
+    Pydantic AI adapter using SimpleAdapter pattern.
 
-    This adapter uses Pydantic AI's Agent for LLM interactions,
+    Uses Pydantic AI's Agent for LLM interactions,
     with platform tools registered via @agent.tool decorators.
 
-    Args:
-        model: Pydantic AI model string (e.g., "openai:gpt-4o", "anthropic:claude-3-5-sonnet-latest")
-        agent_id: Thenvoi agent ID
-        api_key: Thenvoi API key
-        system_prompt: Optional custom system prompt (overrides default)
-        custom_section: Optional custom section to add to default prompt
-        ws_url: WebSocket URL for real-time events
-        rest_url: REST API URL
-        config: Agent configuration
-        session_config: Session configuration
-
-    Usage:
-        adapter = ThenvoiPydanticAgent(
+    Example:
+        adapter = PydanticAIAdapter(
             model="openai:gpt-4o",
-            agent_id="your-agent-id",
-            api_key="your-api-key",
             custom_section="You are a helpful assistant.",
         )
-        await adapter.run()
+        agent = Agent.create(adapter=adapter, agent_id="...", api_key="...")
+        await agent.run()
     """
 
     def __init__(
         self,
         model: str,
-        agent_id: str,
-        api_key: str,
         system_prompt: str | None = None,
         custom_section: str | None = None,
-        ws_url: str = "wss://api.thenvoi.com/ws",
-        rest_url: str = "https://api.thenvoi.com",
-        config: AgentConfig | None = None,
-        session_config: SessionConfig | None = None,
+        history_converter: PydanticAIHistoryConverter | None = None,
     ):
         super().__init__(
-            agent_id=agent_id,
-            api_key=api_key,
-            ws_url=ws_url,
-            rest_url=rest_url,
-            config=config,
-            session_config=session_config,
+            history_converter=history_converter or PydanticAIHistoryConverter()
         )
 
         self.model = model
         self.system_prompt = system_prompt
         self.custom_section = custom_section
 
-        self._agent: Agent[AgentTools, None] | None = None
+        self._agent: Agent[AgentToolsProtocol, None] | None = None
         # Conversation history per room (Pydantic AI is stateless, we maintain state)
         self._message_history: dict[str, list] = {}
 
-    async def _on_started(self) -> None:
+    # --- Adapted from ThenvoiPydanticAgent._on_started ---
+    async def on_started(self, agent_name: str, agent_description: str) -> None:
         """Create the Pydantic AI agent after metadata is fetched."""
+        await super().on_started(agent_name, agent_description)
         self._agent = self._create_agent()
-        logger.info(f"Pydantic AI adapter started for agent: {self.agent_name}")
+        logger.info(f"Pydantic AI adapter started for agent: {agent_name}")
 
-    def _create_agent(self) -> Agent[AgentTools, None]:
+    # --- Copied from ThenvoiPydanticAgent._create_agent ---
+    def _create_agent(self) -> Agent[AgentToolsProtocol, None]:
         """Create Pydantic AI Agent with platform tools."""
         system = self.system_prompt or render_system_prompt(
             agent_name=self.agent_name,
@@ -98,10 +78,10 @@ class ThenvoiPydanticAgent(BaseFrameworkAgent):
         )
 
         # output_type=None disables output validation - we respond via tools only
-        agent: Agent[AgentTools, None] = Agent(  # type: ignore[call-overload]
+        agent: Agent[AgentToolsProtocol, None] = Agent(  # type: ignore[call-overload]
             self.model,
             system_prompt=system,
-            deps_type=AgentTools,
+            deps_type=AgentToolsProtocol,
             output_type=None,
         )
 
@@ -109,7 +89,7 @@ class ThenvoiPydanticAgent(BaseFrameworkAgent):
         # All tools catch exceptions and return error strings so LLM can see failures
         @agent.tool
         async def send_message(
-            ctx: RunContext[AgentTools],
+            ctx: RunContext[AgentToolsProtocol],
             content: str,
             mentions: list[str],
         ) -> dict[str, Any] | str:
@@ -126,7 +106,7 @@ class ThenvoiPydanticAgent(BaseFrameworkAgent):
 
         @agent.tool
         async def send_event(
-            ctx: RunContext[AgentTools],
+            ctx: RunContext[AgentToolsProtocol],
             content: str,
             message_type: str,
             metadata: dict[str, Any] | None = None,
@@ -145,7 +125,7 @@ class ThenvoiPydanticAgent(BaseFrameworkAgent):
 
         @agent.tool
         async def add_participant(
-            ctx: RunContext[AgentTools],
+            ctx: RunContext[AgentToolsProtocol],
             name: str,
             role: str = "member",
         ) -> dict[str, Any] | str:
@@ -162,7 +142,7 @@ class ThenvoiPydanticAgent(BaseFrameworkAgent):
 
         @agent.tool
         async def remove_participant(
-            ctx: RunContext[AgentTools],
+            ctx: RunContext[AgentToolsProtocol],
             name: str,
         ) -> dict[str, Any] | str:
             """Remove a participant from the chat room by name.
@@ -177,7 +157,7 @@ class ThenvoiPydanticAgent(BaseFrameworkAgent):
 
         @agent.tool
         async def lookup_peers(
-            ctx: RunContext[AgentTools],
+            ctx: RunContext[AgentToolsProtocol],
             page: int = 1,
             page_size: int = 50,
         ) -> dict[str, Any] | str:
@@ -194,7 +174,7 @@ class ThenvoiPydanticAgent(BaseFrameworkAgent):
 
         @agent.tool
         async def get_participants(
-            ctx: RunContext[AgentTools],
+            ctx: RunContext[AgentToolsProtocol],
         ) -> list[dict[str, Any]] | str:
             """Get a list of all participants in the current chat room."""
             try:
@@ -204,7 +184,7 @@ class ThenvoiPydanticAgent(BaseFrameworkAgent):
 
         @agent.tool
         async def create_chatroom(
-            ctx: RunContext[AgentTools],
+            ctx: RunContext[AgentToolsProtocol],
             name: str,
         ) -> str:
             """Create a new chat room for a specific task or conversation.
@@ -219,29 +199,29 @@ class ThenvoiPydanticAgent(BaseFrameworkAgent):
 
         return agent
 
-    async def _handle_message(
+    # --- Adapted from ThenvoiPydanticAgent._handle_message ---
+    async def on_message(
         self,
         msg: PlatformMessage,
-        tools: AgentTools,
-        ctx: ExecutionContext,
-        history: list[dict[str, Any]] | None,
+        tools: AgentToolsProtocol,
+        history: PydanticAIMessages,  # Already converted by SimpleAdapter
         participants_msg: str | None,
+        *,
+        is_session_bootstrap: bool,
+        room_id: str,
     ) -> None:
         """Handle incoming platform message."""
         if self._agent is None:
-            # Safety: create agent if not yet created (should be done in _on_started)
+            # Safety: create agent if not yet created (should be done in on_started)
             self._agent = self._create_agent()
 
-        room_id = msg.room_id
-        is_first_message = history is not None
-
         # Initialize message history for this room on first message
-        if is_first_message:
+        # Note: history is already converted by SimpleAdapter via history_converter
+        if is_session_bootstrap:
             if history:
-                self._message_history[room_id] = self._convert_platform_history(history)
+                self._message_history[room_id] = list(history)
                 logger.debug(
-                    f"Room {room_id}: Converted {len(history)} platform messages "
-                    f"to {len(self._message_history[room_id])} Pydantic AI messages"
+                    f"Room {room_id}: Loaded {len(history)} Pydantic AI messages"
                 )
             else:
                 self._message_history[room_id] = []
@@ -282,70 +262,9 @@ class ThenvoiPydanticAgent(BaseFrameworkAgent):
             f"(history now has {len(self._message_history[room_id])} messages)"
         )
 
-    def _convert_platform_history(
-        self, platform_history: list[dict[str, Any]]
-    ) -> list[ModelRequest | ModelResponse]:
-        """
-        Convert platform history to Pydantic AI message format.
-
-        Platform history format:
-            {"role": "user"|"assistant", "content": str, "sender_name": str}
-
-        Pydantic AI format:
-            - user messages → ModelRequest with UserPromptPart
-            - assistant messages → ModelResponse with TextPart
-        """
-        messages: list[ModelRequest | ModelResponse] = []
-
-        for h in platform_history:
-            role = h.get("role", "user")
-            content = h.get("content", "")
-            sender_name = h.get("sender_name", "Unknown")
-
-            if role == "assistant":
-                # Our agent's previous messages
-                messages.append(ModelResponse(parts=[TextPart(content=content)]))
-            else:
-                # Messages from users or other agents
-                formatted_content = f"[{sender_name}]: {content}"
-                messages.append(
-                    ModelRequest(parts=[UserPromptPart(content=formatted_content)])
-                )
-
-        return messages
-
-    async def _cleanup_session(self, room_id: str) -> None:
+    # --- Copied from ThenvoiPydanticAgent._cleanup_session ---
+    async def on_cleanup(self, room_id: str) -> None:
         """Clean up message history when agent leaves a room."""
         if room_id in self._message_history:
             del self._message_history[room_id]
             logger.debug(f"Room {room_id}: Cleaned up message history")
-
-
-async def create_pydantic_agent(
-    model: str,
-    agent_id: str,
-    api_key: str,
-    **kwargs,
-) -> ThenvoiPydanticAgent:
-    """
-    Create and start a ThenvoiPydanticAgent.
-
-    Convenience function for quick setup.
-
-    Args:
-        model: Pydantic AI model string (e.g., "openai:gpt-4o")
-        agent_id: Thenvoi agent ID
-        api_key: Thenvoi API key
-        **kwargs: Additional arguments for ThenvoiPydanticAgent
-
-    Returns:
-        Started ThenvoiPydanticAgent instance
-    """
-    agent = ThenvoiPydanticAgent(
-        model=model,
-        agent_id=agent_id,
-        api_key=api_key,
-        **kwargs,
-    )
-    await agent.start()
-    return agent

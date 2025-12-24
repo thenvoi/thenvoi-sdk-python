@@ -9,10 +9,10 @@ from typing import Any, Literal
 
 from langchain_core.tools import StructuredTool
 
-from thenvoi.runtime.tools import AgentTools
+from thenvoi.core.protocols import AgentToolsProtocol
 
 
-def agent_tools_to_langchain(tools: AgentTools) -> list[Any]:
+def agent_tools_to_langchain(tools: AgentToolsProtocol) -> list[Any]:
     """
     Convert AgentTools to LangChain StructuredTool instances.
 

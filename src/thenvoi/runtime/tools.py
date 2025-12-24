@@ -7,9 +7,11 @@ Bound to a room_id. Uses AsyncRestClient directly for API calls.
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any, Literal, overload
+from typing import TYPE_CHECKING, Any, Literal, cast
 
 from pydantic import BaseModel, Field
+
+from thenvoi.core.protocols import AgentToolsProtocol
 
 if TYPE_CHECKING:
     from anthropic.types import ToolParam
@@ -96,7 +98,7 @@ TOOL_MODELS: dict[str, type[BaseModel]] = {
 }
 
 
-class AgentTools:
+class AgentTools(AgentToolsProtocol):
     """
     Tools for LLM platform interaction.
 
@@ -485,13 +487,7 @@ class AgentTools:
         """Get Pydantic models for all tools."""
         return TOOL_MODELS
 
-    @overload
-    def get_tool_schemas(self, format: Literal["anthropic"]) -> list["ToolParam"]: ...
-    @overload
-    def get_tool_schemas(self, format: Literal["openai"]) -> list[dict[str, Any]]: ...
-    def get_tool_schemas(
-        self, format: Literal["openai", "anthropic"]
-    ) -> list[dict[str, Any]] | list["ToolParam"]:
+    def get_tool_schemas(self, format: str) -> list[dict[str, Any]] | list["ToolParam"]:
         """
         Get tool schemas in provider-specific format.
 
@@ -500,7 +496,15 @@ class AgentTools:
 
         Returns:
             List of tool definitions in the requested format
+
+        Raises:
+            ValueError: If format is not "openai" or "anthropic"
         """
+        if format not in ("openai", "anthropic"):
+            raise ValueError(
+                f"Invalid format: {format}. Must be 'openai' or 'anthropic'"
+            )
+
         tools: list[Any] = []
         for name, model in TOOL_MODELS.items():
             schema = model.model_json_schema()
@@ -527,6 +531,14 @@ class AgentTools:
                     }
                 )
         return tools
+
+    def get_anthropic_tool_schemas(self) -> list["ToolParam"]:
+        """Get tool schemas in Anthropic format (strongly typed)."""
+        return cast(list["ToolParam"], self.get_tool_schemas("anthropic"))
+
+    def get_openai_tool_schemas(self) -> list[dict[str, Any]]:
+        """Get tool schemas in OpenAI format (strongly typed)."""
+        return cast(list[dict[str, Any]], self.get_tool_schemas("openai"))
 
     async def execute_tool_call(self, tool_name: str, arguments: dict[str, Any]) -> Any:
         """

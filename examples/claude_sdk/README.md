@@ -1,6 +1,6 @@
-# Claude Agent SDK Examples
+# Claude Agent SDK Examples for Thenvoi
 
-This directory contains examples of using the Claude Agent SDK with the Thenvoi platform.
+Examples of using the Claude Agent SDK with the Thenvoi platform using the composition-based pattern.
 
 ## Prerequisites
 
@@ -28,10 +28,10 @@ claude --version
 
 ```bash
 # Install with claude_sdk extras
-pip install thenvoi[claude_sdk]
+uv add "git+https://github.com/thenvoi/thenvoi-sdk-python.git[claude_sdk]"
 
-# Or using uv
-uv pip install thenvoi[claude_sdk]
+# Or from repository
+uv sync --extra claude_sdk
 ```
 
 ### 3. Environment Variables
@@ -42,6 +42,29 @@ export THENVOI_API_KEY="your-api-key"
 export ANTHROPIC_API_KEY="your-anthropic-api-key"
 ```
 
+---
+
+## Quick Start
+
+```python
+from thenvoi import Agent
+from thenvoi.adapters import ClaudeSDKAdapter
+
+adapter = ClaudeSDKAdapter(
+    model="claude-sonnet-4-5-20250929",
+    custom_section="You are a helpful assistant.",
+)
+
+agent = Agent.create(
+    adapter=adapter,
+    agent_id="your-agent-id",
+    api_key="your-api-key",
+)
+await agent.run()
+```
+
+---
+
 ## Examples
 
 ### 01_basic_agent.py
@@ -49,7 +72,7 @@ export ANTHROPIC_API_KEY="your-anthropic-api-key"
 Basic agent with standard configuration:
 
 ```bash
-python 01_basic_agent.py
+python examples/claude_sdk/01_basic_agent.py
 ```
 
 Features:
@@ -62,7 +85,7 @@ Features:
 Agent with extended thinking enabled for complex reasoning:
 
 ```bash
-python 02_extended_thinking.py
+python examples/claude_sdk/02_extended_thinking.py
 ```
 
 Features:
@@ -70,55 +93,48 @@ Features:
 - Thought events reported to chat
 - Ideal for complex problem-solving
 
-## Architecture
+---
 
-```
-ThenvoiClaudeSDKAgent
-├── thenvoi: ThenvoiAgent           # Platform coordinator
-├── session_manager: ClaudeSessionManager
-│   └── _sessions: Dict[room_id, ClaudeSDKClient]
-├── _mcp_server                      # MCP tools (stubs)
-│
-└── _handle_message(msg, tools)
-    ├── Get/create session for room
-    ├── Hydrate history (first message)
-    ├── Inject participants (on change)
-    ├── client.query(message)
-    └── _process_response()
-        ├── TextBlock → collect
-        ├── ThinkingBlock → report
-        └── ToolUseBlock → execute
+## Extended Thinking
+
+Enable extended thinking for complex reasoning tasks:
+
+```python
+adapter = ClaudeSDKAdapter(
+    model="claude-sonnet-4-5-20250929",
+    max_thinking_tokens=10000,  # Enable extended thinking
+    enable_execution_reporting=True,
+)
 ```
 
-## Key Differences from Anthropic SDK Example
+---
 
-| Aspect | ThenvoiAnthropicAgent | ThenvoiClaudeSDKAgent |
-|--------|----------------------|----------------------|
+## Key Differences from Anthropic SDK
+
+| Aspect | AnthropicAdapter | ClaudeSDKAdapter |
+|--------|------------------|------------------|
 | Library | `anthropic` | `claude-agent-sdk` |
-| History | Manual `_message_history` | SDK manages automatically |
+| History | Managed by adapter | SDK manages automatically |
 | Tools | JSON schema | MCP `@tool` decorator |
 | Response | Single response | Async streaming |
 | Thinking | Not supported | `max_thinking_tokens` |
-| Sessions | No manager | `ClaudeSessionManager` |
+| Sessions | Per-room state | `ClaudeSessionManager` |
+
+---
 
 ## MCP Tool Integration
 
-Tools are defined as MCP stubs in `tools.py`. The actual execution happens in the agent via `AgentTools`:
+Tools are defined as MCP stubs in the SDK. The actual execution happens via `AgentTools`:
 
 ```python
-# MCP tool name → AgentTools method
-"mcp__thenvoi__send_message" → tools.send_message()
-"mcp__thenvoi__send_event" → tools.send_event()
-"mcp__thenvoi__add_participant" → tools.add_participant()
+# MCP tool name -> AgentTools method
+"mcp__thenvoi__send_message" -> tools.send_message()
+"mcp__thenvoi__send_event" -> tools.send_event()
+"mcp__thenvoi__add_participant" -> tools.add_participant()
 # etc.
 ```
 
-## Phase 2: Real MCP Server
-
-In a future update, we'll add an example showing connection to a real Thenvoi MCP server instead of in-process stubs. This will enable:
-- Direct tool execution without interception
-- Real-time platform integration
-- Reduced latency
+---
 
 ## Docker Usage
 
@@ -171,6 +187,8 @@ The Dockerfile automatically installs:
 - Claude Code CLI (`@anthropic-ai/claude-code`)
 - Python dependencies with `claude_sdk` extras
 
+---
+
 ## Troubleshooting
 
 ### "claude: command not found"
@@ -184,7 +202,7 @@ Or use Docker (see [Docker Usage](#docker-usage) above).
 ### "ModuleNotFoundError: No module named 'claude_agent_sdk'"
 Install the claude_sdk extras:
 ```bash
-pip install thenvoi[claude_sdk]
+uv sync --extra claude_sdk
 ```
 
 Or use Docker (see [Docker Usage](#docker-usage) above).

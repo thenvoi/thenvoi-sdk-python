@@ -27,7 +27,8 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from setup_logging import setup_logging
-from thenvoi.integrations.claude_sdk import ThenvoiClaudeSDKAgent
+from thenvoi import Agent
+from thenvoi.adapters import ClaudeSDKAdapter
 
 
 async def main():
@@ -42,13 +43,18 @@ async def main():
         print("Error: THENVOI_AGENT_ID and THENVOI_API_KEY must be set")
         sys.exit(1)
 
-    # Create agent with basic configuration
-    agent = ThenvoiClaudeSDKAgent(
+    # Create adapter with Claude SDK settings
+    adapter = ClaudeSDKAdapter(
         model="claude-sonnet-4-5-20250929",
-        agent_id=agent_id,
-        api_key=api_key,
         custom_section="You are a helpful assistant. Be concise and friendly.",
         enable_execution_reporting=True,
+    )
+
+    # Create and start agent
+    agent = Agent.create(
+        adapter=adapter,
+        agent_id=agent_id,
+        api_key=api_key,
     )
 
     print("Starting Claude SDK agent...")

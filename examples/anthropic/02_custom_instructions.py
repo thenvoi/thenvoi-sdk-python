@@ -14,7 +14,8 @@ import os
 from dotenv import load_dotenv
 
 from setup_logging import setup_logging
-from thenvoi.integrations.anthropic import ThenvoiAnthropicAgent
+from thenvoi import Agent
+from thenvoi.adapters import AnthropicAdapter
 from thenvoi.config import load_agent_config
 
 setup_logging()
@@ -51,15 +52,21 @@ async def main():
     # Load agent credentials from agent_config.yaml
     agent_id, api_key = load_agent_config("support_agent")
 
-    agent = ThenvoiAnthropicAgent(
+    # Create adapter with custom instructions and execution reporting
+    adapter = AnthropicAdapter(
         model="claude-sonnet-4-5-20250929",
+        custom_section=CUSTOM_PROMPT,
+        # Enable execution reporting to see tool calls in the chat
+        enable_execution_reporting=True,
+    )
+
+    # Create and start agent
+    agent = Agent.create(
+        adapter=adapter,
         agent_id=agent_id,
         api_key=api_key,
         ws_url=ws_url,
         rest_url=rest_url,
-        custom_section=CUSTOM_PROMPT,
-        # Enable execution reporting to see tool calls in the chat
-        enable_execution_reporting=True,
     )
 
     print("Starting support agent...")

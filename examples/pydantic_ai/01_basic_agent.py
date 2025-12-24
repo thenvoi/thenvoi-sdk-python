@@ -14,7 +14,8 @@ import os
 from dotenv import load_dotenv
 
 from setup_logging import setup_logging
-from thenvoi.integrations.pydantic_ai import ThenvoiPydanticAgent
+from thenvoi import Agent
+from thenvoi.adapters import PydanticAIAdapter
 from thenvoi.config import load_agent_config
 
 setup_logging()
@@ -34,18 +35,23 @@ async def main():
     # Load agent credentials from agent_config.yaml
     agent_id, api_key = load_agent_config("pydantic_agent")
 
-    # Create and start agent - that's it!
-    adapter = ThenvoiPydanticAgent(
+    # Create adapter with framework-specific settings
+    adapter = PydanticAIAdapter(
         model="openai:gpt-4o",
+        custom_section="You are a helpful assistant. Be concise and friendly.",
+    )
+
+    # Create and start agent
+    agent = Agent.create(
+        adapter=adapter,
         agent_id=agent_id,
         api_key=api_key,
         ws_url=ws_url,
         rest_url=rest_url,
-        custom_section="You are a helpful assistant. Be concise and friendly.",
     )
 
     print("Starting Pydantic AI agent...")
-    await adapter.run()
+    await agent.run()
 
 
 if __name__ == "__main__":

@@ -1,14 +1,15 @@
 """
 Pydantic AI integration for Thenvoi SDK.
 
-This module provides:
-- ThenvoiPydanticAgent: Main adapter class for Pydantic AI
-- create_pydantic_agent: Convenience function to create and run agent
+NOTE: The old ThenvoiPydanticAgent has been removed.
+Use the new composition-based pattern instead:
+
+    from thenvoi import Agent
+    from thenvoi.adapters import PydanticAIAdapter
+
+    adapter = PydanticAIAdapter(model="openai:gpt-4o")
+    agent = Agent.create(adapter=adapter, agent_id="...", api_key="...")
+    await agent.run()
 """
 
-from .agent import ThenvoiPydanticAgent, create_pydantic_agent
-
-__all__ = [
-    "ThenvoiPydanticAgent",
-    "create_pydantic_agent",
-]
+__all__: list[str] = []
