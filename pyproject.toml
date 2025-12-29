@@ -22,7 +22,7 @@ classifiers = [
 ]
 
 dependencies = [
-    "thenvoi-client-rest==0.0.1",
+    "thenvoi-client-rest==0.0.2",
     "phoenix-channels-python-client @ git+https://github.com/thenvoi/phoenix-channels-python-client-alpha.git",
     "python-dotenv>=1.1.1",
     "pyyaml>=6.0",
