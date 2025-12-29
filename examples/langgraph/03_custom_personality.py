@@ -1,3 +1,7 @@
+"""
+Example showing how to customize agent personality with custom instructions.
+"""
+
 import asyncio
 import os
 from dotenv import load_dotenv
@@ -5,7 +9,8 @@ from langchain_openai import ChatOpenAI
 from langgraph.checkpoint.memory import InMemorySaver
 
 from setup_logging import setup_logging
-from thenvoi.agent.langgraph import create_langgraph_agent
+from thenvoi import Agent
+from thenvoi.adapters import LangGraphAdapter
 from thenvoi.config import load_agent_config
 
 setup_logging()
@@ -14,11 +19,11 @@ setup_logging()
 async def main():
     load_dotenv()
     ws_url = os.getenv("THENVOI_WS_URL")
-    thenvoi_restapi_url = os.getenv("THENVOI_REST_API_URL")
+    rest_url = os.getenv("THENVOI_REST_API_URL")
 
     if not ws_url:
         raise ValueError("THENVOI_WS_URL environment variable is required")
-    if not thenvoi_restapi_url:
+    if not rest_url:
         raise ValueError("THENVOI_REST_API_URL environment variable is required")
 
     # Load agent credentials from agent_config.yaml
@@ -50,16 +55,24 @@ Ye be a PIRATE AGENT sailing the digital seas!
 But speak like a PIRATE while doin' it! Arrr!
 """
 
-    # Create and start agent with pirate personality
-    await create_langgraph_agent(
-        agent_id=agent_id,
-        api_key=api_key,
+    # Create adapter with pirate personality
+    adapter = LangGraphAdapter(
         llm=ChatOpenAI(model="gpt-4o"),
         checkpointer=InMemorySaver(),
-        ws_url=ws_url,
-        thenvoi_restapi_url=thenvoi_restapi_url,
-        custom_instructions=pirate_personality,
+        custom_section=pirate_personality,
     )
+
+    # Create and start agent
+    agent = Agent.create(
+        adapter=adapter,
+        agent_id=agent_id,
+        api_key=api_key,
+        ws_url=ws_url,
+        rest_url=rest_url,
+    )
+
+    print("Starting pirate agent...")
+    await agent.run()
 
     # Agent is now listening for messages!
 

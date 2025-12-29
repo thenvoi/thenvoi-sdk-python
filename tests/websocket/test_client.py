@@ -22,8 +22,12 @@ async def test_validates_message_created_payload():
             # Missing: content, sender_id, sender_type, etc.
         }
 
+    # Must provide callback for validation to occur (code returns early without callback)
+    async def dummy_callback(payload):
+        pass
+
     with pytest.raises(ValidationError) as exc_info:
-        await client._handle_events(MockMessage(), {})
+        await client._handle_events(MockMessage(), {"message_created": dummy_callback})
 
     # Verify ValidationError mentions missing fields
     error_str = str(exc_info.value)
@@ -41,8 +45,12 @@ async def test_validates_room_added_payload():
             # Missing: owner, status, type, title, etc.
         }
 
+    # Must provide callback for validation to occur (code returns early without callback)
+    async def dummy_callback(payload):
+        pass
+
     with pytest.raises(ValidationError) as exc_info:
-        await client._handle_events(MockMessage(), {})
+        await client._handle_events(MockMessage(), {"room_added": dummy_callback})
 
     error_str = str(exc_info.value)
     assert "owner" in error_str or "required" in error_str.lower()
@@ -59,8 +67,12 @@ async def test_validates_room_removed_payload():
             # Missing: status, type, title, removed_at
         }
 
+    # Must provide callback for validation to occur (code returns early without callback)
+    async def dummy_callback(payload):
+        pass
+
     with pytest.raises(ValidationError) as exc_info:
-        await client._handle_events(MockMessage(), {})
+        await client._handle_events(MockMessage(), {"room_removed": dummy_callback})
 
     error_str = str(exc_info.value)
     assert "required" in error_str.lower()

@@ -81,6 +81,24 @@ class RoomRemovedPayload(BaseModel):
     removed_at: str
 
 
+class ParticipantAddedPayload(BaseModel):
+    """Payload for participant_added events."""
+
+    model_config = ConfigDict(extra="allow")
+
+    id: str
+    name: str
+    type: str
+
+
+class ParticipantRemovedPayload(BaseModel):
+    """Payload for participant_removed events."""
+
+    model_config = ConfigDict(extra="allow")
+
+    id: str
+
+
 class WebSocketClient:
     def __init__(self, ws_url: str, api_key: str, agent_id: Optional[str] = None):
         self.ws_url = ws_url
@@ -108,7 +126,15 @@ class WebSocketClient:
         """Generic async event handler that maps events to their corresponding async callbacks"""
         logger.debug(f"[WebSocket] Received event: {message.event}")
 
-        # Validate and parse payload into Pydantic models - will raise ValidationError if invalid
+        # Check if we have a handler for this event
+        if message.event not in event_handlers:
+            logger.warning(
+                f"[WebSocket] Received event '{message.event}' but no handler registered. "
+                f"Available handlers: {list(event_handlers.keys())}"
+            )
+            return
+
+        # Validate and parse payload into Pydantic models for known types
         if message.event == "message_created":
             validated = MessageCreatedPayload(**message.payload)
         elif message.event == "room_added":
@@ -116,12 +142,13 @@ class WebSocketClient:
         elif message.event == "room_removed":
             validated = RoomRemovedPayload(**message.payload)
         else:
-            return  # Unknown event
+            # For other events (participant_added, participant_removed, etc.)
+            # pass the raw payload dict
+            validated = message.payload
 
-        if message.event in event_handlers:
-            callback = event_handlers[message.event]
-            if callback:
-                await callback(validated)
+        callback = event_handlers[message.event]
+        if callback:
+            await callback(validated)
 
     async def join_agent_rooms_channel(
         self,
@@ -131,13 +158,16 @@ class WebSocketClient:
     ):
         """Subscribe to agent rooms topic with async callbacks"""
         topic = f"agent_rooms:{agent_id}"
+        logger.info(f"[WebSocket] Subscribing to topic: {topic}")
 
         async def message_handler(message):
             await self._handle_events(
                 message, {"room_added": on_room_added, "room_removed": on_room_removed}
             )
 
-        return await self.client.subscribe_to_topic(topic, message_handler)
+        result = await self.client.subscribe_to_topic(topic, message_handler)
+        logger.info(f"[WebSocket] Subscribed to topic: {topic}")
+        return result
 
     async def join_chat_room_channel(
         self,
@@ -146,6 +176,7 @@ class WebSocketClient:
     ):
         """Subscribe to chat room topic for message events with async callback"""
         topic = f"chat_room:{chat_room_id}"
+        logger.info(f"[WebSocket] Subscribing to topic: {topic}")
 
         async def message_handler(message):
             await self._handle_events(message, {"message_created": on_message_created})
@@ -176,6 +207,7 @@ class WebSocketClient:
     ):
         """Subscribe to room participants topic with async callbacks"""
         topic = f"room_participants:{chat_room_id}"
+        logger.info(f"[WebSocket] Subscribing to topic: {topic}")
 
         async def message_handler(message):
             await self._handle_events(
@@ -208,11 +240,13 @@ class WebSocketClient:
     async def leave_agent_rooms_channel(self, agent_id: str):
         """Unsubscribe from agent rooms topic"""
         topic = f"agent_rooms:{agent_id}"
+        logger.info(f"[WebSocket] Unsubscribing from topic: {topic}")
         return await self.client.unsubscribe_from_topic(topic)
 
     async def leave_chat_room_channel(self, chat_room_id: str):
         """Unsubscribe from chat room topic"""
         topic = f"chat_room:{chat_room_id}"
+        logger.info(f"[WebSocket] Unsubscribing from topic: {topic}")
         return await self.client.unsubscribe_from_topic(topic)
 
     async def leave_user_rooms_channel(self, user_id: str):
@@ -223,6 +257,7 @@ class WebSocketClient:
     async def leave_room_participants_channel(self, chat_room_id: str):
         """Unsubscribe from room participants topic"""
         topic = f"room_participants:{chat_room_id}"
+        logger.info(f"[WebSocket] Unsubscribing from topic: {topic}")
         return await self.client.unsubscribe_from_topic(topic)
 
     async def leave_tasks_channel(self, user_id: str):

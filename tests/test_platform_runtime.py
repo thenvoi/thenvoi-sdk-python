@@ -1,0 +1,406 @@
+"""Tests for PlatformRuntime."""
+
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
+
+from thenvoi.runtime.platform_runtime import PlatformRuntime
+from thenvoi.runtime.types import AgentConfig, SessionConfig
+
+
+@pytest.fixture
+def mock_link():
+    """Create mock ThenvoiLink."""
+    link = MagicMock()
+    link.rest = MagicMock()
+    link.rest.agent_api = MagicMock()
+    link.disconnect = AsyncMock()
+    link.run_forever = AsyncMock()
+
+    # Mock agent metadata response
+    mock_agent = MagicMock()
+    mock_agent.name = "TestBot"
+    mock_agent.description = "A test bot"
+
+    mock_response = MagicMock()
+    mock_response.data = mock_agent
+    link.rest.agent_api.get_agent_me = AsyncMock(return_value=mock_response)
+
+    return link
+
+
+@pytest.fixture
+def mock_runtime():
+    """Create mock AgentRuntime."""
+    runtime = MagicMock()
+    runtime.start = AsyncMock()
+    runtime.stop = AsyncMock()
+    return runtime
+
+
+class TestInitialization:
+    """Tests for PlatformRuntime initialization."""
+
+    def test_default_initialization(self):
+        """Should initialize with default values."""
+        runtime = PlatformRuntime(
+            agent_id="agent-123",
+            api_key="test-key",
+        )
+
+        assert runtime.agent_id == "agent-123"
+        assert runtime._api_key == "test-key"
+        assert runtime._ws_url == "wss://api.thenvoi.com/ws"
+        assert runtime._rest_url == "https://api.thenvoi.com"
+        assert isinstance(runtime._config, AgentConfig)
+        assert isinstance(runtime._session_config, SessionConfig)
+
+    def test_custom_urls(self):
+        """Should accept custom URLs."""
+        runtime = PlatformRuntime(
+            agent_id="agent-123",
+            api_key="test-key",
+            ws_url="wss://custom.example.com/ws",
+            rest_url="https://custom.example.com",
+        )
+
+        assert runtime._ws_url == "wss://custom.example.com/ws"
+        assert runtime._rest_url == "https://custom.example.com"
+
+    def test_custom_configs(self):
+        """Should accept custom configs."""
+        config = AgentConfig(auto_subscribe_existing_rooms=False)
+        session_config = SessionConfig(enable_context_cache=False)
+
+        runtime = PlatformRuntime(
+            agent_id="agent-123",
+            api_key="test-key",
+            config=config,
+            session_config=session_config,
+        )
+
+        assert runtime._config is config
+        assert runtime._session_config is session_config
+
+    def test_initial_state(self):
+        """Should have uninitialized state before start."""
+        runtime = PlatformRuntime(
+            agent_id="agent-123",
+            api_key="test-key",
+        )
+
+        assert runtime._link is None
+        assert runtime._runtime is None
+        assert runtime._agent_name == ""
+        assert runtime._agent_description == ""
+
+
+class TestProperties:
+    """Tests for PlatformRuntime properties."""
+
+    def test_agent_id_property(self):
+        """Should expose agent_id."""
+        runtime = PlatformRuntime(
+            agent_id="agent-123",
+            api_key="test-key",
+        )
+        assert runtime.agent_id == "agent-123"
+
+    def test_agent_name_empty_before_start(self):
+        """agent_name should be empty before start."""
+        runtime = PlatformRuntime(
+            agent_id="agent-123",
+            api_key="test-key",
+        )
+        assert runtime.agent_name == ""
+
+    def test_agent_description_empty_before_start(self):
+        """agent_description should be empty before start."""
+        runtime = PlatformRuntime(
+            agent_id="agent-123",
+            api_key="test-key",
+        )
+        assert runtime.agent_description == ""
+
+    def test_link_raises_before_start(self):
+        """link property should raise if not started."""
+        runtime = PlatformRuntime(
+            agent_id="agent-123",
+            api_key="test-key",
+        )
+
+        with pytest.raises(RuntimeError, match="Runtime not started"):
+            _ = runtime.link
+
+    def test_runtime_raises_before_start(self):
+        """runtime property should raise if not started."""
+        runtime = PlatformRuntime(
+            agent_id="agent-123",
+            api_key="test-key",
+        )
+
+        with pytest.raises(RuntimeError, match="Runtime not started"):
+            _ = runtime.runtime
+
+
+class TestStart:
+    """Tests for PlatformRuntime.start() method."""
+
+    @pytest.mark.asyncio
+    async def test_creates_link(self, mock_link, mock_runtime):
+        """Should create ThenvoiLink on start."""
+        with patch("thenvoi.runtime.platform_runtime.ThenvoiLink") as mock_link_class:
+            mock_link_class.return_value = mock_link
+            with patch(
+                "thenvoi.runtime.platform_runtime.AgentRuntime"
+            ) as mock_runtime_class:
+                mock_runtime_class.return_value = mock_runtime
+
+                runtime = PlatformRuntime(
+                    agent_id="agent-123",
+                    api_key="test-key",
+                )
+
+                on_execute = AsyncMock()
+                await runtime.start(on_execute=on_execute)
+
+                mock_link_class.assert_called_once_with(
+                    agent_id="agent-123",
+                    api_key="test-key",
+                    ws_url="wss://api.thenvoi.com/ws",
+                    rest_url="https://api.thenvoi.com",
+                )
+
+    @pytest.mark.asyncio
+    async def test_fetches_agent_metadata(self, mock_link, mock_runtime):
+        """Should fetch agent metadata after creating link."""
+        with patch("thenvoi.runtime.platform_runtime.ThenvoiLink") as mock_link_class:
+            mock_link_class.return_value = mock_link
+            with patch(
+                "thenvoi.runtime.platform_runtime.AgentRuntime"
+            ) as mock_runtime_class:
+                mock_runtime_class.return_value = mock_runtime
+
+                runtime = PlatformRuntime(
+                    agent_id="agent-123",
+                    api_key="test-key",
+                )
+
+                on_execute = AsyncMock()
+                await runtime.start(on_execute=on_execute)
+
+                mock_link.rest.agent_api.get_agent_me.assert_awaited_once()
+                assert runtime.agent_name == "TestBot"
+                assert runtime.agent_description == "A test bot"
+
+    @pytest.mark.asyncio
+    async def test_creates_agent_runtime(self, mock_link, mock_runtime):
+        """Should create AgentRuntime with correct config."""
+        with patch("thenvoi.runtime.platform_runtime.ThenvoiLink") as mock_link_class:
+            mock_link_class.return_value = mock_link
+            with patch(
+                "thenvoi.runtime.platform_runtime.AgentRuntime"
+            ) as mock_runtime_class:
+                mock_runtime_class.return_value = mock_runtime
+
+                session_config = SessionConfig()
+                runtime = PlatformRuntime(
+                    agent_id="agent-123",
+                    api_key="test-key",
+                    session_config=session_config,
+                )
+
+                on_execute = AsyncMock()
+                on_cleanup = AsyncMock()
+                await runtime.start(on_execute=on_execute, on_cleanup=on_cleanup)
+
+                mock_runtime_class.assert_called_once()
+                call_kwargs = mock_runtime_class.call_args.kwargs
+                assert call_kwargs["link"] is mock_link
+                assert call_kwargs["agent_id"] == "agent-123"
+                assert call_kwargs["on_execute"] is on_execute
+                assert call_kwargs["session_config"] is session_config
+                assert call_kwargs["on_session_cleanup"] is on_cleanup
+
+    @pytest.mark.asyncio
+    async def test_uses_noop_cleanup_when_none_provided(self, mock_link, mock_runtime):
+        """Should use noop cleanup when none provided."""
+        with patch("thenvoi.runtime.platform_runtime.ThenvoiLink") as mock_link_class:
+            mock_link_class.return_value = mock_link
+            with patch(
+                "thenvoi.runtime.platform_runtime.AgentRuntime"
+            ) as mock_runtime_class:
+                mock_runtime_class.return_value = mock_runtime
+
+                runtime = PlatformRuntime(
+                    agent_id="agent-123",
+                    api_key="test-key",
+                )
+
+                on_execute = AsyncMock()
+                await runtime.start(on_execute=on_execute)
+
+                call_kwargs = mock_runtime_class.call_args.kwargs
+                # Should have a cleanup function (the noop)
+                assert call_kwargs["on_session_cleanup"] is not None
+
+    @pytest.mark.asyncio
+    async def test_starts_agent_runtime(self, mock_link, mock_runtime):
+        """Should start the AgentRuntime."""
+        with patch("thenvoi.runtime.platform_runtime.ThenvoiLink") as mock_link_class:
+            mock_link_class.return_value = mock_link
+            with patch(
+                "thenvoi.runtime.platform_runtime.AgentRuntime"
+            ) as mock_runtime_class:
+                mock_runtime_class.return_value = mock_runtime
+
+                runtime = PlatformRuntime(
+                    agent_id="agent-123",
+                    api_key="test-key",
+                )
+
+                on_execute = AsyncMock()
+                await runtime.start(on_execute=on_execute)
+
+                mock_runtime.start.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_raises_on_missing_metadata(self, mock_link, mock_runtime):
+        """Should raise if agent metadata response is empty."""
+        mock_link.rest.agent_api.get_agent_me = AsyncMock(
+            return_value=MagicMock(data=None)
+        )
+
+        with patch("thenvoi.runtime.platform_runtime.ThenvoiLink") as mock_link_class:
+            mock_link_class.return_value = mock_link
+
+            runtime = PlatformRuntime(
+                agent_id="agent-123",
+                api_key="test-key",
+            )
+
+            on_execute = AsyncMock()
+            with pytest.raises(RuntimeError, match="Failed to fetch agent metadata"):
+                await runtime.start(on_execute=on_execute)
+
+    @pytest.mark.asyncio
+    async def test_raises_on_missing_description(self, mock_link, mock_runtime):
+        """Should raise if agent has no description."""
+        mock_agent = MagicMock()
+        mock_agent.name = "TestBot"
+        mock_agent.description = None
+
+        mock_link.rest.agent_api.get_agent_me = AsyncMock(
+            return_value=MagicMock(data=mock_agent)
+        )
+
+        with patch("thenvoi.runtime.platform_runtime.ThenvoiLink") as mock_link_class:
+            mock_link_class.return_value = mock_link
+
+            runtime = PlatformRuntime(
+                agent_id="agent-123",
+                api_key="test-key",
+            )
+
+            on_execute = AsyncMock()
+            with pytest.raises(ValueError, match="has no description"):
+                await runtime.start(on_execute=on_execute)
+
+
+class TestStop:
+    """Tests for PlatformRuntime.stop() method."""
+
+    @pytest.mark.asyncio
+    async def test_stops_runtime(self, mock_link, mock_runtime):
+        """Should stop the AgentRuntime."""
+        with patch("thenvoi.runtime.platform_runtime.ThenvoiLink") as mock_link_class:
+            mock_link_class.return_value = mock_link
+            with patch(
+                "thenvoi.runtime.platform_runtime.AgentRuntime"
+            ) as mock_runtime_class:
+                mock_runtime_class.return_value = mock_runtime
+
+                runtime = PlatformRuntime(
+                    agent_id="agent-123",
+                    api_key="test-key",
+                )
+
+                await runtime.start(on_execute=AsyncMock())
+                await runtime.stop()
+
+                mock_runtime.stop.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_disconnects_link(self, mock_link, mock_runtime):
+        """Should disconnect the ThenvoiLink."""
+        with patch("thenvoi.runtime.platform_runtime.ThenvoiLink") as mock_link_class:
+            mock_link_class.return_value = mock_link
+            with patch(
+                "thenvoi.runtime.platform_runtime.AgentRuntime"
+            ) as mock_runtime_class:
+                mock_runtime_class.return_value = mock_runtime
+
+                runtime = PlatformRuntime(
+                    agent_id="agent-123",
+                    api_key="test-key",
+                )
+
+                await runtime.start(on_execute=AsyncMock())
+                await runtime.stop()
+
+                mock_link.disconnect.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_stop_before_start_is_safe(self):
+        """Should handle stop before start gracefully."""
+        runtime = PlatformRuntime(
+            agent_id="agent-123",
+            api_key="test-key",
+        )
+
+        # Should not raise
+        await runtime.stop()
+
+
+class TestRunForever:
+    """Tests for PlatformRuntime.run_forever() method."""
+
+    @pytest.mark.asyncio
+    async def test_delegates_to_link(self, mock_link, mock_runtime):
+        """Should delegate to link.run_forever()."""
+        with patch("thenvoi.runtime.platform_runtime.ThenvoiLink") as mock_link_class:
+            mock_link_class.return_value = mock_link
+            with patch(
+                "thenvoi.runtime.platform_runtime.AgentRuntime"
+            ) as mock_runtime_class:
+                mock_runtime_class.return_value = mock_runtime
+
+                runtime = PlatformRuntime(
+                    agent_id="agent-123",
+                    api_key="test-key",
+                )
+
+                await runtime.start(on_execute=AsyncMock())
+                await runtime.run_forever()
+
+                mock_link.run_forever.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_run_forever_before_start_is_safe(self):
+        """Should handle run_forever before start gracefully."""
+        runtime = PlatformRuntime(
+            agent_id="agent-123",
+            api_key="test-key",
+        )
+
+        # Should not raise (just does nothing)
+        await runtime.run_forever()
+
+
+class TestNoopCleanup:
+    """Tests for the noop cleanup function."""
+
+    @pytest.mark.asyncio
+    async def test_noop_cleanup_does_nothing(self):
+        """The noop cleanup should not raise."""
+        await PlatformRuntime._noop_cleanup("room-123")
