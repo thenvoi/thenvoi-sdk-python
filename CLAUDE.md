@@ -17,6 +17,7 @@ General Coding Instructions:
 - Use absolute imports from `thenvoi`.
 - Use Pydantic for data models and validation.
 - Follow existing patterns in the codebase for new code.
+- Use Context7 MCP to fetch up-to-date documentation
 
 Dependencies:
 
