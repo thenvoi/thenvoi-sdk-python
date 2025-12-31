@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "thenvoi-sdk"
-version = "0.0.1"
+version = "0.0.2"
 description = "A Python SDK for Thenvoi API"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -77,7 +77,8 @@ dev = [
 
 [tool.setuptools.packages.find]
 where = ["src"]
-include = ["thenvoi.*"]
+include = ["thenvoi", "thenvoi.*"]
+namespaces = false
 
 [tool.setuptools]
 package-dir = {"" = "src"}
