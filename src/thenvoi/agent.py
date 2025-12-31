@@ -94,13 +94,19 @@ class Agent:
 
     async def start(self) -> None:
         """Start agent."""
-        await self._runtime.start(
-            on_execute=self._on_execute,
-            on_cleanup=self._adapter.on_cleanup,
-        )
+        # 1. Initialize runtime (fetch metadata via REST, no WebSocket yet)
+        await self._runtime.initialize()
+
+        # 2. Initialize adapter with agent metadata BEFORE message processing
         await self._adapter.on_started(
             self._runtime.agent_name,
             self._runtime.agent_description,
+        )
+
+        # 3. NOW start message processing (connects WebSocket)
+        await self._runtime.start(
+            on_execute=self._on_execute,
+            on_cleanup=self._adapter.on_cleanup,
         )
 
     async def stop(self) -> None:

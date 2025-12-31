@@ -74,18 +74,22 @@ class PlatformRuntime:
             raise RuntimeError("Runtime not started")
         return self._runtime
 
-    async def start(
-        self,
-        on_execute: Callable[[ExecutionContext, PlatformEvent], Awaitable[None]],
-        on_cleanup: Callable[[str], Awaitable[None]] | None = None,
-    ) -> None:
+    async def initialize(self) -> None:
         """
-        Start platform runtime.
+        Initialize link and fetch agent metadata without starting message processing.
 
-        Args:
-            on_execute: Callback for message execution
-            on_cleanup: Callback for session cleanup
+        Call this before start() to access agent name/description before
+        the runtime begins processing messages. This enables adapters to
+        initialize their system prompts before any messages arrive.
+
+        This method is idempotent - safe to call multiple times.
+
+        Note: This only creates the REST client and fetches metadata.
+        WebSocket connection happens later in start() when RoomPresence starts.
         """
+        if self._link:
+            return  # Already initialized
+
         self._link = ThenvoiLink(
             agent_id=self._agent_id,
             api_key=self._api_key,
@@ -94,6 +98,28 @@ class PlatformRuntime:
         )
 
         await self._fetch_agent_metadata()
+        logger.debug(f"Platform runtime initialized for agent: {self._agent_name}")
+
+    async def start(
+        self,
+        on_execute: Callable[[ExecutionContext, PlatformEvent], Awaitable[None]],
+        on_cleanup: Callable[[str], Awaitable[None]] | None = None,
+    ) -> None:
+        """
+        Start platform runtime (begin processing messages).
+
+        Call initialize() first if you need to access agent metadata
+        before starting. Otherwise, this method will initialize automatically.
+
+        Args:
+            on_execute: Callback for message execution
+            on_cleanup: Callback for session cleanup
+        """
+        # Auto-initialize if not already done
+        await self.initialize()
+
+        # Type narrowing: initialize() guarantees _link is set
+        assert self._link is not None
 
         self._runtime = AgentRuntime(
             link=self._link,
