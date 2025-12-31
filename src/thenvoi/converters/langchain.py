@@ -7,7 +7,13 @@ import logging
 import re
 from typing import Any
 
-from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
+try:
+    from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
+except ImportError as e:
+    raise ImportError(
+        "LangChain dependencies not installed. "
+        "Install with: uv add thenvoi-sdk[langgraph]"
+    ) from e
 
 from thenvoi.core.protocols import HistoryConverter
 
