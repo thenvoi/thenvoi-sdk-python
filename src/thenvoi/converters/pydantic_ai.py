@@ -4,12 +4,18 @@ from __future__ import annotations
 
 from typing import Any
 
-from pydantic_ai.messages import (
-    ModelRequest,
-    ModelResponse,
-    UserPromptPart,
-    TextPart,
-)
+try:
+    from pydantic_ai.messages import (
+        ModelRequest,
+        ModelResponse,
+        UserPromptPart,
+        TextPart,
+    )
+except ImportError as e:
+    raise ImportError(
+        "Pydantic AI dependencies not installed. "
+        "Install with: uv add thenvoi-sdk[pydantic_ai]"
+    ) from e
 
 from thenvoi.core.protocols import HistoryConverter
 
