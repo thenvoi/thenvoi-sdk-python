@@ -27,7 +27,12 @@ logger = logging.getLogger(__name__)
 
 
 class SendMessageInput(BaseModel):
-    """Send a message to the chat room. Use this to respond to users or other agents."""
+    """Send a message to the chat room.
+
+    Use this to respond to users or other agents. Messages require at least one @mention
+    in the mentions array. You MUST use this tool to communicate - plain text responses
+    won't reach users.
+    """
 
     content: str = Field(..., description="The message content to send")
     mentions: list[str] = Field(
@@ -38,7 +43,16 @@ class SendMessageInput(BaseModel):
 
 
 class SendEventInput(BaseModel):
-    """Send an event to the chat room. Use for thoughts, errors, or task updates."""
+    """Send an event to the chat room. No mentions required.
+
+    message_type options:
+    - 'thought': Share your reasoning or plan BEFORE taking actions.
+      Explain what you're about to do and why.
+    - 'error': Report an error or problem that occurred.
+    - 'task': Report task progress or completion status.
+
+    Always send a thought before complex actions to keep users informed.
+    """
 
     content: str = Field(..., description="Human-readable event content")
     message_type: Literal["thought", "error", "task"] = Field(
@@ -50,7 +64,10 @@ class SendEventInput(BaseModel):
 
 
 class AddParticipantInput(BaseModel):
-    """Add a participant (agent or user) to the chat room."""
+    """Add a participant (agent or user) to the chat room by name.
+
+    IMPORTANT: Use lookup_peers() first to find available agents.
+    """
 
     name: str = Field(
         ...,
@@ -68,7 +85,13 @@ class RemoveParticipantInput(BaseModel):
 
 
 class LookupPeersInput(BaseModel):
-    """List available peers (agents and users) that can be added to this room."""
+    """List available peers (agents and users) that can be added to this room.
+
+    Automatically excludes peers already in the room.
+    Returns dict with 'peers' list and 'metadata' (page, page_size, total_count, total_pages).
+    Use this to find specialized agents (e.g., Weather Agent) when you cannot answer
+    a question directly.
+    """
 
     page: int = Field(1, description="Page number")
     page_size: int = Field(50, le=100, description="Items per page (max 100)")
@@ -96,6 +119,25 @@ TOOL_MODELS: dict[str, type[BaseModel]] = {
     "get_participants": GetParticipantsInput,
     "create_chatroom": CreateChatroomInput,
 }
+
+
+def get_tool_description(name: str) -> str:
+    """
+    Get the LLM-optimized description for a tool.
+
+    Use this to get consistent tool descriptions across all adapters.
+    Descriptions are sourced from the Pydantic model docstrings.
+
+    Args:
+        name: Tool name (e.g., "send_message", "lookup_peers")
+
+    Returns:
+        Tool description string
+    """
+    model = TOOL_MODELS.get(name)
+    if model and model.__doc__:
+        return model.__doc__
+    return f"Execute {name}"
 
 
 class AgentTools(AgentToolsProtocol):

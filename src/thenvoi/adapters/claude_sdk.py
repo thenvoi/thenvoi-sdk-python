@@ -40,6 +40,7 @@ from thenvoi.core.types import PlatformMessage
 from thenvoi.converters.claude_sdk import ClaudeSDKHistoryConverter
 from thenvoi.integrations.claude_sdk.session_manager import ClaudeSessionManager
 from thenvoi.integrations.claude_sdk.prompts import generate_claude_sdk_agent_prompt
+from thenvoi.runtime.tools import get_tool_description
 
 logger = logging.getLogger(__name__)
 
@@ -167,7 +168,7 @@ class ClaudeSDKAdapter(SimpleAdapter[str]):
 
         @tool(
             "send_message",
-            "Send a message to the Thenvoi chat room. Use this to respond to users. You MUST use this tool to communicate - text responses without this tool won't reach users.",
+            get_tool_description("send_message"),
             {
                 "room_id": str,
                 "content": str,
@@ -208,7 +209,7 @@ class ClaudeSDKAdapter(SimpleAdapter[str]):
 
         @tool(
             "send_event",
-            "Send an event (thought, tool_call, tool_result, error) to the chat room for transparency.",
+            get_tool_description("send_event"),
             {"room_id": str, "content": str, "message_type": str},
         )
         async def send_event(args: dict[str, Any]) -> dict[str, Any]:
@@ -232,7 +233,7 @@ class ClaudeSDKAdapter(SimpleAdapter[str]):
 
         @tool(
             "add_participant",
-            "Add a participant (user or agent) to the chat room by name.",
+            get_tool_description("add_participant"),
             {"room_id": str, "name": str, "role": str},
         )
         async def add_participant(args: dict[str, Any]) -> dict[str, Any]:
@@ -262,7 +263,7 @@ class ClaudeSDKAdapter(SimpleAdapter[str]):
 
         @tool(
             "remove_participant",
-            "Remove a participant from the chat room by name.",
+            get_tool_description("remove_participant"),
             {"room_id": str, "name": str},
         )
         async def remove_participant(args: dict[str, Any]) -> dict[str, Any]:
@@ -291,7 +292,7 @@ class ClaudeSDKAdapter(SimpleAdapter[str]):
 
         @tool(
             "get_participants",
-            "Get list of participants currently in the chat room.",
+            get_tool_description("get_participants"),
             {"room_id": str},
         )
         async def get_participants(args: dict[str, Any]) -> dict[str, Any]:
@@ -319,7 +320,7 @@ class ClaudeSDKAdapter(SimpleAdapter[str]):
 
         @tool(
             "lookup_peers",
-            "Look up available users and agents that can be added to the chat room.",
+            get_tool_description("lookup_peers"),
             {"room_id": str, "page": int, "page_size": int},
         )
         async def lookup_peers(args: dict[str, Any]) -> dict[str, Any]:
