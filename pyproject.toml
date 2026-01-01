@@ -53,6 +53,10 @@ parlant = [
     "parlant>=3.0.0",
     "openai>=1.0.0",
 ]
+crewai = [
+    "crewai>=0.80.0",
+    "openai>=1.0.0",
+]
 
 dev = [
     "pytest>=7.0.0",
