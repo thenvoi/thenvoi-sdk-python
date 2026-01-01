@@ -9,6 +9,7 @@ Run with:
 """
 
 import asyncio
+import logging
 import os
 
 from dotenv import load_dotenv
@@ -19,6 +20,7 @@ from thenvoi.adapters import CrewAIAdapter
 from thenvoi.config import load_agent_config
 
 setup_logging()
+logger = logging.getLogger(__name__)
 
 
 async def main():
@@ -58,7 +60,7 @@ async def main():
         rest_url=rest_url,
     )
 
-    print("Starting CrewAI research agent...")
+    logger.info("Starting CrewAI research agent...")
     await agent.run()
 
 

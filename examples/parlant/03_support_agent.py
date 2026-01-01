@@ -12,6 +12,7 @@ Run with:
 """
 
 import asyncio
+import logging
 import os
 
 from dotenv import load_dotenv
@@ -22,6 +23,7 @@ from thenvoi.adapters import ParlantAdapter
 from thenvoi.config import load_agent_config
 
 setup_logging()
+logger = logging.getLogger(__name__)
 
 
 # Customer support guidelines
@@ -106,7 +108,7 @@ async def main():
         rest_url=rest_url,
     )
 
-    print("Starting customer support agent...")
+    logger.info("Starting customer support agent...")
     await agent.run()
 
 

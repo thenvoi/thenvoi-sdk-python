@@ -14,6 +14,7 @@ Run with:
 """
 
 import asyncio
+import logging
 import os
 
 from dotenv import load_dotenv
@@ -24,6 +25,7 @@ from thenvoi.adapters import ParlantAdapter
 from thenvoi.config import load_agent_config
 
 setup_logging()
+logger = logging.getLogger(__name__)
 
 
 # Define behavioral guidelines
@@ -99,7 +101,7 @@ async def main():
         rest_url=rest_url,
     )
 
-    print("Starting Parlant agent with guidelines...")
+    logger.info("Starting Parlant agent with guidelines...")
     await agent.run()
 
 
