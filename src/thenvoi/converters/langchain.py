@@ -29,9 +29,30 @@ class LangChainHistoryConverter(HistoryConverter[LangChainMessages]):
 
     Handles:
     - tool_call + tool_result pairing with tool_call_id extraction
-    - Skipping redundant assistant text messages
+    - Skipping this agent's redundant text messages
+    - Including other agents' messages as HumanMessage
     - User messages as HumanMessage
     """
+
+    def __init__(self, agent_name: str = ""):
+        """
+        Initialize converter.
+
+        Args:
+            agent_name: Name of this agent. Messages from this agent are skipped
+                       (they're redundant with tool calls). Messages from other
+                       agents are included as HumanMessage.
+        """
+        self._agent_name = agent_name
+
+    def set_agent_name(self, name: str) -> None:
+        """
+        Set agent name so converter knows which messages to skip.
+
+        Args:
+            name: Name of this agent
+        """
+        self._agent_name = name
 
     def convert(self, raw: list[dict[str, Any]]) -> LangChainMessages:
         """Convert platform history to LangChain messages."""
@@ -90,10 +111,11 @@ class LangChainHistoryConverter(HistoryConverter[LangChainMessages]):
                     logger.warning(f"Failed to parse tool_result: {content[:100]}")
 
             elif message_type == "text":
-                if role == "assistant":
-                    # Skip redundant assistant text
-                    logger.debug(f"Skipping redundant assistant text: {content[:50]}")
+                if role == "assistant" and sender_name == self._agent_name:
+                    # Skip only THIS agent's text (redundant with tool calls)
+                    logger.debug(f"Skipping own message: {content[:50]}")
                 else:
+                    # Include user messages AND other agents' messages
                     messages.append(HumanMessage(content=f"[{sender_name}]: {content}"))
 
         # Warn about unmatched tool calls
