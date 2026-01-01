@@ -85,11 +85,9 @@ class ClaudeSDKAdapter(SimpleAdapter[str]):
         enable_execution_reporting: bool = False,
         history_converter: ClaudeSDKHistoryConverter | None = None,
     ):
-        # Note: ClaudeSDKHistoryConverter needs room_id, but we pass empty string
-        # and handle room_id in on_message instead
         super().__init__(
-            history_converter=None
-        )  # We handle history conversion ourselves
+            history_converter=history_converter or ClaudeSDKHistoryConverter()
+        )
 
         self.model = model
         self.custom_section = custom_section
@@ -103,6 +101,12 @@ class ClaudeSDKAdapter(SimpleAdapter[str]):
 
         # Per-room tools storage for MCP server access
         self._room_tools: dict[str, AgentToolsProtocol] = {}
+
+        # Per-room session context (text history for Claude SDK)
+        self._session_context: dict[str, str] = {}
+
+        # Per-room session IDs (for SDK session resume)
+        self._session_ids: dict[str, str] = {}
 
     # --- Adapted from ThenvoiClaudeSDKAgent._on_started ---
     async def on_started(self, agent_name: str, agent_description: str) -> None:
@@ -387,21 +391,40 @@ class ClaudeSDKAdapter(SimpleAdapter[str]):
         # Store tools for MCP server access
         self._room_tools[room_id] = tools
 
-        # Get or create Claude SDK client for this room
-        client = await self._session_manager.get_or_create_session(room_id)
+        # Get stored session_id for potential resume (only on bootstrap/reconnect)
+        stored_session_id = (
+            self._session_ids.get(room_id) if is_session_bootstrap else None
+        )
 
-        # Build message with room_id context
-        messages_to_send = []
+        # Get or create Claude SDK client for this room (optionally resuming)
+        client = await self._session_manager.get_or_create_session(
+            room_id, resume_session_id=stored_session_id
+        )
 
         # Add room_id context (Claude needs this for tool calls)
         room_context = f"[room_id: {room_id}]"
 
-        # Hydrate history on first message
-        # We get raw history from inp.history.raw and format ourselves
-        if is_session_bootstrap and hasattr(tools, "_room_id"):
-            # Note: We can't access raw history here because SimpleAdapter converts it
-            # For ClaudeSDK, we handle this differently - history is passed as context text
-            pass
+        # Initialize history for this room on first message
+        if is_session_bootstrap:
+            if history:  # Already converted to text by SimpleAdapter
+                self._session_context[room_id] = history
+                logger.info(
+                    f"Room {room_id}: Loaded historical context ({len(history)} chars)"
+                )
+            else:
+                self._session_context[room_id] = ""
+        elif room_id not in self._session_context:
+            # Safety: ensure context exists even if not first message
+            self._session_context[room_id] = ""
+
+        # Build message with context
+        messages_to_send = []
+
+        # Include historical context on first message
+        if is_session_bootstrap and self._session_context.get(room_id):
+            messages_to_send.append(
+                f"[Previous conversation context:]\n{self._session_context[room_id]}"
+            )
 
         # Inject participants message if changed
         if participants_msg:
@@ -472,12 +495,39 @@ class ClaudeSDKAdapter(SimpleAdapter[str]):
                             f"Room {room_id}: Tool call: {block.name} "
                             f"with {str(block.input)[:100]}..."
                         )
+                        if self.enable_execution_reporting:
+                            try:
+                                await tools.send_event(
+                                    content=json.dumps(
+                                        {
+                                            "name": block.name,
+                                            "args": block.input,
+                                            "tool_call_id": block.id,
+                                        }
+                                    ),
+                                    message_type="tool_call",
+                                )
+                            except Exception as e:
+                                logger.warning(f"Failed to send tool_call event: {e}")
 
                     elif isinstance(block, ToolResultBlock):
                         logger.debug(
                             f"Room {room_id}: Tool result: "
                             f"{block.tool_use_id[:20]}... error={block.is_error}"
                         )
+                        if self.enable_execution_reporting:
+                            try:
+                                await tools.send_event(
+                                    content=json.dumps(
+                                        {
+                                            "output": block.content,
+                                            "tool_call_id": block.tool_use_id,
+                                        }
+                                    ),
+                                    message_type="tool_result",
+                                )
+                            except Exception as e:
+                                logger.warning(f"Failed to send tool_result event: {e}")
 
             elif isinstance(sdk_message, ResultMessage):
                 logger.info(
@@ -485,6 +535,12 @@ class ClaudeSDKAdapter(SimpleAdapter[str]):
                     f"{sdk_message.duration_ms}ms, "
                     f"${sdk_message.total_cost_usd or 0:.4f}"
                 )
+                # Capture session_id for potential resume
+                if sdk_message.session_id:
+                    self._session_ids[room_id] = sdk_message.session_id
+                    logger.debug(
+                        f"Room {room_id}: Captured session_id {sdk_message.session_id}"
+                    )
                 break
 
     # --- Copied from ThenvoiClaudeSDKAgent._cleanup_session ---
@@ -494,6 +550,10 @@ class ClaudeSDKAdapter(SimpleAdapter[str]):
             await self._session_manager.cleanup_session(room_id)
         if room_id in self._room_tools:
             del self._room_tools[room_id]
+        if room_id in self._session_context:
+            del self._session_context[room_id]
+        if room_id in self._session_ids:
+            del self._session_ids[room_id]
         logger.debug(f"Room {room_id}: Cleaned up Claude SDK session")
 
     # --- Copied from BaseFrameworkAgent._report_error ---
@@ -507,5 +567,7 @@ class ClaudeSDKAdapter(SimpleAdapter[str]):
     async def cleanup_all(self) -> None:
         """Cleanup all sessions (call on stop)."""
         if self._session_manager:
-            await self._session_manager.cleanup_all()
+            await self._session_manager.stop()
         self._room_tools.clear()
+        self._session_context.clear()
+        self._session_ids.clear()

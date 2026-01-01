@@ -57,6 +57,9 @@ class DefaultPreprocessor(Preprocessor):
             logger.debug(f"Room {room_id}: Skipping own message {msg_data.id}")
             return None
 
+        # Look up sender name from participants list
+        sender_name = self._lookup_sender_name(ctx, msg_data.sender_id)
+
         # Convert to PlatformMessage (typed attribute access, no dict lookups)
         msg = PlatformMessage(
             id=msg_data.id,
@@ -64,7 +67,7 @@ class DefaultPreprocessor(Preprocessor):
             content=msg_data.content,
             sender_id=msg_data.sender_id,
             sender_type=msg_data.sender_type,
-            sender_name=None,
+            sender_name=sender_name,
             message_type=msg_data.message_type,
             metadata=msg_data.metadata,  # Pass through as-is (Any type)
             created_at=datetime.fromisoformat(
@@ -95,6 +98,13 @@ class DefaultPreprocessor(Preprocessor):
             is_session_bootstrap=is_bootstrap,
             room_id=room_id,
         )
+
+    def _lookup_sender_name(self, ctx: ExecutionContext, sender_id: str) -> str | None:
+        """Look up sender name from participants list by sender_id."""
+        for participant in ctx.participants:
+            if participant.get("id") == sender_id:
+                return participant.get("name")
+        return None
 
     async def _load_history(
         self,
