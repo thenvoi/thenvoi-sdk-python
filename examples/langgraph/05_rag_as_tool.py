@@ -133,7 +133,7 @@ User: "tell nvidia about reward hacking"
         rest_url=rest_url,
     )
 
-    print("Starting agent with RAG tool...")
+    logger.info("Starting agent with RAG tool...")
     await agent.run()
 
 

@@ -26,6 +26,7 @@ Usage:
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
 import sys
 
@@ -36,17 +37,19 @@ from setup_logging import setup_logging
 from thenvoi import Agent
 from thenvoi.adapters import ClaudeSDKAdapter
 
+setup_logging()
+logger = logging.getLogger(__name__)
+
 
 async def main():
     """Run the extended thinking Claude SDK agent."""
-    setup_logging()
 
     # Get credentials from environment
     agent_id = os.environ.get("THENVOI_AGENT_ID", "")
     api_key = os.environ.get("THENVOI_API_KEY", "")
 
     if not agent_id or not api_key:
-        print("Error: THENVOI_AGENT_ID and THENVOI_API_KEY must be set")
+        logger.error("THENVOI_AGENT_ID and THENVOI_API_KEY must be set")
         sys.exit(1)
 
     # Create adapter with extended thinking enabled
@@ -69,15 +72,15 @@ complex problem-solving. When faced with challenging questions:
         api_key=api_key,
     )
 
-    print("Starting Claude SDK agent with extended thinking...")
-    print(f"Agent ID: {agent_id}")
-    print("Max thinking tokens: 10000")
-    print("Press Ctrl+C to stop")
+    logger.info("Starting Claude SDK agent with extended thinking...")
+    logger.info(f"Agent ID: {agent_id}")
+    logger.info("Max thinking tokens: 10000")
+    logger.info("Press Ctrl+C to stop")
 
     try:
         await agent.run()
     except KeyboardInterrupt:
-        print("\nShutting down...")
+        logger.info("Shutting down...")
 
 
 if __name__ == "__main__":

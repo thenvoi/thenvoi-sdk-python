@@ -100,24 +100,27 @@ def create_sql_agent(db_path: str = "Chinook.db"):
 
 def download_chinook_db():
     """Download the Chinook sample database if not present."""
+    import logging
     import os
     import urllib.request
 
+    logger = logging.getLogger(__name__)
+
     db_path = "Chinook.db"
     if os.path.exists(db_path):
-        print(f"Database already exists at {db_path}")
+        logger.info(f"Database already exists at {db_path}")
         return db_path
 
-    print("Downloading Chinook sample database...")
+    logger.info("Downloading Chinook sample database...")
     url = "https://github.com/lerocha/chinook-database/raw/master/ChinookDatabase/DataSources/Chinook_Sqlite.sqlite"
 
     try:
         urllib.request.urlretrieve(url, db_path)
-        print(f"Downloaded database to {db_path}")
+        logger.info(f"Downloaded database to {db_path}")
         return db_path
     except Exception as e:
-        print(f"Error downloading database: {e}")
-        print("Creating minimal test database instead...")
+        logger.error(f"Error downloading database: {e}")
+        logger.info("Creating minimal test database instead...")
 
         # Create minimal test database if download fails
         import sqlite3
@@ -146,13 +149,17 @@ def download_chinook_db():
 
         conn.commit()
         conn.close()
-        print(f"Created minimal test database at {db_path}")
+        logger.info(f"Created minimal test database at {db_path}")
         return db_path
 
 
 # Export for easy import
 if __name__ == "__main__":
     import asyncio
+    import logging
+
+    logging.basicConfig(level=logging.INFO)
+    logger = logging.getLogger(__name__)
 
     async def test():
         """Test the SQL agent standalone."""
@@ -169,13 +176,13 @@ if __name__ == "__main__":
             "How many employees are there?",
         ]
 
-        print("\n" + "=" * 60)
-        print("Testing SQL Agent")
-        print("=" * 60)
+        logger.info("=" * 60)
+        logger.info("Testing SQL Agent")
+        logger.info("=" * 60)
 
         for question in questions:
-            print(f"\nQuestion: {question}")
-            print("-" * 60)
+            logger.info(f"Question: {question}")
+            logger.info("-" * 60)
 
             result = await sql_agent.ainvoke(
                 {"messages": [HumanMessage(content=question)]},
@@ -185,8 +192,8 @@ if __name__ == "__main__":
             # Get the final AI response
             final_message = result["messages"][-1]
             if isinstance(final_message, AIMessage):
-                print(f"Answer: {final_message.content}\n")
+                logger.info(f"Answer: {final_message.content}")
             else:
-                print(f"Response: {final_message}\n")
+                logger.info(f"Response: {final_message}")
 
     asyncio.run(test())

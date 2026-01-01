@@ -81,7 +81,7 @@ async def main():
         rest_url=rest_url,
     )
 
-    print("Starting agent with calculator tool...")
+    logger.info("Starting agent with calculator tool...")
     await agent.run()
 
 

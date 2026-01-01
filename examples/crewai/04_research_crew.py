@@ -118,18 +118,18 @@ async def main():
 
     # Determine which crew member to run
     if len(sys.argv) < 2:
-        print("Usage: python 04_research_crew.py <role>")
-        print("Available roles: researcher, writer, editor")
-        print("\nTo run the full crew, start each in a separate terminal:")
-        print("  Terminal 1: python 04_research_crew.py researcher")
-        print("  Terminal 2: python 04_research_crew.py writer")
-        print("  Terminal 3: python 04_research_crew.py editor")
+        logger.error("Usage: python 04_research_crew.py <role>")
+        logger.info("Available roles: researcher, writer, editor")
+        logger.info("To run the full crew, start each in a separate terminal:")
+        logger.info("  Terminal 1: python 04_research_crew.py researcher")
+        logger.info("  Terminal 2: python 04_research_crew.py writer")
+        logger.info("  Terminal 3: python 04_research_crew.py editor")
         sys.exit(1)
 
     role = sys.argv[1].lower()
     if role not in CREW_MEMBERS:
-        print(f"Unknown role: {role}")
-        print(f"Available roles: {', '.join(CREW_MEMBERS.keys())}")
+        logger.error(f"Unknown role: {role}")
+        logger.info(f"Available roles: {', '.join(CREW_MEMBERS.keys())}")
         sys.exit(1)
 
     member = CREW_MEMBERS[role]

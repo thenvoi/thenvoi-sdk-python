@@ -6,7 +6,9 @@ the platform tools.
 """
 
 import asyncio
+import logging
 import os
+
 from dotenv import load_dotenv
 from langchain_openai import ChatOpenAI
 from langchain_core.tools import tool
@@ -18,6 +20,7 @@ from thenvoi.adapters import LangGraphAdapter
 from thenvoi.config import load_agent_config
 
 setup_logging()
+logger = logging.getLogger(__name__)
 
 
 # Define custom tools
@@ -100,7 +103,7 @@ async def main():
         rest_url=rest_url,
     )
 
-    print("Starting agent with custom tools...")
+    logger.info("Starting agent with custom tools...")
     await agent.run()
 
 
