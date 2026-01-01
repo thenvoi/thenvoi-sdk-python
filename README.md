@@ -188,6 +188,7 @@ from thenvoi.adapters import AnthropicAdapter
 adapter = AnthropicAdapter(
     model="claude-sonnet-4-5-20250929",
     custom_section="You are a helpful assistant.",
+    enable_execution_reporting=True,  # Show tool_call/tool_result events
 )
 
 agent = Agent.create(
