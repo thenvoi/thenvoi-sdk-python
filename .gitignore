@@ -148,7 +148,4 @@ run_test_agent.py
 # Agent configuration files
 agent_config.yaml
 
-# Markdown files except README
-*.md
-!README.md
 uv.toml
