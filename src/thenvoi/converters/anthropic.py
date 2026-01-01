@@ -14,13 +14,34 @@ class AnthropicHistoryConverter(HistoryConverter[AnthropicMessages]):
     """
     Converts platform history to Anthropic message format.
 
-    Output: [{"role": "user"|"assistant", "content": "..."}]
+    Output: [{"role": "user", "content": "..."}]
 
     Note:
     - Only converts text messages (tool_call/tool_result events are skipped)
     - User messages are prefixed with sender name: "[Alice]: Hello"
-    - Assistant messages are passed through as-is
+    - Other agents' messages are included as user messages with [name] prefix
+    - This agent's messages are skipped (redundant with tool results)
     """
+
+    def __init__(self, agent_name: str = ""):
+        """
+        Initialize converter.
+
+        Args:
+            agent_name: Name of this agent. Messages from this agent are skipped
+                       (they're redundant with tool results). Messages from other
+                       agents are included as user messages.
+        """
+        self._agent_name = agent_name
+
+    def set_agent_name(self, name: str) -> None:
+        """
+        Set agent name so converter knows which messages to skip.
+
+        Args:
+            name: Name of this agent
+        """
+        self._agent_name = name
 
     def convert(self, raw: list[dict[str, Any]]) -> AnthropicMessages:
         """Convert platform history to Anthropic format."""
@@ -37,10 +58,11 @@ class AnthropicHistoryConverter(HistoryConverter[AnthropicMessages]):
             content = hist.get("content", "")
             sender_name = hist.get("sender_name", "")
 
-            if role == "assistant":
-                messages.append({"role": "assistant", "content": content})
+            if role == "assistant" and sender_name == self._agent_name:
+                # Skip THIS agent's text (redundant with tool results)
+                continue
             else:
-                # Prefix user messages with sender name
+                # User messages AND other agents' messages
                 messages.append(
                     {
                         "role": "user",
