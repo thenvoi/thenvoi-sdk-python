@@ -6,10 +6,17 @@ Extracted from thenvoi.integrations.pydantic_ai.agent.ThenvoiPydanticAgent.
 
 from __future__ import annotations
 
+import json
 import logging
 from typing import Any
 
-from pydantic_ai import Agent, RunContext
+from pydantic_ai import (
+    Agent,
+    AgentRunResultEvent,
+    FunctionToolCallEvent,
+    FunctionToolResultEvent,
+    RunContext,
+)
 from pydantic_ai.messages import (
     ModelRequest,
     UserPromptPart,
@@ -23,6 +30,7 @@ from thenvoi.converters.pydantic_ai import (
     PydanticAIMessages,
 )
 from thenvoi.runtime.prompts import render_system_prompt
+from thenvoi.runtime.tools import get_tool_description
 
 logger = logging.getLogger(__name__)
 
@@ -48,8 +56,21 @@ class PydanticAIAdapter(SimpleAdapter[PydanticAIMessages]):
         model: str,
         system_prompt: str | None = None,
         custom_section: str | None = None,
+        enable_execution_reporting: bool = False,
         history_converter: PydanticAIHistoryConverter | None = None,
     ):
+        """
+        Initialize the Pydantic AI adapter.
+
+        Args:
+            model: Pydantic AI model string (e.g., "openai:gpt-4o", "anthropic:claude-3-5-sonnet-latest")
+            system_prompt: Optional custom system prompt (overrides default)
+            custom_section: Optional custom section added to default system prompt
+            enable_execution_reporting: If True, emit tool_call and tool_result events
+                to the platform for real-time visibility into agent activity.
+                Defaults to False for backwards compatibility.
+            history_converter: Optional custom history converter
+        """
         super().__init__(
             history_converter=history_converter or PydanticAIHistoryConverter()
         )
@@ -57,6 +78,7 @@ class PydanticAIAdapter(SimpleAdapter[PydanticAIMessages]):
         self.model = model
         self.system_prompt = system_prompt
         self.custom_section = custom_section
+        self.enable_execution_reporting = enable_execution_reporting
 
         self._agent: Agent[AgentToolsProtocol, None] | None = None
         # Conversation history per room (Pydantic AI is stateless, we maintain state)
@@ -74,6 +96,7 @@ class PydanticAIAdapter(SimpleAdapter[PydanticAIMessages]):
         """Create Pydantic AI Agent with platform tools."""
         system = self.system_prompt or render_system_prompt(
             agent_name=self.agent_name,
+            agent_description=self.agent_description or "An AI assistant",
             custom_section=self.custom_section or "",
         )
 
@@ -85,117 +108,96 @@ class PydanticAIAdapter(SimpleAdapter[PydanticAIMessages]):
             output_type=None,
         )
 
-        # Register platform tools
+        # Register platform tools dynamically from centralized definitions
         # All tools catch exceptions and return error strings so LLM can see failures
-        @agent.tool
+
         async def send_message(
             ctx: RunContext[AgentToolsProtocol],
             content: str,
             mentions: list[str],
         ) -> dict[str, Any] | str:
-            """Send a message to the chat room. Use this to respond to users or other agents.
-
-            Args:
-                content: The message content to send
-                mentions: List of participant names to @mention. At least one required.
-            """
             try:
                 return await ctx.deps.send_message(content, mentions)
             except Exception as e:
                 return f"Error sending message: {e}"
 
-        @agent.tool
+        send_message.__doc__ = get_tool_description("send_message")
+        agent.tool(send_message)
+
         async def send_event(
             ctx: RunContext[AgentToolsProtocol],
             content: str,
             message_type: str,
             metadata: dict[str, Any] | None = None,
         ) -> dict[str, Any] | str:
-            """Send an event to the chat room. Use for thoughts, errors, or task updates.
-
-            Args:
-                content: Human-readable event content
-                message_type: Type of event - "thought", "error", or "task"
-                metadata: Optional structured data for the event
-            """
             try:
                 return await ctx.deps.send_event(content, message_type, metadata)
             except Exception as e:
                 return f"Error sending event: {e}"
 
-        @agent.tool
+        send_event.__doc__ = get_tool_description("send_event")
+        agent.tool(send_event)
+
         async def add_participant(
             ctx: RunContext[AgentToolsProtocol],
             name: str,
             role: str = "member",
         ) -> dict[str, Any] | str:
-            """Add a participant (agent or user) to the chat room.
-
-            Args:
-                name: Name of participant to add (must match a name from lookup_peers)
-                role: Role for the participant - "owner", "admin", or "member" (default)
-            """
             try:
                 return await ctx.deps.add_participant(name, role)
             except Exception as e:
                 return f"Error adding participant '{name}': {e}"
 
-        @agent.tool
+        add_participant.__doc__ = get_tool_description("add_participant")
+        agent.tool(add_participant)
+
         async def remove_participant(
             ctx: RunContext[AgentToolsProtocol],
             name: str,
         ) -> dict[str, Any] | str:
-            """Remove a participant from the chat room by name.
-
-            Args:
-                name: Name of the participant to remove
-            """
             try:
                 return await ctx.deps.remove_participant(name)
             except Exception as e:
                 return f"Error removing participant '{name}': {e}"
 
-        @agent.tool
+        remove_participant.__doc__ = get_tool_description("remove_participant")
+        agent.tool(remove_participant)
+
         async def lookup_peers(
             ctx: RunContext[AgentToolsProtocol],
             page: int = 1,
             page_size: int = 50,
         ) -> dict[str, Any] | str:
-            """List available peers (agents and users) that can be added to this room.
-
-            Args:
-                page: Page number (default 1)
-                page_size: Items per page (default 50, max 100)
-            """
             try:
                 return await ctx.deps.lookup_peers(page, page_size)
             except Exception as e:
                 return f"Error looking up peers: {e}"
 
-        @agent.tool
+        lookup_peers.__doc__ = get_tool_description("lookup_peers")
+        agent.tool(lookup_peers)
+
         async def get_participants(
             ctx: RunContext[AgentToolsProtocol],
         ) -> list[dict[str, Any]] | str:
-            """Get a list of all participants in the current chat room."""
             try:
                 return await ctx.deps.get_participants()
             except Exception as e:
                 return f"Error getting participants: {e}"
 
-        @agent.tool
+        get_participants.__doc__ = get_tool_description("get_participants")
+        agent.tool(get_participants)
+
         async def create_chatroom(
             ctx: RunContext[AgentToolsProtocol],
             name: str,
         ) -> str:
-            """Create a new chat room for a specific task or conversation.
-
-            Args:
-                name: Name for the new chat room
-            """
             try:
                 return await ctx.deps.create_chatroom(name)
             except Exception as e:
                 return f"Error creating chatroom '{name}': {e}"
+
+        create_chatroom.__doc__ = get_tool_description("create_chatroom")
+        agent.tool(create_chatroom)
 
         return agent
 
@@ -247,15 +249,45 @@ class PydanticAIAdapter(SimpleAdapter[PydanticAIMessages]):
             f"prompt: {user_message[:80]}...)"
         )
 
-        # Run agent with conversation history
-        result = await self._agent.run(
+        # Run agent with streaming to capture tool events
+        async for event in self._agent.run_stream_events(
             user_message,
             deps=tools,
             message_history=self._message_history[room_id],
-        )
-
-        # Update stored history with all messages from this run
-        self._message_history[room_id] = list(result.all_messages())
+        ):
+            if isinstance(event, FunctionToolCallEvent):
+                if self.enable_execution_reporting:
+                    try:
+                        await tools.send_event(
+                            content=json.dumps(
+                                {
+                                    "name": event.part.tool_name,
+                                    "args": event.part.args,
+                                    "tool_call_id": event.part.tool_call_id,
+                                }
+                            ),
+                            message_type="tool_call",
+                        )
+                    except Exception as e:
+                        logger.warning(f"Failed to send tool_call event: {e}")
+            elif isinstance(event, FunctionToolResultEvent):
+                if self.enable_execution_reporting:
+                    try:
+                        await tools.send_event(
+                            content=json.dumps(
+                                {
+                                    "name": event.result.tool_name,
+                                    "output": str(event.result.content),
+                                    "tool_call_id": event.tool_call_id,
+                                }
+                            ),
+                            message_type="tool_result",
+                        )
+                    except Exception as e:
+                        logger.warning(f"Failed to send tool_result event: {e}")
+            elif isinstance(event, AgentRunResultEvent):
+                # Update stored history with all messages from this run
+                self._message_history[room_id] = list(event.result.all_messages())
 
         logger.debug(
             f"Room {room_id}: Pydantic AI agent completed "

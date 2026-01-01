@@ -6,6 +6,7 @@ Usage:
     uv run python examples/run_agent.py                    # Default: langgraph
     uv run python examples/run_agent.py --example langgraph
     uv run python examples/run_agent.py --example pydantic_ai
+    uv run python examples/run_agent.py --example pydantic_ai --streaming  # With tool_call/tool_result events
     uv run python examples/run_agent.py --example pydantic_ai --model anthropic:claude-sonnet-4-5
     uv run python examples/run_agent.py --example anthropic
     uv run python examples/run_agent.py --example anthropic --model claude-sonnet-4-5-20250929
@@ -50,18 +51,6 @@ def setup_logging(level: str = "INFO") -> logging.Logger:
     return logging.getLogger(__name__)
 
 
-PYDANTIC_AI_INSTRUCTIONS = """
-## CRITICAL: Your Capabilities and Limitations
-
-**You have NO internet access and NO real-time data.**
-- You CANNOT look up weather, news, stock prices, or any current information
-- You MUST NOT invent or guess factual information like temperatures, prices, or dates
-- For real-time data (weather, etc.), you MUST delegate to specialized agents (e.g., Weather Agent)
-
-If you don't know something and can't delegate to another agent, say "I don't know" - never make up information.
-"""
-
-
 async def run_langgraph_agent(
     agent_id: str,
     api_key: str,
@@ -101,17 +90,16 @@ async def run_pydantic_ai_agent(
     ws_url: str,
     model: str,
     custom_section: str,
+    enable_streaming: bool,
     logger: logging.Logger,
 ):
     """Run the Pydantic AI agent."""
     from thenvoi.adapters import PydanticAIAdapter
 
-    # Append capability instructions to custom section
-    full_custom_section = custom_section + PYDANTIC_AI_INSTRUCTIONS
-
     adapter = PydanticAIAdapter(
         model=model,
-        custom_section=full_custom_section,
+        custom_section=custom_section,
+        enable_execution_reporting=enable_streaming,
     )
 
     agent = Agent.create(
@@ -122,7 +110,8 @@ async def run_pydantic_ai_agent(
         rest_url=rest_url,
     )
 
-    logger.info(f"Starting Pydantic AI agent with model: {model}")
+    streaming_str = " with execution reporting" if enable_streaming else ""
+    logger.info(f"Starting Pydantic AI agent with model: {model}{streaming_str}")
     await agent.run()
 
 
@@ -196,6 +185,7 @@ Examples:
   uv run python examples/run_agent.py                                     # LangGraph (default)
   uv run python examples/run_agent.py --example langgraph                 # LangGraph with OpenAI
   uv run python examples/run_agent.py --example pydantic_ai               # Pydantic AI with OpenAI
+  uv run python examples/run_agent.py --example pydantic_ai --streaming   # With tool_call/tool_result events
   uv run python examples/run_agent.py --example pydantic_ai --model anthropic:claude-sonnet-4-5
   uv run python examples/run_agent.py --example anthropic                 # Anthropic SDK
   uv run python examples/run_agent.py --example claude_sdk                # Claude Agent SDK
@@ -241,6 +231,12 @@ Examples:
         action="store_true",
         help="Enable extended thinking for Claude SDK (default: False)",
     )
+    parser.add_argument(
+        "--streaming",
+        "-s",
+        action="store_true",
+        help="Enable execution reporting (tool_call/tool_result events) for Pydantic AI (default: False)",
+    )
 
     args = parser.parse_args()
 
@@ -284,6 +280,7 @@ Examples:
                 ws_url=ws_url,
                 model=args.model,
                 custom_section=args.custom_section,
+                enable_streaming=args.streaming,
                 logger=logger,
             )
         elif args.example == "anthropic":
