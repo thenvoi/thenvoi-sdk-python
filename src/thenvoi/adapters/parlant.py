@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 from typing import Any
 
 from thenvoi.core.protocols import AgentToolsProtocol
@@ -274,7 +275,15 @@ class ParlantAdapter(SimpleAdapter[ParlantMessages]):
                 "Install with: pip install openai"
             )
 
-        client = openai.AsyncOpenAI(api_key=self.openai_api_key)
+        # Get API key from parameter or environment
+        api_key = self.openai_api_key or os.getenv("OPENAI_API_KEY")
+        if not api_key:
+            raise ValueError(
+                "OpenAI API key required. Set OPENAI_API_KEY environment variable "
+                "or pass openai_api_key parameter to ParlantAdapter."
+            )
+
+        client = openai.AsyncOpenAI(api_key=api_key)
 
         # Build request
         request_kwargs: dict[str, Any] = {
