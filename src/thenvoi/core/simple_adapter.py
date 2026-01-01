@@ -86,6 +86,10 @@ class SimpleAdapter(Generic[H], ABC):
         self.agent_name = agent_name
         self.agent_description = agent_description
 
+        # Propagate agent name to converter if it supports it
+        if self.history_converter and hasattr(self.history_converter, "set_agent_name"):
+            self.history_converter.set_agent_name(agent_name)
+
     # --- FrameworkAdapter protocol implementation ---
 
     async def on_event(self, inp: AgentInput) -> None:

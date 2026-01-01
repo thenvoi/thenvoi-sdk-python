@@ -2,9 +2,7 @@
 
 from pydantic_ai.messages import (
     ModelRequest,
-    ModelResponse,
     UserPromptPart,
-    TextPart,
 )
 
 from thenvoi.converters.pydantic_ai import PydanticAIHistoryConverter
@@ -69,9 +67,9 @@ class TestUserMessages:
 class TestAssistantMessages:
     """Tests for assistant message handling."""
 
-    def test_converts_assistant_text_to_model_response(self):
-        """Assistant text messages become ModelResponse with TextPart."""
-        converter = PydanticAIHistoryConverter()
+    def test_skips_own_assistant_text_messages(self):
+        """This agent's text messages are skipped (redundant with tool results)."""
+        converter = PydanticAIHistoryConverter(agent_name="Agent")
         raw = [
             {
                 "role": "assistant",
@@ -83,11 +81,96 @@ class TestAssistantMessages:
 
         result = converter.convert(raw)
 
+        assert len(result) == 0
+
+
+class TestMultiAgentMessages:
+    """Tests for multi-agent message handling."""
+
+    def test_includes_other_agents_messages(self):
+        """Other agents' messages should be included as ModelRequest."""
+        converter = PydanticAIHistoryConverter(agent_name="Main Agent")
+        raw = [
+            {
+                "role": "assistant",
+                "content": "It's sunny today!",
+                "sender_name": "Weather Agent",
+                "message_type": "text",
+            }
+        ]
+
+        result = converter.convert(raw)
+
         assert len(result) == 1
-        assert isinstance(result[0], ModelResponse)
-        assert len(result[0].parts) == 1
-        assert isinstance(result[0].parts[0], TextPart)
-        assert result[0].parts[0].content == "I'll help you with that."
+        assert isinstance(result[0], ModelRequest)
+        assert result[0].parts[0].content == "[Weather Agent]: It's sunny today!"
+
+    def test_skips_only_own_messages(self):
+        """Only skip THIS agent's text, include other agents."""
+        converter = PydanticAIHistoryConverter()
+        converter.set_agent_name("Main Agent")
+        raw = [
+            {
+                "role": "assistant",
+                "content": "I'll help",
+                "sender_name": "Main Agent",
+                "message_type": "text",
+            },
+            {
+                "role": "assistant",
+                "content": "It's sunny!",
+                "sender_name": "Weather Agent",
+                "message_type": "text",
+            },
+        ]
+
+        result = converter.convert(raw)
+
+        assert len(result) == 1  # Only Weather Agent's message
+        assert "[Weather Agent]:" in result[0].parts[0].content
+
+    def test_set_agent_name_updates_filtering(self):
+        """set_agent_name should update which messages are skipped."""
+        converter = PydanticAIHistoryConverter()
+        raw = [
+            {
+                "role": "assistant",
+                "content": "Hello",
+                "sender_name": "Agent",
+                "message_type": "text",
+            }
+        ]
+
+        # Before setting name - all assistant messages included
+        assert len(converter.convert(raw)) == 1
+
+        # After setting name - own messages skipped
+        converter.set_agent_name("Agent")
+        assert len(converter.convert(raw)) == 0
+
+    def test_includes_all_assistant_messages_when_no_agent_name(self):
+        """When agent name is not set, include all assistant messages."""
+        converter = PydanticAIHistoryConverter()
+        raw = [
+            {
+                "role": "assistant",
+                "content": "Hello from agent 1",
+                "sender_name": "Agent 1",
+                "message_type": "text",
+            },
+            {
+                "role": "assistant",
+                "content": "Hello from agent 2",
+                "sender_name": "Agent 2",
+                "message_type": "text",
+            },
+        ]
+
+        result = converter.convert(raw)
+
+        assert len(result) == 2
+        assert "[Agent 1]:" in result[0].parts[0].content
+        assert "[Agent 2]:" in result[1].parts[0].content
 
 
 class TestToolEventFiltering:
@@ -204,7 +287,7 @@ class TestMixedHistory:
 
     def test_full_conversation_flow(self):
         """Should handle a realistic conversation with mixed message types."""
-        converter = PydanticAIHistoryConverter()
+        converter = PydanticAIHistoryConverter(agent_name="Agent")
         raw = [
             # User asks question
             {
@@ -225,7 +308,7 @@ class TestMixedHistory:
                 "content": '{"event": "on_tool_end", "output": "sunny"}',
                 "message_type": "tool_result",
             },
-            # Agent responds with text
+            # Agent responds with text (skipped - own message)
             {
                 "role": "assistant",
                 "content": "It's sunny today!",
@@ -243,21 +326,18 @@ class TestMixedHistory:
 
         result = converter.convert(raw)
 
-        # Should have: ModelRequest, ModelResponse, ModelRequest (tool events skipped)
-        assert len(result) == 3
+        # Should have: 2 ModelRequests (agent's own text is skipped)
+        assert len(result) == 2
 
         assert isinstance(result[0], ModelRequest)
         assert result[0].parts[0].content == "[Alice]: What's the weather?"
 
-        assert isinstance(result[1], ModelResponse)
-        assert result[1].parts[0].content == "It's sunny today!"
-
-        assert isinstance(result[2], ModelRequest)
-        assert result[2].parts[0].content == "[Alice]: Thanks!"
+        assert isinstance(result[1], ModelRequest)
+        assert result[1].parts[0].content == "[Alice]: Thanks!"
 
     def test_multi_user_conversation(self):
         """Handles multiple users in conversation."""
-        converter = PydanticAIHistoryConverter()
+        converter = PydanticAIHistoryConverter(agent_name="Agent")
         raw = [
             {
                 "role": "user",
@@ -281,36 +361,55 @@ class TestMixedHistory:
 
         result = converter.convert(raw)
 
-        assert len(result) == 3
+        # Agent's own message is skipped
+        assert len(result) == 2
         assert result[0].parts[0].content == "[Alice]: Hi team!"
         assert result[1].parts[0].content == "[Bob]: Hello everyone!"
-        assert isinstance(result[2], ModelResponse)
-        assert result[2].parts[0].content == "Hello Alice and Bob!"
 
-    def test_alternating_messages(self):
-        """Properly handles alternating user/assistant messages."""
-        converter = PydanticAIHistoryConverter()
+    def test_multi_agent_conversation_flow(self):
+        """Should include other agents' messages in multi-agent conversations."""
+        converter = PydanticAIHistoryConverter(agent_name="Main Agent")
         raw = [
+            # User asks Main Agent to get weather
             {
                 "role": "user",
-                "content": "Q1",
-                "sender_name": "User",
+                "content": "What's the weather in Tokyo?",
+                "sender_name": "Alice",
                 "message_type": "text",
             },
-            {"role": "assistant", "content": "A1", "message_type": "text"},
+            # Main Agent asks Weather Agent (skipped - own message)
             {
-                "role": "user",
-                "content": "Q2",
-                "sender_name": "User",
+                "role": "assistant",
+                "content": "Let me check with the weather agent.",
+                "sender_name": "Main Agent",
                 "message_type": "text",
             },
-            {"role": "assistant", "content": "A2", "message_type": "text"},
+            # Weather Agent responds (included)
+            {
+                "role": "assistant",
+                "content": "Tokyo is 15°C and cloudy.",
+                "sender_name": "Weather Agent",
+                "message_type": "text",
+            },
+            # Main Agent relays the response (skipped - own message)
+            {
+                "role": "assistant",
+                "content": "The weather in Tokyo is 15°C and cloudy.",
+                "sender_name": "Main Agent",
+                "message_type": "text",
+            },
         ]
 
         result = converter.convert(raw)
 
-        assert len(result) == 4
+        # Should have: Alice's message + Weather Agent's message
+        # (Main Agent's own messages are skipped)
+        assert len(result) == 2
+
         assert isinstance(result[0], ModelRequest)
-        assert isinstance(result[1], ModelResponse)
-        assert isinstance(result[2], ModelRequest)
-        assert isinstance(result[3], ModelResponse)
+        assert result[0].parts[0].content == "[Alice]: What's the weather in Tokyo?"
+
+        assert isinstance(result[1], ModelRequest)
+        assert (
+            result[1].parts[0].content == "[Weather Agent]: Tokyo is 15°C and cloudy."
+        )
