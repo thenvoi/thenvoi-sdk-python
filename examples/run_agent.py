@@ -12,7 +12,8 @@ Usage:
     uv run python examples/run_agent.py --example anthropic --streaming  # With tool_call/tool_result events
     uv run python examples/run_agent.py --example anthropic --model claude-sonnet-4-5-20250929
     uv run python examples/run_agent.py --example claude_sdk
-    uv run python examples/run_agent.py --example claude_sdk --thinking  # Enable extended thinking
+    uv run python examples/run_agent.py --example claude_sdk --streaming  # With tool_call/tool_result events
+    uv run python examples/run_agent.py --example claude_sdk --thinking   # Enable extended thinking
 
 Configure agent in agent_config.yaml:
     uv run python examples/run_agent.py --agent test_agent
@@ -156,6 +157,7 @@ async def run_claude_sdk_agent(
     model: str,
     custom_section: str,
     enable_thinking: bool,
+    enable_streaming: bool,
     logger: logging.Logger,
 ):
     """Run the Claude Agent SDK agent."""
@@ -165,6 +167,7 @@ async def run_claude_sdk_agent(
         model=model,
         custom_section=custom_section,
         max_thinking_tokens=10000 if enable_thinking else None,
+        enable_execution_reporting=enable_streaming,
     )
 
     agent = Agent.create(
@@ -175,8 +178,13 @@ async def run_claude_sdk_agent(
         rest_url=rest_url,
     )
 
-    thinking_str = " with extended thinking" if enable_thinking else ""
-    logger.info(f"Starting Claude SDK agent with model: {model}{thinking_str}")
+    options = []
+    if enable_thinking:
+        options.append("extended thinking")
+    if enable_streaming:
+        options.append("execution reporting")
+    options_str = f" with {', '.join(options)}" if options else ""
+    logger.info(f"Starting Claude SDK agent with model: {model}{options_str}")
     await agent.run()
 
 
@@ -194,6 +202,7 @@ Examples:
   uv run python examples/run_agent.py --example anthropic                 # Anthropic SDK
   uv run python examples/run_agent.py --example anthropic --streaming     # With tool_call/tool_result events
   uv run python examples/run_agent.py --example claude_sdk                # Claude Agent SDK
+  uv run python examples/run_agent.py --example claude_sdk --streaming    # With tool_call/tool_result events
   uv run python examples/run_agent.py --example claude_sdk --thinking     # With extended thinking
   uv run python examples/run_agent.py --agent my_custom_agent             # Use different agent config
   uv run python examples/run_agent.py --log-level DEBUG                   # Enable debug logging
@@ -240,7 +249,7 @@ Examples:
         "--streaming",
         "-s",
         action="store_true",
-        help="Enable execution reporting (tool_call/tool_result events) for Pydantic AI and Anthropic (default: False)",
+        help="Enable execution reporting (tool_call/tool_result events) for Pydantic AI, Anthropic, and Claude SDK (default: False)",
     )
 
     args = parser.parse_args()
@@ -316,6 +325,7 @@ Examples:
                 model=model,
                 custom_section=args.custom_section,
                 enable_thinking=args.thinking,
+                enable_streaming=args.streaming,
                 logger=logger,
             )
     except KeyboardInterrupt:

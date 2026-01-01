@@ -1,5 +1,7 @@
 """Tests for ClaudeSDKHistoryConverter."""
 
+import json
+
 from thenvoi.converters.claude_sdk import ClaudeSDKHistoryConverter
 
 
@@ -7,8 +9,8 @@ class TestBasicConversion:
     """Tests for basic message conversion to text."""
 
     def test_converts_single_user_message(self):
-        """Single user message is formatted with header and room context."""
-        converter = ClaudeSDKHistoryConverter(room_id="room-123")
+        """Single user message is formatted as [sender]: content."""
+        converter = ClaudeSDKHistoryConverter()
         raw = [
             {
                 "role": "user",
@@ -20,14 +22,38 @@ class TestBasicConversion:
 
         result = converter.convert(raw)
 
-        assert (
-            result
-            == "Previous conversation history:\n[room_id: room-123][Alice]: Hello, agent!"
-        )
+        assert result == "[Alice]: Hello, agent!"
 
     def test_converts_multiple_messages(self):
         """Multiple messages are joined with newlines."""
-        converter = ClaudeSDKHistoryConverter(room_id="room-123")
+        converter = ClaudeSDKHistoryConverter()
+        raw = [
+            {
+                "role": "user",
+                "content": "Hello!",
+                "sender_name": "Alice",
+                "message_type": "text",
+            },
+            {
+                "role": "user",
+                "content": "Hi there!",
+                "sender_name": "Bob",
+                "message_type": "text",
+            },
+        ]
+
+        result = converter.convert(raw)
+
+        expected = "[Alice]: Hello!\n[Bob]: Hi there!"
+        assert result == expected
+
+
+class TestAgentNameHandling:
+    """Tests for agent_name filtering."""
+
+    def test_skips_own_text_messages(self):
+        """Should skip this agent's text messages."""
+        converter = ClaudeSDKHistoryConverter(agent_name="MyAgent")
         raw = [
             {
                 "role": "user",
@@ -38,6 +64,56 @@ class TestBasicConversion:
             {
                 "role": "assistant",
                 "content": "Hi there!",
+                "sender_name": "MyAgent",
+                "message_type": "text",
+            },
+        ]
+
+        result = converter.convert(raw)
+
+        assert result == "[Alice]: Hello!"
+        assert "Hi there!" not in result
+
+    def test_includes_other_agents_messages(self):
+        """Should include other agents' messages."""
+        converter = ClaudeSDKHistoryConverter(agent_name="MyAgent")
+        raw = [
+            {
+                "role": "assistant",
+                "content": "I can help too!",
+                "sender_name": "OtherAgent",
+                "message_type": "text",
+            },
+        ]
+
+        result = converter.convert(raw)
+
+        assert result == "[OtherAgent]: I can help too!"
+
+    def test_set_agent_name(self):
+        """set_agent_name should update filtering."""
+        converter = ClaudeSDKHistoryConverter()
+        converter.set_agent_name("MyAgent")
+        raw = [
+            {
+                "role": "assistant",
+                "content": "My message",
+                "sender_name": "MyAgent",
+                "message_type": "text",
+            },
+        ]
+
+        result = converter.convert(raw)
+
+        assert result == ""
+
+    def test_includes_all_when_no_agent_name(self):
+        """Should include all assistant messages when no agent_name set."""
+        converter = ClaudeSDKHistoryConverter()
+        raw = [
+            {
+                "role": "assistant",
+                "content": "Hello!",
                 "sender_name": "Agent",
                 "message_type": "text",
             },
@@ -45,52 +121,22 @@ class TestBasicConversion:
 
         result = converter.convert(raw)
 
-        expected = (
-            "Previous conversation history:\n"
-            "[room_id: room-123][Alice]: Hello!\n"
-            "[room_id: room-123][Agent]: Hi there!"
+        assert result == "[Agent]: Hello!"
+
+
+class TestToolEventHandling:
+    """Tests for tool_call and tool_result inclusion."""
+
+    def test_includes_tool_call_as_raw_json(self):
+        """tool_call messages are included as raw JSON."""
+        converter = ClaudeSDKHistoryConverter(agent_name="MyAgent")
+        tool_call_json = json.dumps(
+            {
+                "name": "get_weather",
+                "args": {"city": "NYC"},
+                "tool_call_id": "toolu_123",
+            }
         )
-        assert result == expected
-
-
-class TestRoomIdHandling:
-    """Tests for room_id configuration."""
-
-    def test_includes_room_id_when_provided(self):
-        """Room ID is included in each line when provided."""
-        converter = ClaudeSDKHistoryConverter(room_id="test-room")
-        raw = [{"content": "Hello", "sender_name": "User", "message_type": "text"}]
-
-        result = converter.convert(raw)
-
-        assert "[room_id: test-room]" in result
-
-    def test_omits_room_id_when_empty(self):
-        """Room ID prefix is omitted when empty string."""
-        converter = ClaudeSDKHistoryConverter(room_id="")
-        raw = [{"content": "Hello", "sender_name": "User", "message_type": "text"}]
-
-        result = converter.convert(raw)
-
-        assert "[room_id:" not in result
-        assert result == "Previous conversation history:\n[User]: Hello"
-
-    def test_default_empty_room_id(self):
-        """Default room_id is empty string."""
-        converter = ClaudeSDKHistoryConverter()
-        raw = [{"content": "Hello", "sender_name": "User", "message_type": "text"}]
-
-        result = converter.convert(raw)
-
-        assert "[room_id:" not in result
-
-
-class TestToolEventFiltering:
-    """Tests for tool_call and tool_result filtering."""
-
-    def test_skips_tool_call_messages(self):
-        """tool_call messages are skipped."""
-        converter = ClaudeSDKHistoryConverter(room_id="room-123")
         raw = [
             {
                 "role": "user",
@@ -100,25 +146,73 @@ class TestToolEventFiltering:
             },
             {
                 "role": "assistant",
-                "content": '{"event": "on_tool_start", "name": "search"}',
+                "content": tool_call_json,
                 "message_type": "tool_call",
             },
         ]
 
         result = converter.convert(raw)
 
-        assert "on_tool_start" not in result
-        assert "search" not in result
+        assert "[User]: Hello" in result
+        # Raw JSON is included as-is
+        assert tool_call_json in result
 
-    def test_skips_tool_result_messages(self):
-        """tool_result messages are skipped."""
-        converter = ClaudeSDKHistoryConverter(room_id="room-123")
+    def test_includes_tool_result_as_raw_json(self):
+        """tool_result messages are included as raw JSON."""
+        converter = ClaudeSDKHistoryConverter(agent_name="MyAgent")
+        tool_result_json = json.dumps(
+            {"output": "sunny, 72F", "tool_call_id": "toolu_123"}
+        )
         raw = [
             {
                 "role": "assistant",
-                "content": '{"event": "on_tool_end", "output": "result"}',
+                "content": tool_result_json,
                 "message_type": "tool_result",
             }
+        ]
+
+        result = converter.convert(raw)
+
+        # Raw JSON is included as-is
+        assert result == tool_result_json
+
+    def test_tool_events_included_regardless_of_agent_name(self):
+        """Tool events are included as raw JSON regardless of agent_name."""
+        converter = ClaudeSDKHistoryConverter(agent_name="WeatherBot")
+        tool_call_json = json.dumps({"name": "search", "args": {}})
+        raw = [
+            {
+                "content": tool_call_json,
+                "message_type": "tool_call",
+            },
+        ]
+
+        result = converter.convert(raw)
+
+        assert result == tool_call_json
+
+    def test_skips_empty_tool_call_content(self):
+        """Should skip tool_call with empty content."""
+        converter = ClaudeSDKHistoryConverter()
+        raw = [
+            {
+                "content": "",
+                "message_type": "tool_call",
+            },
+        ]
+
+        result = converter.convert(raw)
+
+        assert result == ""
+
+    def test_skips_empty_tool_result_content(self):
+        """Should skip tool_result with empty content."""
+        converter = ClaudeSDKHistoryConverter()
+        raw = [
+            {
+                "content": "",
+                "message_type": "tool_result",
+            },
         ]
 
         result = converter.convert(raw)
@@ -127,7 +221,7 @@ class TestToolEventFiltering:
 
     def test_skips_thought_messages(self):
         """thought messages are skipped."""
-        converter = ClaudeSDKHistoryConverter(room_id="room-123")
+        converter = ClaudeSDKHistoryConverter()
         raw = [
             {
                 "role": "assistant",
@@ -146,7 +240,7 @@ class TestEdgeCases:
 
     def test_empty_history(self):
         """Empty history returns empty string."""
-        converter = ClaudeSDKHistoryConverter(room_id="room-123")
+        converter = ClaudeSDKHistoryConverter()
 
         result = converter.convert([])
 
@@ -154,7 +248,7 @@ class TestEdgeCases:
 
     def test_defaults_to_text_message_type(self):
         """Messages without message_type default to 'text'."""
-        converter = ClaudeSDKHistoryConverter(room_id="room-123")
+        converter = ClaudeSDKHistoryConverter()
         raw = [
             {
                 "content": "Hello",
@@ -164,11 +258,11 @@ class TestEdgeCases:
 
         result = converter.convert(raw)
 
-        assert "[Bob]: Hello" in result
+        assert result == "[Bob]: Hello"
 
     def test_defaults_to_unknown_sender(self):
         """Messages without sender_name use 'Unknown'."""
-        converter = ClaudeSDKHistoryConverter(room_id="room-123")
+        converter = ClaudeSDKHistoryConverter()
         raw = [
             {
                 "content": "Hello",
@@ -178,11 +272,11 @@ class TestEdgeCases:
 
         result = converter.convert(raw)
 
-        assert "[Unknown]: Hello" in result
+        assert result == "[Unknown]: Hello"
 
     def test_skips_empty_content(self):
         """Messages with empty content are skipped."""
-        converter = ClaudeSDKHistoryConverter(room_id="room-123")
+        converter = ClaudeSDKHistoryConverter()
         raw = [
             {
                 "content": "",
@@ -195,25 +289,23 @@ class TestEdgeCases:
 
         assert result == ""
 
-    def test_returns_empty_when_only_tool_events(self):
-        """Returns empty string when history only contains tool events."""
-        converter = ClaudeSDKHistoryConverter(room_id="room-123")
-        raw = [
-            {"content": "tool call", "message_type": "tool_call"},
-            {"content": "tool result", "message_type": "tool_result"},
-        ]
-
-        result = converter.convert(raw)
-
-        assert result == ""
-
 
 class TestMixedHistory:
     """Integration tests with mixed message types."""
 
     def test_full_conversation_flow(self):
         """Should handle a realistic conversation with mixed message types."""
-        converter = ClaudeSDKHistoryConverter(room_id="room-123")
+        converter = ClaudeSDKHistoryConverter(agent_name="WeatherAgent")
+        tool_call_json = json.dumps(
+            {
+                "name": "get_weather",
+                "args": {"city": "NYC"},
+                "tool_call_id": "toolu_123",
+            }
+        )
+        tool_result_json = json.dumps(
+            {"output": "sunny, 72F", "tool_call_id": "toolu_123"}
+        )
         raw = [
             # User asks question
             {
@@ -222,23 +314,23 @@ class TestMixedHistory:
                 "sender_name": "Alice",
                 "message_type": "text",
             },
-            # Agent uses tool (skipped)
+            # Agent uses tool
             {
                 "role": "assistant",
-                "content": '{"event": "on_tool_start", "name": "get_weather"}',
+                "content": tool_call_json,
                 "message_type": "tool_call",
             },
-            # Tool result (skipped)
+            # Tool result
             {
                 "role": "assistant",
-                "content": '{"event": "on_tool_end", "output": "sunny"}',
+                "content": tool_result_json,
                 "message_type": "tool_result",
             },
-            # Agent responds with text
+            # Agent responds with text (skipped - redundant)
             {
                 "role": "assistant",
                 "content": "It's sunny today!",
-                "sender_name": "Agent",
+                "sender_name": "WeatherAgent",
                 "message_type": "text",
             },
             # User follow-up
@@ -252,17 +344,18 @@ class TestMixedHistory:
 
         result = converter.convert(raw)
 
-        expected = (
-            "Previous conversation history:\n"
-            "[room_id: room-123][Alice]: What's the weather?\n"
-            "[room_id: room-123][Agent]: It's sunny today!\n"
-            "[room_id: room-123][Alice]: Thanks!"
-        )
-        assert result == expected
+        # Should include user messages
+        assert "[Alice]: What's the weather?" in result
+        assert "[Alice]: Thanks!" in result
+        # Should include raw tool event JSON
+        assert tool_call_json in result
+        assert tool_result_json in result
+        # Should NOT include own text message
+        assert "It's sunny today!" not in result
 
-    def test_multi_user_conversation(self):
-        """Handles multiple users in conversation."""
-        converter = ClaudeSDKHistoryConverter(room_id="room-456")
+    def test_multi_agent_conversation(self):
+        """Handles multiple agents in conversation."""
+        converter = ClaudeSDKHistoryConverter(agent_name="MyAgent")
         raw = [
             {
                 "role": "user",
@@ -271,15 +364,15 @@ class TestMixedHistory:
                 "message_type": "text",
             },
             {
-                "role": "user",
-                "content": "Hello everyone!",
-                "sender_name": "Bob",
+                "role": "assistant",
+                "content": "Hello!",
+                "sender_name": "OtherAgent",
                 "message_type": "text",
             },
             {
                 "role": "assistant",
-                "content": "Hello Alice and Bob!",
-                "sender_name": "Agent",
+                "content": "Hi Alice!",
+                "sender_name": "MyAgent",
                 "message_type": "text",
             },
         ]
@@ -287,12 +380,13 @@ class TestMixedHistory:
         result = converter.convert(raw)
 
         assert "[Alice]: Hi team!" in result
-        assert "[Bob]: Hello everyone!" in result
-        assert "[Agent]: Hello Alice and Bob!" in result
+        assert "[OtherAgent]: Hello!" in result
+        # Own message skipped
+        assert "Hi Alice!" not in result
 
     def test_preserves_message_order(self):
         """Messages appear in the same order as input."""
-        converter = ClaudeSDKHistoryConverter(room_id="room-123")
+        converter = ClaudeSDKHistoryConverter()
         raw = [
             {"content": "First", "sender_name": "A", "message_type": "text"},
             {"content": "Second", "sender_name": "B", "message_type": "text"},
@@ -302,7 +396,7 @@ class TestMixedHistory:
         result = converter.convert(raw)
         lines = result.split("\n")
 
-        # First line is header
-        assert "First" in lines[1]
-        assert "Second" in lines[2]
-        assert "Third" in lines[3]
+        assert len(lines) == 3
+        assert "First" in lines[0]
+        assert "Second" in lines[1]
+        assert "Third" in lines[2]
