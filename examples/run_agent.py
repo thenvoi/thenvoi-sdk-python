@@ -9,6 +9,7 @@ Usage:
     uv run python examples/run_agent.py --example pydantic_ai --streaming  # With tool_call/tool_result events
     uv run python examples/run_agent.py --example pydantic_ai --model anthropic:claude-sonnet-4-5
     uv run python examples/run_agent.py --example anthropic
+    uv run python examples/run_agent.py --example anthropic --streaming  # With tool_call/tool_result events
     uv run python examples/run_agent.py --example anthropic --model claude-sonnet-4-5-20250929
     uv run python examples/run_agent.py --example claude_sdk
     uv run python examples/run_agent.py --example claude_sdk --thinking  # Enable extended thinking
@@ -122,6 +123,7 @@ async def run_anthropic_agent(
     ws_url: str,
     model: str,
     custom_section: str,
+    enable_streaming: bool,
     logger: logging.Logger,
 ):
     """Run the Anthropic SDK agent."""
@@ -130,6 +132,7 @@ async def run_anthropic_agent(
     adapter = AnthropicAdapter(
         model=model,
         custom_section=custom_section,
+        enable_execution_reporting=enable_streaming,
     )
 
     agent = Agent.create(
@@ -140,7 +143,8 @@ async def run_anthropic_agent(
         rest_url=rest_url,
     )
 
-    logger.info(f"Starting Anthropic agent with model: {model}")
+    streaming_str = " with execution reporting" if enable_streaming else ""
+    logger.info(f"Starting Anthropic agent with model: {model}{streaming_str}")
     await agent.run()
 
 
@@ -188,6 +192,7 @@ Examples:
   uv run python examples/run_agent.py --example pydantic_ai --streaming   # With tool_call/tool_result events
   uv run python examples/run_agent.py --example pydantic_ai --model anthropic:claude-sonnet-4-5
   uv run python examples/run_agent.py --example anthropic                 # Anthropic SDK
+  uv run python examples/run_agent.py --example anthropic --streaming     # With tool_call/tool_result events
   uv run python examples/run_agent.py --example claude_sdk                # Claude Agent SDK
   uv run python examples/run_agent.py --example claude_sdk --thinking     # With extended thinking
   uv run python examples/run_agent.py --agent my_custom_agent             # Use different agent config
@@ -235,7 +240,7 @@ Examples:
         "--streaming",
         "-s",
         action="store_true",
-        help="Enable execution reporting (tool_call/tool_result events) for Pydantic AI (default: False)",
+        help="Enable execution reporting (tool_call/tool_result events) for Pydantic AI and Anthropic (default: False)",
     )
 
     args = parser.parse_args()
@@ -295,6 +300,7 @@ Examples:
                 ws_url=ws_url,
                 model=model,
                 custom_section=args.custom_section,
+                enable_streaming=args.streaming,
                 logger=logger,
             )
         elif args.example == "claude_sdk":
