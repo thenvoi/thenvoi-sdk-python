@@ -6,6 +6,7 @@ Install the extra you need:
     uv add thenvoi-sdk[anthropic]
     uv add thenvoi-sdk[pydantic_ai]
     uv add thenvoi-sdk[claude_sdk]
+    uv add thenvoi-sdk[parlant]
 """
 
 from typing import TYPE_CHECKING
@@ -16,12 +17,14 @@ if TYPE_CHECKING:
     from thenvoi.adapters.anthropic import AnthropicAdapter as AnthropicAdapter
     from thenvoi.adapters.pydantic_ai import PydanticAIAdapter as PydanticAIAdapter
     from thenvoi.adapters.claude_sdk import ClaudeSDKAdapter as ClaudeSDKAdapter
+    from thenvoi.adapters.parlant import ParlantAdapter as ParlantAdapter
 
 __all__ = [
     "LangGraphAdapter",
     "AnthropicAdapter",
     "PydanticAIAdapter",
     "ClaudeSDKAdapter",
+    "ParlantAdapter",
 ]
 
 
@@ -43,4 +46,8 @@ def __getattr__(name: str):
         from thenvoi.adapters.claude_sdk import ClaudeSDKAdapter
 
         return ClaudeSDKAdapter
+    elif name == "ParlantAdapter":
+        from thenvoi.adapters.parlant import ParlantAdapter
+
+        return ParlantAdapter
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
