@@ -78,6 +78,7 @@ dev = [
 [tool.setuptools.packages.find]
 where = ["src"]
 include = ["thenvoi", "thenvoi.*"]
+namespaces = false
 
 [tool.setuptools]
 package-dir = {"" = "src"}
