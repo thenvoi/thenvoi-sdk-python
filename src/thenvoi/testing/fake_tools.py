@@ -32,7 +32,7 @@ class FakeAgentTools:
         self.tool_calls: list[dict[str, Any]] = []
 
     async def send_message(
-        self, content: str, mentions: list[str] | None = None
+        self, content: str, mentions: list[str] | list[dict[str, str]] | None = None
     ) -> dict[str, Any]:
         msg = {
             "id": f"msg-{len(self.messages_sent)}",

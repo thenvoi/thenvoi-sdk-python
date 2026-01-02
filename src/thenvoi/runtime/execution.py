@@ -356,6 +356,7 @@ class ExecutionContext:
                             "sender_type": getattr(item, "sender_type", ""),
                             "sender_name": sender_name,
                             "message_type": getattr(item, "message_type", "text"),
+                            "metadata": getattr(item, "metadata", {}),
                             "created_at": getattr(item, "inserted_at", None),
                         }
                     )

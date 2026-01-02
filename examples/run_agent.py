@@ -14,6 +14,7 @@ Usage:
     uv run python examples/run_agent.py --example claude_sdk
     uv run python examples/run_agent.py --example claude_sdk --streaming  # With tool_call/tool_result events
     uv run python examples/run_agent.py --example claude_sdk --thinking   # Enable extended thinking
+    uv run python examples/run_agent.py --example a2a --a2a-url http://localhost:10000  # A2A bridge
 
 Configure agent in agent_config.yaml:
     uv run python examples/run_agent.py --agent test_agent
@@ -27,6 +28,8 @@ Setup:
    - ANTHROPIC_API_KEY (required for anthropic models)
 
 2. Configure agent in agent_config.yaml
+
+3. For A2A example, start a remote A2A agent first (e.g., LangGraph currency agent)
 """
 
 import argparse
@@ -188,6 +191,40 @@ async def run_claude_sdk_agent(
     await agent.run()
 
 
+async def run_a2a_agent(
+    agent_id: str,
+    api_key: str,
+    rest_url: str,
+    ws_url: str,
+    a2a_url: str,
+    enable_debug: bool,
+    logger: logging.Logger,
+):
+    """Run the A2A bridge agent."""
+    from thenvoi.adapters import A2AAdapter
+
+    # Enable debug logging for A2A adapter to trace context_id and rehydration
+    if enable_debug:
+        logging.getLogger("thenvoi.integrations.a2a").setLevel(logging.DEBUG)
+        logging.getLogger("thenvoi.converters.a2a").setLevel(logging.DEBUG)
+
+    adapter = A2AAdapter(
+        remote_url=a2a_url,
+        streaming=True,
+    )
+
+    agent = Agent.create(
+        adapter=adapter,
+        agent_id=agent_id,
+        api_key=api_key,
+        ws_url=ws_url,
+        rest_url=rest_url,
+    )
+
+    logger.info(f"Starting A2A bridge agent (forwarding to {a2a_url})...")
+    await agent.run()
+
+
 async def main():
     parser = argparse.ArgumentParser(
         description="Run a Thenvoi SDK test agent",
@@ -204,6 +241,9 @@ Examples:
   uv run python examples/run_agent.py --example claude_sdk                # Claude Agent SDK
   uv run python examples/run_agent.py --example claude_sdk --streaming    # With tool_call/tool_result events
   uv run python examples/run_agent.py --example claude_sdk --thinking     # With extended thinking
+  uv run python examples/run_agent.py --example a2a                       # A2A bridge (default: localhost:10000)
+  uv run python examples/run_agent.py --example a2a --debug               # A2A with debug logging (context_id tracing)
+  uv run python examples/run_agent.py --example a2a --a2a-url http://remote:8080  # A2A with custom URL
   uv run python examples/run_agent.py --agent my_custom_agent             # Use different agent config
   uv run python examples/run_agent.py --log-level DEBUG                   # Enable debug logging
         """,
@@ -211,7 +251,7 @@ Examples:
     parser.add_argument(
         "--example",
         "-e",
-        choices=["langgraph", "pydantic_ai", "anthropic", "claude_sdk"],
+        choices=["langgraph", "pydantic_ai", "anthropic", "claude_sdk", "a2a"],
         default="langgraph",
         help="Which example agent to run (default: langgraph)",
     )
@@ -250,6 +290,17 @@ Examples:
         "-s",
         action="store_true",
         help="Enable execution reporting (tool_call/tool_result events) for Pydantic AI, Anthropic, and Claude SDK (default: False)",
+    )
+    parser.add_argument(
+        "--a2a-url",
+        default=os.getenv("A2A_AGENT_URL", "http://localhost:10000"),
+        help="URL of the remote A2A agent (default: http://localhost:10000 or A2A_AGENT_URL env var)",
+    )
+    parser.add_argument(
+        "--debug",
+        "-d",
+        action="store_true",
+        help="Enable debug logging for adapter internals (e.g., A2A context_id tracing)",
     )
 
     args = parser.parse_args()
@@ -326,6 +377,16 @@ Examples:
                 custom_section=args.custom_section,
                 enable_thinking=args.thinking,
                 enable_streaming=args.streaming,
+                logger=logger,
+            )
+        elif args.example == "a2a":
+            await run_a2a_agent(
+                agent_id=agent_id,
+                api_key=api_key,
+                rest_url=rest_url,
+                ws_url=ws_url,
+                a2a_url=args.a2a_url,
+                enable_debug=args.debug,
                 logger=logger,
             )
     except KeyboardInterrupt:

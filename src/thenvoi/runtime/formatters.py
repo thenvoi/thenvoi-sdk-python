@@ -11,7 +11,7 @@ def format_message_for_llm(msg: dict) -> dict:
         msg: Platform message dict with sender_type, content, sender_name
 
     Returns:
-        Dict with role, content, sender_name, sender_type, message_type
+        Dict with role, content, sender_name, sender_type, message_type, metadata
     """
     sender_type = msg.get("sender_type", "")
     sender_name = msg.get("sender_name") or msg.get("name") or sender_type
@@ -22,6 +22,7 @@ def format_message_for_llm(msg: dict) -> dict:
         "sender_name": sender_name,
         "sender_type": sender_type,
         "message_type": msg.get("message_type", "text"),
+        "metadata": msg.get("metadata", {}),
     }
 
 

@@ -27,6 +27,9 @@ if TYPE_CHECKING:
     from thenvoi.converters.claude_sdk import (
         ClaudeSDKHistoryConverter as ClaudeSDKHistoryConverter,
     )
+    from thenvoi.converters.a2a import (
+        A2AHistoryConverter as A2AHistoryConverter,
+    )
 
 __all__ = [
     "LangChainHistoryConverter",
@@ -36,6 +39,7 @@ __all__ = [
     "PydanticAIHistoryConverter",
     "PydanticAIMessages",
     "ClaudeSDKHistoryConverter",
+    "A2AHistoryConverter",
 ]
 
 
@@ -75,5 +79,10 @@ def __getattr__(name: str):
         from thenvoi.converters.claude_sdk import ClaudeSDKHistoryConverter
 
         return ClaudeSDKHistoryConverter
+
+    elif name == "A2AHistoryConverter":
+        from thenvoi.converters.a2a import A2AHistoryConverter
+
+        return A2AHistoryConverter
 
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
