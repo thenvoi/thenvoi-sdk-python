@@ -40,6 +40,8 @@ Example (Framework-light pattern):
     await link.run_forever()
 """
 
+from importlib.metadata import version as _get_version, PackageNotFoundError
+
 # Composition layer (new pattern)
 from .agent import Agent
 
@@ -100,4 +102,7 @@ __all__ = [
     "MessageRetryTracker",
 ]
 
-__version__ = "0.0.1"
+try:
+    __version__ = _get_version("thenvoi-sdk")
+except PackageNotFoundError:
+    __version__ = "0.1.0"  # Fallback for editable installs
