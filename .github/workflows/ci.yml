@@ -1,0 +1,105 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [dev, main]
+
+jobs:
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v6
+
+    - name: Install uv
+      uses: astral-sh/setup-uv@v7
+      with:
+        enable-cache: true
+        cache-dependency-glob: "**/pyproject.toml"
+
+    - name: Set up Python
+      uses: actions/setup-python@v6
+      with:
+        python-version: '3.12'
+
+    - name: Install dependencies
+      run: uv sync --extra dev
+
+    - name: Run pre-commit hooks
+      run: uv run pre-commit run --all-files
+
+
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ['3.10', '3.11', '3.12']
+      fail-fast: false
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v6
+
+    - name: Install uv
+      uses: astral-sh/setup-uv@v7
+      with:
+        enable-cache: true
+        cache-dependency-glob: "**/pyproject.toml"
+
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v6
+      with:
+        python-version: ${{ matrix.python-version }}
+
+    - name: Install dependencies
+      run: uv sync --extra dev
+
+    - name: Run tests
+      run: uv run pytest
+
+
+  packaging:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v6
+
+    - name: Install uv
+      uses: astral-sh/setup-uv@v7
+
+    - name: Set up Python
+      uses: actions/setup-python@v6
+      with:
+        python-version: '3.12'
+
+    - name: Build wheel
+      run: uv build --wheel
+
+    - name: Install from wheel (isolated, no extras)
+      run: |
+        uv venv /tmp/test-install
+        uv pip install dist/*.whl --python /tmp/test-install/bin/python
+
+    - name: Verify core imports (no extras)
+      run: |
+        /tmp/test-install/bin/python -c "
+        from thenvoi import Agent, ThenvoiLink, AgentRuntime
+        from thenvoi.config import load_agent_config
+        print('Core imports successful')
+        "
+
+    - name: Install with all extras
+      run: |
+        WHEEL=$(ls dist/*.whl)
+        uv pip install "${WHEEL}[dev]" --python /tmp/test-install/bin/python
+
+    - name: Verify all imports (with extras)
+      run: |
+        /tmp/test-install/bin/python -c "
+        from thenvoi import Agent, ThenvoiLink, AgentRuntime
+        from thenvoi.adapters import LangGraphAdapter, AnthropicAdapter, PydanticAIAdapter, ClaudeSDKAdapter
+        from thenvoi.converters import LangChainHistoryConverter, AnthropicHistoryConverter, PydanticAIHistoryConverter
+        from thenvoi.config import load_agent_config
+        print('All imports successful')
+        "
