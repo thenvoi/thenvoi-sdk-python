@@ -51,7 +51,7 @@ class AgentToolsProtocol(Protocol):
     """
 
     async def send_message(
-        self, content: str, mentions: list[str] | None = None
+        self, content: str, mentions: list[str] | list[dict[str, str]] | None = None
     ) -> dict[str, Any]:
         """Send a message to the chat room."""
         ...

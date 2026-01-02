@@ -8,6 +8,7 @@ Install the extra you need:
     uv add thenvoi-sdk[claude_sdk]
     uv add thenvoi-sdk[parlant]
     uv add thenvoi-sdk[crewai]
+    uv add thenvoi-sdk[a2a]
 """
 
 from typing import TYPE_CHECKING
@@ -37,6 +38,9 @@ if TYPE_CHECKING:
         CrewAIHistoryConverter as CrewAIHistoryConverter,
         CrewAIMessages as CrewAIMessages,
     )
+    from thenvoi.converters.a2a import (
+        A2AHistoryConverter as A2AHistoryConverter,
+    )
 
 __all__ = [
     "LangChainHistoryConverter",
@@ -50,6 +54,7 @@ __all__ = [
     "ParlantMessages",
     "CrewAIHistoryConverter",
     "CrewAIMessages",
+    "A2AHistoryConverter",
 ]
 
 
@@ -109,5 +114,10 @@ def __getattr__(name: str):
         if name == "CrewAIHistoryConverter":
             return CrewAIHistoryConverter
         return CrewAIMessages
+
+    elif name == "A2AHistoryConverter":
+        from thenvoi.converters.a2a import A2AHistoryConverter
+
+        return A2AHistoryConverter
 
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
