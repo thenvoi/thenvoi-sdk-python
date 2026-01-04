@@ -71,9 +71,7 @@ class TestFullWorkflow:
         print("STEP 3: Create New Chat")
         print("=" * 60)
 
-        response = await api_client.agent_api.create_agent_chat(
-            chat=ChatRoomRequest(title="SDK Integration Test Chat")
-        )
+        response = await api_client.agent_api.create_agent_chat(chat=ChatRoomRequest())
         assert response.data is not None, "Created chat should not be None"
 
         chat = response.data
@@ -304,9 +302,7 @@ class TestMessageFailureLifecycle:
         print("=" * 60)
 
         # Create a chat for this test
-        response = await api_client.agent_api.create_agent_chat(
-            chat=ChatRoomRequest(title="SDK Failure Test Chat")
-        )
+        response = await api_client.agent_api.create_agent_chat(chat=ChatRoomRequest())
         chat_id = response.data.id
         print(f"Created test chat: {chat_id}")
 
@@ -327,6 +323,15 @@ class TestMessageFailureLifecycle:
             participant=ParticipantRequest(participant_id=peer_id, role="member"),
         )
         print(f"Added User peer: {peer_name}")
+
+        # Add descriptive message (triggers auto-title)
+        await api_client.agent_api.create_agent_chat_message(
+            chat_id,
+            message=ChatMessageRequest(
+                content=f"Message failure lifecycle test: @{peer_name} testing mark_message_failed with error message",
+                mentions=[Mention(id=peer_id, name=peer_name)],
+            ),
+        )
 
         # Send a message
         response = await api_client.agent_api.create_agent_chat_message(
