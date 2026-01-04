@@ -163,13 +163,37 @@ class TestDynamicAgentWorkflow:
 
     async def test_agent_can_create_chat(self, dynamic_agent_client):
         """Verify the dynamic agent can create a chat room."""
+        from thenvoi_rest import ChatMessageRequest
+        from thenvoi_rest.types import ChatMessageRequestMentionsItem as Mention
+        from thenvoi_rest.types import ParticipantRequest
+
         response = await dynamic_agent_client.agent_api.create_agent_chat(
-            chat=ChatRoomRequest(title="Dynamic Agent Test Chat")
+            chat=ChatRoomRequest()
         )
 
         assert response.data is not None
         assert response.data.id is not None
-        print(f"Created chat: {response.data.id}")
+        chat_id = response.data.id
+        print(f"Created chat: {chat_id}")
+
+        # Get a peer to add to the room
+        peers_response = await dynamic_agent_client.agent_api.list_agent_peers()
+        if peers_response.data:
+            peer = peers_response.data[0]
+            await dynamic_agent_client.agent_api.add_agent_chat_participant(
+                chat_id,
+                participant=ParticipantRequest(participant_id=peer.id, role="member"),
+            )
+            print(f"Added peer: {peer.name}")
+
+            # Add descriptive message (triggers auto-title)
+            await dynamic_agent_client.agent_api.create_agent_chat_message(
+                chat_id,
+                message=ChatMessageRequest(
+                    content=f"Dynamic agent test: @{peer.name} verifying agent can create a chat room",
+                    mentions=[Mention(id=peer.id, name=peer.name)],
+                ),
+            )
 
     async def test_full_messaging_workflow(self, dynamic_agent_client, dynamic_agent):
         """Test complete messaging flow with dynamic agent."""
@@ -179,7 +203,7 @@ class TestDynamicAgentWorkflow:
 
         # 1. Create chat
         chat_response = await dynamic_agent_client.agent_api.create_agent_chat(
-            chat=ChatRoomRequest(title="Dynamic Agent Messaging Test")
+            chat=ChatRoomRequest()
         )
         chat_id = chat_response.data.id
         print(f"Created chat: {chat_id}")
@@ -257,7 +281,7 @@ class TestDynamicAgentWorkflow:
 
         # 2. Create chat room for agent-to-agent communication
         chat_response = await dynamic_agent_client.agent_api.create_agent_chat(
-            chat=ChatRoomRequest(title="Agent-to-Agent Communication Test")
+            chat=ChatRoomRequest()
         )
         chat_id = chat_response.data.id
         print(f"Created chat room: {chat_id}")

@@ -324,7 +324,7 @@ class A2AGatewayAdapter(SimpleAdapter[GatewaySessionState]):
         if context_id is None or context_id not in self._context_to_room:
             # Create new room via REST
             response = await self._rest.agent_api.create_agent_chat(
-                chat=ChatRoomRequest(name=f"a2a-{target_peer_id}-{uuid4().hex[:8]}")
+                chat=ChatRoomRequest()
             )
             room_id = response.data.id
 

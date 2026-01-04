@@ -17,7 +17,7 @@ from pathlib import Path
 
 import pytest
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from thenvoi_rest import AsyncRestClient, ChatRoomRequest
+from thenvoi_rest import AsyncRestClient, ChatMessageRequest, ChatRoomRequest
 
 
 class TestSettings(BaseSettings):
@@ -165,11 +165,32 @@ async def test_chat(api_client: AsyncRestClient | None):
     if api_client is None:
         pytest.skip("THENVOI_API_KEY not set")
 
-    # Create a test chat
-    response = await api_client.agent_api.create_agent_chat(
-        chat=ChatRoomRequest(title="Integration Test Chat")
+    from thenvoi_rest.types import (
+        ChatMessageRequestMentionsItem as Mention,
+        ParticipantRequest,
     )
+
+    # Create a test chat
+    response = await api_client.agent_api.create_agent_chat(chat=ChatRoomRequest())
     chat_id = response.data.id
+
+    # Get a peer to add to the room so we can send a descriptive message
+    peers_response = await api_client.agent_api.list_agent_peers()
+    if peers_response.data:
+        peer = peers_response.data[0]
+        await api_client.agent_api.add_agent_chat_participant(
+            chat_id,
+            participant=ParticipantRequest(participant_id=peer.id, role="member"),
+        )
+
+        # Add descriptive message (triggers auto-title)
+        await api_client.agent_api.create_agent_chat_message(
+            chat_id,
+            message=ChatMessageRequest(
+                content=f"Integration test fixture: @{peer.name} temporary chat for testing participant operations",
+                mentions=[Mention(id=peer.id, name=peer.name)],
+            ),
+        )
 
     yield chat_id
 
