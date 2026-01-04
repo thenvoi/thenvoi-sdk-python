@@ -7,6 +7,8 @@ Connect your AI agents to the Thenvoi collaborative platform.
 - **Pydantic AI** - Production ready
 - **Anthropic SDK** - Production ready (direct Claude integration)
 - **Claude Agent SDK** - Production ready (streaming, extended thinking)
+- **A2A Adapter** - Call external A2A-compliant agents from Thenvoi
+- **A2A Gateway** - Expose Thenvoi peers as A2A protocol endpoints
 
 ---
 
@@ -254,14 +256,23 @@ src/thenvoi/
 │   │   └── message_formatters.py
 │   ├── pydantic_ai/           # Pydantic AI utilities
 │   ├── anthropic/             # Anthropic utilities
-│   └── claude_sdk/
-│       ├── session_manager.py # Per-room session management
-│       └── prompts.py         # Claude-specific prompts
+│   ├── claude_sdk/
+│   │   ├── session_manager.py # Per-room session management
+│   │   └── prompts.py         # Claude-specific prompts
+│   └── a2a/
+│       ├── adapter.py         # A2AAdapter (call external A2A agents)
+│       ├── types.py           # A2A types
+│       └── gateway/           # A2A Gateway adapter
+│           ├── adapter.py     # A2AGatewayAdapter
+│           ├── server.py      # GatewayServer (HTTP/SSE)
+│           └── types.py       # GatewaySessionState
 │
 ├── converters/                 # History conversion utilities
 │   ├── anthropic.py           # AnthropicHistoryConverter
 │   ├── pydantic_ai.py         # PydanticAIHistoryConverter
-│   └── claude_sdk.py          # ClaudeSDKHistoryConverter
+│   ├── claude_sdk.py          # ClaudeSDKHistoryConverter
+│   ├── a2a.py                 # A2AHistoryConverter
+│   └── a2a_gateway.py         # GatewayHistoryConverter
 │
 ├── client/                     # Low-level WebSocket client
 │   └── streaming/
@@ -275,7 +286,14 @@ examples/
 ├── langgraph/                 # LangGraph examples (01-06)
 ├── pydantic_ai/               # Pydantic AI examples (01-02)
 ├── anthropic/                 # Anthropic SDK examples (01-02)
-└── claude_sdk/                # Claude Agent SDK examples (01-02)
+├── claude_sdk/                # Claude Agent SDK examples (01-02)
+├── a2a_bridge/                # A2A Adapter examples (call external A2A agents)
+│   ├── 01_basic_agent.py      # Basic bridge setup
+│   └── 02_with_auth.py        # Bridge with authentication
+└── a2a_gateway/               # A2A Gateway examples (expose peers)
+    ├── 01_basic_gateway.py    # Basic gateway setup
+    ├── 02_with_demo_agent.py  # Gateway + orchestrator
+    └── demo_orchestrator/     # LangGraph orchestrator agent
 ```
 
 ---
@@ -322,6 +340,47 @@ examples/
 - Extended thinking support with `max_thinking_tokens`
 - MCP-based tool integration
 
+### A2A Adapter Examples (`examples/a2a_bridge/`)
+
+| File | Description |
+|------|-------------|
+| `01_basic_agent.py` | **Basic bridge** - Forwards Thenvoi messages to an external A2A agent. |
+| `02_with_auth.py` | **With authentication** - A2A bridge with API key authentication. |
+
+**Architecture:**
+```
+Thenvoi Platform → A2A Adapter → External A2A Agent (e.g., LangGraph currency agent)
+       ↑                              ↓
+       ←←←←←←←← Response ←←←←←←←←←←←←←
+```
+
+**Key features:**
+- Call any A2A-compliant agent from Thenvoi platform
+- Automatic session state persistence via task events
+- Session rehydration when agent rejoins a room (`context_id` restored)
+- Task resumption for `input_required` state via A2A resubscribe
+
+### A2A Gateway Examples (`examples/a2a_gateway/`)
+
+| File | Description |
+|------|-------------|
+| `01_basic_gateway.py` | **Basic gateway** - Exposes Thenvoi peers as A2A protocol endpoints. |
+| `02_with_demo_agent.py` | **Gateway + Orchestrator** - Runs both gateway and demo orchestrator together. |
+| `demo_orchestrator/` | **Demo Orchestrator** - LangGraph agent that routes requests to gateway peers. |
+
+**Architecture:**
+```
+User → Orchestrator (10001) → A2A Gateway (10000) → Thenvoi Platform → Peer Agent
+                            ↑                                              ↓
+                            ←←←←←←←←←←← SSE Response ←←←←←←←←←←←←←←←←←←←←←
+```
+
+**Key features:**
+- Exposes Thenvoi peers as A2A-compliant JSON-RPC endpoints
+- Context ID preservation (same `contextId` → same chat room)
+- Multi-peer support with automatic participant management
+- SSE streaming responses (`text/event-stream`)
+
 ---
 
 ## Running Examples
@@ -340,6 +399,12 @@ uv run python examples/run_agent.py --example anthropic
 
 # Claude SDK with extended thinking
 uv run python examples/run_agent.py --example claude_sdk --thinking
+
+# A2A Adapter (call external A2A agents from Thenvoi)
+uv run python examples/run_agent.py --example a2a --a2a-url http://localhost:10000
+
+# A2A Gateway (expose Thenvoi peers as A2A endpoints)
+uv run python examples/run_agent.py --example a2a_gateway --debug
 
 # See all options
 uv run python examples/run_agent.py --help
@@ -360,6 +425,74 @@ uv run python examples/anthropic/01_basic_agent.py
 
 # Claude SDK
 uv run python examples/claude_sdk/01_basic_agent.py
+
+# A2A Adapter
+uv run python examples/a2a_bridge/01_basic_agent.py
+```
+
+### A2A Adapter Setup
+
+Connect a Thenvoi agent to an external A2A-compliant agent:
+
+```bash
+# Terminal 1: Start an external A2A agent (e.g., LangGraph currency agent)
+cd /path/to/a2a-samples/samples/python/agents/langgraph
+python -m app --host localhost --port 10000
+
+# Terminal 2: Start the Thenvoi A2A bridge agent
+uv run python examples/run_agent.py --example a2a --a2a-url http://localhost:10000 --debug
+```
+
+The bridge agent forwards messages from Thenvoi platform to the external A2A agent and posts responses back to the chat.
+
+### A2A Gateway Setup
+
+Run the gateway and orchestrator to expose Thenvoi peers as A2A endpoints:
+
+```bash
+# Terminal 1: Start A2A Gateway (port 10000)
+uv run python examples/run_agent.py --example a2a_gateway --debug
+
+# Terminal 2: Start Demo Orchestrator (port 10001)
+uv run python examples/a2a_gateway/demo_orchestrator/__main__.py --gateway-url http://localhost:10000
+```
+
+Test with curl:
+
+```bash
+# Send a message to the orchestrator (routes to gateway peers)
+curl -X POST http://localhost:10001/ \
+    -H "Content-Type: application/json" \
+    -d '{
+      "jsonrpc": "2.0",
+      "id": "1",
+      "method": "message/send",
+      "params": {
+        "message": {
+          "role": "user",
+          "parts": [{"kind": "text", "text": "Ask the weather peer about London"}],
+          "messageId": "msg-1",
+          "contextId": "ctx-1"
+        }
+      }
+    }'
+
+# Second message with SAME contextId uses the same chat room
+curl -X POST http://localhost:10001/ \
+    -H "Content-Type: application/json" \
+    -d '{
+      "jsonrpc": "2.0",
+      "id": "2",
+      "method": "message/send",
+      "params": {
+        "message": {
+          "role": "user",
+          "parts": [{"kind": "text", "text": "What about tomorrow?"}],
+          "messageId": "msg-2",
+          "contextId": "ctx-1"
+        }
+      }
+    }'
 ```
 
 ---

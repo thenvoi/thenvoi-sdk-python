@@ -30,6 +30,9 @@ if TYPE_CHECKING:
     from thenvoi.converters.a2a import (
         A2AHistoryConverter as A2AHistoryConverter,
     )
+    from thenvoi.converters.a2a_gateway import (
+        GatewayHistoryConverter as GatewayHistoryConverter,
+    )
 
 __all__ = [
     "LangChainHistoryConverter",
@@ -40,6 +43,7 @@ __all__ = [
     "PydanticAIMessages",
     "ClaudeSDKHistoryConverter",
     "A2AHistoryConverter",
+    "GatewayHistoryConverter",
 ]
 
 
@@ -84,5 +88,10 @@ def __getattr__(name: str):
         from thenvoi.converters.a2a import A2AHistoryConverter
 
         return A2AHistoryConverter
+
+    elif name == "GatewayHistoryConverter":
+        from thenvoi.converters.a2a_gateway import GatewayHistoryConverter
+
+        return GatewayHistoryConverter
 
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
