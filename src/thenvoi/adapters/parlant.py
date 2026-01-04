@@ -403,4 +403,3 @@ class ParlantAdapter(SimpleAdapter[ParlantMessages]):
             await tools.send_event(content=f"Error: {error}", message_type="error")
         except Exception:
             pass
-

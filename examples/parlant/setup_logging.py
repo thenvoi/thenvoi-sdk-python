@@ -13,4 +13,3 @@ def setup_logging(level=logging.INFO):
     logging.getLogger("thenvoi").setLevel(level)
     # Also enable logging for the parlant adapter module
     logging.getLogger("thenvoi_parlant_agent").setLevel(level)
-

@@ -499,4 +499,3 @@ class TestVerboseMode:
                 is_session_bootstrap=True,
                 room_id="room-123",
             )
-

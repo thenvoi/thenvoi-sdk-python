@@ -86,4 +86,3 @@ class CrewAIHistoryConverter(HistoryConverter[CrewAIMessages]):
                 )
 
         return messages
-

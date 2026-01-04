@@ -86,4 +86,3 @@ class ParlantHistoryConverter(HistoryConverter[ParlantMessages]):
                 )
 
         return messages
-

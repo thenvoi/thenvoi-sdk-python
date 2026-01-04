@@ -231,7 +231,10 @@ class TestGuidelines:
         """Should format multiple guidelines."""
         adapter = ParlantAdapter(
             guidelines=[
-                {"condition": "User asks about refunds", "action": "Check order status"},
+                {
+                    "condition": "User asks about refunds",
+                    "action": "Check order status",
+                },
                 {"condition": "User is angry", "action": "Apologize first"},
                 {"condition": "Issue is complex", "action": "Escalate to supervisor"},
             ]
@@ -518,7 +521,10 @@ class TestParlantSpecificFeatures:
         """Should use guidelines in context for responses."""
         adapter = ParlantAdapter(
             guidelines=[
-                {"condition": "User asks about pricing", "action": "Refer to pricing page"},
+                {
+                    "condition": "User asks about pricing",
+                    "action": "Refer to pricing page",
+                },
                 {"condition": "User needs help", "action": "Ask clarifying questions"},
             ]
         )
@@ -552,4 +558,3 @@ class TestParlantSpecificFeatures:
 
         assert adapter.guidelines == []
         assert adapter._format_guidelines() == ""
-

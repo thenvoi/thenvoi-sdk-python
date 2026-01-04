@@ -392,4 +392,3 @@ class TestGuidelineBasedConversation:
         assert result[0]["content"] == "[User]: Analyze this document"
         assert result[1]["content"] == "Analysis complete: ..."
         assert result[1]["sender"] == "Analyzer Agent"
-

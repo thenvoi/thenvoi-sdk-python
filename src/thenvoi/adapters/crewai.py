@@ -100,7 +100,9 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
             # Use role/goal/backstory if provided, otherwise use platform metadata
             role = self.role or agent_name
             goal = self.goal or agent_description or "Help users accomplish their tasks"
-            backstory = self.backstory or f"You are {agent_name}, a collaborative AI agent."
+            backstory = (
+                self.backstory or f"You are {agent_name}, a collaborative AI agent."
+            )
 
             base_prompt = render_system_prompt(
                 agent_name=agent_name,
@@ -412,4 +414,3 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
             await tools.send_event(content=f"Error: {error}", message_type="error")
         except Exception:
             pass
-

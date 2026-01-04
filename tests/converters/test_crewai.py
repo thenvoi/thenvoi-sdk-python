@@ -348,4 +348,3 @@ class TestCrewWorkflow:
 
         assert result[0]["sender_type"] == "User"
         assert result[1]["sender_type"] == "Agent"
-
