@@ -1,6 +1,6 @@
 """Tests for AgentTools."""
 
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, Mock
 
 import pytest
 
@@ -315,12 +315,32 @@ class TestAgentToolsGetParticipants:
 class TestAgentToolsCreateChatroom:
     """Test create_chatroom tool."""
 
-    async def test_create_chatroom_not_implemented(self, mock_rest_client):
-        """create_chatroom() should raise NotImplementedError."""
-        tools = AgentTools("room-123", mock_rest_client)
+    async def test_create_chatroom_success(self, mock_rest_client):
+        """create_chatroom() should call REST API and return room ID."""
+        mock_response = Mock()
+        mock_response.data.id = "room-123"
+        mock_rest_client.agent_api.create_agent_chat = AsyncMock(
+            return_value=mock_response
+        )
 
-        with pytest.raises(NotImplementedError):
-            await tools.create_chatroom("New Room")
+        tools = AgentTools("room-456", mock_rest_client)
+        result = await tools.create_chatroom(task_id="task-789")
+
+        assert result == "room-123"
+        mock_rest_client.agent_api.create_agent_chat.assert_called_once()
+
+    async def test_create_chatroom_without_task_id(self, mock_rest_client):
+        """create_chatroom() should work without task_id."""
+        mock_response = Mock()
+        mock_response.data.id = "room-abc"
+        mock_rest_client.agent_api.create_agent_chat = AsyncMock(
+            return_value=mock_response
+        )
+
+        tools = AgentTools("room-456", mock_rest_client)
+        result = await tools.create_chatroom()
+
+        assert result == "room-abc"
 
 
 class TestAgentToolsSchemas:
@@ -515,6 +535,11 @@ class TestToolInputModels:
         assert model is not None
 
     def test_create_chatroom_input_validation(self):
-        """CreateChatroomInput should validate name."""
-        model = CreateChatroomInput(name="New Room")
-        assert model.name == "New Room"
+        """CreateChatroomInput should allow optional task_id."""
+        model = CreateChatroomInput(task_id="task-123")
+        assert model.task_id == "task-123"
+
+    def test_create_chatroom_input_no_task_id(self):
+        """CreateChatroomInput should work without task_id."""
+        model = CreateChatroomInput()
+        assert model.task_id is None
