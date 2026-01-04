@@ -81,7 +81,7 @@ class AgentToolsProtocol(Protocol):
         """Find available peers (agents and users) on the platform."""
         ...
 
-    async def create_chatroom(self, name: str) -> str:
+    async def create_chatroom(self, task_id: str | None = None) -> str:
         """Create a new chat room."""
         ...
 

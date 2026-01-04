@@ -109,6 +109,16 @@ Plain text responses will NOT be delivered. Always call the tool.
 - `message_type`: "thought" (reasoning), "error" (problems), "task" (progress)
 - Use to share your thinking process or report errors
 
+**mcp__thenvoi__create_chatroom** - Create a new chat room
+```json
+{{
+  "room_id": "abc-123-def",
+  "task_id": "optional-task-uuid"
+}}
+```
+- `task_id`: Optional UUID of associated task (can be empty string or omitted)
+- Returns the new room's ID
+
 ### Mentioning Participants
 
 To mention someone:
