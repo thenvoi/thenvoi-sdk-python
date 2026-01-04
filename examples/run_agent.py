@@ -18,6 +18,8 @@ Usage:
     uv run python examples/run_agent.py --example crewai
     uv run python examples/run_agent.py --example crewai --streaming  # Show tool calls
     uv run python examples/run_agent.py --example a2a --a2a-url http://localhost:10000  # A2A bridge
+    uv run python examples/run_agent.py --example a2a_gateway              # A2A Gateway (exposes peers)
+    uv run python examples/run_agent.py --example a2a_gateway --gateway-port 8080  # Custom port
 
 Configure agent in agent_config.yaml:
     uv run python examples/run_agent.py --agent test_agent
@@ -33,6 +35,8 @@ Setup:
 2. Configure agent in agent_config.yaml
 
 3. For A2A example, start a remote A2A agent first (e.g., LangGraph currency agent)
+
+4. For A2A Gateway example, the gateway exposes Thenvoi platform peers as A2A endpoints
 """
 
 import argparse
@@ -321,6 +325,53 @@ async def run_a2a_agent(
     await agent.run()
 
 
+async def run_a2a_gateway_agent(
+    agent_id: str,
+    api_key: str,
+    rest_url: str,
+    ws_url: str,
+    gateway_port: int,
+    enable_debug: bool,
+    logger: logging.Logger,
+):
+    """Run the A2A Gateway agent.
+
+    The gateway connects to Thenvoi platform and exposes discovered peers
+    as A2A endpoints. External A2A agents can call these peers via standard
+    A2A protocol.
+    """
+    from thenvoi.adapters import A2AGatewayAdapter
+
+    # Enable debug logging for gateway adapter
+    if enable_debug:
+        logging.getLogger("thenvoi.integrations.a2a.gateway").setLevel(logging.DEBUG)
+
+    gateway_url = f"http://localhost:{gateway_port}"
+
+    adapter = A2AGatewayAdapter(
+        rest_url=rest_url,
+        api_key=api_key,
+        gateway_url=gateway_url,
+        port=gateway_port,
+    )
+
+    agent = Agent.create(
+        adapter=adapter,
+        agent_id=agent_id,
+        api_key=api_key,
+        ws_url=ws_url,
+        rest_url=rest_url,
+    )
+
+    logger.info(f"Starting A2A Gateway on {gateway_url}...")
+    logger.info("Peers will be exposed at:")
+    logger.info(
+        f"  - {gateway_url}/agents/{{peer_id}}/.well-known/agent.json (discovery)"
+    )
+    logger.info(f"  - {gateway_url}/agents/{{peer_id}}/v1/message:stream (messaging)")
+    await agent.run()
+
+
 async def main():
     parser = argparse.ArgumentParser(
         description="Run a Thenvoi SDK test agent",
@@ -344,6 +395,9 @@ Examples:
   uv run python examples/run_agent.py --example a2a                       # A2A bridge (default: localhost:10000)
   uv run python examples/run_agent.py --example a2a --debug               # A2A with debug logging (context_id tracing)
   uv run python examples/run_agent.py --example a2a --a2a-url http://remote:8080  # A2A with custom URL
+  uv run python examples/run_agent.py --example a2a_gateway               # A2A Gateway (exposes peers)
+  uv run python examples/run_agent.py --example a2a_gateway --debug       # A2A Gateway with debug logging
+  uv run python examples/run_agent.py --example a2a_gateway --gateway-port 8080  # Custom gateway port
   uv run python examples/run_agent.py --agent my_custom_agent             # Use different agent config
   uv run python examples/run_agent.py --log-level DEBUG                   # Enable debug logging
         """,
@@ -359,6 +413,7 @@ Examples:
             "parlant",
             "crewai",
             "a2a",
+            "a2a_gateway",
         ],
         default="langgraph",
         help="Which example agent to run (default: langgraph)",
@@ -405,6 +460,12 @@ Examples:
         help="URL of the remote A2A agent (default: http://localhost:10000 or A2A_AGENT_URL env var)",
     )
     parser.add_argument(
+        "--gateway-port",
+        type=int,
+        default=int(os.getenv("GATEWAY_PORT", "10000")),
+        help="Port for A2A Gateway (default: 10000 or GATEWAY_PORT env var)",
+    )
+    parser.add_argument(
         "--debug",
         "-d",
         action="store_true",
@@ -424,6 +485,7 @@ Examples:
         "parlant": "parlant_agent",
         "crewai": "crewai_agent",
         "a2a": "a2a_agent",
+        "a2a_gateway": "a2a_gateway_agent",
     }
     if args.agent is None:
         args.agent = default_agents.get(args.example, "simple_agent")
@@ -537,6 +599,16 @@ Examples:
                 rest_url=rest_url,
                 ws_url=ws_url,
                 a2a_url=args.a2a_url,
+                enable_debug=args.debug,
+                logger=logger,
+            )
+        elif args.example == "a2a_gateway":
+            await run_a2a_gateway_agent(
+                agent_id=agent_id,
+                api_key=api_key,
+                rest_url=rest_url,
+                ws_url=ws_url,
+                gateway_port=args.gateway_port,
                 enable_debug=args.debug,
                 logger=logger,
             )
