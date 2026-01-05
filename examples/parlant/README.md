@@ -90,34 +90,51 @@ This is fundamentally different from system prompts that LLMs may ignore. Parlan
 
 ## Configuration
 
-Create an `agent_config.yaml`:
+### 1. Copy configuration files from examples
+
+```bash
+# From project root
+cp .env.example .env
+cp agent_config.yaml.example agent_config.yaml
+```
+
+### 2. Add your OpenAI API key to `.env`
+
+Edit `.env` and set your OpenAI API key:
+```bash
+OPENAI_API_KEY=sk-your-actual-key-here
+```
+
+### 3. Add agent credentials to `agent_config.yaml`
+
+1. Create an external agent on the [Thenvoi Platform](https://app.thenvoi.com)
+2. Generate an API key for the agent
+3. Edit `agent_config.yaml` and fill in the Parlant agent section:
 
 ```yaml
 parlant_agent:
-  agent_id: "your-agent-id"
-  api_key: "your-api-key"
-
-support_agent:
-  agent_id: "your-support-agent-id"
-  api_key: "your-support-api-key"
+  agent_id: "your-agent-id-from-platform"
+  api_key: "your-api-key-from-platform"
 ```
 
-Set environment variables:
-```bash
-export THENVOI_WS_URL="wss://api.thenvoi.com/ws"
-export THENVOI_REST_API_URL="https://api.thenvoi.com"
-export OPENAI_API_KEY="your-openai-key"
-```
+> **Note:** Always copy from the example files to ensure correct URLs and formatting. Never hardcode credentials.
 
 ---
 
 ## Running Examples
 
+**Important:** Run from the project root directory (where `agent_config.yaml` is located):
+
 ```bash
+# From project root
+cd /path/to/thenvoi-sdk-python
+
 uv run python examples/parlant/01_basic_agent.py
 uv run python examples/parlant/02_with_guidelines.py
 uv run python examples/parlant/03_support_agent.py
 ```
+
+> **Note:** The config loader looks for `agent_config.yaml` in the current working directory. Running from a subdirectory will cause a `FileNotFoundError`.
 
 ---
 

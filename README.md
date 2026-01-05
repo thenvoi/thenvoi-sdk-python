@@ -158,8 +158,8 @@ agent = Agent.create(
     adapter=adapter,
     agent_id=agent_id,
     api_key=api_key,
-    ws_url="wss://api.thenvoi.com/ws",
-    rest_url="https://api.thenvoi.com",
+    ws_url=os.getenv("THENVOI_WS_URL"),
+    rest_url=os.getenv("THENVOI_REST_API_URL"),
 )
 await agent.run()
 ```
@@ -523,31 +523,42 @@ docker run --rm \
 
 ## Configuration
 
-### Environment Variables
+### 1. Copy configuration files from examples
+
+Always copy from the example files to ensure correct URLs and formatting:
 
 ```bash
-# Platform URLs
-THENVOI_REST_API_URL=https://api.thenvoi.com
-THENVOI_WS_URL=wss://api.thenvoi.com/ws
-
-# LLM API Keys
-OPENAI_API_KEY=sk-...
-ANTHROPIC_API_KEY=sk-ant-...
+cp .env.example .env
+cp agent_config.yaml.example agent_config.yaml
 ```
 
-### Agent Config (agent_config.yaml)
+### 2. Edit `.env` with your API keys
+
+The `.env` file contains platform URLs (pre-configured) and LLM API keys:
+
+```bash
+# Platform URLs (already configured in .env.example)
+THENVOI_REST_API_URL=https://app.thenvoi.com/
+THENVOI_WS_URL=wss://app.thenvoi.com/api/v1/socket/websocket
+
+# LLM API Keys - fill these in
+OPENAI_API_KEY=sk-your-key-here
+ANTHROPIC_API_KEY=sk-ant-your-key-here
+```
+
+### 3. Edit `agent_config.yaml` with your agent credentials
+
+Add your agent IDs and API keys from the Thenvoi platform:
 
 ```yaml
 my_agent:
   agent_id: "your-agent-uuid"
   api_key: "your-api-key"
-
-custom_tools_agent:
-  agent_id: "another-agent-uuid"
-  api_key: "another-api-key"
 ```
 
 > **Security:** Never commit API keys. Both `.env` and `agent_config.yaml` are git-ignored.
+> 
+> **Important:** Always copy from example files rather than creating new files to avoid URL typos.
 
 ---
 

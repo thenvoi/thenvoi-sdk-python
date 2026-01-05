@@ -83,12 +83,31 @@ Rich context about the agent's expertise and background. Provides personality an
 
 ## Configuration
 
-Create an `agent_config.yaml`:
+### 1. Copy configuration files from examples
+
+```bash
+# From project root
+cp .env.example .env
+cp agent_config.yaml.example agent_config.yaml
+```
+
+### 2. Add your OpenAI API key to `.env`
+
+Edit `.env` and set your OpenAI API key:
+```bash
+OPENAI_API_KEY=sk-your-actual-key-here
+```
+
+### 3. Add agent credentials to `agent_config.yaml`
+
+1. Create external agents on the [Thenvoi Platform](https://app.thenvoi.com)
+2. Generate API keys for each agent
+3. Edit `agent_config.yaml` and fill in the CrewAI agent sections:
 
 ```yaml
 crewai_agent:
-  agent_id: "your-agent-id"
-  api_key: "your-api-key"
+  agent_id: "your-agent-id-from-platform"
+  api_key: "your-api-key-from-platform"
 
 coordinator_agent:
   agent_id: "your-coordinator-id"
@@ -108,26 +127,28 @@ editor_agent:
   api_key: "your-editor-key"
 ```
 
-Set environment variables:
-```bash
-export THENVOI_WS_URL="wss://api.thenvoi.com/ws"
-export THENVOI_REST_API_URL="https://api.thenvoi.com"
-export OPENAI_API_KEY="your-openai-key"
-```
+> **Note:** Always copy from the example files to ensure correct URLs and formatting. Never hardcode credentials.
 
 ---
 
 ## Running Examples
 
+**Important:** Run from the project root directory (where `agent_config.yaml` is located):
+
 ```bash
+# From project root
+cd /path/to/thenvoi-sdk-python
+
 uv run python examples/crewai/01_basic_agent.py
 uv run python examples/crewai/02_role_based_agent.py
 uv run python examples/crewai/03_coordinator_agent.py
 ```
 
+> **Note:** The config loader looks for `agent_config.yaml` in the current working directory. Running from a subdirectory will cause a `FileNotFoundError`.
+
 ### Running the Full Research Crew
 
-The `04_research_crew.py` example demonstrates a complete crew. Run each agent in separate terminals:
+The `04_research_crew.py` example demonstrates a complete crew. Run each agent in separate terminals from the project root:
 
 ```bash
 # Terminal 1 - Research Analyst
