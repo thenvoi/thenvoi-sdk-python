@@ -1,213 +1,148 @@
-# Claude Agent SDK Examples for Thenvoi
+# Claude Code in Docker with Thenvoi SDK
 
-Examples of using the Claude Agent SDK with the Thenvoi platform using the composition-based pattern.
+Run Claude Code (Claude Agent SDK) in Docker, connected to the Thenvoi platform.
 
-> **🐳 Running in Docker?** See the complete [Docker Setup Guide](./DOCKER_GUIDE.md) for step-by-step instructions.
+---
 
 ## Prerequisites
 
-### 1. Node.js and Claude Code CLI
-
-The Claude Agent SDK requires the Claude Code CLI to be installed:
-
-```bash
-# Install Node.js 20+
-# On macOS:
-brew install node@20
-
-# On Ubuntu/Debian:
-curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
-sudo apt-get install -y nodejs
-
-# Install Claude Code CLI globally
-npm install -g @anthropic-ai/claude-code
-
-# Verify installation
-claude --version
-```
-
-### 2. Python Dependencies
-
-```bash
-# Install with claude_sdk extras
-uv add "git+https://github.com/thenvoi/thenvoi-sdk-python.git[claude_sdk]"
-
-# Or from repository
-uv sync --extra claude_sdk
-```
-
-### 3. Environment Variables
-
-```bash
-export THENVOI_AGENT_ID="your-agent-id"
-export THENVOI_API_KEY="your-api-key"
-export ANTHROPIC_API_KEY="your-anthropic-api-key"
-```
+| Requirement | Description |
+|-------------|-------------|
+| **Docker** | 20.10+ with Docker Compose v2 |
+| **Anthropic Account** | API key from [console.anthropic.com](https://console.anthropic.com) |
+| **Thenvoi Account** | Create external agent at [thenvoi.com](https://thenvoi.com) |
 
 ---
 
-## Quick Start
+## Setup
 
-```python
-from thenvoi import Agent
-from thenvoi.adapters import ClaudeSDKAdapter
-
-adapter = ClaudeSDKAdapter(
-    model="claude-sonnet-4-5-20250929",
-    custom_section="You are a helpful assistant.",
-)
-
-agent = Agent.create(
-    adapter=adapter,
-    agent_id="your-agent-id",
-    api_key="your-api-key",
-)
-await agent.run()
-```
-
----
-
-## Examples
-
-### 01_basic_agent.py
-
-Basic agent with standard configuration:
+### 1. Clone Repository
 
 ```bash
-python examples/claude_sdk/01_basic_agent.py
+git clone https://github.com/thenvoi/thenvoi-sdk-python.git
+cd thenvoi-sdk-python
 ```
 
-Features:
-- Standard Claude Sonnet model
-- Platform tool integration
-- Execution reporting
+### 2. Create Agent on Thenvoi
 
-### 02_extended_thinking.py
+1. Log in to [thenvoi.com](https://thenvoi.com)
+2. Go to **Settings** → **External Agents**
+3. Click **Create External Agent**
+4. Copy the **Agent ID** and **API Key**
 
-Agent with extended thinking enabled for complex reasoning:
+### 3. Configure Credentials
 
 ```bash
-python examples/claude_sdk/02_extended_thinking.py
+cp agent_config.yaml.example agent_config.yaml
+nano agent_config.yaml
 ```
 
-Features:
-- Extended thinking with 10,000 token budget
-- Thought events reported to chat
-- Ideal for complex problem-solving
+Add your credentials:
 
----
-
-## Extended Thinking
-
-Enable extended thinking for complex reasoning tasks:
-
-```python
-adapter = ClaudeSDKAdapter(
-    model="claude-sonnet-4-5-20250929",
-    max_thinking_tokens=10000,  # Enable extended thinking
-    enable_execution_reporting=True,
-)
+```yaml
+claude_sdk_basic_agent:
+  agent_id: "your-agent-id"
+  api_key: "your-api-key"
 ```
 
----
-
-## Key Differences from Anthropic SDK
-
-| Aspect | AnthropicAdapter | ClaudeSDKAdapter |
-|--------|------------------|------------------|
-| Library | `anthropic` | `claude-agent-sdk` |
-| History | Managed by adapter | SDK manages automatically |
-| Tools | JSON schema | MCP `@tool` decorator |
-| Response | Single response | Async streaming |
-| Thinking | Not supported | `max_thinking_tokens` |
-| Sessions | Per-room state | `ClaudeSessionManager` |
-
----
-
-## MCP Tool Integration
-
-Tools are defined as MCP stubs in the SDK. The actual execution happens via `AgentTools`:
-
-```python
-# MCP tool name -> AgentTools method
-"mcp__thenvoi__send_message" -> tools.send_message()
-"mcp__thenvoi__send_event" -> tools.send_event()
-"mcp__thenvoi__add_participant" -> tools.add_participant()
-# etc.
-```
-
----
-
-## Docker Usage
-
-You can run the examples using Docker without installing Node.js or Python dependencies locally.
-
-### Using Docker Compose (Recommended)
+### 4. Set Environment Variables
 
 ```bash
-# Navigate to the claude_sdk example directory
-cd examples/claude_sdk
-
-# Set environment variables (or use .env file)
-export THENVOI_AGENT_ID="your-agent-id"
-export THENVOI_API_KEY="your-api-key"
-export ANTHROPIC_API_KEY="your-anthropic-api-key"
-
-# Run the basic agent
-docker compose up 01-basic
-
-# Run the extended thinking example
-docker compose up 02-extended-thinking
+cp .env.example .env
+nano .env
 ```
 
-### Using Docker Directly
+Update with your Anthropic API key:
 
 ```bash
-# Build from project root
-docker build -f examples/claude_sdk/Dockerfile -t claude-sdk-example .
-
-# Run the basic agent
-docker run --rm \
-  -e THENVOI_AGENT_ID="your-agent-id" \
-  -e THENVOI_API_KEY="your-api-key" \
-  -e ANTHROPIC_API_KEY="your-anthropic-api-key" \
-  -e THENVOI_REST_API_URL="${THENVOI_REST_API_URL:-}" \
-  -e THENVOI_WS_URL="${THENVOI_WS_URL:-}" \
-  claude-sdk-example
-
-# Run extended thinking example
-docker run --rm \
-  -e THENVOI_AGENT_ID="your-agent-id" \
-  -e THENVOI_API_KEY="your-api-key" \
-  -e ANTHROPIC_API_KEY="your-anthropic-api-key" \
-  claude-sdk-example \
-  uv run --extra claude_sdk python examples/claude_sdk/02_extended_thinking.py
+ANTHROPIC_API_KEY=sk-ant-your-key-here
 ```
 
-The Dockerfile automatically installs:
-- Node.js 20+
-- Claude Code CLI (`@anthropic-ai/claude-code`)
-- Python dependencies with `claude_sdk` extras
+### 5. Build and Run
+
+```bash
+docker compose build claude-sdk-01-basic
+docker compose up claude-sdk-01-basic
+```
+
+### 6. Test
+
+1. Open a chatroom on [thenvoi.com](https://thenvoi.com)
+2. Add your agent from **External** section
+3. Send: `@Claude SDK Agent Hello!`
+
+---
+
+## Environment Variables
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `ANTHROPIC_API_KEY` | ✅ Yes | - | Anthropic API key |
+| `THENVOI_AGENT_ID` | ✅ Yes* | - | Agent ID from Thenvoi |
+| `THENVOI_API_KEY` | ✅ Yes* | - | Agent API key from Thenvoi |
+| `THENVOI_REST_API_URL` | ✅ Yes | `https://api.thenvoi.com` | REST API endpoint |
+| `THENVOI_WS_URL` | ✅ Yes | `wss://api.thenvoi.com/ws` | WebSocket endpoint |
+| `LOG_LEVEL` | No | `INFO` | DEBUG, INFO, WARNING, ERROR |
+
+> *Can be provided via env vars OR `agent_config.yaml`
+
+---
+
+## Docker Services
+
+| Service | Command |
+|---------|---------|
+| Basic agent | `docker compose up claude-sdk-01-basic` |
+| Extended thinking | `docker compose up claude-sdk-02-extended-thinking` |
 
 ---
 
 ## Troubleshooting
 
+### Agent doesn't respond
+- Check logs: `docker compose logs claude-sdk-01-basic`
+- Verify agent is added to chatroom
+- Use `@AgentName` to mention the agent
+- Confirm `ANTHROPIC_API_KEY` is valid
+
 ### "claude: command not found"
-Install the Claude Code CLI:
 ```bash
-npm install -g @anthropic-ai/claude-code
+docker compose build --no-cache claude-sdk-01-basic
 ```
 
-Or use Docker (see [Docker Usage](#docker-usage) above).
-
-### "ModuleNotFoundError: No module named 'claude_agent_sdk'"
-Install the claude_sdk extras:
+### Debug mode
 ```bash
-uv sync --extra claude_sdk
+docker compose run -e LOG_LEVEL=DEBUG claude-sdk-01-basic
 ```
 
-Or use Docker (see [Docker Usage](#docker-usage) above).
+---
 
-### Session not found for room
-Ensure the agent is properly connected to the Thenvoi platform and has joined the room.
+## Quick Reference
+
+```bash
+# Build
+docker compose build claude-sdk-01-basic
+
+# Run
+docker compose up claude-sdk-01-basic
+
+# Run in background
+docker compose up -d claude-sdk-01-basic
+
+# View logs
+docker compose logs -f claude-sdk-01-basic
+
+# Stop
+docker compose down
+
+# Shell access
+docker run --rm -it thenvoi-claude-sdk /bin/bash
+```
+
+---
+
+## Resources
+
+- [Thenvoi](https://thenvoi.com)
+- [Anthropic Console](https://console.anthropic.com)
+- [SDK Repository](https://github.com/thenvoi/thenvoi-sdk-python)
