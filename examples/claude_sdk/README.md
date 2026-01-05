@@ -2,6 +2,8 @@
 
 Examples of using the Claude Agent SDK with the Thenvoi platform using the composition-based pattern.
 
+> **🐳 Running in Docker?** See the complete [Docker Setup Guide](./DOCKER_GUIDE.md) for step-by-step instructions.
+
 ## Prerequisites
 
 ### 1. Node.js and Claude Code CLI
