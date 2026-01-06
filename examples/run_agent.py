@@ -13,7 +13,7 @@ Usage:
     uv run python examples/run_agent.py --example claude_sdk --thinking  # Enable extended thinking
     uv run python examples/run_agent.py --example parlant
     uv run python examples/run_agent.py --example crewai
-    uv run python examples/run_agent.py --example crewai --execution-reporting  # Show tool calls
+    uv run python examples/run_agent.py --example crewai --streaming  # Show tool calls
 
 Configure agent in agent_config.yaml:
     uv run python examples/run_agent.py --agent test_agent
@@ -151,7 +151,7 @@ async def run_anthropic_agent(
     ws_url: str,
     model: str,
     custom_section: str,
-    enable_execution_reporting: bool,
+    enable_streaming: bool,
     logger: logging.Logger,
 ):
     """Run the Anthropic SDK agent."""
@@ -160,7 +160,7 @@ async def run_anthropic_agent(
     adapter = AnthropicAdapter(
         model=model,
         custom_section=custom_section,
-        enable_execution_reporting=enable_execution_reporting,
+        enable_execution_reporting=enable_streaming,
     )
 
     agent = Agent.create(
@@ -183,7 +183,7 @@ async def run_claude_sdk_agent(
     model: str,
     custom_section: str,
     enable_thinking: bool,
-    enable_execution_reporting: bool,
+    enable_streaming: bool,
     logger: logging.Logger,
 ):
     """Run the Claude Agent SDK agent."""
@@ -193,7 +193,7 @@ async def run_claude_sdk_agent(
         model=model,
         custom_section=custom_section,
         max_thinking_tokens=10000 if enable_thinking else None,
-        enable_execution_reporting=enable_execution_reporting,
+        enable_execution_reporting=enable_streaming,
     )
 
     agent = Agent.create(
@@ -216,7 +216,7 @@ async def run_parlant_agent(
     ws_url: str,
     model: str,
     custom_section: str,
-    enable_execution_reporting: bool,
+    enable_streaming: bool,
     logger: logging.Logger,
 ):
     """Run the Parlant agent."""
@@ -226,7 +226,7 @@ async def run_parlant_agent(
         model=model,
         custom_section=custom_section,
         guidelines=PARLANT_GUIDELINES,
-        enable_execution_reporting=enable_execution_reporting,
+        enable_execution_reporting=enable_streaming,
     )
 
     agent = Agent.create(
@@ -248,7 +248,7 @@ async def run_crewai_agent(
     ws_url: str,
     model: str,
     custom_section: str,
-    enable_execution_reporting: bool,
+    enable_streaming: bool,
     logger: logging.Logger,
 ):
     """Run the CrewAI agent."""
@@ -260,7 +260,7 @@ async def run_crewai_agent(
         goal=CREWAI_DEFAULTS["goal"],
         backstory=CREWAI_DEFAULTS["backstory"],
         custom_section=custom_section,
-        enable_execution_reporting=enable_execution_reporting,
+        enable_execution_reporting=enable_streaming,
     )
 
     agent = Agent.create(
@@ -290,10 +290,10 @@ Examples:
   uv run python examples/run_agent.py --example claude_sdk --thinking     # With extended thinking
   uv run python examples/run_agent.py --example parlant                   # Parlant adapter
   uv run python examples/run_agent.py --example crewai                    # CrewAI adapter
-  uv run python examples/run_agent.py --example anthropic --execution-reporting  # With tool visibility
-  uv run python examples/run_agent.py --example claude_sdk --execution-reporting  # With tool visibility
-  uv run python examples/run_agent.py --example parlant --execution-reporting     # With tool visibility
-  uv run python examples/run_agent.py --example crewai --execution-reporting      # With tool visibility
+  uv run python examples/run_agent.py --example anthropic --streaming  # With tool visibility
+  uv run python examples/run_agent.py --example claude_sdk --streaming  # With tool visibility
+  uv run python examples/run_agent.py --example parlant --streaming     # With tool visibility
+  uv run python examples/run_agent.py --example crewai --streaming      # With tool visibility
   uv run python examples/run_agent.py --agent my_custom_agent             # Use different agent config
   uv run python examples/run_agent.py --log-level DEBUG                   # Enable debug logging
         """,
@@ -343,7 +343,7 @@ Examples:
         help="Enable extended thinking for Claude SDK (default: False)",
     )
     parser.add_argument(
-        "--execution-reporting",
+        "--streaming",
         action="store_true",
         help="Enable tool call/result visibility for anthropic/claude_sdk/parlant/crewai (default: False)",
     )
@@ -404,7 +404,7 @@ Examples:
                 ws_url=ws_url,
                 model=model,
                 custom_section=args.custom_section,
-                enable_execution_reporting=args.execution_reporting,
+                enable_streaming=args.streaming,
                 logger=logger,
             )
         elif args.example == "claude_sdk":
@@ -420,7 +420,7 @@ Examples:
                 model=model,
                 custom_section=args.custom_section,
                 enable_thinking=args.thinking,
-                enable_execution_reporting=args.execution_reporting,
+                enable_streaming=args.streaming,
                 logger=logger,
             )
         elif args.example == "parlant":
@@ -435,7 +435,7 @@ Examples:
                 ws_url=ws_url,
                 model=model,
                 custom_section=args.custom_section,
-                enable_execution_reporting=args.execution_reporting,
+                enable_streaming=args.streaming,
                 logger=logger,
             )
         elif args.example == "crewai":
@@ -450,7 +450,7 @@ Examples:
                 ws_url=ws_url,
                 model=model,
                 custom_section=args.custom_section,
-                enable_execution_reporting=args.execution_reporting,
+                enable_streaming=args.streaming,
                 logger=logger,
             )
     except KeyboardInterrupt:
