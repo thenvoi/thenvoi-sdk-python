@@ -326,8 +326,8 @@ Examples:
     parser.add_argument(
         "--agent",
         "-g",
-        default="test_agent",
-        help="Agent key from agent_config.yaml (default: test_agent)",
+        default=None,
+        help="Agent key from agent_config.yaml (default: based on --example)",
     )
     parser.add_argument(
         "--model",
@@ -363,6 +363,18 @@ Examples:
     args = parser.parse_args()
 
     logger = setup_logging(args.log_level)
+
+    # Set default agent based on example type if not specified
+    default_agents = {
+        "langgraph": "simple_agent",
+        "pydantic_ai": "pydantic_agent",
+        "anthropic": "anthropic_agent",
+        "claude_sdk": "anthropic_agent",
+        "parlant": "parlant_agent",
+        "crewai": "crewai_agent",
+    }
+    if args.agent is None:
+        args.agent = default_agents.get(args.example, "simple_agent")
 
     # Load URLs from environment
     rest_url = os.getenv("THENVOI_REST_API_URL")
