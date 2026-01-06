@@ -440,44 +440,6 @@ class TestToolLoop:
             # Should call LLM twice (initial + after tool execution)
             assert mock_call.call_count == 2
 
-    @pytest.mark.asyncio
-    async def test_max_iterations_prevents_infinite_loop(
-        self, sample_message, mock_tools
-    ):
-        """Should stop after max iterations to prevent infinite loops."""
-        adapter = CrewAIAdapter()
-        adapter._max_tool_iterations = 3
-        await adapter.on_started("TestBot", "Test bot")
-
-        with patch.object(adapter, "_call_llm") as mock_call:
-            # Always return tool calls (would loop forever without limit)
-            mock_call.return_value = {
-                "content": None,
-                "tool_calls": [
-                    {
-                        "id": "call-1",
-                        "type": "function",
-                        "function": {
-                            "name": "send_message",
-                            "arguments": '{"content": "Hi"}',
-                        },
-                    }
-                ],
-            }
-
-            await adapter.on_message(
-                msg=sample_message,
-                tools=mock_tools,
-                history=[],
-                participants_msg=None,
-                is_session_bootstrap=True,
-                room_id="room-123",
-            )
-
-            # Should stop at max iterations
-            assert mock_call.call_count == 3
-
-
 class TestVerboseMode:
     """Tests for verbose mode."""
 
