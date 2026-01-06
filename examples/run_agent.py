@@ -21,7 +21,7 @@ Configure agent in agent_config.yaml:
 
 Setup:
 1. Copy .env.example to .env and configure:
-   - THENVOI_REST_API_URL (default: production, change for local dev)
+   - THENVOI_REST_URL (default: production, change for local dev)
    - THENVOI_WS_URL (default: production, change for local dev)
    - OPENAI_API_KEY (required for langgraph/openai models)
    - ANTHROPIC_API_KEY (required for anthropic models)
@@ -257,11 +257,11 @@ Examples:
     logger = setup_logging(args.log_level)
 
     # Load URLs from environment
-    rest_url = os.getenv("THENVOI_REST_API_URL")
+    rest_url = os.getenv("THENVOI_REST_URL")
     ws_url = os.getenv("THENVOI_WS_URL")
 
     if not rest_url:
-        parser.error("THENVOI_REST_API_URL environment variable is required")
+        parser.error("THENVOI_REST_URL environment variable is required")
     if not ws_url:
         parser.error("THENVOI_WS_URL environment variable is required")
 

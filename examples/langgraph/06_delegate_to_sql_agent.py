@@ -35,12 +35,12 @@ logger = logging.getLogger(__name__)
 async def main():
     load_dotenv()
     ws_url = os.getenv("THENVOI_WS_URL")
-    rest_url = os.getenv("THENVOI_REST_API_URL")
+    rest_url = os.getenv("THENVOI_REST_URL")
 
     if not ws_url:
         raise ValueError("THENVOI_WS_URL environment variable is required")
     if not rest_url:
-        raise ValueError("THENVOI_REST_API_URL environment variable is required")
+        raise ValueError("THENVOI_REST_URL environment variable is required")
 
     # Load agent configuration from agent_config.yaml
     agent_id, api_key = load_agent_config("sql_agent")
