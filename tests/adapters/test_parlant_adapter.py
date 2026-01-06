@@ -475,6 +475,7 @@ class TestToolLoop:
             # Should call LLM twice (initial + after tool execution)
             assert mock_call.call_count == 2
 
+
 class TestParlantSpecificFeatures:
     """Tests for Parlant-specific features."""
 
