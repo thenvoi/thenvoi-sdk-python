@@ -11,6 +11,9 @@ Usage:
     uv run python examples/run_agent.py --example anthropic --model claude-sonnet-4-5-20250929
     uv run python examples/run_agent.py --example claude_sdk
     uv run python examples/run_agent.py --example claude_sdk --thinking  # Enable extended thinking
+    uv run python examples/run_agent.py --example parlant
+    uv run python examples/run_agent.py --example crewai
+    uv run python examples/run_agent.py --example crewai --execution-reporting  # Show tool calls
 
 Configure agent in agent_config.yaml:
     uv run python examples/run_agent.py --agent test_agent
@@ -20,7 +23,7 @@ Setup:
 1. Copy .env.example to .env and configure:
    - THENVOI_REST_API_URL (default: production, change for local dev)
    - THENVOI_WS_URL (default: production, change for local dev)
-   - OPENAI_API_KEY (required for langgraph/openai models)
+   - OPENAI_API_KEY (required for langgraph/openai/parlant/crewai models)
    - ANTHROPIC_API_KEY (required for anthropic models)
 
 2. Configure agent in agent_config.yaml
@@ -60,6 +63,21 @@ PYDANTIC_AI_INSTRUCTIONS = """
 
 If you don't know something and can't delegate to another agent, say "I don't know" - never make up information.
 """
+
+PARLANT_GUIDELINES = [
+    {
+        "condition": "User asks for help",
+        "action": "Acknowledge and clarify before helping",
+    },
+    {"condition": "User says goodbye", "action": "Summarize and offer further help"},
+]
+
+CREWAI_DEFAULTS = {
+    "role": "Research Assistant",
+    "goal": "Help users find, analyze, and synthesize information",
+    "backstory": "Expert researcher with attention to detail and ability to break down "
+    "complex topics into understandable insights.",
+}
 
 
 async def run_langgraph_agent(
@@ -133,6 +151,7 @@ async def run_anthropic_agent(
     ws_url: str,
     model: str,
     custom_section: str,
+    enable_execution_reporting: bool,
     logger: logging.Logger,
 ):
     """Run the Anthropic SDK agent."""
@@ -141,6 +160,7 @@ async def run_anthropic_agent(
     adapter = AnthropicAdapter(
         model=model,
         custom_section=custom_section,
+        enable_execution_reporting=enable_execution_reporting,
     )
 
     agent = Agent.create(
@@ -163,6 +183,7 @@ async def run_claude_sdk_agent(
     model: str,
     custom_section: str,
     enable_thinking: bool,
+    enable_execution_reporting: bool,
     logger: logging.Logger,
 ):
     """Run the Claude Agent SDK agent."""
@@ -172,6 +193,7 @@ async def run_claude_sdk_agent(
         model=model,
         custom_section=custom_section,
         max_thinking_tokens=10000 if enable_thinking else None,
+        enable_execution_reporting=enable_execution_reporting,
     )
 
     agent = Agent.create(
@@ -184,6 +206,72 @@ async def run_claude_sdk_agent(
 
     thinking_str = " with extended thinking" if enable_thinking else ""
     logger.info(f"Starting Claude SDK agent with model: {model}{thinking_str}")
+    await agent.run()
+
+
+async def run_parlant_agent(
+    agent_id: str,
+    api_key: str,
+    rest_url: str,
+    ws_url: str,
+    model: str,
+    custom_section: str,
+    enable_execution_reporting: bool,
+    logger: logging.Logger,
+):
+    """Run the Parlant agent."""
+    from thenvoi.adapters import ParlantAdapter
+
+    adapter = ParlantAdapter(
+        model=model,
+        custom_section=custom_section,
+        guidelines=PARLANT_GUIDELINES,
+        enable_execution_reporting=enable_execution_reporting,
+    )
+
+    agent = Agent.create(
+        adapter=adapter,
+        agent_id=agent_id,
+        api_key=api_key,
+        ws_url=ws_url,
+        rest_url=rest_url,
+    )
+
+    logger.info(f"Starting Parlant agent with model: {model}")
+    await agent.run()
+
+
+async def run_crewai_agent(
+    agent_id: str,
+    api_key: str,
+    rest_url: str,
+    ws_url: str,
+    model: str,
+    custom_section: str,
+    enable_execution_reporting: bool,
+    logger: logging.Logger,
+):
+    """Run the CrewAI agent."""
+    from thenvoi.adapters import CrewAIAdapter
+
+    adapter = CrewAIAdapter(
+        model=model,
+        role=CREWAI_DEFAULTS["role"],
+        goal=CREWAI_DEFAULTS["goal"],
+        backstory=CREWAI_DEFAULTS["backstory"],
+        custom_section=custom_section,
+        enable_execution_reporting=enable_execution_reporting,
+    )
+
+    agent = Agent.create(
+        adapter=adapter,
+        agent_id=agent_id,
+        api_key=api_key,
+        ws_url=ws_url,
+        rest_url=rest_url,
+    )
+
+    logger.info(f"Starting CrewAI agent with model: {model}")
     await agent.run()
 
 
@@ -200,6 +288,12 @@ Examples:
   uv run python examples/run_agent.py --example anthropic                 # Anthropic SDK
   uv run python examples/run_agent.py --example claude_sdk                # Claude Agent SDK
   uv run python examples/run_agent.py --example claude_sdk --thinking     # With extended thinking
+  uv run python examples/run_agent.py --example parlant                   # Parlant adapter
+  uv run python examples/run_agent.py --example crewai                    # CrewAI adapter
+  uv run python examples/run_agent.py --example anthropic --execution-reporting  # With tool visibility
+  uv run python examples/run_agent.py --example claude_sdk --execution-reporting  # With tool visibility
+  uv run python examples/run_agent.py --example parlant --execution-reporting     # With tool visibility
+  uv run python examples/run_agent.py --example crewai --execution-reporting      # With tool visibility
   uv run python examples/run_agent.py --agent my_custom_agent             # Use different agent config
   uv run python examples/run_agent.py --log-level DEBUG                   # Enable debug logging
         """,
@@ -207,7 +301,14 @@ Examples:
     parser.add_argument(
         "--example",
         "-e",
-        choices=["langgraph", "pydantic_ai", "anthropic", "claude_sdk"],
+        choices=[
+            "langgraph",
+            "pydantic_ai",
+            "anthropic",
+            "claude_sdk",
+            "parlant",
+            "crewai",
+        ],
         default="langgraph",
         help="Which example agent to run (default: langgraph)",
     )
@@ -240,6 +341,11 @@ Examples:
         "-t",
         action="store_true",
         help="Enable extended thinking for Claude SDK (default: False)",
+    )
+    parser.add_argument(
+        "--execution-reporting",
+        action="store_true",
+        help="Enable tool call/result visibility for anthropic/claude_sdk/parlant/crewai (default: False)",
     )
 
     args = parser.parse_args()
@@ -298,6 +404,7 @@ Examples:
                 ws_url=ws_url,
                 model=model,
                 custom_section=args.custom_section,
+                enable_execution_reporting=args.execution_reporting,
                 logger=logger,
             )
         elif args.example == "claude_sdk":
@@ -313,6 +420,37 @@ Examples:
                 model=model,
                 custom_section=args.custom_section,
                 enable_thinking=args.thinking,
+                enable_execution_reporting=args.execution_reporting,
+                logger=logger,
+            )
+        elif args.example == "parlant":
+            # For Parlant example, use OpenAI model format
+            model = args.model
+            if model == "openai:gpt-4o":
+                model = "gpt-4o"
+            await run_parlant_agent(
+                agent_id=agent_id,
+                api_key=api_key,
+                rest_url=rest_url,
+                ws_url=ws_url,
+                model=model,
+                custom_section=args.custom_section,
+                enable_execution_reporting=args.execution_reporting,
+                logger=logger,
+            )
+        elif args.example == "crewai":
+            # For CrewAI example, use OpenAI model format
+            model = args.model
+            if model == "openai:gpt-4o":
+                model = "gpt-4o"
+            await run_crewai_agent(
+                agent_id=agent_id,
+                api_key=api_key,
+                rest_url=rest_url,
+                ws_url=ws_url,
+                model=model,
+                custom_section=args.custom_section,
+                enable_execution_reporting=args.execution_reporting,
                 logger=logger,
             )
     except KeyboardInterrupt:

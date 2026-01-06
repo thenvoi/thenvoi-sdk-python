@@ -86,8 +86,6 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
         self._message_history: dict[str, list[dict[str, Any]]] = {}
         # Rendered system prompt (set after start)
         self._system_prompt: str = ""
-        # Max tool iterations to prevent infinite loops
-        self._max_tool_iterations = 10
 
     async def on_started(self, agent_name: str, agent_description: str) -> None:
         """Initialize CrewAI agent after metadata is fetched."""
@@ -197,14 +195,8 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
         # Build messages for LLM call
         messages = self._build_messages(room_id)
 
-        # Tool loop (similar to CrewAI's agent execution)
-        iteration = 0
-        while iteration < self._max_tool_iterations:
-            iteration += 1
-
-            if self.verbose:
-                logger.info(f"Room {room_id}: Iteration {iteration}")
-
+        # Tool loop - let LLM decide when to stop
+        while True:
             try:
                 response = await self._call_llm(messages, tool_schemas)
             except Exception as e:
@@ -246,11 +238,6 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
 
             # Update messages for next iteration
             messages = self._build_messages(room_id)
-
-        if iteration >= self._max_tool_iterations:
-            logger.warning(
-                f"Room {room_id}: Hit max tool iterations ({self._max_tool_iterations})"
-            )
 
         logger.debug(
             f"Message {msg.id} processed successfully "
@@ -360,7 +347,7 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
             # Report tool call if enabled
             if self.enable_execution_reporting:
                 await tools.send_event(
-                    content=f"Calling {tool_name}",
+                    content=json.dumps({"tool": tool_name, "input": arguments}),
                     message_type="tool_call",
                     metadata={"tool": tool_name, "input": arguments},
                 )
@@ -382,10 +369,8 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
             # Report tool result if enabled
             if self.enable_execution_reporting:
                 await tools.send_event(
-                    content=(
-                        f"Result: {result_str[:200]}..."
-                        if len(result_str) > 200
-                        else f"Result: {result_str}"
+                    content=json.dumps(
+                        {"tool": tool_name, "result": result_str, "is_error": is_error}
                     ),
                     message_type="tool_result",
                     metadata={"tool": tool_name, "is_error": is_error},

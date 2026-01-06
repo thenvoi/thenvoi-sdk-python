@@ -65,8 +65,6 @@ class AnthropicAdapter(SimpleAdapter[AnthropicMessages]):
         self._message_history: dict[str, list[dict[str, Any]]] = {}
         # Rendered system prompt (set after start)
         self._system_prompt: str = ""
-        # Max tool iterations to prevent infinite loops
-        self._max_tool_iterations = 10
 
     # --- Copied from ThenvoiAnthropicAgent._on_started ---
     async def on_started(self, agent_name: str, agent_description: str) -> None:
@@ -145,11 +143,8 @@ class AnthropicAdapter(SimpleAdapter[AnthropicMessages]):
         # Get tool schemas in Anthropic format (typed helper)
         tool_schemas = tools.get_anthropic_tool_schemas()
 
-        # Tool loop
-        iteration = 0
-        while iteration < self._max_tool_iterations:
-            iteration += 1
-
+        # Tool loop - let LLM decide when to stop
+        while True:
             try:
                 response = await self._call_anthropic(
                     messages=self._message_history[room_id],
@@ -194,11 +189,6 @@ class AnthropicAdapter(SimpleAdapter[AnthropicMessages]):
                     "role": "user",
                     "content": tool_results,
                 }
-            )
-
-        if iteration >= self._max_tool_iterations:
-            logger.warning(
-                f"Room {room_id}: Hit max tool iterations ({self._max_tool_iterations})"
             )
 
         logger.debug(
