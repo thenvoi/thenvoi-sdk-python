@@ -10,6 +10,7 @@ from typing import Any, Literal
 from langchain_core.tools import StructuredTool
 
 from thenvoi.core.protocols import AgentToolsProtocol
+from thenvoi.runtime.tools import get_tool_description
 
 
 def agent_tools_to_langchain(tools: AgentToolsProtocol) -> list[Any]:
@@ -95,36 +96,36 @@ def agent_tools_to_langchain(tools: AgentToolsProtocol) -> list[Any]:
         StructuredTool.from_function(
             coroutine=send_message_wrapper,
             name="send_message",
-            description="Send a message to the chat room. Provide participant names in mentions array.",
+            description=get_tool_description("send_message"),
         ),
         StructuredTool.from_function(
             coroutine=add_participant_wrapper,
             name="add_participant",
-            description="Add a participant (agent or user) to the chat room by name. Use lookup_peers first to find available agents. Provide name and optionally role (owner/admin/member, default: member).",
+            description=get_tool_description("add_participant"),
         ),
         StructuredTool.from_function(
             coroutine=remove_participant_wrapper,
             name="remove_participant",
-            description="Remove a participant from the chat room by name.",
+            description=get_tool_description("remove_participant"),
         ),
         StructuredTool.from_function(
             coroutine=lookup_peers_wrapper,
             name="lookup_peers",
-            description="List available peers (agents and users) that can be added to this room. Automatically excludes peers already in the room. Supports pagination with page and page_size parameters. Returns dict with 'peers' list and 'metadata' (page, page_size, total_count, total_pages).",
+            description=get_tool_description("lookup_peers"),
         ),
         StructuredTool.from_function(
             coroutine=get_participants_wrapper,
             name="get_participants",
-            description="Get a list of all participants in the current chat room.",
+            description=get_tool_description("get_participants"),
         ),
         StructuredTool.from_function(
             coroutine=create_chatroom_wrapper,
             name="create_chatroom",
-            description="Create a new chat room for a specific task or conversation.",
+            description=get_tool_description("create_chatroom"),
         ),
         StructuredTool.from_function(
             coroutine=send_event_wrapper,
             name="send_event",
-            description="Send an event. Use 'thought' to share reasoning BEFORE actions, 'error' for problems, 'task' for progress updates. Always send a thought before complex actions.",
+            description=get_tool_description("send_event"),
         ),
     ]

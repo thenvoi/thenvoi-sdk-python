@@ -290,12 +290,17 @@ class AnthropicAdapter(SimpleAdapter[AnthropicMessages]):
 
             logger.debug(f"Executing tool: {tool_name} with input: {tool_input}")
 
-            # Report tool call if enabled
+            # Report tool call if enabled (JSON format with tool_call_id for linking)
             if self.enable_execution_reporting:
                 await tools.send_event(
-                    content=f"Calling {tool_name}",
+                    content=json.dumps(
+                        {
+                            "name": tool_name,
+                            "args": tool_input,
+                            "tool_call_id": tool_use_id,
+                        }
+                    ),
                     message_type="tool_call",
-                    metadata={"tool": tool_name, "input": tool_input},
                 )
 
             # Execute tool
@@ -312,14 +317,17 @@ class AnthropicAdapter(SimpleAdapter[AnthropicMessages]):
                 is_error = True
                 logger.error(f"Tool {tool_name} failed: {e}")
 
-            # Report tool result if enabled
+            # Report tool result if enabled (JSON format with tool_call_id for linking)
             if self.enable_execution_reporting:
                 await tools.send_event(
-                    content=f"Result: {result_str[:200]}..."
-                    if len(result_str) > 200
-                    else f"Result: {result_str}",
+                    content=json.dumps(
+                        {
+                            "name": tool_name,
+                            "output": result_str,
+                            "tool_call_id": tool_use_id,
+                        }
+                    ),
                     message_type="tool_result",
-                    metadata={"tool": tool_name, "is_error": is_error},
                 )
 
             tool_results.append(

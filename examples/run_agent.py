@@ -6,8 +6,10 @@ Usage:
     uv run python examples/run_agent.py                    # Default: langgraph
     uv run python examples/run_agent.py --example langgraph
     uv run python examples/run_agent.py --example pydantic_ai
+    uv run python examples/run_agent.py --example pydantic_ai --streaming  # With tool_call/tool_result events
     uv run python examples/run_agent.py --example pydantic_ai --model anthropic:claude-sonnet-4-5
     uv run python examples/run_agent.py --example anthropic
+    uv run python examples/run_agent.py --example anthropic --streaming  # With tool_call/tool_result events
     uv run python examples/run_agent.py --example anthropic --model claude-sonnet-4-5-20250929
     uv run python examples/run_agent.py --example claude_sdk
     uv run python examples/run_agent.py --example claude_sdk --thinking  # Enable extended thinking
@@ -119,17 +121,16 @@ async def run_pydantic_ai_agent(
     ws_url: str,
     model: str,
     custom_section: str,
+    enable_streaming: bool,
     logger: logging.Logger,
 ):
     """Run the Pydantic AI agent."""
     from thenvoi.adapters import PydanticAIAdapter
 
-    # Append capability instructions to custom section
-    full_custom_section = custom_section + PYDANTIC_AI_INSTRUCTIONS
-
     adapter = PydanticAIAdapter(
         model=model,
-        custom_section=full_custom_section,
+        custom_section=custom_section,
+        enable_execution_reporting=enable_streaming,
     )
 
     agent = Agent.create(
@@ -140,7 +141,8 @@ async def run_pydantic_ai_agent(
         rest_url=rest_url,
     )
 
-    logger.info(f"Starting Pydantic AI agent with model: {model}")
+    streaming_str = " with execution reporting" if enable_streaming else ""
+    logger.info(f"Starting Pydantic AI agent with model: {model}{streaming_str}")
     await agent.run()
 
 
@@ -171,7 +173,8 @@ async def run_anthropic_agent(
         rest_url=rest_url,
     )
 
-    logger.info(f"Starting Anthropic agent with model: {model}")
+    streaming_str = " with execution reporting" if enable_streaming else ""
+    logger.info(f"Starting Anthropic agent with model: {model}{streaming_str}")
     await agent.run()
 
 
@@ -204,8 +207,13 @@ async def run_claude_sdk_agent(
         rest_url=rest_url,
     )
 
-    thinking_str = " with extended thinking" if enable_thinking else ""
-    logger.info(f"Starting Claude SDK agent with model: {model}{thinking_str}")
+    options = []
+    if enable_thinking:
+        options.append("extended thinking")
+    if enable_streaming:
+        options.append("execution reporting")
+    options_str = f" with {', '.join(options)}" if options else ""
+    logger.info(f"Starting Claude SDK agent with model: {model}{options_str}")
     await agent.run()
 
 
@@ -284,9 +292,12 @@ Examples:
   uv run python examples/run_agent.py                                     # LangGraph (default)
   uv run python examples/run_agent.py --example langgraph                 # LangGraph with OpenAI
   uv run python examples/run_agent.py --example pydantic_ai               # Pydantic AI with OpenAI
+  uv run python examples/run_agent.py --example pydantic_ai --streaming   # With tool_call/tool_result events
   uv run python examples/run_agent.py --example pydantic_ai --model anthropic:claude-sonnet-4-5
   uv run python examples/run_agent.py --example anthropic                 # Anthropic SDK
+  uv run python examples/run_agent.py --example anthropic --streaming     # With tool_call/tool_result events
   uv run python examples/run_agent.py --example claude_sdk                # Claude Agent SDK
+  uv run python examples/run_agent.py --example claude_sdk --streaming    # With tool_call/tool_result events
   uv run python examples/run_agent.py --example claude_sdk --thinking     # With extended thinking
   uv run python examples/run_agent.py --example parlant                   # Parlant adapter
   uv run python examples/run_agent.py --example crewai                    # CrewAI adapter
@@ -344,6 +355,7 @@ Examples:
     )
     parser.add_argument(
         "--streaming",
+        "-s",
         action="store_true",
         help="Enable tool call/result visibility for anthropic/claude_sdk/parlant/crewai (default: False)",
     )
@@ -390,6 +402,7 @@ Examples:
                 ws_url=ws_url,
                 model=args.model,
                 custom_section=args.custom_section,
+                enable_streaming=args.streaming,
                 logger=logger,
             )
         elif args.example == "anthropic":

@@ -144,7 +144,7 @@ class TestCleanupAll:
 
     @pytest.mark.asyncio
     async def test_cleans_up_all_sessions(self):
-        """Should cleanup all sessions and clear room tools."""
+        """Should stop session manager and clear room tools."""
         adapter = ClaudeSDKAdapter()
 
         mock_session_manager = AsyncMock()
@@ -154,7 +154,7 @@ class TestCleanupAll:
 
         await adapter.cleanup_all()
 
-        mock_session_manager.cleanup_all.assert_awaited_once()
+        mock_session_manager.stop.assert_awaited_once()
         assert len(adapter._room_tools) == 0
 
 
