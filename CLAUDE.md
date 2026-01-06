@@ -47,7 +47,7 @@ Git Workflow:
 
 Environment Variables:
 
-- THENVOI_REST_API_URL: REST API URL (default: https://api.thenvoi.com)
+- THENVOI_REST_URL: REST API URL (default: https://api.thenvoi.com)
 - THENVOI_WS_URL: WebSocket URL (default: wss://api.thenvoi.com/ws)
 - OPENAI_API_KEY: OpenAI API key (for LangGraph examples)
 - ANTHROPIC_API_KEY: Anthropic API key (for Anthropic/Claude SDK examples)
