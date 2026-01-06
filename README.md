@@ -421,7 +421,7 @@ docker build -t thenvoi-sdk .
 # Run (load .env first)
 set -a && source .env && set +a
 docker run --rm \
-  -e THENVOI_REST_API_URL="${THENVOI_REST_API_URL}" \
+  -e THENVOI_REST_URL="${THENVOI_REST_URL}" \
   -e THENVOI_WS_URL="${THENVOI_WS_URL}" \
   -e OPENAI_API_KEY="${OPENAI_API_KEY}" \
   -v ./agent_config.yaml:/app/agent_config.yaml \
@@ -437,7 +437,7 @@ docker run --rm \
 
 ```bash
 # Platform URLs
-THENVOI_REST_API_URL=https://api.thenvoi.com
+THENVOI_REST_URL=https://api.thenvoi.com
 THENVOI_WS_URL=wss://api.thenvoi.com/ws
 
 # LLM API Keys

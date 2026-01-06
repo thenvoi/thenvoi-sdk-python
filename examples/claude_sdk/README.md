@@ -169,7 +169,7 @@ docker run --rm \
   -e THENVOI_AGENT_ID="your-agent-id" \
   -e THENVOI_API_KEY="your-api-key" \
   -e ANTHROPIC_API_KEY="your-anthropic-api-key" \
-  -e THENVOI_REST_API_URL="${THENVOI_REST_API_URL:-}" \
+  -e THENVOI_REST_URL="${THENVOI_REST_URL:-}" \
   -e THENVOI_WS_URL="${THENVOI_WS_URL:-}" \
   claude-sdk-example
 
