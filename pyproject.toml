@@ -32,6 +32,7 @@ dependencies = [
 [project.optional-dependencies]
 pydantic-ai = [
     "pydantic-ai-slim>=1.0.0",
+    "openai>=1.0.0",
 ]
 anthropic = [
     "anthropic>=0.75.0",
