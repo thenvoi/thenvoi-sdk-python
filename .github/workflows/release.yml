@@ -23,7 +23,7 @@ jobs:
 
       - name: Generate GitHub App Token
         id: app_token_generator
-        uses: thenvoi/thenvoi-envs/.github/actions/GithubToken@main
+        uses: ./.github/actions/GithubToken
         with:
           app_id: ${{ secrets.APP_ID }}
           installation_id: ${{ secrets.INSTALLATION_ID }}
