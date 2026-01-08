@@ -1,0 +1,39 @@
+name: 'Generate GitHub App Token'
+description: 'Generates a GitHub App installation access token.'
+
+inputs:
+  app_id:
+    description: 'GitHub App ID'
+    required: true
+  installation_id:
+    description: 'GitHub App Installation ID'
+    required: true
+  private_key:
+    description: 'GitHub App Private Key'
+    required: true
+
+outputs:
+  token:
+    description: 'The generated GitHub App installation access token.'
+    value: ${{ steps.generate_token_script.outputs.token }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.x'
+
+    - name: Install dependencies
+      shell: bash
+      run: pip install -r ${{ github.action_path }}/requirements.txt
+
+    - name: Generate token
+      id: generate_token_script
+      shell: bash
+      run: echo "token=$(python ${{ github.action_path }}/generate_token.py)" >> $GITHUB_OUTPUT
+      env:
+        github_app_id: ${{ inputs.app_id }}
+        github_app_installation_id: ${{ inputs.installation_id }}
+        github_app_private_key: ${{ inputs.private_key }}

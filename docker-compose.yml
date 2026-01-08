@@ -1,6 +1,6 @@
 # Shared configuration using YAML anchors
 x-common-env: &common-env
-  THENVOI_REST_API_URL: ${THENVOI_REST_API_URL}
+  THENVOI_REST_URL: ${THENVOI_REST_URL}
   THENVOI_WS_URL: ${THENVOI_WS_URL}
   OPENAI_API_KEY: ${OPENAI_API_KEY}
   # Note: Agent-specific API keys are in agent_config.yaml (mounted as volume)

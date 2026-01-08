@@ -421,7 +421,7 @@ docker build -t thenvoi-sdk .
 # Run (load .env first)
 set -a && source .env && set +a
 docker run --rm \
-  -e THENVOI_REST_API_URL="${THENVOI_REST_API_URL}" \
+  -e THENVOI_REST_URL="${THENVOI_REST_URL}" \
   -e THENVOI_WS_URL="${THENVOI_WS_URL}" \
   -e OPENAI_API_KEY="${OPENAI_API_KEY}" \
   -v ./agent_config.yaml:/app/agent_config.yaml \
@@ -437,7 +437,7 @@ docker run --rm \
 
 ```bash
 # Platform URLs
-THENVOI_REST_API_URL=https://api.thenvoi.com
+THENVOI_REST_URL=https://api.thenvoi.com
 THENVOI_WS_URL=wss://api.thenvoi.com/ws
 
 # LLM API Keys
@@ -630,6 +630,85 @@ All adapters automatically have access to:
 | `remove_participant` | Remove a participant from the room |
 | `get_participants` | List current room participants |
 | `list_available_participants` | List users/agents that can be added |
+
+---
+
+## Context7 MCP for Up-to-Date Documentation
+
+To ensure access to the latest documentation and code examples directly within your development environment, you can integrate the Context7 Model Context Protocol (MCP).
+
+### Prerequisites
+
+- Node.js version 18 or higher
+
+### Configure Your MCP Client
+
+<details>
+<summary><strong>Cursor</strong></summary>
+
+1. Navigate to `Settings` → `Cursor Settings` → `MCP` → `Add new global MCP server`
+2. Add the following to your `~/.cursor/mcp.json` file:
+
+```json
+{
+  "mcpServers": {
+    "context7": {
+      "command": "npx",
+      "args": ["-y", "@upstash/context7-mcp@latest"]
+    }
+  }
+}
+```
+
+</details>
+
+<details>
+<summary><strong>VS Code</strong></summary>
+
+1. Install the MCP extension for VS Code
+2. Add the following to your `settings.json` file:
+
+```json
+{
+  "servers": {
+    "Context7": {
+      "type": "stdio",
+      "command": "npx",
+      "args": ["-y", "@upstash/context7-mcp@latest"]
+    }
+  }
+}
+```
+
+</details>
+
+<details>
+<summary><strong>Claude Desktop</strong></summary>
+
+Add the following to your `claude_desktop_config.json` file:
+
+```json
+{
+  "mcpServers": {
+    "Context7": {
+      "command": "npx",
+      "args": ["-y", "@upstash/context7-mcp@latest"]
+    }
+  }
+}
+```
+
+</details>
+
+### Usage
+
+Once configured, add `use context7` to your prompts to fetch up-to-date documentation:
+
+```
+How do I create a LangGraph adapter in Thenvoi? use context7
+```
+
+This fetches the latest documentation and code examples, ensuring you have accurate and current information about the Thenvoi SDK and its dependencies.
 
 ---
 
