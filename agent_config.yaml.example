@@ -13,7 +13,11 @@
 #   agent_id: The unique ID from the platform (required)
 #   api_key: The agent-specific API key from the platform (required)
 
-# LangGraph Examples - Basic Integration (01-03)
+# =============================================================================
+# LangGraph Examples
+# =============================================================================
+
+# Basic Integration (01-03)
 simple_agent:
   agent_id: ""  # Required: Copy from platform after creating external agent
   api_key: ""   # Required: Copy agent-specific API key from platform
@@ -26,7 +30,7 @@ custom_personality_agent:
   agent_id: ""
   api_key: ""
 
-# LangGraph Examples - Composition (10-19)
+# Composition (04-06)
 calculator_agent:
   agent_id: ""
   api_key: ""
@@ -39,11 +43,76 @@ sql_agent:
   agent_id: ""
   api_key: ""
 
-# LangGraph Examples - Custom Graph Architecture (20+)
+# Custom Graph Architecture
 custom_agent_with_instructions:
   agent_id: ""
   api_key: ""
 
 custom_graph_agent:
+  agent_id: ""
+  api_key: ""
+
+# =============================================================================
+# Anthropic Examples
+# =============================================================================
+
+# 01_basic_agent.py
+anthropic_agent:
+  agent_id: ""
+  api_key: ""
+
+# =============================================================================
+# Pydantic AI Examples
+# =============================================================================
+
+# 01_basic_agent.py, 02_custom_instructions.py
+pydantic_agent:
+  agent_id: ""
+  api_key: ""
+
+# =============================================================================
+# Parlant Examples
+# =============================================================================
+
+# 01_basic_agent.py, 02_with_guidelines.py
+parlant_agent:
+  agent_id: ""
+  api_key: ""
+
+# =============================================================================
+# CrewAI Examples
+# =============================================================================
+
+# 01_basic_agent.py, 02_role_based_agent.py
+crewai_agent:
+  agent_id: ""
+  api_key: ""
+
+# 03_coordinator_agent.py
+coordinator_agent:
+  agent_id: ""
+  api_key: ""
+
+# 04_research_crew.py - Research Analyst
+research_agent:
+  agent_id: ""
+  api_key: ""
+
+# 04_research_crew.py - Content Writer
+writer_agent:
+  agent_id: ""
+  api_key: ""
+
+# 04_research_crew.py - Editor
+editor_agent:
+  agent_id: ""
+  api_key: ""
+
+# =============================================================================
+# Shared Agents (used by multiple examples)
+# =============================================================================
+
+# 02_custom_instructions.py (Anthropic), 03_support_agent.py (Parlant)
+support_agent:
   agent_id: ""
   api_key: ""

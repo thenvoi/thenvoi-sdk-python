@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "thenvoi-sdk"
-version = "0.1.0"
+version = "0.1.1"
 description = "A Python SDK for Thenvoi API"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -48,6 +48,14 @@ langgraph = [
 ]
 claude_sdk = [
     "claude-agent-sdk>=0.1.0",  # Requires Node.js 20+ and @anthropic-ai/claude-code CLI
+]
+parlant = [
+    "parlant>=3.0.0",
+    "openai>=1.0.0",
+]
+crewai = [
+    "crewai>=0.80.0",
+    "openai>=1.0.0",
 ]
 
 dev = [

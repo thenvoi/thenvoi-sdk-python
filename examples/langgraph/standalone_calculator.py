@@ -68,6 +68,10 @@ def create_calculator_graph():
 # Export for easy import
 if __name__ == "__main__":
     import asyncio
+    import logging
+
+    logging.basicConfig(level=logging.INFO)
+    logger = logging.getLogger(__name__)
 
     async def test():
         """Test the calculator graph standalone."""
@@ -78,14 +82,14 @@ if __name__ == "__main__":
             {"operation": "add", "a": 5, "b": 3},
             {"configurable": {"thread_id": "test-1"}},
         )
-        print(f"5 + 3 = {result['result']}")
+        logger.info(f"5 + 3 = {result['result']}")
 
         # Test multiplication
         result = await calc.ainvoke(
             {"operation": "multiply", "a": 7, "b": 6},
             {"configurable": {"thread_id": "test-2"}},
         )
-        print(f"7 * 6 = {result['result']}")
+        logger.info(f"7 * 6 = {result['result']}")
 
         # Test division by zero (should raise error)
         try:
@@ -94,6 +98,6 @@ if __name__ == "__main__":
                 {"configurable": {"thread_id": "test-3"}},
             )
         except ValueError as e:
-            print(f"Division by zero error: {e}")
+            logger.info(f"Division by zero error: {e}")
 
     asyncio.run(test())
