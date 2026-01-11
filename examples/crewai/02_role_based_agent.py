@@ -1,0 +1,68 @@
+"""
+CrewAI agent with role, goal, and backstory.
+
+Shows how to use CrewAI's agent definition pattern with role-based behavior.
+This is the core concept from CrewAI - defining agents by their role and goals.
+
+Run with:
+    OPENAI_API_KEY=xxx python 02_role_based_agent.py
+"""
+
+import asyncio
+import logging
+import os
+
+from dotenv import load_dotenv
+
+from setup_logging import setup_logging
+from thenvoi import Agent
+from thenvoi.adapters import CrewAIAdapter
+from thenvoi.config import load_agent_config
+
+setup_logging()
+logger = logging.getLogger(__name__)
+
+
+async def main():
+    load_dotenv()
+
+    ws_url = os.getenv("THENVOI_WS_URL")
+    rest_url = os.getenv("THENVOI_REST_API_URL")
+
+    if not ws_url:
+        raise ValueError("THENVOI_WS_URL environment variable is required")
+    if not rest_url:
+        raise ValueError("THENVOI_REST_API_URL environment variable is required")
+
+    # Load agent credentials from agent_config.yaml
+    agent_id, api_key = load_agent_config("crewai_agent")
+
+    # Create adapter with CrewAI-style role definition
+    adapter = CrewAIAdapter(
+        model="gpt-4o",
+        role="Research Assistant",
+        goal="Help users find, analyze, and synthesize information efficiently",
+        backstory="""You are an expert research assistant with years of experience
+        in academic and business research. You excel at finding relevant information,
+        analyzing data, and presenting findings in a clear, actionable format.
+        You're known for your attention to detail and ability to connect disparate
+        pieces of information into meaningful insights.""",
+        enable_execution_reporting=True,
+        verbose=True,
+    )
+
+    # Create and start agent
+    agent = Agent.create(
+        adapter=adapter,
+        agent_id=agent_id,
+        api_key=api_key,
+        ws_url=ws_url,
+        rest_url=rest_url,
+    )
+
+    logger.info("Starting CrewAI research agent...")
+    await agent.run()
+
+
+if __name__ == "__main__":
+    asyncio.run(main())

@@ -94,7 +94,7 @@ async def main():
         rest_url=rest_url,
     )
 
-    print("Starting agent with SQL tool...")
+    logger.info("Starting agent with SQL tool...")
     await agent.run()
 
 

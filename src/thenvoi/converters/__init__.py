@@ -6,6 +6,8 @@ Install the extra you need:
     uv add thenvoi-sdk[anthropic]
     uv add thenvoi-sdk[pydantic_ai]
     uv add thenvoi-sdk[claude_sdk]
+    uv add thenvoi-sdk[parlant]
+    uv add thenvoi-sdk[crewai]
 """
 
 from typing import TYPE_CHECKING
@@ -27,6 +29,14 @@ if TYPE_CHECKING:
     from thenvoi.converters.claude_sdk import (
         ClaudeSDKHistoryConverter as ClaudeSDKHistoryConverter,
     )
+    from thenvoi.converters.parlant import (
+        ParlantHistoryConverter as ParlantHistoryConverter,
+        ParlantMessages as ParlantMessages,
+    )
+    from thenvoi.converters.crewai import (
+        CrewAIHistoryConverter as CrewAIHistoryConverter,
+        CrewAIMessages as CrewAIMessages,
+    )
 
 __all__ = [
     "LangChainHistoryConverter",
@@ -36,6 +46,10 @@ __all__ = [
     "PydanticAIHistoryConverter",
     "PydanticAIMessages",
     "ClaudeSDKHistoryConverter",
+    "ParlantHistoryConverter",
+    "ParlantMessages",
+    "CrewAIHistoryConverter",
+    "CrewAIMessages",
 ]
 
 
@@ -75,5 +89,25 @@ def __getattr__(name: str):
         from thenvoi.converters.claude_sdk import ClaudeSDKHistoryConverter
 
         return ClaudeSDKHistoryConverter
+
+    elif name in ("ParlantHistoryConverter", "ParlantMessages"):
+        from thenvoi.converters.parlant import (
+            ParlantHistoryConverter,
+            ParlantMessages,
+        )
+
+        if name == "ParlantHistoryConverter":
+            return ParlantHistoryConverter
+        return ParlantMessages
+
+    elif name in ("CrewAIHistoryConverter", "CrewAIMessages"):
+        from thenvoi.converters.crewai import (
+            CrewAIHistoryConverter,
+            CrewAIMessages,
+        )
+
+        if name == "CrewAIHistoryConverter":
+            return CrewAIHistoryConverter
+        return CrewAIMessages
 
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

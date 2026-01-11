@@ -1,11 +1,16 @@
 """
-Basic Anthropic SDK agent example.
+Basic Parlant agent example.
 
-This is the simplest way to create a Thenvoi agent using the Anthropic Python SDK.
+This is the simplest way to create a Thenvoi agent using the Parlant framework.
 The adapter handles conversation history, tool calling, and platform integration.
 
+Parlant (https://github.com/emcie-co/parlant) provides:
+- Behavioral guidelines for consistent agent responses
+- Built-in guardrails against hallucination
+- Explainability for agent decisions
+
 Run with:
-    ANTHROPIC_API_KEY=xxx python 01_basic_agent.py
+    OPENAI_API_KEY=xxx python 01_basic_agent.py
 """
 
 import asyncio
@@ -16,7 +21,7 @@ from dotenv import load_dotenv
 
 from setup_logging import setup_logging
 from thenvoi import Agent
-from thenvoi.adapters import AnthropicAdapter
+from thenvoi.adapters import ParlantAdapter
 from thenvoi.config import load_agent_config
 
 setup_logging()
@@ -27,19 +32,19 @@ async def main():
     load_dotenv()
 
     ws_url = os.getenv("THENVOI_WS_URL")
-    rest_url = os.getenv("THENVOI_REST_URL")
+    rest_url = os.getenv("THENVOI_REST_API_URL")
 
     if not ws_url:
         raise ValueError("THENVOI_WS_URL environment variable is required")
     if not rest_url:
-        raise ValueError("THENVOI_REST_URL environment variable is required")
+        raise ValueError("THENVOI_REST_API_URL environment variable is required")
 
     # Load agent credentials from agent_config.yaml
-    agent_id, api_key = load_agent_config("anthropic_agent")
+    agent_id, api_key = load_agent_config("parlant_agent")
 
     # Create adapter with framework-specific settings
-    adapter = AnthropicAdapter(
-        model="claude-sonnet-4-5-20250929",
+    adapter = ParlantAdapter(
+        model="gpt-4o",
         custom_section="You are a helpful assistant. Be concise and friendly.",
     )
 
@@ -52,7 +57,7 @@ async def main():
         rest_url=rest_url,
     )
 
-    logger.info("Starting Anthropic agent...")
+    logger.info("Starting Parlant agent...")
     await agent.run()
 
 

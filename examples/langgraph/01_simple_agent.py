@@ -6,7 +6,9 @@ the LLM and checkpointer, and the adapter handles everything.
 """
 
 import asyncio
+import logging
 import os
+
 from dotenv import load_dotenv
 from langchain_openai import ChatOpenAI
 from langgraph.checkpoint.memory import InMemorySaver
@@ -17,6 +19,7 @@ from thenvoi.adapters import LangGraphAdapter
 from thenvoi.config import load_agent_config
 
 setup_logging()
+logger = logging.getLogger(__name__)
 
 
 async def main():
@@ -48,7 +51,7 @@ async def main():
         rest_url=rest_url,
     )
 
-    print("Starting LangGraph agent...")
+    logger.info("Starting LangGraph agent...")
     await agent.run()
 
     # Agent is now listening for messages!

@@ -7,6 +7,8 @@ Connect your AI agents to the Thenvoi collaborative platform.
 - **Pydantic AI** - Production ready
 - **Anthropic SDK** - Production ready (direct Claude integration)
 - **Claude Agent SDK** - Production ready (streaming, extended thinking)
+- **CrewAI** - Production ready (role-based agents with goals)
+- **Parlant** - Production ready (guideline-based behavior)
 
 ---
 
@@ -67,6 +69,8 @@ uv add "git+https://github.com/thenvoi/thenvoi-sdk-python.git[langgraph]"
 uv add "git+https://github.com/thenvoi/thenvoi-sdk-python.git[anthropic]"
 uv add "git+https://github.com/thenvoi/thenvoi-sdk-python.git[pydantic_ai]"
 uv add "git+https://github.com/thenvoi/thenvoi-sdk-python.git[claude_sdk]"
+uv add "git+https://github.com/thenvoi/thenvoi-sdk-python.git[crewai]"
+uv add "git+https://github.com/thenvoi/thenvoi-sdk-python.git[parlant]"
 ```
 
 > **Note for Claude Agent SDK:** Requires Node.js 20+ and Claude Code CLI: `npm install -g @anthropic-ai/claude-code`
@@ -154,8 +158,8 @@ agent = Agent.create(
     adapter=adapter,
     agent_id=agent_id,
     api_key=api_key,
-    ws_url="wss://api.thenvoi.com/ws",
-    rest_url="https://api.thenvoi.com",
+    ws_url=os.getenv("THENVOI_WS_URL"),
+    rest_url=os.getenv("THENVOI_REST_API_URL"),
 )
 await agent.run()
 ```
@@ -219,6 +223,52 @@ agent = Agent.create(
 await agent.run()
 ```
 
+### CrewAI
+
+```python
+from thenvoi import Agent
+from thenvoi.adapters import CrewAIAdapter
+
+adapter = CrewAIAdapter(
+    model="gpt-4o",
+    role="Research Assistant",
+    goal="Help users find and analyze information",
+    backstory="Expert researcher with deep domain knowledge",
+)
+
+agent = Agent.create(
+    adapter=adapter,
+    agent_id=agent_id,
+    api_key=api_key,
+)
+await agent.run()
+```
+
+### Parlant
+
+```python
+from thenvoi import Agent
+from thenvoi.adapters import ParlantAdapter
+
+adapter = ParlantAdapter(
+    model="gpt-4o",
+    custom_section="You are a helpful customer support agent.",
+    guidelines=[
+        {
+            "condition": "Customer asks about refunds",
+            "action": "Check order status first to see if eligible",
+        },
+    ],
+)
+
+agent = Agent.create(
+    adapter=adapter,
+    agent_id=agent_id,
+    api_key=api_key,
+)
+await agent.run()
+```
+
 ---
 
 ## Package Structure
@@ -231,7 +281,9 @@ src/thenvoi/
 │   ├── langgraph.py           # LangGraphAdapter
 │   ├── anthropic.py           # AnthropicAdapter
 │   ├── pydantic_ai.py         # PydanticAIAdapter
-│   └── claude_sdk.py          # ClaudeSDKAdapter
+│   ├── claude_sdk.py          # ClaudeSDKAdapter
+│   ├── crewai.py              # CrewAIAdapter
+│   └── parlant.py             # ParlantAdapter
 │
 ├── platform/                   # Transport layer
 │   ├── link.py                # ThenvoiLink - WebSocket + REST client
@@ -261,7 +313,9 @@ src/thenvoi/
 ├── converters/                 # History conversion utilities
 │   ├── anthropic.py           # AnthropicHistoryConverter
 │   ├── pydantic_ai.py         # PydanticAIHistoryConverter
-│   └── claude_sdk.py          # ClaudeSDKHistoryConverter
+│   ├── claude_sdk.py          # ClaudeSDKHistoryConverter
+│   ├── crewai.py              # CrewAIHistoryConverter
+│   └── parlant.py             # ParlantHistoryConverter
 │
 ├── client/                     # Low-level WebSocket client
 │   └── streaming/
@@ -275,7 +329,9 @@ examples/
 ├── langgraph/                 # LangGraph examples (01-06)
 ├── pydantic_ai/               # Pydantic AI examples (01-02)
 ├── anthropic/                 # Anthropic SDK examples (01-02)
-└── claude_sdk/                # Claude Agent SDK examples (01-02)
+├── claude_sdk/                # Claude Agent SDK examples (01-02)
+├── crewai/                    # CrewAI examples (01-04)
+└── parlant/                   # Parlant examples (01-03)
 ```
 
 ---
@@ -322,6 +378,33 @@ examples/
 - Extended thinking support with `max_thinking_tokens`
 - MCP-based tool integration
 
+### CrewAI Examples (`examples/crewai/`)
+
+| File | Description |
+|------|-------------|
+| `01_basic_agent.py` | **Minimal setup** - Simple agent with CrewAIAdapter. |
+| `02_role_based_agent.py` | **Role definition** - Agent with role, goal, and backstory. |
+| `03_coordinator_agent.py` | **Multi-agent orchestration** - Coordinator that manages other agents. |
+| `04_research_crew.py` | **Complete crew** - Research team with Analyst, Writer, and Editor. |
+
+**Key features:**
+- Role-based agent definition (role, goal, backstory)
+- Multi-agent collaboration patterns
+- Uses OpenAI-compatible API (set `OPENAI_API_KEY`)
+
+### Parlant Examples (`examples/parlant/`)
+
+| File | Description |
+|------|-------------|
+| `01_basic_agent.py` | **Minimal setup** - Simple agent with ParlantAdapter. |
+| `02_with_guidelines.py` | **Behavioral guidelines** - Agent with condition/action rules. |
+| `03_support_agent.py` | **Customer support** - Realistic support agent with specialized guidelines. |
+
+**Key features:**
+- Behavioral guidelines (condition/action pairs)
+- Consistent, rule-following behavior
+- Uses OpenAI-compatible API (set `OPENAI_API_KEY`)
+
 ---
 
 ## Running Examples
@@ -360,6 +443,14 @@ uv run python examples/anthropic/01_basic_agent.py
 
 # Claude SDK
 uv run python examples/claude_sdk/01_basic_agent.py
+
+# CrewAI
+uv run python examples/crewai/01_basic_agent.py
+uv run python examples/crewai/02_role_based_agent.py
+
+# Parlant
+uv run python examples/parlant/01_basic_agent.py
+uv run python examples/parlant/02_with_guidelines.py
 ```
 
 ---
@@ -433,31 +524,42 @@ docker run --rm \
 
 ## Configuration
 
-### Environment Variables
+### 1. Copy configuration files from examples
+
+Always copy from the example files to ensure correct URLs and formatting:
+
+```bash
+cp .env.example .env
+cp agent_config.yaml.example agent_config.yaml
+```
+
+### 2. Edit `.env` with your API keys
+
+The `.env` file contains platform URLs (pre-configured) and LLM API keys:
 
 ```bash
 # Platform URLs
 THENVOI_REST_URL=https://api.thenvoi.com
 THENVOI_WS_URL=wss://api.thenvoi.com/ws
 
-# LLM API Keys
-OPENAI_API_KEY=sk-...
-ANTHROPIC_API_KEY=sk-ant-...
+# LLM API Keys - fill these in
+OPENAI_API_KEY=sk-your-key-here
+ANTHROPIC_API_KEY=sk-ant-your-key-here
 ```
 
-### Agent Config (agent_config.yaml)
+### 3. Edit `agent_config.yaml` with your agent credentials
+
+Add your agent IDs and API keys from the Thenvoi platform:
 
 ```yaml
 my_agent:
   agent_id: "your-agent-uuid"
   api_key: "your-api-key"
-
-custom_tools_agent:
-  agent_id: "another-agent-uuid"
-  api_key: "another-api-key"
 ```
 
 > **Security:** Never commit API keys. Both `.env` and `agent_config.yaml` are git-ignored.
+> 
+> **Important:** Always copy from example files rather than creating new files to avoid URL typos.
 
 ---
 

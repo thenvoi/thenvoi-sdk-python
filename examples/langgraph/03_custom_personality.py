@@ -3,7 +3,9 @@ Example showing how to customize agent personality with custom instructions.
 """
 
 import asyncio
+import logging
 import os
+
 from dotenv import load_dotenv
 from langchain_openai import ChatOpenAI
 from langgraph.checkpoint.memory import InMemorySaver
@@ -14,6 +16,7 @@ from thenvoi.adapters import LangGraphAdapter
 from thenvoi.config import load_agent_config
 
 setup_logging()
+logger = logging.getLogger(__name__)
 
 
 async def main():
@@ -71,7 +74,7 @@ But speak like a PIRATE while doin' it! Arrr!
         rest_url=rest_url,
     )
 
-    print("Starting pirate agent...")
+    logger.info("Starting pirate agent...")
     await agent.run()
 
     # Agent is now listening for messages!

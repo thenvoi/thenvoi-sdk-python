@@ -9,6 +9,7 @@ Run with:
 """
 
 import asyncio
+import logging
 import os
 
 from dotenv import load_dotenv
@@ -19,6 +20,7 @@ from thenvoi.adapters import PydanticAIAdapter
 from thenvoi.config import load_agent_config
 
 setup_logging()
+logger = logging.getLogger(__name__)
 
 
 async def main():
@@ -50,7 +52,7 @@ async def main():
         rest_url=rest_url,
     )
 
-    print("Starting Pydantic AI agent...")
+    logger.info("Starting Pydantic AI agent...")
     await agent.run()
 
 
