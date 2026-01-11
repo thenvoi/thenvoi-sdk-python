@@ -3,6 +3,13 @@ repos:
     rev: v8.18.2
     hooks:
       - id: gitleaks
+
+  - repo: https://github.com/commitizen-tools/commitizen
+    rev: v3.13.0
+    hooks:
+      - id: commitizen
+        stages: [commit-msg]
+
   - repo: local
     hooks:
       - id: ruff-check

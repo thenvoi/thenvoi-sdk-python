@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "thenvoi-sdk"
-version = "0.1.0"
+version = "0.1.1"
 description = "A Python SDK for Thenvoi API"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -81,6 +81,7 @@ dev = [
     "pre-commit>=3.0.0",
     "ruff>=0.8.0",
     "pyrefly>=0.18.0",
+    "commitizen>=3.13.0",
 ]
 
 [tool.setuptools.packages.find]
@@ -102,5 +103,14 @@ project_excludes = [
     "tests/**",                 # Tests use mocks with duck typing
     "examples/**",              # Examples use local imports
 ]
+
+[tool.commitizen]
+name = "cz_conventional_commits"
+version = "0.1.0"
+version_files = [
+    "pyproject.toml:version",
+    "src/thenvoi/__init__.py:__version__",
+]
+tag_format = "v$version"
 
 [tool.ruff]
