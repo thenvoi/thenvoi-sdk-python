@@ -8,7 +8,12 @@
       "bump-minor-pre-major": true,
       "bump-patch-for-minor-pre-major": true,
       "extra-files": [
-        "src/thenvoi/__init__.py"
+        "src/thenvoi/__init__.py",
+        {
+          "type": "generic",
+          "path": "pyproject.toml",
+          "glob": false
+        }
       ]
     }
   },
