@@ -159,7 +159,7 @@ agent = Agent.create(
     agent_id=agent_id,
     api_key=api_key,
     ws_url=os.getenv("THENVOI_WS_URL"),
-    rest_url=os.getenv("THENVOI_REST_API_URL"),
+    rest_url=os.getenv("THENVOI_REST_URL"),
 )
 await agent.run()
 ```
