@@ -39,7 +39,6 @@ jobs:
             integrations
             config
             deps
-            main
           # Require scope to be provided
           requireScope: false
           # Disable validation for merge commits and release PRs
