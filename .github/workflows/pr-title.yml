@@ -39,12 +39,14 @@ jobs:
             integrations
             config
             deps
+            main
           # Require scope to be provided
           requireScope: false
-          # Disable validation for merge commits
+          # Disable validation for merge commits and release PRs
           ignoreLabels: |
             dependencies
             automated
+            autorelease: pending
           # Error message shown when validation fails
           subjectPattern: ^.{1,80}$
           subjectPatternError: |
