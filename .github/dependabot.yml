@@ -14,6 +14,8 @@ updates:
     reviewers:
       - "dan-naiger-thenvoi"
       - "yael-avioz-thenvoi"
+    commit-message:
+      prefix: "chore(deps)"
 
   # GitHub Actions
   - package-ecosystem: "github-actions"
@@ -25,3 +27,5 @@ updates:
     labels:
       - "dependencies"
       - "github-actions"
+    commit-message:
+      prefix: "chore(deps)"
