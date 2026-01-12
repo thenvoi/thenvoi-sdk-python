@@ -214,7 +214,7 @@ Follow Conventional Commits format:
 type(scope): description
 ```
 
-**Types:** `feat`, `fix`, `docs`, `style`, `refactor`, `test`, `chore`
+**Types:** `feat`, `fix`, `docs`, `style`, `refactor`, `perf`, `test`, `build`, `ci`, `chore`, `revert`
 
 **Examples:**
 - `feat(agent): add event streaming support`
