@@ -180,6 +180,49 @@ Integration tests require a valid Thenvoi API key:
 uv run pytest tests/integration/ -v -s --no-cov
 ```
 
+## Naming Conventions
+
+### Issue Titles
+
+Use component prefixes to categorize issues:
+
+```
+[Component] Brief description
+```
+
+**Components:**
+- `[SDK]` - Core SDK functionality
+- `[Agent]` - Agent connection and lifecycle
+- `[API]` - REST API client
+- `[WebSocket]` - Real-time WebSocket connections
+- `[Integrations]` - Framework integrations (LangGraph, PydanticAI, etc.)
+- `[Config]` - Configuration and settings
+- `[Docs]` - Documentation
+- `[CI]` - CI/CD and workflows
+- `[Performance]` - Performance improvements
+
+**Examples:**
+- `[Agent] Add automatic reconnection support`
+- `[API] Fix authentication token refresh`
+- `[Integrations] Add CrewAI support`
+
+### PR Titles
+
+Follow Conventional Commits format:
+
+```
+type(scope): description
+```
+
+**Types:** `feat`, `fix`, `docs`, `style`, `refactor`, `test`, `chore`
+
+**Examples:**
+- `feat(agent): add event streaming support`
+- `fix(api): resolve timeout handling`
+- `docs: update integration examples`
+
+PR titles are validated by CI - PRs with invalid titles will fail the check.
+
 ## Pull Request Guidelines
 
 1. Ensure all CI checks pass
@@ -187,6 +230,7 @@ uv run pytest tests/integration/ -v -s --no-cov
 3. Add tests for new functionality
 4. Keep PRs focused and atomic
 5. Reference related issues in the PR description
+6. Use proper PR title format (validated by CI)
 
 ## Release Process
 
