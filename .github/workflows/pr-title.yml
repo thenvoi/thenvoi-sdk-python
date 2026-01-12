@@ -31,6 +31,7 @@ jobs:
             chore
             revert
           # Configure which scopes are allowed (optional)
+          # Aligned with issue template components
           scopes: |
             sdk
             agent
@@ -38,6 +39,9 @@ jobs:
             websocket
             integrations
             config
+            docs
+            ci
+            perf
             deps
           # Require scope to be provided
           requireScope: false

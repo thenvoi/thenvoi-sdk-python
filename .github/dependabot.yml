@@ -25,3 +25,6 @@ updates:
     labels:
       - "dependencies"
       - "github-actions"
+    reviewers:
+      - "dan-naiger-thenvoi"
+      - "yael-avioz-thenvoi"
