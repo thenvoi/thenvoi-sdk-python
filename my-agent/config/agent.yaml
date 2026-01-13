@@ -1,0 +1,41 @@
+# Agent Configuration for Claude SDK Docker
+#
+# This file configures the Claude SDK agent running in the Docker container.
+# Copy this to my-agent/config/agent.yaml and fill in your credentials.
+#
+# Credentials can also be set via environment variables:
+#   - THENVOI_AGENT_ID
+#   - THENVOI_API_KEY
+
+# Agent identity (from Thenvoi platform)
+agent:
+  id: ""  # Required: Your agent ID from Thenvoi platform
+  api_key: ""  # Required: Your agent API key from Thenvoi platform
+
+# Claude SDK settings
+claude:
+  model: "claude-sonnet-4-5-20250929"
+  max_thinking_tokens: null  # Set to 10000 to enable extended thinking
+  permission_mode: "acceptEdits"  # default, acceptEdits, plan, bypassPermissions
+
+# Custom instructions for the agent
+system:
+  custom_section: |
+    You are a helpful assistant running in a Docker container.
+    You have access to custom tools for file operations in the /app/data directory.
+    Be concise and helpful.
+
+# Tools configuration
+tools:
+  # Built-in Thenvoi tools (send_message, add_participant, etc.)
+  thenvoi:
+    enabled: true
+
+  # Custom user tools (auto-discovered from /app/tools/*.py)
+  custom:
+    enabled: true
+
+# Execution settings
+execution:
+  enable_reporting: true  # Send tool_call/tool_result events to the platform
+  log_level: "INFO"

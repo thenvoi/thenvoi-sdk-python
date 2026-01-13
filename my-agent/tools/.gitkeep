@@ -1,0 +1,3 @@
+# Place your custom tool Python files here
+# Each file should have a TOOLS list
+# See docker/claude-sdk/example-tools/echo_tools.py for an example

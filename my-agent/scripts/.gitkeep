@@ -1,0 +1,2 @@
+# Place your custom agent scripts here
+# Run with: docker compose -f docker-compose.claude-sdk.yml run claude-custom-script custom my_script.py

@@ -1,0 +1,87 @@
+# Docker Compose for Claude SDK examples
+#
+# Usage:
+#   docker compose -f docker-compose.claude-sdk.yml up claude-basic
+#   docker compose -f docker-compose.claude-sdk.yml up claude-with-tools
+#   docker compose -f docker-compose.claude-sdk.yml up claude-example
+#   docker compose -f docker-compose.claude-sdk.yml run claude-dev
+#
+# Prerequisites:
+#   1. Create my-agent/config/agent.yaml with your agent credentials
+#   2. Set ANTHROPIC_API_KEY environment variable
+#   3. Build the image: docker compose -f docker-compose.claude-sdk.yml build
+
+version: "3.8"
+
+x-common-env: &common-env
+  THENVOI_REST_API_URL: ${THENVOI_REST_API_URL:-https://api.thenvoi.com}
+  THENVOI_WS_URL: ${THENVOI_WS_URL:-wss://api.thenvoi.com/ws}
+  ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+  LOG_LEVEL: ${LOG_LEVEL:-INFO}
+
+x-common-build: &common-build
+  context: .
+  dockerfile: docker/claude-sdk/Dockerfile
+
+services:
+  # Basic Claude SDK agent with config only
+  claude-basic:
+    build:
+      <<: *common-build
+    environment:
+      <<: *common-env
+    volumes:
+      - ./my-agent/config:/app/config:ro
+    command: ["run"]
+
+  # Claude SDK with custom tools
+  claude-with-tools:
+    build:
+      <<: *common-build
+    environment:
+      <<: *common-env
+    volumes:
+      - ./my-agent/config:/app/config:ro
+      - ./my-agent/tools:/app/tools:ro
+      - ./my-agent/data:/app/data:rw
+    command: ["run"]
+
+  # Claude SDK with example tools (for testing)
+  claude-example:
+    build:
+      <<: *common-build
+    environment:
+      <<: *common-env
+    volumes:
+      - ./my-agent/config:/app/config:ro
+      - ./docker/claude-sdk/example-tools:/app/tools:ro
+      - ./my-agent/data:/app/data:rw
+    command: ["run"]
+
+  # Run user's custom script
+  claude-custom-script:
+    build:
+      <<: *common-build
+    environment:
+      <<: *common-env
+    volumes:
+      - ./my-agent/config:/app/config:ro
+      - ./my-agent/tools:/app/tools:ro
+      - ./my-agent/scripts:/app/scripts:ro
+      - ./my-agent/data:/app/data:rw
+    command: ["custom", "my_custom_agent.py"]
+
+  # Development mode with shell
+  claude-dev:
+    build:
+      <<: *common-build
+    environment:
+      <<: *common-env
+    volumes:
+      - ./my-agent/config:/app/config:ro
+      - ./my-agent/tools:/app/tools:ro
+      - ./my-agent/scripts:/app/scripts:ro
+      - ./my-agent/data:/app/data:rw
+    command: ["shell"]
+    stdin_open: true
+    tty: true
