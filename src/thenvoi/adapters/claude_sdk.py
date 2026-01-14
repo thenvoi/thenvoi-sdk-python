@@ -29,7 +29,7 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Any, Callable, Literal
+from typing import Any, Literal
 
 try:
     from claude_agent_sdk import (
@@ -61,8 +61,9 @@ from thenvoi.runtime.tools import get_tool_description
 
 logger = logging.getLogger(__name__)
 
-# Type alias for custom tool functions
-CustomTool = Callable[..., Any]
+# Type alias for custom tool functions (decorated with @tool from claude_agent_sdk)
+# Using Any since @tool decorator transforms the function into SdkMcpTool
+CustomTool = Any
 
 
 # Tool names as constants (MCP naming convention: mcp__{server}__{tool})
