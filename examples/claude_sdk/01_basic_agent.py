@@ -8,10 +8,8 @@ connected to the Thenvoi platform.
 Prerequisites:
     1. Node.js 20+ installed
     2. Claude Code CLI: npm install -g @anthropic-ai/claude-code
-    3. Environment variables set:
-       - THENVOI_AGENT_ID: Your agent ID
-       - THENVOI_API_KEY: Your API key
-       - ANTHROPIC_API_KEY: Your Anthropic API key
+    3. Configure agent_config.yaml with claude_sdk_basic credentials
+    4. Set ANTHROPIC_API_KEY environment variable
 
 Usage:
     python 01_basic_agent.py
@@ -27,9 +25,12 @@ import sys
 # Add examples directory to path for imports
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+from dotenv import load_dotenv
+
 from setup_logging import setup_logging
 from thenvoi import Agent
 from thenvoi.adapters import ClaudeSDKAdapter
+from thenvoi.config import load_agent_config
 
 setup_logging()
 logger = logging.getLogger(__name__)
@@ -37,14 +38,19 @@ logger = logging.getLogger(__name__)
 
 async def main():
     """Run the basic Claude SDK agent."""
+    load_dotenv()
 
-    # Get credentials from environment
-    agent_id = os.environ.get("THENVOI_AGENT_ID", "")
-    api_key = os.environ.get("THENVOI_API_KEY", "")
+    # Load URLs from environment
+    ws_url = os.getenv("THENVOI_WS_URL")
+    rest_url = os.getenv("THENVOI_REST_URL")
 
-    if not agent_id or not api_key:
-        logger.error("THENVOI_AGENT_ID and THENVOI_API_KEY must be set")
-        sys.exit(1)
+    if not ws_url:
+        raise ValueError("THENVOI_WS_URL environment variable is required")
+    if not rest_url:
+        raise ValueError("THENVOI_REST_URL environment variable is required")
+
+    # Load agent credentials from agent_config.yaml
+    agent_id, api_key = load_agent_config("claude_sdk_basic")
 
     # Create adapter with Claude SDK settings
     adapter = ClaudeSDKAdapter(
@@ -58,6 +64,8 @@ async def main():
         adapter=adapter,
         agent_id=agent_id,
         api_key=api_key,
+        ws_url=ws_url,
+        rest_url=rest_url,
     )
 
     logger.info("Starting Claude SDK agent...")

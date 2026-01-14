@@ -53,6 +53,25 @@ custom_graph_agent:
   api_key: ""
 
 # =============================================================================
+# Claude SDK Examples
+# =============================================================================
+
+# 01_basic_agent.py
+claude_sdk_basic:
+  agent_id: ""
+  api_key: ""
+
+# 02_extended_thinking.py
+claude_sdk_extended_thinking:
+  agent_id: ""
+  api_key: ""
+
+# 03_custom_tools.py
+claude_sdk_custom_tools:
+  agent_id: ""
+  api_key: ""
+
+# =============================================================================
 # Anthropic Examples
 # =============================================================================
 
@@ -116,3 +135,4 @@ editor_agent:
 support_agent:
   agent_id: ""
   api_key: ""
+  

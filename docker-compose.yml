@@ -1,9 +1,16 @@
 # Shared configuration using YAML anchors
 x-common-env: &common-env
-  THENVOI_REST_URL: ${THENVOI_REST_URL}
-  THENVOI_WS_URL: ${THENVOI_WS_URL}
-  OPENAI_API_KEY: ${OPENAI_API_KEY}
+  THENVOI_REST_URL: ${THENVOI_REST_URL:-}
+  THENVOI_WS_URL: ${THENVOI_WS_URL:-}
+  OPENAI_API_KEY: ${OPENAI_API_KEY:-}
   # Note: Agent-specific API keys are in agent_config.yaml (mounted as volume)
+
+# Claude SDK specific environment
+# Agent credentials are loaded from agent_config.yaml (mounted as volume)
+x-claude-sdk-env: &claude-sdk-env
+  THENVOI_REST_URL: ${THENVOI_REST_URL:-}
+  THENVOI_WS_URL: ${THENVOI_WS_URL:-}
+  ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
 
 x-common-build: &common-build
   context: .
@@ -18,6 +25,7 @@ services:
       <<: *common-env
     volumes:
       - ./agent_config.yaml:/app/agent_config.yaml
+      - ./.env:/app/.env:ro
     command: ["uv", "run", "--extra", "langgraph", "python", "examples/langgraph/01_simple_agent.py"]
 
   langgraph-02-custom-tools:
@@ -28,6 +36,7 @@ services:
       <<: *common-env
     volumes:
       - ./agent_config.yaml:/app/agent_config.yaml
+      - ./.env:/app/.env:ro
     command: ["uv", "run", "--extra", "langgraph", "python", "examples/langgraph/02_custom_tools.py"]
 
   langgraph-03-custom-personality:
@@ -38,6 +47,7 @@ services:
       <<: *common-env
     volumes:
       - ./agent_config.yaml:/app/agent_config.yaml
+      - ./.env:/app/.env:ro
     command: ["uv", "run", "--extra", "langgraph", "python", "examples/langgraph/03_custom_personality.py"]
 
   # LangGraph Examples - Composition (10-19)
@@ -49,6 +59,7 @@ services:
       <<: *common-env
     volumes:
       - ./agent_config.yaml:/app/agent_config.yaml
+      - ./.env:/app/.env:ro
     command: ["uv", "run", "--extra", "langgraph", "python", "examples/langgraph/10_calculator_as_tool.py"]
 
   langgraph-11-rag:
@@ -59,6 +70,7 @@ services:
       <<: *common-env
     volumes:
       - ./agent_config.yaml:/app/agent_config.yaml
+      - ./.env:/app/.env:ro
     command: ["uv", "run", "--extra", "langgraph", "python", "examples/langgraph/11_rag_as_tool.py"]
 
   langgraph-12-sql-agent:
@@ -69,6 +81,7 @@ services:
       <<: *common-env
     volumes:
       - ./agent_config.yaml:/app/agent_config.yaml
+      - ./.env:/app/.env:ro
     command: ["uv", "run", "--extra", "langgraph", "python", "examples/langgraph/12_delegate_to_sql_agent.py"]
 
   # LangGraph Examples - Custom Graph Architecture (20+)
@@ -80,6 +93,7 @@ services:
       <<: *common-env
     volumes:
       - ./agent_config.yaml:/app/agent_config.yaml
+      - ./.env:/app/.env:ro
     command: ["uv", "run", "--extra", "langgraph", "python", "examples/langgraph/20_custom_agent_with_instructions.py"]
 
   langgraph-21-custom-graph:
@@ -90,5 +104,70 @@ services:
       <<: *common-env
     volumes:
       - ./agent_config.yaml:/app/agent_config.yaml
+      - ./.env:/app/.env:ro
     command: ["uv", "run", "--extra", "langgraph", "python", "examples/langgraph/21_custom_graph.py"]
 
+  # ===========================================================================
+  # Claude SDK Examples
+  # ===========================================================================
+  # Prerequisites:
+  #   1. Copy agent_config.yaml.example to agent_config.yaml
+  #   2. Fill in claude_sdk_* credentials for the example you want to run
+  #   3. Set ANTHROPIC_API_KEY in .env file
+  #
+  # Run examples:
+  #   docker compose up claude-sdk-01-basic
+  #   docker compose up claude-sdk-02-extended-thinking
+  #   docker compose up claude-sdk-03-custom-tools
+  # ===========================================================================
+
+  claude-sdk-01-basic:
+    build:
+      <<: *common-build
+      target: claude_sdk
+    environment:
+      <<: *claude-sdk-env
+    volumes:
+      - ./agent_config.yaml:/app/agent_config.yaml
+      - ./.env:/app/.env:ro
+    command: ["uv", "run", "--extra", "claude_sdk", "python", "examples/claude_sdk/01_basic_agent.py"]
+
+  claude-sdk-02-extended-thinking:
+    build:
+      <<: *common-build
+      target: claude_sdk
+    environment:
+      <<: *claude-sdk-env
+    volumes:
+      - ./agent_config.yaml:/app/agent_config.yaml
+      - ./.env:/app/.env:ro
+    command: ["uv", "run", "--extra", "claude_sdk", "python", "examples/claude_sdk/02_extended_thinking.py"]
+
+  claude-sdk-03-custom-tools:
+    build:
+      <<: *common-build
+      target: claude_sdk
+    environment:
+      <<: *claude-sdk-env
+    volumes:
+      - ./agent_config.yaml:/app/agent_config.yaml
+      - ./.env:/app/.env:ro
+    command: ["uv", "run", "--extra", "claude_sdk", "python", "examples/claude_sdk/03_custom_tools.py"]
+
+  # Generic Claude SDK runner for custom scripts
+  # Mount your scripts to /app/user_scripts
+  #
+  # Example:
+  #   export SCRIPT_PATH="/app/user_scripts/my_agent.py"
+  #   docker compose up claude-sdk-custom
+  claude-sdk-custom:
+    build:
+      <<: *common-build
+      target: claude_sdk
+    environment:
+      <<: *claude-sdk-env
+      SCRIPT_PATH: ${SCRIPT_PATH:-}
+    volumes:
+      - ./agent_config.yaml:/app/agent_config.yaml
+      - ./.env:/app/.env:ro
+      - ./user_scripts:/app/user_scripts:rw
