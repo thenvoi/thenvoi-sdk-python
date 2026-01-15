@@ -229,3 +229,83 @@ class TestGatewayHistoryConverter:
         ]
         result = converter.convert(raw)
         assert result.context_to_room == {"ctx-1": "room-new"}
+
+    def test_handles_tool_calls_in_history(
+        self, converter: GatewayHistoryConverter
+    ) -> None:
+        """Should handle tool_call and tool_result messages gracefully."""
+        raw = [
+            {
+                "message_type": "text",
+                "sender_id": "weather-agent",
+                "sender_type": "agent",
+                "room_id": "room-1",
+                "content": "Let me check the weather.",
+            },
+            {
+                "message_type": "tool_call",
+                "sender_id": "weather-agent",
+                "sender_type": "agent",
+                "room_id": "room-1",
+                "content": "get_weather",
+                "metadata": {
+                    "tool_name": "get_weather",
+                    "arguments": {"location": "NYC"},
+                },
+            },
+            {
+                "message_type": "tool_result",
+                "sender_id": "weather-agent",
+                "sender_type": "agent",
+                "room_id": "room-1",
+                "content": "72°F, sunny",
+                "metadata": {
+                    "tool_name": "get_weather",
+                    "status": "success",
+                },
+            },
+            {
+                "message_type": "text",
+                "sender_id": "weather-agent",
+                "sender_type": "agent",
+                "room_id": "room-1",
+                "content": "The weather in NYC is 72°F and sunny.",
+            },
+        ]
+        result = converter.convert(raw)
+        # Tool calls should not break participant tracking
+        assert result.room_participants == {"room-1": {"weather-agent"}}
+        # No context mapping since no gateway metadata
+        assert result.context_to_room == {}
+
+    def test_tool_calls_with_gateway_metadata(
+        self, converter: GatewayHistoryConverter
+    ) -> None:
+        """Should extract context from tool calls that have gateway metadata."""
+        raw = [
+            {
+                "message_type": "tool_call",
+                "sender_id": "orchestrator",
+                "sender_type": "agent",
+                "room_id": "room-1",
+                "metadata": {
+                    "gateway_context_id": "ctx-from-tool",
+                    "gateway_room_id": "room-1",
+                    "tool_name": "send_message",
+                },
+            },
+            {
+                "message_type": "tool_result",
+                "sender_id": "orchestrator",
+                "sender_type": "agent",
+                "room_id": "room-1",
+                "metadata": {
+                    "tool_name": "send_message",
+                    "status": "success",
+                },
+            },
+        ]
+        result = converter.convert(raw)
+        # Should extract context from tool_call with gateway metadata
+        assert result.context_to_room == {"ctx-from-tool": "room-1"}
+        assert result.room_participants == {"room-1": {"orchestrator"}}
