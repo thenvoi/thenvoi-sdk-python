@@ -72,7 +72,7 @@ def agent_tools_to_langchain(tools: AgentToolsProtocol) -> list[Any]:
         try:
             return await tools.create_chatroom(task_id)
         except Exception as e:
-            return f"Error creating chatroom: {e}"
+            return f"Error creating chatroom (task_id={task_id}): {e}"
 
     async def send_event_wrapper(
         content: str,

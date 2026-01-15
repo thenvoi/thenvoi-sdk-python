@@ -373,7 +373,7 @@ class ClaudeSDKAdapter(SimpleAdapter[str]):
                 )
 
             except Exception as e:
-                logger.error(f"create_chatroom failed: {e}", exc_info=True)
+                logger.error(f"create_chatroom failed (task_id={task_id}): {e}", exc_info=True)
                 return _make_error(str(e))
 
         server = create_sdk_mcp_server(
