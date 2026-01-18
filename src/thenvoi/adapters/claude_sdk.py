@@ -354,9 +354,9 @@ class ClaudeSDKAdapter(SimpleAdapter[str]):
         )
         async def create_chatroom(args: dict[str, Any]) -> dict[str, Any]:
             """Create a new chat room via API."""
+            task_id = args.get("task_id") or None
             try:
                 room_id = args.get("room_id", "")
-                task_id = args.get("task_id") or None
 
                 tools = _get_tools(room_id)
                 if not tools:
@@ -373,7 +373,9 @@ class ClaudeSDKAdapter(SimpleAdapter[str]):
                 )
 
             except Exception as e:
-                logger.error(f"create_chatroom failed (task_id={task_id}): {e}", exc_info=True)
+                logger.error(
+                    f"create_chatroom failed (task_id={task_id}): {e}", exc_info=True
+                )
                 return _make_error(str(e))
 
         server = create_sdk_mcp_server(
