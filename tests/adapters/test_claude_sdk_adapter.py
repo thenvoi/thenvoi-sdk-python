@@ -170,6 +170,7 @@ class TestThenvoiTools:
             "mcp__thenvoi__remove_participant",
             "mcp__thenvoi__get_participants",
             "mcp__thenvoi__lookup_peers",
+            "mcp__thenvoi__create_chatroom",
         ]
 
         assert THENVOI_TOOLS == expected

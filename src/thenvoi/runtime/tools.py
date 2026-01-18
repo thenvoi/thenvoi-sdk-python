@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, Any, Literal, cast
 
 from pydantic import BaseModel, Field
 
+from thenvoi.client.rest import ChatRoomRequest
 from thenvoi.core.protocols import AgentToolsProtocol
 
 if TYPE_CHECKING:
@@ -106,7 +107,9 @@ class GetParticipantsInput(BaseModel):
 class CreateChatroomInput(BaseModel):
     """Create a new chat room for a specific task or conversation."""
 
-    name: str = Field(..., description="Name for the new chat room")
+    task_id: str | None = Field(
+        default=None, description="Associated task ID (optional)"
+    )
 
 
 # Registry mapping tool names to their input models
@@ -269,19 +272,21 @@ class AgentTools(AgentToolsProtocol):
             raise RuntimeError("Failed to send event - no response data")
         return response.data.model_dump()
 
-    async def create_chatroom(self, name: str) -> str:
+    async def create_chatroom(self, task_id: str | None = None) -> str:
         """
         Create a new chat room.
 
         Args:
-            name: Name for the new chat room
+            task_id: Associated task ID (optional)
 
         Returns:
             Room ID of the created room
         """
-        logger.debug(f"Creating chatroom: {name}")
-        # Note: This would need the actual API method
-        raise NotImplementedError("create_chatroom not yet implemented in REST client")
+        logger.debug(f"Creating chatroom with task_id={task_id}")
+        response = await self.rest.agent_api.create_agent_chat(
+            chat=ChatRoomRequest(task_id=task_id)
+        )
+        return response.data.id
 
     async def add_participant(self, name: str, role: str = "member") -> dict[str, Any]:
         """
@@ -624,7 +629,7 @@ class AgentTools(AgentToolsProtocol):
                 arguments.get("page", 1), arguments.get("page_size", 50)
             ),
             "get_participants": lambda: self.get_participants(),
-            "create_chatroom": lambda: self.create_chatroom(arguments["name"]),
+            "create_chatroom": lambda: self.create_chatroom(arguments.get("task_id")),
         }
 
         if tool_name not in dispatch:

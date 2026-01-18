@@ -25,8 +25,11 @@ import uuid
 from dataclasses import dataclass
 
 import pytest
-from thenvoi_rest import AsyncRestClient, ChatRoomRequest
-from thenvoi_rest.types import ParticipantRequest
+from thenvoi_rest import AsyncRestClient, ChatMessageRequest, ChatRoomRequest
+from thenvoi_rest.types import (
+    ChatMessageRequestMentionsItem as Mention,
+    ParticipantRequest,
+)
 
 from tests.integration.conftest import (
     get_base_url,
@@ -226,7 +229,7 @@ class TestParticipantRemovalPermissions:
 
         # Create chat (owner agent becomes owner)
         response = await owner_client.agent_api.create_agent_chat(
-            chat=ChatRoomRequest(title="Removal Permission Test Chat")
+            chat=ChatRoomRequest()
         )
         chat_id = response.data.id
         print(f"\n  Created test chat: {chat_id}")
@@ -237,6 +240,15 @@ class TestParticipantRemovalPermissions:
             participant=ParticipantRequest(participant_id=admin.agent_id, role="admin"),
         )
         print(f"  Added admin: {admin.agent_name}")
+
+        # Add descriptive message (triggers auto-title)
+        await owner_client.agent_api.create_agent_chat_message(
+            chat_id,
+            message=ChatMessageRequest(
+                content=f"Participant removal permission test: @{admin.agent_name} testing removal permissions for owner/admin/member roles",
+                mentions=[Mention(id=admin.agent_id, name=admin.agent_name)],
+            ),
+        )
 
         # Add member agent
         await owner_client.agent_api.add_agent_chat_participant(
@@ -548,7 +560,7 @@ class TestParticipantAddPermissions:
 
         # Create chat (owner agent becomes owner)
         response = await owner_client.agent_api.create_agent_chat(
-            chat=ChatRoomRequest(title="Add Permission Test Chat")
+            chat=ChatRoomRequest()
         )
         chat_id = response.data.id
         print(f"\n  Created test chat: {chat_id}")
@@ -557,6 +569,15 @@ class TestParticipantAddPermissions:
         await owner_client.agent_api.add_agent_chat_participant(
             chat_id,
             participant=ParticipantRequest(participant_id=admin.agent_id, role="admin"),
+        )
+
+        # Add descriptive message (triggers auto-title)
+        await owner_client.agent_api.create_agent_chat_message(
+            chat_id,
+            message=ChatMessageRequest(
+                content=f"Participant add permission test: @{admin.agent_name} testing add permissions for owner/admin/member roles",
+                mentions=[Mention(id=admin.agent_id, name=admin.agent_name)],
+            ),
         )
 
         # Add member agent
@@ -816,7 +837,7 @@ class TestPermissionMatrix:
         for actor_role, target_role, target_type in scenarios:
             # Create fresh chat for each scenario
             response = await owner_client.agent_api.create_agent_chat(
-                chat=ChatRoomRequest(title=f"Matrix Test {actor_role}->{target_role}")
+                chat=ChatRoomRequest()
             )
             chat_id = response.data.id
 
@@ -834,6 +855,16 @@ class TestPermissionMatrix:
                         participant_id=admin.agent_id, role="admin"
                     ),
                 )
+
+                # Add descriptive message (triggers auto-title)
+                await owner_client.agent_api.create_agent_chat_message(
+                    chat_id,
+                    message=ChatMessageRequest(
+                        content=f"Removal matrix: @{admin.agent_name} {actor_role} removing {target_role}({target_type})",
+                        mentions=[Mention(id=admin.agent_id, name=admin.agent_name)],
+                    ),
+                )
+
                 await owner_client.agent_api.add_agent_chat_participant(
                     chat_id,
                     participant=ParticipantRequest(
@@ -967,7 +998,7 @@ class TestPermissionMatrix:
         for actor_role, target_type, add_as_role in scenarios:
             # Create fresh chat for each scenario
             response = await owner_client.agent_api.create_agent_chat(
-                chat=ChatRoomRequest(title=f"Add Matrix {actor_role}+{target_type}")
+                chat=ChatRoomRequest()
             )
             chat_id = response.data.id
 
@@ -979,6 +1010,16 @@ class TestPermissionMatrix:
                         participant_id=admin.agent_id, role="admin"
                     ),
                 )
+
+                # Add descriptive message (triggers auto-title)
+                await owner_client.agent_api.create_agent_chat_message(
+                    chat_id,
+                    message=ChatMessageRequest(
+                        content=f"Add matrix: @{admin.agent_name} {actor_role} adding {target_type} as {add_as_role}",
+                        mentions=[Mention(id=admin.agent_id, name=admin.agent_name)],
+                    ),
+                )
+
                 await owner_client.agent_api.add_agent_chat_participant(
                     chat_id,
                     participant=ParticipantRequest(

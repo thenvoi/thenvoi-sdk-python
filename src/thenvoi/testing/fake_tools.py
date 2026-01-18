@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import uuid
 from typing import Any
 
 
@@ -32,7 +33,7 @@ class FakeAgentTools:
         self.tool_calls: list[dict[str, Any]] = []
 
     async def send_message(
-        self, content: str, mentions: list[str] | None = None
+        self, content: str, mentions: list[str] | list[dict[str, str]] | None = None
     ) -> dict[str, Any]:
         msg = {
             "id": f"msg-{len(self.messages_sent)}",
@@ -76,8 +77,8 @@ class FakeAgentTools:
             "metadata": {"page": page, "page_size": page_size, "total": 0},
         }
 
-    async def create_chatroom(self, name: str) -> str:
-        return f"room-{name}"
+    async def create_chatroom(self, task_id: str | None = None) -> str:
+        return f"room-{uuid.uuid4()}"
 
     def get_tool_schemas(self, format: str) -> list[dict[str, Any]]:
         return []

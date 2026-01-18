@@ -77,6 +77,31 @@ class TestFormatMessageForLlm:
         result = format_message_for_llm(msg)
         assert result["message_type"] == "text"
 
+    def test_preserves_metadata(self):
+        """Should preserve metadata for adapters that need it (e.g., A2A)."""
+        msg = {
+            "sender_type": "Agent",
+            "content": "A2A task completed",
+            "message_type": "task",
+            "metadata": {
+                "a2a_context_id": "ctx-123",
+                "a2a_task_id": "task-456",
+                "a2a_task_state": "completed",
+            },
+        }
+        result = format_message_for_llm(msg)
+        assert result["metadata"] == {
+            "a2a_context_id": "ctx-123",
+            "a2a_task_id": "task-456",
+            "a2a_task_state": "completed",
+        }
+
+    def test_defaults_metadata_to_empty_dict(self):
+        """Should default metadata to empty dict if missing."""
+        msg = {"sender_type": "Agent", "content": "Hello"}
+        result = format_message_for_llm(msg)
+        assert result["metadata"] == {}
+
 
 class TestFormatHistoryForLlm:
     def test_formats_multiple_messages(self):

@@ -8,6 +8,8 @@ Install the extra you need:
     uv add thenvoi-sdk[claude_sdk]
     uv add thenvoi-sdk[parlant]
     uv add thenvoi-sdk[crewai]
+    uv add thenvoi-sdk[a2a]
+    uv add thenvoi-sdk[a2a_gateway]
 """
 
 from typing import TYPE_CHECKING
@@ -20,6 +22,8 @@ if TYPE_CHECKING:
     from thenvoi.adapters.claude_sdk import ClaudeSDKAdapter as ClaudeSDKAdapter
     from thenvoi.adapters.parlant import ParlantAdapter as ParlantAdapter
     from thenvoi.adapters.crewai import CrewAIAdapter as CrewAIAdapter
+    from thenvoi.adapters.a2a import A2AAdapter as A2AAdapter
+    from thenvoi.adapters.a2a_gateway import A2AGatewayAdapter as A2AGatewayAdapter
 
 __all__ = [
     "LangGraphAdapter",
@@ -28,6 +32,8 @@ __all__ = [
     "ClaudeSDKAdapter",
     "ParlantAdapter",
     "CrewAIAdapter",
+    "A2AAdapter",
+    "A2AGatewayAdapter",
 ]
 
 
@@ -57,4 +63,12 @@ def __getattr__(name: str):
         from thenvoi.adapters.crewai import CrewAIAdapter
 
         return CrewAIAdapter
+    elif name == "A2AAdapter":
+        from thenvoi.adapters.a2a import A2AAdapter
+
+        return A2AAdapter
+    elif name == "A2AGatewayAdapter":
+        from thenvoi.adapters.a2a_gateway import A2AGatewayAdapter
+
+        return A2AGatewayAdapter
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
