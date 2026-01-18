@@ -1,0 +1,79 @@
+"""
+Basic A2A adapter example.
+
+This example connects to a remote A2A-compliant agent and makes it available
+as a Thenvoi platform agent. Messages from the platform are forwarded to the
+A2A agent, and responses are posted back to the chat.
+
+Features:
+    - Automatic session state persistence via task events
+    - Session rehydration when agent rejoins a room (context_id restored)
+    - Task resumption for input_required state via A2A resubscribe
+
+Prerequisites:
+    1. Start an A2A-compliant agent (e.g., the LangGraph currency agent):
+
+       cd /path/to/a2a-samples/samples/python/agents/langgraph
+       export GOOGLE_API_KEY=xxx  # or OPENAI_API_KEY for OpenAI
+       python -m app --host localhost --port 10000
+
+    2. Verify the agent is running:
+       curl http://localhost:10000/.well-known/agent.json
+
+Run with:
+    python 01_basic_agent.py
+"""
+
+import asyncio
+import os
+
+from dotenv import load_dotenv
+
+from setup_logging import setup_logging
+from thenvoi import Agent
+from thenvoi.adapters import A2AAdapter
+from thenvoi.config import load_agent_config
+
+setup_logging()
+
+
+async def main():
+    load_dotenv()
+
+    ws_url = os.getenv("THENVOI_WS_URL")
+    rest_url = os.getenv("THENVOI_REST_URL")
+
+    if not ws_url:
+        raise ValueError("THENVOI_WS_URL environment variable is required")
+    if not rest_url:
+        raise ValueError("THENVOI_REST_URL environment variable is required")
+
+    # Load agent credentials from agent_config.yaml
+    agent_id, api_key = load_agent_config("a2a_agent")
+
+    # URL of the remote A2A agent
+    # Default: LangGraph currency agent sample running locally
+    a2a_url = os.getenv("A2A_AGENT_URL", "http://localhost:10000")
+
+    # Create adapter pointing to remote A2A agent
+    adapter = A2AAdapter(
+        remote_url=a2a_url,
+        streaming=True,  # Enable SSE streaming for real-time updates
+    )
+
+    # Create and start agent
+    agent = Agent.create(
+        adapter=adapter,
+        agent_id=agent_id,
+        api_key=api_key,
+        ws_url=ws_url,
+        rest_url=rest_url,
+    )
+
+    print(f"Starting A2A bridge agent (forwarding to {a2a_url})...")
+    print("Try asking: 'What is 10 USD in EUR?'")
+    await agent.run()
+
+
+if __name__ == "__main__":
+    asyncio.run(main())

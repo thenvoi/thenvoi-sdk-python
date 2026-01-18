@@ -189,12 +189,12 @@ class PydanticAIAdapter(SimpleAdapter[PydanticAIMessages]):
 
         async def create_chatroom(
             ctx: RunContext[AgentToolsProtocol],
-            name: str,
+            task_id: str | None = None,
         ) -> str:
             try:
-                return await ctx.deps.create_chatroom(name)
+                return await ctx.deps.create_chatroom(task_id)
             except Exception as e:
-                return f"Error creating chatroom '{name}': {e}"
+                return f"Error creating chatroom (task_id={task_id}): {e}"
 
         create_chatroom.__doc__ = get_tool_description("create_chatroom")
         agent.tool(create_chatroom)

@@ -127,9 +127,17 @@ class TestCreateChatroom:
         """Should return a generated room ID."""
         tools = FakeAgentTools()
 
-        result = await tools.create_chatroom(name="My Room")
+        result = await tools.create_chatroom(task_id="task-123")
 
-        assert result == "room-My Room"
+        assert result.startswith("room-")
+
+    async def test_returns_room_id_without_task_id(self):
+        """Should return a generated room ID when no task_id provided."""
+        tools = FakeAgentTools()
+
+        result = await tools.create_chatroom()
+
+        assert result.startswith("room-")
 
 
 class TestToolSchemas:

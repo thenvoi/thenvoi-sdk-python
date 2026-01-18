@@ -53,9 +53,7 @@ class TestWebSocketNotifications:
         print(f"Agent 2 (sender): {agent2_name} (ID: {agent2_id})")
 
         # Agent 1 creates a chat
-        response = await api_client.agent_api.create_agent_chat(
-            chat=ChatRoomRequest(title="WebSocket Multi-Agent Test")
-        )
+        response = await api_client.agent_api.create_agent_chat(chat=ChatRoomRequest())
         chat_id = response.data.id
         print(f"Created chat: {chat_id}")
 
@@ -65,6 +63,15 @@ class TestWebSocketNotifications:
             participant=ParticipantRequest(participant_id=agent2_id, role="member"),
         )
         print(f"Added Agent 2 to chat: {agent2_name}")
+
+        # Add descriptive message (triggers auto-title)
+        await api_client.agent_api.create_agent_chat_message(
+            chat_id,
+            message=ChatMessageRequest(
+                content=f"WebSocket multi-agent test: @{agent2_name} testing message_created notification when @mentioned by another agent",
+                mentions=[Mention(id=agent2_id, name=agent2_name)],
+            ),
+        )
 
         # Track received messages
         received_messages: list[MessageCreatedPayload] = []
@@ -167,10 +174,30 @@ class TestWebSocketNotifications:
 
             # Create a new chat via REST API (agent is automatically owner)
             response = await api_client.agent_api.create_agent_chat(
-                chat=ChatRoomRequest(title="WebSocket Room Test")
+                chat=ChatRoomRequest()
             )
             created_chat_id = response.data.id
             print(f"Created chat via REST: {created_chat_id}")
+
+            # Get a peer to add to the room so we can send a descriptive message
+            peers_response = await api_client.agent_api.list_agent_peers()
+            if peers_response.data:
+                peer = peers_response.data[0]
+                await api_client.agent_api.add_agent_chat_participant(
+                    created_chat_id,
+                    participant=ParticipantRequest(
+                        participant_id=peer.id, role="member"
+                    ),
+                )
+
+                # Add descriptive message (triggers auto-title)
+                await api_client.agent_api.create_agent_chat_message(
+                    created_chat_id,
+                    message=ChatMessageRequest(
+                        content=f"WebSocket room_added test: @{peer.name} testing that agent receives room_added notification",
+                        mentions=[Mention(id=peer.id, name=peer.name)],
+                    ),
+                )
 
             # Wait for WebSocket to receive the room_added event
             try:
@@ -189,7 +216,7 @@ class TestWebSocketNotifications:
         assert our_room is not None, (
             f"Should have received room_added for {created_chat_id}"
         )
-        assert our_room.title == "WebSocket Room Test"
+        assert our_room.title is not None, "Room should have a title"
         print(f"Verified room title: '{our_room.title}'")
 
         print("\nWebSocket room_added test passed!")

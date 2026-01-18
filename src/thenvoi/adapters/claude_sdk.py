@@ -53,6 +53,7 @@ THENVOI_TOOLS = [
     "mcp__thenvoi__remove_participant",
     "mcp__thenvoi__get_participants",
     "mcp__thenvoi__lookup_peers",
+    "mcp__thenvoi__create_chatroom",
 ]
 
 
@@ -346,6 +347,37 @@ class ClaudeSDKAdapter(SimpleAdapter[str]):
                 logger.error(f"lookup_peers failed: {e}", exc_info=True)
                 return _make_error(str(e))
 
+        @tool(
+            "create_chatroom",
+            get_tool_description("create_chatroom"),
+            {"room_id": str, "task_id": str},
+        )
+        async def create_chatroom(args: dict[str, Any]) -> dict[str, Any]:
+            """Create a new chat room via API."""
+            task_id = args.get("task_id") or None
+            try:
+                room_id = args.get("room_id", "")
+
+                tools = _get_tools(room_id)
+                if not tools:
+                    return _make_error(f"No tools available for room {room_id}")
+
+                new_room_id = await tools.create_chatroom(task_id)
+
+                return _make_result(
+                    {
+                        "status": "success",
+                        "message": "Chat room created",
+                        "room_id": new_room_id,
+                    }
+                )
+
+            except Exception as e:
+                logger.error(
+                    f"create_chatroom failed (task_id={task_id}): {e}", exc_info=True
+                )
+                return _make_error(str(e))
+
         server = create_sdk_mcp_server(
             name="thenvoi",
             version="1.0.0",
@@ -356,10 +388,11 @@ class ClaudeSDKAdapter(SimpleAdapter[str]):
                 remove_participant,
                 get_participants,
                 lookup_peers,
+                create_chatroom,
             ],
         )
 
-        logger.info("Thenvoi MCP SDK server created with 6 tools")
+        logger.info("Thenvoi MCP SDK server created with 7 tools")
 
         return server
 

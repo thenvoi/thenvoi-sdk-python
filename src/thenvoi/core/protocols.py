@@ -51,7 +51,7 @@ class AgentToolsProtocol(Protocol):
     """
 
     async def send_message(
-        self, content: str, mentions: list[str] | None = None
+        self, content: str, mentions: list[str] | list[dict[str, str]] | None = None
     ) -> dict[str, Any]:
         """Send a message to the chat room."""
         ...
@@ -81,7 +81,7 @@ class AgentToolsProtocol(Protocol):
         """Find available peers (agents and users) on the platform."""
         ...
 
-    async def create_chatroom(self, name: str) -> str:
+    async def create_chatroom(self, task_id: str | None = None) -> str:
         """Create a new chat room."""
         ...
 

@@ -68,9 +68,7 @@ class TestMultiAgentChatRoom:
         print(f"User (owner): {user_name} (ID: {user_id})")
 
         # Agent 1 creates a chat
-        response = await api_client.agent_api.create_agent_chat(
-            chat=ChatRoomRequest(title="Multi-Agent Test Chat")
-        )
+        response = await api_client.agent_api.create_agent_chat(chat=ChatRoomRequest())
         chat_id = response.data.id
         print(f"\nAgent 1 created chat: {chat_id}")
 
@@ -177,9 +175,7 @@ class TestMultiAgentChatRoom:
         print(f"User: {user_name} (ID: {user_id})")
 
         # Agent 1 creates a chat
-        response = await api_client.agent_api.create_agent_chat(
-            chat=ChatRoomRequest(title="WebSocket Multi-Agent Test")
-        )
+        response = await api_client.agent_api.create_agent_chat(chat=ChatRoomRequest())
         chat_id = response.data.id
         print(f"\nAgent 1 created chat: {chat_id}")
 
@@ -275,9 +271,7 @@ class TestMultiAgentChatRoom:
         print(f"Agent 2: {agent2_name} (ID: {agent2_id})")
 
         # Agent 1 creates chat and adds Agent 2
-        response = await api_client.agent_api.create_agent_chat(
-            chat=ChatRoomRequest(title="Mention Test Chat")
-        )
+        response = await api_client.agent_api.create_agent_chat(chat=ChatRoomRequest())
         chat_id = response.data.id
         print(f"\nAgent 1 created chat: {chat_id}")
 
@@ -353,9 +347,7 @@ class TestMultiAgentChatRoom:
         print(f"Agent 2: {agent2_name} (ID: {agent2_id})")
 
         # Agent 1 creates a chat
-        response = await api_client.agent_api.create_agent_chat(
-            chat=ChatRoomRequest(title="Event Isolation Test")
-        )
+        response = await api_client.agent_api.create_agent_chat(chat=ChatRoomRequest())
         chat_id = response.data.id
         print(f"\nAgent 1 created chat: {chat_id}")
 
@@ -492,9 +484,7 @@ class TestMultiAgentChatRoom:
         print(f"Agent 2: {agent2_name} (ID: {agent2_id})")
 
         # Agent 1 creates a chat
-        response = await api_client.agent_api.create_agent_chat(
-            chat=ChatRoomRequest(title="Dual Event Test")
-        )
+        response = await api_client.agent_api.create_agent_chat(chat=ChatRoomRequest())
         chat_id = response.data.id
         print(f"\nCreated chat: {chat_id}")
 
@@ -623,9 +613,7 @@ class TestMultiAgentChatRoom:
 
         # Step 1: Agent 1 creates a chat (becomes OWNER)
         print("\n--- Step 1: Agent 1 creates chat ---")
-        response = await api_client.agent_api.create_agent_chat(
-            chat=ChatRoomRequest(title="Member Add Participant Test")
-        )
+        response = await api_client.agent_api.create_agent_chat(chat=ChatRoomRequest())
         chat_id = response.data.id
         print(f"Agent 1 created chat: {chat_id}")
 
@@ -636,6 +624,15 @@ class TestMultiAgentChatRoom:
             participant=ParticipantRequest(participant_id=agent2_id, role="member"),
         )
         print("Agent 1 added Agent 2 as member")
+
+        # Add descriptive message (triggers auto-title)
+        await api_client.agent_api.create_agent_chat_message(
+            chat_id,
+            message=ChatMessageRequest(
+                content=f"Multi-agent permission test: @{agent2_name} testing member agent list peers and add participants",
+                mentions=[Mention(id=agent2_id, name=agent2_name)],
+            ),
+        )
 
         # Verify participants
         response = await api_client.agent_api.list_agent_chat_participants(chat_id)
@@ -754,9 +751,7 @@ class TestMultiAgentChatRoom:
 
         # Step 1: Agent 1 creates chat
         print("\n--- Step 1: Agent 1 creates chat ---")
-        response = await api_client.agent_api.create_agent_chat(
-            chat=ChatRoomRequest(title="Admin Add Participant Test")
-        )
+        response = await api_client.agent_api.create_agent_chat(chat=ChatRoomRequest())
         chat_id = response.data.id
         print(f"Agent 1 created chat: {chat_id}")
 
@@ -767,6 +762,15 @@ class TestMultiAgentChatRoom:
             participant=ParticipantRequest(participant_id=agent2_id, role="admin"),
         )
         print("Agent 1 added Agent 2 as ADMIN")
+
+        # Add descriptive message (triggers auto-title)
+        await api_client.agent_api.create_agent_chat_message(
+            chat_id,
+            message=ChatMessageRequest(
+                content=f"Multi-agent permission test: @{agent2_name} testing admin agent adding participants",
+                mentions=[Mention(id=agent2_id, name=agent2_name)],
+            ),
+        )
 
         # Verify Agent 2's role
         response = await api_client.agent_api.list_agent_chat_participants(chat_id)
