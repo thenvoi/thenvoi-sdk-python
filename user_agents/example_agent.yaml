@@ -1,0 +1,18 @@
+# Agent Configuration
+# Copy this file and edit for your agent
+
+agent_id: "90f16161-1953-4bd6-a1b8-8a97ac28a814"
+api_key: "thnv_a_1768404494_oUogm0-aYz9342Bgfbq6pvIbREkTunbt"
+
+model: claude-sonnet-4-5-20250929
+
+prompt: |
+  You are a helpful assistant.
+  Be concise and friendly.
+
+# Optional: custom tools (add them in tools/__init__.py first)
+# tools:
+#   - my_tool
+
+# Optional: enable extended thinking
+# thinking_tokens: 10000

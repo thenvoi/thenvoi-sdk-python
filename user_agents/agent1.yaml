@@ -1,0 +1,12 @@
+# Agent 1
+agent_id: "90f16161-1953-4bd6-a1b8-8a97ac28a814"
+api_key: "thnv_a_1768404494_oUogm0-aYz9342Bgfbq6pvIbREkTunbt"
+
+model: claude-sonnet-4-5-20250929
+
+prompt: |
+  You are Agent 1 - a helpful assistant.
+
+tools:
+  - calculator
+  - get_time
