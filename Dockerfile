@@ -38,25 +38,15 @@ RUN uv sync --extra langgraph
 CMD ["uv", "run", "--extra", "langgraph", "python", "examples/langgraph/01_simple_agent.py"]
 
 # =============================================================================
-# Claude SDK Stage
+# Claude SDK Stage - Pre-built image for users
 # =============================================================================
-# Requires Node.js 20+ for Claude Code CLI (@anthropic-ai/claude-code)
-#
-# Features:
-#   - Full Claude Agent SDK support
-#   - Extended thinking capabilities
-#   - MCP tool integration
-#   - Volume mounting for custom scripts
+# Users mount their agents folder and run - no build needed!
 #
 # Usage:
-#   docker build --target claude_sdk -t thenvoi-claude-sdk .
-#   docker run -e ANTHROPIC_API_KEY -e THENVOI_AGENT_ID -e THENVOI_API_KEY thenvoi-claude-sdk
-#
-# With custom scripts:
-#   docker run -v ./my_scripts:/app/user_scripts:rw \
-#     -e SCRIPT_PATH=/app/user_scripts/my_agent.py \
-#     -e ANTHROPIC_API_KEY -e THENVOI_AGENT_ID -e THENVOI_API_KEY \
-#     thenvoi-claude-sdk
+#   docker run -v ./agents:/app/user_agents \
+#     -e AGENT_CONFIG=/app/user_agents/my_agent.yaml \
+#     -e ANTHROPIC_API_KEY -e THENVOI_WS_URL -e THENVOI_REST_URL \
+#     ghcr.io/thenvoi/thenvoi-claude-sdk:latest
 # =============================================================================
 
 FROM base AS claude_sdk
@@ -69,20 +59,14 @@ RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
 # Install Claude Code CLI globally
 RUN npm install -g @anthropic-ai/claude-code
 
-# Verify installations
-RUN node --version && npm --version && claude --version
-
 # Install dependencies with claude_sdk extras
 RUN uv sync --extra claude_sdk
 
-# Create directory for user-mounted scripts
-RUN mkdir -p /app/user_scripts && chmod 755 /app/user_scripts
+# Create directory for user-mounted content
+RUN mkdir -p /app/user_agents/tools
 
-# Environment variable to specify custom script path (optional)
-ENV SCRIPT_PATH=""
-
-# Default command runs the basic example, or custom script if SCRIPT_PATH is set
-CMD ["sh", "-c", "if [ -n \"$SCRIPT_PATH\" ] && [ -f \"$SCRIPT_PATH\" ]; then uv run --extra claude_sdk python \"$SCRIPT_PATH\"; else uv run --extra claude_sdk python examples/claude_sdk/01_basic_agent.py; fi"]
+# Run agent from YAML config
+CMD ["uv", "run", "--extra", "claude_sdk", "python", "-m", "thenvoi.run_agent"]
 
 # Default stage is langgraph (for backwards compatibility)
 FROM langgraph AS default
