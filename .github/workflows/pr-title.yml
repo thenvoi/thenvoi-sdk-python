@@ -11,8 +11,8 @@ jobs:
   validate:
     name: Validate PR Title
     runs-on: ubuntu-latest
-    # Skip validation for dependabot PRs
-    if: github.actor != 'dependabot[bot]'
+    # Skip validation for Dependabot and thenvoi-argocd PRs
+    if: github.actor != 'dependabot[bot]' && github.actor != 'thenvoi-argocd'
     steps:
       - name: Validate Conventional Commits format
         uses: amannn/action-semantic-pull-request@v6
