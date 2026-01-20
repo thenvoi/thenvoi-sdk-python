@@ -40,6 +40,11 @@ from thenvoi.core.types import PlatformMessage
 from thenvoi.converters.claude_sdk import ClaudeSDKHistoryConverter
 from thenvoi.integrations.claude_sdk.session_manager import ClaudeSessionManager
 from thenvoi.integrations.claude_sdk.prompts import generate_claude_sdk_agent_prompt
+from thenvoi.runtime.custom_tools import (
+    CustomToolDef,
+    execute_custom_tool,
+    get_custom_tool_name,
+)
 from thenvoi.runtime.tools import get_tool_description
 
 logger = logging.getLogger(__name__)
@@ -85,7 +90,21 @@ class ClaudeSDKAdapter(SimpleAdapter[str]):
         permission_mode: PermissionMode = "acceptEdits",
         enable_execution_reporting: bool = False,
         history_converter: ClaudeSDKHistoryConverter | None = None,
+        additional_tools: list[CustomToolDef] | None = None,
     ):
+        """
+        Initialize the Claude SDK adapter.
+
+        Args:
+            model: Claude model to use
+            custom_section: Custom instructions added to system prompt
+            max_thinking_tokens: Max tokens for extended thinking (optional)
+            permission_mode: SDK permission mode
+            enable_execution_reporting: If True, emit tool_call/tool_result events
+            history_converter: Optional custom history converter
+            additional_tools: Optional list of custom tools as (PydanticModel, callable)
+                tuples. These are converted to MCP tools internally.
+        """
         super().__init__(
             history_converter=history_converter or ClaudeSDKHistoryConverter()
         )
@@ -109,6 +128,9 @@ class ClaudeSDKAdapter(SimpleAdapter[str]):
         # Per-room session IDs (for SDK session resume)
         self._session_ids: dict[str, str] = {}
 
+        # Custom tools (user-provided)
+        self._custom_tools: list[CustomToolDef] = additional_tools or []
+
     # --- Adapted from ThenvoiClaudeSDKAgent._on_started ---
     async def on_started(self, agent_name: str, agent_description: str) -> None:
         """Create MCP server and session manager after agent metadata is fetched."""
@@ -124,12 +146,19 @@ class ClaudeSDKAdapter(SimpleAdapter[str]):
             custom_section=self.custom_section,
         )
 
+        # Build allowed tools list (platform + custom)
+        allowed_tools = list(THENVOI_TOOLS)
+        for custom_tool_def in self._custom_tools:
+            input_model, _ = custom_tool_def
+            tool_name = get_custom_tool_name(input_model)
+            allowed_tools.append(f"mcp__thenvoi__{tool_name}")
+
         # Build SDK options
         sdk_options = ClaudeAgentOptions(
             model=self.model,
             system_prompt=system_prompt,
             mcp_servers={"thenvoi": self._mcp_server},
-            allowed_tools=THENVOI_TOOLS,
+            allowed_tools=allowed_tools,
             permission_mode=self.permission_mode,
         )
 
@@ -378,21 +407,80 @@ class ClaudeSDKAdapter(SimpleAdapter[str]):
                 )
                 return _make_error(str(e))
 
+        # Start with platform tools
+        all_tools = [
+            send_message,
+            send_event,
+            add_participant,
+            remove_participant,
+            get_participants,
+            lookup_peers,
+            create_chatroom,
+        ]
+
+        # Add custom tools wrapped as MCP tools
+        for custom_tool_def in adapter._custom_tools:
+            input_model, func = custom_tool_def
+            tool_name = get_custom_tool_name(input_model)
+            tool_description = input_model.__doc__ or f"Custom tool: {tool_name}"
+
+            # Build schema from Pydantic model
+            schema = input_model.model_json_schema()
+            properties = schema.get("properties", {})
+            # Convert to simple type dict for MCP (name: type)
+            mcp_schema: dict[str, type] = {"room_id": str}  # Always include room_id
+            for prop_name, prop_def in properties.items():
+                prop_type = prop_def.get("type", "string")
+                if prop_type == "string":
+                    mcp_schema[prop_name] = str
+                elif prop_type == "number":
+                    mcp_schema[prop_name] = float
+                elif prop_type == "integer":
+                    mcp_schema[prop_name] = int
+                elif prop_type == "boolean":
+                    mcp_schema[prop_name] = bool
+                else:
+                    mcp_schema[prop_name] = str  # Default to string
+
+            # Create MCP wrapper function
+            # Need to capture variables in closure
+            def make_mcp_wrapper(tool_def: CustomToolDef, name: str):
+                async def mcp_wrapper(args: dict[str, Any]) -> dict[str, Any]:
+                    try:
+                        # Remove room_id from args (not part of custom tool input)
+                        tool_args = {k: v for k, v in args.items() if k != "room_id"}
+
+                        # Execute custom tool
+                        result = await execute_custom_tool(tool_def, tool_args)
+
+                        # Format result for MCP
+                        return _make_result(result)
+
+                    except Exception as e:
+                        logger.error(f"Custom tool {name} failed: {e}", exc_info=True)
+                        return _make_error(str(e))
+
+                return mcp_wrapper
+
+            wrapper = make_mcp_wrapper(custom_tool_def, tool_name)
+            wrapper.__name__ = tool_name  # Set function name for tool decorator
+
+            # Apply @tool decorator
+            decorated = tool(tool_name, tool_description, mcp_schema)(wrapper)
+            all_tools.append(decorated)
+
+            logger.debug(f"Registered custom MCP tool: {tool_name}")
+
         server = create_sdk_mcp_server(
             name="thenvoi",
             version="1.0.0",
-            tools=[
-                send_message,
-                send_event,
-                add_participant,
-                remove_participant,
-                get_participants,
-                lookup_peers,
-                create_chatroom,
-            ],
+            tools=all_tools,
         )
 
-        logger.info("Thenvoi MCP SDK server created with 7 tools")
+        logger.info(
+            f"Thenvoi MCP SDK server created with {len(all_tools)} tools "
+            f"({len(adapter._custom_tools)} custom)"
+        )
 
         return server
 

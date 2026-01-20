@@ -174,3 +174,150 @@ class TestThenvoiTools:
         ]
 
         assert THENVOI_TOOLS == expected
+
+
+class TestCustomTools:
+    """Tests for custom tool support (CustomToolDef → MCP)."""
+
+    def test_accepts_additional_tools_parameter(self):
+        """Adapter accepts list of CustomToolDef tuples."""
+        from pydantic import BaseModel, Field
+
+        class EchoInput(BaseModel):
+            """Echo the message."""
+
+            message: str = Field(description="Message to echo")
+
+        async def echo(args: EchoInput) -> str:
+            return f"Echo: {args.message}"
+
+        adapter = ClaudeSDKAdapter(
+            additional_tools=[(EchoInput, echo)],
+        )
+
+        assert len(adapter._custom_tools) == 1
+        assert adapter._custom_tools[0][0] is EchoInput
+
+    def test_empty_additional_tools_by_default(self):
+        """Should have empty custom tools list by default."""
+        adapter = ClaudeSDKAdapter()
+
+        assert adapter._custom_tools == []
+
+    def test_multiple_custom_tools(self):
+        """Should accept multiple custom tools."""
+        from pydantic import BaseModel
+
+        class Tool1Input(BaseModel):
+            """Tool 1."""
+
+            x: int
+
+        class Tool2Input(BaseModel):
+            """Tool 2."""
+
+            y: str
+
+        def tool1(args: Tool1Input) -> int:
+            return args.x + 1
+
+        def tool2(args: Tool2Input) -> str:
+            return args.y.upper()
+
+        adapter = ClaudeSDKAdapter(
+            additional_tools=[(Tool1Input, tool1), (Tool2Input, tool2)],
+        )
+
+        assert len(adapter._custom_tools) == 2
+
+    @pytest.mark.asyncio
+    async def test_custom_tools_added_to_allowed_tools(self):
+        """Custom tools should be added to allowed_tools list."""
+        from pydantic import BaseModel
+
+        class CalculatorInput(BaseModel):
+            """Perform calculations."""
+
+            a: float
+            b: float
+
+        def calc(args: CalculatorInput) -> float:
+            return args.a + args.b
+
+        adapter = ClaudeSDKAdapter(
+            additional_tools=[(CalculatorInput, calc)],
+        )
+
+        # Mock the session manager creation
+        with patch(
+            "thenvoi.adapters.claude_sdk.ClaudeSessionManager"
+        ) as mock_manager_class:
+            mock_manager = MagicMock()
+            mock_manager_class.return_value = mock_manager
+
+            # Capture the ClaudeAgentOptions passed to session manager
+            await adapter.on_started(
+                agent_name="TestBot", agent_description="A test bot"
+            )
+
+            # Get the options passed to ClaudeSessionManager
+            call_args = mock_manager_class.call_args
+            sdk_options = call_args[0][0]
+
+            # Verify custom tool is in allowed_tools
+            assert "mcp__thenvoi__calculator" in sdk_options.allowed_tools
+            # Platform tools should still be there
+            assert "mcp__thenvoi__send_message" in sdk_options.allowed_tools
+
+    @pytest.mark.asyncio
+    async def test_custom_tools_registered_in_mcp_server(self):
+        """Custom tools should be registered in MCP server."""
+        from pydantic import BaseModel
+
+        class EchoInput(BaseModel):
+            """Echo tool."""
+
+            message: str
+
+        async def echo(args: EchoInput) -> str:
+            return f"Echo: {args.message}"
+
+        adapter = ClaudeSDKAdapter(
+            additional_tools=[(EchoInput, echo)],
+        )
+
+        # Create the MCP server
+        with patch(
+            "thenvoi.adapters.claude_sdk.create_sdk_mcp_server"
+        ) as mock_create_server:
+            mock_create_server.return_value = MagicMock()
+
+            adapter._create_mcp_server()
+
+            # Verify create_sdk_mcp_server was called with extra tools
+            call_args = mock_create_server.call_args
+            tools_list = call_args[1]["tools"]
+
+            # Should have 7 platform tools + 1 custom tool
+            assert len(tools_list) == 8
+
+    def test_tool_name_derived_from_input_model(self):
+        """Tool name should be derived from Pydantic model class name."""
+        from thenvoi.runtime.custom_tools import get_custom_tool_name
+        from pydantic import BaseModel
+
+        class MyCustomToolInput(BaseModel):
+            """A custom tool."""
+
+            value: str
+
+        name = get_custom_tool_name(MyCustomToolInput)
+        assert name == "mycustomtool"
+
+        class CalculatorInput(BaseModel):
+            """Calculator."""
+
+            x: int
+
+        name = get_custom_tool_name(CalculatorInput)
+        assert name == "calculator"
