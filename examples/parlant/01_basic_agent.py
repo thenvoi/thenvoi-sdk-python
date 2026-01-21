@@ -1,16 +1,20 @@
 """
 Basic Parlant agent example.
 
-This is the simplest way to create a Thenvoi agent using the Parlant framework.
-The adapter handles conversation history, tool calling, and platform integration.
+This is the simplest way to create a Thenvoi agent using the Parlant framework
+with the official Parlant SDK for proper guideline-based behavior.
 
 Parlant (https://github.com/emcie-co/parlant) provides:
 - Behavioral guidelines for consistent agent responses
 - Built-in guardrails against hallucination
 - Explainability for agent decisions
 
+Prerequisites:
+- A running Parlant server (default: http://localhost:8000)
+- Or set PARLANT_URL environment variable to point to your Parlant server
+
 Run with:
-    OPENAI_API_KEY=xxx python 01_basic_agent.py
+    PARLANT_URL=http://localhost:8000 python 01_basic_agent.py
 """
 
 import asyncio
@@ -33,6 +37,7 @@ async def main():
 
     ws_url = os.getenv("THENVOI_WS_URL")
     rest_url = os.getenv("THENVOI_REST_URL")
+    parlant_url = os.getenv("PARLANT_URL", "http://localhost:8000")
 
     if not ws_url:
         raise ValueError("THENVOI_WS_URL environment variable is required")
@@ -42,9 +47,13 @@ async def main():
     # Load agent credentials from agent_config.yaml
     agent_id, api_key = load_agent_config("parlant_agent")
 
-    # Create adapter with framework-specific settings
+    # Get optional Parlant agent ID (if using pre-configured agent)
+    parlant_agent_id = os.getenv("PARLANT_AGENT_ID")
+
+    # Create adapter with Parlant SDK integration
     adapter = ParlantAdapter(
-        model="gpt-4o",
+        parlant_url=parlant_url,
+        agent_id=parlant_agent_id,  # If None, creates agent dynamically
         custom_section="You are a helpful assistant. Be concise and friendly.",
     )
 
@@ -57,7 +66,7 @@ async def main():
         rest_url=rest_url,
     )
 
-    logger.info("Starting Parlant agent...")
+    logger.info(f"Starting Parlant agent (parlant_url={parlant_url})...")
     await agent.run()
 
 

@@ -4,6 +4,8 @@ Framework integrations for Thenvoi SDK.
 This module contains utilities for integrating with various AI frameworks:
 - base: Common helpers for all frameworks
 - langgraph: LangChain/LangGraph tools and utilities
+- parlant: Parlant SDK session and tool management
+- claude_sdk: Claude Agent SDK session management
 """
 
 # Base utilities (always available)

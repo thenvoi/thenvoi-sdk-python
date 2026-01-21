@@ -4,13 +4,21 @@ Parlant agent with behavioral guidelines.
 Shows how to use Parlant's guideline system for controlled agent behavior.
 Guidelines are condition/action pairs that ensure consistent responses.
 
+With the official Parlant SDK, guidelines are registered with the Parlant
+server and enforced through proper guideline matching, not just prompt
+engineering.
+
 Parlant's guidelines provide:
 - Ensured rule-following behavior
 - Contextual activation based on conditions
 - Predictable, consistent responses
 
+Prerequisites:
+- A running Parlant server (default: http://localhost:8000)
+- Or set PARLANT_URL environment variable to point to your Parlant server
+
 Run with:
-    OPENAI_API_KEY=xxx python 02_with_guidelines.py
+    PARLANT_URL=http://localhost:8000 python 02_with_guidelines.py
 """
 
 import asyncio
@@ -29,6 +37,7 @@ logger = logging.getLogger(__name__)
 
 
 # Define behavioral guidelines
+# These are registered with the Parlant server for proper enforcement
 GUIDELINES = [
     {
         "condition": "User asks for help or assistance",
@@ -74,6 +83,7 @@ async def main():
 
     ws_url = os.getenv("THENVOI_WS_URL")
     rest_url = os.getenv("THENVOI_REST_URL")
+    parlant_url = os.getenv("PARLANT_URL", "http://localhost:8000")
 
     if not ws_url:
         raise ValueError("THENVOI_WS_URL environment variable is required")
@@ -83,9 +93,14 @@ async def main():
     # Load agent credentials from agent_config.yaml
     agent_id, api_key = load_agent_config("parlant_agent")
 
-    # Create adapter with guidelines and custom instructions
+    # Get optional Parlant agent ID (if using pre-configured agent)
+    parlant_agent_id = os.getenv("PARLANT_AGENT_ID")
+
+    # Create adapter with guidelines
+    # Guidelines are registered with Parlant server at startup
     adapter = ParlantAdapter(
-        model="gpt-4o",
+        parlant_url=parlant_url,
+        agent_id=parlant_agent_id,  # If None, creates agent dynamically
         custom_section=CUSTOM_PROMPT,
         guidelines=GUIDELINES,
         # Enable execution reporting to see tool calls in the chat
@@ -101,7 +116,7 @@ async def main():
         rest_url=rest_url,
     )
 
-    logger.info("Starting Parlant agent with guidelines...")
+    logger.info(f"Starting Parlant agent with guidelines (parlant_url={parlant_url})...")
     await agent.run()
 
 

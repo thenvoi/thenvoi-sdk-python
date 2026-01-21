@@ -5,10 +5,15 @@ Demonstrates a realistic use case: a customer support agent with
 specific behavioral guidelines for handling support requests.
 
 This example shows Parlant's strength in ensuring consistent
-customer-facing behavior through guidelines.
+customer-facing behavior through guidelines that are properly
+enforced by the Parlant SDK (not just prompt suggestions).
+
+Prerequisites:
+- A running Parlant server (default: http://localhost:8000)
+- Or set PARLANT_URL environment variable to point to your Parlant server
 
 Run with:
-    OPENAI_API_KEY=xxx python 03_support_agent.py
+    PARLANT_URL=http://localhost:8000 python 03_support_agent.py
 """
 
 import asyncio
@@ -27,6 +32,7 @@ logger = logging.getLogger(__name__)
 
 
 # Customer support guidelines
+# These are registered with Parlant server for proper enforcement
 SUPPORT_GUIDELINES = [
     {
         "condition": "Customer asks about refunds or returns",
@@ -82,6 +88,7 @@ async def main():
 
     ws_url = os.getenv("THENVOI_WS_URL")
     rest_url = os.getenv("THENVOI_REST_URL")
+    parlant_url = os.getenv("PARLANT_URL", "http://localhost:8000")
 
     if not ws_url:
         raise ValueError("THENVOI_WS_URL environment variable is required")
@@ -91,9 +98,13 @@ async def main():
     # Load agent credentials from agent_config.yaml
     agent_id, api_key = load_agent_config("support_agent")
 
+    # Get optional Parlant agent ID (if using pre-configured agent)
+    parlant_agent_id = os.getenv("PARLANT_AGENT_ID")
+
     # Create support agent with specialized guidelines
     adapter = ParlantAdapter(
-        model="gpt-4o",
+        parlant_url=parlant_url,
+        agent_id=parlant_agent_id,  # If None, creates agent dynamically
         custom_section=SUPPORT_PROMPT,
         guidelines=SUPPORT_GUIDELINES,
         enable_execution_reporting=True,
@@ -108,7 +119,7 @@ async def main():
         rest_url=rest_url,
     )
 
-    logger.info("Starting customer support agent...")
+    logger.info(f"Starting customer support agent (parlant_url={parlant_url})...")
     await agent.run()
 
 
