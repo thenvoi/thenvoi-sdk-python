@@ -116,7 +116,9 @@ async def main():
         rest_url=rest_url,
     )
 
-    logger.info(f"Starting Parlant agent with guidelines (parlant_url={parlant_url})...")
+    logger.info(
+        f"Starting Parlant agent with guidelines (parlant_url={parlant_url})..."
+    )
     await agent.run()
 
 

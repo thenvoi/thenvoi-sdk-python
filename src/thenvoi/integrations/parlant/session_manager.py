@@ -10,10 +10,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from dataclasses import dataclass, field
-from typing import Any, TYPE_CHECKING
-
-if TYPE_CHECKING:
-    from parlant.client import AsyncParlantClient
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -64,7 +61,7 @@ class ParlantSessionManager:
 
     def __init__(
         self,
-        client: "AsyncParlantClient",
+        client: Any,  # AsyncParlantClient - parlant is optional dependency
         agent_id: str,
     ):
         """
@@ -74,7 +71,7 @@ class ParlantSessionManager:
             client: AsyncParlantClient instance for Parlant API calls
             agent_id: The Parlant agent ID to use for sessions
         """
-        self.client = client
+        self.client: Any = client
         self.agent_id = agent_id
         self._sessions: dict[str, ParlantSession] = {}
         self._lock = asyncio.Lock()

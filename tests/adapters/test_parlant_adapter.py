@@ -1,7 +1,7 @@
 """Tests for ParlantAdapter with official Parlant SDK."""
 
 from datetime import datetime, timezone
-from unittest.mock import AsyncMock, MagicMock, patch, Mock
+from unittest.mock import AsyncMock, MagicMock, patch
 import sys
 
 import pytest
@@ -135,9 +135,7 @@ class TestOnStarted:
         """Should create agent dynamically when agent_id is not provided."""
         adapter = ParlantAdapter()
 
-        with patch.dict(
-            sys.modules, {"parlant.client": mock_parlant_module}
-        ):
+        with patch.dict(sys.modules, {"parlant.client": mock_parlant_module}):
             # Mock the session manager
             with patch(
                 "thenvoi.integrations.parlant.session_manager.ParlantSessionManager"
@@ -159,9 +157,7 @@ class TestOnStarted:
         """Should use existing agent when agent_id is provided."""
         adapter = ParlantAdapter(agent_id="existing-agent")
 
-        with patch.dict(
-            sys.modules, {"parlant.client": mock_parlant_module}
-        ):
+        with patch.dict(sys.modules, {"parlant.client": mock_parlant_module}):
             with patch(
                 "thenvoi.integrations.parlant.session_manager.ParlantSessionManager"
             ):
@@ -183,9 +179,7 @@ class TestOnStarted:
         ]
         adapter = ParlantAdapter(guidelines=guidelines)
 
-        with patch.dict(
-            sys.modules, {"parlant.client": mock_parlant_module}
-        ):
+        with patch.dict(sys.modules, {"parlant.client": mock_parlant_module}):
             with patch(
                 "thenvoi.integrations.parlant.session_manager.ParlantSessionManager"
             ):
@@ -202,9 +196,7 @@ class TestOnStarted:
         """Should render system prompt from agent metadata."""
         adapter = ParlantAdapter(agent_id="test-agent")
 
-        with patch.dict(
-            sys.modules, {"parlant.client": mock_parlant_module}
-        ):
+        with patch.dict(sys.modules, {"parlant.client": mock_parlant_module}):
             with patch(
                 "thenvoi.integrations.parlant.session_manager.ParlantSessionManager"
             ):
@@ -355,9 +347,7 @@ class TestGuidelines:
         ]
         adapter = ParlantAdapter(guidelines=guidelines)
 
-        with patch.dict(
-            sys.modules, {"parlant.client": mock_parlant_module}
-        ):
+        with patch.dict(sys.modules, {"parlant.client": mock_parlant_module}):
             with patch(
                 "thenvoi.integrations.parlant.session_manager.ParlantSessionManager"
             ):
@@ -392,9 +382,7 @@ class TestGuidelines:
         ]
         adapter = ParlantAdapter(guidelines=guidelines)
 
-        with patch.dict(
-            sys.modules, {"parlant.client": mock_parlant_module}
-        ):
+        with patch.dict(sys.modules, {"parlant.client": mock_parlant_module}):
             with patch(
                 "thenvoi.integrations.parlant.session_manager.ParlantSessionManager"
             ):

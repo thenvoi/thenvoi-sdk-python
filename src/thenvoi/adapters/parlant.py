@@ -20,8 +20,6 @@ from thenvoi.converters.parlant import ParlantHistoryConverter, ParlantMessages
 from thenvoi.runtime.prompts import render_system_prompt
 
 if TYPE_CHECKING:
-    from parlant.client import AsyncParlantClient
-
     from thenvoi.integrations.parlant.session_manager import ParlantSessionManager
 
 logger = logging.getLogger(__name__)
@@ -117,7 +115,8 @@ class ParlantAdapter(SimpleAdapter[ParlantMessages]):
         self.wait_timeout = wait_timeout
 
         # Parlant client and session manager (initialized on start)
-        self._client: AsyncParlantClient | None = None
+        # Type is Any since parlant is an optional dependency
+        self._client: Any = None
         self._session_manager: ParlantSessionManager | None = None
 
         # Per-room tools storage for tool execution
@@ -139,7 +138,7 @@ class ParlantAdapter(SimpleAdapter[ParlantMessages]):
 
         # Initialize Parlant client
         try:
-            from parlant.client import AsyncParlantClient
+            from parlant.client import AsyncParlantClient  # pyrefly: ignore
         except ImportError:
             raise ImportError(
                 "parlant package required for ParlantAdapter. "
@@ -235,6 +234,7 @@ class ParlantAdapter(SimpleAdapter[ParlantMessages]):
         if not self.guidelines or not self._client:
             return
 
+        client = self._client  # Type narrowing for pyrefly
         logger.info(f"Registering {len(self.guidelines)} guidelines with Parlant")
 
         for i, guideline in enumerate(self.guidelines, 1):
@@ -248,7 +248,7 @@ class ParlantAdapter(SimpleAdapter[ParlantMessages]):
                 continue
 
             try:
-                await self._client.agents.create_guideline(
+                await client.agents.create_guideline(
                     agent_id=self.agent_id,
                     condition=condition,
                     action=action,
@@ -271,6 +271,8 @@ class ParlantAdapter(SimpleAdapter[ParlantMessages]):
         """
         if not self._client or not self.agent_id:
             return
+
+        client = self._client  # Type narrowing for pyrefly
 
         from thenvoi.integrations.parlant.tools import get_tool_schemas_for_parlant
 
@@ -305,7 +307,7 @@ class ParlantAdapter(SimpleAdapter[ParlantMessages]):
                     continue
 
                 try:
-                    await self._client.agents.create_tool(
+                    await client.agents.create_tool(
                         agent_id=self.agent_id,
                         name=tool_name,
                         description=function_def.get("description", ""),
@@ -348,6 +350,9 @@ class ParlantAdapter(SimpleAdapter[ParlantMessages]):
             logger.error("Parlant client not initialized")
             return
 
+        client = self._client  # Type narrowing for pyrefly
+        session_manager = self._session_manager  # Type narrowing for pyrefly
+
         # Store tools for this room (used by tool execution)
         self._room_tools[room_id] = tools
 
@@ -355,7 +360,7 @@ class ParlantAdapter(SimpleAdapter[ParlantMessages]):
         customer_id = msg.sender_id or "anonymous"
         customer_name = msg.sender_name or customer_id
 
-        session = await self._session_manager.get_or_create_session(
+        session = await session_manager.get_or_create_session(
             room_id=room_id,
             customer_id=customer_id,
             customer_name=customer_name,
@@ -383,7 +388,7 @@ class ParlantAdapter(SimpleAdapter[ParlantMessages]):
 
         try:
             # Create customer event
-            event = await self._client.sessions.create_event(
+            event = await client.sessions.create_event(
                 session_id=session.session_id,
                 kind="message",
                 source="customer",
@@ -421,6 +426,9 @@ class ParlantAdapter(SimpleAdapter[ParlantMessages]):
         Returns:
             Number of customer messages successfully injected
         """
+        assert self._client is not None  # Guaranteed by on_message check
+        client = self._client
+
         customer_count = 0
         skipped_count = 0
 
@@ -430,7 +438,7 @@ class ParlantAdapter(SimpleAdapter[ParlantMessages]):
 
             if role == "user":
                 try:
-                    await self._client.sessions.create_event(
+                    await client.sessions.create_event(
                         session_id=session_id,
                         kind="message",
                         source="customer",
@@ -457,6 +465,7 @@ class ParlantAdapter(SimpleAdapter[ParlantMessages]):
         content: str,
     ) -> None:
         """Send a system message to a Parlant session."""
+        assert self._client is not None  # Guaranteed by on_message check
         try:
             await self._client.sessions.create_event(
                 session_id=session_id,
@@ -479,6 +488,11 @@ class ParlantAdapter(SimpleAdapter[ParlantMessages]):
 
         Waits for and processes events until we receive a complete agent response.
         """
+        assert self._client is not None  # Guaranteed by on_message check
+        assert self._session_manager is not None  # Guaranteed by on_message check
+        client = self._client
+        session_manager = self._session_manager
+
         processed_offset = min_offset
         max_iterations = 50  # Prevent infinite loops
         iteration_count = 0
@@ -488,7 +502,7 @@ class ParlantAdapter(SimpleAdapter[ParlantMessages]):
 
             # Wait for new events
             try:
-                events = await self._client.sessions.list_events(
+                events = await client.sessions.list_events(
                     session_id=session_id,
                     min_offset=processed_offset,
                     wait_for_data=self.wait_timeout,
@@ -538,7 +552,7 @@ class ParlantAdapter(SimpleAdapter[ParlantMessages]):
                     logger.debug(f"Room {room_id}: Status: {event.data}")
 
             # Update session offset
-            self._session_manager.update_offset(room_id, processed_offset)
+            session_manager.update_offset(room_id, processed_offset)
 
             # If agent has responded, we're done
             if agent_responded:
@@ -571,6 +585,9 @@ class ParlantAdapter(SimpleAdapter[ParlantMessages]):
 
         Executes the requested tools and returns results to Parlant.
         """
+        assert self._client is not None  # Guaranteed by on_message check
+        client = self._client
+
         from thenvoi.integrations.parlant.tools import (
             ParlantToolContext,
             create_parlant_tools,
@@ -656,7 +673,7 @@ class ParlantAdapter(SimpleAdapter[ParlantMessages]):
 
             # Return result to Parlant
             try:
-                await self._client.sessions.submit_tool_result(
+                await client.sessions.submit_tool_result(
                     session_id=event.session_id,
                     tool_call_id=tool_call_id,
                     result=json.dumps(result_data, default=str),
