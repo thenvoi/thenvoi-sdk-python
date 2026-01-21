@@ -11,7 +11,7 @@ import asyncio
 import logging
 from typing import Any, Callable
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
 logger = logging.getLogger(__name__)
 
@@ -135,11 +135,23 @@ async def execute_custom_tool(
         Tool execution result
 
     Raises:
-        ValidationError: If arguments don't match InputModel schema
+        ValueError: If arguments don't match InputModel schema (formatted for LLM)
         Exception: Any exception from tool function (for adapter to catch)
     """
     model, func = tool
-    validated = model.model_validate(arguments)
+
+    # Validate arguments, format errors for LLM readability
+    try:
+        validated = model.model_validate(arguments)
+    except ValidationError as e:
+        errors = [
+            f"{'.'.join(str(x) for x in err['loc'])}: {err['msg']}"
+            for err in e.errors()
+        ]
+        tool_name = get_custom_tool_name(model)
+        raise ValueError(
+            f"Invalid arguments for {tool_name}: {', '.join(errors)}"
+        ) from e
 
     if asyncio.iscoroutinefunction(func):
         return await func(validated)

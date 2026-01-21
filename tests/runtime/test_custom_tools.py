@@ -1,7 +1,7 @@
 """Tests for custom tools utilities."""
 
 import pytest
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, Field
 
 from thenvoi.runtime.custom_tools import (
     CustomToolDef,
@@ -259,22 +259,24 @@ class TestExecuteCustomTool:
 
     @pytest.mark.asyncio
     async def test_validates_input_with_pydantic(self):
-        """Should raise ValidationError for invalid args."""
+        """Should raise ValueError with formatted message for invalid args."""
         tool: CustomToolDef = (CalculatorInput, sync_calculator)
 
-        with pytest.raises(ValidationError):
+        with pytest.raises(ValueError, match="Invalid arguments for calculator"):
             await execute_custom_tool(tool, {"operation": "add"})  # Missing left, right
 
     @pytest.mark.asyncio
     async def test_validation_error_has_details(self):
-        """ValidationError should contain field information."""
+        """ValueError should contain field information in LLM-friendly format."""
         tool: CustomToolDef = (WeatherInput, async_weather)
 
-        with pytest.raises(ValidationError) as exc_info:
+        with pytest.raises(ValueError) as exc_info:
             await execute_custom_tool(tool, {})  # Missing required 'city'
 
-        # Should mention the missing field
-        assert "city" in str(exc_info.value)
+        # Should mention the missing field in formatted message
+        error_msg = str(exc_info.value)
+        assert "city" in error_msg
+        assert "Invalid arguments for weather" in error_msg
 
     @pytest.mark.asyncio
     async def test_execution_error_propagates(self):

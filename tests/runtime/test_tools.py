@@ -435,13 +435,14 @@ class TestAgentToolsExecuteToolCall:
         assert "Unknown tool" in result
 
     async def test_execute_validation_error(self, mock_rest_client):
-        """execute_tool_call() should return validation error."""
+        """execute_tool_call() should return validation error in LLM-friendly format."""
         tools = AgentTools("room-123", mock_rest_client)
 
         # Missing required field
         result = await tools.execute_tool_call("send_message", {"content": "Hello"})
 
-        assert "Error validating" in result
+        assert "Invalid arguments for send_message" in result
+        assert "mentions" in result  # Should mention the missing field
 
     async def test_execute_runtime_error(self, mock_rest_client, participants):
         """execute_tool_call() should return execution error."""

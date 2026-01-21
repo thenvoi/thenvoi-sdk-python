@@ -19,6 +19,13 @@ General Coding Instructions:
 - Follow existing patterns in the codebase for new code.
 - Use Context7 MCP to fetch up-to-date documentation
 
+Error Handling:
+
+- Catch `pydantic.ValidationError` separately from generic `Exception`
+- Format validation errors for LLM readability: `"Invalid arguments for tool_name: field: message"`
+- Handle ValidationError at the lowest common point (e.g., `execute_custom_tool`) to avoid duplication
+- Log full error details but return concise messages to LLM
+
 Dependencies:
 
 - Package manager: `uv`
