@@ -264,63 +264,21 @@ class ParlantAdapter(SimpleAdapter[ParlantMessages]):
         """
         Register platform tools with the Parlant server.
 
-        Requires Parlant SDK with the following API methods:
-        - client.agents.create_tool(agent_id, name, description, parameters)
+        Note: Parlant v3.x doesn't support dynamic tool registration via the SDK.
+        Tools should be configured on the Parlant server directly or via Parlant's
+        tool service configuration.
 
-        Note: This method handles gracefully if tools already exist.
+        This method is kept for future compatibility when Parlant adds tool registration API.
         """
         if not self._client or not self.agent_id:
             return
 
-        client = self._client  # Type narrowing for pyrefly
-
-        from thenvoi.integrations.parlant.tools import get_tool_schemas_for_parlant
-
-        logger.info("Registering platform tools with Parlant")
-
-        try:
-            tool_schemas = get_tool_schemas_for_parlant()
-
-            # Register each tool with Parlant
-            # Tool schemas are expected in OpenAI function format:
-            # {"type": "function", "function": {"name": "...", "description": "...", "parameters": {...}}}
-            for tool_schema in tool_schemas:
-                # Validate schema structure
-                if not isinstance(tool_schema, dict) or "function" not in tool_schema:
-                    logger.warning(
-                        f"Invalid tool schema format, skipping: {tool_schema}"
-                    )
-                    continue
-
-                function_def = tool_schema["function"]
-                if not isinstance(function_def, dict):
-                    logger.warning(
-                        f"Invalid function definition, skipping: {function_def}"
-                    )
-                    continue
-
-                tool_name = function_def.get("name", "")
-                if not tool_name:
-                    logger.warning(
-                        f"Tool schema missing name, skipping: {function_def}"
-                    )
-                    continue
-
-                try:
-                    await client.agents.create_tool(
-                        agent_id=self.agent_id,
-                        name=tool_name,
-                        description=function_def.get("description", ""),
-                        parameters=function_def.get("parameters", {}),
-                    )
-                    logger.debug(f"Registered tool: {tool_name}")
-                except Exception as e:
-                    # Tool may already exist, log and continue
-                    logger.warning(f"Failed to register tool {tool_name}: {e}")
-
-            logger.info(f"Registered {len(tool_schemas)} tools with Parlant")
-        except Exception as e:
-            logger.error(f"Failed to register tools: {e}", exc_info=True)
+        # Parlant v3.x doesn't have client.agents.create_tool() API
+        # Tools need to be configured on the Parlant server directly
+        # See: https://www.parlant.io/docs/tutorials/core/tools
+        logger.debug(
+            "Skipping tool registration - Parlant v3.x requires server-side tool configuration"
+        )
 
     async def on_message(
         self,
@@ -401,6 +359,7 @@ class ParlantAdapter(SimpleAdapter[ParlantMessages]):
                 room_id=room_id,
                 min_offset=event.offset,
                 tools=tools,
+                sender_name=customer_name,
             )
 
         except Exception as e:
@@ -464,17 +423,21 @@ class ParlantAdapter(SimpleAdapter[ParlantMessages]):
         session_id: str,
         content: str,
     ) -> None:
-        """Send a system message to a Parlant session."""
-        assert self._client is not None  # Guaranteed by on_message check
-        try:
-            await self._client.sessions.create_event(
-                session_id=session_id,
-                kind="message",
-                source="system",
-                message=content,
-            )
-        except Exception as e:
-            logger.warning(f"Could not send system message: {e}")
+        """
+        Send a system-like message to a Parlant session.
+
+        Note: Parlant v3.x doesn't support system messages directly.
+        Available sources ('customer', 'human_agent', 'human_agent_on_behalf_of_ai_agent')
+        all require additional context that we don't have for system notifications.
+
+        For now, we skip system messages (e.g., participant updates) as they're
+        informational only and not critical for agent operation.
+        """
+        # Parlant v3.x doesn't support system messages without participant context
+        # Skip these non-critical notifications
+        logger.debug(
+            f"Skipping system message (not supported by Parlant v3.x): {content[:50]}..."
+        )
 
     async def _process_agent_response(
         self,
@@ -482,6 +445,7 @@ class ParlantAdapter(SimpleAdapter[ParlantMessages]):
         room_id: str,
         min_offset: int,
         tools: AgentToolsProtocol,
+        sender_name: str,
     ) -> None:
         """
         Process agent response events from Parlant.
@@ -524,23 +488,50 @@ class ParlantAdapter(SimpleAdapter[ParlantMessages]):
             for event in events:
                 processed_offset = max(processed_offset, event.offset + 1)
 
+                # Log event details for debugging
+                logger.debug(
+                    f"Room {room_id}: Event kind={event.kind}, source={getattr(event, 'source', 'N/A')}, "
+                    f"offset={event.offset}"
+                )
+
                 # Process based on event type
                 if event.kind == "message" and event.source == "ai_agent":
                     # Agent message - send to Thenvoi platform
                     agent_responded = True
-                    message_content = (
-                        str(event.message) if hasattr(event, "message") else ""
-                    )
+
+                    # Parlant Event stores content in 'data' field
+                    # data can be: string, dict with 'message'/'content', or other
+                    message_content = ""
+                    event_data = getattr(event, "data", None)
+
+                    if event_data is not None:
+                        if isinstance(event_data, str):
+                            message_content = event_data
+                        elif isinstance(event_data, dict):
+                            # Try common keys for message content
+                            message_content = str(
+                                event_data.get("message")
+                                or event_data.get("content")
+                                or event_data.get("text")
+                                or ""
+                            )
+                        else:
+                            # Convert other types to string
+                            message_content = str(event_data)
 
                     if message_content:
-                        logger.debug(
-                            f"Room {room_id}: Agent message: {message_content[:100]}..."
+                        logger.info(
+                            f"Room {room_id}: Agent response: {message_content[:100]}..."
                         )
-                        # Send agent's response to the chat
-                        await tools.send_message(message_content)
+                        # Send agent's response to the chat, mentioning the sender
+                        await tools.send_message(
+                            message_content, mentions=[sender_name]
+                        )
                     else:
+                        # Log the full event for debugging
                         logger.warning(
-                            f"Room {room_id}: Agent message event has no content"
+                            f"Room {room_id}: Agent message event has no content. "
+                            f"data={event_data}, metadata={getattr(event, 'metadata', {})}"
                         )
 
                 elif event.kind == "tool_calls":
@@ -548,8 +539,16 @@ class ParlantAdapter(SimpleAdapter[ParlantMessages]):
                     await self._handle_tool_calls(event, room_id, tools)
 
                 elif event.kind == "status":
-                    # Status update
-                    logger.debug(f"Room {room_id}: Status: {event.data}")
+                    # Status update - log at info level to help debug
+                    status_data = getattr(event, "data", None)
+                    logger.info(f"Room {room_id}: Parlant status: {status_data}")
+
+                else:
+                    # Log other event types for debugging
+                    logger.debug(
+                        f"Room {room_id}: Unhandled event: kind={event.kind}, "
+                        f"source={getattr(event, 'source', 'N/A')}"
+                    )
 
             # Update session offset
             session_manager.update_offset(room_id, processed_offset)

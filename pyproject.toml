@@ -52,6 +52,7 @@ claude_sdk = [
 parlant = [
     "parlant>=3.0.0",
     "openai>=1.0.0",
+    "chromadb>=1.1.1",
 ]
 crewai = [
     "crewai>=0.80.0",

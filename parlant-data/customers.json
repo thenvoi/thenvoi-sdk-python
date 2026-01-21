@@ -1,0 +1,33 @@
+{
+  "metadata": [
+    {
+      "id": "3o7YLTXNiP",
+      "creation_utc": "2026-01-21T13:20:46.903179+00:00",
+      "version": "0.1.0"
+    }
+  ],
+  "customers": [
+    {
+      "id": "a1JgZXG6WA",
+      "version": "0.1.0",
+      "creation_utc": "2026-01-21T13:33:39.881817+00:00",
+      "name": "Yael Avioz",
+      "extra": {}
+    },
+    {
+      "id": "b20DYxFKEs",
+      "version": "0.1.0",
+      "creation_utc": "2026-01-21T13:35:47.177776+00:00",
+      "name": "Yael Avioz",
+      "extra": {}
+    },
+    {
+      "id": "Gw9WamT6tJ",
+      "version": "0.1.0",
+      "creation_utc": "2026-01-21T13:38:55.897012+00:00",
+      "name": "Yael Avioz",
+      "extra": {}
+    }
+  ],
+  "customer_tag_associations": []
+}

@@ -106,28 +106,36 @@ class ParlantSessionManager:
             logger.info(f"Creating new Parlant session for room: {room_id}")
 
             try:
-                # First, ensure customer exists
+                # First, create or get customer in Parlant
+                # Parlant uses its own customer IDs, not Thenvoi's UUIDs
+                parlant_customer_id: str | None = None
                 try:
-                    await self.client.customers.create(
+                    # Parlant v3.x customers.create() only accepts 'name' parameter
+                    customer_response = await self.client.customers.create(
                         name=customer_name or customer_id,
-                        extra={"thenvoi_room_id": room_id},
                     )
-                except Exception:
-                    # Customer may already exist, that's OK
-                    pass
+                    parlant_customer_id = customer_response.id
+                    logger.debug(
+                        f"Created Parlant customer {parlant_customer_id} "
+                        f"for Thenvoi user {customer_id}"
+                    )
+                except Exception as e:
+                    # Customer creation failed - try to proceed anyway
+                    # Some Parlant setups may not require explicit customer creation
+                    logger.warning(f"Could not create customer in Parlant: {e}")
 
-                # Create session
+                # Create session with Parlant's customer ID (or None if customer creation failed)
                 session_response = await self.client.sessions.create(
                     agent_id=self.agent_id,
-                    customer_id=customer_id,
+                    customer_id=parlant_customer_id,
                 )
 
                 session = ParlantSession(
                     session_id=session_response.id,
                     agent_id=self.agent_id,
-                    customer_id=customer_id,
+                    customer_id=parlant_customer_id or customer_id,
                     last_offset=0,
-                    metadata={"room_id": room_id},
+                    metadata={"room_id": room_id, "thenvoi_customer_id": customer_id},
                 )
 
                 self._sessions[room_id] = session
