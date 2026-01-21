@@ -1,30 +1,20 @@
 """
-Parlant agent with behavioral guidelines.
+Parlant agent with behavioral guidelines using the official Parlant SDK.
 
-Shows how to use Parlant's guideline system for controlled agent behavior.
-Guidelines are condition/action pairs that ensure consistent responses.
-
-With the official Parlant SDK, guidelines are registered with the Parlant
-server and enforced through proper guideline matching, not just prompt
-engineering.
-
-Parlant's guidelines provide:
-- Ensured rule-following behavior
-- Contextual activation based on conditions
-- Predictable, consistent responses
-
-Prerequisites:
-- A running Parlant server (default: http://localhost:8000)
-- Or set PARLANT_URL environment variable to point to your Parlant server
+This example shows how to use Parlant's guideline system for controlled
+agent behavior using the SDK directly.
 
 Run with:
-    PARLANT_URL=http://localhost:8000 python 02_with_guidelines.py
+    uv run python examples/parlant/02_with_guidelines.py
+
+See also: https://github.com/emcie-co/parlant/blob/develop/examples/travel_voice_agent.py
 """
 
 import asyncio
 import logging
 import os
 
+import parlant.sdk as p
 from dotenv import load_dotenv
 
 from setup_logging import setup_logging
@@ -36,33 +26,7 @@ setup_logging()
 logger = logging.getLogger(__name__)
 
 
-# Define behavioral guidelines
-# These are registered with the Parlant server for proper enforcement
-GUIDELINES = [
-    {
-        "condition": "User asks for help or assistance",
-        "action": "First acknowledge their request, then ask clarifying questions if needed before providing detailed help",
-    },
-    {
-        "condition": "User mentions a specific participant or agent name",
-        "action": "Use the lookup_peers tool to find available agents, then add_participant to bring them into the conversation",
-    },
-    {
-        "condition": "User asks about current participants",
-        "action": "Use get_participants to list all current room members",
-    },
-    {
-        "condition": "User wants to create a new chat or discussion",
-        "action": "Use create_chatroom to create a dedicated space for the new topic",
-    },
-    {
-        "condition": "Conversation is ending or user says goodbye",
-        "action": "Summarize what was discussed and offer to help with anything else",
-    },
-]
-
-
-CUSTOM_PROMPT = """
+CUSTOM_DESCRIPTION = """
 You are a collaborative assistant in the Thenvoi multi-agent platform.
 
 Your role:
@@ -78,12 +42,47 @@ When interacting:
 """
 
 
-async def main():
+async def setup_agent_with_guidelines(server: p.Server) -> p.Agent:
+    """Create and configure a Parlant agent with guidelines."""
+    agent = await server.create_agent(
+        name="Collaborative Assistant",
+        description=CUSTOM_DESCRIPTION,
+    )
+
+    # Add behavioral guidelines using the SDK
+    await agent.create_guideline(
+        condition="User asks for help or assistance",
+        action="First acknowledge their request, then ask clarifying questions if needed before providing detailed help",
+    )
+
+    await agent.create_guideline(
+        condition="User mentions a specific participant or agent name",
+        action="Use the lookup_peers tool to find available agents, then add_participant to bring them into the conversation",
+    )
+
+    await agent.create_guideline(
+        condition="User asks about current participants",
+        action="Use get_participants to list all current room members",
+    )
+
+    await agent.create_guideline(
+        condition="User wants to create a new chat or discussion",
+        action="Use create_chatroom to create a dedicated space for the new topic",
+    )
+
+    await agent.create_guideline(
+        condition="Conversation is ending or user says goodbye",
+        action="Summarize what was discussed and offer to help with anything else",
+    )
+
+    return agent
+
+
+async def main() -> None:
     load_dotenv()
 
     ws_url = os.getenv("THENVOI_WS_URL")
     rest_url = os.getenv("THENVOI_REST_URL")
-    parlant_url = os.getenv("PARLANT_URL", "http://localhost:8000")
 
     if not ws_url:
         raise ValueError("THENVOI_WS_URL environment variable is required")
@@ -93,33 +92,29 @@ async def main():
     # Load agent credentials from agent_config.yaml
     agent_id, api_key = load_agent_config("parlant_agent")
 
-    # Get optional Parlant agent ID (if using pre-configured agent)
-    parlant_agent_id = os.getenv("PARLANT_AGENT_ID")
+    # Start Parlant server with OpenAI
+    async with p.Server(nlp_service=p.NLPServices.openai) as server:
+        # Create Parlant agent with guidelines
+        parlant_agent = await setup_agent_with_guidelines(server)
+        logger.info(f"Parlant agent with guidelines created: {parlant_agent.id}")
 
-    # Create adapter with guidelines
-    # Guidelines are registered with Parlant server at startup
-    adapter = ParlantAdapter(
-        parlant_url=parlant_url,
-        agent_id=parlant_agent_id,  # If None, creates agent dynamically
-        custom_section=CUSTOM_PROMPT,
-        guidelines=GUIDELINES,
-        # Enable execution reporting to see tool calls in the chat
-        enable_execution_reporting=True,
-    )
+        # Create adapter using Parlant SDK directly
+        adapter = ParlantAdapter(
+            server=server,
+            parlant_agent=parlant_agent,
+        )
 
-    # Create and start agent
-    agent = Agent.create(
-        adapter=adapter,
-        agent_id=agent_id,
-        api_key=api_key,
-        ws_url=ws_url,
-        rest_url=rest_url,
-    )
+        # Create and start Thenvoi agent
+        agent = Agent.create(
+            adapter=adapter,
+            agent_id=agent_id,
+            api_key=api_key,
+            ws_url=ws_url,
+            rest_url=rest_url,
+        )
 
-    logger.info(
-        f"Starting Parlant agent with guidelines (parlant_url={parlant_url})..."
-    )
-    await agent.run()
+        logger.info("Starting Thenvoi agent with Parlant SDK and guidelines...")
+        await agent.run()
 
 
 if __name__ == "__main__":

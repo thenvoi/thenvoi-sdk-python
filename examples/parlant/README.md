@@ -13,7 +13,7 @@ Parlant provides:
 
 ## Prerequisites
 
-### 1. Install with Parlant support
+### Install with Parlant support
 
 ```bash
 uv add "git+https://github.com/thenvoi/thenvoi-sdk-python.git[parlant]"
@@ -24,46 +24,42 @@ uv add "git+https://github.com/thenvoi/thenvoi-sdk-python.git[parlant]"
 uv sync --extra parlant
 ```
 
-### 2. Run a Parlant Server
-
-The adapter requires a running Parlant server. You can run one locally:
-
-```bash
-# Using Docker
-docker run -p 8000:8000 emcie/parlant
-
-# Or install and run directly
-pip install parlant
-parlant serve --port 8000
-```
-
-The adapter connects to `http://localhost:8000` by default. Set `PARLANT_URL` environment variable to use a different server.
-
 ---
 
 ## Quick Start
 
+The adapter uses the Parlant SDK directly - no separate HTTP server needed:
+
 ```python
+import parlant.sdk as p
 from thenvoi import Agent
 from thenvoi.adapters import ParlantAdapter
 
-adapter = ParlantAdapter(
-    parlant_url="http://localhost:8000",  # Your Parlant server
-    custom_section="You are a helpful assistant.",
-    guidelines=[
-        {
-            "condition": "User asks for help",
-            "action": "Acknowledge their request and provide detailed assistance",
-        }
-    ],
-)
+async with p.Server() as server:
+    # Create Parlant agent with guidelines
+    parlant_agent = await server.create_agent(
+        name="Assistant",
+        description="A helpful assistant.",
+    )
 
-agent = Agent.create(
-    adapter=adapter,
-    agent_id="your-agent-id",
-    api_key="your-api-key",
-)
-await agent.run()
+    await parlant_agent.create_guideline(
+        condition="User asks for help",
+        action="Acknowledge their request and provide detailed assistance",
+    )
+
+    # Create Thenvoi adapter
+    adapter = ParlantAdapter(
+        server=server,
+        parlant_agent=parlant_agent,
+    )
+
+    # Create and run agent
+    agent = Agent.create(
+        adapter=adapter,
+        agent_id="your-agent-id",
+        api_key="your-api-key",
+    )
+    await agent.run()
 ```
 
 ---
@@ -72,7 +68,7 @@ await agent.run()
 
 | File | Description |
 |------|-------------|
-| `01_basic_agent.py` | **Minimal setup** - Simple agent with ParlantAdapter. |
+| `01_basic_agent.py` | **Minimal setup** - Simple agent with Parlant SDK. |
 | `02_with_guidelines.py` | **Behavioral guidelines** - Agent with condition/action rules. |
 | `03_support_agent.py` | **Customer support** - Realistic support agent with specialized guidelines. |
 
@@ -80,24 +76,24 @@ await agent.run()
 
 ## Guidelines System
 
-Parlant's guidelines are the key differentiator. They ensure consistent behavior through condition/action pairs that are **actually enforced** by the Parlant SDK, not just suggested in prompts:
+Parlant's guidelines are the key differentiator. They ensure consistent behavior through condition/action pairs that are **actually enforced** by the Parlant SDK:
 
 ```python
-GUIDELINES = [
-    {
-        "condition": "Customer asks about refunds",
-        "action": "Check order status first to see if eligible",
-    },
-    {
-        "condition": "User is frustrated",
-        "action": "Acknowledge their frustration before providing solutions",
-    },
-]
+# Using the Parlant SDK directly
+await agent.create_guideline(
+    condition="Customer asks about refunds",
+    action="Check order status first to see if eligible",
+)
+
+await agent.create_guideline(
+    condition="User is frustrated",
+    action="Acknowledge their frustration before providing solutions",
+)
 ```
 
 ### How Guidelines Work
 
-1. **Registration**: Guidelines are registered with the Parlant server at startup
+1. **Registration**: Guidelines are registered with the Parlant agent via the SDK
 2. **Condition Matching**: Parlant evaluates each message against guideline conditions
 3. **Action Enforcement**: When a condition matches, the corresponding action is enforced
 4. **Consistent Behavior**: Guidelines are reliably followed, not just "suggested"
@@ -119,12 +115,12 @@ cp agent_config.yaml.example agent_config.yaml
 ### 2. Set up environment variables in `.env`
 
 ```bash
-# Parlant server URL (required)
-PARLANT_URL=http://localhost:8000
+# Thenvoi platform URLs (required)
+THENVOI_WS_URL=wss://api.thenvoi.com/ws
+THENVOI_REST_URL=https://api.thenvoi.com
 
-# Optional: Pre-configured Parlant agent ID
-# If not set, the adapter creates an agent dynamically
-PARLANT_AGENT_ID=your-parlant-agent-id
+# OpenAI API key (used by Parlant for LLM)
+OPENAI_API_KEY=your-openai-key
 ```
 
 ### 3. Add agent credentials to `agent_config.yaml`
@@ -151,10 +147,10 @@ parlant_agent:
 # From project root
 cd /path/to/thenvoi-sdk-python
 
-# Make sure Parlant server is running
-PARLANT_URL=http://localhost:8000 uv run python examples/parlant/01_basic_agent.py
-PARLANT_URL=http://localhost:8000 uv run python examples/parlant/02_with_guidelines.py
-PARLANT_URL=http://localhost:8000 uv run python examples/parlant/03_support_agent.py
+# Run examples
+uv run python examples/parlant/01_basic_agent.py
+uv run python examples/parlant/02_with_guidelines.py
+uv run python examples/parlant/03_support_agent.py
 ```
 
 > **Note:** The config loader looks for `agent_config.yaml` in the current working directory. Running from a subdirectory will cause a `FileNotFoundError`.
@@ -165,44 +161,13 @@ PARLANT_URL=http://localhost:8000 uv run python examples/parlant/03_support_agen
 
 ```python
 ParlantAdapter(
-    # Parlant SDK configuration
-    parlant_url="http://localhost:8000",  # Parlant server URL (or PARLANT_URL env)
-    agent_id=None,                         # Pre-configured agent ID (or PARLANT_AGENT_ID env)
-    
-    # Agent configuration
-    system_prompt=None,                    # Full system prompt override
-    custom_section="...",                  # Custom instructions (added to default prompt)
-    guidelines=[...],                      # Behavioral guidelines (registered with Parlant)
-    
-    # Options
-    enable_execution_reporting=False,      # Show tool calls in chat
-    wait_timeout=60,                       # Timeout waiting for agent responses
-)
-```
+    # Required: Parlant SDK components
+    server=server,           # Parlant Server instance (from p.Server())
+    parlant_agent=agent,     # Parlant Agent instance
 
----
-
-## Agent ID Modes
-
-### Dynamic Agent Creation (Default)
-
-If you don't provide `agent_id`, the adapter creates a new Parlant agent automatically:
-
-```python
-adapter = ParlantAdapter(
-    parlant_url="http://localhost:8000",
-    guidelines=[...],  # Registered with the new agent
-)
-```
-
-### Pre-configured Agent
-
-If you have a pre-configured agent on your Parlant server:
-
-```python
-adapter = ParlantAdapter(
-    parlant_url="http://localhost:8000",
-    agent_id="my-parlant-agent-id",  # Use existing agent
+    # Optional: Custom prompts
+    system_prompt=None,      # Full system prompt override
+    custom_section="...",    # Custom instructions (added to default prompt)
 )
 ```
 
@@ -232,29 +197,6 @@ Works well for:
 
 ## Troubleshooting
 
-### Cannot connect to Parlant server
-
-```
-ConnectionError: Cannot connect to http://localhost:8000
-```
-
-Make sure your Parlant server is running:
-```bash
-# Check if server is running
-curl http://localhost:8000/health
-
-# Start Parlant server
-parlant serve --port 8000
-```
-
-### Guidelines not being followed
-
-Guidelines are registered with the Parlant server. If they're not being followed:
-
-1. Check the Parlant server logs for guideline registration
-2. Verify the condition matches your test messages
-3. Try more specific conditions
-
 ### Import errors
 
 ```
@@ -267,6 +209,14 @@ uv sync --extra parlant
 # or
 pip install 'thenvoi-sdk[parlant]'
 ```
+
+### Guidelines not being followed
+
+Guidelines are registered with the Parlant agent. If they're not being followed:
+
+1. Check the Parlant logs for guideline registration
+2. Verify the condition matches your test messages
+3. Try more specific conditions
 
 ---
 

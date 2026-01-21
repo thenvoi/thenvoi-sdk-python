@@ -6,26 +6,27 @@ This module provides the integration with the official Parlant SDK
 conversational AI agents.
 
 Usage:
+    import parlant.sdk as p
     from thenvoi import Agent
     from thenvoi.adapters import ParlantAdapter
 
-    adapter = ParlantAdapter(
-        model="gpt-4o",
-        guidelines=[
-            {"condition": "User asks about refunds", "action": "Check order status first"}
-        ],
-    )
-    agent = Agent.create(adapter=adapter, agent_id="...", api_key="...")
-    await agent.run()
+    async with p.Server() as server:
+        agent = await server.create_agent(
+            name="Assistant",
+            description="A helpful assistant",
+        )
 
-Internal modules (session_manager, tools) are used by the adapter.
+        adapter = ParlantAdapter(
+            server=server,
+            parlant_agent=agent,
+        )
+
+        thenvoi_agent = Agent.create(
+            adapter=adapter,
+            agent_id="...",
+            api_key="...",
+        )
+        await thenvoi_agent.run()
 """
 
-from .session_manager import ParlantSessionManager
-from .tools import create_parlant_tools, ParlantToolContext
-
-__all__ = [
-    "ParlantSessionManager",
-    "create_parlant_tools",
-    "ParlantToolContext",
-]
+__all__: list[str] = []

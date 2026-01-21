@@ -1,26 +1,20 @@
 """
-Basic Parlant agent example.
+Basic Parlant agent example using the official Parlant SDK.
 
-This is the simplest way to create a Thenvoi agent using the Parlant framework
-with the official Parlant SDK for proper guideline-based behavior.
-
-Parlant (https://github.com/emcie-co/parlant) provides:
-- Behavioral guidelines for consistent agent responses
-- Built-in guardrails against hallucination
-- Explainability for agent decisions
-
-Prerequisites:
-- A running Parlant server (default: http://localhost:8000)
-- Or set PARLANT_URL environment variable to point to your Parlant server
+This example shows how to create a Thenvoi agent using the Parlant SDK
+directly, without any HTTP communication.
 
 Run with:
-    PARLANT_URL=http://localhost:8000 python 01_basic_agent.py
+    uv run python examples/parlant/01_basic_agent.py
+
+See also: https://github.com/emcie-co/parlant/blob/develop/examples/travel_voice_agent.py
 """
 
 import asyncio
 import logging
 import os
 
+import parlant.sdk as p
 from dotenv import load_dotenv
 
 from setup_logging import setup_logging
@@ -32,12 +26,11 @@ setup_logging()
 logger = logging.getLogger(__name__)
 
 
-async def main():
+async def main() -> None:
     load_dotenv()
 
     ws_url = os.getenv("THENVOI_WS_URL")
     rest_url = os.getenv("THENVOI_REST_URL")
-    parlant_url = os.getenv("PARLANT_URL", "http://localhost:8000")
 
     if not ws_url:
         raise ValueError("THENVOI_WS_URL environment variable is required")
@@ -47,27 +40,43 @@ async def main():
     # Load agent credentials from agent_config.yaml
     agent_id, api_key = load_agent_config("parlant_agent")
 
-    # Get optional Parlant agent ID (if using pre-configured agent)
-    parlant_agent_id = os.getenv("PARLANT_AGENT_ID")
+    # Start Parlant server with OpenAI (requires OPENAI_API_KEY env var)
+    async with p.Server(nlp_service=p.NLPServices.openai) as server:
+        # Create Parlant agent with detailed description
+        parlant_agent = await server.create_agent(
+            name="Thenvoi Assistant",
+            description="""You are a helpful, knowledgeable assistant.
 
-    # Create adapter with Parlant SDK integration
-    adapter = ParlantAdapter(
-        parlant_url=parlant_url,
-        agent_id=parlant_agent_id,  # If None, creates agent dynamically
-        custom_section="You are a helpful assistant. Be concise and friendly.",
-    )
+When responding:
+- Give detailed, specific answers to questions
+- Remember information the user shares about themselves
+- Reference previous parts of the conversation when relevant
+- Ask follow-up questions to better understand the user's needs
+- Be friendly but substantive - avoid generic or vague responses
 
-    # Create and start agent
-    agent = Agent.create(
-        adapter=adapter,
-        agent_id=agent_id,
-        api_key=api_key,
-        ws_url=ws_url,
-        rest_url=rest_url,
-    )
+If the user shares personal information (name, job, interests), acknowledge it
+and use it to personalize your responses throughout the conversation.""",
+        )
 
-    logger.info(f"Starting Parlant agent (parlant_url={parlant_url})...")
-    await agent.run()
+        logger.info(f"Parlant agent created: {parlant_agent.id}")
+
+        # Create adapter using Parlant SDK directly
+        adapter = ParlantAdapter(
+            server=server,
+            parlant_agent=parlant_agent,
+        )
+
+        # Create and start Thenvoi agent
+        agent = Agent.create(
+            adapter=adapter,
+            agent_id=agent_id,
+            api_key=api_key,
+            ws_url=ws_url,
+            rest_url=rest_url,
+        )
+
+        logger.info("Starting Thenvoi agent with Parlant SDK...")
+        await agent.run()
 
 
 if __name__ == "__main__":
