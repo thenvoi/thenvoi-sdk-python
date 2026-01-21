@@ -9,6 +9,8 @@ Run with:
     OPENAI_API_KEY=xxx python 04_jerry_agent.py
 """
 
+from __future__ import annotations
+
 import asyncio
 import logging
 import os
@@ -28,7 +30,7 @@ setup_logging()
 logger = logging.getLogger(__name__)
 
 
-async def main():
+async def main() -> None:
     load_dotenv()
 
     ws_url = os.getenv("THENVOI_WS_URL")

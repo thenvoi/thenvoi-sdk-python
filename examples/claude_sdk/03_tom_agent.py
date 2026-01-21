@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 Tom the cat agent using Claude SDK.
 
@@ -7,15 +6,13 @@ using the Claude Agent SDK. Tom uses platform tools to find and invite Jerry,
 then tries various tactics to lure Jerry out of his mouse hole.
 
 Prerequisites:
-    1. Node.js 20+ installed
-    2. Claude Code CLI: npm install -g @anthropic-ai/claude-code
-    3. Environment variables set:
-       - THENVOI_AGENT_ID: Tom's agent ID (0b0a6a59-7103-420f-9947-a53739c94098)
-       - THENVOI_API_KEY: Tom's API key
-       - ANTHROPIC_API_KEY: Your Anthropic API key
+    - Node.js 20+ installed
+    - Claude Code CLI: npm install -g @anthropic-ai/claude-code
+    - Add tom_agent credentials to agent_config.yaml
+    - Jerry agent should be online for full interaction
 
-Usage:
-    python 03_tom_agent.py
+Run with:
+    ANTHROPIC_API_KEY=xxx python 03_tom_agent.py
 """
 
 from __future__ import annotations
@@ -25,29 +22,34 @@ import logging
 import os
 import sys
 
-# Add examples directory to path for imports
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from dotenv import load_dotenv
+
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from prompts.characters import generate_tom_prompt
 from setup_logging import setup_logging
 from thenvoi import Agent
 from thenvoi.adapters import ClaudeSDKAdapter
+from thenvoi.config import load_agent_config
 
 setup_logging()
 logger = logging.getLogger(__name__)
 
 
-async def main():
+async def main() -> None:
     """Run Tom the cat agent."""
+    load_dotenv()
 
-    # Get credentials from environment
-    agent_id = os.environ.get("THENVOI_AGENT_ID", "")
-    api_key = os.environ.get("THENVOI_API_KEY", "")
+    ws_url = os.getenv("THENVOI_WS_URL")
+    rest_url = os.getenv("THENVOI_REST_URL")
 
-    if not agent_id or not api_key:
-        logger.error("THENVOI_AGENT_ID and THENVOI_API_KEY must be set")
-        sys.exit(1)
+    if not ws_url:
+        raise ValueError("THENVOI_WS_URL environment variable is required")
+    if not rest_url:
+        raise ValueError("THENVOI_REST_URL environment variable is required")
+
+    # Load Tom's credentials from agent_config.yaml
+    agent_id, api_key = load_agent_config("tom_agent")
 
     # Create adapter with Tom's character prompt
     adapter = ClaudeSDKAdapter(
@@ -61,6 +63,8 @@ async def main():
         adapter=adapter,
         agent_id=agent_id,
         api_key=api_key,
+        ws_url=ws_url,
+        rest_url=rest_url,
     )
 
     logger.info("Tom is on the prowl, looking for Jerry...")
