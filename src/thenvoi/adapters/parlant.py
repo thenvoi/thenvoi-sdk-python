@@ -11,13 +11,18 @@ from __future__ import annotations
 import json
 import logging
 import os
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from thenvoi.core.protocols import AgentToolsProtocol
 from thenvoi.core.simple_adapter import SimpleAdapter
 from thenvoi.core.types import PlatformMessage
 from thenvoi.converters.parlant import ParlantHistoryConverter, ParlantMessages
 from thenvoi.runtime.prompts import render_system_prompt
+
+if TYPE_CHECKING:
+    from parlant.client import AsyncParlantClient
+
+    from thenvoi.integrations.parlant.session_manager import ParlantSessionManager
 
 logger = logging.getLogger(__name__)
 
@@ -40,11 +45,9 @@ class ParlantAdapter(SimpleAdapter[ParlantMessages]):
     - Explainability for agent decisions
     - Session-based conversation management
 
-    Two modes of operation:
-    1. Server mode (recommended): Connect to an external Parlant server
-    2. Embedded mode: Run Parlant server in-process (requires more resources)
+    Requires a running Parlant server (local or remote).
 
-    Example (Server mode - connecting to external Parlant server):
+    Example:
         adapter = ParlantAdapter(
             parlant_url="http://localhost:8000",
             agent_id="my-agent-id",  # Pre-configured agent on Parlant server
@@ -87,8 +90,12 @@ class ParlantAdapter(SimpleAdapter[ParlantMessages]):
             parlant_url: URL of the Parlant server (uses PARLANT_URL env var if not provided)
             agent_id: ID of the pre-configured agent on Parlant server
                      (uses PARLANT_AGENT_ID env var if not provided)
-            system_prompt: Full system prompt override (optional)
-            custom_section: Custom instructions added to default prompt
+            system_prompt: Full system prompt override. When provided, this completely
+                          replaces the default prompt (agent description + platform instructions).
+                          Use this for complete control over the agent's instructions.
+            custom_section: Custom instructions appended to the agent description.
+                           Ignored if system_prompt is provided. Use this to add specific
+                           behaviors while keeping default platform instructions.
             guidelines: List of behavioral guidelines with condition/action pairs.
                        These are registered with Parlant at startup if provided.
             enable_execution_reporting: If True, sends tool_call/tool_result events
@@ -110,8 +117,8 @@ class ParlantAdapter(SimpleAdapter[ParlantMessages]):
         self.wait_timeout = wait_timeout
 
         # Parlant client and session manager (initialized on start)
-        self._client: Any = None
-        self._session_manager: Any = None
+        self._client: AsyncParlantClient | None = None
+        self._session_manager: ParlantSessionManager | None = None
 
         # Per-room tools storage for tool execution
         self._room_tools: dict[str, AgentToolsProtocol] = {}
@@ -139,40 +146,93 @@ class ParlantAdapter(SimpleAdapter[ParlantMessages]):
                 "Install with: pip install 'thenvoi-sdk[parlant]' or pip install parlant"
             )
 
-        self._client = AsyncParlantClient(base_url=self.parlant_url)
+        try:
+            self._client = AsyncParlantClient(base_url=self.parlant_url)
 
-        # Get or create agent
-        if not self.agent_id:
-            # Create agent dynamically
-            logger.info(f"Creating Parlant agent: {agent_name}")
-            agent_response = await self._client.agents.create(
-                name=agent_name,
-                description=agent_description,
+            # Get or create agent
+            if not self.agent_id:
+                # Create agent dynamically
+                logger.info(f"Creating Parlant agent: {agent_name}")
+
+                # Prepare agent description for Parlant
+                # Parlant uses the description field for agent prompting
+                if self.system_prompt:
+                    # User provided a full system prompt override
+                    description_with_context = self.system_prompt
+                    logger.debug("Using custom system_prompt for agent creation")
+                elif self.custom_section:
+                    # Append custom section to base description
+                    description_with_context = (
+                        f"{agent_description}\n\n"
+                        f"Additional instructions:\n{self.custom_section}"
+                    )
+                    logger.debug("Using agent_description with custom_section")
+                else:
+                    # Use just the agent description (basic mode)
+                    # Note: The full _system_prompt with platform instructions is available
+                    # but not used unless explicitly requested via system_prompt or custom_section
+                    description_with_context = agent_description
+                    logger.debug("Using basic agent_description")
+
+                agent_response = await self._client.agents.create(
+                    name=agent_name,
+                    description=description_with_context,
+                )
+
+                # Validate agent creation
+                if (
+                    not agent_response
+                    or not hasattr(agent_response, "id")
+                    or not agent_response.id
+                ):
+                    raise ValueError(
+                        f"Failed to create Parlant agent '{agent_name}': "
+                        "Invalid response from Parlant server"
+                    )
+
+                self.agent_id = agent_response.id
+                logger.info(f"Created Parlant agent with ID: {self.agent_id}")
+
+                # Register guidelines if provided
+                await self._register_guidelines()
+            else:
+                logger.info(f"Using existing Parlant agent: {self.agent_id}")
+
+            # Register tools with Parlant (for both new and existing agents)
+            # This ensures tools are available even if the agent was pre-configured
+            await self._register_tools()
+
+            # Initialize session manager
+            from thenvoi.integrations.parlant.session_manager import (
+                ParlantSessionManager,
             )
-            self.agent_id = agent_response.id
-            logger.info(f"Created Parlant agent with ID: {self.agent_id}")
 
-            # Register guidelines if provided
-            await self._register_guidelines()
-        else:
-            logger.info(f"Using existing Parlant agent: {self.agent_id}")
+            self._session_manager = ParlantSessionManager(
+                client=self._client,
+                agent_id=self.agent_id,
+            )
 
-        # Initialize session manager
-        from thenvoi.integrations.parlant.session_manager import ParlantSessionManager
+            logger.info(
+                f"Parlant adapter started for agent: {agent_name} "
+                f"(parlant_url={self.parlant_url}, agent_id={self.agent_id})"
+            )
 
-        self._session_manager = ParlantSessionManager(
-            client=self._client,
-            agent_id=self.agent_id,
-        )
-
-        logger.info(
-            f"Parlant adapter started for agent: {agent_name} "
-            f"(parlant_url={self.parlant_url}, agent_id={self.agent_id})"
-        )
+        except Exception as e:
+            # Cleanup on error
+            logger.error(f"Failed to initialize Parlant adapter: {e}", exc_info=True)
+            if self._client:
+                try:
+                    if hasattr(self._client, "close"):
+                        await self._client.close()
+                except Exception:
+                    pass
+                self._client = None
+            self._session_manager = None
+            raise
 
     async def _register_guidelines(self) -> None:
         """Register guidelines with the Parlant server."""
-        if not self.guidelines or not self._client or not self.agent_id:
+        if not self.guidelines or not self._client:
             return
 
         logger.info(f"Registering {len(self.guidelines)} guidelines with Parlant")
@@ -200,6 +260,66 @@ class ParlantAdapter(SimpleAdapter[ParlantMessages]):
 
         logger.info("Guidelines registration complete")
 
+    async def _register_tools(self) -> None:
+        """
+        Register platform tools with the Parlant server.
+
+        Requires Parlant SDK with the following API methods:
+        - client.agents.create_tool(agent_id, name, description, parameters)
+
+        Note: This method handles gracefully if tools already exist.
+        """
+        if not self._client or not self.agent_id:
+            return
+
+        from thenvoi.integrations.parlant.tools import get_tool_schemas_for_parlant
+
+        logger.info("Registering platform tools with Parlant")
+
+        try:
+            tool_schemas = get_tool_schemas_for_parlant()
+
+            # Register each tool with Parlant
+            # Tool schemas are expected in OpenAI function format:
+            # {"type": "function", "function": {"name": "...", "description": "...", "parameters": {...}}}
+            for tool_schema in tool_schemas:
+                # Validate schema structure
+                if not isinstance(tool_schema, dict) or "function" not in tool_schema:
+                    logger.warning(
+                        f"Invalid tool schema format, skipping: {tool_schema}"
+                    )
+                    continue
+
+                function_def = tool_schema["function"]
+                if not isinstance(function_def, dict):
+                    logger.warning(
+                        f"Invalid function definition, skipping: {function_def}"
+                    )
+                    continue
+
+                tool_name = function_def.get("name", "")
+                if not tool_name:
+                    logger.warning(
+                        f"Tool schema missing name, skipping: {function_def}"
+                    )
+                    continue
+
+                try:
+                    await self._client.agents.create_tool(
+                        agent_id=self.agent_id,
+                        name=tool_name,
+                        description=function_def.get("description", ""),
+                        parameters=function_def.get("parameters", {}),
+                    )
+                    logger.debug(f"Registered tool: {tool_name}")
+                except Exception as e:
+                    # Tool may already exist, log and continue
+                    logger.warning(f"Failed to register tool {tool_name}: {e}")
+
+            logger.info(f"Registered {len(tool_schemas)} tools with Parlant")
+        except Exception as e:
+            logger.error(f"Failed to register tools: {e}", exc_info=True)
+
     async def on_message(
         self,
         msg: PlatformMessage,
@@ -215,6 +335,12 @@ class ParlantAdapter(SimpleAdapter[ParlantMessages]):
 
         Uses Parlant's session-based messaging to ensure proper guideline
         matching and tool execution.
+
+        Thread Safety:
+            This method assumes messages for the same room are processed sequentially.
+            Concurrent calls for different rooms are safe due to per-room session management.
+            If messages for the same room arrive concurrently, they should be queued
+            by the caller to prevent race conditions.
         """
         logger.debug(f"Handling message {msg.id} in room {room_id}")
 
@@ -237,8 +363,11 @@ class ParlantAdapter(SimpleAdapter[ParlantMessages]):
 
         # On bootstrap, inject historical context
         if is_session_bootstrap and history:
-            await self._inject_history(session.session_id, history)
-            logger.info(f"Room {room_id}: Injected {len(history)} historical messages")
+            injected_count = await self._inject_history(session.session_id, history)
+            logger.info(
+                f"Room {room_id}: Injected {injected_count} customer messages "
+                f"from {len(history)} total historical messages"
+            )
 
         # Inject participants update if provided
         if participants_msg:
@@ -280,31 +409,47 @@ class ParlantAdapter(SimpleAdapter[ParlantMessages]):
         self,
         session_id: str,
         history: ParlantMessages,
-    ) -> None:
-        """Inject historical messages into a Parlant session."""
+    ) -> int:
+        """
+        Inject historical messages into a Parlant session.
+
+        Note: Only customer messages are injected. Assistant messages are skipped because:
+        1. Parlant generates ai_agent messages internally based on its processing
+        2. Externally injecting ai_agent events can cause state inconsistencies
+        3. Customer messages provide sufficient context for Parlant to understand conversation history
+
+        Returns:
+            Number of customer messages successfully injected
+        """
+        customer_count = 0
+        skipped_count = 0
+
         for hist in history:
             role = hist.get("role", "user")
             content = hist.get("content", "")
 
             if role == "user":
-                await self._client.sessions.create_event(
-                    session_id=session_id,
-                    kind="message",
-                    source="customer",
-                    message=content,
-                )
-            elif role == "assistant":
-                # Note: We may not be able to inject assistant messages directly
-                # depending on Parlant's API. This is a best-effort approach.
                 try:
                     await self._client.sessions.create_event(
                         session_id=session_id,
                         kind="message",
-                        source="ai_agent",
+                        source="customer",
                         message=content,
                     )
+                    customer_count += 1
                 except Exception as e:
-                    logger.debug(f"Could not inject assistant message: {e}")
+                    logger.error(f"Failed to inject customer message into history: {e}")
+            elif role == "assistant":
+                # Skip assistant messages - Parlant doesn't support external injection of ai_agent events
+                skipped_count += 1
+
+        if skipped_count > 0:
+            logger.debug(
+                f"Session {session_id}: Injected {customer_count} customer messages, "
+                f"skipped {skipped_count} assistant messages (not supported by Parlant)"
+            )
+
+        return customer_count
 
     async def _send_system_message(
         self,
@@ -335,17 +480,29 @@ class ParlantAdapter(SimpleAdapter[ParlantMessages]):
         Waits for and processes events until we receive a complete agent response.
         """
         processed_offset = min_offset
+        max_iterations = 50  # Prevent infinite loops
+        iteration_count = 0
 
-        while True:
+        while iteration_count < max_iterations:
+            iteration_count += 1
+
             # Wait for new events
-            events = await self._client.sessions.list_events(
-                session_id=session_id,
-                min_offset=processed_offset,
-                wait_for_data=self.wait_timeout,
-            )
+            try:
+                events = await self._client.sessions.list_events(
+                    session_id=session_id,
+                    min_offset=processed_offset,
+                    wait_for_data=self.wait_timeout,
+                )
+            except Exception as e:
+                logger.error(
+                    f"Room {room_id}: Failed to fetch events: {e}", exc_info=True
+                )
+                break
 
             if not events:
-                logger.warning(f"Room {room_id}: No events received (timeout?)")
+                logger.warning(
+                    f"Room {room_id}: No events received (timeout after {self.wait_timeout}s)"
+                )
                 break
 
             agent_responded = False
@@ -355,11 +512,22 @@ class ParlantAdapter(SimpleAdapter[ParlantMessages]):
 
                 # Process based on event type
                 if event.kind == "message" and event.source == "ai_agent":
-                    # Agent message - this completes the response
+                    # Agent message - send to Thenvoi platform
                     agent_responded = True
-                    logger.debug(
-                        f"Room {room_id}: Agent message: {str(event.message)[:100]}..."
+                    message_content = (
+                        str(event.message) if hasattr(event, "message") else ""
                     )
+
+                    if message_content:
+                        logger.debug(
+                            f"Room {room_id}: Agent message: {message_content[:100]}..."
+                        )
+                        # Send agent's response to the chat
+                        await tools.send_message(message_content)
+                    else:
+                        logger.warning(
+                            f"Room {room_id}: Agent message event has no content"
+                        )
 
                 elif event.kind == "tool_calls":
                     # Tool invocation by Parlant
@@ -374,7 +542,23 @@ class ParlantAdapter(SimpleAdapter[ParlantMessages]):
 
             # If agent has responded, we're done
             if agent_responded:
+                logger.debug(
+                    f"Room {room_id}: Agent response complete after {iteration_count} iterations"
+                )
                 break
+
+            # Log warning if taking too long
+            if iteration_count >= max_iterations * 0.8:
+                logger.warning(
+                    f"Room {room_id}: Event processing taking longer than expected "
+                    f"({iteration_count}/{max_iterations} iterations)"
+                )
+
+        if iteration_count >= max_iterations:
+            logger.error(
+                f"Room {room_id}: Event processing stopped after {max_iterations} iterations "
+                "without receiving agent response"
+            )
 
     async def _handle_tool_calls(
         self,
@@ -392,6 +576,15 @@ class ParlantAdapter(SimpleAdapter[ParlantMessages]):
             create_parlant_tools,
         )
 
+        # Validate event structure
+        if not hasattr(event, "session_id") or not event.session_id:
+            logger.error(f"Room {room_id}: Tool call event missing session_id")
+            return
+
+        if not hasattr(event, "data") or not event.data:
+            logger.error(f"Room {room_id}: Tool call event missing data")
+            return
+
         # Get tool definitions
         parlant_tools = {t.name: t for t in create_parlant_tools()}
 
@@ -399,16 +592,29 @@ class ParlantAdapter(SimpleAdapter[ParlantMessages]):
         ctx = ParlantToolContext(
             room_id=room_id,
             tools=tools,
-            session_id=event.session_id if hasattr(event, "session_id") else None,
+            session_id=event.session_id,
         )
 
         # Process each tool call
-        tool_calls = event.data if hasattr(event, "data") else []
+        tool_calls = event.data
 
         for tc in tool_calls:
             tool_name = tc.get("name", "")
             tool_args = tc.get("arguments", {})
             tool_call_id = tc.get("id", "")
+
+            # Validate tool call structure
+            if not tool_name:
+                logger.error(
+                    f"Room {room_id}: Tool call missing 'name' field, skipping: {tc}"
+                )
+                continue
+
+            if not tool_call_id:
+                logger.error(
+                    f"Room {room_id}: Tool call '{tool_name}' missing 'id' field, skipping: {tc}"
+                )
+                continue
 
             logger.info(f"Room {room_id}: Executing tool: {tool_name}")
 
@@ -451,13 +657,15 @@ class ParlantAdapter(SimpleAdapter[ParlantMessages]):
             # Return result to Parlant
             try:
                 await self._client.sessions.submit_tool_result(
-                    session_id=event.session_id if hasattr(event, "session_id") else "",
+                    session_id=event.session_id,
                     tool_call_id=tool_call_id,
                     result=json.dumps(result_data, default=str),
                     is_error=is_error,
                 )
             except Exception as e:
-                logger.error(f"Failed to submit tool result: {e}")
+                logger.error(
+                    f"Failed to submit tool result for {tool_name}: {e}", exc_info=True
+                )
 
     async def on_cleanup(self, room_id: str) -> None:
         """Clean up Parlant session when agent leaves a room."""
