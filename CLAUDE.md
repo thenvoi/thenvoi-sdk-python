@@ -43,6 +43,10 @@ Git Workflow:
 
 - Default branch: `main`
 - Branch prefixes: `feat/`, `fix/`, `refactor/`
+- PR titles MUST use conventional commits format: `feat:`, `fix:`, or `docs:` prefix
+  - Example: `feat: Add custom tools support to all adapters`
+  - Example: `fix: Handle validation errors in execute_tool_call`
+  - Example: `docs: Update README with new adapter examples`
 - Run tests before committing
 
 Environment Variables:
