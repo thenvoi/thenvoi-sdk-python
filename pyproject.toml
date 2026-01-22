@@ -94,6 +94,9 @@ dev = [
     "langchain-text-splitters>=0.3.0",
     "openai>=1.0.0",
     "beautifulsoup4>=4.12.0",
+    # Include parlant for testing
+    "parlant>=3.0.0",
+    "chromadb>=1.1.1",
     # Include a2a-sdk for testing
     "a2a-sdk>=0.3.22",
     # Include a2a_gateway deps for testing
@@ -127,6 +130,7 @@ project_excludes = [
     "tests/**",                 # Tests use mocks with duck typing
     "examples/**",              # Examples use local imports
     "src/thenvoi/integrations/parlant/tools.py",  # Parlant @p.tool decorator has complex typing
+    "src/thenvoi/adapters/parlant.py",  # Uses TYPE_CHECKING imports for Parlant SDK
 ]
 
 [tool.commitizen]
