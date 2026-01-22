@@ -14,6 +14,7 @@ from thenvoi.core.protocols import AgentToolsProtocol
 from thenvoi.core.simple_adapter import SimpleAdapter
 from thenvoi.core.types import PlatformMessage
 from thenvoi.converters.parlant import ParlantHistoryConverter, ParlantMessages
+from thenvoi.integrations.parlant.tools import set_session_tools
 from thenvoi.runtime.prompts import render_system_prompt
 
 if TYPE_CHECKING:
@@ -140,8 +141,13 @@ class ParlantAdapter(SimpleAdapter[ParlantMessages]):
         app = self._app
         sender_name = msg.sender_name or msg.sender_id or "User"
 
-        # Get or create Parlant session for this room
+        # Get or create Parlant session for this room (need session_id first)
         session_id = await self._get_or_create_session(room_id, sender_name)
+        session_id_str = str(session_id)
+
+        # Set tools for this session (keyed by session_id for cross-task access)
+        set_session_tools(session_id_str, tools)
+        logger.info(f"Room {room_id}: Set tools for session_id={session_id_str}")
 
         # On bootstrap, inject historical context
         if is_session_bootstrap and history:
@@ -150,13 +156,14 @@ class ParlantAdapter(SimpleAdapter[ParlantMessages]):
 
         # Send customer message to Parlant
         user_message = msg.format_for_llm()
-        logger.info(f"Room {room_id}: Sending message to Parlant")
+        logger.info(f"Room {room_id}: Sending message to Parlant: {user_message[:100]}...")
 
         try:
             from parlant.core.app_modules.sessions import Moderation
             from parlant.core.sessions import EventSource
 
             # Create customer message event (triggers processing)
+            logger.info(f"Room {room_id}: Creating customer message event...")
             event = await app.sessions.create_customer_message(
                 session_id=session_id,
                 moderation=Moderation.NONE,
@@ -165,6 +172,7 @@ class ParlantAdapter(SimpleAdapter[ParlantMessages]):
                 trigger_processing=True,
                 metadata=None,
             )
+            logger.info(f"Room {room_id}: Customer message created, offset={event.offset}")
 
             # Wait for and process agent response
             await self._process_agent_response(
@@ -179,6 +187,10 @@ class ParlantAdapter(SimpleAdapter[ParlantMessages]):
             logger.error(f"Error processing message: {e}", exc_info=True)
             await self._report_error(tools, str(e))
             raise
+        finally:
+            # Clear tools after message processing
+            set_session_tools(session_id_str, None)
+            logger.info(f"Room {room_id}: Cleared tools for session_id={session_id_str}")
 
         logger.debug(f"Message {msg.id} processed successfully")
 
@@ -324,54 +336,120 @@ class ParlantAdapter(SimpleAdapter[ParlantMessages]):
         tools: AgentToolsProtocol,
         sender_name: str,
     ) -> None:
-        """Wait for and process agent response events."""
+        """Wait for and process agent response events.
+
+        Parlant may send multiple messages:
+        1. A preamble message (tagged with __preamble__) - acknowledgment before tool execution
+        2. Final message(s) after tool execution
+
+        We need to keep waiting until we get a non-preamble message, which indicates
+        tool execution is complete.
+        """
         if not self._app:
+            logger.error(f"Room {room_id}: No Parlant Application available")
             return
 
         app = self._app
         from parlant.core.async_utils import Timeout
         from parlant.core.sessions import EventKind, EventSource
 
-        # Wait for agent response
-        logger.debug(f"Room {room_id}: Waiting for agent response...")
+        current_offset = min_offset
+        max_iterations = 10  # Safety limit to prevent infinite loops
+        iteration = 0
 
-        has_update = await app.sessions.wait_for_update(
-            session_id=session_id,
-            min_offset=min_offset + 1,
-            kinds=[EventKind.MESSAGE],
-            source=EventSource.AI_AGENT,
-            timeout=Timeout(60),
-        )
+        while iteration < max_iterations:
+            iteration += 1
 
-        if not has_update:
-            logger.warning(f"Room {room_id}: Timeout waiting for agent response")
-            return
+            # Wait for agent response
+            logger.info(f"Room {room_id}: Waiting for agent response (min_offset={current_offset + 1}, iteration={iteration})...")
 
-        # Get new events
-        events = await app.sessions.find_events(
-            session_id=session_id,
-            min_offset=min_offset + 1,
-            source=EventSource.AI_AGENT,
-            kinds=[EventKind.MESSAGE],
-            trace_id=None,  # Required by Parlant SDK v3.x
-        )
+            try:
+                has_update = await app.sessions.wait_for_update(
+                    session_id=session_id,
+                    min_offset=current_offset + 1,
+                    kinds=[EventKind.MESSAGE],
+                    source=EventSource.AI_AGENT,
+                    timeout=Timeout(120),  # Increased timeout for tool execution
+                )
+                logger.info(f"Room {room_id}: wait_for_update returned: {has_update}")
+            except Exception as e:
+                logger.error(f"Room {room_id}: Error waiting for update: {e}", exc_info=True)
+                return
 
-        for event in events:
-            if event.kind == EventKind.MESSAGE and event.source == EventSource.AI_AGENT:
-                # Extract message content
-                data = event.data
-                message_content = ""
+            if not has_update:
+                logger.warning(f"Room {room_id}: Timeout waiting for agent response")
+                return
 
-                if isinstance(data, dict):
-                    message_content = str(data.get("message", ""))
-                elif isinstance(data, str):
-                    message_content = data
+            # Get new events
+            try:
+                events = await app.sessions.find_events(
+                    session_id=session_id,
+                    min_offset=current_offset + 1,
+                    source=EventSource.AI_AGENT,
+                    kinds=[EventKind.MESSAGE],
+                    trace_id=None,  # Required by Parlant SDK v3.x
+                )
+                logger.info(f"Room {room_id}: Found {len(events)} agent events")
+            except Exception as e:
+                logger.error(f"Room {room_id}: Error finding events: {e}", exc_info=True)
+                return
 
-                if message_content:
-                    logger.info(
-                        f"Room {room_id}: Agent response: {message_content[:100]}..."
-                    )
-                    await tools.send_message(message_content, mentions=[sender_name])
+            if not events:
+                logger.warning(f"Room {room_id}: No events found despite update signal")
+                return
+
+            # Process events and track if we got a non-preamble message
+            got_final_message = False
+
+            for event in events:
+                logger.debug(f"Room {room_id}: Event kind={event.kind}, source={event.source}, data={event.data}")
+
+                # Update offset for next iteration
+                if hasattr(event, 'offset') and event.offset > current_offset:
+                    current_offset = event.offset
+
+                if event.kind == EventKind.MESSAGE and event.source == EventSource.AI_AGENT:
+                    data = event.data
+                    message_content = ""
+                    tags = []
+
+                    if isinstance(data, dict):
+                        message_content = str(data.get("message", ""))
+                        tags = data.get("tags", [])
+                    elif isinstance(data, str):
+                        message_content = data
+
+                    # Check if this is a preamble message
+                    is_preamble = "__preamble__" in tags
+
+                    if is_preamble:
+                        logger.info(f"Room {room_id}: Skipping preamble message: {message_content[:50]}...")
+                        continue
+
+                    # This is a final message (after tool execution)
+                    got_final_message = True
+
+                    if message_content:
+                        logger.info(
+                            f"Room {room_id}: Sending agent response to platform: {message_content[:100]}..."
+                        )
+                        try:
+                            await tools.send_message(message_content, mentions=[sender_name])
+                            logger.info(f"Room {room_id}: Message sent successfully")
+                        except Exception as e:
+                            logger.error(f"Room {room_id}: Error sending message: {e}", exc_info=True)
+                    else:
+                        logger.warning(f"Room {room_id}: Empty message content in event")
+
+            # If we got a final (non-preamble) message, we're done
+            if got_final_message:
+                logger.info(f"Room {room_id}: Got final message, processing complete")
+                return
+
+            # Otherwise, continue waiting for the final message after tool execution
+            logger.info(f"Room {room_id}: Only got preamble, continuing to wait for final message...")
+
+        logger.warning(f"Room {room_id}: Reached max iterations ({max_iterations}) waiting for response")
 
     async def on_cleanup(self, room_id: str) -> None:
         """Clean up session when agent leaves a room."""

@@ -126,6 +126,7 @@ addopts = "-v"
 project_excludes = [
     "tests/**",                 # Tests use mocks with duck typing
     "examples/**",              # Examples use local imports
+    "src/thenvoi/integrations/parlant/tools.py",  # Parlant @p.tool decorator has complex typing
 ]
 
 [tool.commitizen]
