@@ -16,17 +16,17 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-import asyncio
-import logging
-import os
+import asyncio  # noqa: E402
+import logging  # noqa: E402
+import os  # noqa: E402
 
-import parlant.sdk as p
+import parlant.sdk as p  # noqa: E402
 
-from setup_logging import setup_logging
-from thenvoi import Agent
-from thenvoi.adapters import ParlantAdapter
-from thenvoi.config import load_agent_config
-from thenvoi.integrations.parlant.tools import create_parlant_tools
+from setup_logging import setup_logging  # noqa: E402
+from thenvoi import Agent  # noqa: E402
+from thenvoi.adapters import ParlantAdapter  # noqa: E402
+from thenvoi.config import load_agent_config  # noqa: E402
+from thenvoi.integrations.parlant.tools import create_parlant_tools  # noqa: E402
 
 setup_logging()
 logger = logging.getLogger(__name__)

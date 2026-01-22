@@ -156,7 +156,9 @@ class ParlantAdapter(SimpleAdapter[ParlantMessages]):
 
         # Send customer message to Parlant
         user_message = msg.format_for_llm()
-        logger.info(f"Room {room_id}: Sending message to Parlant: {user_message[:100]}...")
+        logger.info(
+            f"Room {room_id}: Sending message to Parlant: {user_message[:100]}..."
+        )
 
         try:
             from parlant.core.app_modules.sessions import Moderation
@@ -172,7 +174,9 @@ class ParlantAdapter(SimpleAdapter[ParlantMessages]):
                 trigger_processing=True,
                 metadata=None,
             )
-            logger.info(f"Room {room_id}: Customer message created, offset={event.offset}")
+            logger.info(
+                f"Room {room_id}: Customer message created, offset={event.offset}"
+            )
 
             # Wait for and process agent response
             await self._process_agent_response(
@@ -190,7 +194,9 @@ class ParlantAdapter(SimpleAdapter[ParlantMessages]):
         finally:
             # Clear tools after message processing
             set_session_tools(session_id_str, None)
-            logger.info(f"Room {room_id}: Cleared tools for session_id={session_id_str}")
+            logger.info(
+                f"Room {room_id}: Cleared tools for session_id={session_id_str}"
+            )
 
         logger.debug(f"Message {msg.id} processed successfully")
 
@@ -361,7 +367,9 @@ class ParlantAdapter(SimpleAdapter[ParlantMessages]):
             iteration += 1
 
             # Wait for agent response
-            logger.info(f"Room {room_id}: Waiting for agent response (min_offset={current_offset + 1}, iteration={iteration})...")
+            logger.info(
+                f"Room {room_id}: Waiting for agent response (min_offset={current_offset + 1}, iteration={iteration})..."
+            )
 
             try:
                 has_update = await app.sessions.wait_for_update(
@@ -373,7 +381,9 @@ class ParlantAdapter(SimpleAdapter[ParlantMessages]):
                 )
                 logger.info(f"Room {room_id}: wait_for_update returned: {has_update}")
             except Exception as e:
-                logger.error(f"Room {room_id}: Error waiting for update: {e}", exc_info=True)
+                logger.error(
+                    f"Room {room_id}: Error waiting for update: {e}", exc_info=True
+                )
                 return
 
             if not has_update:
@@ -391,7 +401,9 @@ class ParlantAdapter(SimpleAdapter[ParlantMessages]):
                 )
                 logger.info(f"Room {room_id}: Found {len(events)} agent events")
             except Exception as e:
-                logger.error(f"Room {room_id}: Error finding events: {e}", exc_info=True)
+                logger.error(
+                    f"Room {room_id}: Error finding events: {e}", exc_info=True
+                )
                 return
 
             if not events:
@@ -402,13 +414,18 @@ class ParlantAdapter(SimpleAdapter[ParlantMessages]):
             got_final_message = False
 
             for event in events:
-                logger.debug(f"Room {room_id}: Event kind={event.kind}, source={event.source}, data={event.data}")
+                logger.debug(
+                    f"Room {room_id}: Event kind={event.kind}, source={event.source}, data={event.data}"
+                )
 
                 # Update offset for next iteration
-                if hasattr(event, 'offset') and event.offset > current_offset:
+                if hasattr(event, "offset") and event.offset > current_offset:
                     current_offset = event.offset
 
-                if event.kind == EventKind.MESSAGE and event.source == EventSource.AI_AGENT:
+                if (
+                    event.kind == EventKind.MESSAGE
+                    and event.source == EventSource.AI_AGENT
+                ):
                     data = event.data
                     message_content = ""
                     tags = []
@@ -423,7 +440,9 @@ class ParlantAdapter(SimpleAdapter[ParlantMessages]):
                     is_preamble = "__preamble__" in tags
 
                     if is_preamble:
-                        logger.info(f"Room {room_id}: Skipping preamble message: {message_content[:50]}...")
+                        logger.info(
+                            f"Room {room_id}: Skipping preamble message: {message_content[:50]}..."
+                        )
                         continue
 
                     # This is a final message (after tool execution)
@@ -434,12 +453,19 @@ class ParlantAdapter(SimpleAdapter[ParlantMessages]):
                             f"Room {room_id}: Sending agent response to platform: {message_content[:100]}..."
                         )
                         try:
-                            await tools.send_message(message_content, mentions=[sender_name])
+                            await tools.send_message(
+                                message_content, mentions=[sender_name]
+                            )
                             logger.info(f"Room {room_id}: Message sent successfully")
                         except Exception as e:
-                            logger.error(f"Room {room_id}: Error sending message: {e}", exc_info=True)
+                            logger.error(
+                                f"Room {room_id}: Error sending message: {e}",
+                                exc_info=True,
+                            )
                     else:
-                        logger.warning(f"Room {room_id}: Empty message content in event")
+                        logger.warning(
+                            f"Room {room_id}: Empty message content in event"
+                        )
 
             # If we got a final (non-preamble) message, we're done
             if got_final_message:
@@ -447,9 +473,13 @@ class ParlantAdapter(SimpleAdapter[ParlantMessages]):
                 return
 
             # Otherwise, continue waiting for the final message after tool execution
-            logger.info(f"Room {room_id}: Only got preamble, continuing to wait for final message...")
+            logger.info(
+                f"Room {room_id}: Only got preamble, continuing to wait for final message..."
+            )
 
-        logger.warning(f"Room {room_id}: Reached max iterations ({max_iterations}) waiting for response")
+        logger.warning(
+            f"Room {room_id}: Reached max iterations ({max_iterations}) waiting for response"
+        )
 
     async def on_cleanup(self, room_id: str) -> None:
         """Clean up session when agent leaves a room."""

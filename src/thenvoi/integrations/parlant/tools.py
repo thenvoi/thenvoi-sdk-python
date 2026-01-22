@@ -39,7 +39,9 @@ def set_session_tools(session_id: str, tools: Optional[Any]) -> None:
 def get_session_tools(session_id: str) -> Optional[Any]:
     """Get the tools for a specific Parlant session."""
     tools = _session_tools.get(session_id)
-    logger.info(f"Get tools for session_id={session_id}: found={tools is not None}, available_sessions={list(_session_tools.keys())}")
+    logger.info(
+        f"Get tools for session_id={session_id}: found={tools is not None}, available_sessions={list(_session_tools.keys())}"
+    )
     return tools
 
 
@@ -91,10 +93,14 @@ def create_parlant_tools() -> list[Any]:
         Returns:
             Confirmation of message sent or error
         """
-        logger.info(f"[Parlant Tool] send_message called: session={context.session_id}, content={content[:50]}..., mentions={mentions}")
+        logger.info(
+            f"[Parlant Tool] send_message called: session={context.session_id}, content={content[:50]}..., mentions={mentions}"
+        )
         tools = get_session_tools(context.session_id)
         if not tools:
-            logger.error(f"[Parlant Tool] send_message: No tools available for session {context.session_id}")
+            logger.error(
+                f"[Parlant Tool] send_message: No tools available for session {context.session_id}"
+            )
             return ToolResult(data="Error: No tools available in current context")
 
         try:
@@ -131,10 +137,14 @@ def create_parlant_tools() -> list[Any]:
         Returns:
             Confirmation of event sent or error
         """
-        logger.info(f"[Parlant Tool] send_event called: session={context.session_id}, type={message_type}")
+        logger.info(
+            f"[Parlant Tool] send_event called: session={context.session_id}, type={message_type}"
+        )
         tools = get_session_tools(context.session_id)
         if not tools:
-            logger.error(f"[Parlant Tool] send_event: No tools available for session {context.session_id}")
+            logger.error(
+                f"[Parlant Tool] send_event: No tools available for session {context.session_id}"
+            )
             return ToolResult(data="Error: No tools available in current context")
 
         if message_type not in ("thought", "error", "task"):
@@ -168,10 +178,14 @@ def create_parlant_tools() -> list[Any]:
         Returns:
             Success message or error description
         """
-        logger.info(f"[Parlant Tool] add_participant called: session={context.session_id}, name={name}")
+        logger.info(
+            f"[Parlant Tool] add_participant called: session={context.session_id}, name={name}"
+        )
         tools = get_session_tools(context.session_id)
         if not tools:
-            logger.error(f"[Parlant Tool] add_participant: No tools available for session {context.session_id}")
+            logger.error(
+                f"[Parlant Tool] add_participant: No tools available for session {context.session_id}"
+            )
             return ToolResult(data="Error: No tools available in current context")
 
         try:
@@ -179,7 +193,9 @@ def create_parlant_tools() -> list[Any]:
             logger.info(f"[Parlant Tool] Successfully added '{name}' to the room")
             return ToolResult(data=f"Successfully added '{name}' to the room")
         except Exception as e:
-            logger.error(f"[Parlant Tool] Error adding participant '{name}': {e}", exc_info=True)
+            logger.error(
+                f"[Parlant Tool] Error adding participant '{name}': {e}", exc_info=True
+            )
             return ToolResult(data=f"Error adding participant '{name}': {e}")
 
     @p.tool
@@ -200,10 +216,14 @@ def create_parlant_tools() -> list[Any]:
         Returns:
             Success message or error description
         """
-        logger.info(f"[Parlant Tool] remove_participant called: session={context.session_id}, name={name}")
+        logger.info(
+            f"[Parlant Tool] remove_participant called: session={context.session_id}, name={name}"
+        )
         tools = get_session_tools(context.session_id)
         if not tools:
-            logger.error(f"[Parlant Tool] remove_participant: No tools available for session {context.session_id}")
+            logger.error(
+                f"[Parlant Tool] remove_participant: No tools available for session {context.session_id}"
+            )
             return ToolResult(data="Error: No tools available in current context")
 
         try:
@@ -211,7 +231,10 @@ def create_parlant_tools() -> list[Any]:
             logger.info(f"[Parlant Tool] Successfully removed '{name}' from the room")
             return ToolResult(data=f"Successfully removed '{name}' from the room")
         except Exception as e:
-            logger.error(f"[Parlant Tool] Error removing participant '{name}': {e}", exc_info=True)
+            logger.error(
+                f"[Parlant Tool] Error removing participant '{name}': {e}",
+                exc_info=True,
+            )
             return ToolResult(data=f"Error removing participant '{name}': {e}")
 
     @p.tool
@@ -234,10 +257,14 @@ def create_parlant_tools() -> list[Any]:
         Returns:
             List of available agents with their names and descriptions
         """
-        logger.info(f"[Parlant Tool] lookup_peers called: session={context.session_id}, page={page}, page_size={page_size}")
+        logger.info(
+            f"[Parlant Tool] lookup_peers called: session={context.session_id}, page={page}, page_size={page_size}"
+        )
         tools = get_session_tools(context.session_id)
         if not tools:
-            logger.error(f"[Parlant Tool] lookup_peers: No tools available for session {context.session_id}")
+            logger.error(
+                f"[Parlant Tool] lookup_peers: No tools available for session {context.session_id}"
+            )
             return ToolResult(data="Error: No tools available in current context")
 
         try:
@@ -276,10 +303,14 @@ def create_parlant_tools() -> list[Any]:
         Returns:
             List of current participants with their names and types
         """
-        logger.info(f"[Parlant Tool] get_participants called: session={context.session_id}")
+        logger.info(
+            f"[Parlant Tool] get_participants called: session={context.session_id}"
+        )
         tools = get_session_tools(context.session_id)
         if not tools:
-            logger.error(f"[Parlant Tool] get_participants: No tools available for session {context.session_id}")
+            logger.error(
+                f"[Parlant Tool] get_participants: No tools available for session {context.session_id}"
+            )
             return ToolResult(data="Error: No tools available in current context")
 
         try:
@@ -296,7 +327,9 @@ def create_parlant_tools() -> list[Any]:
                 return ToolResult(data="\n".join(lines))
             return ToolResult(data=str(result))
         except Exception as e:
-            logger.error(f"[Parlant Tool] Error getting participants: {e}", exc_info=True)
+            logger.error(
+                f"[Parlant Tool] Error getting participants: {e}", exc_info=True
+            )
             return ToolResult(data=f"Error getting participants: {e}")
 
     @p.tool
@@ -314,10 +347,14 @@ def create_parlant_tools() -> list[Any]:
         Returns:
             The ID of the newly created room
         """
-        logger.info(f"[Parlant Tool] create_chatroom called: session={context.session_id}, task_id={task_id}")
+        logger.info(
+            f"[Parlant Tool] create_chatroom called: session={context.session_id}, task_id={task_id}"
+        )
         tools = get_session_tools(context.session_id)
         if not tools:
-            logger.error(f"[Parlant Tool] create_chatroom: No tools available for session {context.session_id}")
+            logger.error(
+                f"[Parlant Tool] create_chatroom: No tools available for session {context.session_id}"
+            )
             return ToolResult(data="Error: No tools available in current context")
 
         try:
