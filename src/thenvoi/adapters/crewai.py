@@ -1,24 +1,35 @@
-"""CrewAI adapter using SimpleAdapter pattern."""
+"""CrewAI adapter using SimpleAdapter pattern with official CrewAI SDK."""
 
 from __future__ import annotations
 
 import json
 import logging
-import os
-from typing import Any
+from typing import Any, Type
+
+try:
+    from crewai import Agent as CrewAIAgent
+    from crewai import LLM
+    from crewai.tools import BaseTool
+    from pydantic import BaseModel, Field
+except ImportError as e:
+    raise ImportError(
+        "crewai is required for CrewAI adapter.\n"
+        "Install with: pip install crewai\n"
+        "Or: uv add crewai"
+    ) from e
 
 from thenvoi.core.protocols import AgentToolsProtocol
 from thenvoi.core.simple_adapter import SimpleAdapter
 from thenvoi.core.types import PlatformMessage
 from thenvoi.converters.crewai import CrewAIHistoryConverter, CrewAIMessages
-from thenvoi.runtime.prompts import render_system_prompt
+from thenvoi.runtime.tools import get_tool_description
 
 logger = logging.getLogger(__name__)
 
 
 class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
     """
-    CrewAI adapter using SimpleAdapter pattern.
+    CrewAI adapter using the official CrewAI SDK.
 
     Integrates the CrewAI framework (https://docs.crewai.com/) with Thenvoi
     platform for building collaborative multi-agent systems.
@@ -46,26 +57,28 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
         role: str | None = None,
         goal: str | None = None,
         backstory: str | None = None,
-        system_prompt: str | None = None,
         custom_section: str | None = None,
-        openai_api_key: str | None = None,
         enable_execution_reporting: bool = False,
         verbose: bool = False,
+        max_iter: int = 20,
+        max_rpm: int | None = None,
+        allow_delegation: bool = False,
         history_converter: CrewAIHistoryConverter | None = None,
     ):
         """
         Initialize the CrewAI adapter.
 
         Args:
-            model: Model name to use (e.g., "gpt-4o", "gpt-4o-mini")
+            model: Model name to use (e.g., "gpt-4o", "gpt-4o-mini", "claude-3-5-sonnet")
             role: Agent's role in the crew (e.g., "Research Assistant")
             goal: Agent's primary goal or objective
             backstory: Agent's background and expertise description
-            system_prompt: Full system prompt override (optional)
-            custom_section: Custom instructions added to default prompt
-            openai_api_key: OpenAI API key (uses OPENAI_API_KEY env var if not provided)
+            custom_section: Custom instructions added to the agent's backstory
             enable_execution_reporting: If True, sends tool_call/tool_result events
-            verbose: If True, enables detailed logging
+            verbose: If True, enables detailed logging from CrewAI
+            max_iter: Maximum iterations for the agent (default: 20)
+            max_rpm: Maximum requests per minute (rate limiting)
+            allow_delegation: Whether to allow task delegation to other agents
             history_converter: Custom history converter (optional)
         """
         super().__init__(
@@ -76,59 +89,462 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
         self.role = role
         self.goal = goal
         self.backstory = backstory
-        self.system_prompt = system_prompt
         self.custom_section = custom_section
-        self.openai_api_key = openai_api_key
         self.enable_execution_reporting = enable_execution_reporting
         self.verbose = verbose
+        self.max_iter = max_iter
+        self.max_rpm = max_rpm
+        self.allow_delegation = allow_delegation
+
+        # CrewAI agent (created after start)
+        self._crewai_agent: CrewAIAgent | None = None
+
+        # Per-room tools storage (like Claude SDK adapter)
+        self._room_tools: dict[str, AgentToolsProtocol] = {}
 
         # Per-room conversation history
         self._message_history: dict[str, list[dict[str, Any]]] = {}
-        # Rendered system prompt (set after start)
-        self._system_prompt: str = ""
 
     async def on_started(self, agent_name: str, agent_description: str) -> None:
         """Initialize CrewAI agent after metadata is fetched."""
         await super().on_started(agent_name, agent_description)
 
-        # Build system prompt with CrewAI-style agent definition
-        if self.system_prompt:
-            self._system_prompt = self.system_prompt
+        # Build role, goal, backstory from params or platform metadata
+        role = self.role or agent_name
+        goal = self.goal or agent_description or "Help users accomplish their tasks"
+
+        # Build backstory with custom section if provided
+        backstory_parts = []
+        if self.backstory:
+            backstory_parts.append(self.backstory)
         else:
-            # Use role/goal/backstory if provided, otherwise use platform metadata
-            role = self.role or agent_name
-            goal = self.goal or agent_description or "Help users accomplish their tasks"
-            backstory = (
-                self.backstory or f"You are {agent_name}, a collaborative AI agent."
+            backstory_parts.append(
+                f"You are {agent_name}, a collaborative AI agent on the Thenvoi platform."
             )
 
-            base_prompt = render_system_prompt(
-                agent_name=agent_name,
-                agent_description=agent_description,
-                custom_section=self.custom_section or "",
+        if self.custom_section:
+            backstory_parts.append(self.custom_section)
+
+        # Add platform-specific instructions
+        backstory_parts.append(self._get_platform_instructions())
+
+        backstory = "\n\n".join(backstory_parts)
+
+        # Create CrewAI tools for Thenvoi platform
+        tools = self._create_crewai_tools()
+
+        # Create the CrewAI agent
+        self._crewai_agent = CrewAIAgent(
+            role=role,
+            goal=goal,
+            backstory=backstory,
+            llm=LLM(model=self.model),
+            tools=tools,
+            verbose=self.verbose,
+            max_iter=self.max_iter,
+            max_rpm=self.max_rpm,
+            allow_delegation=self.allow_delegation,
+        )
+
+        logger.info(
+            f"CrewAI adapter started for agent: {agent_name} "
+            f"(model={self.model}, role={role})"
+        )
+
+    def _get_platform_instructions(self) -> str:
+        """Get platform-specific instructions for the agent's backstory."""
+        return """## Environment
+
+Multi-participant chat on Thenvoi platform. Messages show sender: [Name]: content.
+Use the `send_message` tool to respond. Plain text output is not delivered.
+
+## CRITICAL: Delegate When You Cannot Help Directly
+
+You have NO internet access and NO real-time data. When asked about weather, news, stock prices,
+or any current information you cannot answer directly:
+
+1. Call `lookup_peers` to find available specialized agents
+2. If a relevant agent exists (e.g., Weather Agent), call `add_participant` to add them
+3. Ask that agent using `send_message` with their name in mentions
+4. Wait for their response and relay it back to the user
+
+NEVER say "I can't do that" without first checking if another agent can help via `lookup_peers`.
+
+## CRITICAL: Do NOT Remove Agents Automatically
+
+After adding an agent to help with a task:
+1. Ask your question and wait for their response
+2. Relay their response back to the original requester
+3. **Do NOT remove the agent** - they stay silent unless mentioned and may be useful for follow-ups
+
+Only remove agents if the user explicitly requests it.
+
+## CRITICAL: Always Relay Information Back to the Requester
+
+When someone asks you to get information from another agent:
+1. Ask the other agent for the information
+2. When you receive the response, IMMEDIATELY relay it back to the ORIGINAL REQUESTER
+3. Do NOT just thank the helper agent - the requester is waiting for their answer!
+
+## IMPORTANT: Always Share Your Thinking
+
+Call `send_event` with message_type="thought" BEFORE every action to share your reasoning."""
+
+    def _create_crewai_tools(self) -> list[BaseTool]:
+        """Create CrewAI-compatible tools for Thenvoi platform."""
+        adapter = self  # Capture reference for tool closures
+
+        # Define input schemas for each tool
+        class SendMessageInput(BaseModel):
+            room_id: str = Field(..., description="The room ID to send the message to")
+            content: str = Field(..., description="The message content to send")
+            mentions: str = Field(
+                default="[]",
+                description="JSON array of participant names to @mention",
             )
 
-            # Add CrewAI-style agent definition
-            crewai_section = f"""
-## Agent Profile
+        class SendEventInput(BaseModel):
+            room_id: str = Field(..., description="The room ID to send the event to")
+            content: str = Field(..., description="Human-readable event content")
+            message_type: str = Field(
+                default="thought",
+                description="Type of event: 'thought', 'error', or 'task'",
+            )
 
-**Role**: {role}
+        class AddParticipantInput(BaseModel):
+            room_id: str = Field(
+                ..., description="The room ID to add the participant to"
+            )
+            participant_name: str = Field(
+                ...,
+                description="Name of participant to add (must match from lookup_peers)",
+            )
+            role: str = Field(
+                default="member", description="Role: 'owner', 'admin', or 'member'"
+            )
 
-**Goal**: {goal}
+        class RemoveParticipantInput(BaseModel):
+            room_id: str = Field(
+                ..., description="The room ID to remove the participant from"
+            )
+            participant_name: str = Field(
+                ..., description="Name of the participant to remove"
+            )
 
-**Backstory**: {backstory}
+        class GetParticipantsInput(BaseModel):
+            room_id: str = Field(
+                ..., description="The room ID to get participants from"
+            )
 
-## Operating Guidelines
+        class LookupPeersInput(BaseModel):
+            room_id: str = Field(..., description="The room ID for context")
+            page: int = Field(default=1, description="Page number")
+            page_size: int = Field(default=50, description="Items per page (max 100)")
 
-1. Stay focused on your role and goal
-2. Collaborate effectively with other participants
-3. Use available tools when they help accomplish tasks
-4. Communicate clearly and provide actionable responses
-5. Ask clarifying questions when the request is ambiguous
-"""
-            self._system_prompt = base_prompt + crewai_section
+        class CreateChatroomInput(BaseModel):
+            room_id: str = Field(..., description="The current room ID for context")
+            task_id: str = Field(
+                default="", description="Associated task ID (optional)"
+            )
 
-        logger.info(f"CrewAI adapter started for agent: {agent_name}")
+        # Define tools with args_schema
+        class SendMessageTool(BaseTool):
+            name: str = "send_message"
+            description: str = get_tool_description("send_message")
+            args_schema: Type[BaseModel] = SendMessageInput
+
+            def _run(self, room_id: str, content: str, mentions: str = "[]") -> str:
+                import asyncio
+
+                async def _execute():
+                    tools = adapter._room_tools.get(room_id)
+                    if not tools:
+                        return json.dumps(
+                            {"status": "error", "message": f"No tools for room {room_id}"}
+                        )
+
+                    try:
+                        mention_list = json.loads(mentions) if mentions else []
+                    except json.JSONDecodeError:
+                        mention_list = []
+
+                    if adapter.enable_execution_reporting:
+                        await tools.send_event(
+                            content=json.dumps(
+                                {
+                                    "tool": "send_message",
+                                    "input": {"content": content, "mentions": mention_list},
+                                }
+                            ),
+                            message_type="tool_call",
+                        )
+
+                    try:
+                        await tools.send_message(content, mention_list)
+                        if adapter.enable_execution_reporting:
+                            await tools.send_event(
+                                content=json.dumps(
+                                    {"tool": "send_message", "result": "success"}
+                                ),
+                                message_type="tool_result",
+                            )
+                        return json.dumps({"status": "success", "message": "Message sent"})
+                    except Exception as e:
+                        error_msg = str(e)
+                        if adapter.enable_execution_reporting:
+                            await tools.send_event(
+                                content=json.dumps(
+                                    {"tool": "send_message", "error": error_msg}
+                                ),
+                                message_type="tool_result",
+                            )
+                        return json.dumps({"status": "error", "message": error_msg})
+
+                try:
+                    loop = asyncio.get_running_loop()
+                    return loop.run_until_complete(_execute())
+                except RuntimeError:
+                    return asyncio.run(_execute())
+
+        class SendEventTool(BaseTool):
+            name: str = "send_event"
+            description: str = get_tool_description("send_event")
+            args_schema: Type[BaseModel] = SendEventInput
+
+            def _run(
+                self, room_id: str, content: str, message_type: str = "thought"
+            ) -> str:
+                import asyncio
+
+                async def _execute():
+                    tools = adapter._room_tools.get(room_id)
+                    if not tools:
+                        return json.dumps(
+                            {"status": "error", "message": f"No tools for room {room_id}"}
+                        )
+
+                    try:
+                        await tools.send_event(content, message_type)
+                        return json.dumps({"status": "success", "message": "Event sent"})
+                    except Exception as e:
+                        return json.dumps({"status": "error", "message": str(e)})
+
+                try:
+                    loop = asyncio.get_running_loop()
+                    return loop.run_until_complete(_execute())
+                except RuntimeError:
+                    return asyncio.run(_execute())
+
+        class AddParticipantTool(BaseTool):
+            name: str = "add_participant"
+            description: str = get_tool_description("add_participant")
+            args_schema: Type[BaseModel] = AddParticipantInput
+
+            def _run(
+                self, room_id: str, participant_name: str, role: str = "member"
+            ) -> str:
+                import asyncio
+
+                async def _execute():
+                    tools = adapter._room_tools.get(room_id)
+                    if not tools:
+                        return json.dumps(
+                            {"status": "error", "message": f"No tools for room {room_id}"}
+                        )
+
+                    if adapter.enable_execution_reporting:
+                        await tools.send_event(
+                            content=json.dumps(
+                                {
+                                    "tool": "add_participant",
+                                    "input": {"name": participant_name, "role": role},
+                                }
+                            ),
+                            message_type="tool_call",
+                        )
+
+                    try:
+                        result = await tools.add_participant(participant_name, role)
+                        if adapter.enable_execution_reporting:
+                            await tools.send_event(
+                                content=json.dumps(
+                                    {"tool": "add_participant", "result": result}
+                                ),
+                                message_type="tool_result",
+                            )
+                        return json.dumps({"status": "success", **result})
+                    except Exception as e:
+                        error_msg = str(e)
+                        if adapter.enable_execution_reporting:
+                            await tools.send_event(
+                                content=json.dumps(
+                                    {"tool": "add_participant", "error": error_msg}
+                                ),
+                                message_type="tool_result",
+                            )
+                        return json.dumps({"status": "error", "message": error_msg})
+
+                try:
+                    loop = asyncio.get_running_loop()
+                    return loop.run_until_complete(_execute())
+                except RuntimeError:
+                    return asyncio.run(_execute())
+
+        class RemoveParticipantTool(BaseTool):
+            name: str = "remove_participant"
+            description: str = get_tool_description("remove_participant")
+            args_schema: Type[BaseModel] = RemoveParticipantInput
+
+            def _run(self, room_id: str, participant_name: str) -> str:
+                import asyncio
+
+                async def _execute():
+                    tools = adapter._room_tools.get(room_id)
+                    if not tools:
+                        return json.dumps(
+                            {"status": "error", "message": f"No tools for room {room_id}"}
+                        )
+
+                    if adapter.enable_execution_reporting:
+                        await tools.send_event(
+                            content=json.dumps(
+                                {
+                                    "tool": "remove_participant",
+                                    "input": {"name": participant_name},
+                                }
+                            ),
+                            message_type="tool_call",
+                        )
+
+                    try:
+                        result = await tools.remove_participant(participant_name)
+                        if adapter.enable_execution_reporting:
+                            await tools.send_event(
+                                content=json.dumps(
+                                    {"tool": "remove_participant", "result": result}
+                                ),
+                                message_type="tool_result",
+                            )
+                        return json.dumps({"status": "success", **result})
+                    except Exception as e:
+                        error_msg = str(e)
+                        if adapter.enable_execution_reporting:
+                            await tools.send_event(
+                                content=json.dumps(
+                                    {"tool": "remove_participant", "error": error_msg}
+                                ),
+                                message_type="tool_result",
+                            )
+                        return json.dumps({"status": "error", "message": error_msg})
+
+                try:
+                    loop = asyncio.get_running_loop()
+                    return loop.run_until_complete(_execute())
+                except RuntimeError:
+                    return asyncio.run(_execute())
+
+        class GetParticipantsTool(BaseTool):
+            name: str = "get_participants"
+            description: str = get_tool_description("get_participants")
+            args_schema: Type[BaseModel] = GetParticipantsInput
+
+            def _run(self, room_id: str) -> str:
+                import asyncio
+
+                async def _execute():
+                    tools = adapter._room_tools.get(room_id)
+                    if not tools:
+                        return json.dumps(
+                            {"status": "error", "message": f"No tools for room {room_id}"}
+                        )
+
+                    try:
+                        participants = await tools.get_participants()
+                        return json.dumps(
+                            {
+                                "status": "success",
+                                "participants": participants,
+                                "count": len(participants),
+                            }
+                        )
+                    except Exception as e:
+                        return json.dumps({"status": "error", "message": str(e)})
+
+                try:
+                    loop = asyncio.get_running_loop()
+                    return loop.run_until_complete(_execute())
+                except RuntimeError:
+                    return asyncio.run(_execute())
+
+        class LookupPeersTool(BaseTool):
+            name: str = "lookup_peers"
+            description: str = get_tool_description("lookup_peers")
+            args_schema: Type[BaseModel] = LookupPeersInput
+
+            def _run(self, room_id: str, page: int = 1, page_size: int = 50) -> str:
+                import asyncio
+
+                async def _execute():
+                    tools = adapter._room_tools.get(room_id)
+                    if not tools:
+                        return json.dumps(
+                            {"status": "error", "message": f"No tools for room {room_id}"}
+                        )
+
+                    try:
+                        result = await tools.lookup_peers(page, page_size)
+                        return json.dumps({"status": "success", **result})
+                    except Exception as e:
+                        return json.dumps({"status": "error", "message": str(e)})
+
+                try:
+                    loop = asyncio.get_running_loop()
+                    return loop.run_until_complete(_execute())
+                except RuntimeError:
+                    return asyncio.run(_execute())
+
+        class CreateChatroomTool(BaseTool):
+            name: str = "create_chatroom"
+            description: str = get_tool_description("create_chatroom")
+            args_schema: Type[BaseModel] = CreateChatroomInput
+
+            def _run(self, room_id: str, task_id: str = "") -> str:
+                import asyncio
+
+                async def _execute():
+                    tools = adapter._room_tools.get(room_id)
+                    if not tools:
+                        return json.dumps(
+                            {"status": "error", "message": f"No tools for room {room_id}"}
+                        )
+
+                    try:
+                        new_room_id = await tools.create_chatroom(task_id or None)
+                        return json.dumps(
+                            {
+                                "status": "success",
+                                "message": "Chat room created",
+                                "room_id": new_room_id,
+                            }
+                        )
+                    except Exception as e:
+                        return json.dumps({"status": "error", "message": str(e)})
+
+                try:
+                    loop = asyncio.get_running_loop()
+                    return loop.run_until_complete(_execute())
+                except RuntimeError:
+                    return asyncio.run(_execute())
+
+        return [
+            SendMessageTool(),
+            SendEventTool(),
+            AddParticipantTool(),
+            RemoveParticipantTool(),
+            GetParticipantsTool(),
+            LookupPeersTool(),
+            CreateChatroomTool(),
+        ]
 
     async def on_message(
         self,
@@ -141,12 +557,19 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
         room_id: str,
     ) -> None:
         """
-        Handle incoming message using CrewAI-style processing.
+        Handle incoming message using CrewAI agent.
 
-        Implements a tool loop similar to CrewAI's agent execution,
-        with platform tools for collaboration.
+        Uses the CrewAI SDK's kickoff_async() for message processing with
+        the platform tools for collaboration.
         """
         logger.debug(f"Handling message {msg.id} in room {room_id}")
+
+        if not self._crewai_agent:
+            logger.error("CrewAI agent not initialized")
+            return
+
+        # Store tools for CrewAI tool access
+        self._room_tools[room_id] = tools
 
         # Initialize history for this room on first message
         if is_session_bootstrap:
@@ -163,22 +586,43 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
         elif room_id not in self._message_history:
             self._message_history[room_id] = []
 
+        # Build message list for CrewAI
+        messages = []
+
+        # Add room_id context (CrewAI needs this for tool calls)
+        room_context = f"[room_id: {room_id}]"
+
+        # Include historical context on first message
+        if is_session_bootstrap and self._message_history.get(room_id):
+            history_text = "\n".join(
+                f"{m['role']}: {m['content']}" for m in self._message_history[room_id]
+            )
+            messages.append(
+                {
+                    "role": "user",
+                    "content": f"{room_context}[Previous conversation context:]\n{history_text}",
+                }
+            )
+
         # Inject participants message if changed
         if participants_msg:
-            self._message_history[room_id].append(
+            messages.append(
                 {
-                    "role": "system",
-                    "content": f"[Crew Update]: {participants_msg}",
+                    "role": "user",
+                    "content": f"{room_context}[System]: {participants_msg}",
                 }
             )
             logger.info(f"Room {room_id}: Participants updated")
 
-        # Add current message
-        user_message = msg.format_for_llm()
+        # Add current message with room_id context
+        user_message = f"{room_context}{msg.format_for_llm()}"
+        messages.append({"role": "user", "content": user_message})
+
+        # Store the current message in history
         self._message_history[room_id].append(
             {
                 "role": "user",
-                "content": user_message,
+                "content": msg.format_for_llm(),
             }
         )
 
@@ -189,209 +633,41 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
             f"(first_msg={is_session_bootstrap})"
         )
 
-        # Get tool schemas in OpenAI format
-        tool_schemas = tools.get_openai_tool_schemas()
+        try:
+            # Use CrewAI's kickoff_async with message list
+            result = await self._crewai_agent.kickoff_async(messages)
 
-        # Build messages for LLM call
-        messages = self._build_messages(room_id)
+            # Store the response in history
+            if result and result.raw:
+                self._message_history[room_id].append(
+                    {
+                        "role": "assistant",
+                        "content": result.raw,
+                    }
+                )
 
-        # Tool loop - let LLM decide when to stop
-        while True:
-            try:
-                response = await self._call_llm(messages, tool_schemas)
-            except Exception as e:
-                logger.error(f"Error calling LLM: {e}", exc_info=True)
-                await self._report_error(tools, str(e))
-                raise
-
-            # Check for tool calls
-            tool_calls = response.get("tool_calls", [])
-
-            if not tool_calls:
-                # No more tool calls - extract content
-                content = response.get("content", "")
-                if content:
-                    self._message_history[room_id].append(
-                        {
-                            "role": "assistant",
-                            "content": content,
-                        }
-                    )
-                logger.debug(f"Room {room_id}: Completed without tool calls")
-                break
-
-            # Add assistant response with tool calls to history
-            self._message_history[room_id].append(
-                {
-                    "role": "assistant",
-                    "content": response.get("content"),
-                    "tool_calls": tool_calls,
-                }
+            logger.info(
+                f"Room {room_id}: CrewAI agent completed "
+                f"(output_length={len(result.raw) if result and result.raw else 0})"
             )
 
-            # Process tool calls
-            tool_results = await self._process_tool_calls(tool_calls, tools)
-
-            # Add tool results to history
-            for result in tool_results:
-                self._message_history[room_id].append(result)
-
-            # Update messages for next iteration
-            messages = self._build_messages(room_id)
+        except Exception as e:
+            logger.error(f"Error processing message: {e}", exc_info=True)
+            await self._report_error(tools, str(e))
+            raise
 
         logger.debug(
             f"Message {msg.id} processed successfully "
             f"(history now has {len(self._message_history[room_id])} messages)"
         )
 
-    def _build_messages(self, room_id: str) -> list[dict[str, Any]]:
-        """Build messages list with system prompt and history."""
-        messages: list[dict[str, Any]] = [
-            {"role": "system", "content": self._system_prompt}
-        ]
-
-        # Add conversation history
-        messages.extend(self._message_history.get(room_id, []))
-
-        return messages
-
-    async def _call_llm(
-        self,
-        messages: list[dict[str, Any]],
-        tools: list[dict[str, Any]],
-    ) -> dict[str, Any]:
-        """
-        Call the LLM with messages and tools.
-
-        Uses OpenAI-compatible API format.
-        """
-        try:
-            import openai
-        except ImportError:
-            raise ImportError(
-                "OpenAI package required for CrewAIAdapter. "
-                "Install with: pip install openai"
-            )
-
-        # Get API key from parameter or environment
-        api_key = self.openai_api_key or os.getenv("OPENAI_API_KEY")
-        if not api_key:
-            raise ValueError(
-                "OpenAI API key required. Set OPENAI_API_KEY environment variable "
-                "or pass openai_api_key parameter to CrewAIAdapter."
-            )
-
-        client = openai.AsyncOpenAI(api_key=api_key)
-
-        # Build request
-        request_kwargs: dict[str, Any] = {
-            "model": self.model,
-            "messages": messages,
-        }
-
-        if tools:
-            request_kwargs["tools"] = tools
-            request_kwargs["tool_choice"] = "auto"
-
-        response = await client.chat.completions.create(**request_kwargs)
-
-        # Extract response
-        choice = response.choices[0]
-        message = choice.message
-
-        result: dict[str, Any] = {
-            "content": message.content,
-            "tool_calls": [],
-        }
-
-        if message.tool_calls:
-            result["tool_calls"] = [
-                {
-                    "id": tc.id,
-                    "type": "function",
-                    "function": {
-                        "name": tc.function.name,
-                        "arguments": tc.function.arguments,
-                    },
-                }
-                for tc in message.tool_calls
-            ]
-
-        return result
-
-    async def _process_tool_calls(
-        self,
-        tool_calls: list[dict[str, Any]],
-        tools: AgentToolsProtocol,
-    ) -> list[dict[str, Any]]:
-        """
-        Process tool calls and execute them.
-
-        Returns tool result messages in OpenAI format.
-        """
-        results: list[dict[str, Any]] = []
-
-        for tc in tool_calls:
-            tool_id = tc.get("id", "")
-            function = tc.get("function", {})
-            tool_name = function.get("name", "")
-            arguments_str = function.get("arguments", "{}")
-
-            try:
-                arguments = json.loads(arguments_str)
-            except json.JSONDecodeError:
-                arguments = {}
-
-            logger.debug(f"Executing tool: {tool_name} with args: {arguments}")
-
-            # Report tool call if enabled
-            if self.enable_execution_reporting:
-                await tools.send_event(
-                    content=json.dumps({"tool": tool_name, "input": arguments}),
-                    message_type="tool_call",
-                    metadata={"tool": tool_name, "input": arguments},
-                )
-
-            # Execute tool
-            try:
-                result = await tools.execute_tool_call(tool_name, arguments)
-                result_str = (
-                    json.dumps(result, default=str)
-                    if not isinstance(result, str)
-                    else result
-                )
-                is_error = False
-            except Exception as e:
-                result_str = f"Error: {e}"
-                is_error = True
-                logger.error(f"Tool {tool_name} failed: {e}")
-
-            # Report tool result if enabled
-            if self.enable_execution_reporting:
-                await tools.send_event(
-                    content=json.dumps(
-                        {"tool": tool_name, "result": result_str, "is_error": is_error}
-                    ),
-                    message_type="tool_result",
-                    metadata={"tool": tool_name, "is_error": is_error},
-                )
-
-            # Add to results in OpenAI tool message format
-            results.append(
-                {
-                    "role": "tool",
-                    "tool_call_id": tool_id,
-                    "content": result_str,
-                }
-            )
-
-        return results
-
     async def on_cleanup(self, room_id: str) -> None:
-        """Clean up message history when agent leaves a room."""
+        """Clean up message history and tools when agent leaves a room."""
         if room_id in self._message_history:
             del self._message_history[room_id]
-            logger.debug(f"Room {room_id}: Cleaned up message history")
+        if room_id in self._room_tools:
+            del self._room_tools[room_id]
+        logger.debug(f"Room {room_id}: Cleaned up CrewAI session")
 
     async def _report_error(self, tools: AgentToolsProtocol, error: str) -> None:
         """Send error event (best effort)."""

@@ -1,12 +1,39 @@
 """Tests for CrewAIAdapter."""
 
 from datetime import datetime, timezone
+import sys
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from thenvoi.adapters.crewai import CrewAIAdapter
 from thenvoi.core.types import PlatformMessage
+
+
+# Create mock CrewAI module and classes
+mock_crewai_module = MagicMock()
+mock_crewai_tools_module = MagicMock()
+
+
+class MockBaseTool:
+    """Mock BaseTool class for testing."""
+
+    name: str = ""
+    description: str = ""
+
+    def __init__(self):
+        pass
+
+
+mock_crewai_module.Agent = MagicMock()
+mock_crewai_module.LLM = MagicMock()
+mock_crewai_tools_module.BaseTool = MockBaseTool
+
+# Patch before any imports from the adapter
+sys.modules["crewai"] = mock_crewai_module
+sys.modules["crewai.tools"] = mock_crewai_tools_module
+
+# Now import the adapter
+from thenvoi.adapters.crewai import CrewAIAdapter
 
 
 @pytest.fixture
@@ -34,7 +61,39 @@ def mock_tools():
     tools.send_message = AsyncMock(return_value={"status": "sent"})
     tools.send_event = AsyncMock(return_value={"status": "sent"})
     tools.execute_tool_call = AsyncMock(return_value={"status": "success"})
+    tools.add_participant = AsyncMock(
+        return_value={"id": "123", "name": "Test", "status": "added"}
+    )
+    tools.remove_participant = AsyncMock(
+        return_value={"id": "123", "name": "Test", "status": "removed"}
+    )
+    tools.get_participants = AsyncMock(
+        return_value=[{"id": "123", "name": "Alice", "type": "User"}]
+    )
+    tools.lookup_peers = AsyncMock(
+        return_value={
+            "peers": [],
+            "metadata": {
+                "page": 1,
+                "page_size": 50,
+                "total_count": 0,
+                "total_pages": 1,
+            },
+        }
+    )
+    tools.create_chatroom = AsyncMock(return_value="new-room-123")
     return tools
+
+
+@pytest.fixture
+def mock_crewai_agent():
+    """Create a mock CrewAI agent."""
+    mock_result = MagicMock()
+    mock_result.raw = "Hello! I'm here to help."
+
+    mock_agent = MagicMock()
+    mock_agent.kickoff_async = AsyncMock(return_value=mock_result)
+    return mock_agent
 
 
 class TestInitialization:
@@ -50,6 +109,8 @@ class TestInitialization:
         assert adapter.backstory is None
         assert adapter.enable_execution_reporting is False
         assert adapter.verbose is False
+        assert adapter.max_iter == 20
+        assert adapter.allow_delegation is False
         assert adapter.history_converter is not None
 
     def test_custom_initialization(self):
@@ -62,6 +123,9 @@ class TestInitialization:
             custom_section="Be thorough.",
             enable_execution_reporting=True,
             verbose=True,
+            max_iter=30,
+            max_rpm=10,
+            allow_delegation=True,
         )
 
         assert adapter.model == "gpt-4o-mini"
@@ -71,43 +135,32 @@ class TestInitialization:
         assert adapter.custom_section == "Be thorough."
         assert adapter.enable_execution_reporting is True
         assert adapter.verbose is True
-
-    def test_system_prompt_override(self):
-        """Should use custom system_prompt if provided."""
-        adapter = CrewAIAdapter(
-            system_prompt="You are a custom assistant.",
-        )
-
-        assert adapter.system_prompt == "You are a custom assistant."
+        assert adapter.max_iter == 30
+        assert adapter.max_rpm == 10
+        assert adapter.allow_delegation is True
 
 
 class TestOnStarted:
     """Tests for on_started() method."""
 
     @pytest.mark.asyncio
-    async def test_renders_system_prompt(self):
-        """Should render system prompt from agent metadata."""
-        adapter = CrewAIAdapter()
+    async def test_creates_crewai_agent(self):
+        """Should create CrewAI agent after start."""
+        # Reset the mock
+        mock_crewai_module.Agent.reset_mock()
 
+        adapter = CrewAIAdapter()
         await adapter.on_started(agent_name="TestBot", agent_description="A test bot")
 
         assert adapter.agent_name == "TestBot"
         assert adapter.agent_description == "A test bot"
-        assert adapter._system_prompt != ""
-        assert "TestBot" in adapter._system_prompt
+        mock_crewai_module.Agent.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_uses_custom_system_prompt_when_provided(self):
-        """Should use custom system_prompt instead of rendered one."""
-        adapter = CrewAIAdapter(system_prompt="Custom prompt here.")
+    async def test_uses_custom_role_goal_backstory(self):
+        """Should use custom role, goal, and backstory in agent creation."""
+        mock_crewai_module.Agent.reset_mock()
 
-        await adapter.on_started(agent_name="TestBot", agent_description="A test bot")
-
-        assert adapter._system_prompt == "Custom prompt here."
-
-    @pytest.mark.asyncio
-    async def test_includes_role_goal_backstory_in_prompt(self):
-        """Should include role, goal, and backstory in system prompt."""
         adapter = CrewAIAdapter(
             role="Research Analyst",
             goal="Find information",
@@ -116,113 +169,134 @@ class TestOnStarted:
 
         await adapter.on_started(agent_name="TestBot", agent_description="")
 
-        assert "Research Analyst" in adapter._system_prompt
-        assert "Find information" in adapter._system_prompt
-        assert "Expert researcher" in adapter._system_prompt
+        call_kwargs = mock_crewai_module.Agent.call_args[1]
+        assert call_kwargs["role"] == "Research Analyst"
+        assert call_kwargs["goal"] == "Find information"
+        assert "Expert researcher" in call_kwargs["backstory"]
 
     @pytest.mark.asyncio
     async def test_uses_agent_name_as_default_role(self):
         """Should use agent name as role if role not provided."""
-        adapter = CrewAIAdapter()
+        mock_crewai_module.Agent.reset_mock()
 
+        adapter = CrewAIAdapter()
         await adapter.on_started(agent_name="TestBot", agent_description="A test bot")
 
-        # Role section should contain the agent name
-        assert "TestBot" in adapter._system_prompt
+        call_kwargs = mock_crewai_module.Agent.call_args[1]
+        assert call_kwargs["role"] == "TestBot"
+
+    @pytest.mark.asyncio
+    async def test_creates_platform_tools(self):
+        """Should create 7 platform tools for CrewAI."""
+        mock_crewai_module.Agent.reset_mock()
+
+        adapter = CrewAIAdapter()
+        await adapter.on_started(agent_name="TestBot", agent_description="A test bot")
+
+        call_kwargs = mock_crewai_module.Agent.call_args[1]
+        tools = call_kwargs["tools"]
+        assert len(tools) == 7
+
+        tool_names = [t.name for t in tools]
+        assert "send_message" in tool_names
+        assert "send_event" in tool_names
+        assert "add_participant" in tool_names
+        assert "remove_participant" in tool_names
+        assert "get_participants" in tool_names
+        assert "lookup_peers" in tool_names
+        assert "create_chatroom" in tool_names
 
 
 class TestOnMessage:
     """Tests for on_message() method."""
 
     @pytest.mark.asyncio
-    async def test_initializes_history_on_bootstrap(self, sample_message, mock_tools):
+    async def test_initializes_history_on_bootstrap(
+        self, sample_message, mock_tools, mock_crewai_agent
+    ):
         """Should initialize room history on first message."""
         adapter = CrewAIAdapter()
         await adapter.on_started("TestBot", "Test bot")
+        adapter._crewai_agent = mock_crewai_agent
 
-        with patch.object(adapter, "_call_llm") as mock_call:
-            mock_call.return_value = {"content": "Hello!", "tool_calls": []}
+        await adapter.on_message(
+            msg=sample_message,
+            tools=mock_tools,
+            history=[],
+            participants_msg=None,
+            is_session_bootstrap=True,
+            room_id="room-123",
+        )
 
-            await adapter.on_message(
-                msg=sample_message,
-                tools=mock_tools,
-                history=[],
-                participants_msg=None,
-                is_session_bootstrap=True,
-                room_id="room-123",
-            )
-
-            assert "room-123" in adapter._message_history
-            assert len(adapter._message_history["room-123"]) >= 1
+        assert "room-123" in adapter._message_history
+        assert "room-123" in adapter._room_tools
 
     @pytest.mark.asyncio
-    async def test_loads_existing_history(self, sample_message, mock_tools):
+    async def test_loads_existing_history(
+        self, sample_message, mock_tools, mock_crewai_agent
+    ):
         """Should load historical messages on bootstrap."""
         adapter = CrewAIAdapter()
         await adapter.on_started("TestBot", "Test bot")
+        adapter._crewai_agent = mock_crewai_agent
 
         existing_history = [
             {"role": "user", "content": "[Bob]: Previous message"},
             {"role": "assistant", "content": "Previous response"},
         ]
 
-        with patch.object(adapter, "_call_llm") as mock_call:
-            mock_call.return_value = {"content": "Hello!", "tool_calls": []}
+        await adapter.on_message(
+            msg=sample_message,
+            tools=mock_tools,
+            history=existing_history,
+            participants_msg=None,
+            is_session_bootstrap=True,
+            room_id="room-123",
+        )
 
-            await adapter.on_message(
-                msg=sample_message,
-                tools=mock_tools,
-                history=existing_history,
-                participants_msg=None,
-                is_session_bootstrap=True,
-                room_id="room-123",
-            )
-
-            # Should have existing 2 + current message
-            assert len(adapter._message_history["room-123"]) >= 3
+        # Should have existing 2 + current message + response
+        assert len(adapter._message_history["room-123"]) >= 3
 
     @pytest.mark.asyncio
-    async def test_injects_participants_message(self, sample_message, mock_tools):
-        """Should inject participants update when provided."""
+    async def test_calls_kickoff_async(
+        self, sample_message, mock_tools, mock_crewai_agent
+    ):
+        """Should call CrewAI agent's kickoff_async method."""
         adapter = CrewAIAdapter()
         await adapter.on_started("TestBot", "Test bot")
+        adapter._crewai_agent = mock_crewai_agent
 
-        with patch.object(adapter, "_call_llm") as mock_call:
-            mock_call.return_value = {"content": "Hello!", "tool_calls": []}
+        await adapter.on_message(
+            msg=sample_message,
+            tools=mock_tools,
+            history=[],
+            participants_msg=None,
+            is_session_bootstrap=True,
+            room_id="room-123",
+        )
 
-            await adapter.on_message(
-                msg=sample_message,
-                tools=mock_tools,
-                history=[],
-                participants_msg="Alice joined the room",
-                is_session_bootstrap=True,
-                room_id="room-123",
-            )
-
-            # Find the participants message in history
-            found = any(
-                "[Crew Update]: Alice joined" in str(m.get("content", ""))
-                for m in adapter._message_history["room-123"]
-            )
-            assert found
+        mock_crewai_agent.kickoff_async.assert_called_once()
 
 
 class TestOnCleanup:
     """Tests for on_cleanup() method."""
 
     @pytest.mark.asyncio
-    async def test_cleans_up_room_history(self, sample_message, mock_tools):
-        """Should remove room history on cleanup."""
+    async def test_cleans_up_room_history_and_tools(self, mock_crewai_agent):
+        """Should remove room history and tools on cleanup."""
         adapter = CrewAIAdapter()
         await adapter.on_started("TestBot", "Test bot")
 
-        # First add some history
+        # Add some data
         adapter._message_history["room-123"] = [{"role": "user", "content": "test"}]
+        adapter._room_tools["room-123"] = MagicMock()
         assert "room-123" in adapter._message_history
+        assert "room-123" in adapter._room_tools
 
         await adapter.on_cleanup("room-123")
 
         assert "room-123" not in adapter._message_history
+        assert "room-123" not in adapter._room_tools
 
     @pytest.mark.asyncio
     async def test_cleanup_nonexistent_room_is_safe(self):
@@ -233,156 +307,21 @@ class TestOnCleanup:
         await adapter.on_cleanup("nonexistent-room")
 
 
-class TestBuildMessages:
-    """Tests for _build_messages() method."""
-
-    @pytest.mark.asyncio
-    async def test_includes_system_prompt(self):
-        """Should include system prompt in messages."""
-        adapter = CrewAIAdapter()
-        await adapter.on_started("TestBot", "Test bot")
-
-        adapter._message_history["room-123"] = []
-
-        messages = adapter._build_messages("room-123")
-
-        assert len(messages) >= 1
-        assert messages[0]["role"] == "system"
-        assert "TestBot" in messages[0]["content"]
-
-    @pytest.mark.asyncio
-    async def test_includes_conversation_history(self):
-        """Should include conversation history in messages."""
-        adapter = CrewAIAdapter()
-        await adapter.on_started("TestBot", "Test bot")
-
-        adapter._message_history["room-123"] = [
-            {"role": "user", "content": "Hello"},
-            {"role": "assistant", "content": "Hi there!"},
-        ]
-
-        messages = adapter._build_messages("room-123")
-
-        # System prompt + 2 history messages
-        assert len(messages) >= 3
-
-
-class TestToolExecution:
-    """Tests for tool execution."""
-
-    @pytest.mark.asyncio
-    async def test_reports_tool_calls_when_enabled(self, mock_tools):
-        """Should send events when execution reporting is enabled."""
-        adapter = CrewAIAdapter(enable_execution_reporting=True)
-
-        tool_calls = [
-            {
-                "id": "call-1",
-                "type": "function",
-                "function": {
-                    "name": "send_message",
-                    "arguments": '{"content": "Hello"}',
-                },
-            }
-        ]
-
-        mock_tools.execute_tool_call.return_value = {"status": "success"}
-
-        await adapter._process_tool_calls(tool_calls, mock_tools)
-
-        # Should have sent tool_call and tool_result events
-        assert mock_tools.send_event.call_count == 2
-
-    @pytest.mark.asyncio
-    async def test_handles_tool_error(self, mock_tools):
-        """Should handle tool execution errors gracefully."""
-        adapter = CrewAIAdapter()
-
-        tool_calls = [
-            {
-                "id": "call-1",
-                "type": "function",
-                "function": {
-                    "name": "failing_tool",
-                    "arguments": "{}",
-                },
-            }
-        ]
-
-        mock_tools.execute_tool_call.side_effect = Exception("Tool failed!")
-
-        results = await adapter._process_tool_calls(tool_calls, mock_tools)
-
-        assert len(results) == 1
-        assert results[0]["role"] == "tool"
-        assert "Tool failed!" in results[0]["content"]
-
-    @pytest.mark.asyncio
-    async def test_handles_invalid_json_arguments(self, mock_tools):
-        """Should handle invalid JSON in tool arguments."""
-        adapter = CrewAIAdapter()
-
-        tool_calls = [
-            {
-                "id": "call-1",
-                "type": "function",
-                "function": {
-                    "name": "test_tool",
-                    "arguments": "invalid json",
-                },
-            }
-        ]
-
-        mock_tools.execute_tool_call.return_value = {"status": "success"}
-
-        results = await adapter._process_tool_calls(tool_calls, mock_tools)
-
-        # Should still execute with empty arguments
-        assert len(results) == 1
-        mock_tools.execute_tool_call.assert_called_once_with("test_tool", {})
-
-
 class TestErrorHandling:
     """Tests for error handling."""
 
     @pytest.mark.asyncio
-    async def test_reports_error_on_api_failure(self, sample_message, mock_tools):
-        """Should report error when LLM API fails."""
+    async def test_reports_error_on_kickoff_failure(
+        self, sample_message, mock_tools, mock_crewai_agent
+    ):
+        """Should report error when CrewAI agent fails."""
+        mock_crewai_agent.kickoff_async.side_effect = Exception("Agent Error")
+
         adapter = CrewAIAdapter()
         await adapter.on_started("TestBot", "Test bot")
+        adapter._crewai_agent = mock_crewai_agent
 
-        with patch.object(adapter, "_call_llm") as mock_call:
-            mock_call.side_effect = Exception("API Error")
-
-            with pytest.raises(Exception, match="API Error"):
-                await adapter.on_message(
-                    msg=sample_message,
-                    tools=mock_tools,
-                    history=[],
-                    participants_msg=None,
-                    is_session_bootstrap=True,
-                    room_id="room-123",
-                )
-
-            # Should have tried to report error
-            mock_tools.send_event.assert_called()
-
-
-class TestToolLoop:
-    """Tests for the tool loop behavior."""
-
-    @pytest.mark.asyncio
-    async def test_stops_after_no_tool_calls(self, sample_message, mock_tools):
-        """Should stop when LLM returns no tool calls."""
-        adapter = CrewAIAdapter()
-        await adapter.on_started("TestBot", "Test bot")
-
-        with patch.object(adapter, "_call_llm") as mock_call:
-            mock_call.return_value = {
-                "content": "Done!",
-                "tool_calls": [],
-            }
-
+        with pytest.raises(Exception, match="Agent Error"):
             await adapter.on_message(
                 msg=sample_message,
                 tools=mock_tools,
@@ -392,73 +331,74 @@ class TestToolLoop:
                 room_id="room-123",
             )
 
-            # Should only call LLM once
-            assert mock_call.call_count == 1
-
-    @pytest.mark.asyncio
-    async def test_continues_with_tool_calls(self, sample_message, mock_tools):
-        """Should continue looping while there are tool calls."""
-        adapter = CrewAIAdapter()
-        await adapter.on_started("TestBot", "Test bot")
-
-        call_count = 0
-
-        def mock_llm_response(*args, **kwargs):
-            nonlocal call_count
-            call_count += 1
-            if call_count == 1:
-                # First call returns a tool call
-                return {
-                    "content": None,
-                    "tool_calls": [
-                        {
-                            "id": "call-1",
-                            "type": "function",
-                            "function": {
-                                "name": "send_message",
-                                "arguments": '{"content": "Hi"}',
-                            },
-                        }
-                    ],
-                }
-            else:
-                # Second call returns no tool calls
-                return {"content": "Done!", "tool_calls": []}
-
-        with patch.object(adapter, "_call_llm") as mock_call:
-            mock_call.side_effect = mock_llm_response
-
-            await adapter.on_message(
-                msg=sample_message,
-                tools=mock_tools,
-                history=[],
-                participants_msg=None,
-                is_session_bootstrap=True,
-                room_id="room-123",
-            )
-
-            # Should call LLM twice (initial + after tool execution)
-            assert mock_call.call_count == 2
+        # Should have tried to report error
+        mock_tools.send_event.assert_called()
 
 
 class TestVerboseMode:
     """Tests for verbose mode."""
 
     @pytest.mark.asyncio
-    async def test_verbose_mode_logs_iterations(self, sample_message, mock_tools):
-        """Verbose mode should enable detailed logging."""
+    async def test_verbose_mode_passed_to_agent(self):
+        """Verbose mode should be passed to CrewAI agent."""
+        mock_crewai_module.Agent.reset_mock()
+
         adapter = CrewAIAdapter(verbose=True)
         await adapter.on_started("TestBot", "Test bot")
 
-        with patch.object(adapter, "_call_llm") as mock_call:
-            mock_call.return_value = {"content": "Done!", "tool_calls": []}
+        call_kwargs = mock_crewai_module.Agent.call_args[1]
+        assert call_kwargs["verbose"] is True
 
-            # Should not raise - verbose just enables more logging
-            await adapter.on_message(
-                msg=sample_message,
-                tools=mock_tools,
-                history=[],
-                participants_msg=None,
-                is_session_bootstrap=True,
-                room_id="room-123",
-            )
+
+class TestRoomTools:
+    """Tests for room-specific tools storage."""
+
+    @pytest.mark.asyncio
+    async def test_stores_tools_per_room(
+        self, sample_message, mock_tools, mock_crewai_agent
+    ):
+        """Should store tools per room for CrewAI tool access."""
+        adapter = CrewAIAdapter()
+        await adapter.on_started("TestBot", "Test bot")
+        adapter._crewai_agent = mock_crewai_agent
+
+        await adapter.on_message(
+            msg=sample_message,
+            tools=mock_tools,
+            history=[],
+            participants_msg=None,
+            is_session_bootstrap=True,
+            room_id="room-123",
+        )
+
+        assert adapter._room_tools.get("room-123") is mock_tools
+
+
+class TestParticipantsUpdate:
+    """Tests for participants update handling."""
+
+    @pytest.mark.asyncio
+    async def test_includes_participants_update_in_message(
+        self, sample_message, mock_tools, mock_crewai_agent
+    ):
+        """Should include participants update in the message to CrewAI."""
+        adapter = CrewAIAdapter()
+        await adapter.on_started("TestBot", "Test bot")
+        adapter._crewai_agent = mock_crewai_agent
+
+        await adapter.on_message(
+            msg=sample_message,
+            tools=mock_tools,
+            history=[],
+            participants_msg="Alice joined the room",
+            is_session_bootstrap=True,
+            room_id="room-123",
+        )
+
+        # Check that kickoff was called with messages including participants update
+        call_args = mock_crewai_agent.kickoff_async.call_args
+        messages = call_args[0][0]
+
+        # Find the participants message
+        found = any("Alice joined" in str(m.get("content", "")) for m in messages)
+        assert found

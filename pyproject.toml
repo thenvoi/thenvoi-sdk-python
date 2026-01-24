@@ -100,6 +100,8 @@ dev = [
     "uvicorn>=0.32.0",
     # Include a2a_gateway_demo deps for testing
     "click>=8.0.0",
+    # Include crewai for testing
+    "crewai>=0.80.0",
     # Development tools
     "pre-commit>=3.0.0",
     "ruff>=0.8.0",
