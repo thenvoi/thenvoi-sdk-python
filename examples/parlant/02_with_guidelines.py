@@ -65,7 +65,7 @@ async def setup_agent_with_guidelines(
 ) -> p.Agent:
     """Create and configure a Parlant agent with comprehensive guidelines and tools."""
     agent = await server.create_agent(
-        name="Collaborative Assistant",
+        name="Parlant",
         description=CUSTOM_DESCRIPTION,
     )
 
@@ -85,7 +85,7 @@ async def setup_agent_with_guidelines(
     # Participant management guidelines
     await agent.create_guideline(
         condition="User mentions a specific participant, agent name, or asks to add someone",
-        action="First use lookup_peers to find available agents. Then call add_participant with the name parameter set to the exact name from the lookup_peers result. If user wants multiple agents, call add_participant once for each.",
+        action="First use lookup_peers to find available agents. Then IMMEDIATELY call add_participant with the name parameter set to the exact name from the lookup_peers result. Do NOT ask for confirmation - just add them. If user wants multiple agents, call add_participant once for each.",
         tools=tools,
     )
 

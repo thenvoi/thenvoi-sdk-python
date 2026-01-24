@@ -51,7 +51,7 @@ Remember:
 async def setup_support_agent(server: p.Server) -> p.Agent:
     """Create and configure a customer support agent with guidelines."""
     agent = await server.create_agent(
-        name="TechCo Support",
+        name="Support",
         description=SUPPORT_DESCRIPTION,
     )
 

@@ -14,7 +14,7 @@ from thenvoi.core.protocols import AgentToolsProtocol
 from thenvoi.core.simple_adapter import SimpleAdapter
 from thenvoi.core.types import PlatformMessage
 from thenvoi.converters.parlant import ParlantHistoryConverter, ParlantMessages
-from thenvoi.integrations.parlant.tools import set_session_tools
+from thenvoi.integrations.parlant.tools import set_session_tools, was_message_sent
 from thenvoi.runtime.prompts import render_system_prompt
 
 if TYPE_CHECKING:
@@ -348,14 +348,15 @@ class ParlantAdapter(SimpleAdapter[ParlantMessages]):
         1. A preamble message (tagged with __preamble__) - acknowledgment before tool execution
         2. Final message(s) after tool execution
 
-        We need to keep waiting until we get a non-preamble message, which indicates
-        tool execution is complete.
+        If the send_message tool was called during processing, we don't need to
+        forward Parlant's response (it would be a duplicate or empty).
         """
         if not self._app:
             logger.error(f"Room {room_id}: No Parlant Application available")
             return
 
         app = self._app
+        session_id_str = str(session_id)
         from parlant.core.async_utils import Timeout
         from parlant.core.sessions import EventKind, EventSource
 
@@ -384,9 +385,20 @@ class ParlantAdapter(SimpleAdapter[ParlantMessages]):
                 logger.error(
                     f"Room {room_id}: Error waiting for update: {e}", exc_info=True
                 )
+                # Check if message was sent via tool before giving up
+                if was_message_sent(session_id_str):
+                    logger.info(
+                        f"Room {room_id}: Message was sent via tool, error is acceptable"
+                    )
                 return
 
             if not has_update:
+                # Timeout - but check if message was already sent via tool
+                if was_message_sent(session_id_str):
+                    logger.info(
+                        f"Room {room_id}: Timeout but message was sent via tool, OK"
+                    )
+                    return
                 logger.warning(f"Room {room_id}: Timeout waiting for agent response")
                 return
 
@@ -448,6 +460,14 @@ class ParlantAdapter(SimpleAdapter[ParlantMessages]):
                     # This is a final message (after tool execution)
                     got_final_message = True
 
+                    # Check if message was already sent via the send_message tool
+                    # If so, don't send Parlant's response (would be duplicate/empty)
+                    if was_message_sent(session_id_str):
+                        logger.info(
+                            f"Room {room_id}: Message already sent via tool, skipping Parlant response: {message_content[:50]}..."
+                        )
+                        continue
+
                     if message_content:
                         logger.info(
                             f"Room {room_id}: Sending agent response to platform: {message_content[:100]}..."
@@ -472,14 +492,27 @@ class ParlantAdapter(SimpleAdapter[ParlantMessages]):
                 logger.info(f"Room {room_id}: Got final message, processing complete")
                 return
 
+            # Check if message was sent via tool (tool execution may happen without final message)
+            if was_message_sent(session_id_str):
+                logger.info(
+                    f"Room {room_id}: Message sent via tool, no need to wait for final message"
+                )
+                return
+
             # Otherwise, continue waiting for the final message after tool execution
             logger.info(
                 f"Room {room_id}: Only got preamble, continuing to wait for final message..."
             )
 
-        logger.warning(
-            f"Room {room_id}: Reached max iterations ({max_iterations}) waiting for response"
-        )
+        # Reached max iterations - check if message was sent
+        if was_message_sent(session_id_str):
+            logger.info(
+                f"Room {room_id}: Max iterations but message was sent via tool, OK"
+            )
+        else:
+            logger.warning(
+                f"Room {room_id}: Reached max iterations ({max_iterations}) waiting for response"
+            )
 
     async def on_cleanup(self, room_id: str) -> None:
         """Clean up session when agent leaves a room."""
