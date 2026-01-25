@@ -2,20 +2,22 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
-from typing import Any, Type
+from typing import Any, Coroutine, Type, TypeVar, cast
 
 try:
     from crewai import Agent as CrewAIAgent
     from crewai import LLM
     from crewai.tools import BaseTool
-    from pydantic import BaseModel, Field
+    from pydantic import BaseModel, Field, field_validator
+    import nest_asyncio
 except ImportError as e:
     raise ImportError(
         "crewai is required for CrewAI adapter.\n"
-        "Install with: pip install crewai\n"
-        "Or: uv add crewai"
+        "Install with: pip install 'thenvoi-sdk[crewai]'\n"
+        "Or: uv add crewai nest-asyncio"
     ) from e
 
 from thenvoi.core.protocols import AgentToolsProtocol
@@ -25,6 +27,30 @@ from thenvoi.converters.crewai import CrewAIHistoryConverter, CrewAIMessages
 from thenvoi.runtime.tools import get_tool_description
 
 logger = logging.getLogger(__name__)
+
+T = TypeVar("T")
+
+# Apply nest_asyncio patch to allow nested event loops
+# This is required because CrewAI tools are synchronous but need to call
+# async platform methods (HTTP API calls) that use the same event loop
+nest_asyncio.apply()
+
+
+def _run_async(coro: Coroutine[Any, Any, T]) -> T:
+    """
+    Run an async coroutine from sync context.
+
+    CrewAI tools are synchronous but need to call async platform methods.
+    With nest_asyncio applied, we can safely call asyncio.run() or
+    loop.run_until_complete() even when an event loop is already running.
+    """
+    try:
+        loop = asyncio.get_running_loop()
+        # With nest_asyncio, we can run_until_complete even in a running loop
+        return loop.run_until_complete(coro)
+    except RuntimeError:
+        # No running loop - safe to use asyncio.run()
+        return asyncio.run(coro)
 
 
 class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
@@ -203,6 +229,14 @@ Call `send_event` with message_type="thought" BEFORE every action to share your 
                 description="JSON array of participant names to @mention",
             )
 
+            @field_validator("mentions", mode="before")
+            @classmethod
+            def normalize_mentions(cls, v: Any) -> str:
+                """Convert list to JSON string if needed (LLMs may pass either)."""
+                if isinstance(v, list):
+                    return json.dumps(v)
+                return v
+
         class SendEventInput(BaseModel):
             room_id: str = Field(..., description="The room ID to send the event to")
             content: str = Field(..., description="Human-readable event content")
@@ -253,14 +287,19 @@ Call `send_event` with message_type="thought" BEFORE every action to share your 
             description: str = get_tool_description("send_message")
             args_schema: Type[BaseModel] = SendMessageInput
 
-            def _run(self, room_id: str, content: str, mentions: str = "[]") -> str:
-                import asyncio
+            def _run(self, *args: Any, **kwargs: Any) -> Any:
+                room_id: str = kwargs.get("room_id", "")
+                content: str = kwargs.get("content", "")
+                mentions: str = kwargs.get("mentions", "[]")
 
-                async def _execute():
+                async def _execute() -> str:
                     tools = adapter._room_tools.get(room_id)
                     if not tools:
                         return json.dumps(
-                            {"status": "error", "message": f"No tools for room {room_id}"}
+                            {
+                                "status": "error",
+                                "message": f"No tools for room {room_id}",
+                            }
                         )
 
                     try:
@@ -273,7 +312,10 @@ Call `send_event` with message_type="thought" BEFORE every action to share your 
                             content=json.dumps(
                                 {
                                     "tool": "send_message",
-                                    "input": {"content": content, "mentions": mention_list},
+                                    "input": {
+                                        "content": content,
+                                        "mentions": mention_list,
+                                    },
                                 }
                             ),
                             message_type="tool_call",
@@ -288,7 +330,9 @@ Call `send_event` with message_type="thought" BEFORE every action to share your 
                                 ),
                                 message_type="tool_result",
                             )
-                        return json.dumps({"status": "success", "message": "Message sent"})
+                        return json.dumps(
+                            {"status": "success", "message": "Message sent"}
+                        )
                     except Exception as e:
                         error_msg = str(e)
                         if adapter.enable_execution_reporting:
@@ -300,56 +344,56 @@ Call `send_event` with message_type="thought" BEFORE every action to share your 
                             )
                         return json.dumps({"status": "error", "message": error_msg})
 
-                try:
-                    loop = asyncio.get_running_loop()
-                    return loop.run_until_complete(_execute())
-                except RuntimeError:
-                    return asyncio.run(_execute())
+                return _run_async(_execute())
 
         class SendEventTool(BaseTool):
             name: str = "send_event"
             description: str = get_tool_description("send_event")
             args_schema: Type[BaseModel] = SendEventInput
 
-            def _run(
-                self, room_id: str, content: str, message_type: str = "thought"
-            ) -> str:
-                import asyncio
+            def _run(self, *args: Any, **kwargs: Any) -> Any:
+                room_id: str = kwargs.get("room_id", "")
+                content: str = kwargs.get("content", "")
+                message_type: str = kwargs.get("message_type", "thought")
 
-                async def _execute():
+                async def _execute() -> str:
                     tools = adapter._room_tools.get(room_id)
                     if not tools:
                         return json.dumps(
-                            {"status": "error", "message": f"No tools for room {room_id}"}
+                            {
+                                "status": "error",
+                                "message": f"No tools for room {room_id}",
+                            }
                         )
 
                     try:
                         await tools.send_event(content, message_type)
-                        return json.dumps({"status": "success", "message": "Event sent"})
+                        return json.dumps(
+                            {"status": "success", "message": "Event sent"}
+                        )
                     except Exception as e:
                         return json.dumps({"status": "error", "message": str(e)})
 
-                try:
-                    loop = asyncio.get_running_loop()
-                    return loop.run_until_complete(_execute())
-                except RuntimeError:
-                    return asyncio.run(_execute())
+                return _run_async(_execute())
 
         class AddParticipantTool(BaseTool):
             name: str = "add_participant"
             description: str = get_tool_description("add_participant")
             args_schema: Type[BaseModel] = AddParticipantInput
 
-            def _run(
-                self, room_id: str, participant_name: str, role: str = "member"
-            ) -> str:
-                import asyncio
+            def _run(self, *args: Any, **kwargs: Any) -> Any:
+                room_id: str = kwargs.get("room_id", "")
+                participant_name: str = kwargs.get("participant_name", "")
+                role: str = kwargs.get("role", "member")
 
-                async def _execute():
+                async def _execute() -> str:
                     tools = adapter._room_tools.get(room_id)
                     if not tools:
                         return json.dumps(
-                            {"status": "error", "message": f"No tools for room {room_id}"}
+                            {
+                                "status": "error",
+                                "message": f"No tools for room {room_id}",
+                            }
                         )
 
                     if adapter.enable_execution_reporting:
@@ -384,25 +428,25 @@ Call `send_event` with message_type="thought" BEFORE every action to share your 
                             )
                         return json.dumps({"status": "error", "message": error_msg})
 
-                try:
-                    loop = asyncio.get_running_loop()
-                    return loop.run_until_complete(_execute())
-                except RuntimeError:
-                    return asyncio.run(_execute())
+                return _run_async(_execute())
 
         class RemoveParticipantTool(BaseTool):
             name: str = "remove_participant"
             description: str = get_tool_description("remove_participant")
             args_schema: Type[BaseModel] = RemoveParticipantInput
 
-            def _run(self, room_id: str, participant_name: str) -> str:
-                import asyncio
+            def _run(self, *args: Any, **kwargs: Any) -> Any:
+                room_id: str = kwargs.get("room_id", "")
+                participant_name: str = kwargs.get("participant_name", "")
 
-                async def _execute():
+                async def _execute() -> str:
                     tools = adapter._room_tools.get(room_id)
                     if not tools:
                         return json.dumps(
-                            {"status": "error", "message": f"No tools for room {room_id}"}
+                            {
+                                "status": "error",
+                                "message": f"No tools for room {room_id}",
+                            }
                         )
 
                     if adapter.enable_execution_reporting:
@@ -437,25 +481,24 @@ Call `send_event` with message_type="thought" BEFORE every action to share your 
                             )
                         return json.dumps({"status": "error", "message": error_msg})
 
-                try:
-                    loop = asyncio.get_running_loop()
-                    return loop.run_until_complete(_execute())
-                except RuntimeError:
-                    return asyncio.run(_execute())
+                return _run_async(_execute())
 
         class GetParticipantsTool(BaseTool):
             name: str = "get_participants"
             description: str = get_tool_description("get_participants")
             args_schema: Type[BaseModel] = GetParticipantsInput
 
-            def _run(self, room_id: str) -> str:
-                import asyncio
+            def _run(self, *args: Any, **kwargs: Any) -> Any:
+                room_id: str = kwargs.get("room_id", "")
 
-                async def _execute():
+                async def _execute() -> str:
                     tools = adapter._room_tools.get(room_id)
                     if not tools:
                         return json.dumps(
-                            {"status": "error", "message": f"No tools for room {room_id}"}
+                            {
+                                "status": "error",
+                                "message": f"No tools for room {room_id}",
+                            }
                         )
 
                     try:
@@ -470,25 +513,26 @@ Call `send_event` with message_type="thought" BEFORE every action to share your 
                     except Exception as e:
                         return json.dumps({"status": "error", "message": str(e)})
 
-                try:
-                    loop = asyncio.get_running_loop()
-                    return loop.run_until_complete(_execute())
-                except RuntimeError:
-                    return asyncio.run(_execute())
+                return _run_async(_execute())
 
         class LookupPeersTool(BaseTool):
             name: str = "lookup_peers"
             description: str = get_tool_description("lookup_peers")
             args_schema: Type[BaseModel] = LookupPeersInput
 
-            def _run(self, room_id: str, page: int = 1, page_size: int = 50) -> str:
-                import asyncio
+            def _run(self, *args: Any, **kwargs: Any) -> Any:
+                room_id: str = kwargs.get("room_id", "")
+                page: int = kwargs.get("page", 1)
+                page_size: int = kwargs.get("page_size", 50)
 
-                async def _execute():
+                async def _execute() -> str:
                     tools = adapter._room_tools.get(room_id)
                     if not tools:
                         return json.dumps(
-                            {"status": "error", "message": f"No tools for room {room_id}"}
+                            {
+                                "status": "error",
+                                "message": f"No tools for room {room_id}",
+                            }
                         )
 
                     try:
@@ -497,25 +541,25 @@ Call `send_event` with message_type="thought" BEFORE every action to share your 
                     except Exception as e:
                         return json.dumps({"status": "error", "message": str(e)})
 
-                try:
-                    loop = asyncio.get_running_loop()
-                    return loop.run_until_complete(_execute())
-                except RuntimeError:
-                    return asyncio.run(_execute())
+                return _run_async(_execute())
 
         class CreateChatroomTool(BaseTool):
             name: str = "create_chatroom"
             description: str = get_tool_description("create_chatroom")
             args_schema: Type[BaseModel] = CreateChatroomInput
 
-            def _run(self, room_id: str, task_id: str = "") -> str:
-                import asyncio
+            def _run(self, *args: Any, **kwargs: Any) -> Any:
+                room_id: str = kwargs.get("room_id", "")
+                task_id: str = kwargs.get("task_id", "")
 
-                async def _execute():
+                async def _execute() -> str:
                     tools = adapter._room_tools.get(room_id)
                     if not tools:
                         return json.dumps(
-                            {"status": "error", "message": f"No tools for room {room_id}"}
+                            {
+                                "status": "error",
+                                "message": f"No tools for room {room_id}",
+                            }
                         )
 
                     try:
@@ -530,11 +574,7 @@ Call `send_event` with message_type="thought" BEFORE every action to share your 
                     except Exception as e:
                         return json.dumps({"status": "error", "message": str(e)})
 
-                try:
-                    loop = asyncio.get_running_loop()
-                    return loop.run_until_complete(_execute())
-                except RuntimeError:
-                    return asyncio.run(_execute())
+                return _run_async(_execute())
 
         return [
             SendMessageTool(),
@@ -635,7 +675,8 @@ Call `send_event` with message_type="thought" BEFORE every action to share your 
 
         try:
             # Use CrewAI's kickoff_async with message list
-            result = await self._crewai_agent.kickoff_async(messages)
+            # Cast to Any to satisfy type checker - CrewAI accepts dict-based messages
+            result = await self._crewai_agent.kickoff_async(cast(Any, messages))
 
             # Store the response in history
             if result and result.raw:

@@ -1,17 +1,13 @@
 """Tests for CrewAIAdapter."""
 
-from datetime import datetime, timezone
+import importlib
 import sys
-from unittest.mock import AsyncMock, MagicMock, patch
+from datetime import datetime, timezone
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 from thenvoi.core.types import PlatformMessage
-
-
-# Create mock CrewAI module and classes
-mock_crewai_module = MagicMock()
-mock_crewai_tools_module = MagicMock()
 
 
 class MockBaseTool:
@@ -24,16 +20,26 @@ class MockBaseTool:
         pass
 
 
-mock_crewai_module.Agent = MagicMock()
-mock_crewai_module.LLM = MagicMock()
-mock_crewai_tools_module.BaseTool = MockBaseTool
+def _setup_crewai_mocks() -> MagicMock:
+    """Set up CrewAI mocks before importing the adapter."""
+    mock_crewai_module = MagicMock()
+    mock_crewai_tools_module = MagicMock()
+    mock_nest_asyncio = MagicMock()
 
-# Patch before any imports from the adapter
-sys.modules["crewai"] = mock_crewai_module
-sys.modules["crewai.tools"] = mock_crewai_tools_module
+    mock_crewai_module.Agent = MagicMock()
+    mock_crewai_module.LLM = MagicMock()
+    mock_crewai_tools_module.BaseTool = MockBaseTool
 
-# Now import the adapter
-from thenvoi.adapters.crewai import CrewAIAdapter
+    sys.modules["crewai"] = mock_crewai_module
+    sys.modules["crewai.tools"] = mock_crewai_tools_module
+    sys.modules["nest_asyncio"] = mock_nest_asyncio
+
+    return mock_crewai_module
+
+
+# Set up mocks and import adapter
+mock_crewai_module = _setup_crewai_mocks()
+CrewAIAdapter = importlib.import_module("thenvoi.adapters.crewai").CrewAIAdapter
 
 
 @pytest.fixture
