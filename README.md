@@ -868,6 +868,77 @@ All adapters automatically have access to:
 
 ---
 
+## Custom Tools
+
+Add domain-specific tools to your agents via the `additional_tools` parameter. Each adapter accepts tools in its framework's native format.
+
+| Adapter | Tool Format |
+|---------|-------------|
+| `LangGraphAdapter` | LangChain `@tool` decorated functions |
+| `PydanticAIAdapter` | PydanticAI-style functions with `RunContext` |
+| `AnthropicAdapter` | `CustomToolDef` tuples (Pydantic model + callable) |
+| `CrewAIAdapter` | `CustomToolDef` tuples |
+| `ParlantAdapter` | `CustomToolDef` tuples |
+| `ClaudeSDKAdapter` | `CustomToolDef` tuples (wrapped to MCP) |
+
+### LangGraph (LangChain Tools)
+
+```python
+from langchain_core.tools import tool
+
+@tool
+def calculate(operation: str, a: float, b: float) -> str:
+    """Perform arithmetic calculations."""
+    ops = {"add": lambda x, y: x + y, "subtract": lambda x, y: x - y}
+    return str(ops[operation](a, b))
+
+adapter = LangGraphAdapter(
+    llm=ChatOpenAI(model="gpt-4o"),
+    checkpointer=InMemorySaver(),
+    additional_tools=[calculate],
+)
+```
+
+### PydanticAI (Native Functions)
+
+```python
+from pydantic_ai import RunContext
+from thenvoi.core.protocols import AgentToolsProtocol
+
+def calculate(ctx: RunContext[AgentToolsProtocol], a: float, b: float) -> float:
+    """Add two numbers together."""
+    return a + b
+
+adapter = PydanticAIAdapter(
+    model="openai:gpt-4o",
+    additional_tools=[calculate],
+)
+```
+
+### Anthropic / CrewAI / Parlant / ClaudeSDK (CustomToolDef)
+
+```python
+from pydantic import BaseModel, Field
+
+class CalculatorInput(BaseModel):
+    """Perform arithmetic calculations."""
+    operation: str = Field(description="add, subtract, multiply, divide")
+    left: float
+    right: float
+
+def calculate(args: CalculatorInput) -> str:
+    ops = {"add": lambda a, b: a + b, "subtract": lambda a, b: a - b}
+    return str(ops[args.operation](args.left, args.right))
+
+adapter = AnthropicAdapter(
+    additional_tools=[(CalculatorInput, calculate)],
+)
+```
+
+For detailed documentation, see [Custom Tools Guide](docs/custom-tools-guide.md).
+
+---
+
 ## Context7 MCP for Up-to-Date Documentation
 
 To ensure access to the latest documentation and code examples directly within your development environment, you can integrate the Context7 Model Context Protocol (MCP).

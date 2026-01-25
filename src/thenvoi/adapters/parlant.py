@@ -11,6 +11,12 @@ from thenvoi.core.protocols import AgentToolsProtocol
 from thenvoi.core.simple_adapter import SimpleAdapter
 from thenvoi.core.types import PlatformMessage
 from thenvoi.converters.parlant import ParlantHistoryConverter, ParlantMessages
+from thenvoi.runtime.custom_tools import (
+    CustomToolDef,
+    custom_tools_to_schemas,
+    execute_custom_tool,
+    find_custom_tool,
+)
 from thenvoi.runtime.prompts import render_system_prompt
 
 logger = logging.getLogger(__name__)
@@ -55,6 +61,7 @@ class ParlantAdapter(SimpleAdapter[ParlantMessages]):
         openai_api_key: str | None = None,
         enable_execution_reporting: bool = False,
         history_converter: ParlantHistoryConverter | None = None,
+        additional_tools: list[CustomToolDef] | None = None,
     ):
         """
         Initialize the Parlant adapter.
@@ -67,6 +74,7 @@ class ParlantAdapter(SimpleAdapter[ParlantMessages]):
             openai_api_key: OpenAI API key (uses OPENAI_API_KEY env var if not provided)
             enable_execution_reporting: If True, sends tool_call/tool_result events
             history_converter: Custom history converter (optional)
+            additional_tools: List of custom tools as (InputModel, callable) tuples
         """
         super().__init__(
             history_converter=history_converter or ParlantHistoryConverter()
@@ -86,6 +94,8 @@ class ParlantAdapter(SimpleAdapter[ParlantMessages]):
         # Parlant server and agent instances
         self._server: Any = None
         self._parlant_agent: Any = None
+        # Custom tools (user-provided)
+        self._custom_tools: list[CustomToolDef] = additional_tools or []
 
     async def on_started(self, agent_name: str, agent_description: str) -> None:
         """Initialize Parlant agent after metadata is fetched."""
@@ -160,6 +170,10 @@ class ParlantAdapter(SimpleAdapter[ParlantMessages]):
 
         # Get tool schemas in OpenAI format (Parlant uses OpenAI-style tools)
         tool_schemas = tools.get_openai_tool_schemas()
+        # Merge custom tool schemas
+        if self._custom_tools:
+            tool_schemas = list(tool_schemas)  # Make mutable copy
+            tool_schemas.extend(custom_tools_to_schemas(self._custom_tools, "openai"))
 
         # Build messages for LLM call
         messages = self._build_messages(room_id)
@@ -344,9 +358,13 @@ class ParlantAdapter(SimpleAdapter[ParlantMessages]):
                     metadata={"tool": tool_name, "input": arguments},
                 )
 
-            # Execute tool
+            # Execute tool (check custom tools first, then platform tools)
             try:
-                result = await tools.execute_tool_call(tool_name, arguments)
+                custom_tool = find_custom_tool(self._custom_tools, tool_name)
+                if custom_tool:
+                    result = await execute_custom_tool(custom_tool, arguments)
+                else:
+                    result = await tools.execute_tool_call(tool_name, arguments)
                 result_str = (
                     json.dumps(result, default=str)
                     if not isinstance(result, str)
