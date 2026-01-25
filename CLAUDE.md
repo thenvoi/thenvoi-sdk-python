@@ -50,6 +50,10 @@ Git Workflow:
 
 - Default branch: `main`
 - Branch prefixes: `feat/`, `fix/`, `refactor/`
+- PR titles MUST use conventional commits format: `feat:`, `fix:`, or `docs:` prefix
+  - Example: `feat: Add custom tools support to all adapters`
+  - Example: `fix: Handle validation errors in execute_tool_call`
+  - Example: `docs: Update README with new adapter examples`
 - Run tests before committing
 
 Environment Variables:
@@ -58,3 +62,13 @@ Environment Variables:
 - THENVOI_WS_URL: WebSocket URL (default: wss://api.thenvoi.com/ws)
 - OPENAI_API_KEY: OpenAI API key (for LangGraph examples)
 - ANTHROPIC_API_KEY: Anthropic API key (for Anthropic/Claude SDK examples)
+
+Example Files (examples/ directory):
+
+- Use `load_agent_config("agent_name")` for credentials, NOT direct os.environ.get()
+- Always load and validate THENVOI_WS_URL and THENVOI_REST_URL with ValueError
+- Use `raise ValueError(...)` for missing required config, NOT logger.error()+sys.exit()
+- Use single sys.path line: `sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))`
+- Never hardcode UUIDs in docstrings - reference agent_config.yaml instead
+- All `async def main()` functions must have `-> None` return type hint
+- Always include `from __future__ import annotations` as first import
