@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Any
+from typing import Any, Callable
 
 from pydantic_ai import (
     Agent,
@@ -58,6 +58,7 @@ class PydanticAIAdapter(SimpleAdapter[PydanticAIMessages]):
         custom_section: str | None = None,
         enable_execution_reporting: bool = False,
         history_converter: PydanticAIHistoryConverter | None = None,
+        additional_tools: list[Callable[..., Any]] | None = None,
     ):
         """
         Initialize the Pydantic AI adapter.
@@ -70,6 +71,10 @@ class PydanticAIAdapter(SimpleAdapter[PydanticAIMessages]):
                 to the platform for real-time visibility into agent activity.
                 Defaults to False for backwards compatibility.
             history_converter: Optional custom history converter
+            additional_tools: Optional list of PydanticAI-compatible tool functions.
+                Each function should follow PydanticAI's tool signature:
+                `def my_tool(ctx: RunContext[AgentToolsProtocol], arg1: str, ...) -> T`
+                These are registered via agent.tool() alongside platform tools.
         """
         super().__init__(
             history_converter=history_converter or PydanticAIHistoryConverter()
@@ -83,6 +88,8 @@ class PydanticAIAdapter(SimpleAdapter[PydanticAIMessages]):
         self._agent: Agent[AgentToolsProtocol, None] | None = None
         # Conversation history per room (Pydantic AI is stateless, we maintain state)
         self._message_history: dict[str, list] = {}
+        # Custom tools (PydanticAI-compatible functions)
+        self._custom_tools: list[Callable[..., Any]] = additional_tools or []
 
     # --- Adapted from ThenvoiPydanticAgent._on_started ---
     async def on_started(self, agent_name: str, agent_description: str) -> None:
@@ -198,6 +205,11 @@ class PydanticAIAdapter(SimpleAdapter[PydanticAIMessages]):
 
         create_chatroom.__doc__ = get_tool_description("create_chatroom")
         agent.tool(create_chatroom)
+
+        # Register custom tools (user-provided PydanticAI-compatible functions)
+        for custom_tool in self._custom_tools:
+            agent.tool(custom_tool)
+            logger.debug(f"Registered custom tool: {custom_tool.__name__}")
 
         return agent
 

@@ -141,6 +141,7 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
         max_rpm: int | None = None,
         allow_delegation: bool = False,
         history_converter: CrewAIHistoryConverter | None = None,
+        additional_tools: list[CustomToolDef] | None = None,
     ):
         """
         Initialize the CrewAI adapter.
@@ -157,6 +158,7 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
             max_rpm: Maximum requests per minute (rate limiting)
             allow_delegation: Whether to allow task delegation to other agents
             history_converter: Custom history converter (optional)
+            additional_tools: List of custom tools as (InputModel, callable) tuples
         """
         super().__init__(
             history_converter=history_converter or CrewAIHistoryConverter()
