@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from typing import Any, Callable, Coroutine, Literal, Type, TypeVar, cast
+from typing import Any, Coroutine, Literal, Type, TypeVar
 
 try:
     from crewai import Agent as CrewAIAgent
@@ -30,17 +30,10 @@ logger = logging.getLogger(__name__)
 
 T = TypeVar("T")
 
-# Type alias for custom tool definitions: (InputModel, callable)
-# The InputModel defines the tool's input schema, and the callable is the tool function
-CustomToolDef = tuple[Type[BaseModel], Callable[..., Any]]
-
-# Lazy initialization flag for nest_asyncio
 _nest_asyncio_applied = False
 
-# Valid message types for send_event
 MessageType = Literal["thought", "error", "task"]
 
-# Platform instructions constant for the agent's backstory
 PLATFORM_INSTRUCTIONS = """## Environment
 
 Multi-participant chat on Thenvoi platform. Messages show sender: [Name]: content.
@@ -80,7 +73,11 @@ Call `send_event` with message_type="thought" BEFORE every action to share your 
 
 
 def _ensure_nest_asyncio() -> None:
-    """Apply nest_asyncio patch lazily on first use."""
+    """Apply nest_asyncio patch lazily on first use.
+
+    Note: This affects the entire Python process globally. Once applied,
+    nested event loops are allowed throughout the application.
+    """
     global _nest_asyncio_applied
     if not _nest_asyncio_applied:
         nest_asyncio.apply()
@@ -89,37 +86,26 @@ def _ensure_nest_asyncio() -> None:
 
 
 def _run_async(coro: Coroutine[Any, Any, T]) -> T:
-    """
-    Run an async coroutine from sync context.
+    """Run an async coroutine from sync context.
 
     CrewAI tools are synchronous but need to call async platform methods.
-    With nest_asyncio applied, we can safely call asyncio.run() or
-    loop.run_until_complete() even when an event loop is already running.
+    With nest_asyncio applied, we can safely run coroutines even when
+    an event loop is already running.
     """
     _ensure_nest_asyncio()
 
     try:
         loop = asyncio.get_running_loop()
-        # With nest_asyncio, we can run_until_complete even in a running loop
         return loop.run_until_complete(coro)
     except RuntimeError:
-        # No running loop - safe to use asyncio.run()
-        logger.debug("No running event loop, using asyncio.run()")
         return asyncio.run(coro)
 
 
 class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
-    """
-    CrewAI adapter using the official CrewAI SDK.
+    """CrewAI adapter using the official CrewAI SDK.
 
     Integrates the CrewAI framework (https://docs.crewai.com/) with Thenvoi
     platform for building collaborative multi-agent systems.
-
-    CrewAI provides:
-    - Agent collaboration with defined roles and goals
-    - Task orchestration with sequential/hierarchical processes
-    - Memory and knowledge management
-    - Built-in tool integration
 
     Example:
         adapter = CrewAIAdapter(
@@ -130,6 +116,10 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
         )
         agent = Agent.create(adapter=adapter, agent_id="...", api_key="...")
         await agent.run()
+
+    Note:
+        API keys are configured through environment variables as expected by
+        the CrewAI LLM class (e.g., OPENAI_API_KEY, ANTHROPIC_API_KEY).
     """
 
     def __init__(
@@ -145,13 +135,12 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
         max_rpm: int | None = None,
         allow_delegation: bool = False,
         history_converter: CrewAIHistoryConverter | None = None,
-        additional_tools: list[CustomToolDef] | None = None,
     ):
-        """
-        Initialize the CrewAI adapter.
+        """Initialize the CrewAI adapter.
 
         Args:
-            model: Model name to use (e.g., "gpt-4o", "gpt-4o-mini", "claude-3-5-sonnet")
+            model: Model name (e.g., "gpt-4o", "gpt-4o-mini", "claude-3-5-sonnet").
+                   API keys are read from environment variables by CrewAI's LLM class.
             role: Agent's role in the crew (e.g., "Research Assistant")
             goal: Agent's primary goal or objective
             backstory: Agent's background and expertise description
@@ -162,7 +151,6 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
             max_rpm: Maximum requests per minute (rate limiting)
             allow_delegation: Whether to allow task delegation to other agents
             history_converter: Custom history converter (optional)
-            additional_tools: List of custom tools as (InputModel, callable) tuples
         """
         super().__init__(
             history_converter=history_converter or CrewAIHistoryConverter()
@@ -179,24 +167,17 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
         self.max_rpm = max_rpm
         self.allow_delegation = allow_delegation
 
-        # CrewAI agent (created after start)
         self._crewai_agent: CrewAIAgent | None = None
-
-        # Per-room tools storage (like Claude SDK adapter)
         self._room_tools: dict[str, AgentToolsProtocol] = {}
-
-        # Per-room conversation history
         self._message_history: dict[str, list[dict[str, Any]]] = {}
 
     async def on_started(self, agent_name: str, agent_description: str) -> None:
         """Initialize CrewAI agent after metadata is fetched."""
         await super().on_started(agent_name, agent_description)
 
-        # Build role, goal, backstory from params or platform metadata
         role = self.role or agent_name
         goal = self.goal or agent_description or "Help users accomplish their tasks"
 
-        # Build backstory with custom section if provided
         backstory_parts = []
         if self.backstory:
             backstory_parts.append(self.backstory)
@@ -208,15 +189,11 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
         if self.custom_section:
             backstory_parts.append(self.custom_section)
 
-        # Add platform-specific instructions
         backstory_parts.append(PLATFORM_INSTRUCTIONS)
-
         backstory = "\n\n".join(backstory_parts)
 
-        # Create CrewAI tools for Thenvoi platform
         tools = self._create_crewai_tools()
 
-        # Create the CrewAI agent
         self._crewai_agent = CrewAIAgent(
             role=role,
             goal=goal,
@@ -234,11 +211,82 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
             f"(model={self.model}, role={role})"
         )
 
+    def _get_room_tools(self, room_id: str) -> AgentToolsProtocol | None:
+        """Get platform tools for a room."""
+        return self._room_tools.get(room_id)
+
+    def _execute_tool(
+        self,
+        room_id: str,
+        tool_name: str,
+        coro_factory: Any,
+    ) -> str:
+        """Execute a tool with common error handling.
+
+        Args:
+            room_id: The room ID for tool context
+            tool_name: Name of the tool for error messages
+            coro_factory: Callable that takes tools and returns a coroutine
+
+        Returns:
+            JSON string with status and result/error
+        """
+        tools = self._get_room_tools(room_id)
+        if not tools:
+            return json.dumps(
+                {
+                    "status": "error",
+                    "message": f"No tools for room {room_id}",
+                }
+            )
+
+        async def _execute() -> str:
+            try:
+                return await coro_factory(tools)
+            except Exception as e:
+                error_msg = str(e)
+                logger.error(f"{tool_name} failed: {error_msg}")
+                return json.dumps({"status": "error", "message": error_msg})
+
+        return _run_async(_execute())
+
+    async def _report_tool_call(
+        self,
+        tools: AgentToolsProtocol,
+        tool_name: str,
+        input_data: dict[str, Any],
+    ) -> None:
+        """Report tool call event if execution reporting is enabled."""
+        if self.enable_execution_reporting:
+            await tools.send_event(
+                content=json.dumps({"tool": tool_name, "input": input_data}),
+                message_type="tool_call",
+            )
+
+    async def _report_tool_result(
+        self,
+        tools: AgentToolsProtocol,
+        tool_name: str,
+        result: Any,
+        is_error: bool = False,
+    ) -> None:
+        """Report tool result event if execution reporting is enabled."""
+        if self.enable_execution_reporting:
+            if is_error:
+                await tools.send_event(
+                    content=json.dumps({"tool": tool_name, "error": result}),
+                    message_type="tool_result",
+                )
+            else:
+                await tools.send_event(
+                    content=json.dumps({"tool": tool_name, "result": result}),
+                    message_type="tool_result",
+                )
+
     def _create_crewai_tools(self) -> list[BaseTool]:
         """Create CrewAI-compatible tools for Thenvoi platform."""
-        adapter = self  # Capture reference for tool closures
+        adapter = self
 
-        # Define input schemas for each tool
         class SendMessageInput(BaseModel):
             room_id: str = Field(..., description="The room ID to send the message to")
             content: str = Field(..., description="The message content to send")
@@ -250,7 +298,6 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
             @field_validator("mentions", mode="before")
             @classmethod
             def normalize_mentions(cls, v: Any) -> str:
-                """Convert list to JSON string if needed (LLMs may pass either)."""
                 if isinstance(v, list):
                     return json.dumps(v)
                 return v
@@ -299,311 +346,150 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
                 default="", description="Associated task ID (optional)"
             )
 
-        # Define tools with args_schema
         class SendMessageTool(BaseTool):
             name: str = "send_message"
             description: str = get_tool_description("send_message")
             args_schema: Type[BaseModel] = SendMessageInput
 
-            def _run(self, *args: Any, **kwargs: Any) -> Any:
+            def _run(self, *args: Any, **kwargs: Any) -> str:
                 room_id: str = kwargs.get("room_id", "")
                 content: str = kwargs.get("content", "")
                 mentions: str = kwargs.get("mentions", "[]")
 
-                async def _execute() -> str:
-                    tools = adapter._room_tools.get(room_id)
-                    if not tools:
-                        return json.dumps(
-                            {
-                                "status": "error",
-                                "message": f"No tools for room {room_id}",
-                            }
-                        )
+                try:
+                    mention_list = json.loads(mentions) if mentions else []
+                except json.JSONDecodeError:
+                    mention_list = []
 
-                    try:
-                        mention_list = json.loads(mentions) if mentions else []
-                    except json.JSONDecodeError:
-                        mention_list = []
+                async def execute(tools: AgentToolsProtocol) -> str:
+                    await adapter._report_tool_call(
+                        tools,
+                        "send_message",
+                        {"content": content, "mentions": mention_list},
+                    )
+                    await tools.send_message(content, mention_list)
+                    await adapter._report_tool_result(tools, "send_message", "success")
+                    return json.dumps({"status": "success", "message": "Message sent"})
 
-                    if adapter.enable_execution_reporting:
-                        await tools.send_event(
-                            content=json.dumps(
-                                {
-                                    "tool": "send_message",
-                                    "input": {
-                                        "content": content,
-                                        "mentions": mention_list,
-                                    },
-                                }
-                            ),
-                            message_type="tool_call",
-                        )
-
-                    try:
-                        await tools.send_message(content, mention_list)
-                        if adapter.enable_execution_reporting:
-                            await tools.send_event(
-                                content=json.dumps(
-                                    {"tool": "send_message", "result": "success"}
-                                ),
-                                message_type="tool_result",
-                            )
-                        return json.dumps(
-                            {"status": "success", "message": "Message sent"}
-                        )
-                    except Exception as e:
-                        error_msg = str(e)
-                        logger.error(f"send_message failed: {error_msg}")
-                        if adapter.enable_execution_reporting:
-                            await tools.send_event(
-                                content=json.dumps(
-                                    {"tool": "send_message", "error": error_msg}
-                                ),
-                                message_type="tool_result",
-                            )
-                        return json.dumps({"status": "error", "message": error_msg})
-
-                return _run_async(_execute())
+                return adapter._execute_tool(room_id, "send_message", execute)
 
         class SendEventTool(BaseTool):
             name: str = "send_event"
             description: str = get_tool_description("send_event")
             args_schema: Type[BaseModel] = SendEventInput
 
-            def _run(self, *args: Any, **kwargs: Any) -> Any:
+            def _run(self, *args: Any, **kwargs: Any) -> str:
                 room_id: str = kwargs.get("room_id", "")
                 content: str = kwargs.get("content", "")
                 message_type: str = kwargs.get("message_type", "thought")
 
-                async def _execute() -> str:
-                    tools = adapter._room_tools.get(room_id)
-                    if not tools:
-                        return json.dumps(
-                            {
-                                "status": "error",
-                                "message": f"No tools for room {room_id}",
-                            }
-                        )
+                async def execute(tools: AgentToolsProtocol) -> str:
+                    await tools.send_event(content, message_type)
+                    return json.dumps({"status": "success", "message": "Event sent"})
 
-                    try:
-                        await tools.send_event(content, message_type)
-                        return json.dumps(
-                            {"status": "success", "message": "Event sent"}
-                        )
-                    except Exception as e:
-                        error_msg = str(e)
-                        logger.error(f"send_event failed: {error_msg}")
-                        return json.dumps({"status": "error", "message": error_msg})
-
-                return _run_async(_execute())
+                return adapter._execute_tool(room_id, "send_event", execute)
 
         class AddParticipantTool(BaseTool):
             name: str = "add_participant"
             description: str = get_tool_description("add_participant")
             args_schema: Type[BaseModel] = AddParticipantInput
 
-            def _run(self, *args: Any, **kwargs: Any) -> Any:
+            def _run(self, *args: Any, **kwargs: Any) -> str:
                 room_id: str = kwargs.get("room_id", "")
                 participant_name: str = kwargs.get("participant_name", "")
                 role: str = kwargs.get("role", "member")
 
-                async def _execute() -> str:
-                    tools = adapter._room_tools.get(room_id)
-                    if not tools:
-                        return json.dumps(
-                            {
-                                "status": "error",
-                                "message": f"No tools for room {room_id}",
-                            }
-                        )
+                async def execute(tools: AgentToolsProtocol) -> str:
+                    await adapter._report_tool_call(
+                        tools,
+                        "add_participant",
+                        {"name": participant_name, "role": role},
+                    )
+                    result = await tools.add_participant(participant_name, role)
+                    await adapter._report_tool_result(tools, "add_participant", result)
+                    return json.dumps({"status": "success", **result})
 
-                    if adapter.enable_execution_reporting:
-                        await tools.send_event(
-                            content=json.dumps(
-                                {
-                                    "tool": "add_participant",
-                                    "input": {"name": participant_name, "role": role},
-                                }
-                            ),
-                            message_type="tool_call",
-                        )
-
-                    try:
-                        result = await tools.add_participant(participant_name, role)
-                        if adapter.enable_execution_reporting:
-                            await tools.send_event(
-                                content=json.dumps(
-                                    {"tool": "add_participant", "result": result}
-                                ),
-                                message_type="tool_result",
-                            )
-                        return json.dumps({"status": "success", **result})
-                    except Exception as e:
-                        error_msg = str(e)
-                        logger.error(f"add_participant failed: {error_msg}")
-                        if adapter.enable_execution_reporting:
-                            await tools.send_event(
-                                content=json.dumps(
-                                    {"tool": "add_participant", "error": error_msg}
-                                ),
-                                message_type="tool_result",
-                            )
-                        return json.dumps({"status": "error", "message": error_msg})
-
-                return _run_async(_execute())
+                return adapter._execute_tool(room_id, "add_participant", execute)
 
         class RemoveParticipantTool(BaseTool):
             name: str = "remove_participant"
             description: str = get_tool_description("remove_participant")
             args_schema: Type[BaseModel] = RemoveParticipantInput
 
-            def _run(self, *args: Any, **kwargs: Any) -> Any:
+            def _run(self, *args: Any, **kwargs: Any) -> str:
                 room_id: str = kwargs.get("room_id", "")
                 participant_name: str = kwargs.get("participant_name", "")
 
-                async def _execute() -> str:
-                    tools = adapter._room_tools.get(room_id)
-                    if not tools:
-                        return json.dumps(
-                            {
-                                "status": "error",
-                                "message": f"No tools for room {room_id}",
-                            }
-                        )
+                async def execute(tools: AgentToolsProtocol) -> str:
+                    await adapter._report_tool_call(
+                        tools,
+                        "remove_participant",
+                        {"name": participant_name},
+                    )
+                    result = await tools.remove_participant(participant_name)
+                    await adapter._report_tool_result(
+                        tools, "remove_participant", result
+                    )
+                    return json.dumps({"status": "success", **result})
 
-                    if adapter.enable_execution_reporting:
-                        await tools.send_event(
-                            content=json.dumps(
-                                {
-                                    "tool": "remove_participant",
-                                    "input": {"name": participant_name},
-                                }
-                            ),
-                            message_type="tool_call",
-                        )
-
-                    try:
-                        result = await tools.remove_participant(participant_name)
-                        if adapter.enable_execution_reporting:
-                            await tools.send_event(
-                                content=json.dumps(
-                                    {"tool": "remove_participant", "result": result}
-                                ),
-                                message_type="tool_result",
-                            )
-                        return json.dumps({"status": "success", **result})
-                    except Exception as e:
-                        error_msg = str(e)
-                        logger.error(f"remove_participant failed: {error_msg}")
-                        if adapter.enable_execution_reporting:
-                            await tools.send_event(
-                                content=json.dumps(
-                                    {"tool": "remove_participant", "error": error_msg}
-                                ),
-                                message_type="tool_result",
-                            )
-                        return json.dumps({"status": "error", "message": error_msg})
-
-                return _run_async(_execute())
+                return adapter._execute_tool(room_id, "remove_participant", execute)
 
         class GetParticipantsTool(BaseTool):
             name: str = "get_participants"
             description: str = get_tool_description("get_participants")
             args_schema: Type[BaseModel] = GetParticipantsInput
 
-            def _run(self, *args: Any, **kwargs: Any) -> Any:
+            def _run(self, *args: Any, **kwargs: Any) -> str:
                 room_id: str = kwargs.get("room_id", "")
 
-                async def _execute() -> str:
-                    tools = adapter._room_tools.get(room_id)
-                    if not tools:
-                        return json.dumps(
-                            {
-                                "status": "error",
-                                "message": f"No tools for room {room_id}",
-                            }
-                        )
+                async def execute(tools: AgentToolsProtocol) -> str:
+                    participants = await tools.get_participants()
+                    return json.dumps(
+                        {
+                            "status": "success",
+                            "participants": participants,
+                            "count": len(participants),
+                        }
+                    )
 
-                    try:
-                        participants = await tools.get_participants()
-                        return json.dumps(
-                            {
-                                "status": "success",
-                                "participants": participants,
-                                "count": len(participants),
-                            }
-                        )
-                    except Exception as e:
-                        error_msg = str(e)
-                        logger.error(f"get_participants failed: {error_msg}")
-                        return json.dumps({"status": "error", "message": error_msg})
-
-                return _run_async(_execute())
+                return adapter._execute_tool(room_id, "get_participants", execute)
 
         class LookupPeersTool(BaseTool):
             name: str = "lookup_peers"
             description: str = get_tool_description("lookup_peers")
             args_schema: Type[BaseModel] = LookupPeersInput
 
-            def _run(self, *args: Any, **kwargs: Any) -> Any:
+            def _run(self, *args: Any, **kwargs: Any) -> str:
                 room_id: str = kwargs.get("room_id", "")
                 page: int = kwargs.get("page", 1)
                 page_size: int = kwargs.get("page_size", 50)
 
-                async def _execute() -> str:
-                    tools = adapter._room_tools.get(room_id)
-                    if not tools:
-                        return json.dumps(
-                            {
-                                "status": "error",
-                                "message": f"No tools for room {room_id}",
-                            }
-                        )
+                async def execute(tools: AgentToolsProtocol) -> str:
+                    result = await tools.lookup_peers(page, page_size)
+                    return json.dumps({"status": "success", **result})
 
-                    try:
-                        result = await tools.lookup_peers(page, page_size)
-                        return json.dumps({"status": "success", **result})
-                    except Exception as e:
-                        error_msg = str(e)
-                        logger.error(f"lookup_peers failed: {error_msg}")
-                        return json.dumps({"status": "error", "message": error_msg})
-
-                return _run_async(_execute())
+                return adapter._execute_tool(room_id, "lookup_peers", execute)
 
         class CreateChatroomTool(BaseTool):
             name: str = "create_chatroom"
             description: str = get_tool_description("create_chatroom")
             args_schema: Type[BaseModel] = CreateChatroomInput
 
-            def _run(self, *args: Any, **kwargs: Any) -> Any:
+            def _run(self, *args: Any, **kwargs: Any) -> str:
                 room_id: str = kwargs.get("room_id", "")
                 task_id: str = kwargs.get("task_id", "")
 
-                async def _execute() -> str:
-                    tools = adapter._room_tools.get(room_id)
-                    if not tools:
-                        return json.dumps(
-                            {
-                                "status": "error",
-                                "message": f"No tools for room {room_id}",
-                            }
-                        )
+                async def execute(tools: AgentToolsProtocol) -> str:
+                    new_room_id = await tools.create_chatroom(task_id or None)
+                    return json.dumps(
+                        {
+                            "status": "success",
+                            "message": "Chat room created",
+                            "room_id": new_room_id,
+                        }
+                    )
 
-                    try:
-                        new_room_id = await tools.create_chatroom(task_id or None)
-                        return json.dumps(
-                            {
-                                "status": "success",
-                                "message": "Chat room created",
-                                "room_id": new_room_id,
-                            }
-                        )
-                    except Exception as e:
-                        error_msg = str(e)
-                        logger.error(f"create_chatroom failed: {error_msg}")
-                        return json.dumps({"status": "error", "message": error_msg})
-
-                return _run_async(_execute())
+                return adapter._execute_tool(room_id, "create_chatroom", execute)
 
         return [
             SendMessageTool(),
@@ -625,22 +511,15 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
         is_session_bootstrap: bool,
         room_id: str,
     ) -> None:
-        """
-        Handle incoming message using CrewAI agent.
-
-        Uses the CrewAI SDK's kickoff_async() for message processing with
-        the platform tools for collaboration.
-        """
+        """Handle incoming message using CrewAI agent."""
         logger.debug(f"Handling message {msg.id} in room {room_id}")
 
         if not self._crewai_agent:
             logger.error("CrewAI agent not initialized")
             return
 
-        # Store tools for CrewAI tool access
         self._room_tools[room_id] = tools
 
-        # Initialize history for this room on first message
         if is_session_bootstrap:
             if history:
                 self._message_history[room_id] = [
@@ -655,13 +534,8 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
         elif room_id not in self._message_history:
             self._message_history[room_id] = []
 
-        # Build message list for CrewAI
         messages = []
 
-        # Add room_id context (CrewAI needs this for tool calls)
-        room_context = f"[room_id: {room_id}]"
-
-        # Include historical context on first message
         if is_session_bootstrap and self._message_history.get(room_id):
             history_text = "\n".join(
                 f"{m['role']}: {m['content']}" for m in self._message_history[room_id]
@@ -669,25 +543,22 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
             messages.append(
                 {
                     "role": "user",
-                    "content": f"{room_context}[Previous conversation context:]\n{history_text}",
+                    "content": f"[room_id: {room_id}][Previous conversation:]\n{history_text}",
                 }
             )
 
-        # Inject participants message if changed
         if participants_msg:
             messages.append(
                 {
                     "role": "user",
-                    "content": f"{room_context}[System]: {participants_msg}",
+                    "content": f"[room_id: {room_id}][System]: {participants_msg}",
                 }
             )
             logger.info(f"Room {room_id}: Participants updated")
 
-        # Add current message with room_id context
-        user_message = f"{room_context}{msg.format_for_llm()}"
+        user_message = f"[room_id: {room_id}]{msg.format_for_llm()}"
         messages.append({"role": "user", "content": user_message})
 
-        # Store the current message in history
         self._message_history[room_id].append(
             {
                 "role": "user",
@@ -695,7 +566,6 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
             }
         )
 
-        # Log message count
         total_messages = len(self._message_history[room_id])
         logger.info(
             f"Room {room_id}: Processing with {total_messages} messages "
@@ -703,11 +573,8 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
         )
 
         try:
-            # Use CrewAI's kickoff_async with message list
-            # Cast to Any to satisfy type checker - CrewAI accepts dict-based messages
-            result = await self._crewai_agent.kickoff_async(cast(Any, messages))
+            result = await self._crewai_agent.kickoff_async(messages)  # type: ignore[arg-type]
 
-            # Store the response in history
             if result and result.raw:
                 self._message_history[room_id].append(
                     {
