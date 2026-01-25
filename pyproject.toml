@@ -103,6 +103,7 @@ dev = [
     "click>=8.0.0",
     # Include crewai for testing
     "crewai>=0.80.0",
+    "nest-asyncio>=1.6.0",  # Required for CrewAI adapter sync-to-async bridging
     # Development tools
     "pre-commit>=3.0.0",
     "ruff>=0.8.0",

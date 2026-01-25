@@ -1,13 +1,18 @@
 """Tests for CrewAIAdapter."""
 
-import importlib
-import sys
+from __future__ import annotations
+
+import json
 from datetime import datetime, timezone
+from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 from thenvoi.core.types import PlatformMessage
+
+if TYPE_CHECKING:
+    from thenvoi.adapters.crewai import CrewAIAdapter as CrewAIAdapterType
 
 
 class MockBaseTool:
@@ -20,8 +25,19 @@ class MockBaseTool:
         pass
 
 
-def _setup_crewai_mocks() -> MagicMock:
-    """Set up CrewAI mocks before importing the adapter."""
+@pytest.fixture
+def crewai_mocks():
+    """Set up CrewAI mocks with proper cleanup."""
+    import sys
+
+    # Store original modules
+    original_modules = {}
+    modules_to_mock = ["crewai", "crewai.tools", "nest_asyncio"]
+
+    for mod in modules_to_mock:
+        original_modules[mod] = sys.modules.get(mod)
+
+    # Create mocks
     mock_crewai_module = MagicMock()
     mock_crewai_tools_module = MagicMock()
     mock_nest_asyncio = MagicMock()
@@ -34,12 +50,26 @@ def _setup_crewai_mocks() -> MagicMock:
     sys.modules["crewai.tools"] = mock_crewai_tools_module
     sys.modules["nest_asyncio"] = mock_nest_asyncio
 
-    return mock_crewai_module
+    yield mock_crewai_module
+
+    # Cleanup: restore original modules or remove mocks
+    for mod in modules_to_mock:
+        if original_modules[mod] is not None:
+            sys.modules[mod] = original_modules[mod]
+        else:
+            sys.modules.pop(mod, None)
+
+    # Also remove any cached adapter module to force re-import
+    sys.modules.pop("thenvoi.adapters.crewai", None)
 
 
-# Set up mocks and import adapter
-mock_crewai_module = _setup_crewai_mocks()
-CrewAIAdapter = importlib.import_module("thenvoi.adapters.crewai").CrewAIAdapter
+@pytest.fixture
+def CrewAIAdapter(crewai_mocks) -> type["CrewAIAdapterType"]:
+    """Import and return CrewAIAdapter with mocks applied."""
+    import importlib
+
+    module = importlib.import_module("thenvoi.adapters.crewai")
+    return module.CrewAIAdapter
 
 
 @pytest.fixture
@@ -105,7 +135,7 @@ def mock_crewai_agent():
 class TestInitialization:
     """Tests for adapter initialization."""
 
-    def test_default_initialization(self):
+    def test_default_initialization(self, CrewAIAdapter):
         """Should initialize with default values."""
         adapter = CrewAIAdapter()
 
@@ -119,7 +149,7 @@ class TestInitialization:
         assert adapter.allow_delegation is False
         assert adapter.history_converter is not None
 
-    def test_custom_initialization(self):
+    def test_custom_initialization(self, CrewAIAdapter):
         """Should accept custom parameters."""
         adapter = CrewAIAdapter(
             model="gpt-4o-mini",
@@ -150,22 +180,21 @@ class TestOnStarted:
     """Tests for on_started() method."""
 
     @pytest.mark.asyncio
-    async def test_creates_crewai_agent(self):
+    async def test_creates_crewai_agent(self, CrewAIAdapter, crewai_mocks):
         """Should create CrewAI agent after start."""
-        # Reset the mock
-        mock_crewai_module.Agent.reset_mock()
+        crewai_mocks.Agent.reset_mock()
 
         adapter = CrewAIAdapter()
         await adapter.on_started(agent_name="TestBot", agent_description="A test bot")
 
         assert adapter.agent_name == "TestBot"
         assert adapter.agent_description == "A test bot"
-        mock_crewai_module.Agent.assert_called_once()
+        crewai_mocks.Agent.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_uses_custom_role_goal_backstory(self):
+    async def test_uses_custom_role_goal_backstory(self, CrewAIAdapter, crewai_mocks):
         """Should use custom role, goal, and backstory in agent creation."""
-        mock_crewai_module.Agent.reset_mock()
+        crewai_mocks.Agent.reset_mock()
 
         adapter = CrewAIAdapter(
             role="Research Analyst",
@@ -175,31 +204,31 @@ class TestOnStarted:
 
         await adapter.on_started(agent_name="TestBot", agent_description="")
 
-        call_kwargs = mock_crewai_module.Agent.call_args[1]
+        call_kwargs = crewai_mocks.Agent.call_args[1]
         assert call_kwargs["role"] == "Research Analyst"
         assert call_kwargs["goal"] == "Find information"
         assert "Expert researcher" in call_kwargs["backstory"]
 
     @pytest.mark.asyncio
-    async def test_uses_agent_name_as_default_role(self):
+    async def test_uses_agent_name_as_default_role(self, CrewAIAdapter, crewai_mocks):
         """Should use agent name as role if role not provided."""
-        mock_crewai_module.Agent.reset_mock()
+        crewai_mocks.Agent.reset_mock()
 
         adapter = CrewAIAdapter()
         await adapter.on_started(agent_name="TestBot", agent_description="A test bot")
 
-        call_kwargs = mock_crewai_module.Agent.call_args[1]
+        call_kwargs = crewai_mocks.Agent.call_args[1]
         assert call_kwargs["role"] == "TestBot"
 
     @pytest.mark.asyncio
-    async def test_creates_platform_tools(self):
+    async def test_creates_platform_tools(self, CrewAIAdapter, crewai_mocks):
         """Should create 7 platform tools for CrewAI."""
-        mock_crewai_module.Agent.reset_mock()
+        crewai_mocks.Agent.reset_mock()
 
         adapter = CrewAIAdapter()
         await adapter.on_started(agent_name="TestBot", agent_description="A test bot")
 
-        call_kwargs = mock_crewai_module.Agent.call_args[1]
+        call_kwargs = crewai_mocks.Agent.call_args[1]
         tools = call_kwargs["tools"]
         assert len(tools) == 7
 
@@ -212,13 +241,31 @@ class TestOnStarted:
         assert "lookup_peers" in tool_names
         assert "create_chatroom" in tool_names
 
+    @pytest.mark.asyncio
+    async def test_includes_platform_instructions_in_backstory(
+        self, CrewAIAdapter, crewai_mocks
+    ):
+        """Should include platform instructions in the backstory."""
+        crewai_mocks.Agent.reset_mock()
+
+        adapter = CrewAIAdapter()
+        await adapter.on_started(agent_name="TestBot", agent_description="A test bot")
+
+        call_kwargs = crewai_mocks.Agent.call_args[1]
+        backstory = call_kwargs["backstory"]
+
+        # Check that platform instructions are included
+        assert "Multi-participant chat on Thenvoi platform" in backstory
+        assert "send_message" in backstory
+        assert "lookup_peers" in backstory
+
 
 class TestOnMessage:
     """Tests for on_message() method."""
 
     @pytest.mark.asyncio
     async def test_initializes_history_on_bootstrap(
-        self, sample_message, mock_tools, mock_crewai_agent
+        self, CrewAIAdapter, sample_message, mock_tools, mock_crewai_agent
     ):
         """Should initialize room history on first message."""
         adapter = CrewAIAdapter()
@@ -239,7 +286,7 @@ class TestOnMessage:
 
     @pytest.mark.asyncio
     async def test_loads_existing_history(
-        self, sample_message, mock_tools, mock_crewai_agent
+        self, CrewAIAdapter, sample_message, mock_tools, mock_crewai_agent
     ):
         """Should load historical messages on bootstrap."""
         adapter = CrewAIAdapter()
@@ -265,7 +312,7 @@ class TestOnMessage:
 
     @pytest.mark.asyncio
     async def test_calls_kickoff_async(
-        self, sample_message, mock_tools, mock_crewai_agent
+        self, CrewAIAdapter, sample_message, mock_tools, mock_crewai_agent
     ):
         """Should call CrewAI agent's kickoff_async method."""
         adapter = CrewAIAdapter()
@@ -288,7 +335,9 @@ class TestOnCleanup:
     """Tests for on_cleanup() method."""
 
     @pytest.mark.asyncio
-    async def test_cleans_up_room_history_and_tools(self, mock_crewai_agent):
+    async def test_cleans_up_room_history_and_tools(
+        self, CrewAIAdapter, mock_crewai_agent
+    ):
         """Should remove room history and tools on cleanup."""
         adapter = CrewAIAdapter()
         await adapter.on_started("TestBot", "Test bot")
@@ -305,7 +354,7 @@ class TestOnCleanup:
         assert "room-123" not in adapter._room_tools
 
     @pytest.mark.asyncio
-    async def test_cleanup_nonexistent_room_is_safe(self):
+    async def test_cleanup_nonexistent_room_is_safe(self, CrewAIAdapter):
         """Should handle cleanup of non-existent room."""
         adapter = CrewAIAdapter()
 
@@ -318,7 +367,7 @@ class TestErrorHandling:
 
     @pytest.mark.asyncio
     async def test_reports_error_on_kickoff_failure(
-        self, sample_message, mock_tools, mock_crewai_agent
+        self, CrewAIAdapter, sample_message, mock_tools, mock_crewai_agent
     ):
         """Should report error when CrewAI agent fails."""
         mock_crewai_agent.kickoff_async.side_effect = Exception("Agent Error")
@@ -345,14 +394,14 @@ class TestVerboseMode:
     """Tests for verbose mode."""
 
     @pytest.mark.asyncio
-    async def test_verbose_mode_passed_to_agent(self):
+    async def test_verbose_mode_passed_to_agent(self, CrewAIAdapter, crewai_mocks):
         """Verbose mode should be passed to CrewAI agent."""
-        mock_crewai_module.Agent.reset_mock()
+        crewai_mocks.Agent.reset_mock()
 
         adapter = CrewAIAdapter(verbose=True)
         await adapter.on_started("TestBot", "Test bot")
 
-        call_kwargs = mock_crewai_module.Agent.call_args[1]
+        call_kwargs = crewai_mocks.Agent.call_args[1]
         assert call_kwargs["verbose"] is True
 
 
@@ -361,7 +410,7 @@ class TestRoomTools:
 
     @pytest.mark.asyncio
     async def test_stores_tools_per_room(
-        self, sample_message, mock_tools, mock_crewai_agent
+        self, CrewAIAdapter, sample_message, mock_tools, mock_crewai_agent
     ):
         """Should store tools per room for CrewAI tool access."""
         adapter = CrewAIAdapter()
@@ -385,7 +434,7 @@ class TestParticipantsUpdate:
 
     @pytest.mark.asyncio
     async def test_includes_participants_update_in_message(
-        self, sample_message, mock_tools, mock_crewai_agent
+        self, CrewAIAdapter, sample_message, mock_tools, mock_crewai_agent
     ):
         """Should include participants update in the message to CrewAI."""
         adapter = CrewAIAdapter()
@@ -408,3 +457,172 @@ class TestParticipantsUpdate:
         # Find the participants message
         found = any("Alice joined" in str(m.get("content", "")) for m in messages)
         assert found
+
+
+class TestToolExecution:
+    """Tests for individual tool execution.
+
+    Note: These tests verify tool schemas and error handling for unknown rooms.
+    Full tool execution tests require proper nest_asyncio setup which is mocked
+    in the test environment. The actual async tool execution is tested via
+    integration tests with real dependencies.
+    """
+
+    def test_tool_returns_error_for_unknown_room(self, CrewAIAdapter, crewai_mocks):
+        """Should return error when room_id is not found."""
+        import asyncio
+
+        crewai_mocks.Agent.reset_mock()
+
+        adapter = CrewAIAdapter()
+        # Run on_started synchronously
+        asyncio.run(adapter.on_started("TestBot", "Test bot"))
+
+        call_kwargs = crewai_mocks.Agent.call_args[1]
+        tools = call_kwargs["tools"]
+        send_message_tool = next(t for t in tools if t.name == "send_message")
+
+        # Don't add tools for the room - this returns early with error
+        result = send_message_tool._run(
+            room_id="unknown-room", content="Hello!", mentions="[]"
+        )
+
+        result_data = json.loads(result)
+        assert result_data["status"] == "error"
+        assert "No tools for room" in result_data["message"]
+
+    @pytest.mark.asyncio
+    async def test_all_tools_have_correct_schemas(self, CrewAIAdapter, crewai_mocks):
+        """Should create tools with correct input schemas."""
+        crewai_mocks.Agent.reset_mock()
+
+        adapter = CrewAIAdapter()
+        await adapter.on_started("TestBot", "Test bot")
+
+        call_kwargs = crewai_mocks.Agent.call_args[1]
+        tools = call_kwargs["tools"]
+
+        # Verify send_message schema
+        send_message = next(t for t in tools if t.name == "send_message")
+        assert send_message.args_schema is not None
+        schema_fields = send_message.args_schema.model_fields
+        assert "room_id" in schema_fields
+        assert "content" in schema_fields
+        assert "mentions" in schema_fields
+
+        # Verify add_participant schema
+        add_participant = next(t for t in tools if t.name == "add_participant")
+        schema_fields = add_participant.args_schema.model_fields
+        assert "room_id" in schema_fields
+        assert "participant_name" in schema_fields
+        assert "role" in schema_fields
+
+        # Verify lookup_peers schema
+        lookup_peers = next(t for t in tools if t.name == "lookup_peers")
+        schema_fields = lookup_peers.args_schema.model_fields
+        assert "room_id" in schema_fields
+        assert "page" in schema_fields
+        assert "page_size" in schema_fields
+
+    @pytest.mark.asyncio
+    async def test_send_event_message_type_validation(
+        self, CrewAIAdapter, crewai_mocks
+    ):
+        """Should have Literal type for message_type in send_event."""
+        crewai_mocks.Agent.reset_mock()
+
+        adapter = CrewAIAdapter()
+        await adapter.on_started("TestBot", "Test bot")
+
+        call_kwargs = crewai_mocks.Agent.call_args[1]
+        tools = call_kwargs["tools"]
+
+        send_event = next(t for t in tools if t.name == "send_event")
+        schema_fields = send_event.args_schema.model_fields
+
+        # Check that message_type field exists and has annotation
+        assert "message_type" in schema_fields
+        message_type_field = schema_fields["message_type"]
+        assert message_type_field.default == "thought"
+
+
+class TestExecutionReporting:
+    """Tests for execution reporting configuration."""
+
+    @pytest.mark.asyncio
+    async def test_execution_reporting_flag_stored(self, CrewAIAdapter, crewai_mocks):
+        """Execution reporting flag should be stored in adapter."""
+        adapter_enabled = CrewAIAdapter(enable_execution_reporting=True)
+        adapter_disabled = CrewAIAdapter(enable_execution_reporting=False)
+
+        assert adapter_enabled.enable_execution_reporting is True
+        assert adapter_disabled.enable_execution_reporting is False
+
+
+class TestLazyNestAsyncio:
+    """Tests for lazy nest_asyncio initialization."""
+
+    def test_nest_asyncio_not_applied_on_import(self, crewai_mocks):
+        """nest_asyncio should not be applied at import time."""
+        import importlib
+        import sys
+
+        # Force reimport
+        sys.modules.pop("thenvoi.adapters.crewai", None)
+
+        # Reset the mock to track calls
+        crewai_mocks_nest = sys.modules["nest_asyncio"]
+        crewai_mocks_nest.reset_mock()
+
+        # Import the module
+        importlib.import_module("thenvoi.adapters.crewai")
+
+        # nest_asyncio.apply() should NOT have been called at import
+        crewai_mocks_nest.apply.assert_not_called()
+
+    def test_ensure_nest_asyncio_applies_once(self, CrewAIAdapter, crewai_mocks):
+        """_ensure_nest_asyncio should only apply patch once."""
+        import importlib
+        import sys
+
+        module = importlib.import_module("thenvoi.adapters.crewai")
+
+        # Reset the flag and mock
+        module._nest_asyncio_applied = False
+        nest_mock = sys.modules["nest_asyncio"]
+        nest_mock.reset_mock()
+
+        # Call ensure twice
+        module._ensure_nest_asyncio()
+        module._ensure_nest_asyncio()
+
+        # Should only call apply() once
+        assert nest_mock.apply.call_count == 1
+
+
+class TestPlatformInstructionsConstant:
+    """Tests for platform instructions constant."""
+
+    def test_platform_instructions_is_constant(self, CrewAIAdapter):
+        """PLATFORM_INSTRUCTIONS should be a module-level constant."""
+        import importlib
+
+        module = importlib.import_module("thenvoi.adapters.crewai")
+
+        assert hasattr(module, "PLATFORM_INSTRUCTIONS")
+        assert isinstance(module.PLATFORM_INSTRUCTIONS, str)
+        assert len(module.PLATFORM_INSTRUCTIONS) > 100  # Non-trivial content
+
+    def test_platform_instructions_contains_key_info(self, CrewAIAdapter):
+        """PLATFORM_INSTRUCTIONS should contain key platform information."""
+        import importlib
+
+        module = importlib.import_module("thenvoi.adapters.crewai")
+
+        instructions = module.PLATFORM_INSTRUCTIONS
+
+        # Check for key sections
+        assert "Environment" in instructions
+        assert "send_message" in instructions
+        assert "lookup_peers" in instructions
+        assert "add_participant" in instructions

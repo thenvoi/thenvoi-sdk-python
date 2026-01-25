@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from typing import Any, Coroutine, Type, TypeVar, cast
+from typing import Any, Coroutine, Literal, Type, TypeVar, cast
 
 try:
     from crewai import Agent as CrewAIAgent
@@ -30,10 +30,58 @@ logger = logging.getLogger(__name__)
 
 T = TypeVar("T")
 
-# Apply nest_asyncio patch to allow nested event loops
-# This is required because CrewAI tools are synchronous but need to call
-# async platform methods (HTTP API calls) that use the same event loop
-nest_asyncio.apply()
+# Lazy initialization flag for nest_asyncio
+_nest_asyncio_applied = False
+
+# Valid message types for send_event
+MessageType = Literal["thought", "error", "task"]
+
+# Platform instructions constant for the agent's backstory
+PLATFORM_INSTRUCTIONS = """## Environment
+
+Multi-participant chat on Thenvoi platform. Messages show sender: [Name]: content.
+Use the `send_message` tool to respond. Plain text output is not delivered.
+
+## CRITICAL: Delegate When You Cannot Help Directly
+
+You have NO internet access and NO real-time data. When asked about weather, news, stock prices,
+or any current information you cannot answer directly:
+
+1. Call `lookup_peers` to find available specialized agents
+2. If a relevant agent exists (e.g., Weather Agent), call `add_participant` to add them
+3. Ask that agent using `send_message` with their name in mentions
+4. Wait for their response and relay it back to the user
+
+NEVER say "I can't do that" without first checking if another agent can help via `lookup_peers`.
+
+## CRITICAL: Do NOT Remove Agents Automatically
+
+After adding an agent to help with a task:
+1. Ask your question and wait for their response
+2. Relay their response back to the original requester
+3. **Do NOT remove the agent** - they stay silent unless mentioned and may be useful for follow-ups
+
+Only remove agents if the user explicitly requests it.
+
+## CRITICAL: Always Relay Information Back to the Requester
+
+When someone asks you to get information from another agent:
+1. Ask the other agent for the information
+2. When you receive the response, IMMEDIATELY relay it back to the ORIGINAL REQUESTER
+3. Do NOT just thank the helper agent - the requester is waiting for their answer!
+
+## IMPORTANT: Always Share Your Thinking
+
+Call `send_event` with message_type="thought" BEFORE every action to share your reasoning."""
+
+
+def _ensure_nest_asyncio() -> None:
+    """Apply nest_asyncio patch lazily on first use."""
+    global _nest_asyncio_applied
+    if not _nest_asyncio_applied:
+        nest_asyncio.apply()
+        _nest_asyncio_applied = True
+        logger.debug("Applied nest_asyncio patch for nested event loops")
 
 
 def _run_async(coro: Coroutine[Any, Any, T]) -> T:
@@ -44,12 +92,15 @@ def _run_async(coro: Coroutine[Any, Any, T]) -> T:
     With nest_asyncio applied, we can safely call asyncio.run() or
     loop.run_until_complete() even when an event loop is already running.
     """
+    _ensure_nest_asyncio()
+
     try:
         loop = asyncio.get_running_loop()
         # With nest_asyncio, we can run_until_complete even in a running loop
         return loop.run_until_complete(coro)
     except RuntimeError:
         # No running loop - safe to use asyncio.run()
+        logger.debug("No running event loop, using asyncio.run()")
         return asyncio.run(coro)
 
 
@@ -152,7 +203,7 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
             backstory_parts.append(self.custom_section)
 
         # Add platform-specific instructions
-        backstory_parts.append(self._get_platform_instructions())
+        backstory_parts.append(PLATFORM_INSTRUCTIONS)
 
         backstory = "\n\n".join(backstory_parts)
 
@@ -176,45 +227,6 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
             f"CrewAI adapter started for agent: {agent_name} "
             f"(model={self.model}, role={role})"
         )
-
-    def _get_platform_instructions(self) -> str:
-        """Get platform-specific instructions for the agent's backstory."""
-        return """## Environment
-
-Multi-participant chat on Thenvoi platform. Messages show sender: [Name]: content.
-Use the `send_message` tool to respond. Plain text output is not delivered.
-
-## CRITICAL: Delegate When You Cannot Help Directly
-
-You have NO internet access and NO real-time data. When asked about weather, news, stock prices,
-or any current information you cannot answer directly:
-
-1. Call `lookup_peers` to find available specialized agents
-2. If a relevant agent exists (e.g., Weather Agent), call `add_participant` to add them
-3. Ask that agent using `send_message` with their name in mentions
-4. Wait for their response and relay it back to the user
-
-NEVER say "I can't do that" without first checking if another agent can help via `lookup_peers`.
-
-## CRITICAL: Do NOT Remove Agents Automatically
-
-After adding an agent to help with a task:
-1. Ask your question and wait for their response
-2. Relay their response back to the original requester
-3. **Do NOT remove the agent** - they stay silent unless mentioned and may be useful for follow-ups
-
-Only remove agents if the user explicitly requests it.
-
-## CRITICAL: Always Relay Information Back to the Requester
-
-When someone asks you to get information from another agent:
-1. Ask the other agent for the information
-2. When you receive the response, IMMEDIATELY relay it back to the ORIGINAL REQUESTER
-3. Do NOT just thank the helper agent - the requester is waiting for their answer!
-
-## IMPORTANT: Always Share Your Thinking
-
-Call `send_event` with message_type="thought" BEFORE every action to share your reasoning."""
 
     def _create_crewai_tools(self) -> list[BaseTool]:
         """Create CrewAI-compatible tools for Thenvoi platform."""
@@ -240,7 +252,7 @@ Call `send_event` with message_type="thought" BEFORE every action to share your 
         class SendEventInput(BaseModel):
             room_id: str = Field(..., description="The room ID to send the event to")
             content: str = Field(..., description="Human-readable event content")
-            message_type: str = Field(
+            message_type: MessageType = Field(
                 default="thought",
                 description="Type of event: 'thought', 'error', or 'task'",
             )
@@ -335,6 +347,7 @@ Call `send_event` with message_type="thought" BEFORE every action to share your 
                         )
                     except Exception as e:
                         error_msg = str(e)
+                        logger.error(f"send_message failed: {error_msg}")
                         if adapter.enable_execution_reporting:
                             await tools.send_event(
                                 content=json.dumps(
@@ -372,7 +385,9 @@ Call `send_event` with message_type="thought" BEFORE every action to share your 
                             {"status": "success", "message": "Event sent"}
                         )
                     except Exception as e:
-                        return json.dumps({"status": "error", "message": str(e)})
+                        error_msg = str(e)
+                        logger.error(f"send_event failed: {error_msg}")
+                        return json.dumps({"status": "error", "message": error_msg})
 
                 return _run_async(_execute())
 
@@ -419,6 +434,7 @@ Call `send_event` with message_type="thought" BEFORE every action to share your 
                         return json.dumps({"status": "success", **result})
                     except Exception as e:
                         error_msg = str(e)
+                        logger.error(f"add_participant failed: {error_msg}")
                         if adapter.enable_execution_reporting:
                             await tools.send_event(
                                 content=json.dumps(
@@ -472,6 +488,7 @@ Call `send_event` with message_type="thought" BEFORE every action to share your 
                         return json.dumps({"status": "success", **result})
                     except Exception as e:
                         error_msg = str(e)
+                        logger.error(f"remove_participant failed: {error_msg}")
                         if adapter.enable_execution_reporting:
                             await tools.send_event(
                                 content=json.dumps(
@@ -511,7 +528,9 @@ Call `send_event` with message_type="thought" BEFORE every action to share your 
                             }
                         )
                     except Exception as e:
-                        return json.dumps({"status": "error", "message": str(e)})
+                        error_msg = str(e)
+                        logger.error(f"get_participants failed: {error_msg}")
+                        return json.dumps({"status": "error", "message": error_msg})
 
                 return _run_async(_execute())
 
@@ -539,7 +558,9 @@ Call `send_event` with message_type="thought" BEFORE every action to share your 
                         result = await tools.lookup_peers(page, page_size)
                         return json.dumps({"status": "success", **result})
                     except Exception as e:
-                        return json.dumps({"status": "error", "message": str(e)})
+                        error_msg = str(e)
+                        logger.error(f"lookup_peers failed: {error_msg}")
+                        return json.dumps({"status": "error", "message": error_msg})
 
                 return _run_async(_execute())
 
@@ -572,7 +593,9 @@ Call `send_event` with message_type="thought" BEFORE every action to share your 
                             }
                         )
                     except Exception as e:
-                        return json.dumps({"status": "error", "message": str(e)})
+                        error_msg = str(e)
+                        logger.error(f"create_chatroom failed: {error_msg}")
+                        return json.dumps({"status": "error", "message": error_msg})
 
                 return _run_async(_execute())
 
