@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from typing import Any, Coroutine, Literal, Type, TypeVar, cast
+from typing import Any, Callable, Coroutine, Literal, Type, TypeVar, cast
 
 try:
     from crewai import Agent as CrewAIAgent
@@ -29,6 +29,10 @@ from thenvoi.runtime.tools import get_tool_description
 logger = logging.getLogger(__name__)
 
 T = TypeVar("T")
+
+# Type alias for custom tool definitions: (InputModel, callable)
+# The InputModel defines the tool's input schema, and the callable is the tool function
+CustomToolDef = tuple[Type[BaseModel], Callable[..., Any]]
 
 # Lazy initialization flag for nest_asyncio
 _nest_asyncio_applied = False

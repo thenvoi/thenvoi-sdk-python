@@ -8,7 +8,6 @@ from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-from pydantic import BaseModel, Field
 
 from thenvoi.core.types import PlatformMessage
 
