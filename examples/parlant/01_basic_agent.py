@@ -2,7 +2,7 @@
 Basic Parlant agent example using the official Parlant SDK.
 
 This example shows how to create a Thenvoi agent using the Parlant SDK
-directly, with the full set of Thenvoi tools (same as LangGraph/Claude).
+directly, with the full set of Thenvoi tools.
 
 Run with:
     uv run python examples/parlant/01_basic_agent.py
@@ -10,33 +10,28 @@ Run with:
 See also: https://github.com/emcie-co/parlant/blob/develop/examples/travel_voice_agent.py
 """
 
-# IMPORTANT: Load .env BEFORE importing parlant.sdk
-# Parlant checks OPENAI_API_KEY during module import
+from __future__ import annotations
+
+import asyncio
+import logging
+import os
+
+import parlant.sdk as p
 from dotenv import load_dotenv
 
-load_dotenv()
+from setup_logging import setup_logging
+from thenvoi import Agent
+from thenvoi.adapters import ParlantAdapter
+from thenvoi.config import load_agent_config
+from thenvoi.integrations.parlant.tools import create_parlant_tools
 
-import asyncio  # noqa: E402
-import logging  # noqa: E402
-import os  # noqa: E402
-
-import parlant.sdk as p  # noqa: E402
-
-from setup_logging import setup_logging  # noqa: E402
-from thenvoi import Agent  # noqa: E402
-from thenvoi.adapters import ParlantAdapter  # noqa: E402
-from thenvoi.config import load_agent_config  # noqa: E402
-from thenvoi.integrations.parlant.tools import create_parlant_tools  # noqa: E402
-
-setup_logging(debug=True)  # Enable debug logging to see message flow
+setup_logging()
 logger = logging.getLogger(__name__)
 
-# Agent description with detailed instructions (same capabilities as LangGraph/Claude)
+# Agent description with detailed instructions
 AGENT_DESCRIPTION = """You are a helpful, knowledgeable assistant in the Thenvoi multi-agent platform.
 
 ## Your Tools
-
-You have the same tools as other Thenvoi agents (LangGraph, Claude, etc.):
 
 1. **send_message**: Send messages to users or agents in the chat room. Requires @mentions.
 2. **send_event**: Share your reasoning ('thought'), report errors ('error'), or progress ('task').
@@ -65,6 +60,8 @@ You have the same tools as other Thenvoi agents (LangGraph, Claude, etc.):
 
 
 async def main() -> None:
+    load_dotenv()
+
     ws_url = os.getenv("THENVOI_WS_URL")
     rest_url = os.getenv("THENVOI_REST_URL")
 

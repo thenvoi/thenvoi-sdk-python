@@ -65,11 +65,24 @@ def was_message_sent(session_id: str) -> bool:
 # Keep old API for backwards compatibility (deprecated)
 def set_current_tools(tools: Optional[Any]) -> None:
     """Deprecated: Use set_session_tools instead."""
-    pass  # No-op, kept for backwards compatibility
+    import warnings
+
+    warnings.warn(
+        "set_current_tools is deprecated, use set_session_tools instead",
+        DeprecationWarning,
+        stacklevel=2,
+    )
 
 
 def get_current_tools() -> Optional[Any]:
     """Deprecated: Use get_session_tools instead."""
+    import warnings
+
+    warnings.warn(
+        "get_current_tools is deprecated, use get_session_tools instead",
+        DeprecationWarning,
+        stacklevel=2,
+    )
     return None  # Always returns None, tools now accessed via session_id
 
 
@@ -185,17 +198,18 @@ def create_parlant_tools() -> list[Any]:
         name: str,
     ) -> ToolResult:
         """
-        Add a participant (agent or user) to this chat room by name.
-
-        Call lookup_peers first to see available agents and users.
-        Then call this tool with the exact name from that list.
+        Invite an agent or user to join this chat room.
 
         Args:
             context: Parlant tool context (automatically provided)
-            name: The exact name of the participant to add (from lookup_peers)
+            name: REQUIRED - The name of the agent to add. Must match exactly from lookup_peers (e.g. "Pirate Captain", "Research Agent", "Weather Assistant")
 
         Returns:
             Success message or error description
+
+        Example calls:
+            add_participant(name="Pirate Captain")
+            add_participant(name="Research Agent")
         """
         logger.info(
             f"[Parlant Tool] add_participant called: session={context.session_id}, name={name}"
@@ -223,17 +237,18 @@ def create_parlant_tools() -> list[Any]:
         name: str,
     ) -> ToolResult:
         """
-        Remove a participant from this chat room by name.
-
-        Call get_participants first to see who is in the room.
-        Then call this tool with the exact name from that list.
+        Remove a participant from this chat room.
 
         Args:
             context: Parlant tool context (automatically provided)
-            name: The exact name of the participant to remove (from get_participants)
+            name: REQUIRED - The name of the participant to remove. Must match exactly from get_participants (e.g. "Pirate Captain", "Research Agent")
 
         Returns:
             Success message or error description
+
+        Example calls:
+            remove_participant(name="Pirate Captain")
+            remove_participant(name="Research Agent")
         """
         logger.info(
             f"[Parlant Tool] remove_participant called: session={context.session_id}, name={name}"

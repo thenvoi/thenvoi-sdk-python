@@ -2,7 +2,7 @@
 Parlant adapter using the official Parlant SDK directly.
 
 This adapter integrates the Parlant framework (https://github.com/emcie-co/parlant)
-with the Thenvoi platform using the SDK's internal components (no HTTP).
+with the Thenvoi platform.
 """
 
 from __future__ import annotations
@@ -25,12 +25,15 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+# Parlant preamble message tag - used to identify acknowledgment messages before tool execution
+PARLANT_PREAMBLE_TAG = "__preamble__"
+
+
 class ParlantAdapter(SimpleAdapter[ParlantMessages]):
     """
     Parlant adapter using the official Parlant SDK directly.
 
-    This adapter uses the Parlant SDK's internal components for message processing
-    without HTTP communication. It integrates directly with the Parlant engine.
+    This adapter integrates directly with the Parlant engine for message processing.
 
     Example:
         import parlant.sdk as p
@@ -142,7 +145,12 @@ class ParlantAdapter(SimpleAdapter[ParlantMessages]):
         sender_name = msg.sender_name or msg.sender_id or "User"
 
         # Get or create Parlant session for this room (need session_id first)
-        session_id = await self._get_or_create_session(room_id, sender_name)
+        try:
+            session_id = await self._get_or_create_session(room_id, sender_name)
+        except Exception as e:
+            logger.error(f"Failed to get/create session for room {room_id}: {e}")
+            await self._report_error(tools, f"Session initialization failed: {e}")
+            return
         session_id_str = str(session_id)
 
         # Set tools for this session (keyed by session_id for cross-task access)
@@ -261,6 +269,9 @@ class ParlantAdapter(SimpleAdapter[ParlantMessages]):
         by the current message flow.
         """
         if not self._app:
+            return 0
+
+        if not history:
             return 0
 
         app = self._app
@@ -449,7 +460,7 @@ class ParlantAdapter(SimpleAdapter[ParlantMessages]):
                         message_content = data
 
                     # Check if this is a preamble message
-                    is_preamble = "__preamble__" in tags
+                    is_preamble = PARLANT_PREAMBLE_TAG in tags
 
                     if is_preamble:
                         logger.info(

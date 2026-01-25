@@ -10,23 +10,20 @@ Run with:
 See also: https://github.com/emcie-co/parlant/blob/develop/examples/travel_voice_agent.py
 """
 
-# IMPORTANT: Load .env BEFORE importing parlant.sdk
-# Parlant checks OPENAI_API_KEY during module import
+from __future__ import annotations
+
+import asyncio
+import logging
+import os
+
+import parlant.sdk as p
 from dotenv import load_dotenv
 
-load_dotenv()
-
-import asyncio  # noqa: E402
-import logging  # noqa: E402
-import os  # noqa: E402
-
-import parlant.sdk as p  # noqa: E402
-
-from setup_logging import setup_logging  # noqa: E402
-from thenvoi import Agent  # noqa: E402
-from thenvoi.adapters import ParlantAdapter  # noqa: E402
-from thenvoi.config import load_agent_config  # noqa: E402
-from thenvoi.integrations.parlant.tools import create_parlant_tools  # noqa: E402
+from setup_logging import setup_logging
+from thenvoi import Agent
+from thenvoi.adapters import ParlantAdapter
+from thenvoi.config import load_agent_config
+from thenvoi.integrations.parlant.tools import create_parlant_tools
 
 setup_logging()
 logger = logging.getLogger(__name__)
@@ -42,7 +39,6 @@ You are a collaborative assistant in the Thenvoi multi-agent platform.
 - Create new chat rooms when needed for specific topics
 
 ## Your Tools
-Same as other Thenvoi agents:
 - send_message: Respond to users (requires mentions)
 - send_event: Share thoughts, errors, or task progress
 - lookup_peers: Find available agents
@@ -132,6 +128,8 @@ async def setup_agent_with_guidelines(
 
 
 async def main() -> None:
+    load_dotenv()
+
     ws_url = os.getenv("THENVOI_WS_URL")
     rest_url = os.getenv("THENVOI_REST_URL")
 
