@@ -59,6 +59,54 @@ AGENT_DESCRIPTION = """You are a helpful, knowledgeable assistant in the Thenvoi
 """
 
 
+async def setup_agent_with_guidelines(
+    server: p.Server,
+    tools: list,
+) -> p.Agent:
+    """Create and configure a Parlant agent with basic guidelines and tools."""
+    agent = await server.create_agent(
+        name="Parlant",
+        description=AGENT_DESCRIPTION,
+    )
+
+    # When user asks a question or needs help
+    await agent.create_guideline(
+        condition="User asks a question or needs help with something",
+        action="Analyze the request. If you can answer directly, use send_message with the user's name in mentions. If you need to think through a complex problem, first use send_event with type='thought' to share your reasoning.",
+        tools=tools,
+    )
+
+    # When user asks to add someone or wants specialized help
+    await agent.create_guideline(
+        condition="User asks to add someone to the chat, mentions a specific agent name, or asks for specialized help you can't provide",
+        action="First use lookup_peers to find available agents. Then IMMEDIATELY call add_participant with the name parameter set to the exact name from the lookup_peers result. Do NOT ask for confirmation - just add them. If user wants multiple agents, call add_participant once for each.",
+        tools=tools,
+    )
+
+    # When user asks about participants
+    await agent.create_guideline(
+        condition="User asks who is in the room, about participants, or who they're talking to",
+        action="Use get_participants to list all current room members",
+        tools=tools,
+    )
+
+    # When user wants to create a new room
+    await agent.create_guideline(
+        condition="User wants to create a new chat room, discussion space, or separate conversation",
+        action="Use create_chatroom to create a dedicated space for the new topic",
+        tools=tools,
+    )
+
+    # When user asks to remove someone
+    await agent.create_guideline(
+        condition="User asks to remove someone from the chat",
+        action="Use remove_participant with the name parameter set to the exact name to remove",
+        tools=tools,
+    )
+
+    return agent
+
+
 async def main() -> None:
     load_dotenv()
 
@@ -81,51 +129,9 @@ async def main() -> None:
             f"Created {len(parlant_tools)} Parlant tools: {[t.tool.name for t in parlant_tools]}"
         )
 
-        # Create Parlant agent with detailed description
-        parlant_agent = await server.create_agent(
-            name="Parlant",
-            description=AGENT_DESCRIPTION,
-        )
-
+        # Create Parlant agent with guidelines and tools
+        parlant_agent = await setup_agent_with_guidelines(server, parlant_tools)
         logger.info(f"Parlant agent created: {parlant_agent.id}")
-
-        # Create guidelines that enable tool usage
-        # When user asks a question or needs help
-        await parlant_agent.create_guideline(
-            condition="User asks a question or needs help with something",
-            action="Analyze the request. If you can answer directly, use send_message with the user's name in mentions. If you need to think through a complex problem, first use send_event with type='thought' to share your reasoning.",
-            tools=parlant_tools,
-        )
-
-        # When user asks to add someone or wants specialized help
-        await parlant_agent.create_guideline(
-            condition="User asks to add someone to the chat, mentions a specific agent name, or asks for specialized help you can't provide",
-            action="First use lookup_peers to find available agents. Then IMMEDIATELY call add_participant with the name parameter set to the exact name from the lookup_peers result. Do NOT ask for confirmation - just add them. If user wants multiple agents, call add_participant once for each.",
-            tools=parlant_tools,
-        )
-
-        # When user asks about participants
-        await parlant_agent.create_guideline(
-            condition="User asks who is in the room, about participants, or who they're talking to",
-            action="Use get_participants to list all current room members",
-            tools=parlant_tools,
-        )
-
-        # When user wants to create a new room
-        await parlant_agent.create_guideline(
-            condition="User wants to create a new chat room, discussion space, or separate conversation",
-            action="Use create_chatroom to create a dedicated space for the new topic",
-            tools=parlant_tools,
-        )
-
-        # When user asks to remove someone
-        await parlant_agent.create_guideline(
-            condition="User asks to remove someone from the chat",
-            action="Use remove_participant with the name parameter set to the exact name to remove",
-            tools=parlant_tools,
-        )
-
-        logger.info("Created guidelines with full tool support")
 
         # Create adapter using Parlant SDK directly
         adapter = ParlantAdapter(

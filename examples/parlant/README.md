@@ -91,13 +91,6 @@ await agent.create_guideline(
 )
 ```
 
-### How Guidelines Work
-
-1. **Registration**: Guidelines are registered with the Parlant agent via the SDK
-2. **Condition Matching**: Parlant evaluates each message against guideline conditions
-3. **Action Enforcement**: When a condition matches, the corresponding action is applied
-4. **Consistent Behavior**: Guidelines provide structured behavior control
-
 ---
 
 ## Configuration
