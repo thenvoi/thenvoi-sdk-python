@@ -623,3 +623,144 @@ class TestExecutionReporting:
 
         # History should still be updated
         assert "room-123" in adapter._message_history
+
+
+class TestCustomTools:
+    """Tests for custom tool support (PydanticAI-native functions)."""
+
+    def test_accepts_additional_tools_parameter(self):
+        """Adapter accepts list of callables."""
+
+        async def my_tool(ctx, message: str) -> str:
+            """A custom tool."""
+            return f"Echo: {message}"
+
+        adapter = PydanticAIAdapter(
+            model="openai:gpt-4o",
+            additional_tools=[my_tool],
+        )
+
+        assert len(adapter._custom_tools) == 1
+        assert adapter._custom_tools[0] == my_tool
+
+    def test_empty_additional_tools_by_default(self):
+        """Should have empty custom tools list by default."""
+        adapter = PydanticAIAdapter(model="openai:gpt-4o")
+
+        assert adapter._custom_tools == []
+
+    def test_multiple_custom_tools(self):
+        """Should accept multiple custom tools."""
+
+        async def tool_one(ctx, a: int) -> int:
+            """Tool one."""
+            return a + 1
+
+        def tool_two(ctx, b: str) -> str:
+            """Tool two."""
+            return b.upper()
+
+        async def tool_three(ctx, x: float, y: float) -> float:
+            """Tool three."""
+            return x + y
+
+        adapter = PydanticAIAdapter(
+            model="openai:gpt-4o",
+            additional_tools=[tool_one, tool_two, tool_three],
+        )
+
+        assert len(adapter._custom_tools) == 3
+
+    @pytest.mark.asyncio
+    async def test_registers_custom_tools_with_agent(self):
+        """Custom tools should be registered via agent.tool()."""
+
+        async def my_echo(ctx, message: str) -> str:
+            """Echo the message."""
+            return f"Echo: {message}"
+
+        adapter = PydanticAIAdapter(
+            model="openai:gpt-4o",
+            additional_tools=[my_echo],
+        )
+
+        # Mock the Agent class to track tool registrations
+        registered_tools = []
+
+        with patch("thenvoi.adapters.pydantic_ai.Agent") as MockAgent:
+            mock_agent = MagicMock()
+            mock_agent.tool = MagicMock(
+                side_effect=lambda f: registered_tools.append(f)
+            )
+            MockAgent.return_value = mock_agent
+
+            await adapter.on_started("TestBot", "Test bot")
+
+        # Should have registered platform tools + custom tool
+        tool_names = [t.__name__ for t in registered_tools]
+        assert "my_echo" in tool_names
+
+    @pytest.mark.asyncio
+    async def test_custom_tool_appears_in_agent_function_tools(
+        self, mock_pydantic_agent
+    ):
+        """Custom tool should appear in agent._function_tools after registration."""
+
+        async def calculator(ctx, a: float, b: float) -> float:
+            """Add two numbers."""
+            return a + b
+
+        adapter = PydanticAIAdapter(
+            model="openai:gpt-4o",
+            additional_tools=[calculator],
+        )
+
+        # Add calculator to mock agent's function tools when tool() is called
+        def register_tool(func):
+            mock_pydantic_agent._function_tools[func.__name__] = MagicMock(
+                name=func.__name__
+            )
+
+        mock_pydantic_agent.tool = MagicMock(side_effect=register_tool)
+
+        with patch.object(adapter, "_create_agent", return_value=mock_pydantic_agent):
+            # Manually call tool registration since we're mocking _create_agent
+            for custom_tool in adapter._custom_tools:
+                mock_pydantic_agent.tool(custom_tool)
+
+        assert "calculator" in mock_pydantic_agent._function_tools
+
+    @pytest.mark.asyncio
+    async def test_custom_tools_work_with_on_message(
+        self, sample_message, mock_tools, mock_pydantic_agent
+    ):
+        """Custom tools should work during message handling."""
+
+        async def my_helper(ctx, value: str) -> str:
+            """Helper tool."""
+            return f"Helped: {value}"
+
+        adapter = PydanticAIAdapter(
+            model="openai:gpt-4o",
+            additional_tools=[my_helper],
+        )
+
+        with patch.object(adapter, "_create_agent", return_value=mock_pydantic_agent):
+            await adapter.on_started("TestBot", "Test bot")
+
+        result_messages = [ModelRequest(parts=[UserPromptPart(content="test")])]
+        adapter._agent.run_stream_events = MagicMock(
+            return_value=make_stream_events(result_messages=result_messages)
+        )
+
+        # Should not raise
+        await adapter.on_message(
+            msg=sample_message,
+            tools=mock_tools,
+            history=[],
+            participants_msg=None,
+            is_session_bootstrap=True,
+            room_id="room-123",
+        )
+
+        assert "room-123" in adapter._message_history

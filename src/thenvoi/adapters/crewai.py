@@ -11,6 +11,12 @@ from thenvoi.core.protocols import AgentToolsProtocol
 from thenvoi.core.simple_adapter import SimpleAdapter
 from thenvoi.core.types import PlatformMessage
 from thenvoi.converters.crewai import CrewAIHistoryConverter, CrewAIMessages
+from thenvoi.runtime.custom_tools import (
+    CustomToolDef,
+    custom_tools_to_schemas,
+    execute_custom_tool,
+    find_custom_tool,
+)
 from thenvoi.runtime.prompts import render_system_prompt
 
 logger = logging.getLogger(__name__)
@@ -52,6 +58,7 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
         enable_execution_reporting: bool = False,
         verbose: bool = False,
         history_converter: CrewAIHistoryConverter | None = None,
+        additional_tools: list[CustomToolDef] | None = None,
     ):
         """
         Initialize the CrewAI adapter.
@@ -67,6 +74,7 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
             enable_execution_reporting: If True, sends tool_call/tool_result events
             verbose: If True, enables detailed logging
             history_converter: Custom history converter (optional)
+            additional_tools: List of custom tools as (InputModel, callable) tuples
         """
         super().__init__(
             history_converter=history_converter or CrewAIHistoryConverter()
@@ -86,6 +94,8 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
         self._message_history: dict[str, list[dict[str, Any]]] = {}
         # Rendered system prompt (set after start)
         self._system_prompt: str = ""
+        # Custom tools (user-provided)
+        self._custom_tools: list[CustomToolDef] = additional_tools or []
 
     async def on_started(self, agent_name: str, agent_description: str) -> None:
         """Initialize CrewAI agent after metadata is fetched."""
@@ -191,6 +201,10 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
 
         # Get tool schemas in OpenAI format
         tool_schemas = tools.get_openai_tool_schemas()
+        # Merge custom tool schemas
+        if self._custom_tools:
+            tool_schemas = list(tool_schemas)  # Make mutable copy
+            tool_schemas.extend(custom_tools_to_schemas(self._custom_tools, "openai"))
 
         # Build messages for LLM call
         messages = self._build_messages(room_id)
@@ -352,9 +366,13 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
                     metadata={"tool": tool_name, "input": arguments},
                 )
 
-            # Execute tool
+            # Execute tool (check custom tools first, then platform tools)
             try:
-                result = await tools.execute_tool_call(tool_name, arguments)
+                custom_tool = find_custom_tool(self._custom_tools, tool_name)
+                if custom_tool:
+                    result = await execute_custom_tool(custom_tool, arguments)
+                else:
+                    result = await tools.execute_tool_call(tool_name, arguments)
                 result_str = (
                     json.dumps(result, default=str)
                     if not isinstance(result, str)

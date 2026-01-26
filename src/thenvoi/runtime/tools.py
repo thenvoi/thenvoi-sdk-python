@@ -9,7 +9,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any, Literal, cast
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 
 from thenvoi.client.rest import ChatRoomRequest
 from thenvoi.core.protocols import AgentToolsProtocol
@@ -608,6 +608,13 @@ class AgentTools(AgentToolsProtocol):
                 model = TOOL_MODELS[tool_name]
                 validated = model.model_validate(arguments)
                 arguments = validated.model_dump(exclude_none=True)
+        except ValidationError as e:
+            # Format validation errors for better LLM readability
+            errors = [
+                f"{'.'.join(str(x) for x in err['loc'])}: {err['msg']}"
+                for err in e.errors()
+            ]
+            return f"Invalid arguments for {tool_name}: {', '.join(errors)}"
         except Exception as e:
             return f"Error validating {tool_name} arguments: {e}"
 

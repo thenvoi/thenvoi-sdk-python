@@ -61,6 +61,16 @@ anthropic_agent:
   agent_id: ""
   api_key: ""
 
+# 03_tom_agent.py - Tom the cat character agent
+tom_agent:
+  agent_id: ""
+  api_key: ""
+
+# 04_jerry_agent.py - Jerry the mouse character agent
+jerry_agent:
+  agent_id: ""
+  api_key: ""
+
 # =============================================================================
 # Pydantic AI Examples
 # =============================================================================

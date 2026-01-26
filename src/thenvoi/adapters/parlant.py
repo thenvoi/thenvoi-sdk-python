@@ -15,6 +15,7 @@ from thenvoi.core.simple_adapter import SimpleAdapter
 from thenvoi.core.types import PlatformMessage
 from thenvoi.converters.parlant import ParlantHistoryConverter, ParlantMessages
 from thenvoi.integrations.parlant.tools import set_session_tools, was_message_sent
+from thenvoi.runtime.custom_tools import CustomToolDef
 from thenvoi.runtime.prompts import render_system_prompt
 
 if TYPE_CHECKING:
@@ -64,6 +65,7 @@ class ParlantAdapter(SimpleAdapter[ParlantMessages]):
         system_prompt: str | None = None,
         custom_section: str | None = None,
         history_converter: ParlantHistoryConverter | None = None,
+        additional_tools: list[CustomToolDef] | None = None,
     ):
         """
         Initialize the Parlant SDK adapter.
@@ -74,6 +76,7 @@ class ParlantAdapter(SimpleAdapter[ParlantMessages]):
             system_prompt: Full system prompt override
             custom_section: Custom instructions appended to agent description
             history_converter: Custom history converter (optional)
+            additional_tools: List of custom tools as (InputModel, callable) tuples
         """
         super().__init__(
             history_converter=history_converter or ParlantHistoryConverter()
@@ -95,6 +98,9 @@ class ParlantAdapter(SimpleAdapter[ParlantMessages]):
 
         # Rendered system prompt (set after start)
         self._system_prompt: str = ""
+
+        # Custom tools (user-provided) - stored for API compatibility
+        self._custom_tools: list[CustomToolDef] = additional_tools or []
 
     async def on_started(self, agent_name: str, agent_description: str) -> None:
         """Initialize after agent metadata is fetched."""

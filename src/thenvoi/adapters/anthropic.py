@@ -17,6 +17,12 @@ from thenvoi.core.protocols import AgentToolsProtocol
 from thenvoi.core.simple_adapter import SimpleAdapter
 from thenvoi.core.types import PlatformMessage
 from thenvoi.converters.anthropic import AnthropicHistoryConverter, AnthropicMessages
+from thenvoi.runtime.custom_tools import (
+    CustomToolDef,
+    custom_tools_to_schemas,
+    execute_custom_tool,
+    find_custom_tool,
+)
 from thenvoi.runtime.prompts import render_system_prompt
 
 logger = logging.getLogger(__name__)
@@ -47,6 +53,7 @@ class AnthropicAdapter(SimpleAdapter[AnthropicMessages]):
         max_tokens: int = 4096,
         enable_execution_reporting: bool = False,
         history_converter: AnthropicHistoryConverter | None = None,
+        additional_tools: list[CustomToolDef] | None = None,
     ):
         super().__init__(
             history_converter=history_converter or AnthropicHistoryConverter()
@@ -65,6 +72,8 @@ class AnthropicAdapter(SimpleAdapter[AnthropicMessages]):
         self._message_history: dict[str, list[dict[str, Any]]] = {}
         # Rendered system prompt (set after start)
         self._system_prompt: str = ""
+        # Custom tools (user-provided)
+        self._custom_tools: list[CustomToolDef] = additional_tools or []
 
     # --- Copied from ThenvoiAnthropicAgent._on_started ---
     async def on_started(self, agent_name: str, agent_description: str) -> None:
@@ -142,6 +151,11 @@ class AnthropicAdapter(SimpleAdapter[AnthropicMessages]):
 
         # Get tool schemas in Anthropic format (typed helper)
         tool_schemas = tools.get_anthropic_tool_schemas()
+        # Merge custom tool schemas
+        if self._custom_tools:
+            tool_schemas = list(tool_schemas)  # Make mutable copy
+            custom_schemas = custom_tools_to_schemas(self._custom_tools, "anthropic")
+            tool_schemas.extend(cast(list[ToolParam], custom_schemas))
 
         # Tool loop - let LLM decide when to stop
         while True:
@@ -303,9 +317,13 @@ class AnthropicAdapter(SimpleAdapter[AnthropicMessages]):
                     message_type="tool_call",
                 )
 
-            # Execute tool
+            # Execute tool (check custom tools first, then platform tools)
             try:
-                result = await tools.execute_tool_call(tool_name, tool_input)
+                custom_tool = find_custom_tool(self._custom_tools, tool_name)
+                if custom_tool:
+                    result = await execute_custom_tool(custom_tool, tool_input)
+                else:
+                    result = await tools.execute_tool_call(tool_name, tool_input)
                 result_str = (
                     json.dumps(result, default=str)
                     if not isinstance(result, str)
