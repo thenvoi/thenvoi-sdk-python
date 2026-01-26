@@ -45,7 +45,7 @@ def set_session_tools(session_id: str, tools: Optional[Any]) -> None:
 def get_session_tools(session_id: str) -> Optional[Any]:
     """Get the tools for a specific Parlant session."""
     tools = _session_tools.get(session_id)
-    logger.info(
+    logger.debug(
         f"Get tools for session_id={session_id}: found={tools is not None}, available_sessions={list(_session_tools.keys())}"
     )
     return tools
