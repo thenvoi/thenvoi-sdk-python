@@ -226,7 +226,9 @@ def create_parlant_tools() -> list[Any]:
             status = result.get("status", "added")
             if status == "already_in_room":
                 logger.info(f"[Parlant Tool] '{name}' is already in the room")
-                return ToolResult(data=f"'{name}' is already in the room - no action needed")
+                return ToolResult(
+                    data=f"'{name}' is already in the room - no action needed"
+                )
             logger.info(f"[Parlant Tool] Successfully added '{name}' to the room")
             return ToolResult(data=f"Successfully added '{name}' to the room")
         except Exception as e:
@@ -291,9 +293,7 @@ def create_parlant_tools() -> list[Any]:
         Returns:
             List of available agents with their names and descriptions
         """
-        logger.info(
-            f"[Parlant Tool] lookup_peers called: session={context.session_id}"
-        )
+        logger.info(f"[Parlant Tool] lookup_peers called: session={context.session_id}")
         tools = get_session_tools(context.session_id)
         if not tools:
             logger.error(
