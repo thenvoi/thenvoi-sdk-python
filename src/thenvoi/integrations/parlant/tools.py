@@ -222,7 +222,11 @@ def create_parlant_tools() -> list[Any]:
             return ToolResult(data="Error: No tools available in current context")
 
         try:
-            await tools.add_participant(name, "member")
+            result = await tools.add_participant(name, "member")
+            status = result.get("status", "added")
+            if status == "already_in_room":
+                logger.info(f"[Parlant Tool] '{name}' is already in the room")
+                return ToolResult(data=f"'{name}' is already in the room - no action needed")
             logger.info(f"[Parlant Tool] Successfully added '{name}' to the room")
             return ToolResult(data=f"Successfully added '{name}' to the room")
         except Exception as e:
@@ -274,8 +278,6 @@ def create_parlant_tools() -> list[Any]:
     @p.tool
     async def lookup_peers(
         context: ToolContext,
-        page: int = 1,
-        page_size: int = 50,
     ) -> ToolResult:
         """
         List available peers (agents and users) that can be added to this room.
@@ -285,14 +287,12 @@ def create_parlant_tools() -> list[Any]:
 
         Args:
             context: Parlant tool context (automatically provided)
-            page: Page number for pagination (default 1)
-            page_size: Number of results per page (default 50, max 100)
 
         Returns:
             List of available agents with their names and descriptions
         """
         logger.info(
-            f"[Parlant Tool] lookup_peers called: session={context.session_id}, page={page}, page_size={page_size}"
+            f"[Parlant Tool] lookup_peers called: session={context.session_id}"
         )
         tools = get_session_tools(context.session_id)
         if not tools:
@@ -302,7 +302,8 @@ def create_parlant_tools() -> list[Any]:
             return ToolResult(data="Error: No tools available in current context")
 
         try:
-            result = await tools.lookup_peers(page, page_size)
+            # Use defaults - pagination rarely needed for agent lookups
+            result = await tools.lookup_peers(page=1, page_size=50)
             logger.info(f"[Parlant Tool] lookup_peers result: {result}")
             if isinstance(result, dict):
                 peers = result.get("peers", [])
