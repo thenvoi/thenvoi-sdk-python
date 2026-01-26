@@ -200,9 +200,3 @@ uv sync --extra parlant
 # or
 pip install 'thenvoi-sdk[parlant]'
 ```
-
-## Learn More
-
-- [Parlant Documentation](https://www.parlant.io/docs)
-- [Parlant GitHub](https://github.com/emcie-co/parlant)
-- [Thenvoi SDK Documentation](https://github.com/thenvoi/thenvoi-sdk-python)
