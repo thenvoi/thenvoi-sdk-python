@@ -17,40 +17,55 @@
 # LangGraph Examples
 # =============================================================================
 
-# Basic Integration (01-03)
+# 01_simple_agent.py
 simple_agent:
   agent_id: ""  # Required: Copy from platform after creating external agent
   api_key: ""   # Required: Copy agent-specific API key from platform
 
+# 02_custom_tools.py
 custom_tools_agent:
   agent_id: ""
   api_key: ""
 
+# 03_custom_personality.py
 custom_personality_agent:
   agent_id: ""
   api_key: ""
 
-# Composition (04-06)
+# 04_calculator_as_tool.py
 calculator_agent:
   agent_id: ""
   api_key: ""
 
+# 05_rag_as_tool.py
 rag_agent:
   agent_id: ""
   api_key: ""
 
+# 06_delegate_to_sql_agent.py
 sql_agent:
   agent_id: ""
   api_key: ""
 
-# Custom Graph Architecture
-custom_agent_with_instructions:
+# 07_tom_agent.py - see tom_agent in Shared Agents section
+# 08_jerry_agent.py - see jerry_agent in Shared Agents section
+
+# =============================================================================
+# Claude SDK Examples
+# =============================================================================
+
+# 01_basic_agent.py
+claude_sdk_basic:
   agent_id: ""
   api_key: ""
 
-custom_graph_agent:
+# 02_extended_thinking.py
+claude_sdk_extended_thinking:
   agent_id: ""
   api_key: ""
+
+# 03_tom_agent.py - see tom_agent in Shared Agents section
+# 04_jerry_agent.py - see jerry_agent in Shared Agents section
 
 # =============================================================================
 # Anthropic Examples
@@ -61,24 +76,22 @@ anthropic_agent:
   agent_id: ""
   api_key: ""
 
-# 03_tom_agent.py - Tom the cat character agent
-tom_agent:
-  agent_id: ""
-  api_key: ""
-
-# 04_jerry_agent.py - Jerry the mouse character agent
-jerry_agent:
-  agent_id: ""
-  api_key: ""
+# 02_custom_instructions.py - see support_agent in Shared Agents section
+# 03_tom_agent.py - see tom_agent in Shared Agents section
+# 04_jerry_agent.py - see jerry_agent in Shared Agents section
 
 # =============================================================================
 # Pydantic AI Examples
 # =============================================================================
 
-# 01_basic_agent.py, 02_custom_instructions.py
+# 01_basic_agent.py
 pydantic_agent:
   agent_id: ""
   api_key: ""
+
+# 02_custom_instructions.py - see support_agent in Shared Agents section
+# 03_tom_agent.py - see tom_agent in Shared Agents section
+# 04_jerry_agent.py - see jerry_agent in Shared Agents section
 
 # =============================================================================
 # Parlant Examples
@@ -88,6 +101,10 @@ pydantic_agent:
 parlant_agent:
   agent_id: ""
   api_key: ""
+
+# 03_support_agent.py - see support_agent in Shared Agents section
+# 04_tom_agent.py - see tom_agent in Shared Agents section
+# 05_jerry_agent.py - see jerry_agent in Shared Agents section
 
 # =============================================================================
 # CrewAI Examples
@@ -118,11 +135,45 @@ editor_agent:
   agent_id: ""
   api_key: ""
 
+# 05_tom_agent.py - see tom_agent in Shared Agents section
+# 06_jerry_agent.py - see jerry_agent in Shared Agents section
+
 # =============================================================================
-# Shared Agents (used by multiple examples)
+# A2A Gateway Examples
 # =============================================================================
 
-# 02_custom_instructions.py (Anthropic), 03_support_agent.py (Parlant)
+# 01_basic_gateway.py, 02_with_demo_agent.py
+gateway_agent:
+  agent_id: ""
+  api_key: ""
+
+# =============================================================================
+# A2A Bridge Examples
+# =============================================================================
+
+# 01_basic_agent.py, 02_with_auth.py
+a2a_agent:
+  agent_id: ""
+  api_key: ""
+
+# =============================================================================
+# Shared Agents (used by multiple frameworks)
+# =============================================================================
+
+# Tom the cat character agent
+# Used by: langgraph/07, claude_sdk/03, anthropic/03, pydantic_ai/03, parlant/04, crewai/05
+tom_agent:
+  agent_id: ""
+  api_key: ""
+
+# Jerry the mouse character agent
+# Used by: langgraph/08, claude_sdk/04, anthropic/04, pydantic_ai/04, parlant/05, crewai/06
+jerry_agent:
+  agent_id: ""
+  api_key: ""
+
+# Support agent for customer service examples
+# Used by: anthropic/02, pydantic_ai/02, parlant/03
 support_agent:
   agent_id: ""
   api_key: ""
