@@ -1,25 +1,11 @@
-"""CrewAI adapter using SimpleAdapter pattern with official CrewAI SDK.
-
-This module integrates the CrewAI framework with the Thenvoi platform for building
-collaborative multi-agent systems.
-
-Important Implementation Notes:
-    - nest_asyncio: This module uses nest_asyncio to bridge synchronous CrewAI tools
-      with async platform methods. The patch is applied lazily on first tool execution
-      via _ensure_nest_asyncio(), but once applied it affects the entire Python process
-      globally, allowing nested event loops throughout the application. This may cause
-      unexpected behavior in testing scenarios or when multiple adapters coexist.
-    - Room Context: Tools access the current room context via a contextvars.ContextVar,
-      which is set automatically when processing messages. This ensures thread-safe
-      access to room-specific tools without requiring the LLM to pass room_id explicitly.
-"""
+"""CrewAI adapter using SimpleAdapter pattern with official CrewAI SDK."""
 
 from __future__ import annotations
 
 import asyncio
-from contextvars import ContextVar
 import json
 import logging
+from contextvars import ContextVar
 from typing import Any, Coroutine, Literal, Type, TypeVar
 
 from pydantic import BaseModel, Field, field_validator
@@ -578,7 +564,7 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
         self._message_history[room_id].append(
             {
                 "role": "user",
-                "content": msg.format_for_llm(),
+                "content": user_message,
             }
         )
 
