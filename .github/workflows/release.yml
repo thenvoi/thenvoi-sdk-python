@@ -43,6 +43,10 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Configure git to use HTTPS for GitHub
+        if: steps.release.outputs.release_created == 'true'
+        run: git config --global url."https://github.com/".insteadOf "git@github.com:"
+
       - name: Install uv
         if: steps.release.outputs.release_created == 'true'
         uses: astral-sh/setup-uv@v7
