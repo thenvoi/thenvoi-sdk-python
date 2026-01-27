@@ -1,17 +1,33 @@
-"""CrewAI adapter using SimpleAdapter pattern with official CrewAI SDK."""
+"""CrewAI adapter using SimpleAdapter pattern with official CrewAI SDK.
+
+This module integrates the CrewAI framework with the Thenvoi platform for building
+collaborative multi-agent systems.
+
+Important Implementation Notes:
+    - nest_asyncio: This module uses nest_asyncio to bridge synchronous CrewAI tools
+      with async platform methods. The patch is applied lazily on first tool execution
+      via _ensure_nest_asyncio(), but once applied it affects the entire Python process
+      globally, allowing nested event loops throughout the application. This may cause
+      unexpected behavior in testing scenarios or when multiple adapters coexist.
+    - Room Context: Tools access the current room context via a contextvars.ContextVar,
+      which is set automatically when processing messages. This ensures thread-safe
+      access to room-specific tools without requiring the LLM to pass room_id explicitly.
+"""
 
 from __future__ import annotations
 
 import asyncio
+from contextvars import ContextVar
 import json
 import logging
 from typing import Any, Coroutine, Literal, Type, TypeVar
+
+from pydantic import BaseModel, Field, field_validator
 
 try:
     from crewai import Agent as CrewAIAgent
     from crewai import LLM
     from crewai.tools import BaseTool
-    from pydantic import BaseModel, Field, field_validator
     import nest_asyncio
 except ImportError as e:
     raise ImportError(
@@ -30,7 +46,15 @@ logger = logging.getLogger(__name__)
 
 T = TypeVar("T")
 
+# Module-level state for nest_asyncio patch.
+# See module docstring for important notes about global process impact.
 _nest_asyncio_applied = False
+
+# Context variable for thread-safe room context access.
+# Set automatically when processing messages, accessed by tools.
+_current_room_context: ContextVar[tuple[str, AgentToolsProtocol] | None] = ContextVar(
+    "_current_room_context", default=None
+)
 
 MessageType = Literal["thought", "error", "task"]
 
@@ -75,8 +99,7 @@ Call `send_event` with message_type="thought" BEFORE every action to share your 
 def _ensure_nest_asyncio() -> None:
     """Apply nest_asyncio patch lazily on first use.
 
-    Note: This affects the entire Python process globally. Once applied,
-    nested event loops are allowed throughout the application.
+    See module docstring for important notes about global process impact.
     """
     global _nest_asyncio_applied
     if not _nest_asyncio_applied:
@@ -211,41 +234,45 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
             f"(model={self.model}, role={role})"
         )
 
-    def _get_room_tools(self, room_id: str) -> AgentToolsProtocol | None:
-        """Get platform tools for a room."""
-        return self._room_tools.get(room_id)
+    def _get_current_room_context(self) -> tuple[str, AgentToolsProtocol] | None:
+        """Get current room context from context variable.
+
+        Returns:
+            Tuple of (room_id, tools) if context is set, None otherwise.
+        """
+        return _current_room_context.get()
 
     def _execute_tool(
         self,
-        room_id: str,
         tool_name: str,
         coro_factory: Any,
     ) -> str:
         """Execute a tool with common error handling.
 
         Args:
-            room_id: The room ID for tool context
             tool_name: Name of the tool for error messages
             coro_factory: Callable that takes tools and returns a coroutine
 
         Returns:
             JSON string with status and result/error
         """
-        tools = self._get_room_tools(room_id)
-        if not tools:
+        context = self._get_current_room_context()
+        if not context:
             return json.dumps(
                 {
                     "status": "error",
-                    "message": f"No tools for room {room_id}",
+                    "message": "No room context available - tool called outside message handling",
                 }
             )
+
+        room_id, tools = context
 
         async def _execute() -> str:
             try:
                 return await coro_factory(tools)
             except Exception as e:
                 error_msg = str(e)
-                logger.error(f"{tool_name} failed: {error_msg}")
+                logger.error(f"{tool_name} failed in room {room_id}: {error_msg}")
                 return json.dumps({"status": "error", "message": error_msg})
 
         return _run_async(_execute())
@@ -284,11 +311,15 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
                 )
 
     def _create_crewai_tools(self) -> list[BaseTool]:
-        """Create CrewAI-compatible tools for Thenvoi platform."""
+        """Create CrewAI-compatible tools for Thenvoi platform.
+
+        Tools access the current room context via a context variable that is set
+        automatically when processing messages. This removes the need for the LLM
+        to pass room_id explicitly, making tool calls more reliable.
+        """
         adapter = self
 
         class SendMessageInput(BaseModel):
-            room_id: str = Field(..., description="The room ID to send the message to")
             content: str = Field(..., description="The message content to send")
             mentions: str = Field(
                 default="[]",
@@ -303,7 +334,6 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
                 return v
 
         class SendEventInput(BaseModel):
-            room_id: str = Field(..., description="The room ID to send the event to")
             content: str = Field(..., description="Human-readable event content")
             message_type: MessageType = Field(
                 default="thought",
@@ -311,9 +341,6 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
             )
 
         class AddParticipantInput(BaseModel):
-            room_id: str = Field(
-                ..., description="The room ID to add the participant to"
-            )
             participant_name: str = Field(
                 ...,
                 description="Name of participant to add (must match from lookup_peers)",
@@ -323,25 +350,18 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
             )
 
         class RemoveParticipantInput(BaseModel):
-            room_id: str = Field(
-                ..., description="The room ID to remove the participant from"
-            )
             participant_name: str = Field(
                 ..., description="Name of the participant to remove"
             )
 
         class GetParticipantsInput(BaseModel):
-            room_id: str = Field(
-                ..., description="The room ID to get participants from"
-            )
+            pass  # No parameters needed - room context from context variable
 
         class LookupPeersInput(BaseModel):
-            room_id: str = Field(..., description="The room ID for context")
             page: int = Field(default=1, description="Page number")
             page_size: int = Field(default=50, description="Items per page (max 100)")
 
         class CreateChatroomInput(BaseModel):
-            room_id: str = Field(..., description="The current room ID for context")
             task_id: str = Field(
                 default="", description="Associated task ID (optional)"
             )
@@ -351,8 +371,7 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
             description: str = get_tool_description("send_message")
             args_schema: Type[BaseModel] = SendMessageInput
 
-            def _run(self, *args: Any, **kwargs: Any) -> str:
-                room_id: str = kwargs.get("room_id", "")
+            def _run(self, **kwargs: Any) -> str:
                 content: str = kwargs.get("content", "")
                 mentions: str = kwargs.get("mentions", "[]")
 
@@ -371,15 +390,14 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
                     await adapter._report_tool_result(tools, "send_message", "success")
                     return json.dumps({"status": "success", "message": "Message sent"})
 
-                return adapter._execute_tool(room_id, "send_message", execute)
+                return adapter._execute_tool("send_message", execute)
 
         class SendEventTool(BaseTool):
             name: str = "send_event"
             description: str = get_tool_description("send_event")
             args_schema: Type[BaseModel] = SendEventInput
 
-            def _run(self, *args: Any, **kwargs: Any) -> str:
-                room_id: str = kwargs.get("room_id", "")
+            def _run(self, **kwargs: Any) -> str:
                 content: str = kwargs.get("content", "")
                 message_type: str = kwargs.get("message_type", "thought")
 
@@ -387,15 +405,14 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
                     await tools.send_event(content, message_type)
                     return json.dumps({"status": "success", "message": "Event sent"})
 
-                return adapter._execute_tool(room_id, "send_event", execute)
+                return adapter._execute_tool("send_event", execute)
 
         class AddParticipantTool(BaseTool):
             name: str = "add_participant"
             description: str = get_tool_description("add_participant")
             args_schema: Type[BaseModel] = AddParticipantInput
 
-            def _run(self, *args: Any, **kwargs: Any) -> str:
-                room_id: str = kwargs.get("room_id", "")
+            def _run(self, **kwargs: Any) -> str:
                 participant_name: str = kwargs.get("participant_name", "")
                 role: str = kwargs.get("role", "member")
 
@@ -409,15 +426,14 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
                     await adapter._report_tool_result(tools, "add_participant", result)
                     return json.dumps({"status": "success", **result})
 
-                return adapter._execute_tool(room_id, "add_participant", execute)
+                return adapter._execute_tool("add_participant", execute)
 
         class RemoveParticipantTool(BaseTool):
             name: str = "remove_participant"
             description: str = get_tool_description("remove_participant")
             args_schema: Type[BaseModel] = RemoveParticipantInput
 
-            def _run(self, *args: Any, **kwargs: Any) -> str:
-                room_id: str = kwargs.get("room_id", "")
+            def _run(self, **kwargs: Any) -> str:
                 participant_name: str = kwargs.get("participant_name", "")
 
                 async def execute(tools: AgentToolsProtocol) -> str:
@@ -432,16 +448,14 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
                     )
                     return json.dumps({"status": "success", **result})
 
-                return adapter._execute_tool(room_id, "remove_participant", execute)
+                return adapter._execute_tool("remove_participant", execute)
 
         class GetParticipantsTool(BaseTool):
             name: str = "get_participants"
             description: str = get_tool_description("get_participants")
             args_schema: Type[BaseModel] = GetParticipantsInput
 
-            def _run(self, *args: Any, **kwargs: Any) -> str:
-                room_id: str = kwargs.get("room_id", "")
-
+            def _run(self, **_kwargs: Any) -> str:
                 async def execute(tools: AgentToolsProtocol) -> str:
                     participants = await tools.get_participants()
                     return json.dumps(
@@ -452,15 +466,14 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
                         }
                     )
 
-                return adapter._execute_tool(room_id, "get_participants", execute)
+                return adapter._execute_tool("get_participants", execute)
 
         class LookupPeersTool(BaseTool):
             name: str = "lookup_peers"
             description: str = get_tool_description("lookup_peers")
             args_schema: Type[BaseModel] = LookupPeersInput
 
-            def _run(self, *args: Any, **kwargs: Any) -> str:
-                room_id: str = kwargs.get("room_id", "")
+            def _run(self, **kwargs: Any) -> str:
                 page: int = kwargs.get("page", 1)
                 page_size: int = kwargs.get("page_size", 50)
 
@@ -468,15 +481,14 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
                     result = await tools.lookup_peers(page, page_size)
                     return json.dumps({"status": "success", **result})
 
-                return adapter._execute_tool(room_id, "lookup_peers", execute)
+                return adapter._execute_tool("lookup_peers", execute)
 
         class CreateChatroomTool(BaseTool):
             name: str = "create_chatroom"
             description: str = get_tool_description("create_chatroom")
             args_schema: Type[BaseModel] = CreateChatroomInput
 
-            def _run(self, *args: Any, **kwargs: Any) -> str:
-                room_id: str = kwargs.get("room_id", "")
+            def _run(self, **kwargs: Any) -> str:
                 task_id: str = kwargs.get("task_id", "")
 
                 async def execute(tools: AgentToolsProtocol) -> str:
@@ -489,7 +501,7 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
                         }
                     )
 
-                return adapter._execute_tool(room_id, "create_chatroom", execute)
+                return adapter._execute_tool("create_chatroom", execute)
 
         return [
             SendMessageTool(),
@@ -518,6 +530,10 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
             logger.error("CrewAI agent not initialized")
             return
 
+        # Set context variable for tool access (thread-safe room context)
+        _current_room_context.set((room_id, tools))
+
+        # Keep reference for cleanup
         self._room_tools[room_id] = tools
 
         if is_session_bootstrap:
@@ -543,7 +559,7 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
             messages.append(
                 {
                     "role": "user",
-                    "content": f"[room_id: {room_id}][Previous conversation:]\n{history_text}",
+                    "content": f"[Previous conversation:]\n{history_text}",
                 }
             )
 
@@ -551,12 +567,12 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
             messages.append(
                 {
                     "role": "user",
-                    "content": f"[room_id: {room_id}][System]: {participants_msg}",
+                    "content": f"[System]: {participants_msg}",
                 }
             )
             logger.info(f"Room {room_id}: Participants updated")
 
-        user_message = f"[room_id: {room_id}]{msg.format_for_llm()}"
+        user_message = msg.format_for_llm()
         messages.append({"role": "user", "content": user_message})
 
         self._message_history[room_id].append(
@@ -573,6 +589,9 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
         )
 
         try:
+            # CrewAI's kickoff_async expects a string prompt but also accepts
+            # a list of message dicts for multi-turn context. The type stub
+            # is overly restrictive, hence the ignore.
             result = await self._crewai_agent.kickoff_async(messages)  # type: ignore[arg-type]
 
             if result and result.raw:
@@ -592,6 +611,10 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
             logger.error(f"Error processing message: {e}", exc_info=True)
             await self._report_error(tools, str(e))
             raise
+        finally:
+            # Clear context after processing (defensive, not strictly necessary
+            # since context vars are task-local in asyncio)
+            _current_room_context.set(None)
 
         logger.debug(
             f"Message {msg.id} processed successfully "

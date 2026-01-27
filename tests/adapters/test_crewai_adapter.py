@@ -410,7 +410,8 @@ class TestParticipantsUpdate:
 
 
 class TestToolExecution:
-    def test_tool_returns_error_for_unknown_room(self, CrewAIAdapter, crewai_mocks):
+    def test_tool_returns_error_without_room_context(self, CrewAIAdapter, crewai_mocks):
+        """Tools return error when called outside message handling (no context set)."""
         import asyncio
 
         crewai_mocks.Agent.reset_mock()
@@ -422,16 +423,16 @@ class TestToolExecution:
         tools = call_kwargs["tools"]
         send_message_tool = next(t for t in tools if t.name == "send_message")
 
-        result = send_message_tool._run(
-            room_id="unknown-room", content="Hello!", mentions="[]"
-        )
+        # Call tool without setting context variable (simulates call outside message handling)
+        result = send_message_tool._run(content="Hello!", mentions="[]")
 
         result_data = json.loads(result)
         assert result_data["status"] == "error"
-        assert "No tools for room" in result_data["message"]
+        assert "No room context available" in result_data["message"]
 
     @pytest.mark.asyncio
     async def test_all_tools_have_correct_schemas(self, CrewAIAdapter, crewai_mocks):
+        """Tools no longer require room_id - context is managed via context variable."""
         crewai_mocks.Agent.reset_mock()
 
         adapter = CrewAIAdapter()
@@ -440,22 +441,25 @@ class TestToolExecution:
         call_kwargs = crewai_mocks.Agent.call_args[1]
         tools = call_kwargs["tools"]
 
+        # send_message should have content and mentions, but NOT room_id
         send_message = next(t for t in tools if t.name == "send_message")
         assert send_message.args_schema is not None
         schema_fields = send_message.args_schema.model_fields
-        assert "room_id" in schema_fields
+        assert "room_id" not in schema_fields
         assert "content" in schema_fields
         assert "mentions" in schema_fields
 
+        # add_participant should have participant_name and role, but NOT room_id
         add_participant = next(t for t in tools if t.name == "add_participant")
         schema_fields = add_participant.args_schema.model_fields
-        assert "room_id" in schema_fields
+        assert "room_id" not in schema_fields
         assert "participant_name" in schema_fields
         assert "role" in schema_fields
 
+        # lookup_peers should have page and page_size, but NOT room_id
         lookup_peers = next(t for t in tools if t.name == "lookup_peers")
         schema_fields = lookup_peers.args_schema.model_fields
-        assert "room_id" in schema_fields
+        assert "room_id" not in schema_fields
         assert "page" in schema_fields
         assert "page_size" in schema_fields
 
@@ -478,10 +482,12 @@ class TestToolExecution:
         message_type_field = schema_fields["message_type"]
         assert message_type_field.default == "thought"
 
-    def test_successful_tool_execution_with_room_tools(
+    def test_successful_tool_execution_with_room_context(
         self, CrewAIAdapter, crewai_mocks, mock_tools
     ):
+        """Tools work when context variable is set (simulates call during message handling)."""
         import asyncio
+        import importlib
         import sys
 
         crewai_mocks.Agent.reset_mock()
@@ -489,7 +495,9 @@ class TestToolExecution:
         adapter = CrewAIAdapter()
         asyncio.run(adapter.on_started("TestBot", "Test bot"))
 
-        adapter._room_tools["room-123"] = mock_tools
+        # Set the context variable (simulates what on_message does)
+        module = importlib.import_module("thenvoi.adapters.crewai")
+        module._current_room_context.set(("room-123", mock_tools))
 
         nest_mock = sys.modules["nest_asyncio"]
         nest_mock.reset_mock()
@@ -498,17 +506,21 @@ class TestToolExecution:
         tools = call_kwargs["tools"]
         get_participants_tool = next(t for t in tools if t.name == "get_participants")
 
-        result = get_participants_tool._run(room_id="room-123")
+        result = get_participants_tool._run()
 
         result_data = json.loads(result)
         assert result_data["status"] == "success"
         assert "participants" in result_data
         assert result_data["count"] == 1
 
+        # Clean up context
+        module._current_room_context.set(None)
+
     def test_tool_execution_handles_exception(
         self, CrewAIAdapter, crewai_mocks, mock_tools
     ):
         import asyncio
+        import importlib
 
         crewai_mocks.Agent.reset_mock()
 
@@ -516,17 +528,23 @@ class TestToolExecution:
         asyncio.run(adapter.on_started("TestBot", "Test bot"))
 
         mock_tools.get_participants.side_effect = Exception("Connection failed")
-        adapter._room_tools["room-123"] = mock_tools
+
+        # Set the context variable
+        module = importlib.import_module("thenvoi.adapters.crewai")
+        module._current_room_context.set(("room-123", mock_tools))
 
         call_kwargs = crewai_mocks.Agent.call_args[1]
         tools = call_kwargs["tools"]
         get_participants_tool = next(t for t in tools if t.name == "get_participants")
 
-        result = get_participants_tool._run(room_id="room-123")
+        result = get_participants_tool._run()
 
         result_data = json.loads(result)
         assert result_data["status"] == "error"
         assert "Connection failed" in result_data["message"]
+
+        # Clean up context
+        module._current_room_context.set(None)
 
 
 class TestExecutionReporting:
@@ -542,21 +560,27 @@ class TestExecutionReporting:
         self, CrewAIAdapter, crewai_mocks, mock_tools
     ):
         import asyncio
+        import importlib
 
         crewai_mocks.Agent.reset_mock()
 
         adapter = CrewAIAdapter(enable_execution_reporting=True)
         asyncio.run(adapter.on_started("TestBot", "Test bot"))
 
-        adapter._room_tools["room-123"] = mock_tools
+        # Set the context variable (simulates what on_message does)
+        module = importlib.import_module("thenvoi.adapters.crewai")
+        module._current_room_context.set(("room-123", mock_tools))
 
         call_kwargs = crewai_mocks.Agent.call_args[1]
         tools = call_kwargs["tools"]
         send_message_tool = next(t for t in tools if t.name == "send_message")
 
-        send_message_tool._run(room_id="room-123", content="Hello!", mentions="[]")
+        send_message_tool._run(content="Hello!", mentions="[]")
 
         assert mock_tools.send_event.call_count >= 2
+
+        # Clean up context
+        module._current_room_context.set(None)
 
 
 class TestLazyNestAsyncio:
@@ -641,7 +665,6 @@ class TestMentionsValidator:
         input_model = send_message_tool.args_schema
 
         instance = input_model(
-            room_id="room-123",
             content="Hello!",
             mentions=["Alice", "Bob"],
         )
@@ -662,7 +685,6 @@ class TestMentionsValidator:
         input_model = send_message_tool.args_schema
 
         instance = input_model(
-            room_id="room-123",
             content="Hello!",
             mentions='["Alice"]',
         )
