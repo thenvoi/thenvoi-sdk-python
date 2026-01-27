@@ -26,6 +26,7 @@ from thenvoi.core.protocols import AgentToolsProtocol
 from thenvoi.core.simple_adapter import SimpleAdapter
 from thenvoi.core.types import PlatformMessage
 from thenvoi.converters.crewai import CrewAIHistoryConverter, CrewAIMessages
+from thenvoi.runtime.custom_tools import CustomToolDef, get_custom_tool_name
 from thenvoi.runtime.tools import get_tool_description
 
 logger = logging.getLogger(__name__)
@@ -144,6 +145,7 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
         max_rpm: int | None = None,
         allow_delegation: bool = False,
         history_converter: CrewAIHistoryConverter | None = None,
+        additional_tools: list[CustomToolDef] | None = None,
     ):
         """Initialize the CrewAI adapter.
 
@@ -160,6 +162,9 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
             max_rpm: Maximum requests per minute (rate limiting)
             allow_delegation: Whether to allow task delegation to other agents
             history_converter: Custom history converter (optional)
+            additional_tools: List of custom tools as (InputModel, callable) tuples.
+                Each InputModel is a Pydantic model defining the tool's input schema,
+                and the callable is the function to execute (sync or async).
         """
         super().__init__(
             history_converter=history_converter or CrewAIHistoryConverter()
@@ -179,6 +184,7 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
         self._crewai_agent: CrewAIAgent | None = None
         self._room_tools: dict[str, AgentToolsProtocol] = {}
         self._message_history: dict[str, list[dict[str, Any]]] = {}
+        self._custom_tools: list[CustomToolDef] = additional_tools or []
 
     async def on_started(self, agent_name: str, agent_description: str) -> None:
         """Initialize CrewAI agent after metadata is fetched."""
@@ -295,6 +301,91 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
                     content=json.dumps({"tool": tool_name, "result": result}),
                     message_type="tool_result",
                 )
+
+    def _convert_custom_tools_to_crewai(self) -> list[BaseTool]:
+        """Convert CustomToolDef tuples to CrewAI BaseTool instances.
+
+        Each custom tool is wrapped in a dynamically created BaseTool subclass
+        that handles sync/async bridging and error handling.
+
+        Returns:
+            List of CrewAI BaseTool instances.
+        """
+        adapter = self
+        crewai_tools: list[BaseTool] = []
+
+        for input_model, func in self._custom_tools:
+            tool_name = get_custom_tool_name(input_model)
+            tool_description = input_model.__doc__ or f"Execute {tool_name}"
+
+            # Create a closure to capture the current input_model and func
+            def make_tool(
+                tool_name_param: str,
+                tool_desc_param: str,
+                model: type[BaseModel],
+                handler: Any,
+            ) -> BaseTool:
+                # Capture values in local variables for the closure
+                _tool_name = tool_name_param
+                _tool_desc = tool_desc_param
+
+                class CustomCrewAITool(BaseTool):
+                    name: str = _tool_name  # type: ignore[misc]
+                    description: str = _tool_desc  # type: ignore[misc]
+                    args_schema: Type[BaseModel] = model
+
+                    def _run(self, **kwargs: Any) -> str:
+                        async def execute(_tools: AgentToolsProtocol) -> str:
+                            try:
+                                # Validate input using Pydantic model
+                                validated = model.model_validate(kwargs)
+
+                                # Report tool call if enabled
+                                await adapter._report_tool_call(
+                                    _tools, _tool_name, kwargs
+                                )
+
+                                # Execute the handler (sync or async)
+                                if asyncio.iscoroutinefunction(handler):
+                                    result = await handler(validated)
+                                else:
+                                    result = handler(validated)
+
+                                # Report tool result if enabled
+                                await adapter._report_tool_result(
+                                    _tools, _tool_name, result
+                                )
+
+                                # Return JSON-serialized result
+                                if isinstance(result, str):
+                                    return json.dumps(
+                                        {"status": "success", "result": result}
+                                    )
+                                return json.dumps(
+                                    {"status": "success", "result": result},
+                                    default=str,
+                                )
+                            except Exception as e:
+                                error_msg = str(e)
+                                logger.error(
+                                    f"Custom tool {_tool_name} failed: {error_msg}"
+                                )
+                                await adapter._report_tool_result(
+                                    _tools, _tool_name, error_msg, is_error=True
+                                )
+                                return json.dumps(
+                                    {"status": "error", "message": error_msg}
+                                )
+
+                        return adapter._execute_tool(_tool_name, execute)
+
+                return CustomCrewAITool()
+
+            crewai_tools.append(
+                make_tool(tool_name, tool_description, input_model, func)
+            )
+
+        return crewai_tools
 
     def _create_crewai_tools(self) -> list[BaseTool]:
         """Create CrewAI-compatible tools for Thenvoi platform.
@@ -489,7 +580,7 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
 
                 return adapter._execute_tool("create_chatroom", execute)
 
-        return [
+        platform_tools: list[BaseTool] = [
             SendMessageTool(),
             SendEventTool(),
             AddParticipantTool(),
@@ -498,6 +589,16 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
             LookupPeersTool(),
             CreateChatroomTool(),
         ]
+
+        # Add custom tools converted to CrewAI format
+        custom_tools = self._convert_custom_tools_to_crewai()
+        if custom_tools:
+            logger.debug(
+                f"Added {len(custom_tools)} custom tools: "
+                f"{[t.name for t in custom_tools]}"
+            )
+
+        return platform_tools + custom_tools
 
     async def on_message(
         self,
