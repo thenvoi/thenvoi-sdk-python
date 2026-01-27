@@ -10,6 +10,8 @@ Run with:
 See also: https://github.com/emcie-co/parlant/blob/develop/examples/travel_voice_agent.py
 """
 
+from __future__ import annotations
+
 import asyncio
 import logging
 import os
