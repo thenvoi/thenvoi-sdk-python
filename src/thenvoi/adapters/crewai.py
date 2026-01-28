@@ -115,7 +115,10 @@ def _run_async(coro: Coroutine[Any, Any, T]) -> T:
     try:
         loop = asyncio.get_running_loop()
         return loop.run_until_complete(coro)
-    except RuntimeError:
+    except RuntimeError as e:
+        # Only catch "no running event loop" errors, re-raise others
+        if "no running event loop" not in str(e).lower():
+            raise
         return asyncio.run(coro)
 
 
@@ -465,8 +468,8 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
             page_size: int = Field(default=50, description="Items per page (max 100)")
 
         class CreateChatroomInput(BaseModel):
-            task_id: str = Field(
-                default="", description="Associated task ID (optional)"
+            task_id: str | None = Field(
+                default=None, description="Associated task ID (optional)"
             )
 
         class SendMessageTool(BaseTool):
@@ -599,13 +602,13 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
             args_schema: Type[BaseModel] = CreateChatroomInput
 
             def _run(self, *_args: Any, **kwargs: Any) -> Any:
-                task_id: str = kwargs.get("task_id", "")
+                task_id: str | None = kwargs.get("task_id")
 
                 async def execute(tools: AgentToolsProtocol) -> str:
                     await adapter._report_tool_call(
-                        tools, "create_chatroom", {"task_id": task_id or None}
+                        tools, "create_chatroom", {"task_id": task_id}
                     )
-                    new_room_id = await tools.create_chatroom(task_id or None)
+                    new_room_id = await tools.create_chatroom(task_id)
                     result = {
                         "status": "success",
                         "message": "Chat room created",

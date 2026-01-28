@@ -40,10 +40,11 @@ def crewai_mocks(monkeypatch):
     monkeypatch.setitem(sys.modules, "crewai.tools", mock_crewai_tools_module)
     monkeypatch.setitem(sys.modules, "nest_asyncio", mock_nest_asyncio)
 
-    yield mock_crewai_module
-
-    # Clean up the adapter module to force reimport on next test
-    sys.modules.pop("thenvoi.adapters.crewai", None)
+    try:
+        yield mock_crewai_module
+    finally:
+        # Clean up the adapter module to force reimport on next test
+        sys.modules.pop("thenvoi.adapters.crewai", None)
 
 
 @pytest.fixture
