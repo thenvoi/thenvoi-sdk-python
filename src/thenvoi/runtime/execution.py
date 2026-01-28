@@ -52,6 +52,11 @@ class Execution(Protocol):
     Implementations handle what happens INSIDE a room.
     The default ExecutionContext uses context accumulation.
     Custom implementations (e.g., Letta) can use persistent agents.
+
+    Migration Note (v0.x.x):
+        The stop() method signature changed from `async def stop() -> None`
+        to `async def stop(timeout=None) -> bool`. Custom implementations
+        should update their signature to support graceful shutdown.
     """
 
     room_id: str
@@ -60,8 +65,17 @@ class Execution(Protocol):
         """Start the execution context."""
         ...
 
-    async def stop(self) -> None:
-        """Stop the execution context."""
+    async def stop(self, timeout: float | None = None) -> bool:
+        """
+        Stop the execution context.
+
+        Args:
+            timeout: Optional seconds to wait for graceful shutdown.
+                     None means stop immediately.
+
+        Returns:
+            True if stopped gracefully, False if cancelled mid-processing.
+        """
         ...
 
     async def on_event(self, event: PlatformEvent) -> None:
@@ -147,6 +161,10 @@ class ExecutionContext:
         )
         self._sync_complete = False  # True after sync with /next completes
 
+        # Graceful shutdown: event signaled when state becomes idle
+        self._idle_event: asyncio.Event = asyncio.Event()
+        self._idle_event.set()  # Start as idle
+
     @property
     def thread_id(self) -> str:
         """LangGraph thread_id = room_id."""
@@ -156,6 +174,19 @@ class ExecutionContext:
     def is_processing(self) -> bool:
         """Check if context is currently processing an event."""
         return self.state == "processing"
+
+    def _set_state(self, new_state: Literal["starting", "idle", "processing"]) -> None:
+        """
+        Set the execution state and update the idle event accordingly.
+
+        This ensures the idle event is properly synchronized with state changes
+        for graceful shutdown coordination.
+        """
+        self.state = new_state
+        if new_state == "processing":
+            self._idle_event.clear()
+        else:
+            self._idle_event.set()
 
     @property
     def is_running(self) -> bool:
@@ -198,24 +229,68 @@ class ExecutionContext:
             name=f"execution-{self.room_id}",
         )
 
-    async def stop(self) -> None:
+    async def stop(self, timeout: float | None = None) -> bool:
         """
-        Stop processing instantly via asyncio cancellation.
+        Stop processing with optional graceful timeout.
 
-        Uses task.cancel() which interrupts queue.get() immediately.
+        If timeout is provided, waits up to that many seconds for current
+        message processing to complete before cancelling. If timeout is None,
+        cancels immediately via task.cancel().
+
+        Args:
+            timeout: Optional seconds to wait for current processing to complete.
+                     None means cancel immediately.
+
+        Returns:
+            True if stopped gracefully (processing completed or was idle),
+            False if had to cancel mid-processing after timeout.
         """
         if self._process_loop_task is None:
-            return
+            return True
 
         logger.info(f"Stopping ExecutionContext for room: {self.room_id}")
 
+        graceful = True
+
+        if timeout is not None and self.is_processing:
+            # Wait for current processing to complete
+            graceful = await self._wait_for_idle(timeout)
+            if not graceful:
+                logger.warning(
+                    f"ExecutionContext {self.room_id}: Timeout waiting for processing, "
+                    f"cancelling mid-execution"
+                )
+
+        # Signal stop and cancel the task
+        self._is_running = False
         self._process_loop_task.cancel()
         try:
             await self._process_loop_task
         except asyncio.CancelledError:
             pass
         self._process_loop_task = None
-        self._is_running = False
+        return graceful
+
+    async def _wait_for_idle(self, timeout: float) -> bool:
+        """
+        Wait for the execution to become idle (not processing).
+
+        Uses event-based waiting for efficient notification when processing completes.
+
+        Args:
+            timeout: Maximum seconds to wait.
+
+        Returns:
+            True if became idle within timeout, False if timed out.
+        """
+        if not self.is_processing:
+            return True
+
+        try:
+            await asyncio.wait_for(self._idle_event.wait(), timeout=timeout)
+            return True
+        except asyncio.TimeoutError:
+            return False
 
     async def on_event(self, event: PlatformEvent) -> None:
         """
@@ -468,7 +543,7 @@ class ExecutionContext:
         try:
             # Phase 1: Sync via /next until we catch up with WebSocket
             await self._synchronize_with_next()
-            self.state = "idle"
+            self._set_state("idle")
             logger.info(
                 f"ExecutionContext {self.room_id}: Synchronized, switching to WebSocket"
             )
@@ -607,7 +682,7 @@ class ExecutionContext:
             )
             return
 
-        self.state = "processing"
+        self._set_state("processing")
         logger.info(f"Processing backlog message {msg_id} in room {self.room_id}")
 
         try:
@@ -686,7 +761,7 @@ class ExecutionContext:
             await self.link.mark_failed(self.room_id, msg_id, str(e))
 
         finally:
-            self.state = "idle"
+            self._set_state("idle")
 
     def _drain_duplicate_from_queue(self, msg_id: str) -> None:
         """
@@ -758,7 +833,7 @@ class ExecutionContext:
                 )
                 return
 
-        self.state = "processing"
+        self._set_state("processing")
         logger.debug(f"Processing {event.type} in room {self.room_id}")
 
         try:
@@ -798,4 +873,4 @@ class ExecutionContext:
                 await self.link.mark_failed(self.room_id, msg_id, str(e))
 
         finally:
-            self.state = "idle"
+            self._set_state("idle")
