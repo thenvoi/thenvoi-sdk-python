@@ -16,6 +16,7 @@ import logging
 import os
 import sys
 
+import parlant.sdk as p
 from dotenv import load_dotenv
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
@@ -25,6 +26,7 @@ from setup_logging import setup_logging
 from thenvoi import Agent
 from thenvoi.adapters import ParlantAdapter
 from thenvoi.config import load_agent_config
+from thenvoi.integrations.parlant.tools import create_parlant_tools
 
 setup_logging()
 logger = logging.getLogger(__name__)
@@ -44,23 +46,39 @@ async def main() -> None:
     # Load Jerry's credentials from agent_config.yaml
     agent_id, api_key = load_agent_config("jerry_agent")
 
-    # Create adapter with Jerry's character prompt
-    adapter = ParlantAdapter(
-        model="gpt-4o",
-        custom_section=generate_jerry_prompt("Jerry"),
-    )
+    async with p.Server(nlp_service=p.NLPServices.openai) as server:
+        parlant_tools = create_parlant_tools()
 
-    # Create and start agent
-    agent = Agent.create(
-        adapter=adapter,
-        agent_id=agent_id,
-        api_key=api_key,
-        ws_url=ws_url,
-        rest_url=rest_url,
-    )
+        # Create Parlant agent with Jerry's personality
+        parlant_agent = await server.create_agent(
+            name="Jerry",
+            description=generate_jerry_prompt("Jerry"),
+        )
 
-    logger.info("Jerry is cozy in his hole, watching for Tom...")
-    await agent.run()
+        # Add guideline for using tools
+        await parlant_agent.create_guideline(
+            condition="User sends a message or asks something",
+            action="Respond using send_message with the user's name in mentions. Stay in character as Jerry the mouse.",
+            tools=parlant_tools,
+        )
+
+        # Create adapter with Parlant server and agent
+        adapter = ParlantAdapter(
+            server=server,
+            parlant_agent=parlant_agent,
+        )
+
+        # Create and start agent
+        agent = Agent.create(
+            adapter=adapter,
+            agent_id=agent_id,
+            api_key=api_key,
+            ws_url=ws_url,
+            rest_url=rest_url,
+        )
+
+        logger.info("Jerry is cozy in his hole, watching for Tom...")
+        await agent.run()
 
 
 if __name__ == "__main__":

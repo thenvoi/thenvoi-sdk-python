@@ -9,10 +9,12 @@ Parlant provides:
 - **Built-in Guardrails**: Prevent hallucination and off-topic responses
 - **Explainability**: Understand why agents make specific decisions
 - **Production-Ready**: Designed for customer-facing deployments
+- **Session Management**: Proper conversation context through the SDK
 
 ## Prerequisites
 
-**Install with Parlant support:**
+### Install with Parlant support
+
 ```bash
 uv add "git+https://github.com/thenvoi/thenvoi-sdk-python.git[parlant]"
 ```
@@ -26,27 +28,38 @@ uv sync --extra parlant
 
 ## Quick Start
 
+The adapter uses the Parlant SDK directly - no separate HTTP server needed:
+
 ```python
+import parlant.sdk as p
 from thenvoi import Agent
 from thenvoi.adapters import ParlantAdapter
 
-adapter = ParlantAdapter(
-    model="gpt-4o",
-    custom_section="You are a helpful assistant.",
-    guidelines=[
-        {
-            "condition": "User asks for help",
-            "action": "Acknowledge their request and provide detailed assistance",
-        }
-    ],
-)
+async with p.Server() as server:
+    # Create Parlant agent with guidelines
+    parlant_agent = await server.create_agent(
+        name="Assistant",
+        description="A helpful assistant.",
+    )
 
-agent = Agent.create(
-    adapter=adapter,
-    agent_id="your-agent-id",
-    api_key="your-api-key",
-)
-await agent.run()
+    await parlant_agent.create_guideline(
+        condition="User asks for help",
+        action="Acknowledge their request and provide detailed assistance",
+    )
+
+    # Create Thenvoi adapter
+    adapter = ParlantAdapter(
+        server=server,
+        parlant_agent=parlant_agent,
+    )
+
+    # Create and run agent
+    agent = Agent.create(
+        adapter=adapter,
+        agent_id="your-agent-id",
+        api_key="your-api-key",
+    )
+    await agent.run()
 ```
 
 ---
@@ -55,7 +68,7 @@ await agent.run()
 
 | File | Description |
 |------|-------------|
-| `01_basic_agent.py` | **Minimal setup** - Simple agent with ParlantAdapter. |
+| `01_basic_agent.py` | **Minimal setup** - Simple agent with Parlant SDK. |
 | `02_with_guidelines.py` | **Behavioral guidelines** - Agent with condition/action rules. |
 | `03_support_agent.py` | **Customer support** - Realistic support agent with specialized guidelines. |
 
@@ -66,25 +79,17 @@ await agent.run()
 Parlant's guidelines are the key differentiator. They ensure consistent behavior through condition/action pairs:
 
 ```python
-GUIDELINES = [
-    {
-        "condition": "Customer asks about refunds",
-        "action": "Check order status first to see if eligible",
-    },
-    {
-        "condition": "User is frustrated",
-        "action": "Acknowledge their frustration before providing solutions",
-    },
-]
+# Using the Parlant SDK directly
+await agent.create_guideline(
+    condition="Customer asks about refunds",
+    action="Check order status first to see if eligible",
+)
+
+await agent.create_guideline(
+    condition="User is frustrated",
+    action="Acknowledge their frustration before providing solutions",
+)
 ```
-
-### How Guidelines Work
-
-1. **Condition Matching**: Parlant evaluates each message against guideline conditions
-2. **Action Execution**: When a condition matches, the corresponding action is followed
-3. **Consistent Behavior**: Guidelines are enforced reliably, not just "suggested"
-
-This is fundamentally different from system prompts that LLMs may ignore. Parlant ensures the guidelines are actually followed.
 
 ---
 
@@ -98,11 +103,15 @@ cp .env.example .env
 cp agent_config.yaml.example agent_config.yaml
 ```
 
-### 2. Add your OpenAI API key to `.env`
+### 2. Set up environment variables in `.env`
 
-Edit `.env` and set your OpenAI API key:
 ```bash
-OPENAI_API_KEY=sk-your-actual-key-here
+# Thenvoi platform URLs (required)
+THENVOI_WS_URL=wss://api.thenvoi.com/ws
+THENVOI_REST_URL=https://api.thenvoi.com
+
+# OpenAI API key (used by Parlant for LLM)
+OPENAI_API_KEY=your-openai-key
 ```
 
 ### 3. Add agent credentials to `agent_config.yaml`
@@ -129,6 +138,7 @@ parlant_agent:
 # From project root
 cd /path/to/thenvoi-sdk-python
 
+# Run examples
 uv run python examples/parlant/01_basic_agent.py
 uv run python examples/parlant/02_with_guidelines.py
 uv run python examples/parlant/03_support_agent.py
@@ -142,27 +152,15 @@ uv run python examples/parlant/03_support_agent.py
 
 ```python
 ParlantAdapter(
-    model="gpt-4o",                    # Model to use (OpenAI format)
-    system_prompt=None,                # Full system prompt override
-    custom_section="...",              # Custom instructions (added to default prompt)
-    guidelines=[...],                  # Behavioral guidelines
-    openai_api_key=None,               # API key (uses env var if not provided)
-    enable_execution_reporting=False,  # Show tool calls in chat
+    # Required: Parlant SDK components
+    server=server,           # Parlant Server instance (from p.Server())
+    parlant_agent=agent,     # Parlant Agent instance
+
+    # Optional: Custom prompts
+    system_prompt=None,      # Full system prompt override
+    custom_section="...",    # Custom instructions (added to default prompt)
 )
 ```
-
----
-
-## Model Support
-
-The Parlant adapter uses OpenAI-compatible API format:
-
-- `gpt-4o`
-- `gpt-4o-mini`
-- `gpt-4-turbo`
-- Any OpenAI-compatible model
-
-For Anthropic models, use the `AnthropicAdapter` instead.
 
 ---
 
@@ -188,9 +186,17 @@ Works well for:
 
 ---
 
-## Learn More
+## Troubleshooting
 
-- [Parlant Documentation](https://www.parlant.io/docs)
-- [Parlant GitHub](https://github.com/emcie-co/parlant)
-- [Thenvoi SDK Documentation](https://github.com/thenvoi/thenvoi-sdk-python)
+### Import errors
 
+```
+ImportError: parlant package required for ParlantAdapter
+```
+
+Install the Parlant extra:
+```bash
+uv sync --extra parlant
+# or
+pip install 'thenvoi-sdk[parlant]'
+```

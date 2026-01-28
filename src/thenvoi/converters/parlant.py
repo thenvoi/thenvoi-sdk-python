@@ -19,8 +19,11 @@ class ParlantHistoryConverter(HistoryConverter[ParlantMessages]):
     Note:
     - Only converts text messages (tool_call/tool_result events are skipped)
     - User messages are prefixed with sender name for context
-    - Other agents' messages are included with role "assistant" and sender info
-    - This agent's messages are skipped (redundant with Parlant's internal state)
+    - ALL assistant messages are included (unlike other adapters)
+
+    Unlike LangGraph/Claude adapters, Parlant needs the FULL conversation history
+    including this agent's own responses, because we reconstruct the session state
+    in Parlant's internal storage.
     """
 
     def __init__(self, agent_name: str = ""):
@@ -28,15 +31,14 @@ class ParlantHistoryConverter(HistoryConverter[ParlantMessages]):
         Initialize converter.
 
         Args:
-            agent_name: Name of this agent. Messages from this agent are skipped
-                       (they're redundant with tool results). Messages from other
-                       agents are included with their sender info.
+            agent_name: Name of this agent (stored but not used for filtering,
+                       since Parlant needs full history).
         """
         self._agent_name = agent_name
 
     def set_agent_name(self, name: str) -> None:
         """
-        Set agent name so converter knows which messages to skip.
+        Set agent name.
 
         Args:
             name: Name of this agent
@@ -44,7 +46,11 @@ class ParlantHistoryConverter(HistoryConverter[ParlantMessages]):
         self._agent_name = name
 
     def convert(self, raw: list[dict[str, Any]]) -> ParlantMessages:
-        """Convert platform history to Parlant format."""
+        """Convert platform history to Parlant format.
+
+        Unlike other adapters, Parlant needs the full conversation history
+        including this agent's own responses to properly reconstruct sessions.
+        """
         messages: ParlantMessages = []
 
         for hist in raw:
@@ -59,11 +65,12 @@ class ParlantHistoryConverter(HistoryConverter[ParlantMessages]):
             sender_name = hist.get("sender_name", "")
             sender_type = hist.get("sender_type", "User")
 
-            if role == "assistant" and sender_name == self._agent_name:
-                # Skip THIS agent's text (redundant with Parlant state)
+            if not content:
                 continue
-            elif role == "assistant":
-                # Other agents' messages
+
+            if role == "assistant":
+                # Include ALL assistant messages (this agent + other agents)
+                # Parlant needs full history to reconstruct session state
                 messages.append(
                     {
                         "role": "assistant",
