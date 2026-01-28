@@ -341,7 +341,7 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
                     description: str = _tool_desc  # type: ignore[misc]
                     args_schema: Type[BaseModel] = model
 
-                    def _run(self, **kwargs: Any) -> str:
+                    def _run(self, *args: Any, **kwargs: Any) -> Any:
                         async def execute(_tools: AgentToolsProtocol) -> str:
                             try:
                                 # Validate input using Pydantic model
@@ -455,7 +455,7 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
             description: str = get_tool_description("send_message")
             args_schema: Type[BaseModel] = SendMessageInput
 
-            def _run(self, **kwargs: Any) -> str:
+            def _run(self, *args: Any, **kwargs: Any) -> Any:
                 content: str = kwargs.get("content", "")
                 mentions: str = kwargs.get("mentions", "[]")
 
@@ -481,7 +481,7 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
             description: str = get_tool_description("send_event")
             args_schema: Type[BaseModel] = SendEventInput
 
-            def _run(self, **kwargs: Any) -> str:
+            def _run(self, *args: Any, **kwargs: Any) -> Any:
                 content: str = kwargs.get("content", "")
                 message_type: str = kwargs.get("message_type", "thought")
 
@@ -496,7 +496,7 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
             description: str = get_tool_description("add_participant")
             args_schema: Type[BaseModel] = AddParticipantInput
 
-            def _run(self, **kwargs: Any) -> str:
+            def _run(self, *args: Any, **kwargs: Any) -> Any:
                 participant_name: str = kwargs.get("participant_name", "")
                 role: str = kwargs.get("role", "member")
 
@@ -517,7 +517,7 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
             description: str = get_tool_description("remove_participant")
             args_schema: Type[BaseModel] = RemoveParticipantInput
 
-            def _run(self, **kwargs: Any) -> str:
+            def _run(self, *args: Any, **kwargs: Any) -> Any:
                 participant_name: str = kwargs.get("participant_name", "")
 
                 async def execute(tools: AgentToolsProtocol) -> str:
@@ -539,7 +539,7 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
             description: str = get_tool_description("get_participants")
             args_schema: Type[BaseModel] = GetParticipantsInput
 
-            def _run(self, **_kwargs: Any) -> str:
+            def _run(self, *args: Any, **kwargs: Any) -> Any:
                 async def execute(tools: AgentToolsProtocol) -> str:
                     participants = await tools.get_participants()
                     return json.dumps(
@@ -557,7 +557,7 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
             description: str = get_tool_description("lookup_peers")
             args_schema: Type[BaseModel] = LookupPeersInput
 
-            def _run(self, **kwargs: Any) -> str:
+            def _run(self, *args: Any, **kwargs: Any) -> Any:
                 page: int = kwargs.get("page", 1)
                 page_size: int = kwargs.get("page_size", 50)
 
@@ -572,7 +572,7 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
             description: str = get_tool_description("create_chatroom")
             args_schema: Type[BaseModel] = CreateChatroomInput
 
-            def _run(self, **kwargs: Any) -> str:
+            def _run(self, *args: Any, **kwargs: Any) -> Any:
                 task_id: str = kwargs.get("task_id", "")
 
                 async def execute(tools: AgentToolsProtocol) -> str:

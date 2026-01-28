@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from pydantic import BaseModel, Field
 
 from thenvoi.core.types import PlatformMessage
 
@@ -716,7 +717,6 @@ class TestPlatformInstructionsConstant:
 
 
 # Custom tool input models for testing
-from pydantic import BaseModel, Field
 
 
 class EchoInput(BaseModel):
@@ -828,9 +828,7 @@ class TestCustomTools:
         assert "echo" in tool_names
         assert "calculator" in tool_names
 
-    def test_custom_tool_execution_async(
-        self, CrewAIAdapter, crewai_mocks, mock_tools
-    ):
+    def test_custom_tool_execution_async(self, CrewAIAdapter, crewai_mocks, mock_tools):
         """Async custom tool should execute correctly."""
         import asyncio
         import importlib
@@ -859,9 +857,7 @@ class TestCustomTools:
         # Clean up context
         module._current_room_context.set(None)
 
-    def test_custom_tool_execution_sync(
-        self, CrewAIAdapter, crewai_mocks, mock_tools
-    ):
+    def test_custom_tool_execution_sync(self, CrewAIAdapter, crewai_mocks, mock_tools):
         """Sync custom tool should execute correctly."""
         import asyncio
         import importlib
@@ -890,9 +886,7 @@ class TestCustomTools:
         # Clean up context
         module._current_room_context.set(None)
 
-    def test_custom_tool_error_handling(
-        self, CrewAIAdapter, crewai_mocks, mock_tools
-    ):
+    def test_custom_tool_error_handling(self, CrewAIAdapter, crewai_mocks, mock_tools):
         """Custom tool exception should result in error response."""
         import asyncio
         import importlib
