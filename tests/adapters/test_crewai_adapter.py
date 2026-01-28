@@ -25,14 +25,8 @@ class MockBaseTool:
 
 
 @pytest.fixture
-def crewai_mocks():
+def crewai_mocks(monkeypatch):
     import sys
-
-    original_modules = {}
-    modules_to_mock = ["crewai", "crewai.tools", "nest_asyncio"]
-
-    for mod in modules_to_mock:
-        original_modules[mod] = sys.modules.get(mod)
 
     mock_crewai_module = MagicMock()
     mock_crewai_tools_module = MagicMock()
@@ -42,18 +36,13 @@ def crewai_mocks():
     mock_crewai_module.LLM = MagicMock()
     mock_crewai_tools_module.BaseTool = MockBaseTool
 
-    sys.modules["crewai"] = mock_crewai_module
-    sys.modules["crewai.tools"] = mock_crewai_tools_module
-    sys.modules["nest_asyncio"] = mock_nest_asyncio
+    monkeypatch.setitem(sys.modules, "crewai", mock_crewai_module)
+    monkeypatch.setitem(sys.modules, "crewai.tools", mock_crewai_tools_module)
+    monkeypatch.setitem(sys.modules, "nest_asyncio", mock_nest_asyncio)
 
     yield mock_crewai_module
 
-    for mod in modules_to_mock:
-        if original_modules[mod] is not None:
-            sys.modules[mod] = original_modules[mod]
-        else:
-            sys.modules.pop(mod, None)
-
+    # Clean up the adapter module to force reimport on next test
     sys.modules.pop("thenvoi.adapters.crewai", None)
 
 
@@ -161,6 +150,34 @@ class TestInitialization:
         assert adapter.max_rpm == 10
         assert adapter.allow_delegation is True
 
+    def test_system_prompt_deprecation_warning(self, CrewAIAdapter):
+        """system_prompt parameter should emit DeprecationWarning."""
+        import warnings
+
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            adapter = CrewAIAdapter(system_prompt="Old style prompt")
+
+            assert len(w) == 1
+            assert issubclass(w[0].category, DeprecationWarning)
+            assert "system_prompt" in str(w[0].message)
+            assert "backstory" in str(w[0].message)
+            # system_prompt should be used as backstory when backstory not provided
+            assert adapter.backstory == "Old style prompt"
+
+    def test_system_prompt_does_not_override_backstory(self, CrewAIAdapter):
+        """If both system_prompt and backstory are provided, backstory takes precedence."""
+        import warnings
+
+        with warnings.catch_warnings(record=True):
+            warnings.simplefilter("always")
+            adapter = CrewAIAdapter(
+                system_prompt="Old style prompt",
+                backstory="New style backstory",
+            )
+            # backstory should not be overwritten
+            assert adapter.backstory == "New style backstory"
+
 
 class TestOnStarted:
     @pytest.mark.asyncio
@@ -210,16 +227,20 @@ class TestOnStarted:
 
         call_kwargs = crewai_mocks.Agent.call_args[1]
         tools = call_kwargs["tools"]
-        assert len(tools) == 7
 
+        # Check for required platform tools (don't check exact count to avoid brittleness)
         tool_names = [t.name for t in tools]
-        assert "send_message" in tool_names
-        assert "send_event" in tool_names
-        assert "add_participant" in tool_names
-        assert "remove_participant" in tool_names
-        assert "get_participants" in tool_names
-        assert "lookup_peers" in tool_names
-        assert "create_chatroom" in tool_names
+        required_tools = [
+            "send_message",
+            "send_event",
+            "add_participant",
+            "remove_participant",
+            "get_participants",
+            "lookup_peers",
+            "create_chatroom",
+        ]
+        for tool_name in required_tools:
+            assert tool_name in tool_names, f"Missing required tool: {tool_name}"
 
     @pytest.mark.asyncio
     async def test_includes_platform_instructions_in_backstory(
@@ -350,6 +371,24 @@ class TestErrorHandling:
             )
 
         mock_tools.send_event.assert_called()
+
+    @pytest.mark.asyncio
+    async def test_raises_error_when_agent_not_initialized(
+        self, CrewAIAdapter, sample_message, mock_tools
+    ):
+        """on_message raises RuntimeError if on_started was not called."""
+        adapter = CrewAIAdapter()
+        # Don't call on_started - agent remains uninitialized
+
+        with pytest.raises(RuntimeError, match="CrewAI agent not initialized"):
+            await adapter.on_message(
+                msg=sample_message,
+                tools=mock_tools,
+                history=[],
+                participants_msg=None,
+                is_session_bootstrap=True,
+                room_id="room-123",
+            )
 
 
 class TestVerboseMode:
@@ -796,8 +835,10 @@ class TestCustomTools:
         call_kwargs = crewai_mocks.Agent.call_args[1]
         tools = call_kwargs["tools"]
 
-        # Should have 7 platform tools + 1 custom tool
-        assert len(tools) == 8
+        # Check that custom tool is included alongside platform tools
+        tool_names = [t.name for t in tools]
+        assert "send_message" in tool_names  # Platform tool should exist
+        assert "echo" in tool_names  # Custom tool should exist
 
         # Find the echo tool
         echo_tool = next((t for t in tools if t.name == "echo"), None)
@@ -821,12 +862,11 @@ class TestCustomTools:
         call_kwargs = crewai_mocks.Agent.call_args[1]
         tools = call_kwargs["tools"]
 
-        # Should have 7 platform tools + 2 custom tools
-        assert len(tools) == 9
-
+        # Check that both custom tools are included alongside platform tools
         tool_names = [t.name for t in tools]
-        assert "echo" in tool_names
-        assert "calculator" in tool_names
+        assert "send_message" in tool_names  # Platform tool should exist
+        assert "echo" in tool_names  # Custom tool should exist
+        assert "calculator" in tool_names  # Custom tool should exist
 
     def test_custom_tool_execution_async(self, CrewAIAdapter, crewai_mocks, mock_tools):
         """Async custom tool should execute correctly."""

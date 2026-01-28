@@ -12,6 +12,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import warnings
 from contextvars import ContextVar
 from typing import Any, Coroutine, Literal, Type, TypeVar
 
@@ -153,6 +154,7 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
         allow_delegation: bool = False,
         history_converter: CrewAIHistoryConverter | None = None,
         additional_tools: list[CustomToolDef] | None = None,
+        system_prompt: str | None = None,  # Deprecated
     ):
         """Initialize the CrewAI adapter.
 
@@ -172,7 +174,20 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
             additional_tools: List of custom tools as (InputModel, callable) tuples.
                 Each InputModel is a Pydantic model defining the tool's input schema,
                 and the callable is the function to execute (sync or async).
+            system_prompt: Deprecated. Use 'backstory' instead for prompt customization.
         """
+        if system_prompt is not None:
+            warnings.warn(
+                "The 'system_prompt' parameter is deprecated and will be removed in a "
+                "future version. Use 'backstory' parameter instead for prompt "
+                "customization. The CrewAI SDK uses role/goal/backstory pattern.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            # If backstory not provided, use system_prompt as backstory for compatibility
+            if backstory is None:
+                backstory = system_prompt
+
         super().__init__(
             history_converter=history_converter or CrewAIHistoryConverter()
         )
@@ -188,6 +203,9 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
         self.max_rpm = max_rpm
         self.allow_delegation = allow_delegation
 
+        # Room tracking dict - stores tools reference for cleanup.
+        # Note: Relies on on_cleanup being called when agent leaves a room.
+        # The context variable handles tool access during message processing.
         self._crewai_agent: CrewAIAgent | None = None
         self._room_tools: dict[str, AgentToolsProtocol] = {}
         self._message_history: dict[str, list[dict[str, Any]]] = {}
@@ -621,8 +639,9 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
         logger.debug(f"Handling message {msg.id} in room {room_id}")
 
         if not self._crewai_agent:
-            logger.error("CrewAI agent not initialized")
-            return
+            raise RuntimeError(
+                "CrewAI agent not initialized - ensure on_started() was called"
+            )
 
         # Set context variable for tool access (thread-safe room context)
         _current_room_context.set((room_id, tools))
