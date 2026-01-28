@@ -1,20 +1,22 @@
 """
-Customer support agent using Parlant guidelines.
+Customer support agent using Parlant SDK with guidelines.
 
-Demonstrates a realistic use case: a customer support agent with
-specific behavioral guidelines for handling support requests.
-
-This example shows Parlant's strength in ensuring consistent
-customer-facing behavior through guidelines.
+This example demonstrates a realistic customer support agent with
+behavioral guidelines using the Parlant SDK directly.
 
 Run with:
-    OPENAI_API_KEY=xxx python 03_support_agent.py
+    uv run python examples/parlant/03_support_agent.py
+
+See also: https://github.com/emcie-co/parlant/blob/develop/examples/travel_voice_agent.py
 """
+
+from __future__ import annotations
 
 import asyncio
 import logging
 import os
 
+import parlant.sdk as p
 from dotenv import load_dotenv
 
 from setup_logging import setup_logging
@@ -26,36 +28,7 @@ setup_logging()
 logger = logging.getLogger(__name__)
 
 
-# Customer support guidelines
-SUPPORT_GUIDELINES = [
-    {
-        "condition": "Customer asks about refunds or returns",
-        "action": "Express empathy first, then ask for order details (order number, item) before providing refund information",
-    },
-    {
-        "condition": "Customer is frustrated or upset",
-        "action": "Acknowledge their frustration, apologize for any inconvenience, and focus on finding a solution",
-    },
-    {
-        "condition": "Customer asks a technical question",
-        "action": "Ask about their setup (device, OS, version) before troubleshooting",
-    },
-    {
-        "condition": "Issue cannot be resolved by this agent",
-        "action": "Explain the limitation clearly and offer to escalate to a specialist by adding them to the conversation",
-    },
-    {
-        "condition": "Customer provides positive feedback",
-        "action": "Thank them warmly and ask if there's anything else you can help with",
-    },
-    {
-        "condition": "Customer mentions urgency or deadline",
-        "action": "Prioritize their request and provide the fastest path to resolution",
-    },
-]
-
-
-SUPPORT_PROMPT = """
+SUPPORT_DESCRIPTION = """
 You are a customer support agent for TechCo Solutions.
 
 Your responsibilities:
@@ -77,7 +50,48 @@ Remember:
 """
 
 
-async def main():
+async def setup_support_agent(server: p.Server) -> p.Agent:
+    """Create and configure a customer support agent with guidelines."""
+    agent = await server.create_agent(
+        name="Support",
+        description=SUPPORT_DESCRIPTION,
+    )
+
+    # Add support-specific guidelines
+    await agent.create_guideline(
+        condition="Customer asks about refunds or returns",
+        action="Express empathy first, then ask for order details (order number, item) before providing refund information",
+    )
+
+    await agent.create_guideline(
+        condition="Customer is frustrated or upset",
+        action="Acknowledge their frustration, apologize for any inconvenience, and focus on finding a solution",
+    )
+
+    await agent.create_guideline(
+        condition="Customer asks a technical question",
+        action="Ask about their setup (device, OS, version) before troubleshooting",
+    )
+
+    await agent.create_guideline(
+        condition="Issue cannot be resolved by this agent",
+        action="Explain the limitation clearly and offer to escalate to a specialist by adding them to the conversation",
+    )
+
+    await agent.create_guideline(
+        condition="Customer provides positive feedback",
+        action="Thank them warmly and ask if there's anything else you can help with",
+    )
+
+    await agent.create_guideline(
+        condition="Customer mentions urgency or deadline",
+        action="Prioritize their request and provide the fastest path to resolution",
+    )
+
+    return agent
+
+
+async def main() -> None:
     load_dotenv()
 
     ws_url = os.getenv("THENVOI_WS_URL")
@@ -91,25 +105,29 @@ async def main():
     # Load agent credentials from agent_config.yaml
     agent_id, api_key = load_agent_config("support_agent")
 
-    # Create support agent with specialized guidelines
-    adapter = ParlantAdapter(
-        model="gpt-4o",
-        custom_section=SUPPORT_PROMPT,
-        guidelines=SUPPORT_GUIDELINES,
-        enable_execution_reporting=True,
-    )
+    # Start Parlant server
+    async with p.Server() as server:
+        # Create support agent with guidelines
+        parlant_agent = await setup_support_agent(server)
+        logger.info(f"Support agent created: {parlant_agent.id}")
 
-    # Create and start agent
-    agent = Agent.create(
-        adapter=adapter,
-        agent_id=agent_id,
-        api_key=api_key,
-        ws_url=ws_url,
-        rest_url=rest_url,
-    )
+        # Create adapter using Parlant SDK directly
+        adapter = ParlantAdapter(
+            server=server,
+            parlant_agent=parlant_agent,
+        )
 
-    logger.info("Starting customer support agent...")
-    await agent.run()
+        # Create and start Thenvoi agent
+        agent = Agent.create(
+            adapter=adapter,
+            agent_id=agent_id,
+            api_key=api_key,
+            ws_url=ws_url,
+            rest_url=rest_url,
+        )
+
+        logger.info("Starting customer support agent with Parlant SDK...")
+        await agent.run()
 
 
 if __name__ == "__main__":

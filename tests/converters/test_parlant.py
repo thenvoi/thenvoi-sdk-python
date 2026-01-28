@@ -59,10 +59,15 @@ class TestUserMessages:
 
 
 class TestAssistantMessages:
-    """Tests for assistant message handling."""
+    """Tests for assistant message handling.
 
-    def test_skips_own_assistant_text_messages(self):
-        """This agent's text messages are skipped (redundant with internal state)."""
+    NOTE: Unlike other converters, ParlantHistoryConverter includes ALL
+    assistant messages (including own messages) because Parlant needs
+    the full history to reconstruct session state.
+    """
+
+    def test_includes_own_assistant_messages(self):
+        """This agent's text messages are included (Parlant needs full history)."""
         converter = ParlantHistoryConverter(agent_name="Agent")
         raw = [
             {
@@ -75,7 +80,11 @@ class TestAssistantMessages:
 
         result = converter.convert(raw)
 
-        assert len(result) == 0
+        # Parlant needs ALL messages to reconstruct session state
+        assert len(result) == 1
+        assert result[0]["role"] == "assistant"
+        assert result[0]["content"] == "I'll help you with that."
+        assert result[0]["sender"] == "Agent"
 
     def test_includes_other_agents_as_assistant(self):
         """Other agents' messages are included with role assistant."""
@@ -99,7 +108,11 @@ class TestAssistantMessages:
 
 
 class TestMultiAgentMessages:
-    """Tests for multi-agent message handling."""
+    """Tests for multi-agent message handling.
+
+    NOTE: Parlant converter includes ALL assistant messages (own + others)
+    to reconstruct the full session history.
+    """
 
     def test_includes_other_agents_messages(self):
         """Other agents' messages should be included."""
@@ -119,8 +132,8 @@ class TestMultiAgentMessages:
         assert result[0]["role"] == "assistant"
         assert result[0]["content"] == "The weather is sunny."
 
-    def test_skips_only_own_messages(self):
-        """Only skip THIS agent's text, include other agents."""
+    def test_includes_all_agent_messages(self):
+        """Include ALL agent messages (own + others) for Parlant session."""
         converter = ParlantHistoryConverter()
         converter.set_agent_name("Main Agent")
         raw = [
@@ -140,11 +153,13 @@ class TestMultiAgentMessages:
 
         result = converter.convert(raw)
 
-        assert len(result) == 1  # Only Weather Agent's message
-        assert result[0]["content"] == "It's sunny!"
+        # Parlant needs ALL messages
+        assert len(result) == 2
+        assert result[0]["content"] == "I'll help"
+        assert result[1]["content"] == "It's sunny!"
 
-    def test_set_agent_name_updates_filtering(self):
-        """set_agent_name should update which messages are skipped."""
+    def test_agent_name_stored_but_not_used_for_filtering(self):
+        """set_agent_name stores name but doesn't filter (Parlant needs all)."""
         converter = ParlantHistoryConverter()
         raw = [
             {
@@ -158,9 +173,9 @@ class TestMultiAgentMessages:
         # Before setting name - all assistant messages included
         assert len(converter.convert(raw)) == 1
 
-        # After setting name - own messages skipped
+        # After setting name - still all assistant messages included (Parlant needs full history)
         converter.set_agent_name("Agent")
-        assert len(converter.convert(raw)) == 0
+        assert len(converter.convert(raw)) == 1
 
 
 class TestToolEventFiltering:
@@ -254,8 +269,8 @@ class TestEdgeCases:
 
         assert result[0]["role"] == "user"
 
-    def test_handles_empty_content(self):
-        """Handles messages with empty content."""
+    def test_skips_empty_content(self):
+        """Skips messages with empty content."""
         converter = ParlantHistoryConverter()
         raw = [
             {
@@ -268,12 +283,16 @@ class TestEdgeCases:
 
         result = converter.convert(raw)
 
-        assert len(result) == 1
-        assert result[0]["content"] == "[Alice]: "
+        # Empty content messages are skipped
+        assert len(result) == 0
 
 
 class TestGuidelineBasedConversation:
-    """Tests for Parlant-style guideline-based conversations."""
+    """Tests for Parlant-style guideline-based conversations.
+
+    NOTE: Parlant converter includes ALL assistant messages (own + others)
+    to properly reconstruct session state.
+    """
 
     def test_support_conversation_flow(self):
         """Should handle a customer support conversation flow."""
@@ -286,7 +305,7 @@ class TestGuidelineBasedConversation:
                 "sender_name": "Customer",
                 "message_type": "text",
             },
-            # Support agent responds (skipped - own message)
+            # Support agent responds (included for Parlant)
             {
                 "role": "assistant",
                 "content": "Let me check your order status...",
@@ -316,14 +335,17 @@ class TestGuidelineBasedConversation:
 
         result = converter.convert(raw)
 
-        # Should have: 2 customer messages only
-        assert len(result) == 2
+        # Should have: 2 customer messages + 1 agent message (tool events skipped)
+        assert len(result) == 3
 
         assert result[0]["role"] == "user"
         assert result[0]["content"] == "[Customer]: I want a refund for my order"
 
-        assert result[1]["role"] == "user"
-        assert result[1]["content"] == "[Customer]: The product was damaged"
+        assert result[1]["role"] == "assistant"
+        assert result[1]["content"] == "Let me check your order status..."
+
+        assert result[2]["role"] == "user"
+        assert result[2]["content"] == "[Customer]: The product was damaged"
 
     def test_preserves_sender_type(self):
         """Should preserve sender_type in output."""
@@ -361,7 +383,7 @@ class TestGuidelineBasedConversation:
                 "sender_name": "User",
                 "message_type": "text",
             },
-            # Coordinator delegates (skipped - own message)
+            # Coordinator delegates (included for Parlant)
             {
                 "role": "assistant",
                 "content": "I'll have the analyzer look at this.",
@@ -375,7 +397,7 @@ class TestGuidelineBasedConversation:
                 "sender_name": "Analyzer Agent",
                 "message_type": "text",
             },
-            # Coordinator summarizes (skipped - own message)
+            # Coordinator summarizes (included for Parlant)
             {
                 "role": "assistant",
                 "content": "Here's the analysis summary.",
@@ -386,9 +408,10 @@ class TestGuidelineBasedConversation:
 
         result = converter.convert(raw)
 
-        # User message + Analyzer message (Coordinator messages skipped)
-        assert len(result) == 2
+        # All text messages included (Parlant needs full history)
+        assert len(result) == 4
 
         assert result[0]["content"] == "[User]: Analyze this document"
-        assert result[1]["content"] == "Analysis complete: ..."
-        assert result[1]["sender"] == "Analyzer Agent"
+        assert result[1]["content"] == "I'll have the analyzer look at this."
+        assert result[2]["content"] == "Analysis complete: ..."
+        assert result[3]["content"] == "Here's the analysis summary."

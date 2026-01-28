@@ -308,6 +308,18 @@ class AgentTools(AgentToolsProtocol):
             f"Adding participant '{name}' with role '{role}' to room {self.room_id}"
         )
 
+        # First check if participant is already in the room
+        current_participants = await self.get_participants()
+        for p in current_participants:
+            if p.get("name", "").lower() == name.lower():
+                logger.debug(f"Participant '{name}' is already in the room")
+                return {
+                    "id": p["id"],
+                    "name": p["name"],
+                    "role": role,
+                    "status": "already_in_room",
+                }
+
         # Look up participant ID by name (paginates through all peers)
         participant = await self._lookup_peer_by_name(name)
         if not participant:
