@@ -1,9 +1,6 @@
 # /// script
 # requires-python = ">=3.11"
 # dependencies = ["thenvoi-sdk[langgraph]"]
-#
-# [tool.uv.sources]
-# thenvoi-sdk = { path = "../..", editable = true }
 # ///
 """
 Example: Using graph_as_tool to wrap a standalone graph as a tool.

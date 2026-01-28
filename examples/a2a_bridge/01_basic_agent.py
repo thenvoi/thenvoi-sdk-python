@@ -1,9 +1,6 @@
 # /// script
 # requires-python = ">=3.11"
 # dependencies = ["thenvoi-sdk[a2a]"]
-#
-# [tool.uv.sources]
-# thenvoi-sdk = { path = "../..", editable = true }
 # ///
 """
 Basic A2A adapter example.

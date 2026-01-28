@@ -1,9 +1,6 @@
 # /// script
 # requires-python = ">=3.11"
 # dependencies = ["thenvoi-sdk[langgraph]"]
-#
-# [tool.uv.sources]
-# thenvoi-sdk = { path = "../..", editable = true }
 # ///
 """
 Example: Using the standalone Agentic RAG graph with Thenvoi platform.
