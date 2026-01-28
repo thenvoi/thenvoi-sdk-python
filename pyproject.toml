@@ -55,8 +55,11 @@ parlant = [
     "openai>=1.0.0",
 ]
 crewai = [
-    "crewai>=0.80.0",
+    # Upper bound due to reliance on kickoff_async message list behavior.
+    # TODO: Test against CrewAI 1.0 when released and update upper bound if compatible.
+    "crewai>=0.80.0,<1.0.0",
     "openai>=1.0.0",
+    "nest-asyncio>=1.6.0",  # Required for sync-to-async bridging in CrewAI tools
 ]
 a2a = [
     "a2a-sdk>=0.3.22",  # Official A2A Python SDK
@@ -103,6 +106,9 @@ dev = [
     "uvicorn>=0.32.0",
     # Include a2a_gateway_demo deps for testing
     "click>=8.0.0",
+    # Include crewai for testing
+    "crewai>=0.80.0",
+    "nest-asyncio>=1.6.0",  # Required for CrewAI adapter sync-to-async bridging
     # Development tools
     "pre-commit>=3.0.0",
     "ruff>=0.8.0",
