@@ -1,17 +1,29 @@
+# /// script
+# requires-python = ">=3.11"
+# dependencies = ["thenvoi-sdk[langgraph]"]
+#
+# [tool.uv.sources]
+# thenvoi-sdk = { git = "https://github.com/thenvoi/thenvoi-sdk-python.git" }
+# ///
 """
 Example showing how to add custom tools to a Thenvoi agent.
 
 The composition architecture makes it trivial to add your own tools alongside
 the platform tools.
+
+Run with:
+    uv run examples/langgraph/02_custom_tools.py
 """
+
+from __future__ import annotations
 
 import asyncio
 import logging
 import os
 
 from dotenv import load_dotenv
-from langchain_openai import ChatOpenAI
 from langchain_core.tools import tool
+from langchain_openai import ChatOpenAI
 from langgraph.checkpoint.memory import InMemorySaver
 
 from setup_logging import setup_logging
@@ -65,7 +77,7 @@ def get_weather(city: str) -> str:
     return f"Weather in {city}: Sunny, 72°F"
 
 
-async def main():
+async def main() -> None:
     load_dotenv()
 
     ws_url = os.getenv("THENVOI_WS_URL")

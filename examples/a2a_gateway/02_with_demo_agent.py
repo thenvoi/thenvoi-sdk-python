@@ -1,3 +1,10 @@
+# /// script
+# requires-python = ">=3.11"
+# dependencies = ["thenvoi-sdk[a2a_gateway_demo]"]
+#
+# [tool.uv.sources]
+# thenvoi-sdk = { git = "https://github.com/thenvoi/thenvoi-sdk-python.git" }
+# ///
 """
 Run A2A Gateway with Demo Orchestrator Agent.
 
@@ -10,8 +17,8 @@ Architecture:
                                           ↑                                        ↓
                                           ←←←←←←←←←←← SSE Response ←←←←←←←←←←←←←←←
 
-Usage:
-    uv run python examples/a2a_gateway/02_with_demo_agent.py
+Run with:
+    uv run examples/a2a_gateway/02_with_demo_agent.py
 
 This will start:
 - A2A Gateway on port 10000 (connects to Thenvoi, exposes peers)

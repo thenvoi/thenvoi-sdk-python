@@ -1,3 +1,10 @@
+# /// script
+# requires-python = ">=3.11"
+# dependencies = ["thenvoi-sdk[langgraph]"]
+#
+# [tool.uv.sources]
+# thenvoi-sdk = { git = "https://github.com/thenvoi/thenvoi-sdk-python.git" }
+# ///
 """
 Example: Using graph_as_tool to wrap a standalone graph as a tool.
 
@@ -8,28 +15,36 @@ This example demonstrates:
 4. The agent intelligently decides when to use the calculator
 
 The calculator graph knows nothing about Thenvoi - it's completely independent.
+
+Run with (from repo root):
+    uv run examples/langgraph/04_calculator_as_tool.py
+
+Note: Must be run from repo as it imports standalone_calculator.py
 """
+
+from __future__ import annotations
 
 import asyncio
 import logging
 import os
+
 from dotenv import load_dotenv
 from langchain_openai import ChatOpenAI
 from langgraph.checkpoint.memory import InMemorySaver
 
 from standalone_calculator import create_calculator_graph
+
 from setup_logging import setup_logging
 from thenvoi import Agent
 from thenvoi.adapters import LangGraphAdapter
-from thenvoi.integrations.langgraph import graph_as_tool
 from thenvoi.config import load_agent_config
+from thenvoi.integrations.langgraph import graph_as_tool
 
 setup_logging()
-
 logger = logging.getLogger(__name__)
 
 
-async def main():
+async def main() -> None:
     load_dotenv()
     ws_url = os.getenv("THENVOI_WS_URL")
     rest_url = os.getenv("THENVOI_REST_URL")

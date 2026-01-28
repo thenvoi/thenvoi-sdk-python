@@ -1,3 +1,10 @@
+# /// script
+# requires-python = ">=3.11"
+# dependencies = ["thenvoi-sdk[claude_sdk]"]
+#
+# [tool.uv.sources]
+# thenvoi-sdk = { git = "https://github.com/thenvoi/thenvoi-sdk-python.git" }
+# ///
 """
 Tom the cat agent using Claude SDK.
 
@@ -11,8 +18,10 @@ Prerequisites:
     - Add tom_agent credentials to agent_config.yaml
     - Jerry agent should be online for full interaction
 
-Run with:
-    ANTHROPIC_API_KEY=xxx python 03_tom_agent.py
+Run with (from repo root):
+    uv run examples/claude_sdk/03_tom_agent.py
+
+Note: Must be run from repo as it imports prompts/characters.py
 """
 
 from __future__ import annotations

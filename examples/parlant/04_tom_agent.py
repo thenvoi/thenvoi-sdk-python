@@ -1,3 +1,10 @@
+# /// script
+# requires-python = ">=3.11"
+# dependencies = ["thenvoi-sdk[parlant]"]
+#
+# [tool.uv.sources]
+# thenvoi-sdk = { git = "https://github.com/thenvoi/thenvoi-sdk-python.git" }
+# ///
 """
 Tom the cat agent using Parlant.
 
@@ -5,8 +12,10 @@ This example shows how to create a character agent with a custom personality
 using Parlant. Tom uses platform tools to find and invite Jerry,
 then tries various tactics to lure Jerry out of his mouse hole.
 
-Run with:
-    OPENAI_API_KEY=xxx python 04_tom_agent.py
+Run with (from repo root):
+    uv run examples/parlant/04_tom_agent.py
+
+Note: Must be run from repo as it imports prompts/characters.py
 """
 
 from __future__ import annotations

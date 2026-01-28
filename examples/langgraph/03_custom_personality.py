@@ -1,6 +1,18 @@
+# /// script
+# requires-python = ">=3.11"
+# dependencies = ["thenvoi-sdk[langgraph]"]
+#
+# [tool.uv.sources]
+# thenvoi-sdk = { git = "https://github.com/thenvoi/thenvoi-sdk-python.git" }
+# ///
 """
 Example showing how to customize agent personality with custom instructions.
+
+Run with:
+    uv run examples/langgraph/03_custom_personality.py
 """
+
+from __future__ import annotations
 
 import asyncio
 import logging
@@ -19,7 +31,7 @@ setup_logging()
 logger = logging.getLogger(__name__)
 
 
-async def main():
+async def main() -> None:
     load_dotenv()
     ws_url = os.getenv("THENVOI_WS_URL")
     rest_url = os.getenv("THENVOI_REST_URL")
@@ -76,8 +88,6 @@ But speak like a PIRATE while doin' it! Arrr!
 
     logger.info("Starting pirate agent...")
     await agent.run()
-
-    # Agent is now listening for messages!
 
 
 if __name__ == "__main__":

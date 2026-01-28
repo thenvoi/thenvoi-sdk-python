@@ -1,4 +1,11 @@
 #!/usr/bin/env python3
+# /// script
+# requires-python = ">=3.11"
+# dependencies = ["thenvoi-sdk[claude_sdk]"]
+#
+# [tool.uv.sources]
+# thenvoi-sdk = { git = "https://github.com/thenvoi/thenvoi-sdk-python.git" }
+# ///
 """
 Extended Thinking Claude SDK Agent Example.
 
@@ -19,8 +26,8 @@ Prerequisites:
        - THENVOI_API_KEY: Your API key
        - ANTHROPIC_API_KEY: Your Anthropic API key
 
-Usage:
-    python 02_extended_thinking.py
+Run with:
+    uv run examples/claude_sdk/02_extended_thinking.py
 """
 
 from __future__ import annotations

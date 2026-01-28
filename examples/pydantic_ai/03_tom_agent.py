@@ -1,3 +1,10 @@
+# /// script
+# requires-python = ">=3.11"
+# dependencies = ["thenvoi-sdk[pydantic-ai]"]
+#
+# [tool.uv.sources]
+# thenvoi-sdk = { git = "https://github.com/thenvoi/thenvoi-sdk-python.git" }
+# ///
 """
 Tom the cat agent using Pydantic AI.
 
@@ -5,8 +12,10 @@ This example shows how to create a character agent with a custom personality
 using Pydantic AI. Tom uses platform tools to find and invite Jerry,
 then tries various tactics to lure Jerry out of his mouse hole.
 
-Run with:
-    OPENAI_API_KEY=xxx python 03_tom_agent.py
+Run with (from repo root):
+    uv run examples/pydantic_ai/03_tom_agent.py
+
+Note: Must be run from repo as it imports prompts/characters.py
 """
 
 from __future__ import annotations

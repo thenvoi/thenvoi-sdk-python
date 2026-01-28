@@ -1,3 +1,10 @@
+# /// script
+# requires-python = ">=3.11"
+# dependencies = ["thenvoi-sdk[anthropic]"]
+#
+# [tool.uv.sources]
+# thenvoi-sdk = { git = "https://github.com/thenvoi/thenvoi-sdk-python.git" }
+# ///
 """
 Tom the cat agent - tries to catch Jerry!
 
@@ -8,12 +15,10 @@ to lure Jerry out of his mouse hole.
 The character prompt is loaded from a shared prompts module that can be
 reused across different adapter implementations.
 
-Run with:
-    ANTHROPIC_API_KEY=xxx python 03_tom_agent.py
+Run with (from repo root):
+    uv run examples/anthropic/03_tom_agent.py
 
-Prerequisites:
-    - Add tom_agent credentials to agent_config.yaml
-    - Jerry agent should be online for full interaction
+Note: Must be run from repo as it imports prompts/characters.py
 """
 
 from __future__ import annotations
@@ -29,6 +34,7 @@ from dotenv import load_dotenv
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from prompts.characters import generate_tom_prompt
+
 from setup_logging import setup_logging
 from thenvoi import Agent
 from thenvoi.adapters import AnthropicAdapter

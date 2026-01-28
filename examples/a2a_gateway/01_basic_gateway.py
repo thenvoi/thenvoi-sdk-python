@@ -1,3 +1,10 @@
+# /// script
+# requires-python = ">=3.11"
+# dependencies = ["thenvoi-sdk[a2a_gateway]"]
+#
+# [tool.uv.sources]
+# thenvoi-sdk = { git = "https://github.com/thenvoi/thenvoi-sdk-python.git" }
+# ///
 """
 Basic A2A Gateway adapter example.
 
@@ -31,7 +38,7 @@ Prerequisites:
     2. Have peers configured on the Thenvoi platform
 
 Run with:
-    python 01_basic_gateway.py
+    uv run examples/a2a_gateway/01_basic_gateway.py
 
 Then external agents can connect:
     - Discovery: GET http://localhost:10000/agents/weather/.well-known/agent.json

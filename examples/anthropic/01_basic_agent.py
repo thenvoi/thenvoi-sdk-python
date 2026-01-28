@@ -1,3 +1,10 @@
+# /// script
+# requires-python = ">=3.11"
+# dependencies = ["thenvoi-sdk[anthropic]"]
+#
+# [tool.uv.sources]
+# thenvoi-sdk = { git = "https://github.com/thenvoi/thenvoi-sdk-python.git" }
+# ///
 """
 Basic Anthropic SDK agent example.
 
@@ -5,8 +12,10 @@ This is the simplest way to create a Thenvoi agent using the Anthropic Python SD
 The adapter handles conversation history, tool calling, and platform integration.
 
 Run with:
-    ANTHROPIC_API_KEY=xxx python 01_basic_agent.py
+    uv run examples/anthropic/01_basic_agent.py
 """
+
+from __future__ import annotations
 
 import asyncio
 import logging
@@ -23,7 +32,7 @@ setup_logging()
 logger = logging.getLogger(__name__)
 
 
-async def main():
+async def main() -> None:
     load_dotenv()
 
     ws_url = os.getenv("THENVOI_WS_URL")

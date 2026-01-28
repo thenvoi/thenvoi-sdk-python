@@ -1,3 +1,10 @@
+# /// script
+# requires-python = ">=3.11"
+# dependencies = ["thenvoi-sdk[crewai]"]
+#
+# [tool.uv.sources]
+# thenvoi-sdk = { git = "https://github.com/thenvoi/thenvoi-sdk-python.git" }
+# ///
 """
 Complete CrewAI-style crew with multiple specialized agents.
 
@@ -13,17 +20,19 @@ The crew consists of:
 To run the full crew, start each agent in separate terminals:
 
 Terminal 1:
-    OPENAI_API_KEY=xxx python 04_research_crew.py researcher
+    uv run examples/crewai/04_research_crew.py researcher
 
 Terminal 2:
-    OPENAI_API_KEY=xxx python 04_research_crew.py writer
+    uv run examples/crewai/04_research_crew.py writer
 
 Terminal 3:
-    OPENAI_API_KEY=xxx python 04_research_crew.py editor
+    uv run examples/crewai/04_research_crew.py editor
 
 Then in the Thenvoi chat, add all agents to the same room and they'll
 collaborate on requests.
 """
+
+from __future__ import annotations
 
 import asyncio
 import logging
@@ -47,11 +56,11 @@ CREW_MEMBERS = {
         "config_name": "research_agent",
         "role": "Research Analyst",
         "goal": "Gather comprehensive information and provide well-researched insights",
-        "backstory": """You are a meticulous research analyst with expertise in 
+        "backstory": """You are a meticulous research analyst with expertise in
         finding reliable sources, analyzing data, and synthesizing complex information
         into actionable insights. You're known for your thoroughness and ability to
         uncover relevant details that others might miss.
-        
+
         When working with the crew:
         - Focus on gathering facts and data
         - Cite sources when possible
@@ -73,7 +82,7 @@ Your workflow:
         complex information and turning it into readable, engaging content.
         You have a talent for finding the right tone and structure for any
         audience, and you always aim for clarity without sacrificing depth.
-        
+
         When working with the crew:
         - Wait for the Research Analyst to provide findings
         - Create well-structured drafts based on research
@@ -95,7 +104,7 @@ Your workflow:
         and a passion for quality. You excel at polishing content while
         maintaining the writer's voice, catching errors, improving clarity,
         and ensuring the final product meets high standards.
-        
+
         When working with the crew:
         - Review drafts from the Content Writer
         - Check for accuracy, clarity, and consistency
@@ -113,17 +122,19 @@ Your workflow:
 }
 
 
-async def main():
+async def main() -> None:
     load_dotenv()
 
     # Determine which crew member to run
     if len(sys.argv) < 2:
-        logger.error("Usage: python 04_research_crew.py <role>")
+        logger.error("Usage: uv run examples/crewai/04_research_crew.py <role>")
         logger.info("Available roles: researcher, writer, editor")
         logger.info("To run the full crew, start each in a separate terminal:")
-        logger.info("  Terminal 1: python 04_research_crew.py researcher")
-        logger.info("  Terminal 2: python 04_research_crew.py writer")
-        logger.info("  Terminal 3: python 04_research_crew.py editor")
+        logger.info(
+            "  Terminal 1: uv run examples/crewai/04_research_crew.py researcher"
+        )
+        logger.info("  Terminal 2: uv run examples/crewai/04_research_crew.py writer")
+        logger.info("  Terminal 3: uv run examples/crewai/04_research_crew.py editor")
         sys.exit(1)
 
     role = sys.argv[1].lower()

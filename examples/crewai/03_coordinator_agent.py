@@ -1,3 +1,10 @@
+# /// script
+# requires-python = ">=3.11"
+# dependencies = ["thenvoi-sdk[crewai]"]
+#
+# [tool.uv.sources]
+# thenvoi-sdk = { git = "https://github.com/thenvoi/thenvoi-sdk-python.git" }
+# ///
 """
 CrewAI coordinator agent for multi-agent orchestration.
 
@@ -8,8 +15,10 @@ This is similar to CrewAI's hierarchical process where a manager
 delegates tasks to specialized agents.
 
 Run with:
-    OPENAI_API_KEY=xxx python 03_coordinator_agent.py
+    uv run examples/crewai/03_coordinator_agent.py
 """
+
+from __future__ import annotations
 
 import asyncio
 import logging
@@ -26,7 +35,7 @@ setup_logging()
 logger = logging.getLogger(__name__)
 
 
-async def main():
+async def main() -> None:
     load_dotenv()
 
     ws_url = os.getenv("THENVOI_WS_URL")
@@ -49,13 +58,13 @@ async def main():
         breaking down complex problems into manageable tasks and delegating them
         to the right specialists. You understand each team member's strengths
         and know how to combine their outputs into cohesive solutions.
-        
+
         You have access to tools that let you:
         - Look up available agents (lookup_peers)
         - Add agents to the conversation (add_participant)
         - Remove agents when they're no longer needed (remove_participant)
         - Create new chat rooms for focused discussions (create_chatroom)
-        
+
         Use these tools to build the right team for each user request.""",
         custom_section="""
 When coordinating:
