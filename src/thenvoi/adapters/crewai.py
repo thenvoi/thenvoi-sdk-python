@@ -128,8 +128,10 @@ def _run_async(coro: Coroutine[Any, Any, T]) -> T:
 
     try:
         loop = asyncio.get_running_loop()
+        logger.debug("Running coroutine in existing event loop via nest_asyncio")
     except RuntimeError:
         # No running event loop - use asyncio.run to create one
+        logger.debug("Running coroutine in new event loop via asyncio.run")
         return asyncio.run(coro)
 
     # Event loop is running - use run_until_complete (safe with nest_asyncio)
@@ -449,6 +451,8 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
             @field_validator("mentions", mode="before")
             @classmethod
             def normalize_mentions(cls, v: Any) -> str:
+                if v is None:
+                    return "[]"
                 if isinstance(v, list):
                     return json.dumps(v)
                 return v
@@ -752,8 +756,8 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
             await self._report_error(tools, str(e))
             raise
         finally:
-            # Clear context after processing (defensive, not strictly necessary
-            # since context vars are task-local in asyncio)
+            # Clear context after processing to prevent stale context in async
+            # environments with task reuse
             _current_room_context.set(None)
 
         logger.debug(

@@ -795,6 +795,29 @@ class TestMentionsValidator:
 
         assert instance.mentions == '["Alice"]'
 
+    @pytest.mark.asyncio
+    async def test_mentions_none_converted_to_empty_array(
+        self, CrewAIAdapter, crewai_mocks
+    ):
+        """None mentions should be normalized to empty JSON array string."""
+        crewai_mocks.Agent.reset_mock()
+
+        adapter = CrewAIAdapter()
+        await adapter.on_started("TestBot", "Test bot")
+
+        call_kwargs = crewai_mocks.Agent.call_args[1]
+        tools = call_kwargs["tools"]
+        send_message_tool = next(t for t in tools if t.name == "send_message")
+
+        input_model = send_message_tool.args_schema
+
+        instance = input_model(
+            content="Hello!",
+            mentions=None,
+        )
+
+        assert instance.mentions == "[]"
+
 
 class TestPlatformInstructionsConstant:
     def test_platform_instructions_is_constant(self, CrewAIAdapter):
