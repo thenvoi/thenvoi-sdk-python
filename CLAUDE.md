@@ -67,6 +67,30 @@ uv run pyrefly check
 
 ## Example Files (examples/ directory)
 
+### PEP 723 Script Metadata (Required for `uv run` support)
+
+Every example file must include PEP 723 inline script metadata at the top for standalone execution with `uv run`:
+
+```python
+# /// script
+# requires-python = ">=3.11"
+# dependencies = ["thenvoi-sdk[<extra>]"]
+#
+# [tool.uv.sources]
+# thenvoi-sdk = { git = "https://github.com/thenvoi/thenvoi-sdk-python.git" }
+# ///
+"""
+Brief description of what this example does.
+
+Run with:
+    uv run examples/<framework>/<example_file>.py
+"""
+```
+
+Replace `<extra>` with the appropriate framework extra (e.g., `langgraph`, `anthropic`, `crewai`, `claude-sdk`, `pydantic-ai`, `parlant`).
+
+### Other Requirements
+
 - Use `load_agent_config("agent_name")` for credentials, NOT direct `os.environ.get()`
 - Always load and validate `THENVOI_WS_URL` and `THENVOI_REST_URL` with `ValueError`
 - Use `raise ValueError(...)` for missing required config, NOT `logger.error()` + `sys.exit()`
