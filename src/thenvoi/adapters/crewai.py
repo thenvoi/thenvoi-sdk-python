@@ -675,9 +675,35 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
                 "CrewAI agent not initialized - ensure on_started() was called"
             )
 
-        # Set context variable for tool access (thread-safe room context)
+        # Set context variable for tool access (thread-safe room context).
+        # Wrap in try/finally immediately to ensure cleanup even if code
+        # before the main try block raises an exception.
         _current_room_context.set((room_id, tools))
+        try:
+            await self._process_message(
+                msg=msg,
+                tools=tools,
+                history=history,
+                participants_msg=participants_msg,
+                is_session_bootstrap=is_session_bootstrap,
+                room_id=room_id,
+            )
+        finally:
+            # Clear context after processing to prevent stale context in async
+            # environments with task reuse
+            _current_room_context.set(None)
 
+    async def _process_message(
+        self,
+        msg: PlatformMessage,
+        tools: AgentToolsProtocol,
+        history: CrewAIMessages,
+        participants_msg: str | None,
+        *,
+        is_session_bootstrap: bool,
+        room_id: str,
+    ) -> None:
+        """Internal message processing logic."""
         if is_session_bootstrap:
             if history:
                 self._message_history[room_id] = [
@@ -755,10 +781,6 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
             logger.error(f"Error processing message: {e}", exc_info=True)
             await self._report_error(tools, str(e))
             raise
-        finally:
-            # Clear context after processing to prevent stale context in async
-            # environments with task reuse
-            _current_room_context.set(None)
 
         logger.debug(
             f"Message {msg.id} processed successfully "
