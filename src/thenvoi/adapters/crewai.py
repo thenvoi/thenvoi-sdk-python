@@ -1,4 +1,11 @@
-"""CrewAI adapter using SimpleAdapter pattern with official CrewAI SDK."""
+"""CrewAI adapter using SimpleAdapter pattern with official CrewAI SDK.
+
+Important: This module uses nest_asyncio to enable nested event loops, which is
+required because CrewAI tools are synchronous but need to call async platform
+methods. The nest_asyncio.apply() call is IRREVERSIBLE and affects the entire
+Python process - all event loops will allow nesting after this is applied.
+The patch is applied lazily on first tool execution, not at import time.
+"""
 
 from __future__ import annotations
 
