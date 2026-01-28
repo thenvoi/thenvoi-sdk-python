@@ -1,6 +1,9 @@
 # /// script
 # requires-python = ">=3.11"
 # dependencies = ["thenvoi-sdk[crewai]"]
+# 
+# [tool.uv.sources]
+# thenvoi-sdk = { path = "../..", editable = true }
 # ///
 """
 CrewAI coordinator agent for multi-agent orchestration.

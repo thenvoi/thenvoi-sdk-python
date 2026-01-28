@@ -1,6 +1,9 @@
 # /// script
 # requires-python = ">=3.11"
 # dependencies = ["thenvoi-sdk[anthropic]"]
+# 
+# [tool.uv.sources]
+# thenvoi-sdk = { path = "../..", editable = true }
 # ///
 """
 Jerry the mouse agent - clever and cheese-loving!
