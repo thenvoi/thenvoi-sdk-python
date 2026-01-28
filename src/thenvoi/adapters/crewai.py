@@ -12,6 +12,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import threading
 import warnings
 from contextvars import ContextVar
 from typing import Any, Coroutine, Literal, Type, TypeVar
@@ -44,6 +45,7 @@ T = TypeVar("T")
 # Module-level state for nest_asyncio patch.
 # See module docstring for important notes about global process impact.
 _nest_asyncio_applied = False
+_nest_asyncio_lock = threading.Lock()
 
 # Context variable for thread-safe room context access.
 # Set automatically when processing messages, accessed by tools.
@@ -94,13 +96,21 @@ Call `send_event` with message_type="thought" BEFORE every action to share your 
 def _ensure_nest_asyncio() -> None:
     """Apply nest_asyncio patch lazily on first use.
 
+    This function is thread-safe via a lock to prevent race conditions
+    when multiple threads attempt to apply the patch simultaneously.
+
     See module docstring for important notes about global process impact.
     """
     global _nest_asyncio_applied
-    if not _nest_asyncio_applied:
-        nest_asyncio.apply()
-        _nest_asyncio_applied = True
-        logger.debug("Applied nest_asyncio patch for nested event loops")
+    if _nest_asyncio_applied:
+        return
+
+    with _nest_asyncio_lock:
+        # Double-check after acquiring lock (double-checked locking pattern)
+        if not _nest_asyncio_applied:
+            nest_asyncio.apply()
+            _nest_asyncio_applied = True
+            logger.debug("Applied nest_asyncio patch for nested event loops")
 
 
 def _run_async(coro: Coroutine[Any, Any, T]) -> T:
@@ -109,17 +119,21 @@ def _run_async(coro: Coroutine[Any, Any, T]) -> T:
     CrewAI tools are synchronous but need to call async platform methods.
     With nest_asyncio applied, we can safely run coroutines even when
     an event loop is already running.
+
+    This function handles two scenarios:
+    1. An event loop is running - uses run_until_complete with nest_asyncio
+    2. No event loop is running - uses asyncio.run to create one
     """
     _ensure_nest_asyncio()
 
     try:
         loop = asyncio.get_running_loop()
-        return loop.run_until_complete(coro)
-    except RuntimeError as e:
-        # Only catch "no running event loop" errors, re-raise others
-        if "no running event loop" not in str(e).lower():
-            raise
+    except RuntimeError:
+        # No running event loop - use asyncio.run to create one
         return asyncio.run(coro)
+
+    # Event loop is running - use run_until_complete (safe with nest_asyncio)
+    return loop.run_until_complete(coro)
 
 
 class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
@@ -713,9 +727,11 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
         )
 
         try:
-            # CrewAI's kickoff_async expects a string prompt but also accepts
-            # a list of message dicts for multi-turn context. The type stub
-            # is overly restrictive, hence the ignore.
+            # Type ignore explanation: CrewAI's kickoff_async is typed to accept
+            # only a string prompt, but the implementation also accepts a list of
+            # message dicts (similar to OpenAI's messages format) for multi-turn
+            # context. This is documented behavior but the type stubs haven't been
+            # updated. See: https://docs.crewai.com/concepts/agents
             result = await self._crewai_agent.kickoff_async(messages)  # type: ignore[arg-type]
 
             if result and result.raw:

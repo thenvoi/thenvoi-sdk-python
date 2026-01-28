@@ -398,6 +398,64 @@ class TestVerboseMode:
         assert call_kwargs["verbose"] is True
 
 
+class TestMaxRpm:
+    @pytest.mark.asyncio
+    async def test_max_rpm_passed_to_agent(self, CrewAIAdapter, crewai_mocks):
+        """max_rpm parameter should be passed to CrewAI Agent."""
+        crewai_mocks.Agent.reset_mock()
+
+        adapter = CrewAIAdapter(max_rpm=10)
+        await adapter.on_started("TestBot", "Test bot")
+
+        call_kwargs = crewai_mocks.Agent.call_args[1]
+        assert call_kwargs["max_rpm"] == 10
+
+    @pytest.mark.asyncio
+    async def test_max_rpm_defaults_to_none(self, CrewAIAdapter, crewai_mocks):
+        """max_rpm should default to None (no rate limiting)."""
+        crewai_mocks.Agent.reset_mock()
+
+        adapter = CrewAIAdapter()
+        await adapter.on_started("TestBot", "Test bot")
+
+        call_kwargs = crewai_mocks.Agent.call_args[1]
+        assert call_kwargs["max_rpm"] is None
+
+    def test_max_rpm_stored_on_adapter(self, CrewAIAdapter):
+        """max_rpm should be stored on the adapter instance."""
+        adapter = CrewAIAdapter(max_rpm=60)
+        assert adapter.max_rpm == 60
+
+
+class TestAllowDelegation:
+    @pytest.mark.asyncio
+    async def test_allow_delegation_passed_to_agent(self, CrewAIAdapter, crewai_mocks):
+        """allow_delegation parameter should be passed to CrewAI Agent."""
+        crewai_mocks.Agent.reset_mock()
+
+        adapter = CrewAIAdapter(allow_delegation=True)
+        await adapter.on_started("TestBot", "Test bot")
+
+        call_kwargs = crewai_mocks.Agent.call_args[1]
+        assert call_kwargs["allow_delegation"] is True
+
+    @pytest.mark.asyncio
+    async def test_allow_delegation_defaults_to_false(self, CrewAIAdapter, crewai_mocks):
+        """allow_delegation should default to False."""
+        crewai_mocks.Agent.reset_mock()
+
+        adapter = CrewAIAdapter()
+        await adapter.on_started("TestBot", "Test bot")
+
+        call_kwargs = crewai_mocks.Agent.call_args[1]
+        assert call_kwargs["allow_delegation"] is False
+
+    def test_allow_delegation_stored_on_adapter(self, CrewAIAdapter):
+        """allow_delegation should be stored on the adapter instance."""
+        adapter = CrewAIAdapter(allow_delegation=True)
+        assert adapter.allow_delegation is True
+
+
 class TestParticipantsUpdate:
     @pytest.mark.asyncio
     async def test_includes_participants_update_in_message(
@@ -624,6 +682,38 @@ class TestLazyNestAsyncio:
         module._ensure_nest_asyncio()
         module._ensure_nest_asyncio()
 
+        assert nest_mock.apply.call_count == 1
+
+    def test_nest_asyncio_lock_exists(self, CrewAIAdapter, crewai_mocks):
+        """Module should have a threading lock for thread-safe nest_asyncio application."""
+        import importlib
+        import threading
+
+        module = importlib.import_module("thenvoi.adapters.crewai")
+
+        assert hasattr(module, "_nest_asyncio_lock")
+        assert isinstance(module._nest_asyncio_lock, type(threading.Lock()))
+
+    def test_ensure_nest_asyncio_is_thread_safe(self, CrewAIAdapter, crewai_mocks):
+        """Multiple threads calling _ensure_nest_asyncio should only apply patch once."""
+        import concurrent.futures
+        import importlib
+        import sys
+
+        module = importlib.import_module("thenvoi.adapters.crewai")
+
+        module._nest_asyncio_applied = False
+        nest_mock = sys.modules["nest_asyncio"]
+        nest_mock.reset_mock()
+
+        # Run multiple threads concurrently calling _ensure_nest_asyncio
+        with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+            futures = [
+                executor.submit(module._ensure_nest_asyncio) for _ in range(10)
+            ]
+            concurrent.futures.wait(futures)
+
+        # Should only have been called once despite multiple concurrent threads
         assert nest_mock.apply.call_count == 1
 
 
