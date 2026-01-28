@@ -440,7 +440,9 @@ class TestAllowDelegation:
         assert call_kwargs["allow_delegation"] is True
 
     @pytest.mark.asyncio
-    async def test_allow_delegation_defaults_to_false(self, CrewAIAdapter, crewai_mocks):
+    async def test_allow_delegation_defaults_to_false(
+        self, CrewAIAdapter, crewai_mocks
+    ):
         """allow_delegation should default to False."""
         crewai_mocks.Agent.reset_mock()
 
@@ -708,9 +710,7 @@ class TestLazyNestAsyncio:
 
         # Run multiple threads concurrently calling _ensure_nest_asyncio
         with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
-            futures = [
-                executor.submit(module._ensure_nest_asyncio) for _ in range(10)
-            ]
+            futures = [executor.submit(module._ensure_nest_asyncio) for _ in range(10)]
             concurrent.futures.wait(futures)
 
         # Should only have been called once despite multiple concurrent threads
