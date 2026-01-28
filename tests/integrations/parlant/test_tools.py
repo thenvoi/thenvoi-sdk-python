@@ -196,15 +196,16 @@ class TestCreateParlantTools:
 
         assert "name" in param_names
 
-    def test_lookup_peers_has_pagination_parameters(self):
-        """lookup_peers should have page and page_size parameters."""
+    def test_lookup_peers_has_no_parameters(self):
+        """lookup_peers should have no user-facing parameters (pagination is hardcoded)."""
         tools = create_parlant_tools()
 
         lookup_peers_entry = next(t for t in tools if t.tool.name == "lookup_peers")
         param_names = list(lookup_peers_entry.tool.parameters.keys())
 
-        assert "page" in param_names
-        assert "page_size" in param_names
+        # Pagination was intentionally removed to simplify the API
+        # The function uses hardcoded defaults (page=1, page_size=50)
+        assert param_names == []
 
 
 class TestParlantToolFunctions:
@@ -359,9 +360,10 @@ class TestParlantToolFunctions:
         set_session_tools(mock_context.session_id, mock_tools)
 
         lookup_peers = parlant_tools["lookup_peers"]
-        result = await lookup_peers(mock_context, 1, 50)
+        result = await lookup_peers(mock_context)
 
-        mock_tools.lookup_peers.assert_called_once_with(1, 50)
+        # Pagination is hardcoded in the implementation (page=1, page_size=50)
+        mock_tools.lookup_peers.assert_called_once_with(page=1, page_size=50)
         assert "Available agents" in result.data
         assert "Agent1" in result.data
 
