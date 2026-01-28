@@ -4,7 +4,7 @@
 # dependencies = ["thenvoi-sdk[claude_sdk]"]
 #
 # [tool.uv.sources]
-# thenvoi-sdk = { path = "../..", editable = true }
+# thenvoi-sdk = { git = "https://github.com/thenvoi/thenvoi-sdk-python.git" }
 # ///
 """
 Basic Claude SDK Agent Example.

@@ -3,7 +3,7 @@
 # dependencies = ["thenvoi-sdk[langgraph]"]
 #
 # [tool.uv.sources]
-# thenvoi-sdk = { path = "../..", editable = true }
+# thenvoi-sdk = { git = "https://github.com/thenvoi/thenvoi-sdk-python.git" }
 # ///
 """
 Example: Using the standalone Agentic RAG graph with Thenvoi platform.

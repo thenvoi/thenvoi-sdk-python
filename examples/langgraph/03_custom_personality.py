@@ -3,7 +3,7 @@
 # dependencies = ["thenvoi-sdk[langgraph]"]
 #
 # [tool.uv.sources]
-# thenvoi-sdk = { path = "../..", editable = true }
+# thenvoi-sdk = { git = "https://github.com/thenvoi/thenvoi-sdk-python.git" }
 # ///
 """
 Example showing how to customize agent personality with custom instructions.

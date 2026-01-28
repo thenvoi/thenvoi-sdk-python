@@ -3,7 +3,7 @@
 # dependencies = ["thenvoi-sdk[parlant]"]
 #
 # [tool.uv.sources]
-# thenvoi-sdk = { path = "../..", editable = true }
+# thenvoi-sdk = { git = "https://github.com/thenvoi/thenvoi-sdk-python.git" }
 # ///
 """
 Parlant agent with behavioral guidelines using the official Parlant SDK.

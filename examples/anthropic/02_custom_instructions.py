@@ -3,7 +3,7 @@
 # dependencies = ["thenvoi-sdk[anthropic]"]
 #
 # [tool.uv.sources]
-# thenvoi-sdk = { path = "../..", editable = true }
+# thenvoi-sdk = { git = "https://github.com/thenvoi/thenvoi-sdk-python.git" }
 # ///
 """
 Agent with custom system prompt instructions.
