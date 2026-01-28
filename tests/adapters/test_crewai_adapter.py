@@ -278,7 +278,6 @@ class TestOnMessage:
         )
 
         assert "room-123" in adapter._message_history
-        assert "room-123" in adapter._room_tools
 
     @pytest.mark.asyncio
     async def test_loads_existing_history(
@@ -326,21 +325,16 @@ class TestOnMessage:
 
 class TestOnCleanup:
     @pytest.mark.asyncio
-    async def test_cleans_up_room_history_and_tools(
-        self, CrewAIAdapter, mock_crewai_agent
-    ):
+    async def test_cleans_up_room_history(self, CrewAIAdapter, mock_crewai_agent):
         adapter = CrewAIAdapter()
         await adapter.on_started("TestBot", "Test bot")
 
         adapter._message_history["room-123"] = [{"role": "user", "content": "test"}]
-        adapter._room_tools["room-123"] = MagicMock()
         assert "room-123" in adapter._message_history
-        assert "room-123" in adapter._room_tools
 
         await adapter.on_cleanup("room-123")
 
         assert "room-123" not in adapter._message_history
-        assert "room-123" not in adapter._room_tools
 
     @pytest.mark.asyncio
     async def test_cleanup_nonexistent_room_is_safe(self, CrewAIAdapter):
@@ -401,27 +395,6 @@ class TestVerboseMode:
 
         call_kwargs = crewai_mocks.Agent.call_args[1]
         assert call_kwargs["verbose"] is True
-
-
-class TestRoomTools:
-    @pytest.mark.asyncio
-    async def test_stores_tools_per_room(
-        self, CrewAIAdapter, sample_message, mock_tools, mock_crewai_agent
-    ):
-        adapter = CrewAIAdapter()
-        await adapter.on_started("TestBot", "Test bot")
-        adapter._crewai_agent = mock_crewai_agent
-
-        await adapter.on_message(
-            msg=sample_message,
-            tools=mock_tools,
-            history=[],
-            participants_msg=None,
-            is_session_bootstrap=True,
-            room_id="room-123",
-        )
-
-        assert adapter._room_tools.get("room-123") is mock_tools
 
 
 class TestParticipantsUpdate:

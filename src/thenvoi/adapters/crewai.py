@@ -203,11 +203,7 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
         self.max_rpm = max_rpm
         self.allow_delegation = allow_delegation
 
-        # Room tracking dict - stores tools reference for cleanup.
-        # Note: Relies on on_cleanup being called when agent leaves a room.
-        # The context variable handles tool access during message processing.
         self._crewai_agent: CrewAIAgent | None = None
-        self._room_tools: dict[str, AgentToolsProtocol] = {}
         self._message_history: dict[str, list[dict[str, Any]]] = {}
         self._custom_tools: list[CustomToolDef] = additional_tools or []
 
@@ -264,7 +260,7 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
         tool_name: str,
         coro_factory: Any,
     ) -> str:
-        """Execute a tool with common error handling.
+        """Execute a tool with common error handling and reporting.
 
         Args:
             tool_name: Name of the tool for error messages
@@ -283,6 +279,7 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
             )
 
         room_id, tools = context
+        adapter = self
 
         async def _execute() -> str:
             try:
@@ -290,6 +287,10 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
             except Exception as e:
                 error_msg = str(e)
                 logger.error(f"{tool_name} failed in room {room_id}: {error_msg}")
+                # Report error if execution reporting is enabled
+                await adapter._report_tool_result(
+                    tools, tool_name, error_msg, is_error=True
+                )
                 return json.dumps({"status": "error", "message": error_msg})
 
         return _run_async(_execute())
@@ -359,7 +360,7 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
                     description: str = _tool_desc  # type: ignore[misc]
                     args_schema: Type[BaseModel] = model
 
-                    def _run(self, *args: Any, **kwargs: Any) -> Any:
+                    def _run(self, *_args: Any, **kwargs: Any) -> Any:
                         async def execute(_tools: AgentToolsProtocol) -> str:
                             try:
                                 # Validate input using Pydantic model
@@ -473,7 +474,7 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
             description: str = get_tool_description("send_message")
             args_schema: Type[BaseModel] = SendMessageInput
 
-            def _run(self, *args: Any, **kwargs: Any) -> Any:
+            def _run(self, *_args: Any, **kwargs: Any) -> Any:
                 content: str = kwargs.get("content", "")
                 mentions: str = kwargs.get("mentions", "[]")
 
@@ -499,11 +500,13 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
             description: str = get_tool_description("send_event")
             args_schema: Type[BaseModel] = SendEventInput
 
-            def _run(self, *args: Any, **kwargs: Any) -> Any:
+            def _run(self, *_args: Any, **kwargs: Any) -> Any:
                 content: str = kwargs.get("content", "")
                 message_type: str = kwargs.get("message_type", "thought")
 
                 async def execute(tools: AgentToolsProtocol) -> str:
+                    # Note: No execution reporting for send_event to avoid
+                    # meta-events (reporting an event about sending an event)
                     await tools.send_event(content, message_type)
                     return json.dumps({"status": "success", "message": "Event sent"})
 
@@ -514,7 +517,7 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
             description: str = get_tool_description("add_participant")
             args_schema: Type[BaseModel] = AddParticipantInput
 
-            def _run(self, *args: Any, **kwargs: Any) -> Any:
+            def _run(self, *_args: Any, **kwargs: Any) -> Any:
                 participant_name: str = kwargs.get("participant_name", "")
                 role: str = kwargs.get("role", "member")
 
@@ -535,7 +538,7 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
             description: str = get_tool_description("remove_participant")
             args_schema: Type[BaseModel] = RemoveParticipantInput
 
-            def _run(self, *args: Any, **kwargs: Any) -> Any:
+            def _run(self, *_args: Any, **kwargs: Any) -> Any:
                 participant_name: str = kwargs.get("participant_name", "")
 
                 async def execute(tools: AgentToolsProtocol) -> str:
@@ -557,16 +560,17 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
             description: str = get_tool_description("get_participants")
             args_schema: Type[BaseModel] = GetParticipantsInput
 
-            def _run(self, *args: Any, **kwargs: Any) -> Any:
+            def _run(self, *_args: Any, **_kwargs: Any) -> Any:
                 async def execute(tools: AgentToolsProtocol) -> str:
+                    await adapter._report_tool_call(tools, "get_participants", {})
                     participants = await tools.get_participants()
-                    return json.dumps(
-                        {
-                            "status": "success",
-                            "participants": participants,
-                            "count": len(participants),
-                        }
-                    )
+                    result = {
+                        "status": "success",
+                        "participants": participants,
+                        "count": len(participants),
+                    }
+                    await adapter._report_tool_result(tools, "get_participants", result)
+                    return json.dumps(result)
 
                 return adapter._execute_tool("get_participants", execute)
 
@@ -575,12 +579,16 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
             description: str = get_tool_description("lookup_peers")
             args_schema: Type[BaseModel] = LookupPeersInput
 
-            def _run(self, *args: Any, **kwargs: Any) -> Any:
+            def _run(self, *_args: Any, **kwargs: Any) -> Any:
                 page: int = kwargs.get("page", 1)
                 page_size: int = kwargs.get("page_size", 50)
 
                 async def execute(tools: AgentToolsProtocol) -> str:
+                    await adapter._report_tool_call(
+                        tools, "lookup_peers", {"page": page, "page_size": page_size}
+                    )
                     result = await tools.lookup_peers(page, page_size)
+                    await adapter._report_tool_result(tools, "lookup_peers", result)
                     return json.dumps({"status": "success", **result})
 
                 return adapter._execute_tool("lookup_peers", execute)
@@ -590,18 +598,21 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
             description: str = get_tool_description("create_chatroom")
             args_schema: Type[BaseModel] = CreateChatroomInput
 
-            def _run(self, *args: Any, **kwargs: Any) -> Any:
+            def _run(self, *_args: Any, **kwargs: Any) -> Any:
                 task_id: str = kwargs.get("task_id", "")
 
                 async def execute(tools: AgentToolsProtocol) -> str:
-                    new_room_id = await tools.create_chatroom(task_id or None)
-                    return json.dumps(
-                        {
-                            "status": "success",
-                            "message": "Chat room created",
-                            "room_id": new_room_id,
-                        }
+                    await adapter._report_tool_call(
+                        tools, "create_chatroom", {"task_id": task_id or None}
                     )
+                    new_room_id = await tools.create_chatroom(task_id or None)
+                    result = {
+                        "status": "success",
+                        "message": "Chat room created",
+                        "room_id": new_room_id,
+                    }
+                    await adapter._report_tool_result(tools, "create_chatroom", result)
+                    return json.dumps(result)
 
                 return adapter._execute_tool("create_chatroom", execute)
 
@@ -645,9 +656,6 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
 
         # Set context variable for tool access (thread-safe room context)
         _current_room_context.set((room_id, tools))
-
-        # Keep reference for cleanup
-        self._room_tools[room_id] = tools
 
         if is_session_bootstrap:
             if history:
@@ -735,12 +743,10 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
         )
 
     async def on_cleanup(self, room_id: str) -> None:
-        """Clean up message history and tools when agent leaves a room."""
+        """Clean up message history when agent leaves a room."""
         if room_id in self._message_history:
             del self._message_history[room_id]
-        if room_id in self._room_tools:
-            del self._room_tools[room_id]
-        logger.debug(f"Room {room_id}: Cleaned up CrewAI session")
+            logger.debug(f"Room {room_id}: Cleaned up CrewAI session")
 
     async def _report_error(self, tools: AgentToolsProtocol, error: str) -> None:
         """Send error event (best effort)."""
