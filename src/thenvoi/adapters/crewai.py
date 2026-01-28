@@ -482,8 +482,9 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
             pass  # No parameters needed - room context from context variable
 
         class LookupPeersInput(BaseModel):
-            page: int = Field(default=1, description="Page number")
-            page_size: int = Field(default=50, description="Items per page (max 100)")
+            # No user-facing parameters - pagination is handled internally with defaults.
+            # This matches the Parlant adapter's approach for simplicity.
+            pass
 
         class CreateChatroomInput(BaseModel):
             task_id: str | None = Field(
@@ -495,6 +496,7 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
             description: str = get_tool_description("send_message")
             args_schema: Type[BaseModel] = SendMessageInput
 
+            # *_args is required by BaseTool's _run signature even though we don't use it
             def _run(self, *_args: Any, **kwargs: Any) -> Any:
                 content: str = kwargs.get("content", "")
                 mentions: str = kwargs.get("mentions", "[]")
@@ -600,9 +602,10 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
             description: str = get_tool_description("lookup_peers")
             args_schema: Type[BaseModel] = LookupPeersInput
 
-            def _run(self, *_args: Any, **kwargs: Any) -> Any:
-                page: int = kwargs.get("page", 1)
-                page_size: int = kwargs.get("page_size", 50)
+            # *_args is required by BaseTool's _run signature even though we don't use it
+            def _run(self, *_args: Any, **_kwargs: Any) -> Any:
+                # Use hardcoded pagination defaults for simplicity
+                page, page_size = 1, 50
 
                 async def execute(tools: AgentToolsProtocol) -> str:
                     await adapter._report_tool_call(

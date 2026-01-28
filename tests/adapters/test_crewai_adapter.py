@@ -112,6 +112,30 @@ def mock_crewai_agent():
     return mock_agent
 
 
+@pytest.fixture
+def room_context(crewai_mocks, mock_tools):
+    """Context manager fixture for setting up room context in tests.
+
+    Usage:
+        with room_context("room-123"):
+            # tool execution code here
+    """
+    import contextlib
+    import importlib
+
+    module = importlib.import_module("thenvoi.adapters.crewai")
+
+    @contextlib.contextmanager
+    def _room_context(room_id: str = "room-123"):
+        module._current_room_context.set((room_id, mock_tools))
+        try:
+            yield
+        finally:
+            module._current_room_context.set(None)
+
+    return _room_context
+
+
 class TestInitialization:
     def test_default_initialization(self, CrewAIAdapter):
         adapter = CrewAIAdapter()
@@ -530,12 +554,12 @@ class TestToolExecution:
         assert "participant_name" in schema_fields
         assert "role" in schema_fields
 
-        # lookup_peers should have page and page_size, but NOT room_id
+        # lookup_peers should have no user-facing parameters (pagination is hardcoded)
         lookup_peers = next(t for t in tools if t.name == "lookup_peers")
         schema_fields = lookup_peers.args_schema.model_fields
         assert "room_id" not in schema_fields
-        assert "page" in schema_fields
-        assert "page_size" in schema_fields
+        assert "page" not in schema_fields
+        assert "page_size" not in schema_fields
 
     @pytest.mark.asyncio
     async def test_send_event_message_type_validation(
@@ -557,44 +581,32 @@ class TestToolExecution:
         assert message_type_field.default == "thought"
 
     def test_successful_tool_execution_with_room_context(
-        self, CrewAIAdapter, crewai_mocks, mock_tools
+        self, CrewAIAdapter, crewai_mocks, mock_tools, room_context
     ):
         """Tools work when context variable is set (simulates call during message handling)."""
         import asyncio
-        import importlib
-        import sys
 
         crewai_mocks.Agent.reset_mock()
 
         adapter = CrewAIAdapter()
         asyncio.run(adapter.on_started("TestBot", "Test bot"))
 
-        # Set the context variable (simulates what on_message does)
-        module = importlib.import_module("thenvoi.adapters.crewai")
-        module._current_room_context.set(("room-123", mock_tools))
-
-        nest_mock = sys.modules["nest_asyncio"]
-        nest_mock.reset_mock()
-
         call_kwargs = crewai_mocks.Agent.call_args[1]
         tools = call_kwargs["tools"]
         get_participants_tool = next(t for t in tools if t.name == "get_participants")
 
-        result = get_participants_tool._run()
+        with room_context("room-123"):
+            result = get_participants_tool._run()
 
         result_data = json.loads(result)
         assert result_data["status"] == "success"
         assert "participants" in result_data
         assert result_data["count"] == 1
 
-        # Clean up context
-        module._current_room_context.set(None)
-
     def test_tool_execution_handles_exception(
-        self, CrewAIAdapter, crewai_mocks, mock_tools
+        self, CrewAIAdapter, crewai_mocks, mock_tools, room_context
     ):
         import asyncio
-        import importlib
 
         crewai_mocks.Agent.reset_mock()
 
@@ -603,22 +615,16 @@ class TestToolExecution:
 
         mock_tools.get_participants.side_effect = Exception("Connection failed")
 
-        # Set the context variable
-        module = importlib.import_module("thenvoi.adapters.crewai")
-        module._current_room_context.set(("room-123", mock_tools))
-
         call_kwargs = crewai_mocks.Agent.call_args[1]
         tools = call_kwargs["tools"]
         get_participants_tool = next(t for t in tools if t.name == "get_participants")
 
-        result = get_participants_tool._run()
+        with room_context("room-123"):
+            result = get_participants_tool._run()
 
         result_data = json.loads(result)
         assert result_data["status"] == "error"
         assert "Connection failed" in result_data["message"]
-
-        # Clean up context
-        module._current_room_context.set(None)
 
 
 class TestExecutionReporting:
@@ -631,30 +637,23 @@ class TestExecutionReporting:
         assert adapter_disabled.enable_execution_reporting is False
 
     def test_reports_tool_call_when_enabled(
-        self, CrewAIAdapter, crewai_mocks, mock_tools
+        self, CrewAIAdapter, crewai_mocks, mock_tools, room_context
     ):
         import asyncio
-        import importlib
 
         crewai_mocks.Agent.reset_mock()
 
         adapter = CrewAIAdapter(enable_execution_reporting=True)
         asyncio.run(adapter.on_started("TestBot", "Test bot"))
 
-        # Set the context variable (simulates what on_message does)
-        module = importlib.import_module("thenvoi.adapters.crewai")
-        module._current_room_context.set(("room-123", mock_tools))
-
         call_kwargs = crewai_mocks.Agent.call_args[1]
         tools = call_kwargs["tools"]
         send_message_tool = next(t for t in tools if t.name == "send_message")
 
-        send_message_tool._run(content="Hello!", mentions="[]")
+        with room_context("room-123"):
+            send_message_tool._run(content="Hello!", mentions="[]")
 
         assert mock_tools.send_event.call_count >= 2
-
-        # Clean up context
-        module._current_room_context.set(None)
 
 
 class TestLazyNestAsyncio:
@@ -955,10 +954,11 @@ class TestCustomTools:
         assert "echo" in tool_names  # Custom tool should exist
         assert "calculator" in tool_names  # Custom tool should exist
 
-    def test_custom_tool_execution_async(self, CrewAIAdapter, crewai_mocks, mock_tools):
+    def test_custom_tool_execution_async(
+        self, CrewAIAdapter, crewai_mocks, mock_tools, room_context
+    ):
         """Async custom tool should execute correctly."""
         import asyncio
-        import importlib
 
         crewai_mocks.Agent.reset_mock()
 
@@ -967,27 +967,22 @@ class TestCustomTools:
         )
         asyncio.run(adapter.on_started("TestBot", "Test bot"))
 
-        # Set the context variable
-        module = importlib.import_module("thenvoi.adapters.crewai")
-        module._current_room_context.set(("room-123", mock_tools))
-
         call_kwargs = crewai_mocks.Agent.call_args[1]
         tools = call_kwargs["tools"]
         echo_tool = next(t for t in tools if t.name == "echo")
 
-        result = echo_tool._run(message="Hello world")
+        with room_context("room-123"):
+            result = echo_tool._run(message="Hello world")
 
         result_data = json.loads(result)
         assert result_data["status"] == "success"
         assert "Echo: Hello world" in result_data["result"]
 
-        # Clean up context
-        module._current_room_context.set(None)
-
-    def test_custom_tool_execution_sync(self, CrewAIAdapter, crewai_mocks, mock_tools):
+    def test_custom_tool_execution_sync(
+        self, CrewAIAdapter, crewai_mocks, mock_tools, room_context
+    ):
         """Sync custom tool should execute correctly."""
         import asyncio
-        import importlib
 
         crewai_mocks.Agent.reset_mock()
 
@@ -996,27 +991,22 @@ class TestCustomTools:
         )
         asyncio.run(adapter.on_started("TestBot", "Test bot"))
 
-        # Set the context variable
-        module = importlib.import_module("thenvoi.adapters.crewai")
-        module._current_room_context.set(("room-123", mock_tools))
-
         call_kwargs = crewai_mocks.Agent.call_args[1]
         tools = call_kwargs["tools"]
         calc_tool = next(t for t in tools if t.name == "calculator")
 
-        result = calc_tool._run(operation="add", left=5.0, right=3.0)
+        with room_context("room-123"):
+            result = calc_tool._run(operation="add", left=5.0, right=3.0)
 
         result_data = json.loads(result)
         assert result_data["status"] == "success"
         assert "8.0" in result_data["result"]
 
-        # Clean up context
-        module._current_room_context.set(None)
-
-    def test_custom_tool_error_handling(self, CrewAIAdapter, crewai_mocks, mock_tools):
+    def test_custom_tool_error_handling(
+        self, CrewAIAdapter, crewai_mocks, mock_tools, room_context
+    ):
         """Custom tool exception should result in error response."""
         import asyncio
-        import importlib
 
         crewai_mocks.Agent.reset_mock()
 
@@ -1025,29 +1015,22 @@ class TestCustomTools:
         )
         asyncio.run(adapter.on_started("TestBot", "Test bot"))
 
-        # Set the context variable
-        module = importlib.import_module("thenvoi.adapters.crewai")
-        module._current_room_context.set(("room-123", mock_tools))
-
         call_kwargs = crewai_mocks.Agent.call_args[1]
         tools = call_kwargs["tools"]
         echo_tool = next(t for t in tools if t.name == "echo")
 
-        result = echo_tool._run(message="test")
+        with room_context("room-123"):
+            result = echo_tool._run(message="test")
 
         result_data = json.loads(result)
         assert result_data["status"] == "error"
         assert "Service unavailable" in result_data["message"]
 
-        # Clean up context
-        module._current_room_context.set(None)
-
     def test_custom_tool_reports_execution_when_enabled(
-        self, CrewAIAdapter, crewai_mocks, mock_tools
+        self, CrewAIAdapter, crewai_mocks, mock_tools, room_context
     ):
         """Custom tool should report tool_call and tool_result events when enabled."""
         import asyncio
-        import importlib
 
         crewai_mocks.Agent.reset_mock()
 
@@ -1057,21 +1040,15 @@ class TestCustomTools:
         )
         asyncio.run(adapter.on_started("TestBot", "Test bot"))
 
-        # Set the context variable
-        module = importlib.import_module("thenvoi.adapters.crewai")
-        module._current_room_context.set(("room-123", mock_tools))
-
         call_kwargs = crewai_mocks.Agent.call_args[1]
         tools = call_kwargs["tools"]
         echo_tool = next(t for t in tools if t.name == "echo")
 
-        echo_tool._run(message="Hello!")
+        with room_context("room-123"):
+            echo_tool._run(message="Hello!")
 
         # Should have called send_event for tool_call and tool_result
         assert mock_tools.send_event.call_count >= 2
-
-        # Clean up context
-        module._current_room_context.set(None)
 
     def test_custom_tool_without_room_context(self, CrewAIAdapter, crewai_mocks):
         """Custom tool should return error when called without room context."""
