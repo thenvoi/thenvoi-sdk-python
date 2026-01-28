@@ -1,6 +1,9 @@
 # /// script
 # requires-python = ">=3.11"
 # dependencies = ["thenvoi-sdk[a2a_gateway_demo]"]
+#
+# [tool.uv.sources]
+# thenvoi-sdk = { path = "../..", editable = true }
 # ///
 """
 Run A2A Gateway with Demo Orchestrator Agent.

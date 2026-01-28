@@ -1,6 +1,9 @@
 # /// script
 # requires-python = ">=3.11"
 # dependencies = ["thenvoi-sdk[langgraph]"]
+#
+# [tool.uv.sources]
+# thenvoi-sdk = { path = "../..", editable = true }
 # ///
 """
 Jerry the mouse agent using LangGraph.
