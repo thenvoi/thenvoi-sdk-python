@@ -384,8 +384,7 @@ class TestOnMessage:
 class TestOnCleanup:
     """Tests for on_cleanup() method."""
 
-    @pytest.mark.asyncio
-    async def test_cleans_up_session(self, mock_parlant_server, mock_parlant_agent):
+    def test_cleans_up_session(self, mock_parlant_server, mock_parlant_agent):
         """Should clean up Parlant session."""
         adapter = ParlantAdapter(
             server=mock_parlant_server,
@@ -394,13 +393,14 @@ class TestOnCleanup:
         adapter._room_sessions["room-123"] = "session-123"
         adapter._room_customers["room-123"] = "customer-123"
 
-        await adapter.on_cleanup("room-123")
+        import asyncio
+
+        asyncio.get_event_loop().run_until_complete(adapter.on_cleanup("room-123"))
 
         assert "room-123" not in adapter._room_sessions
         assert "room-123" not in adapter._room_customers
 
-    @pytest.mark.asyncio
-    async def test_cleanup_nonexistent_room_is_safe(
+    def test_cleanup_nonexistent_room_is_safe(
         self, mock_parlant_server, mock_parlant_agent
     ):
         """Should handle cleanup of non-existent room."""
@@ -409,8 +409,12 @@ class TestOnCleanup:
             parlant_agent=mock_parlant_agent,
         )
 
+        import asyncio
+
         # Should not raise
-        await adapter.on_cleanup("nonexistent-room")
+        asyncio.get_event_loop().run_until_complete(
+            adapter.on_cleanup("nonexistent-room")
+        )
 
 
 class TestHistoryInjection:
