@@ -1,3 +1,7 @@
+# /// script
+# requires-python = ">=3.11"
+# dependencies = ["thenvoi-sdk[parlant]"]
+# ///
 """
 Customer support agent using Parlant SDK with guidelines.
 
@@ -5,7 +9,7 @@ This example demonstrates a realistic customer support agent with
 behavioral guidelines using the Parlant SDK directly.
 
 Run with:
-    uv run python examples/parlant/03_support_agent.py
+    uv run examples/parlant/03_support_agent.py
 
 See also: https://github.com/emcie-co/parlant/blob/develop/examples/travel_voice_agent.py
 """

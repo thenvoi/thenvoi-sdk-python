@@ -1,3 +1,7 @@
+# /// script
+# requires-python = ">=3.11"
+# dependencies = ["thenvoi-sdk[langgraph]"]
+# ///
 """
 Example: Hierarchical agents with graph_as_tool.
 
@@ -11,28 +15,36 @@ Demonstrates:
 - Full observability of nested execution
 - Events bubble up from subagent to main agent
 - Real database querying (not mocks)
+
+Run with (from repo root):
+    uv run examples/langgraph/06_delegate_to_sql_agent.py
+
+Note: Must be run from repo as it imports standalone_sql_agent.py
 """
+
+from __future__ import annotations
 
 import asyncio
 import logging
 import os
+
 from dotenv import load_dotenv
 from langchain_openai import ChatOpenAI
 from langgraph.checkpoint.memory import InMemorySaver
 
 from standalone_sql_agent import create_sql_agent, download_chinook_db
+
 from setup_logging import setup_logging
 from thenvoi import Agent
 from thenvoi.adapters import LangGraphAdapter
-from thenvoi.integrations.langgraph import graph_as_tool
 from thenvoi.config import load_agent_config
+from thenvoi.integrations.langgraph import graph_as_tool
 
 setup_logging()
-
 logger = logging.getLogger(__name__)
 
 
-async def main():
+async def main() -> None:
     load_dotenv()
     ws_url = os.getenv("THENVOI_WS_URL")
     rest_url = os.getenv("THENVOI_REST_URL")

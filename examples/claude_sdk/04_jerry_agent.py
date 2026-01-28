@@ -1,3 +1,7 @@
+# /// script
+# requires-python = ">=3.11"
+# dependencies = ["thenvoi-sdk[claude_sdk]"]
+# ///
 """
 Jerry the mouse agent using Claude SDK.
 
@@ -11,8 +15,10 @@ Prerequisites:
     - Add jerry_agent credentials to agent_config.yaml
     - Tom agent should be online for full interaction
 
-Run with:
-    ANTHROPIC_API_KEY=xxx python 04_jerry_agent.py
+Run with (from repo root):
+    uv run examples/claude_sdk/04_jerry_agent.py
+
+Note: Must be run from repo as it imports prompts/characters.py
 """
 
 from __future__ import annotations

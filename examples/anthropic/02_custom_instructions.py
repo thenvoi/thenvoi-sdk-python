@@ -1,3 +1,7 @@
+# /// script
+# requires-python = ">=3.11"
+# dependencies = ["thenvoi-sdk[anthropic]"]
+# ///
 """
 Agent with custom system prompt instructions.
 
@@ -5,8 +9,10 @@ Shows how to provide detailed custom instructions to shape agent behavior.
 Also demonstrates execution reporting for visibility into tool calls.
 
 Run with:
-    ANTHROPIC_API_KEY=xxx python 02_custom_instructions.py
+    uv run examples/anthropic/02_custom_instructions.py
 """
+
+from __future__ import annotations
 
 import asyncio
 import logging
@@ -40,7 +46,7 @@ When helping users:
 """
 
 
-async def main():
+async def main() -> None:
     load_dotenv()
 
     ws_url = os.getenv("THENVOI_WS_URL")

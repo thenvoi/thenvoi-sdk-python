@@ -1,9 +1,18 @@
+# /// script
+# requires-python = ">=3.11"
+# dependencies = ["thenvoi-sdk[langgraph]"]
+# ///
 """
 Simple LangGraph agent example using the composition API.
 
 This is the simplest way to create a Thenvoi agent - just provide
 the LLM and checkpointer, and the adapter handles everything.
+
+Run with:
+    uv run examples/langgraph/01_simple_agent.py
 """
+
+from __future__ import annotations
 
 import asyncio
 import logging
@@ -22,7 +31,7 @@ setup_logging()
 logger = logging.getLogger(__name__)
 
 
-async def main():
+async def main() -> None:
     load_dotenv()
 
     ws_url = os.getenv("THENVOI_WS_URL")
@@ -53,8 +62,6 @@ async def main():
 
     logger.info("Starting LangGraph agent...")
     await agent.run()
-
-    # Agent is now listening for messages!
 
 
 if __name__ == "__main__":

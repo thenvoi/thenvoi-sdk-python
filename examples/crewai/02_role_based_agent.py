@@ -1,3 +1,7 @@
+# /// script
+# requires-python = ">=3.11"
+# dependencies = ["thenvoi-sdk[crewai]"]
+# ///
 """
 CrewAI agent with role, goal, and backstory.
 
@@ -5,8 +9,10 @@ Shows how to use CrewAI's agent definition pattern with role-based behavior.
 This is the core concept from CrewAI - defining agents by their role and goals.
 
 Run with:
-    OPENAI_API_KEY=xxx python 02_role_based_agent.py
+    uv run examples/crewai/02_role_based_agent.py
 """
+
+from __future__ import annotations
 
 import asyncio
 import logging
@@ -23,7 +29,7 @@ setup_logging()
 logger = logging.getLogger(__name__)
 
 
-async def main():
+async def main() -> None:
     load_dotenv()
 
     ws_url = os.getenv("THENVOI_WS_URL")

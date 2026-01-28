@@ -1,3 +1,7 @@
+# /// script
+# requires-python = ">=3.11"
+# dependencies = ["thenvoi-sdk[a2a]"]
+# ///
 """
 Basic A2A adapter example.
 
@@ -21,7 +25,7 @@ Prerequisites:
        curl http://localhost:10000/.well-known/agent.json
 
 Run with:
-    python 01_basic_agent.py
+    uv run examples/a2a_bridge/01_basic_agent.py
 """
 
 import asyncio

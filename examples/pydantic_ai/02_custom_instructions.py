@@ -1,11 +1,17 @@
+# /// script
+# requires-python = ">=3.11"
+# dependencies = ["thenvoi-sdk[pydantic-ai]"]
+# ///
 """
 Agent with custom system prompt instructions.
 
 Shows how to provide detailed custom instructions to shape agent behavior.
 
 Run with:
-    THENVOI_AGENT_ID=xxx THENVOI_API_KEY=xxx ANTHROPIC_API_KEY=xxx python 02_custom_instructions.py
+    uv run examples/pydantic_ai/02_custom_instructions.py
 """
+
+from __future__ import annotations
 
 import asyncio
 import logging
@@ -39,7 +45,7 @@ When helping users:
 """
 
 
-async def main():
+async def main() -> None:
     load_dotenv()
 
     ws_url = os.getenv("THENVOI_WS_URL")

@@ -1,4 +1,8 @@
 #!/usr/bin/env python3
+# /// script
+# requires-python = ">=3.11"
+# dependencies = ["thenvoi-sdk[claude_sdk]"]
+# ///
 """
 Basic Claude SDK Agent Example.
 
@@ -13,8 +17,8 @@ Prerequisites:
        - THENVOI_API_KEY: Your API key
        - ANTHROPIC_API_KEY: Your Anthropic API key
 
-Usage:
-    python 01_basic_agent.py
+Run with:
+    uv run examples/claude_sdk/01_basic_agent.py
 """
 
 from __future__ import annotations

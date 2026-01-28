@@ -1,3 +1,7 @@
+# /// script
+# requires-python = ">=3.11"
+# dependencies = ["thenvoi-sdk[parlant]"]
+# ///
 """
 Parlant agent with behavioral guidelines using the official Parlant SDK.
 
@@ -5,7 +9,7 @@ This example shows how to use Parlant's guideline system for controlled
 agent behavior with the full Thenvoi toolset.
 
 Run with:
-    uv run python examples/parlant/02_with_guidelines.py
+    uv run examples/parlant/02_with_guidelines.py
 
 See also: https://github.com/emcie-co/parlant/blob/develop/examples/travel_voice_agent.py
 """

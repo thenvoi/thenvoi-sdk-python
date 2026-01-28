@@ -1,3 +1,7 @@
+# /// script
+# requires-python = ">=3.11"
+# dependencies = ["thenvoi-sdk[pydantic-ai]"]
+# ///
 """
 Jerry the mouse agent using Pydantic AI.
 
@@ -5,8 +9,10 @@ This example shows how to create a character agent with a custom personality
 using Pydantic AI. Jerry is a clever mouse who lives in his hole
 and teases Tom the cat while staying safe from being caught.
 
-Run with:
-    OPENAI_API_KEY=xxx python 04_jerry_agent.py
+Run with (from repo root):
+    uv run examples/pydantic_ai/04_jerry_agent.py
+
+Note: Must be run from repo as it imports prompts/characters.py
 """
 
 from __future__ import annotations

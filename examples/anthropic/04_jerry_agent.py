@@ -1,3 +1,7 @@
+# /// script
+# requires-python = ">=3.11"
+# dependencies = ["thenvoi-sdk[anthropic]"]
+# ///
 """
 Jerry the mouse agent - clever and cheese-loving!
 
@@ -8,12 +12,10 @@ staying safe from being caught.
 The character prompt is loaded from a shared prompts module that can be
 reused across different adapter implementations.
 
-Run with:
-    ANTHROPIC_API_KEY=xxx python 04_jerry_agent.py
+Run with (from repo root):
+    uv run examples/anthropic/04_jerry_agent.py
 
-Prerequisites:
-    - Add jerry_agent credentials to agent_config.yaml
-    - Tom agent should be online for full interaction
+Note: Must be run from repo as it imports prompts/characters.py
 """
 
 from __future__ import annotations
@@ -29,6 +31,7 @@ from dotenv import load_dotenv
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from prompts.characters import generate_jerry_prompt
+
 from setup_logging import setup_logging
 from thenvoi import Agent
 from thenvoi.adapters import AnthropicAdapter

@@ -1,3 +1,7 @@
+# /// script
+# requires-python = ">=3.11"
+# dependencies = ["thenvoi-sdk[parlant]"]
+# ///
 """
 Basic Parlant agent example using the official Parlant SDK.
 
@@ -5,7 +9,7 @@ This example shows how to create a Thenvoi agent using the Parlant SDK
 directly, with the full set of Thenvoi tools.
 
 Run with:
-    uv run python examples/parlant/01_basic_agent.py
+    uv run examples/parlant/01_basic_agent.py
 
 See also: https://github.com/emcie-co/parlant/blob/develop/examples/travel_voice_agent.py
 """

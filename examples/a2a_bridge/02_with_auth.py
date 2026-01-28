@@ -1,3 +1,7 @@
+# /// script
+# requires-python = ">=3.11"
+# dependencies = ["thenvoi-sdk[a2a]"]
+# ///
 """
 A2A adapter with authentication example.
 
@@ -5,7 +9,7 @@ This example shows how to connect to a remote A2A agent that requires
 authentication (API key, bearer token, or custom headers).
 
 Run with:
-    A2A_API_KEY=xxx python 02_with_auth.py
+    uv run examples/a2a_bridge/02_with_auth.py
 """
 
 import asyncio

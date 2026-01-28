@@ -1,3 +1,7 @@
+# /// script
+# requires-python = ">=3.11"
+# dependencies = ["thenvoi-sdk[pydantic-ai]"]
+# ///
 """
 Basic Pydantic AI agent example.
 
@@ -5,8 +9,10 @@ This is the simplest way to create a Thenvoi agent with Pydantic AI.
 The adapter handles tool registration automatically.
 
 Run with:
-    THENVOI_AGENT_ID=xxx THENVOI_API_KEY=xxx OPENAI_API_KEY=xxx python 01_basic_agent.py
+    uv run examples/pydantic_ai/01_basic_agent.py
 """
+
+from __future__ import annotations
 
 import asyncio
 import logging
@@ -23,7 +29,7 @@ setup_logging()
 logger = logging.getLogger(__name__)
 
 
-async def main():
+async def main() -> None:
     load_dotenv()
 
     ws_url = os.getenv("THENVOI_WS_URL")

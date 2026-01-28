@@ -1,3 +1,7 @@
+# /// script
+# requires-python = ">=3.11"
+# dependencies = ["thenvoi-sdk[langgraph]"]
+# ///
 """
 Example: Using the standalone Agentic RAG graph with Thenvoi platform.
 
@@ -17,28 +21,36 @@ Pattern:
 - Main agent handles chat interactions (send_message, add_participant, etc.)
 - RAG subgraph handles intelligent document retrieval and question answering
 - User asks questions → Agent delegates to RAG → Agent sends response
+
+Run with (from repo root):
+    uv run examples/langgraph/05_rag_as_tool.py
+
+Note: Must be run from repo as it imports standalone_rag.py
 """
+
+from __future__ import annotations
 
 import asyncio
 import logging
 import os
+
 from dotenv import load_dotenv
 from langchain_openai import ChatOpenAI
 from langgraph.checkpoint.memory import InMemorySaver
 
 from standalone_rag import create_rag_graph
+
 from setup_logging import setup_logging
 from thenvoi import Agent
 from thenvoi.adapters import LangGraphAdapter
-from thenvoi.integrations.langgraph import graph_as_tool
 from thenvoi.config import load_agent_config
+from thenvoi.integrations.langgraph import graph_as_tool
 
 setup_logging()
-
 logger = logging.getLogger(__name__)
 
 
-async def main():
+async def main() -> None:
     load_dotenv()
     ws_url = os.getenv("THENVOI_WS_URL")
     rest_url = os.getenv("THENVOI_REST_URL")

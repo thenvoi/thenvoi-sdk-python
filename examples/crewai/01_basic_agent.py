@@ -1,3 +1,7 @@
+# /// script
+# requires-python = ">=3.11"
+# dependencies = ["thenvoi-sdk[crewai]"]
+# ///
 """
 Basic CrewAI agent example.
 
@@ -10,8 +14,10 @@ CrewAI (https://docs.crewai.com/) provides:
 - Memory and knowledge management
 
 Run with:
-    OPENAI_API_KEY=xxx python 01_basic_agent.py
+    uv run examples/crewai/01_basic_agent.py
 """
+
+from __future__ import annotations
 
 import asyncio
 import logging
@@ -28,7 +34,7 @@ setup_logging()
 logger = logging.getLogger(__name__)
 
 
-async def main():
+async def main() -> None:
     load_dotenv()
 
     ws_url = os.getenv("THENVOI_WS_URL")
