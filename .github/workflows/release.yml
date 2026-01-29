@@ -36,6 +36,7 @@ jobs:
           token: ${{ steps.app_token_generator.outputs.token }}
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
+          target-branch: main
 
       - name: Set up Python
         if: steps.release.outputs.release_created == 'true'
