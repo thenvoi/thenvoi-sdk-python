@@ -53,7 +53,7 @@ class Execution(Protocol):
     The default ExecutionContext uses context accumulation.
     Custom implementations (e.g., Letta) can use persistent agents.
 
-    Migration Note (v0.x.x):
+    Migration Note:
         The stop() method signature changed from `async def stop() -> None`
         to `async def stop(timeout=None) -> bool`. Custom implementations
         should update their signature to support graceful shutdown.
