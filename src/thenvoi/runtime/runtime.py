@@ -116,20 +116,31 @@ class AgentRuntime:
         logger.info(f"Starting AgentRuntime for agent {self.agent_id}")
         await self.presence.start()
 
-    async def stop(self) -> None:
+    async def stop(self, timeout: float | None = None) -> bool:
         """
-        Stop the agent runtime.
+        Stop the agent runtime with optional graceful timeout.
 
-        1. Stops all execution contexts
+        Args:
+            timeout: Optional seconds to wait for current processing to complete
+                     in each execution context. None means cancel immediately.
+
+        Returns:
+            True if all executions stopped gracefully, False if any had to be
+            cancelled mid-processing.
+
+        1. Stops all execution contexts (with timeout)
         2. Stops RoomPresence
         """
         logger.info(f"Stopping AgentRuntime for agent {self.agent_id}")
 
-        # Stop all executions
+        # Stop all executions with timeout
+        all_graceful = True
         for room_id in list(self.executions.keys()):
-            await self._destroy_execution(room_id)
+            graceful = await self._destroy_execution(room_id, timeout=timeout)
+            all_graceful = all_graceful and graceful
 
         await self.presence.stop()
+        return all_graceful
 
     async def run(self) -> None:
         """
@@ -190,13 +201,24 @@ class AgentRuntime:
         logger.debug(f"Created execution for room {room_id}")
         return execution
 
-    async def _destroy_execution(self, room_id: str) -> None:
-        """Stop and cleanup execution context for a room."""
+    async def _destroy_execution(
+        self, room_id: str, timeout: float | None = None
+    ) -> bool:
+        """
+        Stop and cleanup execution context for a room.
+
+        Args:
+            room_id: Room ID to destroy execution for.
+            timeout: Optional seconds to wait for graceful stop.
+
+        Returns:
+            True if stopped gracefully, False if cancelled mid-processing.
+        """
         if room_id not in self.executions:
-            return
+            return True
 
         execution = self.executions.pop(room_id)
-        await execution.stop()
+        graceful = await execution.stop(timeout=timeout)
 
         # Call cleanup callback (for adapter to clean up checkpointer, etc.)
         if self._on_session_cleanup:
@@ -206,3 +228,4 @@ class AgentRuntime:
                 logger.warning(f"Session cleanup callback failed for {room_id}: {e}")
 
         logger.debug(f"Destroyed execution for room {room_id}")
+        return graceful

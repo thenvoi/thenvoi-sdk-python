@@ -69,6 +69,9 @@ from .runtime import (
     # Trackers
     ParticipantTracker,
     MessageRetryTracker,
+    # Shutdown
+    GracefulShutdown,
+    run_with_graceful_shutdown,
 )
 
 __all__ = [
@@ -100,6 +103,9 @@ __all__ = [
     # Runtime - Trackers
     "ParticipantTracker",
     "MessageRetryTracker",
+    # Runtime - Shutdown
+    "GracefulShutdown",
+    "run_with_graceful_shutdown",
 ]
 
 try:

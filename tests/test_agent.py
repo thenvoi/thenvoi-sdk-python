@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from thenvoi.agent import Agent
+from thenvoi.agent import Agent, DEFAULT_SHUTDOWN_TIMEOUT
 from thenvoi.core.simple_adapter import SimpleAdapter
 from thenvoi.core.types import AgentInput
 from thenvoi.runtime.types import AgentConfig, SessionConfig
@@ -214,8 +214,11 @@ class TestStop:
     @pytest.mark.asyncio
     async def test_stops_runtime(self, mock_runtime, mock_adapter):
         """Should stop the platform runtime."""
+        mock_runtime.stop.return_value = True
         agent = Agent(runtime=mock_runtime, adapter=mock_adapter)
 
+        # Must start first since stop() returns early if not started
+        await agent.start()
         await agent.stop()
 
         mock_runtime.stop.assert_awaited_once()
@@ -490,3 +493,236 @@ class TestStartupRaceCondition:
         assert call_order[0] == "on_started", (
             f"Expected on_started to be called first, but got: {call_order}"
         )
+
+
+class TestIsRunningProperty:
+    """Tests for Agent.is_running property."""
+
+    def test_is_running_false_initially(self, mock_runtime, mock_adapter):
+        """Should return False before start()."""
+        agent = Agent(runtime=mock_runtime, adapter=mock_adapter)
+        assert agent.is_running is False
+
+    @pytest.mark.asyncio
+    async def test_is_running_true_after_start(self, mock_runtime, mock_adapter):
+        """Should return True after start()."""
+        agent = Agent(runtime=mock_runtime, adapter=mock_adapter)
+        await agent.start()
+        assert agent.is_running is True
+
+    @pytest.mark.asyncio
+    async def test_is_running_false_after_stop(self, mock_runtime, mock_adapter):
+        """Should return False after stop()."""
+        mock_runtime.stop.return_value = True
+        agent = Agent(runtime=mock_runtime, adapter=mock_adapter)
+        await agent.start()
+        await agent.stop()
+        assert agent.is_running is False
+
+
+class TestGracefulStop:
+    """Tests for Agent.stop() with timeout."""
+
+    @pytest.mark.asyncio
+    async def test_stop_without_timeout(self, mock_runtime, mock_adapter):
+        """stop() without timeout should pass None to runtime."""
+        mock_runtime.stop.return_value = True
+        agent = Agent(runtime=mock_runtime, adapter=mock_adapter)
+        await agent.start()
+
+        await agent.stop()
+
+        mock_runtime.stop.assert_awaited_once_with(timeout=None)
+
+    @pytest.mark.asyncio
+    async def test_stop_with_timeout(self, mock_runtime, mock_adapter):
+        """stop(timeout) should pass timeout to runtime."""
+        mock_runtime.stop.return_value = True
+        agent = Agent(runtime=mock_runtime, adapter=mock_adapter)
+        await agent.start()
+
+        await agent.stop(timeout=30.0)
+
+        mock_runtime.stop.assert_awaited_once_with(timeout=30.0)
+
+    @pytest.mark.asyncio
+    async def test_stop_returns_graceful_status(self, mock_runtime, mock_adapter):
+        """stop() should return graceful status from runtime."""
+        mock_runtime.stop.return_value = False  # Cancelled mid-processing
+        agent = Agent(runtime=mock_runtime, adapter=mock_adapter)
+        await agent.start()
+
+        result = await agent.stop(timeout=1.0)
+
+        assert result is False
+
+    @pytest.mark.asyncio
+    async def test_stop_returns_true_when_not_started(self, mock_runtime, mock_adapter):
+        """stop() should return True when not started."""
+        agent = Agent(runtime=mock_runtime, adapter=mock_adapter)
+
+        result = await agent.stop(timeout=5.0)
+
+        assert result is True
+        mock_runtime.stop.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_start_is_idempotent(self, mock_runtime, mock_adapter):
+        """start() should be idempotent."""
+        agent = Agent(runtime=mock_runtime, adapter=mock_adapter)
+
+        await agent.start()
+        await agent.start()  # Second call
+
+        # Should only call runtime once
+        assert mock_runtime.initialize.await_count == 1
+
+
+class TestRunWithShutdownTimeout:
+    """Tests for Agent.run() with shutdown_timeout."""
+
+    @pytest.mark.asyncio
+    async def test_run_uses_default_timeout(self, mock_runtime, mock_adapter):
+        """run() should use default shutdown timeout."""
+        mock_runtime.stop.return_value = True
+        agent = Agent(runtime=mock_runtime, adapter=mock_adapter)
+
+        await agent.run()
+
+        mock_runtime.stop.assert_awaited_once_with(timeout=DEFAULT_SHUTDOWN_TIMEOUT)
+
+    @pytest.mark.asyncio
+    async def test_run_uses_custom_timeout(self, mock_runtime, mock_adapter):
+        """run() should use custom shutdown timeout."""
+        mock_runtime.stop.return_value = True
+        agent = Agent(runtime=mock_runtime, adapter=mock_adapter)
+
+        await agent.run(shutdown_timeout=60.0)
+
+        mock_runtime.stop.assert_awaited_once_with(timeout=60.0)
+
+    @pytest.mark.asyncio
+    async def test_run_with_none_timeout(self, mock_runtime, mock_adapter):
+        """run(shutdown_timeout=None) should stop immediately."""
+        mock_runtime.stop.return_value = True
+        agent = Agent(runtime=mock_runtime, adapter=mock_adapter)
+
+        await agent.run(shutdown_timeout=None)
+
+        mock_runtime.stop.assert_awaited_once_with(timeout=None)
+
+
+class TestAsyncContextManager:
+    """Tests for Agent async context manager."""
+
+    @pytest.mark.asyncio
+    async def test_aenter_starts_agent(self, mock_runtime, mock_adapter):
+        """__aenter__ should start the agent."""
+        agent = Agent(runtime=mock_runtime, adapter=mock_adapter)
+
+        async with agent:
+            assert agent.is_running is True
+
+    @pytest.mark.asyncio
+    async def test_aenter_returns_agent(self, mock_runtime, mock_adapter):
+        """__aenter__ should return the agent instance."""
+        agent = Agent(runtime=mock_runtime, adapter=mock_adapter)
+
+        async with agent as ctx:
+            assert ctx is agent
+
+    @pytest.mark.asyncio
+    async def test_aexit_stops_agent(self, mock_runtime, mock_adapter):
+        """__aexit__ should stop the agent."""
+        mock_runtime.stop.return_value = True
+        agent = Agent(runtime=mock_runtime, adapter=mock_adapter)
+
+        async with agent:
+            pass
+
+        assert agent.is_running is False
+        mock_runtime.stop.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_aexit_uses_default_timeout(self, mock_runtime, mock_adapter):
+        """__aexit__ should use default shutdown timeout."""
+        mock_runtime.stop.return_value = True
+        agent = Agent(runtime=mock_runtime, adapter=mock_adapter)
+
+        async with agent:
+            pass
+
+        mock_runtime.stop.assert_awaited_once_with(timeout=DEFAULT_SHUTDOWN_TIMEOUT)
+
+    @pytest.mark.asyncio
+    async def test_aexit_uses_run_timeout(self, mock_runtime, mock_adapter):
+        """__aexit__ should use the timeout from run() if set."""
+        mock_runtime.stop.return_value = True
+        mock_runtime.run_forever = AsyncMock(side_effect=KeyboardInterrupt())
+        agent = Agent(runtime=mock_runtime, adapter=mock_adapter)
+
+        # Use try/except since run() will raise KeyboardInterrupt
+        try:
+            await agent.run(shutdown_timeout=60.0)
+        except KeyboardInterrupt:
+            pass
+
+        # The finally block in run() should use the custom timeout
+        mock_runtime.stop.assert_awaited_once_with(timeout=60.0)
+
+    @pytest.mark.asyncio
+    async def test_aexit_respects_none_timeout_from_run(
+        self, mock_runtime, mock_adapter
+    ):
+        """__aexit__ should use None if run() was called with shutdown_timeout=None."""
+        mock_runtime.stop.return_value = True
+        mock_runtime.run_forever = AsyncMock(side_effect=KeyboardInterrupt())
+        agent = Agent(runtime=mock_runtime, adapter=mock_adapter)
+
+        # Use try/except since run() will raise KeyboardInterrupt
+        try:
+            await agent.run(shutdown_timeout=None)
+        except KeyboardInterrupt:
+            pass
+
+        # The finally block in run() should use None (immediate cancellation)
+        mock_runtime.stop.assert_awaited_once_with(timeout=None)
+
+    @pytest.mark.asyncio
+    async def test_aexit_stops_on_exception(self, mock_runtime, mock_adapter):
+        """__aexit__ should stop agent even on exception."""
+        mock_runtime.stop.return_value = True
+        agent = Agent(runtime=mock_runtime, adapter=mock_adapter)
+
+        with pytest.raises(ValueError):
+            async with agent:
+                raise ValueError("Test error")
+
+        mock_runtime.stop.assert_awaited_once()
+
+
+class TestRunForever:
+    """Tests for Agent.run_forever() method."""
+
+    @pytest.mark.asyncio
+    async def test_run_forever_delegates_to_runtime(self, mock_runtime, mock_adapter):
+        """run_forever() should call runtime.run_forever()."""
+        agent = Agent(runtime=mock_runtime, adapter=mock_adapter)
+        await agent.start()
+
+        await agent.run_forever()
+
+        mock_runtime.run_forever.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_run_forever_works_with_context_manager(
+        self, mock_runtime, mock_adapter
+    ):
+        """run_forever() should work inside async with block."""
+        mock_runtime.stop.return_value = True
+        agent = Agent(runtime=mock_runtime, adapter=mock_adapter)
+
+        async with agent:
+            await agent.run_forever()
+
+        mock_runtime.run_forever.assert_awaited_once()

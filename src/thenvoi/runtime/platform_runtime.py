@@ -132,13 +132,24 @@ class PlatformRuntime:
         await self._runtime.start()
         logger.info(f"Platform runtime started for agent: {self._agent_name}")
 
-    async def stop(self) -> None:
-        """Stop platform runtime."""
+    async def stop(self, timeout: float | None = None) -> bool:
+        """
+        Stop platform runtime with optional graceful timeout.
+
+        Args:
+            timeout: Optional seconds to wait for current processing to complete.
+                     None means cancel immediately.
+
+        Returns:
+            True if stopped gracefully, False if cancelled mid-processing.
+        """
+        graceful = True
         if self._runtime:
-            await self._runtime.stop()
+            graceful = await self._runtime.stop(timeout=timeout)
         if self._link:
             await self._link.disconnect()
         logger.info("Platform runtime stopped")
+        return graceful
 
     async def run_forever(self) -> None:
         """Run until interrupted."""

@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING
+from types import TracebackType
+from typing import TYPE_CHECKING, cast
 
 from thenvoi.core.protocols import FrameworkAdapter, Preprocessor
 from thenvoi.core.simple_adapter import SimpleAdapter
@@ -16,6 +17,30 @@ if TYPE_CHECKING:
     from thenvoi.runtime.execution import ExecutionContext
 
 logger = logging.getLogger(__name__)
+
+# Default graceful shutdown timeout in seconds
+DEFAULT_SHUTDOWN_TIMEOUT: float = 30.0
+
+
+class _TimeoutNotSet:
+    """Sentinel class to distinguish 'not set' from 'explicitly set to None'."""
+
+    _instance: "_TimeoutNotSet | None" = None
+
+    def __new__(cls) -> "_TimeoutNotSet":
+        if cls._instance is None:
+            cls._instance = super().__new__(cls)
+        return cls._instance
+
+    def __repr__(self) -> str:
+        return "<TIMEOUT_NOT_SET>"
+
+
+# Singleton sentinel instance
+_TIMEOUT_NOT_SET: _TimeoutNotSet = _TimeoutNotSet()
+
+# Type alias for shutdown timeout (float, None, or sentinel)
+_ShutdownTimeout = float | None | _TimeoutNotSet
 
 
 class Agent:
@@ -48,6 +73,10 @@ class Agent:
         self._runtime = runtime
         self._adapter = adapter
         self._preprocessor = preprocessor or DefaultPreprocessor()
+        self._started = False
+        # Tracks shutdown_timeout from run() for use in __aexit__
+        # Uses sentinel to distinguish "not set" from "explicitly set to None"
+        self._shutdown_timeout: _ShutdownTimeout = _TIMEOUT_NOT_SET
 
     @classmethod
     def create(
@@ -92,8 +121,17 @@ class Agent:
     def agent_description(self) -> str:
         return self._runtime.agent_description
 
+    @property
+    def is_running(self) -> bool:
+        """Check if agent is currently running."""
+        return self._started
+
     async def start(self) -> None:
         """Start agent."""
+        if self._started:
+            logger.warning("Agent already started")
+            return
+
         # 1. Initialize runtime (fetch metadata via REST, no WebSocket yet)
         await self._runtime.initialize()
 
@@ -109,17 +147,104 @@ class Agent:
             on_cleanup=self._adapter.on_cleanup,
         )
 
-    async def stop(self) -> None:
-        """Stop agent."""
-        await self._runtime.stop()
+        self._started = True
+        logger.info("Agent started: %s", self._runtime.agent_name)
 
-    async def run(self) -> None:
-        """Run until interrupted."""
+    async def stop(self, timeout: float | None = None) -> bool:
+        """
+        Stop agent with optional graceful timeout.
+
+        If timeout is provided, waits up to that many seconds for any ongoing
+        message processing to complete before stopping. If timeout is None,
+        stops immediately by cancelling any in-progress processing.
+
+        Args:
+            timeout: Optional seconds to wait for graceful shutdown.
+                     None means stop immediately.
+
+        Returns:
+            True if stopped gracefully (processing completed or was idle),
+            False if had to cancel mid-processing after timeout.
+        """
+        if not self._started:
+            return True
+
+        graceful = await self._runtime.stop(timeout=timeout)
+        self._started = False
+        logger.info(
+            "Agent stopped: %s (graceful=%s)", self._runtime.agent_name, graceful
+        )
+        return graceful
+
+    async def run(
+        self, shutdown_timeout: float | None = DEFAULT_SHUTDOWN_TIMEOUT
+    ) -> None:
+        """
+        Run until interrupted.
+
+        Args:
+            shutdown_timeout: Seconds to wait for graceful shutdown on interrupt.
+                              Set to None for immediate cancellation.
+                              Default is 30 seconds.
+        """
+        self._shutdown_timeout = shutdown_timeout
         await self.start()
         try:
             await self._runtime.run_forever()
         finally:
-            await self.stop()
+            await self.stop(timeout=shutdown_timeout)
+
+    # --- Async context manager ---
+
+    async def __aenter__(self) -> "Agent":
+        """
+        Enter async context - start the agent.
+
+        Example:
+            async with Agent.create(...) as agent:
+                await agent.run_forever()  # or just wait
+        """
+        await self.start()
+        return self
+
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: TracebackType | None,
+    ) -> None:
+        """
+        Exit async context - stop the agent gracefully.
+
+        Uses the shutdown_timeout configured in run(), or DEFAULT_SHUTDOWN_TIMEOUT
+        if run() was never called. If run() was called with shutdown_timeout=None,
+        stops immediately without waiting.
+        """
+        # Use default only if run() was never called (sentinel value)
+        # If run() was called with None, respect that (immediate cancellation)
+        if self._shutdown_timeout is _TIMEOUT_NOT_SET:
+            timeout: float | None = DEFAULT_SHUTDOWN_TIMEOUT
+        else:
+            # Cast is safe: at this point it's either float or None (not sentinel)
+            timeout = cast(float | None, self._shutdown_timeout)
+        await self.stop(timeout=timeout)
+
+    async def run_forever(self) -> None:
+        """
+        Keep the agent running forever.
+
+        Use this inside an async context manager:
+            async with agent:
+                await agent.run_forever()
+
+        Or after manually calling start():
+            await agent.start()
+            try:
+                await agent.run_forever()
+            finally:
+                await agent.stop()
+        """
+        await self._runtime.run_forever()
 
     async def _on_execute(
         self,

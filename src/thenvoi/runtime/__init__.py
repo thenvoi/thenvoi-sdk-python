@@ -13,6 +13,10 @@ Utilities:
     prompts: System prompt rendering
     ParticipantTracker: Participant tracking with change detection
     MessageRetryTracker: Message retry tracking
+
+Shutdown:
+    GracefulShutdown: Signal handler for graceful agent termination
+    run_with_graceful_shutdown: Convenience function to run agent with signal handling
 """
 
 # Types
@@ -41,6 +45,7 @@ from .formatters import (
 from .prompts import render_system_prompt, BASE_INSTRUCTIONS, TEMPLATES
 from .participant_tracker import ParticipantTracker
 from .retry_tracker import MessageRetryTracker
+from .shutdown import GracefulShutdown, run_with_graceful_shutdown
 
 __all__ = [
     # Types
@@ -69,4 +74,7 @@ __all__ = [
     # Trackers
     "ParticipantTracker",
     "MessageRetryTracker",
+    # Shutdown
+    "GracefulShutdown",
+    "run_with_graceful_shutdown",
 ]
