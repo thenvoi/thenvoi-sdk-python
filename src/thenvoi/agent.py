@@ -151,7 +151,9 @@ class Agent:
         logger.info("Agent stopped: %s", self._runtime.agent_name)
         return graceful
 
-    async def run(self, shutdown_timeout: float | None = DEFAULT_SHUTDOWN_TIMEOUT) -> None:
+    async def run(
+        self, shutdown_timeout: float | None = DEFAULT_SHUTDOWN_TIMEOUT
+    ) -> None:
         """
         Run until interrupted.
 

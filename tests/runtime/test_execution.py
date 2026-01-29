@@ -903,6 +903,7 @@ class TestGracefulStopWithTimeout:
 
     async def test_stop_returns_false_when_timeout_exceeded(self, mock_link):
         """stop(timeout) should return False when timeout exceeded."""
+
         async def slow_handler(ctx, event):
             await asyncio.sleep(10)  # Very slow
 
