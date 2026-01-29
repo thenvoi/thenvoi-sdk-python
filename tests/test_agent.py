@@ -671,6 +671,24 @@ class TestAsyncContextManager:
         mock_runtime.stop.assert_awaited_once_with(timeout=60.0)
 
     @pytest.mark.asyncio
+    async def test_aexit_respects_none_timeout_from_run(
+        self, mock_runtime, mock_adapter
+    ):
+        """__aexit__ should use None if run() was called with shutdown_timeout=None."""
+        mock_runtime.stop.return_value = True
+        mock_runtime.run_forever = AsyncMock(side_effect=KeyboardInterrupt())
+        agent = Agent(runtime=mock_runtime, adapter=mock_adapter)
+
+        # Use try/except since run() will raise KeyboardInterrupt
+        try:
+            await agent.run(shutdown_timeout=None)
+        except KeyboardInterrupt:
+            pass
+
+        # The finally block in run() should use None (immediate cancellation)
+        mock_runtime.stop.assert_awaited_once_with(timeout=None)
+
+    @pytest.mark.asyncio
     async def test_aexit_stops_on_exception(self, mock_runtime, mock_adapter):
         """__aexit__ should stop agent even on exception."""
         mock_runtime.stop.return_value = True

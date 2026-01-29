@@ -29,7 +29,8 @@ class GracefulShutdown:
     Note:
         Signal handlers using asyncio's add_signal_handler() only work on
         Unix systems (Linux, macOS). On Windows, use KeyboardInterrupt
-        handling instead:
+        handling instead (asyncio.run() automatically converts SIGINT to
+        KeyboardInterrupt):
 
             try:
                 await agent.run()
@@ -40,6 +41,11 @@ class GracefulShutdown:
         SIGHUP is treated as a shutdown signal, NOT a configuration reload
         signal. If your deployment expects SIGHUP for config reload, you
         should not use this handler and implement custom signal handling.
+
+    Note:
+        Multiple signals during shutdown: Once a shutdown is initiated, subsequent
+        signals are ignored. The shutdown will complete within the configured timeout.
+        If you need to force an immediate exit, send SIGKILL (kill -9) instead.
 
     Example (recommended pattern):
         agent = Agent.create(...)

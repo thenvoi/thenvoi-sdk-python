@@ -21,6 +21,9 @@ logger = logging.getLogger(__name__)
 # Default graceful shutdown timeout in seconds
 DEFAULT_SHUTDOWN_TIMEOUT: float = 30.0
 
+# Sentinel to distinguish "not set" from "explicitly set to None"
+_TIMEOUT_NOT_SET: object = object()
+
 
 class Agent:
     """
@@ -53,7 +56,8 @@ class Agent:
         self._adapter = adapter
         self._preprocessor = preprocessor or DefaultPreprocessor()
         self._started = False
-        self._shutdown_timeout: float | None = None
+        # Use sentinel to distinguish "not set" from "explicitly set to None"
+        self._shutdown_timeout: float | None | object = _TIMEOUT_NOT_SET
 
     @classmethod
     def create(
@@ -191,13 +195,17 @@ class Agent:
         """
         Exit async context - stop the agent gracefully.
 
-        Uses the shutdown_timeout configured in run() or DEFAULT_SHUTDOWN_TIMEOUT.
+        Uses the shutdown_timeout configured in run(), or DEFAULT_SHUTDOWN_TIMEOUT
+        if run() was never called. If run() was called with shutdown_timeout=None,
+        stops immediately without waiting.
         """
-        timeout = (
-            self._shutdown_timeout
-            if self._shutdown_timeout is not None
-            else DEFAULT_SHUTDOWN_TIMEOUT
-        )
+        # Use default only if run() was never called (sentinel value)
+        # If run() was called with None, respect that (immediate cancellation)
+        if self._shutdown_timeout is _TIMEOUT_NOT_SET:
+            timeout = DEFAULT_SHUTDOWN_TIMEOUT
+        else:
+            # Cast is safe: at this point it's either float or None
+            timeout = self._shutdown_timeout  # type: ignore[assignment]
         await self.stop(timeout=timeout)
 
     async def run_forever(self) -> None:
