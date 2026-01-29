@@ -21,11 +21,26 @@ logger = logging.getLogger(__name__)
 # Default graceful shutdown timeout in seconds
 DEFAULT_SHUTDOWN_TIMEOUT: float = 30.0
 
-# Sentinel to distinguish "not set" from "explicitly set to None"
-_TIMEOUT_NOT_SET: object = object()
+
+class _TimeoutNotSet:
+    """Sentinel class to distinguish 'not set' from 'explicitly set to None'."""
+
+    _instance: "_TimeoutNotSet | None" = None
+
+    def __new__(cls) -> "_TimeoutNotSet":
+        if cls._instance is None:
+            cls._instance = super().__new__(cls)
+        return cls._instance
+
+    def __repr__(self) -> str:
+        return "<TIMEOUT_NOT_SET>"
+
+
+# Singleton sentinel instance
+_TIMEOUT_NOT_SET: _TimeoutNotSet = _TimeoutNotSet()
 
 # Type alias for shutdown timeout (float, None, or sentinel)
-_ShutdownTimeout = float | None | object
+_ShutdownTimeout = float | None | _TimeoutNotSet
 
 
 class Agent:

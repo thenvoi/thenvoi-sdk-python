@@ -53,10 +53,24 @@ class Execution(Protocol):
     The default ExecutionContext uses context accumulation.
     Custom implementations (e.g., Letta) can use persistent agents.
 
-    Migration Note:
-        The stop() method signature changed from `async def stop() -> None`
-        to `async def stop(timeout=None) -> bool`. Custom implementations
-        should update their signature to support graceful shutdown.
+    .. versionchanged:: 0.2.0
+        Breaking change: The ``stop()`` method signature changed from
+        ``async def stop() -> None`` to ``async def stop(timeout=None) -> bool``.
+
+    Migration Guide:
+        If you have a custom Execution implementation, update the stop() method:
+
+        Before::
+
+            async def stop(self) -> None:
+                # cleanup logic
+                pass
+
+        After::
+
+            async def stop(self, timeout: float | None = None) -> bool:
+                # cleanup logic (timeout can be ignored if not needed)
+                return True  # Return True for graceful, False if interrupted
     """
 
     room_id: str

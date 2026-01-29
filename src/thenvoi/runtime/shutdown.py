@@ -26,6 +26,19 @@ class GracefulShutdown:
     shutdown of the agent, allowing current message processing to complete
     within a configurable timeout.
 
+    Warning:
+        The shutdown task created by signal handlers is NOT awaited. This means
+        if the process exits immediately after receiving a signal (e.g., due to
+        SIGKILL or rapid termination), the graceful shutdown may not complete.
+        For guaranteed shutdown completion, use one of these patterns:
+
+        1. Context manager (recommended):
+            async with GracefulShutdown(agent, timeout=30.0):
+                await agent.run()
+
+        2. Manual await:
+            await agent.stop(timeout=30.0)
+
     Note:
         Signal handlers using asyncio's add_signal_handler() only work on
         Unix systems (Linux, macOS). On Windows, use KeyboardInterrupt
