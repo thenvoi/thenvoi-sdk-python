@@ -128,7 +128,9 @@ class TestMultiAgentChatRoom:
             hasattr(item, "id") and item.id == agent1_message_id for item in context
         )
 
-        logger.info(f"\nAgent 1's message visible to Agent 2: {agent1_message_in_context}")
+        logger.info(
+            f"\nAgent 1's message visible to Agent 2: {agent1_message_in_context}"
+        )
 
         # ASSERTION: Agent 2 should NOT see Agent 1's message (no @mention of Agent 2)
         assert not agent1_message_in_context, (
@@ -197,7 +199,9 @@ class TestMultiAgentChatRoom:
         agent2_received_messages: list[MessageCreatedPayload] = []
 
         async def agent2_message_handler(payload: MessageCreatedPayload):
-            logger.info(f"  [Agent 2 WS] Received: {payload.id} from {payload.sender_id}")
+            logger.info(
+                f"  [Agent 2 WS] Received: {payload.id} from {payload.sender_id}"
+            )
             agent2_received_messages.append(payload)
 
         # Agent 2 connects to WebSocket and subscribes to the chat room
@@ -294,7 +298,9 @@ class TestMultiAgentChatRoom:
             ),
         )
         agent1_message_id = response.data.id
-        logger.info(f"\nAgent 1 sent message mentioning Agent 2 (ID: {agent1_message_id})")
+        logger.info(
+            f"\nAgent 1 sent message mentioning Agent 2 (ID: {agent1_message_id})"
+        )
 
         await asyncio.sleep(0.5)
 
@@ -681,7 +687,9 @@ class TestMultiAgentChatRoom:
                     ),
                 )
                 add_agent_success = True
-                logger.info(f"SUCCESS: Agent 2 added Agent '{other_agent_name}' to chat")
+                logger.info(
+                    f"SUCCESS: Agent 2 added Agent '{other_agent_name}' to chat"
+                )
             except Exception as e:
                 logger.info(f"FAILED: Agent 2 could not add Agent: {type(e).__name__}")
                 if "403" in str(e) or "forbidden" in str(e).lower():

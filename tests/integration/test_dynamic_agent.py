@@ -248,7 +248,9 @@ class TestDynamicAgentWorkflow:
         assert event_response.data.id is not None
         logger.info(f"Sent thought event: {event_response.data.id}")
 
-        logger.info(f"Complete workflow passed for dynamic agent {dynamic_agent.agent_id}")
+        logger.info(
+            f"Complete workflow passed for dynamic agent {dynamic_agent.agent_id}"
+        )
 
     async def test_agent_to_agent_communication(
         self, dynamic_agent_client, dynamic_agent

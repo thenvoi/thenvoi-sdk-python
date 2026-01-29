@@ -93,7 +93,9 @@ class DynamicAgentManager:
                     id=agent.agent_id,
                     force=True,
                 )
-                logger.info(f"  Deleted agent: {agent.agent_name} (ID: {agent.agent_id})")
+                logger.info(
+                    f"  Deleted agent: {agent.agent_name} (ID: {agent.agent_id})"
+                )
             except Exception as e:
                 logger.info(f"  Warning: Failed to delete agent {agent.agent_id}: {e}")
 

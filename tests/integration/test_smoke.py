@@ -20,7 +20,9 @@ class TestSmokeIntegration:
         assert response.data is not None
         assert response.data.name is not None
         assert response.data.id is not None
-        logger.info(f"Connected as agent: {response.data.name} (ID: {response.data.id})")
+        logger.info(
+            f"Connected as agent: {response.data.name} (ID: {response.data.id})"
+        )
 
     async def test_can_list_chats(self, api_client):
         """Verify agent can list its chats."""

@@ -104,7 +104,9 @@ class TestFullWorkflow:
         response = await api_client.agent_api.list_agent_chats()
         chat_ids = [c.id for c in response.data] if response.data else []
         assert chat_id in chat_ids, "New chat should appear in chat list"
-        logger.info(f"Chat list contains {len(chat_ids)} chats, including our test chat")
+        logger.info(
+            f"Chat list contains {len(chat_ids)} chats, including our test chat"
+        )
 
         # ============================================================
         # STEP 6: Participants - List initial participants
