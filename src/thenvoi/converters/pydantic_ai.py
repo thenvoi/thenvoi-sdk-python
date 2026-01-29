@@ -89,19 +89,22 @@ class PydanticAIHistoryConverter(HistoryConverter[PydanticAIMessages]):
                     event = json.loads(content)
                     tool_call_id = event.get("tool_call_id")
                     tool_name = event.get("name")
+                    # Skip events with missing required fields
                     if not tool_call_id:
                         logger.warning(
-                            "Missing tool_call_id in tool_call event: %s",
+                            "Skipping tool_call with missing tool_call_id: %s",
                             content[:100],
                         )
+                        continue
                     if not tool_name:
                         logger.warning(
-                            "Missing name in tool_call event: %s", content[:100]
+                            "Skipping tool_call with missing name: %s", content[:100]
                         )
+                        continue
                     tool_call_part = ToolCallPart(
-                        tool_name=tool_name or "unknown",
+                        tool_name=tool_name,
                         args=event.get("args", {}),
-                        tool_call_id=tool_call_id or "unknown",
+                        tool_call_id=tool_call_id,
                     )
                     pending_tool_calls.append(tool_call_part)
                 except json.JSONDecodeError:
@@ -116,15 +119,22 @@ class PydanticAIHistoryConverter(HistoryConverter[PydanticAIMessages]):
                     event = json.loads(content)
                     tool_call_id = event.get("tool_call_id")
                     tool_name = event.get("name")
+                    # Skip events with missing required fields
                     if not tool_call_id:
                         logger.warning(
-                            "Missing tool_call_id in tool_result event: %s",
+                            "Skipping tool_result with missing tool_call_id: %s",
                             content[:100],
                         )
+                        continue
+                    if not tool_name:
+                        logger.warning(
+                            "Skipping tool_result with missing name: %s", content[:100]
+                        )
+                        continue
                     tool_return_part = ToolReturnPart(
-                        tool_name=tool_name or "unknown",
+                        tool_name=tool_name,
                         content=event.get("output", ""),
-                        tool_call_id=tool_call_id or "unknown",
+                        tool_call_id=tool_call_id,
                     )
                     messages.append(ModelRequest(parts=[tool_return_part]))
                 except json.JSONDecodeError:

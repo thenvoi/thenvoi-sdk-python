@@ -377,6 +377,91 @@ class TestToolEventConversion:
 
         assert len(result) == 0
 
+    def test_skips_tool_call_with_missing_tool_call_id(self):
+        """tool_call without tool_call_id is skipped."""
+        converter = PydanticAIHistoryConverter()
+        raw = [
+            {
+                "role": "assistant",
+                "content": '{"name": "search", "args": {"query": "test"}}',
+                "message_type": "tool_call",
+            }
+        ]
+
+        result = converter.convert(raw)
+
+        assert len(result) == 0
+
+    def test_skips_tool_call_with_missing_name(self):
+        """tool_call without name is skipped."""
+        converter = PydanticAIHistoryConverter()
+        raw = [
+            {
+                "role": "assistant",
+                "content": '{"args": {"query": "test"}, "tool_call_id": "call_123"}',
+                "message_type": "tool_call",
+            }
+        ]
+
+        result = converter.convert(raw)
+
+        assert len(result) == 0
+
+    def test_skips_tool_result_with_missing_tool_call_id(self):
+        """tool_result without tool_call_id is skipped."""
+        converter = PydanticAIHistoryConverter()
+        raw = [
+            {
+                "role": "assistant",
+                "content": '{"name": "search", "output": "result data"}',
+                "message_type": "tool_result",
+            }
+        ]
+
+        result = converter.convert(raw)
+
+        assert len(result) == 0
+
+    def test_skips_tool_result_with_missing_name(self):
+        """tool_result without name is skipped."""
+        converter = PydanticAIHistoryConverter()
+        raw = [
+            {
+                "role": "assistant",
+                "content": '{"output": "result data", "tool_call_id": "call_123"}',
+                "message_type": "tool_result",
+            }
+        ]
+
+        result = converter.convert(raw)
+
+        assert len(result) == 0
+
+    def test_flushes_trailing_tool_calls(self):
+        """Trailing tool_call messages at end of history are properly flushed."""
+        converter = PydanticAIHistoryConverter()
+        raw = [
+            {
+                "role": "assistant",
+                "content": '{"name": "tool1", "args": {}, "tool_call_id": "call_1"}',
+                "message_type": "tool_call",
+            },
+            {
+                "role": "assistant",
+                "content": '{"name": "tool2", "args": {}, "tool_call_id": "call_2"}',
+                "message_type": "tool_call",
+            },
+        ]
+
+        result = converter.convert(raw)
+
+        # Both tool calls should be batched into a single ModelResponse
+        assert len(result) == 1
+        assert isinstance(result[0], ModelResponse)
+        assert len(result[0].parts) == 2
+        assert result[0].parts[0].tool_name == "tool1"
+        assert result[0].parts[1].tool_name == "tool2"
+
 
 class TestEdgeCases:
     """Tests for edge cases and error handling."""

@@ -81,19 +81,22 @@ class AnthropicHistoryConverter(HistoryConverter[AnthropicMessages]):
                     event = json.loads(content)
                     tool_call_id = event.get("tool_call_id")
                     tool_name = event.get("name")
+                    # Skip events with missing required fields
                     if not tool_call_id:
                         logger.warning(
-                            "Missing tool_call_id in tool_call event: %s",
+                            "Skipping tool_call with missing tool_call_id: %s",
                             content[:100],
                         )
+                        continue
                     if not tool_name:
                         logger.warning(
-                            "Missing name in tool_call event: %s", content[:100]
+                            "Skipping tool_call with missing name: %s", content[:100]
                         )
+                        continue
                     tool_use_block = {
                         "type": "tool_use",
-                        "id": tool_call_id or "unknown",
-                        "name": tool_name or "unknown",
+                        "id": tool_call_id,
+                        "name": tool_name,
                         "input": event.get("args", {}),
                     }
                     pending_tool_calls.append(tool_use_block)
@@ -108,14 +111,16 @@ class AnthropicHistoryConverter(HistoryConverter[AnthropicMessages]):
                 try:
                     event = json.loads(content)
                     tool_call_id = event.get("tool_call_id")
+                    # Skip events with missing required fields
                     if not tool_call_id:
                         logger.warning(
-                            "Missing tool_call_id in tool_result event: %s",
+                            "Skipping tool_result with missing tool_call_id: %s",
                             content[:100],
                         )
+                        continue
                     tool_result_block = {
                         "type": "tool_result",
-                        "tool_use_id": tool_call_id or "unknown",
+                        "tool_use_id": tool_call_id,
                         "content": str(event.get("output", "")),
                     }
                     messages.append(
