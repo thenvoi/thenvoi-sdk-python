@@ -99,6 +99,7 @@ class GracefulShutdown:
         self._shutdown_event: asyncio.Event | None = None
         self._original_handlers: dict[int, Any] = {}
         self._registered = False
+        self._shutdown_task: asyncio.Task[None] | None = None
 
     def register_signals(self) -> None:
         """
@@ -171,8 +172,8 @@ class GracefulShutdown:
         if self._shutdown_event:
             self._shutdown_event.set()
 
-        # Schedule the shutdown coroutine
-        asyncio.create_task(self._shutdown())
+        # Schedule the shutdown coroutine (store reference to prevent GC)
+        self._shutdown_task = asyncio.create_task(self._shutdown())
 
     async def _shutdown(self) -> None:
         """

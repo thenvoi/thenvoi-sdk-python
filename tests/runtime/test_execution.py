@@ -699,9 +699,9 @@ class TestInstantShutdown:
         await asyncio.sleep(0.01)
 
         # Stop should be instant (no 60-second timeout)
-        start = asyncio.get_event_loop().time()
+        start = asyncio.get_running_loop().time()
         await ctx.stop()
-        elapsed = asyncio.get_event_loop().time() - start
+        elapsed = asyncio.get_running_loop().time() - start
 
         # Should complete in well under 1 second
         assert elapsed < 0.5, f"stop() took {elapsed}s - should be instant"
@@ -751,9 +751,9 @@ class TestCancellationDuringProcessing:
         await asyncio.sleep(0.05)
 
         # Stop should cancel processing
-        start = asyncio.get_event_loop().time()
+        start = asyncio.get_running_loop().time()
         await ctx.stop()
-        elapsed = asyncio.get_event_loop().time() - start
+        elapsed = asyncio.get_running_loop().time() - start
 
         # Should complete quickly (not wait 10 seconds for handler)
         assert elapsed < 1.0, f"stop() took {elapsed}s - should cancel processing"
@@ -865,9 +865,9 @@ class TestGracefulStopWithTimeout:
             pass  # May not start if sync takes too long
 
         # Stop without timeout should cancel immediately
-        start = asyncio.get_event_loop().time()
+        start = asyncio.get_running_loop().time()
         await ctx.stop()  # No timeout
-        elapsed = asyncio.get_event_loop().time() - start
+        elapsed = asyncio.get_running_loop().time() - start
 
         assert elapsed < 1.0, f"stop() took {elapsed}s - should cancel immediately"
 
@@ -923,9 +923,9 @@ class TestGracefulStopWithTimeout:
         await asyncio.sleep(0.05)
 
         # Stop with short timeout
-        start = asyncio.get_event_loop().time()
+        start = asyncio.get_running_loop().time()
         result = await ctx.stop(timeout=0.1)
-        elapsed = asyncio.get_event_loop().time() - start
+        elapsed = asyncio.get_running_loop().time() - start
 
         # Should return False (cancelled mid-processing)
         assert result is False
@@ -950,9 +950,9 @@ class TestGracefulStopWithTimeout:
         ctx = ExecutionContext("room-123", mock_link, mock_handler)
         ctx._set_state("processing")  # Use _set_state to properly clear idle event
 
-        start = asyncio.get_event_loop().time()
+        start = asyncio.get_running_loop().time()
         result = await ctx._wait_for_idle(timeout=0.1)
-        elapsed = asyncio.get_event_loop().time() - start
+        elapsed = asyncio.get_running_loop().time() - start
 
         assert result is False
         assert elapsed >= 0.1  # Should have waited the full timeout
