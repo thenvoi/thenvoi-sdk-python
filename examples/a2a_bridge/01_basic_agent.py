@@ -32,6 +32,7 @@ Run with:
 """
 
 import asyncio
+import logging
 import os
 
 from dotenv import load_dotenv
@@ -42,6 +43,7 @@ from thenvoi.adapters import A2AAdapter
 from thenvoi.config import load_agent_config
 
 setup_logging()
+logger = logging.getLogger(__name__)
 
 
 async def main():
@@ -77,8 +79,8 @@ async def main():
         rest_url=rest_url,
     )
 
-    print(f"Starting A2A bridge agent (forwarding to {a2a_url})...")
-    print("Try asking: 'What is 10 USD in EUR?'")
+    logger.info("Starting A2A bridge agent (forwarding to %s)...", a2a_url)
+    logger.info("Try asking: 'What is 10 USD in EUR?'")
     await agent.run()
 
 

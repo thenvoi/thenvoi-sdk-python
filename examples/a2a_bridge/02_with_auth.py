@@ -16,6 +16,7 @@ Run with:
 """
 
 import asyncio
+import logging
 import os
 
 from dotenv import load_dotenv
@@ -27,6 +28,7 @@ from thenvoi.config import load_agent_config
 from thenvoi.integrations.a2a import A2AAuth
 
 setup_logging()
+logger = logging.getLogger(__name__)
 
 
 async def main():
@@ -57,7 +59,7 @@ async def main():
             api_key=a2a_api_key,
             bearer_token=a2a_bearer_token,
         )
-        print("Using authentication for A2A agent")
+        logger.info("Using authentication for A2A agent")
 
     # Create adapter with auth
     adapter = A2AAdapter(
@@ -75,7 +77,7 @@ async def main():
         rest_url=rest_url,
     )
 
-    print(f"Starting A2A bridge agent (forwarding to {a2a_url})...")
+    logger.info("Starting A2A bridge agent (forwarding to %s)...", a2a_url)
     await agent.run()
 
 
