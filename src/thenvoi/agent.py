@@ -125,7 +125,7 @@ class Agent:
         )
 
         self._started = True
-        logger.info(f"Agent started: {self._runtime.agent_name}")
+        logger.info("Agent started: %s", self._runtime.agent_name)
 
     async def stop(self, timeout: float | None = None) -> bool:
         """
@@ -148,7 +148,7 @@ class Agent:
 
         graceful = await self._runtime.stop(timeout=timeout)
         self._started = False
-        logger.info(f"Agent stopped: {self._runtime.agent_name}")
+        logger.info("Agent stopped: %s", self._runtime.agent_name)
         return graceful
 
     async def run(self, shutdown_timeout: float | None = DEFAULT_SHUTDOWN_TIMEOUT) -> None:

@@ -21,7 +21,7 @@ class GracefulShutdown:
     """
     Manages graceful shutdown of a Thenvoi agent via signal handling.
 
-    Catches SIGINT (Ctrl+C) and SIGTERM signals and triggers a graceful
+    Catches SIGINT (Ctrl+C), SIGTERM, and SIGHUP signals and triggers a graceful
     shutdown of the agent, allowing current message processing to complete
     within a configurable timeout.
 
@@ -34,6 +34,11 @@ class GracefulShutdown:
                 await agent.run()
             except KeyboardInterrupt:
                 await agent.stop(timeout=30.0)
+
+    Note:
+        SIGHUP is treated as a shutdown signal, NOT a configuration reload
+        signal. If your deployment expects SIGHUP for config reload, you
+        should not use this handler and implement custom signal handling.
 
     Example (recommended pattern):
         agent = Agent.create(...)
@@ -105,7 +110,7 @@ class GracefulShutdown:
         """
         Register signal handlers for SIGINT and SIGTERM.
 
-        On Unix systems, also handles SIGHUP.
+        On Unix systems, also handles SIGHUP (as shutdown, not reload).
 
         Call this before starting the agent. Signals will trigger
         a graceful shutdown of the agent.
@@ -159,20 +164,24 @@ class GracefulShutdown:
             signum: The signal number received.
         """
         sig_name = signal.Signals(signum).name
-        logger.info(f"Received {sig_name}, initiating graceful shutdown...")
+        logger.info("Received %s, initiating graceful shutdown...", sig_name)
 
         # Call user callback if provided
         if self.on_signal:
             try:
                 self.on_signal(signum)
             except Exception as e:
-                logger.warning(f"Error in on_signal callback: {e}")
+                logger.warning("Error in on_signal callback: %s", e)
 
         # Set shutdown event to unblock any waiters
         if self._shutdown_event:
             self._shutdown_event.set()
 
-        # Schedule the shutdown coroutine (store reference to prevent GC)
+        # Schedule the shutdown coroutine.
+        # Note: We store the reference to prevent garbage collection, but this task
+        # is not awaited. If the process exits quickly after the signal (e.g., due to
+        # a second signal or external termination), the shutdown may not fully complete.
+        # For guaranteed completion, use the context manager pattern or await stop() manually.
         self._shutdown_task = asyncio.create_task(self._shutdown())
 
     async def _shutdown(self) -> None:
@@ -182,7 +191,7 @@ class GracefulShutdown:
         Waits for current processing to complete within timeout,
         then stops the agent.
         """
-        logger.info(f"Shutting down agent (timeout: {self.timeout}s)...")
+        logger.info("Shutting down agent (timeout: %ss)...", self.timeout)
 
         try:
             graceful = await self.agent.stop(timeout=self.timeout)
@@ -191,7 +200,7 @@ class GracefulShutdown:
             else:
                 logger.warning("Agent shut down with processing interrupted")
         except Exception as e:
-            logger.error(f"Error during shutdown: {e}", exc_info=True)
+            logger.error("Error during shutdown: %s", e, exc_info=True)
 
     async def wait_for_shutdown(self) -> None:
         """
