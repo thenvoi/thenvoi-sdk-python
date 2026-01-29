@@ -28,6 +28,15 @@ logger = logging.getLogger(__name__)
 PydanticAIMessages = list[Union[ModelRequest, ModelResponse]]
 
 
+def _flush_pending_tool_calls(
+    messages: PydanticAIMessages, pending_tool_calls: list[ToolCallPart]
+) -> None:
+    """Flush pending tool calls into a single ModelResponse."""
+    if pending_tool_calls:
+        messages.append(ModelResponse(parts=list(pending_tool_calls)))
+        pending_tool_calls.clear()
+
+
 class PydanticAIHistoryConverter(HistoryConverter[PydanticAIMessages]):
     """
     Converts platform history to Pydantic AI message format.
@@ -78,38 +87,52 @@ class PydanticAIHistoryConverter(HistoryConverter[PydanticAIMessages]):
                 # Parse tool call JSON and collect for batching
                 try:
                     event = json.loads(content)
+                    tool_call_id = event.get("tool_call_id")
+                    tool_name = event.get("name")
+                    if not tool_call_id:
+                        logger.warning(
+                            "Missing tool_call_id in tool_call event: %s",
+                            content[:100],
+                        )
+                    if not tool_name:
+                        logger.warning(
+                            "Missing name in tool_call event: %s", content[:100]
+                        )
                     tool_call_part = ToolCallPart(
-                        tool_name=event.get("name", "unknown"),
+                        tool_name=tool_name or "unknown",
                         args=event.get("args", {}),
-                        tool_call_id=event.get("tool_call_id", "unknown"),
+                        tool_call_id=tool_call_id or "unknown",
                     )
                     pending_tool_calls.append(tool_call_part)
                 except json.JSONDecodeError:
-                    logger.warning(f"Failed to parse tool_call: {content[:100]}")
+                    logger.warning("Failed to parse tool_call: %s", content[:100])
 
             elif message_type == "tool_result":
                 # Flush pending tool calls first
-                if pending_tool_calls:
-                    messages.append(ModelResponse(parts=pending_tool_calls))
-                    pending_tool_calls = []
+                _flush_pending_tool_calls(messages, pending_tool_calls)
 
                 # Parse tool result JSON
                 try:
                     event = json.loads(content)
+                    tool_call_id = event.get("tool_call_id")
+                    tool_name = event.get("name")
+                    if not tool_call_id:
+                        logger.warning(
+                            "Missing tool_call_id in tool_result event: %s",
+                            content[:100],
+                        )
                     tool_return_part = ToolReturnPart(
-                        tool_name=event.get("name", "unknown"),
+                        tool_name=tool_name or "unknown",
                         content=event.get("output", ""),
-                        tool_call_id=event.get("tool_call_id", "unknown"),
+                        tool_call_id=tool_call_id or "unknown",
                     )
                     messages.append(ModelRequest(parts=[tool_return_part]))
                 except json.JSONDecodeError:
-                    logger.warning(f"Failed to parse tool_result: {content[:100]}")
+                    logger.warning("Failed to parse tool_result: %s", content[:100])
 
             elif message_type == "text":
                 # Flush pending tool calls first
-                if pending_tool_calls:
-                    messages.append(ModelResponse(parts=pending_tool_calls))
-                    pending_tool_calls = []
+                _flush_pending_tool_calls(messages, pending_tool_calls)
 
                 role = hist.get("role", "user")
                 sender_name = hist.get("sender_name", "")
@@ -127,7 +150,6 @@ class PydanticAIHistoryConverter(HistoryConverter[PydanticAIMessages]):
                     )
 
         # Flush any remaining pending tool calls
-        if pending_tool_calls:
-            messages.append(ModelResponse(parts=pending_tool_calls))
+        _flush_pending_tool_calls(messages, pending_tool_calls)
 
         return messages

@@ -263,6 +263,75 @@ class TestToolEventConversion:
         assert isinstance(result[1], ModelRequest)
         assert isinstance(result[1].parts[0], ToolReturnPart)
 
+    def test_handles_interleaved_tool_calls_and_results(self):
+        """Interleaved tool_call and tool_result messages are handled correctly."""
+        converter = PydanticAIHistoryConverter()
+        raw = [
+            # First batch of tool calls
+            {
+                "role": "assistant",
+                "content": '{"name": "tool1", "args": {"q": "a"}, "tool_call_id": "call_1"}',
+                "message_type": "tool_call",
+            },
+            {
+                "role": "assistant",
+                "content": '{"name": "tool2", "args": {"q": "b"}, "tool_call_id": "call_2"}',
+                "message_type": "tool_call",
+            },
+            # Results for first batch
+            {
+                "role": "assistant",
+                "content": '{"name": "tool1", "output": "result1", "tool_call_id": "call_1"}',
+                "message_type": "tool_result",
+            },
+            {
+                "role": "assistant",
+                "content": '{"name": "tool2", "output": "result2", "tool_call_id": "call_2"}',
+                "message_type": "tool_result",
+            },
+            # Second batch of tool calls
+            {
+                "role": "assistant",
+                "content": '{"name": "tool3", "args": {}, "tool_call_id": "call_3"}',
+                "message_type": "tool_call",
+            },
+            # Result for second batch
+            {
+                "role": "assistant",
+                "content": '{"name": "tool3", "output": "result3", "tool_call_id": "call_3"}',
+                "message_type": "tool_result",
+            },
+        ]
+
+        result = converter.convert(raw)
+
+        # Expected: [batched ModelResponse (2 parts), ToolReturn, ToolReturn, ModelResponse, ToolReturn]
+        assert len(result) == 5
+
+        # First message: batched ModelResponse with ToolCallParts for tool1 and tool2
+        assert isinstance(result[0], ModelResponse)
+        assert len(result[0].parts) == 2
+        assert result[0].parts[0].tool_name == "tool1"
+        assert result[0].parts[1].tool_name == "tool2"
+
+        # Second and third messages: ToolReturnParts
+        assert isinstance(result[1], ModelRequest)
+        assert isinstance(result[1].parts[0], ToolReturnPart)
+        assert result[1].parts[0].tool_call_id == "call_1"
+        assert isinstance(result[2], ModelRequest)
+        assert isinstance(result[2].parts[0], ToolReturnPart)
+        assert result[2].parts[0].tool_call_id == "call_2"
+
+        # Fourth message: single ModelResponse for tool3
+        assert isinstance(result[3], ModelResponse)
+        assert len(result[3].parts) == 1
+        assert result[3].parts[0].tool_name == "tool3"
+
+        # Fifth message: ToolReturnPart for tool3
+        assert isinstance(result[4], ModelRequest)
+        assert isinstance(result[4].parts[0], ToolReturnPart)
+        assert result[4].parts[0].tool_call_id == "call_3"
+
     def test_skips_thought_messages(self):
         """thought messages are skipped."""
         converter = PydanticAIHistoryConverter()
