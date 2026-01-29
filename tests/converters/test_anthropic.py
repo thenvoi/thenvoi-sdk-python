@@ -165,38 +165,90 @@ class TestMultiAgentMessages:
         assert "[Agent 2]:" in result[1]["content"]
 
 
-class TestToolEventFiltering:
-    """Tests for tool_call and tool_result filtering."""
+class TestToolEventConversion:
+    """Tests for tool_call and tool_result conversion."""
 
-    def test_skips_tool_call_messages(self):
-        """tool_call messages are skipped."""
+    def test_converts_tool_call_to_assistant_message(self):
+        """tool_call messages become assistant messages with tool_use content."""
         converter = AnthropicHistoryConverter()
         raw = [
             {
                 "role": "assistant",
-                "content": '{"event": "on_tool_start", "name": "search"}',
+                "content": '{"name": "search", "args": {"query": "test"}, "tool_call_id": "toolu_123"}',
                 "message_type": "tool_call",
             }
         ]
 
         result = converter.convert(raw)
 
-        assert len(result) == 0
+        assert len(result) == 1
+        assert result[0]["role"] == "assistant"
+        assert isinstance(result[0]["content"], list)
+        assert result[0]["content"][0]["type"] == "tool_use"
+        assert result[0]["content"][0]["id"] == "toolu_123"
+        assert result[0]["content"][0]["name"] == "search"
+        assert result[0]["content"][0]["input"] == {"query": "test"}
 
-    def test_skips_tool_result_messages(self):
-        """tool_result messages are skipped."""
+    def test_converts_tool_result_to_user_message(self):
+        """tool_result messages become user messages with tool_result content."""
         converter = AnthropicHistoryConverter()
         raw = [
             {
                 "role": "assistant",
-                "content": '{"event": "on_tool_end", "output": "result"}',
+                "content": '{"name": "search", "args": {"query": "test"}, "tool_call_id": "toolu_123"}',
+                "message_type": "tool_call",
+            },
+            {
+                "role": "assistant",
+                "content": '{"name": "search", "output": "result data", "tool_call_id": "toolu_123"}',
                 "message_type": "tool_result",
-            }
+            },
         ]
 
         result = converter.convert(raw)
 
-        assert len(result) == 0
+        assert len(result) == 2
+        # First message is the tool_use
+        assert result[0]["role"] == "assistant"
+        assert result[0]["content"][0]["type"] == "tool_use"
+        # Second message is the tool_result
+        assert result[1]["role"] == "user"
+        assert isinstance(result[1]["content"], list)
+        assert result[1]["content"][0]["type"] == "tool_result"
+        assert result[1]["content"][0]["tool_use_id"] == "toolu_123"
+        assert result[1]["content"][0]["content"] == "result data"
+
+    def test_batches_multiple_tool_calls(self):
+        """Multiple consecutive tool_call messages are batched into one assistant message."""
+        converter = AnthropicHistoryConverter()
+        raw = [
+            {
+                "role": "assistant",
+                "content": '{"name": "tool1", "args": {}, "tool_call_id": "toolu_1"}',
+                "message_type": "tool_call",
+            },
+            {
+                "role": "assistant",
+                "content": '{"name": "tool2", "args": {}, "tool_call_id": "toolu_2"}',
+                "message_type": "tool_call",
+            },
+            {
+                "role": "assistant",
+                "content": '{"name": "tool1", "output": "result1", "tool_call_id": "toolu_1"}',
+                "message_type": "tool_result",
+            },
+        ]
+
+        result = converter.convert(raw)
+
+        # First message should have both tool_use blocks batched
+        assert len(result) == 2
+        assert result[0]["role"] == "assistant"
+        assert len(result[0]["content"]) == 2
+        assert result[0]["content"][0]["name"] == "tool1"
+        assert result[0]["content"][1]["name"] == "tool2"
+        # Second message is the tool_result
+        assert result[1]["role"] == "user"
 
     def test_skips_thought_messages(self):
         """thought messages are skipped."""
@@ -206,6 +258,36 @@ class TestToolEventFiltering:
                 "role": "assistant",
                 "content": "I'm thinking about this...",
                 "message_type": "thought",
+            }
+        ]
+
+        result = converter.convert(raw)
+
+        assert len(result) == 0
+
+    def test_handles_malformed_tool_call_json(self):
+        """Malformed tool_call JSON is skipped with warning."""
+        converter = AnthropicHistoryConverter()
+        raw = [
+            {
+                "role": "assistant",
+                "content": "not valid json",
+                "message_type": "tool_call",
+            }
+        ]
+
+        result = converter.convert(raw)
+
+        assert len(result) == 0
+
+    def test_handles_malformed_tool_result_json(self):
+        """Malformed tool_result JSON is skipped with warning."""
+        converter = AnthropicHistoryConverter()
+        raw = [
+            {
+                "role": "assistant",
+                "content": "not valid json",
+                "message_type": "tool_result",
             }
         ]
 
@@ -288,16 +370,16 @@ class TestMixedHistory:
                 "sender_name": "Alice",
                 "message_type": "text",
             },
-            # Agent uses tool (skipped)
+            # Agent uses tool
             {
                 "role": "assistant",
-                "content": '{"event": "on_tool_start", "name": "get_weather"}',
+                "content": '{"name": "get_weather", "args": {"location": "NYC"}, "tool_call_id": "toolu_123"}',
                 "message_type": "tool_call",
             },
-            # Tool result (skipped)
+            # Tool result
             {
                 "role": "assistant",
-                "content": '{"event": "on_tool_end", "output": "sunny"}',
+                "content": '{"name": "get_weather", "output": "sunny", "tool_call_id": "toolu_123"}',
                 "message_type": "tool_result",
             },
             # Agent responds with text (skipped - own message)
@@ -318,14 +400,27 @@ class TestMixedHistory:
 
         result = converter.convert(raw)
 
-        # Should have: 2 user messages (agent's own text is skipped)
-        assert len(result) == 2
+        # Should have: user message, tool_use, tool_result, user follow-up
+        # (agent's own text is skipped)
+        assert len(result) == 4
 
+        # User question
         assert result[0]["role"] == "user"
         assert result[0]["content"] == "[Alice]: What's the weather?"
 
-        assert result[1]["role"] == "user"
-        assert result[1]["content"] == "[Alice]: Thanks!"
+        # Tool use (assistant)
+        assert result[1]["role"] == "assistant"
+        assert result[1]["content"][0]["type"] == "tool_use"
+        assert result[1]["content"][0]["name"] == "get_weather"
+
+        # Tool result (user)
+        assert result[2]["role"] == "user"
+        assert result[2]["content"][0]["type"] == "tool_result"
+        assert result[2]["content"][0]["content"] == "sunny"
+
+        # User follow-up
+        assert result[3]["role"] == "user"
+        assert result[3]["content"] == "[Alice]: Thanks!"
 
     def test_multi_user_conversation(self):
         """Handles multiple users in conversation."""
