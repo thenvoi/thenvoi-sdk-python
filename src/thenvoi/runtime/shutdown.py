@@ -111,6 +111,9 @@ class GracefulShutdown:
         self._shutdown_event: asyncio.Event | None = None
         self._original_handlers: dict[int, Any] = {}
         self._registered = False
+        self._shutting_down = (
+            False  # Guard against race between signal check and task creation
+        )
         self._shutdown_task: asyncio.Task[None] | None = None
 
     def register_signals(self) -> None:
@@ -185,9 +188,11 @@ class GracefulShutdown:
             self._shutdown_event.set()
 
         # Guard against multiple signals triggering multiple shutdown tasks
-        if self._shutdown_task is not None:
+        # Use flag to prevent race between check and task creation
+        if self._shutting_down or self._shutdown_task is not None:
             logger.debug("Shutdown already in progress, ignoring signal")
             return
+        self._shutting_down = True
 
         # Schedule the shutdown coroutine.
         # Note: We store the reference to prevent garbage collection, but this task

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 from types import TracebackType
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from thenvoi.core.protocols import FrameworkAdapter, Preprocessor
 from thenvoi.core.simple_adapter import SimpleAdapter
@@ -23,6 +23,9 @@ DEFAULT_SHUTDOWN_TIMEOUT: float = 30.0
 
 # Sentinel to distinguish "not set" from "explicitly set to None"
 _TIMEOUT_NOT_SET: object = object()
+
+# Type alias for shutdown timeout (float, None, or sentinel)
+_ShutdownTimeout = float | None | object
 
 
 class Agent:
@@ -56,8 +59,9 @@ class Agent:
         self._adapter = adapter
         self._preprocessor = preprocessor or DefaultPreprocessor()
         self._started = False
-        # Use sentinel to distinguish "not set" from "explicitly set to None"
-        self._shutdown_timeout: float | None | object = _TIMEOUT_NOT_SET
+        # Tracks shutdown_timeout from run() for use in __aexit__
+        # Uses sentinel to distinguish "not set" from "explicitly set to None"
+        self._shutdown_timeout: _ShutdownTimeout = _TIMEOUT_NOT_SET
 
     @classmethod
     def create(
@@ -152,7 +156,9 @@ class Agent:
 
         graceful = await self._runtime.stop(timeout=timeout)
         self._started = False
-        logger.info("Agent stopped: %s", self._runtime.agent_name)
+        logger.info(
+            "Agent stopped: %s (graceful=%s)", self._runtime.agent_name, graceful
+        )
         return graceful
 
     async def run(
@@ -202,10 +208,10 @@ class Agent:
         # Use default only if run() was never called (sentinel value)
         # If run() was called with None, respect that (immediate cancellation)
         if self._shutdown_timeout is _TIMEOUT_NOT_SET:
-            timeout = DEFAULT_SHUTDOWN_TIMEOUT
+            timeout: float | None = DEFAULT_SHUTDOWN_TIMEOUT
         else:
-            # Cast is safe: at this point it's either float or None
-            timeout = self._shutdown_timeout  # type: ignore[assignment]
+            # Cast is safe: at this point it's either float or None (not sentinel)
+            timeout = cast(float | None, self._shutdown_timeout)
         await self.stop(timeout=timeout)
 
     async def run_forever(self) -> None:
