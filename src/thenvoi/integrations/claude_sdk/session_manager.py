@@ -52,6 +52,9 @@ class ClaudeSessionManager:
       cross-task asyncio issues with connect/disconnect
 
     Example:
+        import logging
+        logger = logging.getLogger(__name__)
+
         manager = ClaudeSessionManager(base_options)
         await manager.start()  # Start background task
 
@@ -61,7 +64,7 @@ class ClaudeSessionManager:
         # Use client
         await client.query("Hello")
         async for msg in client.receive_response():
-            print(msg)
+            logger.info("%s", msg)
 
         # Cleanup when done
         await manager.cleanup_session("room-123")

@@ -43,6 +43,9 @@ class ThenvoiLink:
     REST client exposed directly via self.rest for API calls.
 
     Example:
+        import logging
+        logger = logging.getLogger(__name__)
+
         link = ThenvoiLink(agent_id="...", api_key="...")
         await link.connect()
         await link.subscribe_agent_rooms(agent_id)
@@ -50,7 +53,7 @@ class ThenvoiLink:
         async for event in link:
             match event:
                 case MessageEvent(payload=msg):
-                    print(f"Message: {msg.content}")
+                    logger.info("Message: %s", msg.content)
                 case RoomAddedEvent(room_id=rid):
                     await link.subscribe_room(rid)
     """

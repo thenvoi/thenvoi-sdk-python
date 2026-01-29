@@ -34,15 +34,18 @@ class RoomPresence:
     - _subscribe_to_existing_rooms() -> start() auto-subscription
 
     Example:
+        import logging
+        logger = logging.getLogger(__name__)
+
         link = ThenvoiLink(agent_id, api_key, ...)
         presence = RoomPresence(link)
 
         async def on_joined(room_id: str, payload: dict):
-            print(f"Joined room {room_id}")
+            logger.info("Joined room %s", room_id)
 
         async def on_event(room_id: str, event: PlatformEvent):
             if isinstance(event, MessageEvent):
-                print(f"Message in {room_id}: {event.payload.content}")
+                logger.info("Message in %s: %s", room_id, event.payload.content)
 
         presence.on_room_joined = on_joined
         presence.on_room_event = on_event
