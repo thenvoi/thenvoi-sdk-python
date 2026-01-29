@@ -331,7 +331,7 @@ class TestToolEventConversion:
 
         assert len(result) == 0
 
-    def test_handles_malformed_tool_call_json(self):
+    def test_handles_malformed_tool_call_json(self, caplog):
         """Malformed tool_call JSON is skipped with warning."""
         converter = AnthropicHistoryConverter()
         raw = [
@@ -345,8 +345,9 @@ class TestToolEventConversion:
         result = converter.convert(raw)
 
         assert len(result) == 0
+        assert "Failed to parse tool_call" in caplog.text
 
-    def test_handles_malformed_tool_result_json(self):
+    def test_handles_malformed_tool_result_json(self, caplog):
         """Malformed tool_result JSON is skipped with warning."""
         converter = AnthropicHistoryConverter()
         raw = [
@@ -360,8 +361,9 @@ class TestToolEventConversion:
         result = converter.convert(raw)
 
         assert len(result) == 0
+        assert "Failed to parse tool_result" in caplog.text
 
-    def test_skips_tool_call_with_missing_tool_call_id(self):
+    def test_skips_tool_call_with_missing_tool_call_id(self, caplog):
         """tool_call without tool_call_id is skipped."""
         converter = AnthropicHistoryConverter()
         raw = [
@@ -375,8 +377,9 @@ class TestToolEventConversion:
         result = converter.convert(raw)
 
         assert len(result) == 0
+        assert "Skipping tool_call with missing tool_call_id" in caplog.text
 
-    def test_skips_tool_call_with_missing_name(self):
+    def test_skips_tool_call_with_missing_name(self, caplog):
         """tool_call without name is skipped."""
         converter = AnthropicHistoryConverter()
         raw = [
@@ -390,8 +393,9 @@ class TestToolEventConversion:
         result = converter.convert(raw)
 
         assert len(result) == 0
+        assert "Skipping tool_call with missing name" in caplog.text
 
-    def test_skips_tool_result_with_missing_tool_call_id(self):
+    def test_skips_tool_result_with_missing_tool_call_id(self, caplog):
         """tool_result without tool_call_id is skipped."""
         converter = AnthropicHistoryConverter()
         raw = [
@@ -405,8 +409,9 @@ class TestToolEventConversion:
         result = converter.convert(raw)
 
         assert len(result) == 0
+        assert "Skipping tool_result with missing tool_call_id" in caplog.text
 
-    def test_skips_tool_result_with_missing_name(self):
+    def test_skips_tool_result_with_missing_name(self, caplog):
         """tool_result without name is skipped."""
         converter = AnthropicHistoryConverter()
         raw = [
@@ -420,6 +425,7 @@ class TestToolEventConversion:
         result = converter.convert(raw)
 
         assert len(result) == 0
+        assert "Skipping tool_result with missing name" in caplog.text
 
     def test_flushes_trailing_tool_calls(self):
         """Trailing tool_call messages at end of history are properly flushed."""

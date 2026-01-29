@@ -93,12 +93,13 @@ class PydanticAIHistoryConverter(HistoryConverter[PydanticAIMessages]):
                     if not tool_call_id:
                         logger.warning(
                             "Skipping tool_call with missing tool_call_id: %s",
-                            content[:100],
+                            repr(content[:100]),
                         )
                         continue
                     if not tool_name:
                         logger.warning(
-                            "Skipping tool_call with missing name: %s", content[:100]
+                            "Skipping tool_call with missing name: %s",
+                            repr(content[:100]),
                         )
                         continue
                     tool_call_part = ToolCallPart(
@@ -108,7 +109,7 @@ class PydanticAIHistoryConverter(HistoryConverter[PydanticAIMessages]):
                     )
                     pending_tool_calls.append(tool_call_part)
                 except json.JSONDecodeError:
-                    logger.warning("Failed to parse tool_call: %s", content[:100])
+                    logger.warning("Failed to parse tool_call: %s", repr(content[:100]))
 
             elif message_type == "tool_result":
                 # Flush pending tool calls first
@@ -123,12 +124,13 @@ class PydanticAIHistoryConverter(HistoryConverter[PydanticAIMessages]):
                     if not tool_call_id:
                         logger.warning(
                             "Skipping tool_result with missing tool_call_id: %s",
-                            content[:100],
+                            repr(content[:100]),
                         )
                         continue
                     if not tool_name:
                         logger.warning(
-                            "Skipping tool_result with missing name: %s", content[:100]
+                            "Skipping tool_result with missing name: %s",
+                            repr(content[:100]),
                         )
                         continue
                     tool_return_part = ToolReturnPart(
@@ -138,7 +140,9 @@ class PydanticAIHistoryConverter(HistoryConverter[PydanticAIMessages]):
                     )
                     messages.append(ModelRequest(parts=[tool_return_part]))
                 except json.JSONDecodeError:
-                    logger.warning("Failed to parse tool_result: %s", content[:100])
+                    logger.warning(
+                        "Failed to parse tool_result: %s", repr(content[:100])
+                    )
 
             elif message_type == "text":
                 # Flush pending tool calls first

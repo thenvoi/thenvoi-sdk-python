@@ -85,12 +85,13 @@ class AnthropicHistoryConverter(HistoryConverter[AnthropicMessages]):
                     if not tool_call_id:
                         logger.warning(
                             "Skipping tool_call with missing tool_call_id: %s",
-                            content[:100],
+                            repr(content[:100]),
                         )
                         continue
                     if not tool_name:
                         logger.warning(
-                            "Skipping tool_call with missing name: %s", content[:100]
+                            "Skipping tool_call with missing name: %s",
+                            repr(content[:100]),
                         )
                         continue
                     tool_use_block = {
@@ -101,7 +102,7 @@ class AnthropicHistoryConverter(HistoryConverter[AnthropicMessages]):
                     }
                     pending_tool_calls.append(tool_use_block)
                 except json.JSONDecodeError:
-                    logger.warning("Failed to parse tool_call: %s", content[:100])
+                    logger.warning("Failed to parse tool_call: %s", repr(content[:100]))
 
             elif message_type == "tool_result":
                 # Flush pending tool calls first
@@ -116,12 +117,13 @@ class AnthropicHistoryConverter(HistoryConverter[AnthropicMessages]):
                     if not tool_call_id:
                         logger.warning(
                             "Skipping tool_result with missing tool_call_id: %s",
-                            content[:100],
+                            repr(content[:100]),
                         )
                         continue
                     if not tool_name:
                         logger.warning(
-                            "Skipping tool_result with missing name: %s", content[:100]
+                            "Skipping tool_result with missing name: %s",
+                            repr(content[:100]),
                         )
                         continue
                     tool_result_block = {
@@ -136,7 +138,9 @@ class AnthropicHistoryConverter(HistoryConverter[AnthropicMessages]):
                         }
                     )
                 except json.JSONDecodeError:
-                    logger.warning("Failed to parse tool_result: %s", content[:100])
+                    logger.warning(
+                        "Failed to parse tool_result: %s", repr(content[:100])
+                    )
 
             elif message_type == "text":
                 # Flush pending tool calls first
