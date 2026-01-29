@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import signal
+from types import TracebackType
 from typing import TYPE_CHECKING, Any, Callable
 
 if TYPE_CHECKING:
@@ -177,6 +178,11 @@ class GracefulShutdown:
         if self._shutdown_event:
             self._shutdown_event.set()
 
+        # Guard against multiple signals triggering multiple shutdown tasks
+        if self._shutdown_task is not None:
+            logger.debug("Shutdown already in progress, ignoring signal")
+            return
+
         # Schedule the shutdown coroutine.
         # Note: We store the reference to prevent garbage collection, but this task
         # is not awaited. If the process exits quickly after the signal (e.g., due to
@@ -223,7 +229,12 @@ class GracefulShutdown:
         self.register_signals()
         return self
 
-    async def __aexit__(self, exc_type, exc_val, exc_tb) -> None:
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: TracebackType | None,
+    ) -> None:
         """Exit async context - unregister signal handlers."""
         self.unregister_signals()
 

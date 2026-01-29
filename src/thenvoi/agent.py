@@ -191,7 +191,11 @@ class Agent:
 
         Uses the shutdown_timeout configured in run() or DEFAULT_SHUTDOWN_TIMEOUT.
         """
-        timeout = self._shutdown_timeout or DEFAULT_SHUTDOWN_TIMEOUT
+        timeout = (
+            self._shutdown_timeout
+            if self._shutdown_timeout is not None
+            else DEFAULT_SHUTDOWN_TIMEOUT
+        )
         await self.stop(timeout=timeout)
 
     async def run_forever(self) -> None:
