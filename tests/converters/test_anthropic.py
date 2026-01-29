@@ -406,6 +406,21 @@ class TestToolEventConversion:
 
         assert len(result) == 0
 
+    def test_skips_tool_result_with_missing_name(self):
+        """tool_result without name is skipped."""
+        converter = AnthropicHistoryConverter()
+        raw = [
+            {
+                "role": "assistant",
+                "content": '{"output": "result data", "tool_call_id": "toolu_123"}',
+                "message_type": "tool_result",
+            }
+        ]
+
+        result = converter.convert(raw)
+
+        assert len(result) == 0
+
     def test_flushes_trailing_tool_calls(self):
         """Trailing tool_call messages at end of history are properly flushed."""
         converter = AnthropicHistoryConverter()

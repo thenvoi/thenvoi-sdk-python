@@ -111,11 +111,17 @@ class AnthropicHistoryConverter(HistoryConverter[AnthropicMessages]):
                 try:
                     event = json.loads(content)
                     tool_call_id = event.get("tool_call_id")
+                    tool_name = event.get("name")
                     # Skip events with missing required fields
                     if not tool_call_id:
                         logger.warning(
                             "Skipping tool_result with missing tool_call_id: %s",
                             content[:100],
+                        )
+                        continue
+                    if not tool_name:
+                        logger.warning(
+                            "Skipping tool_result with missing name: %s", content[:100]
                         )
                         continue
                     tool_result_block = {
