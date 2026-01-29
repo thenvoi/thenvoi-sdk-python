@@ -16,33 +16,15 @@ To override .env.test values, set environment variables:
 from pathlib import Path
 
 import pytest
-from pydantic_settings import BaseSettings, SettingsConfigDict
 from thenvoi_rest import AsyncRestClient, ChatMessageRequest, ChatRoomRequest
+from thenvoi_testing.markers import skip_without_env, skip_without_envs
+from thenvoi_testing.settings import ThenvoiTestSettings
 
 
-class TestSettings(BaseSettings):
+class TestSettings(ThenvoiTestSettings):
     """Settings for integration tests, loaded from .env.test."""
 
-    # Primary agent
-    thenvoi_api_key: str = ""
-    test_agent_id: str = ""
-
-    # Secondary agent - for multi-agent tests
-    thenvoi_api_key_2: str = ""
-    test_agent_id_2: str = ""
-
-    # User API key - for dynamic agent creation/deletion
-    thenvoi_api_key_user: str = ""
-
-    # Server URLs
-    thenvoi_base_url: str = "http://localhost:4000"
-    thenvoi_ws_url: str = "ws://localhost:4000/api/v1/socket/websocket"
-
-    model_config = SettingsConfigDict(
-        env_file=Path(__file__).parent.parent / ".env.test",
-        case_sensitive=False,
-        extra="ignore",
-    )
+    _env_file_path = Path(__file__).parent.parent / ".env.test"
 
 
 # Load settings from .env.test
@@ -77,22 +59,15 @@ def get_test_agent_id_2() -> str | None:
     return test_settings.test_agent_id_2 or None
 
 
-# Skip marker for integration tests
-requires_api = pytest.mark.skipif(
-    not get_api_key(), reason="THENVOI_API_KEY environment variable not set"
-)
+# Skip markers using thenvoi_testing shared markers
+requires_api = skip_without_env("THENVOI_API_KEY")
 
-# Skip marker for multi-agent tests (requires both agents)
-requires_multi_agent = pytest.mark.skipif(
-    not get_api_key() or not get_api_key_2(),
+requires_multi_agent = skip_without_envs(
+    ["THENVOI_API_KEY", "THENVOI_API_KEY_2"],
     reason="Both THENVOI_API_KEY and THENVOI_API_KEY_2 required for multi-agent tests",
 )
 
-# Skip marker for user API tests (requires user API key)
-requires_user_api = pytest.mark.skipif(
-    not get_user_api_key(),
-    reason="THENVOI_API_KEY_USER environment variable not set",
-)
+requires_user_api = skip_without_env("THENVOI_API_KEY_USER")
 
 
 @pytest.fixture

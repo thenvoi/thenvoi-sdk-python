@@ -45,6 +45,8 @@ jobs:
             ci
             perf
             deps
+            tests
+            examples
           # Require scope to be provided
           requireScope: false
           # Disable validation for merge commits
