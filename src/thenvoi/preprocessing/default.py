@@ -84,6 +84,9 @@ class DefaultPreprocessor(Preprocessor):
                 raw_history = await self._load_history(ctx, msg)
             ctx.mark_llm_initialized()
 
+        # Load participants (needed for participant message and mention resolution)
+        await ctx.load_participants()
+
         # Check participants
         participants_msg = check_and_format_participants(ctx)
 

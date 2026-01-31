@@ -454,6 +454,8 @@ class AgentTools(AgentToolsProtocol):
         """
         Get participants in the current room.
 
+        Also updates internal participant cache for mention resolution.
+
         Returns:
             List of participant information dictionaries
         """
@@ -462,9 +464,10 @@ class AgentTools(AgentToolsProtocol):
             chat_id=self.room_id,
         )
         if not response.data:
+            self._participants = []
             return []
 
-        return [
+        participants = [
             {
                 "id": p.id,
                 "name": p.name,
@@ -472,6 +475,12 @@ class AgentTools(AgentToolsProtocol):
             }
             for p in response.data
         ]
+
+        # Update internal cache for mention resolution
+        self._participants = participants
+        logger.debug(f"Updated participant cache: {len(participants)} participants")
+
+        return participants
 
     # --- Mention resolution ---
 
