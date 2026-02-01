@@ -40,6 +40,11 @@ class TestIsNoCleanMode:
         monkeypatch.setenv("THENVOI_TEST_NO_CLEAN", "false")
         assert is_no_clean_mode() is False
 
+    def test_returns_false_with_empty_env_var(self, monkeypatch):
+        """Should return False when THENVOI_TEST_NO_CLEAN is empty string."""
+        monkeypatch.setenv("THENVOI_TEST_NO_CLEAN", "")
+        assert is_no_clean_mode() is False
+
     def test_returns_true_with_pytest_option(self, monkeypatch):
         """Should return True when --no-clean pytest option is set."""
         monkeypatch.delenv("THENVOI_TEST_NO_CLEAN", raising=False)
