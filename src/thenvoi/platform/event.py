@@ -15,6 +15,7 @@ from thenvoi.client.streaming import (
     MessageCreatedPayload,
     RoomAddedPayload,
     RoomRemovedPayload,
+    RoomDeletedPayload,
     ParticipantAddedPayload,
     ParticipantRemovedPayload,
 )
@@ -51,6 +52,16 @@ class RoomRemovedEvent:
 
 
 @dataclass
+class RoomDeletedEvent:
+    """Room deleted event (via room_participants channel)."""
+
+    type: Literal["room_deleted"] = "room_deleted"
+    room_id: str | None = None
+    payload: RoomDeletedPayload | None = None
+    raw: dict[str, Any] | None = None
+
+
+@dataclass
 class ParticipantAddedEvent:
     """Participant added event."""
 
@@ -75,6 +86,7 @@ PlatformEvent = (
     MessageEvent
     | RoomAddedEvent
     | RoomRemovedEvent
+    | RoomDeletedEvent
     | ParticipantAddedEvent
     | ParticipantRemovedEvent
 )

@@ -14,6 +14,7 @@ from typing import Awaitable, Callable, Set
 from thenvoi.platform.event import (
     RoomAddedEvent,
     RoomRemovedEvent,
+    RoomDeletedEvent,
     PlatformEvent,
 )
 from thenvoi.platform.link import ThenvoiLink
@@ -156,6 +157,8 @@ class RoomPresence:
                 await self._handle_room_added(event)
             case RoomRemovedEvent():
                 await self._handle_room_removed(event)
+            case RoomDeletedEvent():
+                await self._handle_room_deleted(event)
             case _ if event.room_id:
                 # Room-specific event - forward to on_room_event
                 await self._handle_room_event(event)
@@ -218,6 +221,37 @@ class RoomPresence:
                 logger.error(f"on_room_left error for {room_id}: {e}", exc_info=True)
 
         logger.info(f"Agent left room: {room_id}")
+
+    async def _handle_room_deleted(self, event: RoomDeletedEvent) -> None:
+        """
+        Handle room_deleted event (room was permanently deleted).
+
+        Triggers the same cleanup as room_removed, including memory consolidation.
+        """
+        room_id = event.room_id
+        if not room_id:
+            logger.warning("room_deleted event without room_id")
+            return
+
+        # Unsubscribe from room channels (may already be gone server-side)
+        try:
+            await self.link.unsubscribe_room(room_id)
+        except Exception as e:
+            logger.debug(f"Error unsubscribing from deleted room {room_id}: {e}")
+
+        # Untrack room
+        self.rooms.discard(room_id)
+
+        # Notify callback - triggers memory consolidation in adapters
+        if self.on_room_left:
+            try:
+                await self.on_room_left(room_id)
+            except Exception as e:
+                logger.error(
+                    f"on_room_left error for deleted room {room_id}: {e}", exc_info=True
+                )
+
+        logger.info(f"Room deleted: {room_id}")
 
     async def _handle_room_event(self, event: PlatformEvent) -> None:
         """

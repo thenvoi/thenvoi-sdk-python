@@ -99,6 +99,16 @@ class ParticipantRemovedPayload(BaseModel):
     id: str
 
 
+class RoomDeletedPayload(BaseModel):
+    """Payload for room_deleted events."""
+
+    model_config = ConfigDict(extra="allow")
+
+    id: str
+    status: str | None = None
+    deleted_at: str | None = None
+
+
 class WebSocketClient:
     def __init__(self, ws_url: str, api_key: str, agent_id: Optional[str] = None):
         self.ws_url = ws_url
@@ -141,6 +151,8 @@ class WebSocketClient:
             validated = RoomAddedPayload(**message.payload)
         elif message.event == "room_removed":
             validated = RoomRemovedPayload(**message.payload)
+        elif message.event == "room_deleted":
+            validated = RoomDeletedPayload(**message.payload)
         else:
             # For other events (participant_added, participant_removed, etc.)
             # pass the raw payload dict
@@ -204,19 +216,21 @@ class WebSocketClient:
         chat_room_id: str,
         on_participant_added: Callable[[dict], Awaitable[None]],
         on_participant_removed: Callable[[dict], Awaitable[None]],
+        on_room_deleted: Callable[[RoomDeletedPayload], Awaitable[None]] | None = None,
     ):
         """Subscribe to room participants topic with async callbacks"""
         topic = f"room_participants:{chat_room_id}"
         logger.info(f"[WebSocket] Subscribing to topic: {topic}")
 
+        handlers: dict[str, Callable] = {
+            "participant_added": on_participant_added,
+            "participant_removed": on_participant_removed,
+        }
+        if on_room_deleted:
+            handlers["room_deleted"] = on_room_deleted
+
         async def message_handler(message):
-            await self._handle_events(
-                message,
-                {
-                    "participant_added": on_participant_added,
-                    "participant_removed": on_participant_removed,
-                },
-            )
+            await self._handle_events(message, handlers)
 
         return await self.client.subscribe_to_topic(topic, message_handler)
 
