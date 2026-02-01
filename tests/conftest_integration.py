@@ -69,11 +69,6 @@ requires_multi_agent = skip_without_envs(
 
 requires_user_api = skip_without_env("THENVOI_API_KEY_USER")
 
-requires_llm_api = skip_without_envs(
-    ["THENVOI_API_KEY", "ANTHROPIC_API_KEY"],
-    reason="Both THENVOI_API_KEY and ANTHROPIC_API_KEY required for LLM tests",
-)
-
 
 @pytest.fixture
 def api_client() -> AsyncRestClient | None:
