@@ -35,6 +35,7 @@ from thenvoi_rest.types import (
 from tests.integration.conftest import (
     get_base_url,
     get_user_api_key,
+    is_no_clean_mode,
     requires_user_api,
 )
 
@@ -128,7 +129,7 @@ def module_user_api_client():
 
 
 @pytest.fixture(scope="module")
-async def agent_manager(module_user_api_client):
+async def agent_manager(module_user_api_client, request):
     """Create and manage dynamic agents for the entire test module."""
     global _agent_manager
 
@@ -153,8 +154,12 @@ async def agent_manager(module_user_api_client):
     logger.info("\n=== Creating dynamic agents for permission tests ===")
     yield _agent_manager
 
-    logger.info("\n=== Cleaning up dynamic agents ===")
-    await _agent_manager.cleanup_all()
+    # Cleanup: delete the agents (unless --no-clean mode)
+    if not is_no_clean_mode(request):
+        logger.info("\n=== Cleaning up dynamic agents ===")
+        await _agent_manager.cleanup_all()
+    else:
+        logger.info("[NO-CLEAN MODE] Skipping cleanup of permission test agents")
     _agent_manager = None
 
 

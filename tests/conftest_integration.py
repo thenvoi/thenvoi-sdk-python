@@ -11,14 +11,89 @@ Skip integration tests (run only unit tests):
 
 To override .env.test values, set environment variables:
     THENVOI_API_KEY="your-key" uv run pytest tests/integration/ -v
+
+Cleanup behavior:
+    By default, tests clean up any agents/chats they create.
+    Use --no-clean to skip cleanup and accumulate test data:
+
+    uv run pytest tests/integration/ -v --no-clean
+
+    Or set the environment variable:
+    THENVOI_TEST_NO_CLEAN=1 uv run pytest tests/integration/ -v
+
+    No-clean mode is useful for:
+    - Testing user limits (max agents, max chats)
+    - Finding edge case bugs with accumulated data
+    - Debugging test failures by inspecting created resources
 """
 
+from __future__ import annotations
+
+import os
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pytest
 from thenvoi_rest import AsyncRestClient, ChatMessageRequest, ChatRoomRequest
 from thenvoi_testing.markers import skip_without_env, skip_without_envs
 from thenvoi_testing.settings import ThenvoiTestSettings
+
+if TYPE_CHECKING:
+    from _pytest.config.argparsing import Parser
+
+# =============================================================================
+# Pytest Plugin Hooks
+# =============================================================================
+
+
+def pytest_addoption(parser: Parser) -> None:
+    """Add --no-clean option to pytest."""
+    parser.addoption(
+        "--no-clean",
+        action="store_true",
+        default=False,
+        help="Skip cleanup of test-created agents and chats (useful for limit testing)",
+    )
+
+
+# =============================================================================
+# No-Clean Mode Helper
+# =============================================================================
+
+
+def is_no_clean_mode(request: pytest.FixtureRequest | None = None) -> bool:
+    """Check if no-clean mode is enabled.
+
+    No-clean mode can be enabled via:
+    - --no-clean pytest option
+    - THENVOI_TEST_NO_CLEAN environment variable
+
+    Usage in fixtures:
+        @pytest.fixture
+        async def my_agent(user_api_client, request):
+            agent = await create_agent(...)
+            yield agent
+            if not is_no_clean_mode(request):
+                await user_api_client.human_api.delete_my_agent(id=agent.id, force=True)
+    """
+    # Check environment variable first
+    if os.environ.get("THENVOI_TEST_NO_CLEAN", "").lower() in ("1", "true", "yes"):
+        return True
+
+    # Check pytest option if request is available
+    if request is not None:
+        try:
+            return bool(request.config.getoption("--no-clean", default=False))
+        except ValueError:
+            # Option not registered (e.g., running without the plugin)
+            pass
+
+    return False
+
+
+# =============================================================================
+# Test Settings
+# =============================================================================
 
 
 class TestSettings(ThenvoiTestSettings):
@@ -68,6 +143,11 @@ requires_multi_agent = skip_without_envs(
 )
 
 requires_user_api = skip_without_env("THENVOI_API_KEY_USER")
+
+
+# =============================================================================
+# API Client Fixtures
+# =============================================================================
 
 
 @pytest.fixture
@@ -128,6 +208,11 @@ def user_api_client() -> AsyncRestClient | None:
 def integration_settings() -> TestSettings:
     """Provide test settings to integration tests."""
     return test_settings
+
+
+# =============================================================================
+# Test Resource Fixtures
+# =============================================================================
 
 
 @pytest.fixture

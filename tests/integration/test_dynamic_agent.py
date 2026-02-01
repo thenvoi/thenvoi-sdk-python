@@ -3,15 +3,16 @@
 These tests use the User API to:
 1. Register a new external agent (getting API key)
 2. Run tests using that agent
-3. Clean up by deleting the agent
+3. Clean up by deleting the agent (unless --no-clean)
 
 IMPORTANT SAFETY NOTE:
     Only agents CREATED BY THESE TESTS are deleted. The pre-existing agents
     defined in .env.test (THENVOI_API_KEY, THENVOI_API_KEY_2) are NEVER deleted.
-    The cleanup only deletes the agent created via register_my_agent() during
-    the test run.
 
 Run with: uv run pytest tests/integration/test_dynamic_agent.py -v -s
+
+To skip cleanup and accumulate data:
+    uv run pytest tests/integration/test_dynamic_agent.py -v -s --no-clean
 
 Prerequisites:
 - THENVOI_API_KEY_USER must be set in .env.test
@@ -28,6 +29,7 @@ from thenvoi_rest import AsyncRestClient, ChatRoomRequest
 from tests.integration.conftest import (
     get_base_url,
     get_user_api_key,
+    is_no_clean_mode,
     requires_user_api,
 )
 
@@ -72,11 +74,13 @@ def module_user_api_client():
 
 
 @pytest.fixture(scope="module")
-async def dynamic_agent(module_user_api_client):
-    """Create an agent for this test module and delete it after.
+async def dynamic_agent(module_user_api_client, request):
+    """Create an agent for this test module.
 
     Uses module scope so the agent is created once and reused across all tests.
     The API key is stored and can be used to create agent API clients.
+
+    Cleanup happens at the end of the module (unless --no-clean is specified).
     """
     global _dynamic_agent
 
@@ -120,18 +124,21 @@ async def dynamic_agent(module_user_api_client):
 
     yield _dynamic_agent
 
-    # Cleanup: Delete ONLY the agent we created in this test
-    # SAFETY: We only delete agent.id which was returned by register_my_agent()
-    # above. We NEVER touch the pre-existing agents from .env.test.
-    logger.info("\nDeleting dynamic agent: %s (created by this test)", agent.id)
-    try:
-        await module_user_api_client.human_api.delete_my_agent(
-            id=agent.id,
-            force=True,  # Delete any executions too
+    # Cleanup: delete the agent (unless --no-clean mode)
+    if not is_no_clean_mode(request):
+        logger.info("\nDeleting dynamic agent: %s (created by this test)", agent.id)
+        try:
+            await module_user_api_client.human_api.delete_my_agent(
+                id=agent.id,
+                force=True,  # Delete any executions too
+            )
+            logger.info("Agent deleted successfully")
+        except Exception as e:
+            logger.warning("Failed to delete agent: %s", e)
+    else:
+        logger.info(
+            "[NO-CLEAN MODE] Skipping cleanup of agent: %s", _dynamic_agent.agent_name
         )
-        logger.info("Agent deleted successfully")
-    except Exception as e:
-        logger.warning("Failed to delete agent: %s", e)
     _dynamic_agent = None
 
 
