@@ -137,7 +137,9 @@ async def dynamic_agent(module_user_api_client, request):
             logger.warning("Failed to delete agent: %s", e)
     else:
         logger.info(
-            "[NO-CLEAN MODE] Skipping cleanup of agent: %s", _dynamic_agent.agent_name
+            "[NO-CLEAN MODE] Skipping cleanup of agent: %s (name: %s)",
+            agent.id,
+            agent.name,
         )
     _dynamic_agent = None
 
