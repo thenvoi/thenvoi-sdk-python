@@ -263,6 +263,55 @@ class TestToolEventConversion:
         assert isinstance(result[1], ModelRequest)
         assert isinstance(result[1].parts[0], ToolReturnPart)
 
+    def test_batches_multiple_tool_results(self):
+        """Multiple consecutive tool_result messages are batched into one ModelRequest.
+
+        Similar to Anthropic's requirement, tool results should be batched
+        together to enable parallel tool use patterns.
+        """
+        converter = PydanticAIHistoryConverter()
+        raw = [
+            {
+                "role": "assistant",
+                "content": '{"name": "tool1", "args": {}, "tool_call_id": "call_1"}',
+                "message_type": "tool_call",
+            },
+            {
+                "role": "assistant",
+                "content": '{"name": "tool2", "args": {}, "tool_call_id": "call_2"}',
+                "message_type": "tool_call",
+            },
+            {
+                "role": "assistant",
+                "content": '{"name": "tool1", "output": "result1", "tool_call_id": "call_1"}',
+                "message_type": "tool_result",
+            },
+            {
+                "role": "assistant",
+                "content": '{"name": "tool2", "output": "result2", "tool_call_id": "call_2"}',
+                "message_type": "tool_result",
+            },
+        ]
+
+        result = converter.convert(raw)
+
+        # Should have: batched ModelResponse, batched ModelRequest with ToolReturnParts
+        assert len(result) == 2
+
+        # First message: batched ModelResponse
+        assert isinstance(result[0], ModelResponse)
+        assert len(result[0].parts) == 2
+        assert result[0].parts[0].tool_name == "tool1"
+        assert result[0].parts[1].tool_name == "tool2"
+
+        # Second message: batched ModelRequest with ToolReturnParts
+        assert isinstance(result[1], ModelRequest)
+        assert len(result[1].parts) == 2
+        assert isinstance(result[1].parts[0], ToolReturnPart)
+        assert result[1].parts[0].tool_call_id == "call_1"
+        assert isinstance(result[1].parts[1], ToolReturnPart)
+        assert result[1].parts[1].tool_call_id == "call_2"
+
     def test_handles_interleaved_tool_calls_and_results(self):
         """Interleaved tool_call and tool_result messages are handled correctly."""
         converter = PydanticAIHistoryConverter()
@@ -305,8 +354,8 @@ class TestToolEventConversion:
 
         result = converter.convert(raw)
 
-        # Expected: [batched ModelResponse (2 parts), ToolReturn, ToolReturn, ModelResponse, ToolReturn]
-        assert len(result) == 5
+        # Expected: [batched ModelResponse (2), batched ModelRequest (2), ModelResponse, ModelRequest]
+        assert len(result) == 4
 
         # First message: batched ModelResponse with ToolCallParts for tool1 and tool2
         assert isinstance(result[0], ModelResponse)
@@ -314,23 +363,24 @@ class TestToolEventConversion:
         assert result[0].parts[0].tool_name == "tool1"
         assert result[0].parts[1].tool_name == "tool2"
 
-        # Second and third messages: ToolReturnParts
+        # Second message: batched ModelRequest with ToolReturnParts
         assert isinstance(result[1], ModelRequest)
+        assert len(result[1].parts) == 2
         assert isinstance(result[1].parts[0], ToolReturnPart)
         assert result[1].parts[0].tool_call_id == "call_1"
-        assert isinstance(result[2], ModelRequest)
-        assert isinstance(result[2].parts[0], ToolReturnPart)
-        assert result[2].parts[0].tool_call_id == "call_2"
+        assert isinstance(result[1].parts[1], ToolReturnPart)
+        assert result[1].parts[1].tool_call_id == "call_2"
 
-        # Fourth message: single ModelResponse for tool3
-        assert isinstance(result[3], ModelResponse)
+        # Third message: single ModelResponse for tool3
+        assert isinstance(result[2], ModelResponse)
+        assert len(result[2].parts) == 1
+        assert result[2].parts[0].tool_name == "tool3"
+
+        # Fourth message: ModelRequest with ToolReturnPart for tool3
+        assert isinstance(result[3], ModelRequest)
         assert len(result[3].parts) == 1
-        assert result[3].parts[0].tool_name == "tool3"
-
-        # Fifth message: ToolReturnPart for tool3
-        assert isinstance(result[4], ModelRequest)
-        assert isinstance(result[4].parts[0], ToolReturnPart)
-        assert result[4].parts[0].tool_call_id == "call_3"
+        assert isinstance(result[3].parts[0], ToolReturnPart)
+        assert result[3].parts[0].tool_call_id == "call_3"
 
     def test_skips_thought_messages(self):
         """thought messages are skipped."""

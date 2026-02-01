@@ -28,6 +28,25 @@ def _flush_pending_tool_calls(
         pending_tool_calls.clear()
 
 
+def _flush_pending_tool_results(
+    messages: AnthropicMessages, pending_tool_results: list[dict[str, Any]]
+) -> None:
+    """Flush pending tool results into a single user message.
+
+    Per Anthropic docs, all tool results must be in a single user message
+    to enable parallel tool use. Sending separate messages "teaches Claude
+    to avoid parallel calls."
+    """
+    if pending_tool_results:
+        messages.append(
+            {
+                "role": "user",
+                "content": list(pending_tool_results),
+            }
+        )
+        pending_tool_results.clear()
+
+
 class AnthropicHistoryConverter(HistoryConverter[AnthropicMessages]):
     """
     Converts platform history to Anthropic message format.
@@ -70,12 +89,17 @@ class AnthropicHistoryConverter(HistoryConverter[AnthropicMessages]):
         messages: AnthropicMessages = []
         # Collect tool calls to batch them into a single assistant message
         pending_tool_calls: list[dict[str, Any]] = []
+        # Collect tool results to batch them into a single user message
+        pending_tool_results: list[dict[str, Any]] = []
 
         for hist in raw:
             message_type = hist.get("message_type", "text")
             content = hist.get("content", "")
 
             if message_type == "tool_call":
+                # Flush pending tool results before starting new tool calls
+                _flush_pending_tool_results(messages, pending_tool_results)
+
                 # Parse tool call JSON and collect for batching
                 try:
                     event = json.loads(content)
@@ -105,10 +129,10 @@ class AnthropicHistoryConverter(HistoryConverter[AnthropicMessages]):
                     logger.warning("Failed to parse tool_call: %s", repr(content[:100]))
 
             elif message_type == "tool_result":
-                # Flush pending tool calls first
+                # Flush pending tool calls first (tool results follow tool calls)
                 _flush_pending_tool_calls(messages, pending_tool_calls)
 
-                # Parse tool result JSON
+                # Parse tool result JSON and collect for batching
                 try:
                     event = json.loads(content)
                     tool_call_id = event.get("tool_call_id")
@@ -131,20 +155,16 @@ class AnthropicHistoryConverter(HistoryConverter[AnthropicMessages]):
                         "tool_use_id": tool_call_id,
                         "content": str(event.get("output", "")),
                     }
-                    messages.append(
-                        {
-                            "role": "user",
-                            "content": [tool_result_block],
-                        }
-                    )
+                    pending_tool_results.append(tool_result_block)
                 except json.JSONDecodeError:
                     logger.warning(
                         "Failed to parse tool_result: %s", repr(content[:100])
                     )
 
             elif message_type == "text":
-                # Flush pending tool calls first
+                # Flush pending tool calls and results first
                 _flush_pending_tool_calls(messages, pending_tool_calls)
+                _flush_pending_tool_results(messages, pending_tool_results)
 
                 role = hist.get("role", "user")
                 sender_name = hist.get("sender_name", "")
@@ -163,7 +183,8 @@ class AnthropicHistoryConverter(HistoryConverter[AnthropicMessages]):
                         }
                     )
 
-        # Flush any remaining pending tool calls
+        # Flush any remaining pending tool calls and results
         _flush_pending_tool_calls(messages, pending_tool_calls)
+        _flush_pending_tool_results(messages, pending_tool_results)
 
         return messages

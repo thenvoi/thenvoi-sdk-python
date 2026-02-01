@@ -250,6 +250,53 @@ class TestToolEventConversion:
         # Second message is the tool_result
         assert result[1]["role"] == "user"
 
+    def test_batches_multiple_tool_results(self):
+        """Multiple consecutive tool_result messages are batched into one user message.
+
+        Per Anthropic docs, all tool results must be in a single user message
+        to enable parallel tool use.
+        """
+        converter = AnthropicHistoryConverter()
+        raw = [
+            {
+                "role": "assistant",
+                "content": '{"name": "tool1", "args": {}, "tool_call_id": "toolu_1"}',
+                "message_type": "tool_call",
+            },
+            {
+                "role": "assistant",
+                "content": '{"name": "tool2", "args": {}, "tool_call_id": "toolu_2"}',
+                "message_type": "tool_call",
+            },
+            {
+                "role": "assistant",
+                "content": '{"name": "tool1", "output": "result1", "tool_call_id": "toolu_1"}',
+                "message_type": "tool_result",
+            },
+            {
+                "role": "assistant",
+                "content": '{"name": "tool2", "output": "result2", "tool_call_id": "toolu_2"}',
+                "message_type": "tool_result",
+            },
+        ]
+
+        result = converter.convert(raw)
+
+        # Should have: batched tool_use, batched tool_results
+        assert len(result) == 2
+
+        # First message: batched tool_use
+        assert result[0]["role"] == "assistant"
+        assert len(result[0]["content"]) == 2
+        assert result[0]["content"][0]["name"] == "tool1"
+        assert result[0]["content"][1]["name"] == "tool2"
+
+        # Second message: batched tool_results
+        assert result[1]["role"] == "user"
+        assert len(result[1]["content"]) == 2
+        assert result[1]["content"][0]["tool_use_id"] == "toolu_1"
+        assert result[1]["content"][1]["tool_use_id"] == "toolu_2"
+
     def test_handles_interleaved_tool_calls_and_results(self):
         """Interleaved tool_call and tool_result messages are handled correctly."""
         converter = AnthropicHistoryConverter()
@@ -292,8 +339,8 @@ class TestToolEventConversion:
 
         result = converter.convert(raw)
 
-        # Expected: [batched tool_use (2), tool_result, tool_result, tool_use, tool_result]
-        assert len(result) == 5
+        # Expected: [batched tool_use (2), batched tool_results (2), tool_use, tool_result]
+        assert len(result) == 4
 
         # First message: batched tool_use for tool1 and tool2
         assert result[0]["role"] == "assistant"
@@ -301,20 +348,21 @@ class TestToolEventConversion:
         assert result[0]["content"][0]["name"] == "tool1"
         assert result[0]["content"][1]["name"] == "tool2"
 
-        # Second and third messages: tool_results
+        # Second message: batched tool_results for tool1 and tool2
         assert result[1]["role"] == "user"
+        assert len(result[1]["content"]) == 2
         assert result[1]["content"][0]["tool_use_id"] == "toolu_1"
-        assert result[2]["role"] == "user"
-        assert result[2]["content"][0]["tool_use_id"] == "toolu_2"
+        assert result[1]["content"][1]["tool_use_id"] == "toolu_2"
 
-        # Fourth message: single tool_use for tool3
-        assert result[3]["role"] == "assistant"
+        # Third message: single tool_use for tool3
+        assert result[2]["role"] == "assistant"
+        assert len(result[2]["content"]) == 1
+        assert result[2]["content"][0]["name"] == "tool3"
+
+        # Fourth message: tool_result for tool3
+        assert result[3]["role"] == "user"
         assert len(result[3]["content"]) == 1
-        assert result[3]["content"][0]["name"] == "tool3"
-
-        # Fifth message: tool_result for tool3
-        assert result[4]["role"] == "user"
-        assert result[4]["content"][0]["tool_use_id"] == "toolu_3"
+        assert result[3]["content"][0]["tool_use_id"] == "toolu_3"
 
     def test_skips_thought_messages(self):
         """thought messages are skipped."""

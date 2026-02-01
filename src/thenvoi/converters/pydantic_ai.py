@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Any, Union
+from typing import Any
 
 try:
     from pydantic_ai.messages import (
@@ -25,7 +25,7 @@ from thenvoi.core.protocols import HistoryConverter
 logger = logging.getLogger(__name__)
 
 # Type alias for Pydantic AI messages (can be requests or responses)
-PydanticAIMessages = list[Union[ModelRequest, ModelResponse]]
+PydanticAIMessages = list[ModelRequest | ModelResponse]
 
 
 def _flush_pending_tool_calls(
@@ -35,6 +35,19 @@ def _flush_pending_tool_calls(
     if pending_tool_calls:
         messages.append(ModelResponse(parts=list(pending_tool_calls)))
         pending_tool_calls.clear()
+
+
+def _flush_pending_tool_results(
+    messages: PydanticAIMessages, pending_tool_results: list[ToolReturnPart]
+) -> None:
+    """Flush pending tool results into a single ModelRequest.
+
+    Similar to Anthropic's requirement, tool results should be batched
+    together to enable parallel tool use patterns.
+    """
+    if pending_tool_results:
+        messages.append(ModelRequest(parts=list(pending_tool_results)))
+        pending_tool_results.clear()
 
 
 class PydanticAIHistoryConverter(HistoryConverter[PydanticAIMessages]):
@@ -78,12 +91,17 @@ class PydanticAIHistoryConverter(HistoryConverter[PydanticAIMessages]):
         messages: PydanticAIMessages = []
         # Collect tool calls to batch them into a single ModelResponse
         pending_tool_calls: list[ToolCallPart] = []
+        # Collect tool results to batch them into a single ModelRequest
+        pending_tool_results: list[ToolReturnPart] = []
 
         for hist in raw:
             message_type = hist.get("message_type", "text")
             content = hist.get("content", "")
 
             if message_type == "tool_call":
+                # Flush pending tool results before starting new tool calls
+                _flush_pending_tool_results(messages, pending_tool_results)
+
                 # Parse tool call JSON and collect for batching
                 try:
                     event = json.loads(content)
@@ -112,10 +130,10 @@ class PydanticAIHistoryConverter(HistoryConverter[PydanticAIMessages]):
                     logger.warning("Failed to parse tool_call: %s", repr(content[:100]))
 
             elif message_type == "tool_result":
-                # Flush pending tool calls first
+                # Flush pending tool calls first (tool results follow tool calls)
                 _flush_pending_tool_calls(messages, pending_tool_calls)
 
-                # Parse tool result JSON
+                # Parse tool result JSON and collect for batching
                 try:
                     event = json.loads(content)
                     tool_call_id = event.get("tool_call_id")
@@ -138,15 +156,16 @@ class PydanticAIHistoryConverter(HistoryConverter[PydanticAIMessages]):
                         content=event.get("output", ""),
                         tool_call_id=tool_call_id,
                     )
-                    messages.append(ModelRequest(parts=[tool_return_part]))
+                    pending_tool_results.append(tool_return_part)
                 except json.JSONDecodeError:
                     logger.warning(
                         "Failed to parse tool_result: %s", repr(content[:100])
                     )
 
             elif message_type == "text":
-                # Flush pending tool calls first
+                # Flush pending tool calls and results first
                 _flush_pending_tool_calls(messages, pending_tool_calls)
+                _flush_pending_tool_results(messages, pending_tool_results)
 
                 role = hist.get("role", "user")
                 sender_name = hist.get("sender_name", "")
@@ -163,7 +182,8 @@ class PydanticAIHistoryConverter(HistoryConverter[PydanticAIMessages]):
                         ModelRequest(parts=[UserPromptPart(content=formatted_content)])
                     )
 
-        # Flush any remaining pending tool calls
+        # Flush any remaining pending tool calls and results
         _flush_pending_tool_calls(messages, pending_tool_calls)
+        _flush_pending_tool_results(messages, pending_tool_results)
 
         return messages
