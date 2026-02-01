@@ -47,6 +47,8 @@ def build_participants_message(participants: list[dict]) -> str:
     """
     Build participant list message for LLM context.
 
+    Includes instruction to use thenvoi_send_message with exact participant names.
+
     Args:
         participants: List of participant dicts with id, name, type
 

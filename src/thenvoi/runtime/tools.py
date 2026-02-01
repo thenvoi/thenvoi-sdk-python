@@ -133,21 +133,29 @@ def get_tool_description(name: str) -> str:
 
     Args:
         name: Tool name (e.g., "thenvoi_send_message", "thenvoi_lookup_peers")
-              Also accepts unprefixed names for backwards compatibility.
+              Also accepts unprefixed names for backwards compatibility (deprecated).
 
     Returns:
         Tool description string
     """
+    import warnings
+
     # Try exact match first
     model = TOOL_MODELS.get(name)
     if model and model.__doc__:
         return model.__doc__
 
-    # Try with prefix for backwards compatibility
-    prefixed_name = f"thenvoi_{name}" if not name.startswith("thenvoi_") else name
-    model = TOOL_MODELS.get(prefixed_name)
-    if model and model.__doc__:
-        return model.__doc__
+    # Try with prefix for backwards compatibility (deprecated)
+    if not name.startswith("thenvoi_"):
+        prefixed_name = f"thenvoi_{name}"
+        model = TOOL_MODELS.get(prefixed_name)
+        if model and model.__doc__:
+            warnings.warn(
+                f"Tool name '{name}' is deprecated. Use '{prefixed_name}' instead.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            return model.__doc__
 
     return f"Execute {name}"
 

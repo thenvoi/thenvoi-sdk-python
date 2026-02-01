@@ -509,14 +509,16 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
                 async def execute(tools: AgentToolsProtocol) -> str:
                     await adapter._report_tool_call(
                         tools,
-                        "send_message",
+                        "thenvoi_send_message",
                         {"content": content, "mentions": mention_list},
                     )
                     await tools.send_message(content, mention_list)
-                    await adapter._report_tool_result(tools, "send_message", "success")
+                    await adapter._report_tool_result(
+                        tools, "thenvoi_send_message", "success"
+                    )
                     return json.dumps({"status": "success", "message": "Message sent"})
 
-                return adapter._execute_tool("send_message", execute)
+                return adapter._execute_tool("thenvoi_send_message", execute)
 
         class SendEventTool(BaseTool):
             name: str = "thenvoi_send_event"
@@ -533,7 +535,7 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
                     await tools.send_event(content, message_type)
                     return json.dumps({"status": "success", "message": "Event sent"})
 
-                return adapter._execute_tool("send_event", execute)
+                return adapter._execute_tool("thenvoi_send_event", execute)
 
         class AddParticipantTool(BaseTool):
             name: str = "thenvoi_add_participant"
@@ -547,14 +549,16 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
                 async def execute(tools: AgentToolsProtocol) -> str:
                     await adapter._report_tool_call(
                         tools,
-                        "add_participant",
+                        "thenvoi_add_participant",
                         {"name": participant_name, "role": role},
                     )
                     result = await tools.add_participant(participant_name, role)
-                    await adapter._report_tool_result(tools, "add_participant", result)
+                    await adapter._report_tool_result(
+                        tools, "thenvoi_add_participant", result
+                    )
                     return json.dumps({"status": "success", **result})
 
-                return adapter._execute_tool("add_participant", execute)
+                return adapter._execute_tool("thenvoi_add_participant", execute)
 
         class RemoveParticipantTool(BaseTool):
             name: str = "thenvoi_remove_participant"
@@ -567,16 +571,16 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
                 async def execute(tools: AgentToolsProtocol) -> str:
                     await adapter._report_tool_call(
                         tools,
-                        "remove_participant",
+                        "thenvoi_remove_participant",
                         {"name": participant_name},
                     )
                     result = await tools.remove_participant(participant_name)
                     await adapter._report_tool_result(
-                        tools, "remove_participant", result
+                        tools, "thenvoi_remove_participant", result
                     )
                     return json.dumps({"status": "success", **result})
 
-                return adapter._execute_tool("remove_participant", execute)
+                return adapter._execute_tool("thenvoi_remove_participant", execute)
 
         class GetParticipantsTool(BaseTool):
             name: str = "thenvoi_get_participants"
@@ -585,17 +589,21 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
 
             def _run(self, *_args: Any, **_kwargs: Any) -> Any:
                 async def execute(tools: AgentToolsProtocol) -> str:
-                    await adapter._report_tool_call(tools, "get_participants", {})
+                    await adapter._report_tool_call(
+                        tools, "thenvoi_get_participants", {}
+                    )
                     participants = await tools.get_participants()
                     result = {
                         "status": "success",
                         "participants": participants,
                         "count": len(participants),
                     }
-                    await adapter._report_tool_result(tools, "get_participants", result)
+                    await adapter._report_tool_result(
+                        tools, "thenvoi_get_participants", result
+                    )
                     return json.dumps(result)
 
-                return adapter._execute_tool("get_participants", execute)
+                return adapter._execute_tool("thenvoi_get_participants", execute)
 
         class LookupPeersTool(BaseTool):
             name: str = "thenvoi_lookup_peers"
@@ -609,13 +617,17 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
 
                 async def execute(tools: AgentToolsProtocol) -> str:
                     await adapter._report_tool_call(
-                        tools, "lookup_peers", {"page": page, "page_size": page_size}
+                        tools,
+                        "thenvoi_lookup_peers",
+                        {"page": page, "page_size": page_size},
                     )
                     result = await tools.lookup_peers(page, page_size)
-                    await adapter._report_tool_result(tools, "lookup_peers", result)
+                    await adapter._report_tool_result(
+                        tools, "thenvoi_lookup_peers", result
+                    )
                     return json.dumps({"status": "success", **result})
 
-                return adapter._execute_tool("lookup_peers", execute)
+                return adapter._execute_tool("thenvoi_lookup_peers", execute)
 
         class CreateChatroomTool(BaseTool):
             name: str = "thenvoi_create_chatroom"
@@ -627,7 +639,7 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
 
                 async def execute(tools: AgentToolsProtocol) -> str:
                     await adapter._report_tool_call(
-                        tools, "create_chatroom", {"task_id": task_id}
+                        tools, "thenvoi_create_chatroom", {"task_id": task_id}
                     )
                     new_room_id = await tools.create_chatroom(task_id)
                     result = {
@@ -635,10 +647,12 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
                         "message": "Chat room created",
                         "room_id": new_room_id,
                     }
-                    await adapter._report_tool_result(tools, "create_chatroom", result)
+                    await adapter._report_tool_result(
+                        tools, "thenvoi_create_chatroom", result
+                    )
                     return json.dumps(result)
 
-                return adapter._execute_tool("create_chatroom", execute)
+                return adapter._execute_tool("thenvoi_create_chatroom", execute)
 
         platform_tools: list[BaseTool] = [
             SendMessageTool(),
