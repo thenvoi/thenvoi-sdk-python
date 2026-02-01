@@ -3,15 +3,16 @@
 These tests use the User API to:
 1. Register a new external agent (getting API key)
 2. Run tests using that agent
-3. Clean up by deleting the agent
+3. Clean up by deleting the agent (unless --no-clean)
 
 IMPORTANT SAFETY NOTE:
     Only agents CREATED BY THESE TESTS are deleted. The pre-existing agents
     defined in .env.test (THENVOI_API_KEY, THENVOI_API_KEY_2) are NEVER deleted.
-    The cleanup only deletes the agent created via register_my_agent() during
-    the test run.
 
 Run with: uv run pytest tests/integration/test_dynamic_agent.py -v -s
+
+To skip cleanup and accumulate data:
+    uv run pytest tests/integration/test_dynamic_agent.py -v -s --no-clean
 
 Prerequisites:
 - THENVOI_API_KEY_USER must be set in .env.test
@@ -28,6 +29,7 @@ from thenvoi_rest import AsyncRestClient, ChatRoomRequest
 from tests.integration.conftest import (
     get_base_url,
     get_user_api_key,
+    is_no_clean_mode,
     requires_user_api,
 )
 
@@ -41,10 +43,6 @@ class DynamicAgent:
     agent_id: str
     agent_name: str
     api_key: str
-
-
-# Module-level storage for the created agent
-_dynamic_agent: DynamicAgent | None = None
 
 
 @pytest.fixture(scope="module")
@@ -72,14 +70,14 @@ def module_user_api_client():
 
 
 @pytest.fixture(scope="module")
-async def dynamic_agent(module_user_api_client):
-    """Create an agent for this test module and delete it after.
+async def dynamic_agent(module_user_api_client, request):
+    """Create an agent for this test module.
 
     Uses module scope so the agent is created once and reused across all tests.
     The API key is stored and can be used to create agent API clients.
-    """
-    global _dynamic_agent
 
+    Cleanup happens at the end of the module (unless --no-clean is specified).
+    """
     if module_user_api_client is None:
         pytest.skip("THENVOI_API_KEY_USER not set")
 
@@ -110,7 +108,7 @@ async def dynamic_agent(module_user_api_client):
     agent = response.data.agent
     credentials = response.data.credentials
 
-    _dynamic_agent = DynamicAgent(
+    agent_info = DynamicAgent(
         agent_id=agent.id,
         agent_name=agent.name,
         api_key=credentials.api_key,
@@ -118,21 +116,25 @@ async def dynamic_agent(module_user_api_client):
 
     logger.info("\nCreated dynamic agent: %s (ID: %s)", agent.name, agent.id)
 
-    yield _dynamic_agent
+    yield agent_info
 
-    # Cleanup: Delete ONLY the agent we created in this test
-    # SAFETY: We only delete agent.id which was returned by register_my_agent()
-    # above. We NEVER touch the pre-existing agents from .env.test.
-    logger.info("\nDeleting dynamic agent: %s (created by this test)", agent.id)
-    try:
-        await module_user_api_client.human_api.delete_my_agent(
-            id=agent.id,
-            force=True,  # Delete any executions too
+    # Cleanup: delete the agent (unless --no-clean mode)
+    if not is_no_clean_mode(request):
+        logger.info("\nDeleting dynamic agent: %s (created by this test)", agent.id)
+        try:
+            await module_user_api_client.human_api.delete_my_agent(
+                id=agent.id,
+                force=True,  # Delete any executions too
+            )
+            logger.info("Agent deleted successfully")
+        except Exception as e:
+            logger.warning("Failed to delete agent: %s", e)
+    else:
+        logger.info(
+            "[NO-CLEAN MODE] Skipping cleanup of agent: %s (name: %s)",
+            agent.id,
+            agent.name,
         )
-        logger.info("Agent deleted successfully")
-    except Exception as e:
-        logger.warning("Failed to delete agent: %s", e)
-    _dynamic_agent = None
 
 
 @pytest.fixture
