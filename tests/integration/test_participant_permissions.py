@@ -103,10 +103,6 @@ class DynamicAgentManager:
         self.created_agents.clear()
 
 
-# Module-level storage
-_agent_manager: DynamicAgentManager | None = None
-
-
 @pytest.fixture(scope="module")
 def event_loop():
     """Create an event loop for the module scope."""
@@ -131,8 +127,6 @@ def module_user_api_client():
 @pytest.fixture(scope="module")
 async def agent_manager(module_user_api_client, request):
     """Create and manage dynamic agents for the entire test module."""
-    global _agent_manager
-
     if module_user_api_client is None:
         pytest.skip("THENVOI_API_KEY_USER not set")
 
@@ -149,23 +143,22 @@ async def agent_manager(module_user_api_client, request):
     except ImportError:
         pytest.skip("Cannot import AgentRegisterRequest from thenvoi_rest")
 
-    _agent_manager = DynamicAgentManager(module_user_api_client)
+    manager = DynamicAgentManager(module_user_api_client)
 
     logger.info("\n=== Creating dynamic agents for permission tests ===")
-    yield _agent_manager
+    yield manager
 
     # Cleanup: delete the agents (unless --no-clean mode)
     if not is_no_clean_mode(request):
         logger.info("\n=== Cleaning up dynamic agents ===")
-        await _agent_manager.cleanup_all()
+        await manager.cleanup_all()
     else:
-        agent_names = [a.agent_name for a in _agent_manager.created_agents]
+        agent_names = [a.agent_name for a in manager.created_agents]
         logger.info(
             "[NO-CLEAN MODE] Skipping cleanup of %d agents: %s",
             len(agent_names),
             ", ".join(agent_names),
         )
-    _agent_manager = None
 
 
 @pytest.fixture(scope="module")

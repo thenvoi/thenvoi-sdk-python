@@ -45,10 +45,6 @@ class DynamicAgent:
     api_key: str
 
 
-# Module-level storage for the created agent
-_dynamic_agent: DynamicAgent | None = None
-
-
 @pytest.fixture(scope="module")
 def event_loop():
     """Create an event loop for the module scope.
@@ -82,8 +78,6 @@ async def dynamic_agent(module_user_api_client, request):
 
     Cleanup happens at the end of the module (unless --no-clean is specified).
     """
-    global _dynamic_agent
-
     if module_user_api_client is None:
         pytest.skip("THENVOI_API_KEY_USER not set")
 
@@ -114,7 +108,7 @@ async def dynamic_agent(module_user_api_client, request):
     agent = response.data.agent
     credentials = response.data.credentials
 
-    _dynamic_agent = DynamicAgent(
+    agent_info = DynamicAgent(
         agent_id=agent.id,
         agent_name=agent.name,
         api_key=credentials.api_key,
@@ -122,7 +116,7 @@ async def dynamic_agent(module_user_api_client, request):
 
     logger.info("\nCreated dynamic agent: %s (ID: %s)", agent.name, agent.id)
 
-    yield _dynamic_agent
+    yield agent_info
 
     # Cleanup: delete the agent (unless --no-clean mode)
     if not is_no_clean_mode(request):
@@ -141,7 +135,6 @@ async def dynamic_agent(module_user_api_client, request):
             agent.id,
             agent.name,
         )
-    _dynamic_agent = None
 
 
 @pytest.fixture
