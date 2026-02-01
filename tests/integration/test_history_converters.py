@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 import logging
 
+import pytest
 from thenvoi_rest import ChatEventRequest, ChatMessageRequest, ChatRoomRequest
 from thenvoi_rest.types import (
     ChatMessageRequestMentionsItem as Mention,
@@ -280,12 +281,9 @@ class TestPydanticAIConverterIntegration:
 
     async def test_converter_with_real_tool_history(self, api_client):
         """Verify PydanticAI converter handles real platform tool history."""
-        pytest = __import__("pytest")
-
-        try:
-            from pydantic_ai.messages import ModelRequest, ModelResponse
-        except ImportError:
-            pytest.skip("pydantic_ai not installed")
+        pydantic_ai_messages = pytest.importorskip("pydantic_ai.messages")
+        ModelRequest = pydantic_ai_messages.ModelRequest
+        ModelResponse = pydantic_ai_messages.ModelResponse
 
         from thenvoi.converters.pydantic_ai import PydanticAIHistoryConverter
 

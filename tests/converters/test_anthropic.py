@@ -500,6 +500,53 @@ class TestToolEventConversion:
         assert result[0]["content"][0]["name"] == "tool1"
         assert result[0]["content"][1]["name"] == "tool2"
 
+    def test_preserves_is_error_field_when_true(self):
+        """tool_result with is_error=True includes the field in output."""
+        converter = AnthropicHistoryConverter()
+        raw = [
+            {
+                "role": "assistant",
+                "content": '{"name": "search", "args": {}, "tool_call_id": "toolu_123"}',
+                "message_type": "tool_call",
+            },
+            {
+                "role": "assistant",
+                "content": '{"name": "search", "output": "Error: API failed", "tool_call_id": "toolu_123", "is_error": true}',
+                "message_type": "tool_result",
+            },
+        ]
+
+        result = converter.convert(raw)
+
+        assert len(result) == 2
+        tool_result_block = result[1]["content"][0]
+        assert tool_result_block["type"] == "tool_result"
+        assert tool_result_block["is_error"] is True
+        assert tool_result_block["content"] == "Error: API failed"
+
+    def test_omits_is_error_field_when_false(self):
+        """tool_result with is_error=False omits the field (Anthropic default)."""
+        converter = AnthropicHistoryConverter()
+        raw = [
+            {
+                "role": "assistant",
+                "content": '{"name": "search", "args": {}, "tool_call_id": "toolu_123"}',
+                "message_type": "tool_call",
+            },
+            {
+                "role": "assistant",
+                "content": '{"name": "search", "output": "result", "tool_call_id": "toolu_123", "is_error": false}',
+                "message_type": "tool_result",
+            },
+        ]
+
+        result = converter.convert(raw)
+
+        assert len(result) == 2
+        tool_result_block = result[1]["content"][0]
+        assert tool_result_block["type"] == "tool_result"
+        assert "is_error" not in tool_result_block  # Field should be omitted when False
+
 
 class TestEdgeCases:
     """Tests for edge cases and error handling."""

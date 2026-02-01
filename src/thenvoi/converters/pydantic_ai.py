@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import logging
 from typing import Any
 
@@ -21,6 +20,8 @@ except ImportError as e:
     ) from e
 
 from thenvoi.core.protocols import HistoryConverter
+
+from ._tool_parsing import parse_tool_call, parse_tool_result
 
 logger = logging.getLogger(__name__)
 
@@ -103,64 +104,28 @@ class PydanticAIHistoryConverter(HistoryConverter[PydanticAIMessages]):
                 _flush_pending_tool_results(messages, pending_tool_results)
 
                 # Parse tool call JSON and collect for batching
-                try:
-                    event = json.loads(content)
-                    tool_call_id = event.get("tool_call_id")
-                    tool_name = event.get("name")
-                    # Skip events with missing required fields
-                    if not tool_call_id:
-                        logger.warning(
-                            "Skipping tool_call with missing tool_call_id: %s",
-                            repr(content[:100]),
-                        )
-                        continue
-                    if not tool_name:
-                        logger.warning(
-                            "Skipping tool_call with missing name: %s",
-                            repr(content[:100]),
-                        )
-                        continue
+                parsed = parse_tool_call(content)
+                if parsed:
                     tool_call_part = ToolCallPart(
-                        tool_name=tool_name,
-                        args=event.get("args", {}),
-                        tool_call_id=tool_call_id,
+                        tool_name=parsed.name,
+                        args=parsed.args,
+                        tool_call_id=parsed.tool_call_id,
                     )
                     pending_tool_calls.append(tool_call_part)
-                except json.JSONDecodeError:
-                    logger.warning("Failed to parse tool_call: %s", repr(content[:100]))
 
             elif message_type == "tool_result":
                 # Flush pending tool calls first (tool results follow tool calls)
                 _flush_pending_tool_calls(messages, pending_tool_calls)
 
                 # Parse tool result JSON and collect for batching
-                try:
-                    event = json.loads(content)
-                    tool_call_id = event.get("tool_call_id")
-                    tool_name = event.get("name")
-                    # Skip events with missing required fields
-                    if not tool_call_id:
-                        logger.warning(
-                            "Skipping tool_result with missing tool_call_id: %s",
-                            repr(content[:100]),
-                        )
-                        continue
-                    if not tool_name:
-                        logger.warning(
-                            "Skipping tool_result with missing name: %s",
-                            repr(content[:100]),
-                        )
-                        continue
+                parsed = parse_tool_result(content)
+                if parsed:
                     tool_return_part = ToolReturnPart(
-                        tool_name=tool_name,
-                        content=event.get("output", ""),
-                        tool_call_id=tool_call_id,
+                        tool_name=parsed.name,
+                        content=parsed.output,
+                        tool_call_id=parsed.tool_call_id,
                     )
                     pending_tool_results.append(tool_return_part)
-                except json.JSONDecodeError:
-                    logger.warning(
-                        "Failed to parse tool_result: %s", repr(content[:100])
-                    )
 
             elif message_type == "text":
                 # Flush pending tool calls and results first

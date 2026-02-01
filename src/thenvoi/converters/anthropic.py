@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-import json
 import logging
 from typing import Any
 
 from thenvoi.core.protocols import HistoryConverter
+
+from ._tool_parsing import parse_tool_call, parse_tool_result
 
 logger = logging.getLogger(__name__)
 
@@ -61,7 +62,7 @@ class AnthropicHistoryConverter(HistoryConverter[AnthropicMessages]):
 
     Tool events are stored in platform as JSON:
     - tool_call: {"name": "...", "args": {...}, "tool_call_id": "..."}
-    - tool_result: {"name": "...", "output": "...", "tool_call_id": "..."}
+    - tool_result: {"name": "...", "output": "...", "tool_call_id": "...", "is_error": bool}
     """
 
     def __init__(self, agent_name: str = ""):
@@ -101,65 +102,32 @@ class AnthropicHistoryConverter(HistoryConverter[AnthropicMessages]):
                 _flush_pending_tool_results(messages, pending_tool_results)
 
                 # Parse tool call JSON and collect for batching
-                try:
-                    event = json.loads(content)
-                    tool_call_id = event.get("tool_call_id")
-                    tool_name = event.get("name")
-                    # Skip events with missing required fields
-                    if not tool_call_id:
-                        logger.warning(
-                            "Skipping tool_call with missing tool_call_id: %s",
-                            repr(content[:100]),
-                        )
-                        continue
-                    if not tool_name:
-                        logger.warning(
-                            "Skipping tool_call with missing name: %s",
-                            repr(content[:100]),
-                        )
-                        continue
+                parsed = parse_tool_call(content)
+                if parsed:
                     tool_use_block = {
                         "type": "tool_use",
-                        "id": tool_call_id,
-                        "name": tool_name,
-                        "input": event.get("args", {}),
+                        "id": parsed.tool_call_id,
+                        "name": parsed.name,
+                        "input": parsed.args,
                     }
                     pending_tool_calls.append(tool_use_block)
-                except json.JSONDecodeError:
-                    logger.warning("Failed to parse tool_call: %s", repr(content[:100]))
 
             elif message_type == "tool_result":
                 # Flush pending tool calls first (tool results follow tool calls)
                 _flush_pending_tool_calls(messages, pending_tool_calls)
 
                 # Parse tool result JSON and collect for batching
-                try:
-                    event = json.loads(content)
-                    tool_call_id = event.get("tool_call_id")
-                    tool_name = event.get("name")
-                    # Skip events with missing required fields
-                    if not tool_call_id:
-                        logger.warning(
-                            "Skipping tool_result with missing tool_call_id: %s",
-                            repr(content[:100]),
-                        )
-                        continue
-                    if not tool_name:
-                        logger.warning(
-                            "Skipping tool_result with missing name: %s",
-                            repr(content[:100]),
-                        )
-                        continue
-                    tool_result_block = {
+                parsed = parse_tool_result(content)
+                if parsed:
+                    tool_result_block: dict[str, Any] = {
                         "type": "tool_result",
-                        "tool_use_id": tool_call_id,
-                        "content": str(event.get("output", "")),
+                        "tool_use_id": parsed.tool_call_id,
+                        "content": parsed.output,
                     }
+                    # Only include is_error if True (Anthropic API expects this)
+                    if parsed.is_error:
+                        tool_result_block["is_error"] = True
                     pending_tool_results.append(tool_result_block)
-                except json.JSONDecodeError:
-                    logger.warning(
-                        "Failed to parse tool_result: %s", repr(content[:100])
-                    )
 
             elif message_type == "text":
                 # Flush pending tool calls and results first
