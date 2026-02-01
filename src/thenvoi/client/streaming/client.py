@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from phoenix_channels_python_client.client import (
     PHXChannelsClient,
     PhoenixChannelsProtocolVersion,
@@ -25,7 +27,7 @@ class MessageMetadata(BaseModel):
     """Metadata within message_created payload."""
 
     mentions: list[Mention]
-    status: str
+    status: str | None = None
 
 
 class MessageCreatedPayload(BaseModel):
