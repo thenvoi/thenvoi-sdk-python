@@ -142,3 +142,27 @@ class LettaConfig:
         "No room contexts yet. Update this as you interact in different rooms."
     )
     """Initial value for room_contexts memory block (SHARED mode only)."""
+
+    # ─── Memory Block Descriptions ────────────────────────────────────────────
+    persona_description: str = (
+        "Your identity, personality, and role. Reference this to stay in character."
+    )
+    """Description for persona memory block."""
+
+    participants_description: str = (
+        "Current room participants you can @mention. Use exact names when mentioning."
+    )
+    """Description for participants memory block."""
+
+    room_contexts_description: str = "Per-room context summaries. Check this when entering a room to recall previous discussions."
+    """Description for room_contexts memory block (SHARED mode only)."""
+
+    # ─── Memory Block Limits ──────────────────────────────────────────────────
+    persona_limit: int | None = 2000
+    """Character limit for persona block. None for unlimited."""
+
+    participants_limit: int | None = 2000
+    """Character limit for participants block. None for unlimited."""
+
+    room_contexts_limit: int | None = 5000
+    """Character limit for room_contexts block. None for unlimited."""

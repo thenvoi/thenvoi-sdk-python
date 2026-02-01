@@ -32,6 +32,7 @@ from .tools import get_letta_tool_ids, register_thenvoi_tools
 
 if TYPE_CHECKING:
     from letta_client import Letta
+    from letta_client.types import CreateBlockParam
 
 logger = logging.getLogger(__name__)
 
@@ -457,18 +458,24 @@ class LettaAdapter(SimpleAdapter[list[dict[str, Any]]]):
             model=self.config.model,
             embedding=self.config.embedding_model,
             memory_blocks=[
-                {
-                    "label": "persona",
-                    "value": persona,
-                },
-                {
-                    "label": "participants",
-                    "value": self.config.initial_participants_text,
-                },
-                {
-                    "label": "room_contexts",
-                    "value": self.config.initial_room_contexts_text,
-                },
+                self._build_memory_block(
+                    "persona",
+                    persona,
+                    self.config.persona_description,
+                    self.config.persona_limit,
+                ),
+                self._build_memory_block(
+                    "participants",
+                    self.config.initial_participants_text,
+                    self.config.participants_description,
+                    self.config.participants_limit,
+                ),
+                self._build_memory_block(
+                    "room_contexts",
+                    self.config.initial_room_contexts_text,
+                    self.config.room_contexts_description,
+                    self.config.room_contexts_limit,
+                ),
             ],
             system=system_prompt,
             tool_ids=all_tool_ids,
@@ -629,14 +636,18 @@ class LettaAdapter(SimpleAdapter[list[dict[str, Any]]]):
             model=self.config.model,
             embedding=self.config.embedding_model,
             memory_blocks=[
-                {
-                    "label": "persona",
-                    "value": persona,
-                },
-                {
-                    "label": "participants",
-                    "value": self._format_participants(filtered_participants),
-                },
+                self._build_memory_block(
+                    "persona",
+                    persona,
+                    self.config.persona_description,
+                    self.config.persona_limit,
+                ),
+                self._build_memory_block(
+                    "participants",
+                    self._format_participants(filtered_participants),
+                    self.config.participants_description,
+                    self.config.participants_limit,
+                ),
             ],
             system=system_prompt,
             tool_ids=all_tool_ids,
@@ -1013,6 +1024,34 @@ Do NOT mention yourself ({self._thenvoi_agent_name}) - you cannot send messages 
 
 """
         return identity + base_prompt
+
+    def _build_memory_block(
+        self,
+        label: str,
+        value: str,
+        description: str,
+        limit: int | None,
+    ) -> "CreateBlockParam":
+        """
+        Build a memory block dict with optional limit.
+
+        Args:
+            label: Memory block label (e.g., 'persona', 'participants')
+            value: Initial value for the block
+            description: Description to help LLM understand the block's purpose
+            limit: Character limit for the block, or None for unlimited
+
+        Returns:
+            Memory block dict suitable for agents.create()
+        """
+        block: CreateBlockParam = {  # type: ignore[typeddict-item]
+            "label": label,
+            "value": value,
+            "description": description,
+        }
+        if limit is not None:
+            block["limit"] = limit
+        return block
 
     def _filter_participants_for_mentions(
         self, participants: list[dict[str, Any]]
