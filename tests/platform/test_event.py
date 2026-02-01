@@ -47,6 +47,27 @@ class TestMessageEvent:
         assert event.payload.id == "msg-456"
         assert event.raw is None
 
+    def test_message_metadata_without_status(self):
+        """MessageMetadata.status is optional (websocket may omit it)."""
+        # INT-84: WebSocket API doesn't always include status field
+        metadata = MessageMetadata(mentions=[])
+        assert metadata.status is None
+
+        payload = MessageCreatedPayload(
+            id="msg-no-status",
+            content="Hello without status",
+            message_type="text",
+            sender_id="user-789",
+            sender_type="User",
+            chat_room_id="room-123",
+            inserted_at="2024-01-01T00:00:00Z",
+            updated_at="2024-01-01T00:00:00Z",
+            metadata=metadata,
+        )
+
+        event = MessageEvent(room_id="room-123", payload=payload)
+        assert event.payload.metadata.status is None
+
     def test_message_event_isinstance(self):
         """Test isinstance check for MessageEvent."""
         payload = MessageCreatedPayload(
