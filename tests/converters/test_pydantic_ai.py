@@ -3,6 +3,7 @@
 from pydantic_ai.messages import (
     ModelRequest,
     ModelResponse,
+    RetryPromptPart,
     ToolCallPart,
     ToolReturnPart,
     UserPromptPart,
@@ -517,6 +518,100 @@ class TestToolEventConversion:
         assert len(result[0].parts) == 2
         assert result[0].parts[0].tool_name == "tool1"
         assert result[0].parts[1].tool_name == "tool2"
+
+    def test_uses_retry_prompt_part_for_error_results(self):
+        """tool_result with is_error=True uses RetryPromptPart instead of ToolReturnPart."""
+        converter = PydanticAIHistoryConverter()
+        raw = [
+            {
+                "role": "assistant",
+                "content": '{"name": "search", "args": {}, "tool_call_id": "call_123"}',
+                "message_type": "tool_call",
+            },
+            {
+                "role": "assistant",
+                "content": '{"name": "search", "output": "Error: API failed", "tool_call_id": "call_123", "is_error": true}',
+                "message_type": "tool_result",
+            },
+        ]
+
+        result = converter.convert(raw)
+
+        assert len(result) == 2
+        # First message is the ToolCallPart
+        assert isinstance(result[0], ModelResponse)
+        assert isinstance(result[0].parts[0], ToolCallPart)
+        # Second message should be RetryPromptPart (not ToolReturnPart)
+        assert isinstance(result[1], ModelRequest)
+        assert len(result[1].parts) == 1
+        assert isinstance(result[1].parts[0], RetryPromptPart)
+        assert result[1].parts[0].content == "Error: API failed"
+        assert result[1].parts[0].tool_name == "search"
+        assert result[1].parts[0].tool_call_id == "call_123"
+
+    def test_uses_tool_return_part_for_success_results(self):
+        """tool_result with is_error=False uses ToolReturnPart."""
+        converter = PydanticAIHistoryConverter()
+        raw = [
+            {
+                "role": "assistant",
+                "content": '{"name": "search", "args": {}, "tool_call_id": "call_123"}',
+                "message_type": "tool_call",
+            },
+            {
+                "role": "assistant",
+                "content": '{"name": "search", "output": "result data", "tool_call_id": "call_123", "is_error": false}',
+                "message_type": "tool_result",
+            },
+        ]
+
+        result = converter.convert(raw)
+
+        assert len(result) == 2
+        assert isinstance(result[1], ModelRequest)
+        assert isinstance(result[1].parts[0], ToolReturnPart)
+        assert result[1].parts[0].content == "result data"
+
+    def test_batches_mixed_success_and_error_results(self):
+        """Mixed success and error results are batched correctly."""
+        converter = PydanticAIHistoryConverter()
+        raw = [
+            {
+                "role": "assistant",
+                "content": '{"name": "tool1", "args": {}, "tool_call_id": "call_1"}',
+                "message_type": "tool_call",
+            },
+            {
+                "role": "assistant",
+                "content": '{"name": "tool2", "args": {}, "tool_call_id": "call_2"}',
+                "message_type": "tool_call",
+            },
+            {
+                "role": "assistant",
+                "content": '{"name": "tool1", "output": "success", "tool_call_id": "call_1", "is_error": false}',
+                "message_type": "tool_result",
+            },
+            {
+                "role": "assistant",
+                "content": '{"name": "tool2", "output": "Error: failed", "tool_call_id": "call_2", "is_error": true}',
+                "message_type": "tool_result",
+            },
+        ]
+
+        result = converter.convert(raw)
+
+        # Should have: batched tool calls, batched tool results
+        assert len(result) == 2
+
+        # Second message should have mixed ToolReturnPart and RetryPromptPart
+        assert isinstance(result[1], ModelRequest)
+        assert len(result[1].parts) == 2
+        # First result is success (ToolReturnPart)
+        assert isinstance(result[1].parts[0], ToolReturnPart)
+        assert result[1].parts[0].content == "success"
+        # Second result is error (RetryPromptPart)
+        assert isinstance(result[1].parts[1], RetryPromptPart)
+        assert result[1].parts[1].content == "Error: failed"
 
 
 class TestEdgeCases:

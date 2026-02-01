@@ -8,6 +8,7 @@ try:
     from pydantic_ai.messages import (
         ModelRequest,
         ModelResponse,
+        RetryPromptPart,
         ToolCallPart,
         ToolReturnPart,
         UserPromptPart,
@@ -36,12 +37,15 @@ def _flush_pending_tool_calls(
 
 
 def _flush_pending_tool_results(
-    messages: PydanticAIMessages, pending_tool_results: list[ToolReturnPart]
+    messages: PydanticAIMessages,
+    pending_tool_results: list[ToolReturnPart | RetryPromptPart],
 ) -> None:
     """Flush pending tool results into a single ModelRequest.
 
     Similar to Anthropic's requirement, tool results should be batched
     together to enable parallel tool use patterns.
+
+    Uses ToolReturnPart for successful results and RetryPromptPart for errors.
     """
     if pending_tool_results:
         messages.append(ModelRequest(parts=list(pending_tool_results)))
@@ -56,12 +60,12 @@ class PydanticAIHistoryConverter(HistoryConverter[PydanticAIMessages]):
     - user messages → ModelRequest with UserPromptPart
     - other agents' messages → ModelRequest with UserPromptPart (with [name] prefix)
     - tool_call → ModelResponse with ToolCallPart
-    - tool_result → ModelRequest with ToolReturnPart
+    - tool_result → ModelRequest with ToolReturnPart (or RetryPromptPart if is_error=True)
     - this agent's text messages → skipped (redundant with tool results)
 
     Tool events are stored in platform as JSON:
     - tool_call: {"name": "...", "args": {...}, "tool_call_id": "..."}
-    - tool_result: {"name": "...", "output": "...", "tool_call_id": "..."}
+    - tool_result: {"name": "...", "output": "...", "tool_call_id": "...", "is_error": bool}
     """
 
     def __init__(self, agent_name: str = ""):
@@ -90,7 +94,8 @@ class PydanticAIHistoryConverter(HistoryConverter[PydanticAIMessages]):
         # Collect tool calls to batch them into a single ModelResponse
         pending_tool_calls: list[ToolCallPart] = []
         # Collect tool results to batch them into a single ModelRequest
-        pending_tool_results: list[ToolReturnPart] = []
+        # Can be ToolReturnPart (success) or RetryPromptPart (error)
+        pending_tool_results: list[ToolReturnPart | RetryPromptPart] = []
 
         for hist in raw:
             message_type = hist.get("message_type", "text")
@@ -117,12 +122,23 @@ class PydanticAIHistoryConverter(HistoryConverter[PydanticAIMessages]):
                 # Parse tool result JSON and collect for batching
                 parsed = parse_tool_result(content)
                 if parsed:
-                    tool_return_part = ToolReturnPart(
-                        tool_name=parsed.name,
-                        content=parsed.output,
-                        tool_call_id=parsed.tool_call_id,
-                    )
-                    pending_tool_results.append(tool_return_part)
+                    if parsed.is_error:
+                        # Use RetryPromptPart for error results
+                        tool_result_part: ToolReturnPart | RetryPromptPart = (
+                            RetryPromptPart(
+                                content=parsed.output,
+                                tool_name=parsed.name,
+                                tool_call_id=parsed.tool_call_id,
+                            )
+                        )
+                    else:
+                        # Use ToolReturnPart for successful results
+                        tool_result_part = ToolReturnPart(
+                            tool_name=parsed.name,
+                            content=parsed.output,
+                            tool_call_id=parsed.tool_call_id,
+                        )
+                    pending_tool_results.append(tool_result_part)
 
             elif message_type == "text":
                 # Flush pending tool calls and results first

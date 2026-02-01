@@ -17,7 +17,12 @@ import logging
 from contextlib import asynccontextmanager
 
 import pytest
-from thenvoi_rest import AsyncRestClient, ChatEventRequest, ChatMessageRequest, ChatRoomRequest
+from thenvoi_rest import (
+    AsyncRestClient,
+    ChatEventRequest,
+    ChatMessageRequest,
+    ChatRoomRequest,
+)
 from thenvoi_rest.types import (
     ChatMessageRequestMentionsItem as Mention,
     ParticipantRequest,
