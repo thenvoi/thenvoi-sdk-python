@@ -76,7 +76,7 @@ def main(host: str, port: int, gateway_url: str, peers: str, model: str) -> None
 
     # Auto-discover peers from gateway if none specified
     if not available_peers:
-        logger.info(f"Discovering peers from gateway at {gateway_url}...")
+        logger.info("Discovering peers from gateway at %s...", gateway_url)
         try:
             client = GatewayClient(gateway_url)
             peers_data = asyncio.run(client.list_peers())
@@ -84,17 +84,19 @@ def main(host: str, port: int, gateway_url: str, peers: str, model: str) -> None
             available_peers = [p["slug"] for p in peers_data]
             asyncio.run(client.close())
             if available_peers:
-                logger.info(f"Discovered {len(available_peers)} peers from gateway")
+                logger.info("Discovered %s peers from gateway", len(available_peers))
             else:
                 logger.warning("No peers discovered from gateway")
         except Exception as e:
-            logger.warning(f"Could not discover peers from gateway: {e}")
+            logger.warning("Could not discover peers from gateway: %s", e)
 
-    logger.info(f"Starting Demo Orchestrator Agent on {host}:{port}")
-    logger.info(f"Gateway URL: {gateway_url}")
+    logger.info("Starting Demo Orchestrator Agent on %s:%s", host, port)
+    logger.info("Gateway URL: %s", gateway_url)
     if available_peers:
+        peers_summary = ", ".join(available_peers[:5])
+        suffix = "..." if len(available_peers) > 5 else ""
         logger.info(
-            f"Available peers ({len(available_peers)}): {', '.join(available_peers[:5])}{'...' if len(available_peers) > 5 else ''}"
+            "Available peers (%s): %s%s", len(available_peers), peers_summary, suffix
         )
     else:
         logger.warning(
@@ -159,7 +161,7 @@ def main(host: str, port: int, gateway_url: str, peers: str, model: str) -> None
         uvicorn.run(server.build(), host=host, port=port)
 
     except Exception as e:
-        logger.error(f"Error starting server: {e}")
+        logger.error("Error starting server: %s", e)
         sys.exit(1)
 
 

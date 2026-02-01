@@ -139,8 +139,8 @@ async def main() -> None:
 
     role = sys.argv[1].lower()
     if role not in CREW_MEMBERS:
-        logger.error(f"Unknown role: {role}")
-        logger.info(f"Available roles: {', '.join(CREW_MEMBERS.keys())}")
+        logger.error("Unknown role: %s", role)
+        logger.info("Available roles: %s", ", ".join(CREW_MEMBERS.keys()))
         sys.exit(1)
 
     member = CREW_MEMBERS[role]
@@ -175,7 +175,7 @@ async def main() -> None:
         rest_url=rest_url,
     )
 
-    logger.info(f"Starting {member['role']}...")
+    logger.info("Starting %s...", member["role"])
     await agent.run()
 
 

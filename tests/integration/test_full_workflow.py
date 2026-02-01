@@ -37,7 +37,7 @@ class TestFullWorkflow:
         agent = response.data
         agent_id = agent.id
         agent_name = agent.name
-        logger.info(f"Agent: {agent_name} (ID: {agent_id})")
+        logger.info("Agent: %s (ID: %s)", agent_name, agent_id)
 
         # Verify against expected test agent if configured
         expected_agent_id = get_test_agent_id()
@@ -54,7 +54,7 @@ class TestFullWorkflow:
         response = await api_client.agent_api.list_agent_peers()
         peers = response.data
         assert peers is not None and len(peers) > 0, "Need at least one peer"
-        logger.info(f"Found {len(peers)} available peers")
+        logger.info("Found %s available peers", len(peers))
 
         # Find a User peer (human) - this is the key test: agent communicating with human
         user_peer = next((p for p in peers if p.type == "User"), None)
@@ -66,7 +66,9 @@ class TestFullWorkflow:
         peer_id = peer.id
         peer_name = peer.name
         peer_type = peer.type
-        logger.info(f"Will use User peer: {peer_name} ({peer_type}, ID: {peer_id})")
+        logger.info(
+            "Will use User peer: %s (%s, ID: %s)", peer_name, peer_type, peer_id
+        )
 
         # ============================================================
         # STEP 3: Chats - Create a new chat
@@ -80,7 +82,7 @@ class TestFullWorkflow:
 
         chat = response.data
         chat_id = chat.id
-        logger.info(f"Created chat (ID: {chat_id}, title: {chat.title})")
+        logger.info("Created chat (ID: %s, title: %s)", chat_id, chat.title)
 
         # ============================================================
         # STEP 4: Chats - Get the created chat
@@ -92,7 +94,7 @@ class TestFullWorkflow:
         response = await api_client.agent_api.get_agent_chat(id=chat_id)
         assert response.data is not None, "Chat should exist"
         assert response.data.id == chat_id, "Chat ID should match"
-        logger.info(f"Retrieved chat: {response.data.title}")
+        logger.info("Retrieved chat: %s", response.data.title)
 
         # ============================================================
         # STEP 5: Chats - Verify chat appears in list
@@ -117,9 +119,9 @@ class TestFullWorkflow:
 
         response = await api_client.agent_api.list_agent_chat_participants(chat_id)
         initial_participants = response.data or []
-        logger.info(f"Initial participants: {len(initial_participants)}")
+        logger.info("Initial participants: %s", len(initial_participants))
         for p in initial_participants:
-            logger.info(f"  - {p.name} ({p.type}, role: {p.role})")
+            logger.info("  - %s (%s, role: %s)", p.name, p.type, p.role)
 
         # ============================================================
         # STEP 7: Participants - Add peer to chat
@@ -132,7 +134,7 @@ class TestFullWorkflow:
             chat_id,
             participant=ParticipantRequest(participant_id=peer_id, role="member"),
         )
-        logger.info(f"Added participant: {peer_name}")
+        logger.info("Added participant: %s", peer_name)
 
         # ============================================================
         # STEP 8: Participants - Verify participant was added
@@ -145,9 +147,9 @@ class TestFullWorkflow:
         participants = response.data or []
         participant_ids = [p.id for p in participants]
         assert peer_id in participant_ids, "Peer should now be a participant"
-        logger.info(f"Participants after adding: {len(participants)}")
+        logger.info("Participants after adding: %s", len(participants))
         for p in participants:
-            logger.info(f"  - {p.name} ({p.type}, role: {p.role})")
+            logger.info("  - %s (%s, role: %s)", p.name, p.type, p.role)
 
         # ============================================================
         # STEP 9: Messages - Send a message with mention
@@ -172,7 +174,7 @@ class TestFullWorkflow:
 
         message = response.data
         message_id = message.id
-        logger.info(f"Sent message: '{message_content[:50]}...' (ID: {message_id})")
+        logger.info("Sent message: '%s...' (ID: %s)", message_content[:50], message_id)
 
         # ============================================================
         # STEP 10: Messages - Get chat context (verify message)
@@ -185,7 +187,7 @@ class TestFullWorkflow:
         context = response.data or []
         message_ids = [m.id for m in context if hasattr(m, "id")]
         assert message_id in message_ids, "Our message should appear in context"
-        logger.info(f"Chat context contains {len(context)} items")
+        logger.info("Chat context contains %s items", len(context))
 
         # ============================================================
         # STEP 11: Events - Create a thought event
@@ -206,7 +208,7 @@ class TestFullWorkflow:
 
         event = response.data
         event_id = event.id
-        logger.info(f"Created thought event (ID: {event_id})")
+        logger.info("Created thought event (ID: %s)", event_id)
 
         # ============================================================
         # STEP 12: Events - Create a tool_call event
@@ -230,7 +232,7 @@ class TestFullWorkflow:
             ),
         )
         assert response.data is not None, "Tool call event should be created"
-        logger.info(f"Created tool_call event (ID: {response.data.id})")
+        logger.info("Created tool_call event (ID: %s)", response.data.id)
 
         # ============================================================
         # STEP 13: Events - Create a tool_result event
@@ -249,7 +251,7 @@ class TestFullWorkflow:
             ),
         )
         assert response.data is not None, "Tool result event should be created"
-        logger.info(f"Created tool_result event (ID: {response.data.id})")
+        logger.info("Created tool_result event (ID: %s)", response.data.id)
 
         # ============================================================
         # STEP 14: Lifecycle - Mark message as processing
@@ -259,7 +261,7 @@ class TestFullWorkflow:
         logger.info("=" * 60)
 
         await api_client.agent_api.mark_agent_message_processing(chat_id, message_id)
-        logger.info(f"Marked message {message_id} as processing")
+        logger.info("Marked message %s as processing", message_id)
 
         # ============================================================
         # STEP 15: Lifecycle - Mark message as processed
@@ -269,7 +271,7 @@ class TestFullWorkflow:
         logger.info("=" * 60)
 
         await api_client.agent_api.mark_agent_message_processed(chat_id, message_id)
-        logger.info(f"Marked message {message_id} as processed")
+        logger.info("Marked message %s as processed", message_id)
 
         # ============================================================
         # STEP 16: Verify User still in chat after all operations
@@ -282,10 +284,10 @@ class TestFullWorkflow:
         participants = response.data or []
         participant_ids = [p.id for p in participants]
         assert peer_id in participant_ids, "User should still be a participant"
-        logger.info(f"Verified: User '{peer_name}' is still in chat")
-        logger.info(f"Total participants: {len(participants)}")
+        logger.info("Verified: User '%s' is still in chat", peer_name)
+        logger.info("Total participants: %s", len(participants))
         for p in participants:
-            logger.info(f"  - {p.name} ({p.type}, role: {p.role})")
+            logger.info("  - %s (%s, role: %s)", p.name, p.type, p.role)
 
         # ============================================================
         # COMPLETE
@@ -293,8 +295,8 @@ class TestFullWorkflow:
         logger.info("\n" + "=" * 60)
         logger.info("WORKFLOW COMPLETE - All 16 steps passed!")
         logger.info("=" * 60)
-        logger.info(f"Test chat ID: {chat_id}")
-        logger.info(f"User '{peer_name}' remains in chat as expected")
+        logger.info("Test chat ID: %s", chat_id)
+        logger.info("User '%s' remains in chat as expected", peer_name)
 
 
 @requires_api
@@ -310,7 +312,7 @@ class TestMessageFailureLifecycle:
         # Create a chat for this test
         response = await api_client.agent_api.create_agent_chat(chat=ChatRoomRequest())
         chat_id = response.data.id
-        logger.info(f"Created test chat: {chat_id}")
+        logger.info("Created test chat: %s", chat_id)
 
         # Get peers and find a User peer to add to the chat
         response = await api_client.agent_api.list_agent_peers()
@@ -328,7 +330,7 @@ class TestMessageFailureLifecycle:
             chat_id,
             participant=ParticipantRequest(participant_id=peer_id, role="member"),
         )
-        logger.info(f"Added User peer: {peer_name}")
+        logger.info("Added User peer: %s", peer_name)
 
         # Add descriptive message (triggers auto-title)
         await api_client.agent_api.create_agent_chat_message(
@@ -348,7 +350,7 @@ class TestMessageFailureLifecycle:
             ),
         )
         message_id = response.data.id
-        logger.info(f"Created message: {message_id}")
+        logger.info("Created message: %s", message_id)
 
         # Mark as processing
         await api_client.agent_api.mark_agent_message_processing(chat_id, message_id)
@@ -359,14 +361,14 @@ class TestMessageFailureLifecycle:
         await api_client.agent_api.mark_agent_message_failed(
             chat_id, message_id, error=error_message
         )
-        logger.info(f"Marked as failed with error: {error_message}")
+        logger.info("Marked as failed with error: %s", error_message)
 
         # Verify User is still in the chat
         response = await api_client.agent_api.list_agent_chat_participants(chat_id)
         participants = response.data or []
         participant_ids = [p.id for p in participants]
         assert peer_id in participant_ids, "User should still be a participant"
-        logger.info(f"Verified: User '{peer_name}' is still in chat")
+        logger.info("Verified: User '%s' is still in chat", peer_name)
 
         logger.info("\nFailure lifecycle test complete!")
 
@@ -402,7 +404,7 @@ class TestParticipantOperations:
         participants = response.data or []
         participant_ids = [p.id for p in participants]
         assert test_peer_id in participant_ids, "Peer should be in participant list"
-        logger.info(f"Participant found in list (total: {len(participants)})")
+        logger.info("Participant found in list (total: %s)", len(participants))
 
         # Step 3: Remove participant
         logger.info("\nStep 3: Removing participant...")
@@ -419,6 +421,6 @@ class TestParticipantOperations:
         assert test_peer_id not in participant_ids, (
             "Peer should not be in participant list"
         )
-        logger.info(f"Participant removed (remaining: {len(participants)})")
+        logger.info("Participant removed (remaining: %s)", len(participants))
 
         logger.info("\nFull add/remove cycle completed successfully!")

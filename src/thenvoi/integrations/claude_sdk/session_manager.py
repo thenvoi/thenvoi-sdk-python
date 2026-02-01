@@ -158,7 +158,7 @@ class ClaudeSessionManager:
                 logger.debug("Session loop cancelled")
                 break
             except Exception as e:
-                logger.error(f"Error in session loop: {e}", exc_info=True)
+                logger.error("Error in session loop: %s", e, exc_info=True)
                 if cmd and cmd.result_future and not cmd.result_future.done():
                     cmd.result_future.set_exception(e)
 
@@ -174,7 +174,9 @@ class ClaudeSessionManager:
         if room_id not in self._sessions:
             # Build options, optionally with resume
             if resume_session_id:
-                logger.info(f"Resuming session {resume_session_id} for room: {room_id}")
+                logger.info(
+                    "Resuming session %s for room: %s", resume_session_id, room_id
+                )
                 # Create options with resume set
                 options = ClaudeAgentOptions(
                     model=self.base_options.model,
@@ -188,7 +190,9 @@ class ClaudeSessionManager:
                 if hasattr(self.base_options, "max_thinking_tokens"):
                     options.max_thinking_tokens = self.base_options.max_thinking_tokens
             else:
-                logger.info(f"Creating new ClaudeSDKClient session for room: {room_id}")
+                logger.info(
+                    "Creating new ClaudeSDKClient session for room: %s", room_id
+                )
                 options = self.base_options
 
             # Create new client with options
@@ -201,38 +205,40 @@ class ClaudeSessionManager:
             self._sessions[room_id] = client
 
             logger.info(
-                f"Session created for room {room_id} "
-                f"(total sessions: {len(self._sessions)})"
+                "Session created for room %s (total sessions: %s)",
+                room_id,
+                len(self._sessions),
             )
         else:
-            logger.debug(f"Reusing existing session for room: {room_id}")
+            logger.debug("Reusing existing session for room: %s", room_id)
 
         return self._sessions[room_id]
 
     async def _do_cleanup_session(self, room_id: str | None) -> None:
         """Cleanup single session (runs in background task)."""
         if not room_id or room_id not in self._sessions:
-            logger.debug(f"No session to cleanup for room: {room_id}")
+            logger.debug("No session to cleanup for room: %s", room_id)
             return
 
-        logger.info(f"Cleaning up session for room: {room_id}")
+        logger.info("Cleaning up session for room: %s", room_id)
 
         try:
             await self._sessions[room_id].disconnect()
-            logger.debug(f"Disconnected client for room {room_id}")
+            logger.debug("Disconnected client for room %s", room_id)
         except Exception as e:
-            logger.warning(f"Error disconnecting session for room {room_id}: {e}")
+            logger.warning("Error disconnecting session for room %s: %s", room_id, e)
 
         del self._sessions[room_id]
 
         logger.info(
-            f"Session cleaned up for room {room_id} "
-            f"(remaining sessions: {len(self._sessions)})"
+            "Session cleaned up for room %s (remaining sessions: %s)",
+            room_id,
+            len(self._sessions),
         )
 
     async def _do_cleanup_all(self) -> None:
         """Cleanup all sessions (runs in background task)."""
-        logger.info(f"Cleaning up all sessions (count: {len(self._sessions)})")
+        logger.info("Cleaning up all sessions (count: %s)", len(self._sessions))
 
         room_ids = list(self._sessions.keys())
         for room_id in room_ids:

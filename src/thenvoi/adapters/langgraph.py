@@ -111,7 +111,7 @@ class LangGraphAdapter(SimpleAdapter[LangChainMessages]):
             agent_description=agent_description,
             custom_section=self.custom_section,
         )
-        logger.info(f"LangGraph adapter started for agent: {agent_name}")
+        logger.info("LangGraph adapter started for agent: %s", agent_name)
 
     async def on_message(
         self,
@@ -128,7 +128,7 @@ class LangGraphAdapter(SimpleAdapter[LangChainMessages]):
             agent_tools_to_langchain,
         )
 
-        logger.info(f"[HANDLE] Message {msg.id} in room {room_id}")
+        logger.info("[HANDLE] Message %s in room %s", msg.id, room_id)
 
         # Get LangChain tools
         langchain_tools = agent_tools_to_langchain(tools) + self.additional_tools
@@ -167,10 +167,10 @@ class LangGraphAdapter(SimpleAdapter[LangChainMessages]):
             ):
                 await self._handle_stream_event(event, room_id, tools)
 
-            logger.info(f"[DONE] Message {msg.id} processed successfully")
+            logger.info("[DONE] Message %s processed successfully", msg.id)
 
         except Exception as e:
-            logger.error(f"Error processing message {msg.id}: {e}", exc_info=True)
+            logger.error("Error processing message %s: %s", msg.id, e, exc_info=True)
             try:
                 await tools.send_event(content=f"Error: {e}", message_type="error")
             except Exception:
@@ -188,25 +188,25 @@ class LangGraphAdapter(SimpleAdapter[LangChainMessages]):
 
         if event_type == "on_tool_start":
             tool_name = event.get("name", "unknown")
-            logger.info(f"[STREAM] on_tool_start: {tool_name}")
+            logger.info("[STREAM] on_tool_start: %s", tool_name)
             try:
                 await tools.send_event(
                     content=json.dumps(event, default=str),
                     message_type="tool_call",
                 )
             except Exception as e:
-                logger.warning(f"Failed to send tool_call event: {e}")
+                logger.warning("Failed to send tool_call event: %s", e)
 
         elif event_type == "on_tool_end":
             tool_name = event.get("name", "unknown")
-            logger.info(f"[STREAM] on_tool_end: {tool_name}")
+            logger.info("[STREAM] on_tool_end: %s", tool_name)
             try:
                 await tools.send_event(
                     content=json.dumps(event, default=str),
                     message_type="tool_result",
                 )
             except Exception as e:
-                logger.warning(f"Failed to send tool_result event: {e}")
+                logger.warning("Failed to send tool_result event: %s", e)
 
     async def on_cleanup(self, room_id: str) -> None:
         """Clean up LangGraph checkpointer."""

@@ -96,7 +96,7 @@ class PydanticAIAdapter(SimpleAdapter[PydanticAIMessages]):
         """Create the Pydantic AI agent after metadata is fetched."""
         await super().on_started(agent_name, agent_description)
         self._agent = self._create_agent()
-        logger.info(f"Pydantic AI adapter started for agent: {agent_name}")
+        logger.info("Pydantic AI adapter started for agent: %s", agent_name)
 
     # --- Copied from ThenvoiPydanticAgent._create_agent ---
     def _create_agent(self) -> Agent[AgentToolsProtocol, None]:
@@ -209,7 +209,7 @@ class PydanticAIAdapter(SimpleAdapter[PydanticAIMessages]):
         # Register custom tools (user-provided PydanticAI-compatible functions)
         for custom_tool in self._custom_tools:
             agent.tool(custom_tool)
-            logger.debug(f"Registered custom tool: {custom_tool.__name__}")
+            logger.debug("Registered custom tool: %s", custom_tool.__name__)
 
         return agent
 
@@ -250,7 +250,7 @@ class PydanticAIAdapter(SimpleAdapter[PydanticAIMessages]):
                     parts=[UserPromptPart(content=f"[System]: {participants_msg}")]
                 )
             )
-            logger.debug(f"Room {room_id}: Injected participant update into history")
+            logger.debug("Room %s: Injected participant update into history", room_id)
 
         # Build user message with sender prefix
         user_message = msg.format_for_llm()
@@ -281,7 +281,7 @@ class PydanticAIAdapter(SimpleAdapter[PydanticAIMessages]):
                             message_type="tool_call",
                         )
                     except Exception as e:
-                        logger.warning(f"Failed to send tool_call event: {e}")
+                        logger.warning("Failed to send tool_call event: %s", e)
             elif isinstance(event, FunctionToolResultEvent):
                 if self.enable_execution_reporting:
                     try:
@@ -296,7 +296,7 @@ class PydanticAIAdapter(SimpleAdapter[PydanticAIMessages]):
                             message_type="tool_result",
                         )
                     except Exception as e:
-                        logger.warning(f"Failed to send tool_result event: {e}")
+                        logger.warning("Failed to send tool_result event: %s", e)
             elif isinstance(event, AgentRunResultEvent):
                 # Update stored history with all messages from this run
                 self._message_history[room_id] = list(event.result.all_messages())
@@ -311,4 +311,4 @@ class PydanticAIAdapter(SimpleAdapter[PydanticAIMessages]):
         """Clean up message history when agent leaves a room."""
         if room_id in self._message_history:
             del self._message_history[room_id]
-            logger.debug(f"Room {room_id}: Cleaned up message history")
+            logger.debug("Room %s: Cleaned up message history", room_id)

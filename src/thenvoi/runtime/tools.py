@@ -221,7 +221,7 @@ class AgentTools(AgentToolsProtocol):
         )
 
         resolved_mentions = self._resolve_mentions(mentions or [])
-        logger.debug(f"Sending message to room {self.room_id}")
+        logger.debug("Sending message to room %s", self.room_id)
 
         # Convert to API format
         mention_items = [
@@ -258,7 +258,7 @@ class AgentTools(AgentToolsProtocol):
         """
         from thenvoi.client.rest import ChatEventRequest
 
-        logger.debug(f"Sending {message_type} event to room {self.room_id}")
+        logger.debug("Sending %s event to room %s", message_type, self.room_id)
 
         response = await self.rest.agent_api.create_agent_chat_event(
             chat_id=self.room_id,
@@ -282,7 +282,7 @@ class AgentTools(AgentToolsProtocol):
         Returns:
             Room ID of the created room
         """
-        logger.debug(f"Creating chatroom with task_id={task_id}")
+        logger.debug("Creating chatroom with task_id=%s", task_id)
         response = await self.rest.agent_api.create_agent_chat(
             chat=ChatRoomRequest(task_id=task_id)
         )
@@ -312,7 +312,7 @@ class AgentTools(AgentToolsProtocol):
         current_participants = await self.get_participants()
         for p in current_participants:
             if p.get("name", "").lower() == name.lower():
-                logger.debug(f"Participant '{name}' is already in the room")
+                logger.debug("Participant '%s' is already in the room", name)
                 return {
                     "id": p["id"],
                     "name": p["name"],
@@ -328,7 +328,7 @@ class AgentTools(AgentToolsProtocol):
             )
 
         participant_id = participant["id"]
-        logger.debug(f"Resolved '{name}' to ID: {participant_id}")
+        logger.debug("Resolved '%s' to ID: %s", name, participant_id)
 
         await self.rest.agent_api.add_agent_chat_participant(
             chat_id=self.room_id,
@@ -368,7 +368,7 @@ class AgentTools(AgentToolsProtocol):
         Raises:
             ValueError: If participant not found in room
         """
-        logger.debug(f"Removing participant '{name}' from room {self.room_id}")
+        logger.debug("Removing participant '%s' from room %s", name, self.room_id)
 
         # Look up participant ID by name from current room participants
         participants = await self.get_participants()
@@ -382,7 +382,7 @@ class AgentTools(AgentToolsProtocol):
             raise ValueError(f"Participant '{name}' not found in this room.")
 
         participant_id = participant["id"]
-        logger.debug(f"Resolved '{name}' to ID: {participant_id}")
+        logger.debug("Resolved '%s' to ID: %s", name, participant_id)
 
         await self.rest.agent_api.remove_agent_chat_participant(
             self.room_id,
@@ -418,7 +418,7 @@ class AgentTools(AgentToolsProtocol):
         Returns:
             Dict with 'peers' list and 'metadata' (page, page_size, total_count, total_pages)
         """
-        logger.debug(f"Looking up peers: page={page}, page_size={page_size}")
+        logger.debug("Looking up peers: page=%s, page_size=%s", page, page_size)
         response = await self.rest.agent_api.list_agent_peers(
             page=page,
             page_size=page_size,
@@ -457,7 +457,7 @@ class AgentTools(AgentToolsProtocol):
         Returns:
             List of participant information dictionaries
         """
-        logger.debug(f"Getting participants for room {self.room_id}")
+        logger.debug("Getting participants for room %s", self.room_id)
         response = await self.rest.agent_api.list_agent_chat_participants(
             chat_id=self.room_id,
         )

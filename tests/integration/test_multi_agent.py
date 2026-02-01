@@ -54,13 +54,13 @@ class TestMultiAgentChatRoom:
         response = await api_client.agent_api.get_agent_me()
         agent1_id = response.data.id
         agent1_name = response.data.name
-        logger.info(f"Agent 1: {agent1_name} (ID: {agent1_id})")
+        logger.info("Agent 1: %s (ID: %s)", agent1_name, agent1_id)
 
         # Get Agent 2 info
         response = await api_client_2.agent_api.get_agent_me()
         agent2_id = response.data.id
         agent2_name = response.data.name
-        logger.info(f"Agent 2: {agent2_name} (ID: {agent2_id})")
+        logger.info("Agent 2: %s (ID: %s)", agent2_name, agent2_id)
 
         # Find a User peer (the owner)
         response = await api_client.agent_api.list_agent_peers()
@@ -68,12 +68,12 @@ class TestMultiAgentChatRoom:
         assert user_peer is not None, "Need a User peer for this test"
         user_id = user_peer.id
         user_name = user_peer.name
-        logger.info(f"User (owner): {user_name} (ID: {user_id})")
+        logger.info("User (owner): %s (ID: %s)", user_name, user_id)
 
         # Agent 1 creates a chat
         response = await api_client.agent_api.create_agent_chat(chat=ChatRoomRequest())
         chat_id = response.data.id
-        logger.info(f"\nAgent 1 created chat: {chat_id}")
+        logger.info("\nAgent 1 created chat: %s", chat_id)
 
         # Agent 1 adds Agent 2 to the chat
         await api_client.agent_api.add_agent_chat_participant(
@@ -92,9 +92,9 @@ class TestMultiAgentChatRoom:
         # Verify all participants are in the chat
         response = await api_client.agent_api.list_agent_chat_participants(chat_id)
         participants = response.data or []
-        logger.info(f"\nChat participants ({len(participants)}):")
+        logger.info("\nChat participants (%s):", len(participants))
         for p in participants:
-            logger.info(f"  - {p.name} ({p.type}, role: {p.role})")
+            logger.info("  - %s (%s, role: %s)", p.name, p.type, p.role)
 
         assert any(p.id == agent1_id for p in participants), "Agent 1 should be in chat"
         assert any(p.id == agent2_id for p in participants), "Agent 2 should be in chat"
@@ -110,18 +110,18 @@ class TestMultiAgentChatRoom:
             ),
         )
         agent1_message_id = response.data.id
-        logger.info(f"\nAgent 1 sent message (ID: {agent1_message_id})")
-        logger.info(f"  Content: '{message_content}'")
+        logger.info("\nAgent 1 sent message (ID: %s)", agent1_message_id)
+        logger.info("  Content: '%s'", message_content)
         logger.info("  Mentions: User only (NOT Agent 2)")
 
         # Give the platform time to process
         await asyncio.sleep(0.5)
 
         # Agent 2 queries /context for the chat
-        logger.info(f"\nAgent 2 querying /context for chat {chat_id}...")
+        logger.info("\nAgent 2 querying /context for chat %s...", chat_id)
         response = await api_client_2.agent_api.get_agent_chat_context(chat_id)
         context = response.data or []
-        logger.info(f"Agent 2 received {len(context)} items in context")
+        logger.info("Agent 2 received %s items in context", len(context))
 
         # Check if Agent 1's message is in Agent 2's context
         agent1_message_in_context = any(
@@ -129,7 +129,7 @@ class TestMultiAgentChatRoom:
         )
 
         logger.info(
-            f"\nAgent 1's message visible to Agent 2: {agent1_message_in_context}"
+            "\nAgent 1's message visible to Agent 2: %s", agent1_message_in_context
         )
 
         # ASSERTION: Agent 2 should NOT see Agent 1's message (no @mention of Agent 2)
@@ -163,13 +163,13 @@ class TestMultiAgentChatRoom:
         response = await api_client.agent_api.get_agent_me()
         agent1_id = response.data.id
         agent1_name = response.data.name
-        logger.info(f"Agent 1: {agent1_name} (ID: {agent1_id})")
+        logger.info("Agent 1: %s (ID: %s)", agent1_name, agent1_id)
 
         # Get Agent 2 info
         response = await api_client_2.agent_api.get_agent_me()
         agent2_id = response.data.id
         agent2_name = response.data.name
-        logger.info(f"Agent 2: {agent2_name} (ID: {agent2_id})")
+        logger.info("Agent 2: %s (ID: %s)", agent2_name, agent2_id)
 
         # Find a User peer
         response = await api_client.agent_api.list_agent_peers()
@@ -177,12 +177,12 @@ class TestMultiAgentChatRoom:
         assert user_peer is not None, "Need a User peer for this test"
         user_id = user_peer.id
         user_name = user_peer.name
-        logger.info(f"User: {user_name} (ID: {user_id})")
+        logger.info("User: %s (ID: %s)", user_name, user_id)
 
         # Agent 1 creates a chat
         response = await api_client.agent_api.create_agent_chat(chat=ChatRoomRequest())
         chat_id = response.data.id
-        logger.info(f"\nAgent 1 created chat: {chat_id}")
+        logger.info("\nAgent 1 created chat: %s", chat_id)
 
         # Add Agent 2 and User to the chat
         await api_client.agent_api.add_agent_chat_participant(
@@ -200,7 +200,7 @@ class TestMultiAgentChatRoom:
 
         async def agent2_message_handler(payload: MessageCreatedPayload):
             logger.info(
-                f"  [Agent 2 WS] Received: {payload.id} from {payload.sender_id}"
+                "  [Agent 2 WS] Received: %s from %s", payload.id, payload.sender_id
             )
             agent2_received_messages.append(payload)
 
@@ -213,7 +213,7 @@ class TestMultiAgentChatRoom:
 
         async with agent2_ws:
             await agent2_ws.join_chat_room_channel(chat_id, agent2_message_handler)
-            logger.info(f"Agent 2 subscribed to chat_room:{chat_id}")
+            logger.info("Agent 2 subscribed to chat_room:%s", chat_id)
 
             await asyncio.sleep(0.3)
 
@@ -227,14 +227,15 @@ class TestMultiAgentChatRoom:
                 ),
             )
             agent1_message_id = response.data.id
-            logger.info(f"\nAgent 1 sent message (ID: {agent1_message_id})")
+            logger.info("\nAgent 1 sent message (ID: %s)", agent1_message_id)
             logger.info("  Mentions: User only (NOT Agent 2)")
 
             # Wait to see if Agent 2 receives the message
             await asyncio.sleep(1.5)
 
         logger.info(
-            f"\nMessages received by Agent 2's raw WebSocket: {len(agent2_received_messages)}"
+            "\nMessages received by Agent 2's raw WebSocket: %s",
+            len(agent2_received_messages),
         )
 
         # Check if Agent 1's specific message was received
@@ -270,17 +271,17 @@ class TestMultiAgentChatRoom:
         response = await api_client.agent_api.get_agent_me()
         agent1_id = response.data.id
         agent1_name = response.data.name
-        logger.info(f"Agent 1: {agent1_name} (ID: {agent1_id})")
+        logger.info("Agent 1: %s (ID: %s)", agent1_name, agent1_id)
 
         response = await api_client_2.agent_api.get_agent_me()
         agent2_id = response.data.id
         agent2_name = response.data.name
-        logger.info(f"Agent 2: {agent2_name} (ID: {agent2_id})")
+        logger.info("Agent 2: %s (ID: %s)", agent2_name, agent2_id)
 
         # Agent 1 creates chat and adds Agent 2
         response = await api_client.agent_api.create_agent_chat(chat=ChatRoomRequest())
         chat_id = response.data.id
-        logger.info(f"\nAgent 1 created chat: {chat_id}")
+        logger.info("\nAgent 1 created chat: %s", chat_id)
 
         await api_client.agent_api.add_agent_chat_participant(
             chat_id,
@@ -299,7 +300,7 @@ class TestMultiAgentChatRoom:
         )
         agent1_message_id = response.data.id
         logger.info(
-            f"\nAgent 1 sent message mentioning Agent 2 (ID: {agent1_message_id})"
+            "\nAgent 1 sent message mentioning Agent 2 (ID: %s)", agent1_message_id
         )
 
         await asyncio.sleep(0.5)
@@ -307,14 +308,14 @@ class TestMultiAgentChatRoom:
         # Agent 2 queries /context
         response = await api_client_2.agent_api.get_agent_chat_context(chat_id)
         context = response.data or []
-        logger.info(f"Agent 2 received {len(context)} items in context")
+        logger.info("Agent 2 received %s items in context", len(context))
 
         # Check if Agent 1's message is visible
         agent1_message_visible = any(
             hasattr(item, "id") and item.id == agent1_message_id for item in context
         )
 
-        logger.info(f"Agent 1's message visible to Agent 2: {agent1_message_visible}")
+        logger.info("Agent 1's message visible to Agent 2: %s", agent1_message_visible)
 
         # ASSERTION: Agent 2 SHOULD see the message (it was @mentioned)
         assert agent1_message_visible, (
@@ -348,17 +349,17 @@ class TestMultiAgentChatRoom:
         response = await api_client.agent_api.get_agent_me()
         agent1_id = response.data.id
         agent1_name = response.data.name
-        logger.info(f"Agent 1: {agent1_name} (ID: {agent1_id})")
+        logger.info("Agent 1: %s (ID: %s)", agent1_name, agent1_id)
 
         response = await api_client_2.agent_api.get_agent_me()
         agent2_id = response.data.id
         agent2_name = response.data.name
-        logger.info(f"Agent 2: {agent2_name} (ID: {agent2_id})")
+        logger.info("Agent 2: %s (ID: %s)", agent2_name, agent2_id)
 
         # Agent 1 creates a chat
         response = await api_client.agent_api.create_agent_chat(chat=ChatRoomRequest())
         chat_id = response.data.id
-        logger.info(f"\nAgent 1 created chat: {chat_id}")
+        logger.info("\nAgent 1 created chat: %s", chat_id)
 
         # Add Agent 2 to the chat
         await api_client.agent_api.add_agent_chat_participant(
@@ -379,7 +380,7 @@ class TestMultiAgentChatRoom:
             ),
         )
         thought_event_id = response.data.id
-        logger.info(f"Agent 1 created thought event (ID: {thought_event_id})")
+        logger.info("Agent 1 created thought event (ID: %s)", thought_event_id)
 
         # Tool call event
         tool_metadata = {
@@ -397,7 +398,7 @@ class TestMultiAgentChatRoom:
             ),
         )
         tool_call_event_id = response.data.id
-        logger.info(f"Agent 1 created tool_call event (ID: {tool_call_event_id})")
+        logger.info("Agent 1 created tool_call event (ID: %s)", tool_call_event_id)
 
         # Tool result event
         result_metadata = {"result": {"found": 3, "items": ["a", "b", "c"]}}
@@ -410,7 +411,7 @@ class TestMultiAgentChatRoom:
             ),
         )
         tool_result_event_id = response.data.id
-        logger.info(f"Agent 1 created tool_result event (ID: {tool_result_event_id})")
+        logger.info("Agent 1 created tool_result event (ID: %s)", tool_result_event_id)
 
         await asyncio.sleep(0.5)
 
@@ -419,15 +420,15 @@ class TestMultiAgentChatRoom:
         response = await api_client.agent_api.get_agent_chat_context(chat_id)
         agent1_context = response.data or []
         agent1_context_ids = {item.id for item in agent1_context if hasattr(item, "id")}
-        logger.info(f"Agent 1 received {len(agent1_context)} items in context")
+        logger.info("Agent 1 received %s items in context", len(agent1_context))
 
         # Check which events Agent 1 sees
         agent1_sees_thought = thought_event_id in agent1_context_ids
         agent1_sees_tool_call = tool_call_event_id in agent1_context_ids
         agent1_sees_tool_result = tool_result_event_id in agent1_context_ids
-        logger.info(f"  Agent 1 sees thought: {agent1_sees_thought}")
-        logger.info(f"  Agent 1 sees tool_call: {agent1_sees_tool_call}")
-        logger.info(f"  Agent 1 sees tool_result: {agent1_sees_tool_result}")
+        logger.info("  Agent 1 sees thought: %s", agent1_sees_thought)
+        logger.info("  Agent 1 sees tool_call: %s", agent1_sees_tool_call)
+        logger.info("  Agent 1 sees tool_result: %s", agent1_sees_tool_result)
 
         # Agent 1 SHOULD see its own events
         assert agent1_sees_thought, "Agent 1 should see its own thought event"
@@ -439,15 +440,15 @@ class TestMultiAgentChatRoom:
         response = await api_client_2.agent_api.get_agent_chat_context(chat_id)
         agent2_context = response.data or []
         agent2_context_ids = {item.id for item in agent2_context if hasattr(item, "id")}
-        logger.info(f"Agent 2 received {len(agent2_context)} items in context")
+        logger.info("Agent 2 received %s items in context", len(agent2_context))
 
         # Check which of Agent 1's events Agent 2 sees
         agent2_sees_thought = thought_event_id in agent2_context_ids
         agent2_sees_tool_call = tool_call_event_id in agent2_context_ids
         agent2_sees_tool_result = tool_result_event_id in agent2_context_ids
-        logger.info(f"  Agent 2 sees Agent 1's thought: {agent2_sees_thought}")
-        logger.info(f"  Agent 2 sees Agent 1's tool_call: {agent2_sees_tool_call}")
-        logger.info(f"  Agent 2 sees Agent 1's tool_result: {agent2_sees_tool_result}")
+        logger.info("  Agent 2 sees Agent 1's thought: %s", agent2_sees_thought)
+        logger.info("  Agent 2 sees Agent 1's tool_call: %s", agent2_sees_tool_call)
+        logger.info("  Agent 2 sees Agent 1's tool_result: %s", agent2_sees_tool_result)
 
         # Agent 2 should NOT see ANY of Agent 1's events
         assert not agent2_sees_thought, (
@@ -485,17 +486,17 @@ class TestMultiAgentChatRoom:
         response = await api_client.agent_api.get_agent_me()
         agent1_id = response.data.id
         agent1_name = response.data.name
-        logger.info(f"Agent 1: {agent1_name} (ID: {agent1_id})")
+        logger.info("Agent 1: %s (ID: %s)", agent1_name, agent1_id)
 
         response = await api_client_2.agent_api.get_agent_me()
         agent2_id = response.data.id
         agent2_name = response.data.name
-        logger.info(f"Agent 2: {agent2_name} (ID: {agent2_id})")
+        logger.info("Agent 2: %s (ID: %s)", agent2_name, agent2_id)
 
         # Agent 1 creates a chat
         response = await api_client.agent_api.create_agent_chat(chat=ChatRoomRequest())
         chat_id = response.data.id
-        logger.info(f"\nCreated chat: {chat_id}")
+        logger.info("\nCreated chat: %s", chat_id)
 
         # Add Agent 2 to the chat
         await api_client.agent_api.add_agent_chat_participant(
@@ -513,7 +514,7 @@ class TestMultiAgentChatRoom:
             ),
         )
         agent1_thought_id = response.data.id
-        logger.info(f"\nAgent 1 created thought (ID: {agent1_thought_id})")
+        logger.info("\nAgent 1 created thought (ID: %s)", agent1_thought_id)
 
         # Agent 2 creates a thought event
         response = await api_client_2.agent_api.create_agent_chat_event(
@@ -524,7 +525,7 @@ class TestMultiAgentChatRoom:
             ),
         )
         agent2_thought_id = response.data.id
-        logger.info(f"Agent 2 created thought (ID: {agent2_thought_id})")
+        logger.info("Agent 2 created thought (ID: %s)", agent2_thought_id)
 
         await asyncio.sleep(0.5)
 
@@ -536,8 +537,8 @@ class TestMultiAgentChatRoom:
 
         agent1_sees_own_thought = agent1_thought_id in agent1_context_ids
         agent1_sees_agent2_thought = agent2_thought_id in agent1_context_ids
-        logger.info(f"Agent 1 sees own thought: {agent1_sees_own_thought}")
-        logger.info(f"Agent 1 sees Agent 2's thought: {agent1_sees_agent2_thought}")
+        logger.info("Agent 1 sees own thought: %s", agent1_sees_own_thought)
+        logger.info("Agent 1 sees Agent 2's thought: %s", agent1_sees_agent2_thought)
 
         # Agent 2 queries /context
         logger.info("\n--- Agent 2 querying /context ---")
@@ -547,8 +548,8 @@ class TestMultiAgentChatRoom:
 
         agent2_sees_own_thought = agent2_thought_id in agent2_context_ids
         agent2_sees_agent1_thought = agent1_thought_id in agent2_context_ids
-        logger.info(f"Agent 2 sees own thought: {agent2_sees_own_thought}")
-        logger.info(f"Agent 2 sees Agent 1's thought: {agent2_sees_agent1_thought}")
+        logger.info("Agent 2 sees own thought: %s", agent2_sees_own_thought)
+        logger.info("Agent 2 sees Agent 1's thought: %s", agent2_sees_agent1_thought)
 
         # Assertions
         assert agent1_sees_own_thought, "Agent 1 should see its own thought"
@@ -586,13 +587,13 @@ class TestMultiAgentChatRoom:
         response = await api_client.agent_api.get_agent_me()
         agent1_id = response.data.id
         agent1_name = response.data.name
-        logger.info(f"Agent 1 (Owner): {agent1_name} (ID: {agent1_id})")
+        logger.info("Agent 1 (Owner): %s (ID: %s)", agent1_name, agent1_id)
 
         # Get Agent 2 info (will be member)
         response = await api_client_2.agent_api.get_agent_me()
         agent2_id = response.data.id
         agent2_name = response.data.name
-        logger.info(f"Agent 2 (Member): {agent2_name} (ID: {agent2_id})")
+        logger.info("Agent 2 (Member): %s (ID: %s)", agent2_name, agent2_id)
 
         # Find a User peer (the owner of agents)
         response = await api_client.agent_api.list_agent_peers()
@@ -600,7 +601,7 @@ class TestMultiAgentChatRoom:
         assert user_peer is not None, "Need a User peer for this test"
         user_id = user_peer.id
         user_name = user_peer.name
-        logger.info(f"User peer: {user_name} (ID: {user_id})")
+        logger.info("User peer: %s (ID: %s)", user_name, user_id)
 
         # Find another Agent peer (not Agent 1 or Agent 2)
         other_agent = next(
@@ -614,7 +615,9 @@ class TestMultiAgentChatRoom:
         if other_agent:
             other_agent_id = other_agent.id
             other_agent_name = other_agent.name
-            logger.info(f"Other Agent peer: {other_agent_name} (ID: {other_agent_id})")
+            logger.info(
+                "Other Agent peer: %s (ID: %s)", other_agent_name, other_agent_id
+            )
         else:
             other_agent_id = None
             other_agent_name = None
@@ -624,7 +627,7 @@ class TestMultiAgentChatRoom:
         logger.info("\n--- Step 1: Agent 1 creates chat ---")
         response = await api_client.agent_api.create_agent_chat(chat=ChatRoomRequest())
         chat_id = response.data.id
-        logger.info(f"Agent 1 created chat: {chat_id}")
+        logger.info("Agent 1 created chat: %s", chat_id)
 
         # Step 2: Agent 1 adds Agent 2 as MEMBER
         logger.info("\n--- Step 2: Agent 1 adds Agent 2 as member ---")
@@ -646,19 +649,19 @@ class TestMultiAgentChatRoom:
         # Verify participants
         response = await api_client.agent_api.list_agent_chat_participants(chat_id)
         participants = response.data or []
-        logger.info(f"Current participants ({len(participants)}):")
+        logger.info("Current participants (%s):", len(participants))
         for p in participants:
-            logger.info(f"  - {p.name} ({p.type}, role: {p.role})")
+            logger.info("  - %s (%s, role: %s)", p.name, p.type, p.role)
 
         # Step 3: Agent 2 lists peers (should work)
         logger.info("\n--- Step 3: Agent 2 lists peers ---")
         response = await api_client_2.agent_api.list_agent_peers(not_in_chat=chat_id)
         peers = response.data or []
-        logger.info(f"Agent 2 sees {len(peers)} peers not in chat:")
+        logger.info("Agent 2 sees %s peers not in chat:", len(peers))
         for p in peers[:5]:  # Show first 5
-            logger.info(f"  - {p.name} ({p.type})")
+            logger.info("  - %s (%s)", p.name, p.type)
         if len(peers) > 5:
-            logger.info(f"  ... and {len(peers) - 5} more")
+            logger.info("  ... and %s more", len(peers) - 5)
 
         # Step 4: Agent 2 (member) tries to add User
         logger.info("\n--- Step 4: Agent 2 (member) tries to add User ---")
@@ -669,9 +672,9 @@ class TestMultiAgentChatRoom:
                 participant=ParticipantRequest(participant_id=user_id, role="member"),
             )
             add_user_success = True
-            logger.info(f"SUCCESS: Agent 2 added User '{user_name}' to chat")
+            logger.info("SUCCESS: Agent 2 added User '%s' to chat", user_name)
         except Exception as e:
-            logger.info(f"FAILED: Agent 2 could not add User: {type(e).__name__}")
+            logger.info("FAILED: Agent 2 could not add User: %s", type(e).__name__)
             if "403" in str(e) or "forbidden" in str(e).lower():
                 logger.info("  -> 403 Forbidden: Members cannot add participants")
 
@@ -688,10 +691,10 @@ class TestMultiAgentChatRoom:
                 )
                 add_agent_success = True
                 logger.info(
-                    f"SUCCESS: Agent 2 added Agent '{other_agent_name}' to chat"
+                    "SUCCESS: Agent 2 added Agent '%s' to chat", other_agent_name
                 )
             except Exception as e:
-                logger.info(f"FAILED: Agent 2 could not add Agent: {type(e).__name__}")
+                logger.info("FAILED: Agent 2 could not add Agent: %s", type(e).__name__)
                 if "403" in str(e) or "forbidden" in str(e).lower():
                     logger.info("  -> 403 Forbidden: Members cannot add participants")
         else:
@@ -701,19 +704,21 @@ class TestMultiAgentChatRoom:
         logger.info("\n--- Final participants ---")
         response = await api_client.agent_api.list_agent_chat_participants(chat_id)
         final_participants = response.data or []
-        logger.info(f"Final participants ({len(final_participants)}):")
+        logger.info("Final participants (%s):", len(final_participants))
         for p in final_participants:
-            logger.info(f"  - {p.name} ({p.type}, role: {p.role})")
+            logger.info("  - %s (%s, role: %s)", p.name, p.type, p.role)
 
         # Summary
         logger.info("\n" + "=" * 60)
         logger.info("SUMMARY:")
         logger.info(
-            f"  - Agent 2 (member) add User: {'SUCCESS' if add_user_success else 'FAILED (403)'}"
+            "  - Agent 2 (member) add User: %s",
+            "SUCCESS" if add_user_success else "FAILED (403)",
         )
         if other_agent_id:
             logger.info(
-                f"  - Agent 2 (member) add Agent: {'SUCCESS' if add_agent_success else 'FAILED (403)'}"
+                "  - Agent 2 (member) add Agent: %s",
+                "SUCCESS" if add_agent_success else "FAILED (403)",
             )
         logger.info("=" * 60)
 
@@ -744,13 +749,13 @@ class TestMultiAgentChatRoom:
         response = await api_client.agent_api.get_agent_me()
         agent1_id = response.data.id
         agent1_name = response.data.name
-        logger.info(f"Agent 1 (Owner): {agent1_name} (ID: {agent1_id})")
+        logger.info("Agent 1 (Owner): %s (ID: %s)", agent1_name, agent1_id)
 
         # Get Agent 2 info
         response = await api_client_2.agent_api.get_agent_me()
         agent2_id = response.data.id
         agent2_name = response.data.name
-        logger.info(f"Agent 2 (will be Admin): {agent2_name} (ID: {agent2_id})")
+        logger.info("Agent 2 (will be Admin): %s (ID: %s)", agent2_name, agent2_id)
 
         # Find a User peer
         response = await api_client.agent_api.list_agent_peers()
@@ -758,13 +763,13 @@ class TestMultiAgentChatRoom:
         assert user_peer is not None, "Need a User peer for this test"
         user_id = user_peer.id
         user_name = user_peer.name
-        logger.info(f"User peer: {user_name} (ID: {user_id})")
+        logger.info("User peer: %s (ID: %s)", user_name, user_id)
 
         # Step 1: Agent 1 creates chat
         logger.info("\n--- Step 1: Agent 1 creates chat ---")
         response = await api_client.agent_api.create_agent_chat(chat=ChatRoomRequest())
         chat_id = response.data.id
-        logger.info(f"Agent 1 created chat: {chat_id}")
+        logger.info("Agent 1 created chat: %s", chat_id)
 
         # Step 2: Agent 1 adds Agent 2 as ADMIN
         logger.info("\n--- Step 2: Agent 1 adds Agent 2 as ADMIN ---")
@@ -788,7 +793,7 @@ class TestMultiAgentChatRoom:
         participants = response.data or []
         agent2_participant = next((p for p in participants if p.id == agent2_id), None)
         assert agent2_participant is not None, "Agent 2 should be in chat"
-        logger.info(f"Agent 2's role: {agent2_participant.role}")
+        logger.info("Agent 2's role: %s", agent2_participant.role)
         assert agent2_participant.role == "admin", "Agent 2 should be admin"
 
         # Step 3: Agent 2 (admin) adds User
@@ -800,18 +805,18 @@ class TestMultiAgentChatRoom:
                 participant=ParticipantRequest(participant_id=user_id, role="member"),
             )
             add_success = True
-            logger.info(f"SUCCESS: Agent 2 (admin) added User '{user_name}' to chat")
+            logger.info("SUCCESS: Agent 2 (admin) added User '%s' to chat", user_name)
         except Exception as e:
-            logger.info(f"FAILED: Agent 2 (admin) could not add User: {e}")
+            logger.info("FAILED: Agent 2 (admin) could not add User: %s", e)
 
         # Verify User was added
         response = await api_client.agent_api.list_agent_chat_participants(chat_id)
         final_participants = response.data or []
         user_in_chat = any(p.id == user_id for p in final_participants)
 
-        logger.info(f"\nFinal participants ({len(final_participants)}):")
+        logger.info("\nFinal participants (%s):", len(final_participants))
         for p in final_participants:
-            logger.info(f"  - {p.name} ({p.type}, role: {p.role})")
+            logger.info("  - %s (%s, role: %s)", p.name, p.type, p.role)
 
         logger.info("\n" + "=" * 60)
         if add_success and user_in_chat:

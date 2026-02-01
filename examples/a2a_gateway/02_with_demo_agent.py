@@ -130,7 +130,7 @@ async def run_gateway() -> None:
         rest_url=rest_url,
     )
 
-    logger.info(f"Starting A2A Gateway on {gateway_url}...")
+    logger.info("Starting A2A Gateway on %s...", gateway_url)
     await agent.run()
 
 
@@ -185,7 +185,9 @@ def run_orchestrator() -> None:
     )
 
     logger.info(
-        f"Starting Demo Orchestrator on http://{ORCHESTRATOR_HOST}:{ORCHESTRATOR_PORT}..."
+        "Starting Demo Orchestrator on http://%s:%s...",
+        ORCHESTRATOR_HOST,
+        ORCHESTRATOR_PORT,
     )
 
     # Run uvicorn (blocking)
@@ -199,13 +201,13 @@ async def main() -> None:
     logger.info("=" * 60)
     logger.info("")
     logger.info("This example runs:")
-    logger.info(f"  1. A2A Gateway on port {GATEWAY_PORT} (exposes Thenvoi peers)")
+    logger.info("  1. A2A Gateway on port %s (exposes Thenvoi peers)", GATEWAY_PORT)
     logger.info(
-        f"  2. Demo Orchestrator on port {ORCHESTRATOR_PORT} (calls gateway peers)"
+        "  2. Demo Orchestrator on port %s (calls gateway peers)", ORCHESTRATOR_PORT
     )
     logger.info("")
     logger.info("Test with:")
-    logger.info(f"  curl http://localhost:{ORCHESTRATOR_PORT}/.well-known/agent.json")
+    logger.info("  curl http://localhost:%s/.well-known/agent.json", ORCHESTRATOR_PORT)
     logger.info("")
 
     # Run gateway in background, orchestrator in foreground

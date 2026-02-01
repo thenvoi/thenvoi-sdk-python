@@ -54,7 +54,7 @@ class DefaultPreprocessor(Preprocessor):
 
         # Skip messages from self
         if msg_data.sender_type == "Agent" and msg_data.sender_id == agent_id:
-            logger.debug(f"Room {room_id}: Skipping own message {msg_data.id}")
+            logger.debug("Room %s: Skipping own message %s", room_id, msg_data.id)
             return None
 
         # Look up sender name from participants list
@@ -113,7 +113,7 @@ class DefaultPreprocessor(Preprocessor):
     ) -> list[dict[str, Any]]:
         """Load platform history for session bootstrap."""
         try:
-            logger.info(f"Room {ctx.room_id}: Loading history...")
+            logger.info("Room %s: Loading history...", ctx.room_id)
             context = await ctx.get_context()
             history = format_history_for_llm(context.messages, exclude_id=msg.id)
             logger.info(
@@ -121,5 +121,5 @@ class DefaultPreprocessor(Preprocessor):
             )
             return history or []
         except Exception as e:
-            logger.warning(f"Room {ctx.room_id}: Failed to load history: {e}")
+            logger.warning("Room %s: Failed to load history: %s", ctx.room_id, e)
             return []

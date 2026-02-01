@@ -123,7 +123,7 @@ class ParlantAdapter(SimpleAdapter[ParlantMessages]):
                 f"(parlant_agent_id={self._parlant_agent.id})"
             )
         except Exception as e:
-            logger.error(f"Failed to get Parlant Application: {e}", exc_info=True)
+            logger.error("Failed to get Parlant Application: %s", e, exc_info=True)
             raise
 
     async def on_message(
@@ -141,7 +141,7 @@ class ParlantAdapter(SimpleAdapter[ParlantMessages]):
 
         Uses Parlant's internal Application for session and message management.
         """
-        logger.debug(f"Handling message {msg.id} in room {room_id}")
+        logger.debug("Handling message %s in room %s", msg.id, room_id)
 
         if not self._app:
             logger.error("Parlant Application not initialized")
@@ -154,25 +154,25 @@ class ParlantAdapter(SimpleAdapter[ParlantMessages]):
         try:
             session_id = await self._get_or_create_session(room_id, sender_name)
         except Exception as e:
-            logger.error(f"Failed to get/create session for room {room_id}: {e}")
+            logger.error("Failed to get/create session for room %s: %s", room_id, e)
             await self._report_error(tools, f"Session initialization failed: {e}")
             return
         session_id_str = str(session_id)
 
         # Set tools for this session (keyed by session_id for cross-task access)
         set_session_tools(session_id_str, tools)
-        logger.info(f"Room {room_id}: Set tools for session_id={session_id_str}")
+        logger.info("Room %s: Set tools for session_id=%s", room_id, session_id_str)
 
         # On bootstrap, inject historical context
         if is_session_bootstrap and history:
             injected = await self._inject_history(session_id, history)
-            logger.info(f"Room {room_id}: Injected {injected} messages from history")
+            logger.info("Room %s: Injected %s messages from history", room_id, injected)
 
         # Build user message, prepending participants update if changed
         user_message = msg.format_for_llm()
         if participants_msg:
             user_message = f"[System Update]: {participants_msg}\n\n{user_message}"
-            logger.info(f"Room {room_id}: Included participants update in message")
+            logger.info("Room %s: Included participants update in message", room_id)
         logger.info(
             f"Room {room_id}: Sending message to Parlant: {user_message[:100]}..."
         )
@@ -182,7 +182,7 @@ class ParlantAdapter(SimpleAdapter[ParlantMessages]):
             from parlant.core.sessions import EventSource
 
             # Create customer message event (triggers processing)
-            logger.info(f"Room {room_id}: Creating customer message event...")
+            logger.info("Room %s: Creating customer message event...", room_id)
             event = await app.sessions.create_customer_message(
                 session_id=session_id,
                 moderation=Moderation.NONE,
@@ -205,7 +205,7 @@ class ParlantAdapter(SimpleAdapter[ParlantMessages]):
             )
 
         except Exception as e:
-            logger.error(f"Error processing message: {e}", exc_info=True)
+            logger.error("Error processing message: %s", e, exc_info=True)
             await self._report_error(tools, str(e))
             raise
         finally:
@@ -215,7 +215,7 @@ class ParlantAdapter(SimpleAdapter[ParlantMessages]):
                 f"Room {room_id}: Cleared tools for session_id={session_id_str}"
             )
 
-        logger.debug(f"Message {msg.id} processed successfully")
+        logger.debug("Message %s processed successfully", msg.id)
 
     async def _get_or_create_session(
         self,
@@ -230,7 +230,7 @@ class ParlantAdapter(SimpleAdapter[ParlantMessages]):
             raise RuntimeError("Parlant Application not initialized")
 
         app = self._app
-        logger.info(f"Creating Parlant session for room: {room_id}")
+        logger.info("Creating Parlant session for room: %s", room_id)
 
         # Create or get customer
         customer_id = await self._get_or_create_customer(room_id, customer_name)
@@ -243,7 +243,7 @@ class ParlantAdapter(SimpleAdapter[ParlantMessages]):
         )
 
         self._room_sessions[room_id] = session.id
-        logger.info(f"Session created: {session.id} for room {room_id}")
+        logger.info("Session created: %s for room %s", session.id, room_id)
 
         return session.id
 
@@ -305,7 +305,9 @@ class ParlantAdapter(SimpleAdapter[ParlantMessages]):
                     i += 2
                 else:
                     # User message without response - skip (it's pending)
-                    logger.debug(f"Skipping unanswered user message: {content[:50]}...")
+                    logger.debug(
+                        "Skipping unanswered user message: %s...", content[:50]
+                    )
                     i += 1
             elif role == "assistant" and content:
                 # Standalone assistant message (rare) - include it
@@ -350,7 +352,7 @@ class ParlantAdapter(SimpleAdapter[ParlantMessages]):
                     )
                     count += 1
             except Exception as e:
-                logger.warning(f"Failed to inject history message ({role}): {e}")
+                logger.warning("Failed to inject history message (%s): %s", role, e)
 
         return count
 
@@ -372,7 +374,7 @@ class ParlantAdapter(SimpleAdapter[ParlantMessages]):
         forward Parlant's response (it would be a duplicate or empty).
         """
         if not self._app:
-            logger.error(f"Room {room_id}: No Parlant Application available")
+            logger.error("Room %s: No Parlant Application available", room_id)
             return
 
         app = self._app
@@ -400,7 +402,9 @@ class ParlantAdapter(SimpleAdapter[ParlantMessages]):
                     source=EventSource.AI_AGENT,
                     timeout=Timeout(120),  # Increased timeout for tool execution
                 )
-                logger.info(f"Room {room_id}: wait_for_update returned: {has_update}")
+                logger.info(
+                    "Room %s: wait_for_update returned: %s", room_id, has_update
+                )
             except Exception as e:
                 logger.error(
                     f"Room {room_id}: Error waiting for update: {e}", exc_info=True
@@ -419,7 +423,7 @@ class ParlantAdapter(SimpleAdapter[ParlantMessages]):
                         f"Room {room_id}: Timeout but message was sent via tool, OK"
                     )
                     return
-                logger.warning(f"Room {room_id}: Timeout waiting for agent response")
+                logger.warning("Room %s: Timeout waiting for agent response", room_id)
                 return
 
             # Get new events
@@ -431,7 +435,7 @@ class ParlantAdapter(SimpleAdapter[ParlantMessages]):
                     kinds=[EventKind.MESSAGE],
                     trace_id=None,  # Required by Parlant SDK v3.x
                 )
-                logger.info(f"Room {room_id}: Found {len(events)} agent events")
+                logger.info("Room %s: Found %s agent events", room_id, len(events))
             except Exception as e:
                 logger.error(
                     f"Room {room_id}: Error finding events: {e}", exc_info=True
@@ -439,7 +443,9 @@ class ParlantAdapter(SimpleAdapter[ParlantMessages]):
                 return
 
             if not events:
-                logger.warning(f"Room {room_id}: No events found despite update signal")
+                logger.warning(
+                    "Room %s: No events found despite update signal", room_id
+                )
                 return
 
             # Process events and track if we got a non-preamble message
@@ -496,7 +502,7 @@ class ParlantAdapter(SimpleAdapter[ParlantMessages]):
                             await tools.send_message(
                                 message_content, mentions=[sender_name]
                             )
-                            logger.info(f"Room {room_id}: Message sent successfully")
+                            logger.info("Room %s: Message sent successfully", room_id)
                         except Exception as e:
                             logger.error(
                                 f"Room {room_id}: Error sending message: {e}",
@@ -509,7 +515,7 @@ class ParlantAdapter(SimpleAdapter[ParlantMessages]):
 
             # If we got a final (non-preamble) message, we're done
             if got_final_message:
-                logger.info(f"Room {room_id}: Got final message, processing complete")
+                logger.info("Room %s: Got final message, processing complete", room_id)
                 return
 
             # Check if message was sent via tool (tool execution may happen without final message)
@@ -541,7 +547,7 @@ class ParlantAdapter(SimpleAdapter[ParlantMessages]):
         if room_id in self._room_customers:
             del self._room_customers[room_id]
 
-        logger.debug(f"Room {room_id}: Cleaned up Parlant session")
+        logger.debug("Room %s: Cleaned up Parlant session", room_id)
 
     async def _report_error(self, tools: AgentToolsProtocol, error: str) -> None:
         """Send error event (best effort)."""

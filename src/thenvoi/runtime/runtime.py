@@ -113,7 +113,7 @@ class AgentRuntime:
         1. Starts RoomPresence (connects link, subscribes to rooms)
         2. Creates execution contexts for existing rooms
         """
-        logger.info(f"Starting AgentRuntime for agent {self.agent_id}")
+        logger.info("Starting AgentRuntime for agent %s", self.agent_id)
         await self.presence.start()
 
     async def stop(self, timeout: float | None = None) -> bool:
@@ -131,7 +131,7 @@ class AgentRuntime:
         1. Stops all execution contexts (with timeout)
         2. Stops RoomPresence
         """
-        logger.info(f"Stopping AgentRuntime for agent {self.agent_id}")
+        logger.info("Stopping AgentRuntime for agent %s", self.agent_id)
 
         # Stop all executions with timeout
         all_graceful = True
@@ -152,7 +152,7 @@ class AgentRuntime:
         try:
             await self.link.run_forever()
         except Exception as e:
-            logger.error(f"AgentRuntime error: {e}")
+            logger.error("AgentRuntime error: %s", e)
             raise
         finally:
             await self.stop()
@@ -173,14 +173,14 @@ class AgentRuntime:
         if execution:
             await execution.on_event(event)
         else:
-            logger.warning(f"No execution for room {room_id}, event dropped")
+            logger.warning("No execution for room %s, event dropped", room_id)
 
     # --- Execution management ---
 
     async def _create_execution(self, room_id: str) -> Execution:
         """Create and start execution context for a room."""
         if room_id in self.executions:
-            logger.debug(f"Execution already exists for room {room_id}")
+            logger.debug("Execution already exists for room %s", room_id)
             return self.executions[room_id]
 
         # Use factory if provided, otherwise create ExecutionContext
@@ -198,7 +198,7 @@ class AgentRuntime:
         self.executions[room_id] = execution
         await execution.start()
 
-        logger.debug(f"Created execution for room {room_id}")
+        logger.debug("Created execution for room %s", room_id)
         return execution
 
     async def _destroy_execution(
@@ -225,7 +225,7 @@ class AgentRuntime:
             try:
                 await self._on_session_cleanup(room_id)
             except Exception as e:
-                logger.warning(f"Session cleanup callback failed for {room_id}: {e}")
+                logger.warning("Session cleanup callback failed for %s: %s", room_id, e)
 
-        logger.debug(f"Destroyed execution for room {room_id}")
+        logger.debug("Destroyed execution for room %s", room_id)
         return graceful

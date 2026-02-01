@@ -62,7 +62,7 @@ async def main() -> None:
 
     logger.info("Step 0: Downloading sample database if needed...")
     db_path = download_chinook_db()
-    logger.info(f"Database ready at {db_path}")
+    logger.info("Database ready at %s", db_path)
 
     logger.info(
         "\nStep 1: Creating standalone SQL agent (with its own LLM + database tools)..."

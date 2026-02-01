@@ -42,7 +42,7 @@ def load_agent_config(agent_key: str) -> Tuple[str, str]:
         ValueError: If required fields (agent_id, api_key) are missing or empty
     """
     config_path = get_config_path()
-    logger.debug(f"Loading config from: {config_path}")
+    logger.debug("Loading config from: %s", config_path)
 
     if not config_path.exists():
         raise FileNotFoundError(

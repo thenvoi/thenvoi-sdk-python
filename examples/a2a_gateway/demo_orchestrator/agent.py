@@ -65,7 +65,7 @@ async def call_peer_agent(
         )
         return response
     except Exception as e:
-        logger.error(f"Error calling peer '{peer_id}': {e}")
+        logger.error("Error calling peer '%s': %s", peer_id, e)
         return f"Error calling peer '{peer_id}': {e}"
 
 

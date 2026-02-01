@@ -124,13 +124,15 @@ class WebSocketClient:
 
     async def _handle_events(self, message: PHXMessage, event_handlers: dict):
         """Generic async event handler that maps events to their corresponding async callbacks"""
-        logger.debug(f"[WebSocket] Received event: {message.event}")
+        logger.debug("[WebSocket] Received event: %s", message.event)
 
         # Check if we have a handler for this event
         if message.event not in event_handlers:
             logger.warning(
-                f"[WebSocket] Received event '{message.event}' but no handler registered. "
-                f"Available handlers: {list(event_handlers.keys())}"
+                "[WebSocket] Received event '%s' but no handler registered. "
+                "Available handlers: %s",
+                message.event,
+                list(event_handlers.keys()),
             )
             return
 
@@ -158,7 +160,7 @@ class WebSocketClient:
     ):
         """Subscribe to agent rooms topic with async callbacks"""
         topic = f"agent_rooms:{agent_id}"
-        logger.info(f"[WebSocket] Subscribing to topic: {topic}")
+        logger.info("[WebSocket] Subscribing to topic: %s", topic)
 
         async def message_handler(message):
             await self._handle_events(
@@ -166,7 +168,7 @@ class WebSocketClient:
             )
 
         result = await self.client.subscribe_to_topic(topic, message_handler)
-        logger.info(f"[WebSocket] Subscribed to topic: {topic}")
+        logger.info("[WebSocket] Subscribed to topic: %s", topic)
         return result
 
     async def join_chat_room_channel(
@@ -176,7 +178,7 @@ class WebSocketClient:
     ):
         """Subscribe to chat room topic for message events with async callback"""
         topic = f"chat_room:{chat_room_id}"
-        logger.info(f"[WebSocket] Subscribing to topic: {topic}")
+        logger.info("[WebSocket] Subscribing to topic: %s", topic)
 
         async def message_handler(message):
             await self._handle_events(message, {"message_created": on_message_created})
@@ -207,7 +209,7 @@ class WebSocketClient:
     ):
         """Subscribe to room participants topic with async callbacks"""
         topic = f"room_participants:{chat_room_id}"
-        logger.info(f"[WebSocket] Subscribing to topic: {topic}")
+        logger.info("[WebSocket] Subscribing to topic: %s", topic)
 
         async def message_handler(message):
             await self._handle_events(
@@ -240,13 +242,13 @@ class WebSocketClient:
     async def leave_agent_rooms_channel(self, agent_id: str):
         """Unsubscribe from agent rooms topic"""
         topic = f"agent_rooms:{agent_id}"
-        logger.info(f"[WebSocket] Unsubscribing from topic: {topic}")
+        logger.info("[WebSocket] Unsubscribing from topic: %s", topic)
         return await self.client.unsubscribe_from_topic(topic)
 
     async def leave_chat_room_channel(self, chat_room_id: str):
         """Unsubscribe from chat room topic"""
         topic = f"chat_room:{chat_room_id}"
-        logger.info(f"[WebSocket] Unsubscribing from topic: {topic}")
+        logger.info("[WebSocket] Unsubscribing from topic: %s", topic)
         return await self.client.unsubscribe_from_topic(topic)
 
     async def leave_user_rooms_channel(self, user_id: str):
@@ -257,7 +259,7 @@ class WebSocketClient:
     async def leave_room_participants_channel(self, chat_room_id: str):
         """Unsubscribe from room participants topic"""
         topic = f"room_participants:{chat_room_id}"
-        logger.info(f"[WebSocket] Unsubscribing from topic: {topic}")
+        logger.info("[WebSocket] Unsubscribing from topic: %s", topic)
         return await self.client.unsubscribe_from_topic(topic)
 
     async def leave_tasks_channel(self, user_id: str):

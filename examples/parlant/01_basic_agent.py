@@ -133,12 +133,14 @@ async def main() -> None:
         # Create Parlant tools INSIDE server context
         parlant_tools = create_parlant_tools()
         logger.info(
-            f"Created {len(parlant_tools)} Parlant tools: {[t.tool.name for t in parlant_tools]}"
+            "Created %s Parlant tools: %s",
+            len(parlant_tools),
+            [t.tool.name for t in parlant_tools],
         )
 
         # Create Parlant agent with guidelines and tools
         parlant_agent = await setup_agent_with_guidelines(server, parlant_tools)
-        logger.info(f"Parlant agent created: {parlant_agent.id}")
+        logger.info("Parlant agent created: %s", parlant_agent.id)
 
         # Create adapter using Parlant SDK directly
         adapter = ParlantAdapter(

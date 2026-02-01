@@ -21,17 +21,17 @@ class TestSmokeIntegration:
         assert response.data.name is not None
         assert response.data.id is not None
         logger.info(
-            f"Connected as agent: {response.data.name} (ID: {response.data.id})"
+            "Connected as agent: %s (ID: %s)", response.data.name, response.data.id
         )
 
     async def test_can_list_chats(self, api_client):
         """Verify agent can list its chats."""
         response = await api_client.agent_api.list_agent_chats()
         assert response.data is not None
-        logger.info(f"Agent has {len(response.data)} chats")
+        logger.info("Agent has %s chats", len(response.data))
 
     async def test_can_list_peers(self, api_client):
         """Verify agent can list available peers."""
         response = await api_client.agent_api.list_agent_peers()
         assert response.data is not None
-        logger.info(f"Agent can see {len(response.data)} peers")
+        logger.info("Agent can see %s peers", len(response.data))

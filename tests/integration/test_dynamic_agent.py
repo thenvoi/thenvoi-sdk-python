@@ -116,14 +116,14 @@ async def dynamic_agent(module_user_api_client):
         api_key=credentials.api_key,
     )
 
-    logger.info(f"\nCreated dynamic agent: {agent.name} (ID: {agent.id})")
+    logger.info("\nCreated dynamic agent: %s (ID: %s)", agent.name, agent.id)
 
     yield _dynamic_agent
 
     # Cleanup: Delete ONLY the agent we created in this test
     # SAFETY: We only delete agent.id which was returned by register_my_agent()
     # above. We NEVER touch the pre-existing agents from .env.test.
-    logger.info(f"\nDeleting dynamic agent: {agent.id} (created by this test)")
+    logger.info("\nDeleting dynamic agent: %s (created by this test)", agent.id)
     try:
         await module_user_api_client.human_api.delete_my_agent(
             id=agent.id,
@@ -131,7 +131,7 @@ async def dynamic_agent(module_user_api_client):
         )
         logger.info("Agent deleted successfully")
     except Exception as e:
-        logger.info(f"Warning: Failed to delete agent: {e}")
+        logger.warning("Failed to delete agent: %s", e)
     _dynamic_agent = None
 
 
@@ -155,14 +155,14 @@ class TestDynamicAgentWorkflow:
         assert response.data is not None
         assert response.data.id == dynamic_agent.agent_id
         assert response.data.name == dynamic_agent.agent_name
-        logger.info(f"Agent verified: {response.data.name}")
+        logger.info("Agent verified: %s", response.data.name)
 
     async def test_agent_can_list_peers(self, dynamic_agent_client):
         """Verify the dynamic agent can list available peers."""
         response = await dynamic_agent_client.agent_api.list_agent_peers()
 
         assert response.data is not None
-        logger.info(f"Agent can see {len(response.data)} peers")
+        logger.info("Agent can see %s peers", len(response.data))
 
     async def test_agent_can_create_chat(self, dynamic_agent_client):
         """Verify the dynamic agent can create a chat room."""
@@ -177,7 +177,7 @@ class TestDynamicAgentWorkflow:
         assert response.data is not None
         assert response.data.id is not None
         chat_id = response.data.id
-        logger.info(f"Created chat: {chat_id}")
+        logger.info("Created chat: %s", chat_id)
 
         # Get a peer to add to the room
         peers_response = await dynamic_agent_client.agent_api.list_agent_peers()
@@ -187,7 +187,7 @@ class TestDynamicAgentWorkflow:
                 chat_id,
                 participant=ParticipantRequest(participant_id=peer.id, role="member"),
             )
-            logger.info(f"Added peer: {peer.name}")
+            logger.info("Added peer: %s", peer.name)
 
             # Add descriptive message (triggers auto-title)
             await dynamic_agent_client.agent_api.create_agent_chat_message(
@@ -209,7 +209,7 @@ class TestDynamicAgentWorkflow:
             chat=ChatRoomRequest()
         )
         chat_id = chat_response.data.id
-        logger.info(f"Created chat: {chat_id}")
+        logger.info("Created chat: %s", chat_id)
 
         # 2. Get peers to find someone to mention
         peers_response = await dynamic_agent_client.agent_api.list_agent_peers()
@@ -217,7 +217,7 @@ class TestDynamicAgentWorkflow:
             pytest.skip("No peers available for messaging test")
 
         peer = peers_response.data[0]
-        logger.info(f"Using peer: {peer.name} (ID: {peer.id})")
+        logger.info("Using peer: %s (ID: %s)", peer.name, peer.id)
 
         # 3. Add peer to chat
         await dynamic_agent_client.agent_api.add_agent_chat_participant(
@@ -235,7 +235,7 @@ class TestDynamicAgentWorkflow:
             ),
         )
         assert msg_response.data.id is not None
-        logger.info(f"Sent message: {msg_response.data.id}")
+        logger.info("Sent message: %s", msg_response.data.id)
 
         # 5. Send thought event
         event_response = await dynamic_agent_client.agent_api.create_agent_chat_event(
@@ -246,7 +246,7 @@ class TestDynamicAgentWorkflow:
             ),
         )
         assert event_response.data.id is not None
-        logger.info(f"Sent thought event: {event_response.data.id}")
+        logger.info("Sent thought event: %s", event_response.data.id)
 
         logger.info(
             f"Complete workflow passed for dynamic agent {dynamic_agent.agent_id}"
@@ -281,7 +281,9 @@ class TestDynamicAgentWorkflow:
 
         target_agent = agent_peers[0]
         logger.info(
-            f"Target agent for communication: {target_agent.name} (ID: {target_agent.id})"
+            "Target agent for communication: %s (ID: %s)",
+            target_agent.name,
+            target_agent.id,
         )
 
         # 2. Create chat room for agent-to-agent communication
@@ -289,7 +291,7 @@ class TestDynamicAgentWorkflow:
             chat=ChatRoomRequest()
         )
         chat_id = chat_response.data.id
-        logger.info(f"Created chat room: {chat_id}")
+        logger.info("Created chat room: %s", chat_id)
 
         # 3. Add the target agent to the chat
         await dynamic_agent_client.agent_api.add_agent_chat_participant(
@@ -298,7 +300,7 @@ class TestDynamicAgentWorkflow:
                 participant_id=target_agent.id, role="member"
             ),
         )
-        logger.info(f"Added agent {target_agent.name} to chat")
+        logger.info("Added agent %s to chat", target_agent.name)
 
         # 4. Verify participants include both agents
         participants_response = (
@@ -308,7 +310,8 @@ class TestDynamicAgentWorkflow:
         assert dynamic_agent.agent_id in participant_ids, "Dynamic agent not in chat"
         assert target_agent.id in participant_ids, "Target agent not in chat"
         logger.info(
-            f"Verified both agents are participants: {len(participants_response.data)} total"
+            "Verified both agents are participants: %s total",
+            len(participants_response.data),
         )
 
         # 5. Send message from dynamic agent to target agent
@@ -323,7 +326,7 @@ class TestDynamicAgentWorkflow:
             ),
         )
         assert msg_response.data.id is not None
-        logger.info(f"Sent message: {msg_response.data.id}")
+        logger.info("Sent message: %s", msg_response.data.id)
 
         # 6. Send a thought event (simulating agent processing)
         event_response = await dynamic_agent_client.agent_api.create_agent_chat_event(
@@ -334,11 +337,12 @@ class TestDynamicAgentWorkflow:
             ),
         )
         assert event_response.data.id is not None
-        logger.info(f"Sent thought event: {event_response.data.id}")
+        logger.info("Sent thought event: %s", event_response.data.id)
 
         logger.info(
-            f"Agent-to-agent communication test passed: "
-            f"{dynamic_agent.agent_name} -> {target_agent.name}"
+            "Agent-to-agent communication test passed: %s -> %s",
+            dynamic_agent.agent_name,
+            target_agent.name,
         )
 
 
@@ -358,7 +362,7 @@ class TestUserAgentManagement:
         response = await user_api_client.human_api.list_my_agents()
 
         assert response.data is not None
-        logger.info(f"User owns {len(response.data)} agents")
+        logger.info("User owns %s agents", len(response.data))
 
     async def test_user_can_list_peers(self, user_api_client):
         """User should be able to list available peers."""
@@ -368,4 +372,4 @@ class TestUserAgentManagement:
         response = await user_api_client.human_api.list_my_peers()
 
         assert response.data is not None
-        logger.info(f"User can see {len(response.data)} peers")
+        logger.info("User can see %s peers", len(response.data))
