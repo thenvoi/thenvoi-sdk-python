@@ -159,7 +159,12 @@ async def agent_manager(module_user_api_client, request):
         logger.info("\n=== Cleaning up dynamic agents ===")
         await _agent_manager.cleanup_all()
     else:
-        logger.info("[NO-CLEAN MODE] Skipping cleanup of permission test agents")
+        agent_names = [a.agent_name for a in _agent_manager.created_agents]
+        logger.info(
+            "[NO-CLEAN MODE] Skipping cleanup of %d agents: %s",
+            len(agent_names),
+            ", ".join(agent_names),
+        )
     _agent_manager = None
 
 
