@@ -341,6 +341,8 @@ async def run_letta_agent(
     mcp_url: str | None,
     persona: str,
     shared_mode: bool,
+    mcp_tools: list[str] | None,
+    letta_base_tools: list[str] | None,
     logger: logging.Logger,
 ):
     """Run the Letta agent."""
@@ -361,6 +363,8 @@ async def run_letta_agent(
             model=letta_model,
             embedding_model="openai/text-embedding-3-small",
             persona=persona,
+            mcp_tools=mcp_tools,
+            letta_base_tools=letta_base_tools,
         ),
         state_storage_path=f"~/.thenvoi/{state_file}",
     )
@@ -565,6 +569,18 @@ Examples:
         default="You are a helpful assistant with persistent memory.",
         help="Agent persona for Letta examples",
     )
+    parser.add_argument(
+        "--letta-mcp-tools",
+        type=str,
+        default=None,
+        help="Comma-separated MCP tool names for Letta (default: all agent tools)",
+    )
+    parser.add_argument(
+        "--letta-base-tools",
+        type=str,
+        default=None,
+        help="Comma-separated Letta base tools (default: memory,conversation_search,archival_memory_insert,archival_memory_search)",
+    )
 
     args = parser.parse_args()
 
@@ -689,6 +705,21 @@ Examples:
                 logger=logger,
             )
         elif args.example in ("letta", "letta_shared"):
+            # Parse comma-separated tool lists (filter empty strings)
+            mcp_tools = None
+            if args.letta_mcp_tools:
+                mcp_tools = [
+                    t.strip() for t in args.letta_mcp_tools.split(",") if t.strip()
+                ]
+                mcp_tools = mcp_tools or None  # Convert empty list to None
+
+            letta_base_tools = None
+            if args.letta_base_tools:
+                letta_base_tools = [
+                    t.strip() for t in args.letta_base_tools.split(",") if t.strip()
+                ]
+                letta_base_tools = letta_base_tools or None
+
             await run_letta_agent(
                 agent_id=agent_id,
                 api_key=api_key,
@@ -699,6 +730,8 @@ Examples:
                 mcp_url=args.mcp_url,
                 persona=args.persona,
                 shared_mode=(args.example == "letta_shared"),
+                mcp_tools=mcp_tools,
+                letta_base_tools=letta_base_tools,
                 logger=logger,
             )
         elif args.example == "a2a":

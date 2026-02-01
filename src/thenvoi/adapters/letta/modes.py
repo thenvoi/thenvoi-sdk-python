@@ -107,3 +107,38 @@ class LettaConfig:
 
     max_reasoning_steps: int = 10
     """Maximum reasoning steps before forcing response."""
+
+    # ─── Tool Configuration ───────────────────────────────────────────────────
+    mcp_tools: list[str] | None = None
+    """MCP tools to attach to agents. If None, uses default set:
+    ['add_agent_chat_participant', 'create_agent_chat_event',
+     'create_agent_chat_message', 'list_agent_chat_participants',
+     'list_agent_peers']"""
+
+    letta_base_tools: list[str] | None = None
+    """Letta base tools to attach. If None, uses default set:
+    ['memory', 'conversation_search', 'archival_memory_insert',
+     'archival_memory_search']"""
+
+    # ─── MCP Server Settings ──────────────────────────────────────────────────
+    mcp_server_name: str = "thenvoi"
+    """Name to register MCP server under in Letta."""
+
+    mcp_server_type: str = "sse"
+    """MCP transport type: 'sse' or 'http'."""
+
+    # ─── Limits ───────────────────────────────────────────────────────────────
+    summary_max_length: int = 150
+    """Maximum character length for conversation summaries."""
+
+    room_id_suffix_length: int = 8
+    """Length of room ID suffix in per-room agent names."""
+
+    # ─── Memory Block Defaults ────────────────────────────────────────────────
+    initial_participants_text: str = "No participants yet. Updated when entering rooms."
+    """Initial value for participants memory block."""
+
+    initial_room_contexts_text: str = (
+        "No room contexts yet. Update this as you interact in different rooms."
+    )
+    """Initial value for room_contexts memory block (SHARED mode only)."""

@@ -131,7 +131,7 @@ class MemoryManager:
             current_contexts = await self.get_room_contexts(agent_id)
 
             # Store condensed summary
-            current_contexts[room_id] = f"Summary: {summary[:200]}"
+            current_contexts[room_id] = f"Summary: {summary}"
 
             formatted = self._format_room_contexts(current_contexts)
 

@@ -557,6 +557,13 @@ uv run python examples/run_agent.py --example letta_shared --agent darter \
     --letta-url http://localhost:8283 \
     --mcp-url http://localhost:8002/sse
 
+# Letta with custom tool configuration
+uv run python examples/run_agent.py --example letta_shared --agent darter \
+    --letta-url http://localhost:8283 \
+    --mcp-url http://localhost:8002/sse \
+    --letta-mcp-tools "create_agent_chat_message,list_agent_peers" \
+    --letta-base-tools "memory,conversation_search"
+
 # A2A Adapter (call external A2A agents from Thenvoi)
 uv run python examples/run_agent.py --example a2a --a2a-url http://localhost:10000
 

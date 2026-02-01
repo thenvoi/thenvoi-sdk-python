@@ -147,29 +147,40 @@ def register_thenvoi_tools(client: "Letta") -> dict[str, str]:
 def get_letta_tool_ids(
     client: "Letta",
     thenvoi_tool_ids: dict[str, str],
-    include_memory_tools: bool = True,
+    letta_base_tools: list[str] | None = None,
 ) -> list[str]:
     """
     Get tool IDs to attach to a Letta agent.
 
-    Includes Thenvoi tools and optionally Letta's memory tools.
+    Includes Thenvoi tools and Letta's base tools.
 
     Args:
         client: Letta client instance
         thenvoi_tool_ids: Dict from register_thenvoi_tools()
-        include_memory_tools: Whether to include memory_replace, memory_insert, etc.
+        letta_base_tools: List of Letta base tool names to include.
+            If None, uses default set: ['memory', 'conversation_search',
+            'archival_memory_insert', 'archival_memory_search']
 
     Returns:
         List of tool IDs to pass to agents.create(tool_ids=...)
     """
     tool_ids = list(thenvoi_tool_ids.values())
 
-    if include_memory_tools:
-        # Find Letta's built-in memory tools
-        memory_tool_names = {"memory_replace", "memory_insert", "conversation_search"}
-        for tool in client.tools.list():
-            if tool.name in memory_tool_names and "letta" in (tool.tags or []):
-                tool_ids.append(tool.id)
+    # Use provided list or defaults
+    tool_names = (
+        set(letta_base_tools)
+        if letta_base_tools
+        else {
+            "memory",
+            "conversation_search",
+            "archival_memory_insert",
+            "archival_memory_search",
+        }
+    )
+
+    for tool in client.tools.list():
+        if tool.name in tool_names:
+            tool_ids.append(tool.id)
 
     return tool_ids
 

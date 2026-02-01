@@ -280,7 +280,11 @@ class LettaAdapter(SimpleAdapter[list[dict[str, Any]]]):
 
         # Get all tool IDs: memory tools + MCP tools
         # IMPORTANT: We must combine them, not replace one with the other
-        memory_tool_ids = get_letta_tool_ids(self.client, self._thenvoi_tool_ids)
+        memory_tool_ids = get_letta_tool_ids(
+            self.client,
+            self._thenvoi_tool_ids,
+            letta_base_tools=self.config.letta_base_tools,
+        )
         mcp_tool_ids = self._get_mcp_tool_ids()
         all_tool_ids = list(set(memory_tool_ids + mcp_tool_ids))
 
@@ -319,9 +323,9 @@ class LettaAdapter(SimpleAdapter[list[dict[str, Any]]]):
         mcp_server = None
         try:
             mcp_server = self.client.mcp_servers.create(
-                server_name="thenvoi",
-                config={
-                    "mcp_server_type": "sse",
+                server_name=self.config.mcp_server_name,
+                config={  # type: ignore[arg-type]
+                    "mcp_server_type": self.config.mcp_server_type,
                     "server_url": self.config.mcp_server_url,
                 },
             )
@@ -332,7 +336,7 @@ class LettaAdapter(SimpleAdapter[list[dict[str, Any]]]):
             try:
                 servers = self.client.mcp_servers.list()
                 for server in servers:
-                    if server.server_name == "thenvoi":
+                    if server.server_name == self.config.mcp_server_name:
                         mcp_server = server
                         logger.info(f"Found existing MCP server: {mcp_server.id}")
                         break
@@ -360,22 +364,18 @@ class LettaAdapter(SimpleAdapter[list[dict[str, Any]]]):
             return []
 
         # Agent tools that should be attached to Letta agents
-        AGENT_TOOL_NAMES = {
-            "create_agent_chat_message",
-            "create_agent_chat_event",
-            "add_agent_chat_participant",
-            "remove_agent_chat_participant",
-            "list_agent_chat_participants",
-            "list_agent_chats",
-            "list_agent_peers",
-            "get_agent_chat",
-            "get_agent_chat_context",
-            "get_agent_me",
-            "mark_agent_message_processed",
-            "mark_agent_message_processing",
-            "mark_agent_message_failed",
-            "create_agent_chat",
-        }
+        # Use config or defaults
+        tool_names = (
+            set(self.config.mcp_tools)
+            if self.config.mcp_tools
+            else {
+                "add_agent_chat_participant",
+                "create_agent_chat_event",
+                "create_agent_chat_message",
+                "list_agent_chat_participants",
+                "list_agent_peers",
+            }
+        )
 
         try:
             # Get tools from MCP server via client.mcp_servers.tools.list()
@@ -384,7 +384,7 @@ class LettaAdapter(SimpleAdapter[list[dict[str, Any]]]):
             )
 
             # Filter to only include agent tools
-            agent_tools = [t for t in tools if t.name in AGENT_TOOL_NAMES]
+            agent_tools = [t for t in tools if t.name in tool_names]
             tool_ids = [tool.id for tool in agent_tools]
 
             logger.info(
@@ -434,7 +434,11 @@ class LettaAdapter(SimpleAdapter[list[dict[str, Any]]]):
         persona = self.config.persona or self._thenvoi_agent_description
 
         # Get ALL tool IDs: memory tools + MCP tools
-        memory_tool_ids = get_letta_tool_ids(self.client, self._thenvoi_tool_ids)
+        memory_tool_ids = get_letta_tool_ids(
+            self.client,
+            self._thenvoi_tool_ids,
+            letta_base_tools=self.config.letta_base_tools,
+        )
         mcp_tool_ids = self._get_mcp_tool_ids()
         all_tool_ids = list(set(memory_tool_ids + mcp_tool_ids))
 
@@ -459,11 +463,11 @@ class LettaAdapter(SimpleAdapter[list[dict[str, Any]]]):
                 },
                 {
                     "label": "participants",
-                    "value": "No participants yet. Updated when entering rooms.",
+                    "value": self.config.initial_participants_text,
                 },
                 {
                     "label": "room_contexts",
-                    "value": "No room contexts yet. Update this as you interact in different rooms.",
+                    "value": self.config.initial_room_contexts_text,
                 },
             ],
             system=system_prompt,
@@ -599,7 +603,11 @@ class LettaAdapter(SimpleAdapter[list[dict[str, Any]]]):
         persona = self.config.persona or self._thenvoi_agent_description
 
         # Get ALL tool IDs: memory tools + MCP tools
-        memory_tool_ids = get_letta_tool_ids(self.client, self._thenvoi_tool_ids)
+        memory_tool_ids = get_letta_tool_ids(
+            self.client,
+            self._thenvoi_tool_ids,
+            letta_base_tools=self.config.letta_base_tools,
+        )
         mcp_tool_ids = self._get_mcp_tool_ids()
         all_tool_ids = list(set(memory_tool_ids + mcp_tool_ids))
 
@@ -615,7 +623,7 @@ class LettaAdapter(SimpleAdapter[list[dict[str, Any]]]):
         filtered_participants = self._filter_participants_for_mentions(participants)
 
         agent = self.client.agents.create(
-            name=f"{self._thenvoi_agent_name}-{room_id[:8]}",
+            name=f"{self._thenvoi_agent_name}-{room_id[: self.config.room_id_suffix_length]}",
             description=self._thenvoi_agent_description
             or f"Letta agent for {self._thenvoi_agent_name}",
             model=self.config.model,
@@ -1070,16 +1078,17 @@ Do NOT mention yourself ({self._thenvoi_agent_name}) - you cannot send messages 
     def _extract_summary(self, content: list[str]) -> str:
         """Extract a brief summary from assistant response."""
         full_text = " ".join(content)
+        max_len = self.config.summary_max_length
 
-        # Simple heuristic: first 150 chars or first sentence
-        if len(full_text) <= 150:
+        # Simple heuristic: first max_len chars or first sentence
+        if len(full_text) <= max_len:
             return full_text.strip()
 
         # Try to find first sentence
         for end_char in (".", "!", "?"):
             idx = full_text.find(end_char)
-            if 0 < idx < 150:
+            if 0 < idx < max_len:
                 return full_text[: idx + 1].strip()
 
         # Fall back to truncation
-        return full_text[:147].strip() + "..."
+        return full_text[: max_len - 3].strip() + "..."
