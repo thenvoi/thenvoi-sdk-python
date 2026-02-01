@@ -32,7 +32,18 @@ from thenvoi.core.types import PlatformMessage
 # Test Configuration
 # ══════════════════════════════════════════════════════════════════════════════
 
+# Load settings from .env.test if present
+from pathlib import Path
+from dotenv import load_dotenv
+
+_env_test_path = Path(__file__).parent.parent.parent.parent / ".env.test"
+if _env_test_path.exists():
+    load_dotenv(_env_test_path)
+
 LETTA_BASE_URL = os.getenv("LETTA_BASE_URL", "http://localhost:8283")
+LETTA_MCP_SERVER_URL = os.getenv(
+    "LETTA_MCP_SERVER_URL", "http://mcp-agent-darter:8000/sse"
+)
 
 
 def letta_server_available() -> bool:
@@ -504,7 +515,8 @@ class TestAdapterEndToEnd:
             model="openai/gpt-4o-mini",
             embedding_model="openai/text-embedding-3-small",
             persona="Test assistant",
-            mcp_server_url="http://host.docker.internal:8002/sse",
+            mcp_server_url=LETTA_MCP_SERVER_URL,
+            api_timeout=10,
         )
 
         adapter = LettaAdapter(
@@ -566,7 +578,8 @@ class TestAdapterEndToEnd:
             model="openai/gpt-4o-mini",
             embedding_model="openai/text-embedding-3-small",
             persona="Test assistant",
-            mcp_server_url="http://host.docker.internal:8002/sse",
+            mcp_server_url=LETTA_MCP_SERVER_URL,
+            api_timeout=10,
         )
 
         adapter = LettaAdapter(

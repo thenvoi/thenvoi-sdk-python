@@ -57,6 +57,9 @@ class DefaultPreprocessor(Preprocessor):
             logger.debug(f"Room {room_id}: Skipping own message {msg_data.id}")
             return None
 
+        # Load participants first (needed for sender name lookup and participant messages)
+        await ctx.load_participants()
+
         # Look up sender name from participants list
         sender_name = self._lookup_sender_name(ctx, msg_data.sender_id)
 
@@ -83,9 +86,6 @@ class DefaultPreprocessor(Preprocessor):
             if ctx.config.enable_context_hydration:
                 raw_history = await self._load_history(ctx, msg)
             ctx.mark_llm_initialized()
-
-        # Load participants (needed for participant message and mention resolution)
-        await ctx.load_participants()
 
         # Check participants
         participants_msg = check_and_format_participants(ctx)
