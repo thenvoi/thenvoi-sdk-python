@@ -84,7 +84,7 @@ class AnthropicAdapter(SimpleAdapter[AnthropicMessages]):
             agent_description=agent_description,
             custom_section=self.custom_section or "",
         )
-        logger.info(f"Anthropic adapter started for agent: {agent_name}")
+        logger.info("Anthropic adapter started for agent: %s", agent_name)
 
     # --- Adapted from ThenvoiAnthropicAgent._handle_message ---
     async def on_message(
@@ -106,7 +106,7 @@ class AnthropicAdapter(SimpleAdapter[AnthropicMessages]):
         - Participant list injected ONLY when it changes
         - Tool loop runs until no more tool_use blocks
         """
-        logger.debug(f"Handling message {msg.id} in room {room_id}")
+        logger.debug("Handling message %s in room %s", msg.id, room_id)
 
         # Initialize history for this room on first message
         # Note: history is already converted by SimpleAdapter via history_converter
@@ -118,7 +118,7 @@ class AnthropicAdapter(SimpleAdapter[AnthropicMessages]):
                 )
             else:
                 self._message_history[room_id] = []
-                logger.info(f"Room {room_id}: No historical messages found")
+                logger.info("Room %s: No historical messages found", room_id)
         elif room_id not in self._message_history:
             # Safety: ensure history exists even if not first message
             self._message_history[room_id] = []
@@ -131,7 +131,7 @@ class AnthropicAdapter(SimpleAdapter[AnthropicMessages]):
                     "content": f"[System]: {participants_msg}",
                 }
             )
-            logger.info(f"Room {room_id}: Participants updated")
+            logger.info("Room %s: Participants updated", room_id)
 
         # Add current message
         user_message = msg.format_for_llm()
@@ -165,7 +165,7 @@ class AnthropicAdapter(SimpleAdapter[AnthropicMessages]):
                     tools=tool_schemas,
                 )
             except Exception as e:
-                logger.error(f"Error calling Anthropic: {e}", exc_info=True)
+                logger.error("Error calling Anthropic: %s", e, exc_info=True)
                 await self._report_error(tools, str(e))
                 raise  # Re-raise so message is marked as failed
 
@@ -215,7 +215,7 @@ class AnthropicAdapter(SimpleAdapter[AnthropicMessages]):
         """Clean up message history when agent leaves a room."""
         if room_id in self._message_history:
             del self._message_history[room_id]
-            logger.debug(f"Room {room_id}: Cleaned up message history")
+            logger.debug("Room %s: Cleaned up message history", room_id)
 
     # --- Copied from ThenvoiAnthropicAgent._call_anthropic ---
     async def _call_anthropic(
@@ -302,7 +302,7 @@ class AnthropicAdapter(SimpleAdapter[AnthropicMessages]):
             tool_input = block.input
             tool_use_id = block.id
 
-            logger.debug(f"Executing tool: {tool_name} with input: {tool_input}")
+            logger.debug("Executing tool: %s with input: %s", tool_name, tool_input)
 
             # Report tool call if enabled (JSON format with tool_call_id for linking)
             if self.enable_execution_reporting:
@@ -333,7 +333,7 @@ class AnthropicAdapter(SimpleAdapter[AnthropicMessages]):
             except Exception as e:
                 result_str = f"Error: {e}"
                 is_error = True
-                logger.error(f"Tool {tool_name} failed: {e}")
+                logger.error("Tool %s failed: %s", tool_name, e)
 
             # Report tool result if enabled (JSON format with tool_call_id for linking)
             if self.enable_execution_reporting:

@@ -65,7 +65,7 @@ async def call_peer_agent(
         )
         return response
     except Exception as e:
-        logger.error(f"Error calling peer '{peer_id}': {e}")
+        logger.error("Error calling peer '%s': %s", peer_id, e)
         return f"Error calling peer '{peer_id}': {e}"
 
 
@@ -83,12 +83,15 @@ class OrchestratorAgent:
     requests to specialized peers available via the A2A Gateway.
 
     Example:
+        import logging
+        logger = logging.getLogger(__name__)
+
         agent = OrchestratorAgent(
             gateway_url="http://localhost:10000",
             available_peers=["weather", "servicenow"],
         )
         async for item in agent.stream("What's the weather in NYC?", "ctx-123"):
-            print(item)
+            logger.info("%s", item)
     """
 
     SYSTEM_INSTRUCTION = """You are an orchestrator agent that helps users by routing their requests to specialized agents on the Thenvoi platform.

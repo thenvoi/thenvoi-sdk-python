@@ -116,7 +116,7 @@ async def main() -> None:
     async with p.Server() as server:
         # Create support agent with guidelines
         parlant_agent = await setup_support_agent(server)
-        logger.info(f"Support agent created: {parlant_agent.id}")
+        logger.info("Support agent created: %s", parlant_agent.id)
 
         # Create adapter using Parlant SDK directly
         adapter = ParlantAdapter(

@@ -99,7 +99,7 @@ class OrchestratorAgentExecutor(AgentExecutor):
                     break
 
         except Exception as e:
-            logger.error(f"Error executing orchestrator agent: {e}")
+            logger.error("Error executing orchestrator agent: %s", e)
             raise ServerError(error=InternalError()) from e
 
     async def cancel(

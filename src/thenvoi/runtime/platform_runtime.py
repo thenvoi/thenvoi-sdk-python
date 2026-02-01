@@ -98,7 +98,7 @@ class PlatformRuntime:
         )
 
         await self._fetch_agent_metadata()
-        logger.debug(f"Platform runtime initialized for agent: {self._agent_name}")
+        logger.debug("Platform runtime initialized for agent: %s", self._agent_name)
 
     async def start(
         self,
@@ -130,7 +130,7 @@ class PlatformRuntime:
         )
 
         await self._runtime.start()
-        logger.info(f"Platform runtime started for agent: {self._agent_name}")
+        logger.info("Platform runtime started for agent: %s", self._agent_name)
 
     async def stop(self, timeout: float | None = None) -> bool:
         """
@@ -171,7 +171,7 @@ class PlatformRuntime:
 
         self._agent_name = agent.name
         self._agent_description = agent.description
-        logger.debug(f"Fetched metadata for agent: {self._agent_name}")
+        logger.debug("Fetched metadata for agent: %s", self._agent_name)
 
     @staticmethod
     async def _noop_cleanup(room_id: str) -> None:

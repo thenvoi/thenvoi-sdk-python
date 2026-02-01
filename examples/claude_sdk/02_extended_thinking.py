@@ -80,7 +80,7 @@ complex problem-solving. When faced with challenging questions:
     )
 
     logger.info("Starting Claude SDK agent with extended thinking...")
-    logger.info(f"Agent ID: {agent_id}")
+    logger.info("Agent ID: %s", agent_id)
     logger.info("Max thinking tokens: 10000")
     logger.info("Press Ctrl+C to stop")
 

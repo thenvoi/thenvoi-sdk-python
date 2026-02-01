@@ -82,6 +82,9 @@ class GracefulShutdown:
                 await agent.run()
 
     Example (manual signal handling):
+        import logging
+        logger = logging.getLogger(__name__)
+
         agent = Agent.create(...)
 
         async def main():
@@ -89,7 +92,7 @@ class GracefulShutdown:
 
             # Register custom signal behavior
             def on_signal(signum):
-                print(f"Received signal {signum}, shutting down...")
+                logger.info("Received signal %s, shutting down...", signum)
 
             shutdown.on_signal = on_signal
             shutdown.register_signals()

@@ -77,7 +77,7 @@ async def main() -> None:
     )
 
     logger.info("Jerry is cozy in his hole, watching for Tom...")
-    logger.info(f"Agent ID: {agent_id}")
+    logger.info("Agent ID: %s", agent_id)
     logger.info("Press Ctrl+C to stop")
 
     try:

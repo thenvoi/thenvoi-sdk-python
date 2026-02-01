@@ -305,7 +305,7 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
                 return await coro_factory(tools)
             except Exception as e:
                 error_msg = str(e)
-                logger.error(f"{tool_name} failed in room {room_id}: {error_msg}")
+                logger.error("%s failed in room %s: %s", tool_name, room_id, error_msg)
                 # Report error if execution reporting is enabled
                 await adapter._report_tool_result(
                     tools, tool_name, error_msg, is_error=True
@@ -671,7 +671,7 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
         room_id: str,
     ) -> None:
         """Handle incoming message using CrewAI agent."""
-        logger.debug(f"Handling message {msg.id} in room {room_id}")
+        logger.debug("Handling message %s in room %s", msg.id, room_id)
 
         if not self._crewai_agent:
             raise RuntimeError(
@@ -717,7 +717,7 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
                 )
             else:
                 self._message_history[room_id] = []
-                logger.info(f"Room {room_id}: No historical messages found")
+                logger.info("Room %s: No historical messages found", room_id)
         elif room_id not in self._message_history:
             self._message_history[room_id] = []
 
@@ -741,7 +741,7 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
                     "content": f"[System]: {participants_msg}",
                 }
             )
-            logger.info(f"Room {room_id}: Participants updated")
+            logger.info("Room %s: Participants updated", room_id)
 
         user_message = msg.format_for_llm()
         messages.append({"role": "user", "content": user_message})
@@ -781,7 +781,7 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
             )
 
         except Exception as e:
-            logger.error(f"Error processing message: {e}", exc_info=True)
+            logger.error("Error processing message: %s", e, exc_info=True)
             await self._report_error(tools, str(e))
             raise
 
@@ -794,7 +794,7 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
         """Clean up message history when agent leaves a room."""
         if room_id in self._message_history:
             del self._message_history[room_id]
-            logger.debug(f"Room {room_id}: Cleaned up CrewAI session")
+            logger.debug("Room %s: Cleaned up CrewAI session", room_id)
 
     async def _report_error(self, tools: AgentToolsProtocol, error: str) -> None:
         """Send error event (best effort)."""

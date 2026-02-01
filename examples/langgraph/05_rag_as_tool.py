@@ -67,7 +67,7 @@ async def main() -> None:
     agent_id, api_key = load_agent_config("rag_agent")
 
     if agent_id:
-        logger.info(f"Using existing agent ID from config: {agent_id}")
+        logger.info("Using existing agent ID from config: %s", agent_id)
 
     logger.info("Step 1: Creating standalone Agentic RAG graph...")
     logger.info("(This may take a moment to load and index blog posts)")

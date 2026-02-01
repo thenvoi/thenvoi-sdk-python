@@ -34,15 +34,18 @@ class RoomPresence:
     - _subscribe_to_existing_rooms() -> start() auto-subscription
 
     Example:
+        import logging
+        logger = logging.getLogger(__name__)
+
         link = ThenvoiLink(agent_id, api_key, ...)
         presence = RoomPresence(link)
 
         async def on_joined(room_id: str, payload: dict):
-            print(f"Joined room {room_id}")
+            logger.info("Joined room %s", room_id)
 
         async def on_event(room_id: str, event: PlatformEvent):
             if isinstance(event, MessageEvent):
-                print(f"Message in {room_id}: {event.payload.content}")
+                logger.info("Message in %s: %s", room_id, event.payload.content)
 
         presence.on_room_joined = on_joined
         presence.on_room_event = on_event
@@ -106,7 +109,7 @@ class RoomPresence:
         # Spawn task to consume events from link's async iterator
         self._event_task = asyncio.create_task(self._consume_events())
 
-        logger.info(f"RoomPresence started for agent {self.link.agent_id}")
+        logger.info("RoomPresence started for agent %s", self.link.agent_id)
 
     async def _consume_events(self) -> None:
         """Consume events from link's async iterator."""
@@ -116,7 +119,7 @@ class RoomPresence:
         except asyncio.CancelledError:
             logger.debug("Event consumer task cancelled")
         except Exception as e:
-            logger.error(f"Error in event consumer: {e}", exc_info=True)
+            logger.error("Error in event consumer: %s", e, exc_info=True)
 
     async def stop(self) -> None:
         """
@@ -140,7 +143,7 @@ class RoomPresence:
                 try:
                     await self.on_room_left(room_id)
                 except Exception as e:
-                    logger.warning(f"on_room_left error for {room_id}: {e}")
+                    logger.warning("on_room_left error for %s: %s", room_id, e)
 
         self.rooms.clear()
         logger.info("RoomPresence stopped")
@@ -175,7 +178,7 @@ class RoomPresence:
 
         # Apply filter if configured
         if self.room_filter and not self.room_filter(payload):
-            logger.debug(f"Room {room_id} filtered out")
+            logger.debug("Room %s filtered out", room_id)
             return
 
         # Track room
@@ -189,9 +192,11 @@ class RoomPresence:
             try:
                 await self.on_room_joined(room_id, payload)
             except Exception as e:
-                logger.error(f"on_room_joined error for {room_id}: {e}", exc_info=True)
+                logger.error(
+                    "on_room_joined error for %s: %s", room_id, e, exc_info=True
+                )
 
-        logger.info(f"Agent joined room: {room_id}")
+        logger.info("Agent joined room: %s", room_id)
 
     async def _handle_room_removed(self, event: RoomRemovedEvent) -> None:
         """
@@ -215,9 +220,9 @@ class RoomPresence:
             try:
                 await self.on_room_left(room_id)
             except Exception as e:
-                logger.error(f"on_room_left error for {room_id}: {e}", exc_info=True)
+                logger.error("on_room_left error for %s: %s", room_id, e, exc_info=True)
 
-        logger.info(f"Agent left room: {room_id}")
+        logger.info("Agent left room: %s", room_id)
 
     async def _handle_room_event(self, event: PlatformEvent) -> None:
         """
@@ -231,14 +236,16 @@ class RoomPresence:
 
         # Only forward events for rooms we're tracking
         if room_id not in self.rooms:
-            logger.debug(f"Event for untracked room {room_id}, ignoring")
+            logger.debug("Event for untracked room %s, ignoring", room_id)
             return
 
         if self.on_room_event:
             try:
                 await self.on_room_event(room_id, event)
             except Exception as e:
-                logger.error(f"on_room_event error for {room_id}: {e}", exc_info=True)
+                logger.error(
+                    "on_room_event error for %s: %s", room_id, e, exc_info=True
+                )
 
     async def _subscribe_to_existing_rooms(self) -> None:
         """
@@ -278,7 +285,7 @@ class RoomPresence:
                             f"on_room_joined error for {room_id}: {e}", exc_info=True
                         )
 
-            logger.info(f"Subscribed to {len(self.rooms)} existing rooms")
+            logger.info("Subscribed to %s existing rooms", len(self.rooms))
 
         except Exception as e:
-            logger.warning(f"Failed to subscribe to existing rooms: {e}")
+            logger.warning("Failed to subscribe to existing rooms: %s", e)

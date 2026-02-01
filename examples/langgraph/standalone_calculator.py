@@ -82,14 +82,14 @@ if __name__ == "__main__":
             {"operation": "add", "a": 5, "b": 3},
             {"configurable": {"thread_id": "test-1"}},
         )
-        logger.info(f"5 + 3 = {result['result']}")
+        logger.info("5 + 3 = %s", result["result"])
 
         # Test multiplication
         result = await calc.ainvoke(
             {"operation": "multiply", "a": 7, "b": 6},
             {"configurable": {"thread_id": "test-2"}},
         )
-        logger.info(f"7 * 6 = {result['result']}")
+        logger.info("7 * 6 = %s", result["result"])
 
         # Test division by zero (should raise error)
         try:
@@ -98,6 +98,6 @@ if __name__ == "__main__":
                 {"configurable": {"thread_id": "test-3"}},
             )
         except ValueError as e:
-            logger.info(f"Division by zero error: {e}")
+            logger.info("Division by zero error: %s", e)
 
     asyncio.run(test())

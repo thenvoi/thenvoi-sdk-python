@@ -222,7 +222,7 @@ class ExecutionContext:
     def mark_llm_initialized(self) -> None:
         """Mark that system prompt has been sent to LLM."""
         self._llm_initialized = True
-        logger.debug(f"ExecutionContext {self.room_id}: LLM initialized")
+        logger.debug("ExecutionContext %s: LLM initialized", self.room_id)
 
     # --- Execution protocol implementation ---
 
@@ -233,10 +233,10 @@ class ExecutionContext:
         Creates an asyncio task that processes events from the queue.
         """
         if self._is_running:
-            logger.warning(f"ExecutionContext {self.room_id} already running")
+            logger.warning("ExecutionContext %s already running", self.room_id)
             return
 
-        logger.info(f"Starting ExecutionContext for room: {self.room_id}")
+        logger.info("Starting ExecutionContext for room: %s", self.room_id)
         self._is_running = True
         self._process_loop_task = asyncio.create_task(
             self._process_loop(),
@@ -262,7 +262,7 @@ class ExecutionContext:
         if self._process_loop_task is None:
             return True
 
-        logger.info(f"Stopping ExecutionContext for room: {self.room_id}")
+        logger.info("Stopping ExecutionContext for room: %s", self.room_id)
 
         graceful = True
 
@@ -318,10 +318,10 @@ class ExecutionContext:
             msg_id = event.payload.id if event.payload else None
             if msg_id:
                 self._first_ws_msg_id = msg_id
-                logger.debug(f"Sync point marker set: {msg_id}")
+                logger.debug("Sync point marker set: %s", msg_id)
 
         self.queue.put_nowait(event)
-        logger.debug(f"Event {event.type} enqueued for room {self.room_id}")
+        logger.debug("Event %s enqueued for room %s", event.type, self.room_id)
 
     # --- Participant management ---
 
@@ -388,7 +388,9 @@ class ExecutionContext:
                 ]
             self._participants_loaded = True
         except Exception as e:
-            logger.warning(f"Failed to load participants for room {self.room_id}: {e}")
+            logger.warning(
+                "Failed to load participants for room %s: %s", self.room_id, e
+            )
             self._participants_loaded = True
 
         return self._participants
@@ -410,7 +412,7 @@ class ExecutionContext:
 
         # Skip hydration if disabled
         if not self.config.enable_context_hydration:
-            logger.debug(f"Context hydration disabled for room: {self.room_id}")
+            logger.debug("Context hydration disabled for room: %s", self.room_id)
             self._context_cache = ConversationContext(
                 room_id=self.room_id,
                 messages=[],
@@ -420,7 +422,7 @@ class ExecutionContext:
             self._context_hydrated = True
             return
 
-        logger.debug(f"Hydrating context for room: {self.room_id}")
+        logger.debug("Hydrating context for room: %s", self.room_id)
 
         try:
             # Load participants first
@@ -464,7 +466,7 @@ class ExecutionContext:
             )
 
         except Exception as e:
-            logger.warning(f"Context hydration failed: {e}")
+            logger.warning("Context hydration failed: %s", e)
             self._context_cache = ConversationContext(
                 room_id=self.room_id,
                 messages=[],
@@ -568,11 +570,13 @@ class ExecutionContext:
                 await self._process_event(event)
 
         except asyncio.CancelledError:
-            logger.debug(f"ExecutionContext {self.room_id} cancelled")
+            logger.debug("ExecutionContext %s cancelled", self.room_id)
         except Exception as e:
-            logger.error(f"ExecutionContext {self.room_id} error: {e}", exc_info=True)
+            logger.error(
+                "ExecutionContext %s error: %s", self.room_id, e, exc_info=True
+            )
 
-        logger.debug(f"ExecutionContext {self.room_id} loop exited")
+        logger.debug("ExecutionContext %s loop exited", self.room_id)
 
     async def _synchronize_with_next(self) -> None:
         """
@@ -585,7 +589,9 @@ class ExecutionContext:
         4. If match → synced! Process this message, pop duplicate from queue
         5. If no match → process /next message, repeat from step 1
         """
-        logger.debug(f"ExecutionContext {self.room_id}: Starting /next synchronization")
+        logger.debug(
+            "ExecutionContext %s: Starting /next synchronization", self.room_id
+        )
 
         try:
             while True:  # Cancellation handles exit
@@ -643,7 +649,7 @@ class ExecutionContext:
                 f"ExecutionContext {self.room_id}: Sync error: {e}", exc_info=True
             )
 
-        logger.debug(f"ExecutionContext {self.room_id}: Synchronization complete")
+        logger.debug("ExecutionContext %s: Synchronization complete", self.room_id)
         self._sync_complete = True
 
     async def _get_next_message(self) -> PlatformMessage | None:
@@ -674,18 +680,18 @@ class ExecutionContext:
             and msg.sender_type == "Agent"
             and msg.sender_id == self._agent_id
         ):
-            logger.debug(f"Skipping self-message {msg_id}")
+            logger.debug("Skipping self-message %s", msg_id)
             return
 
         # Skip permanently failed messages
         if self._retry_tracker.is_permanently_failed(msg_id):
-            logger.debug(f"Skipping permanently failed message {msg_id}")
+            logger.debug("Skipping permanently failed message %s", msg_id)
             return
 
         # Skip if already processed (dedupe)
         if msg_id in self._processed_ids:
             self._processed_ids.move_to_end(msg_id)
-            logger.debug(f"Skipping duplicate backlog message: {msg_id}")
+            logger.debug("Skipping duplicate backlog message: %s", msg_id)
             return
 
         # Track attempts - check if exceeded BEFORE processing
@@ -697,7 +703,7 @@ class ExecutionContext:
             return
 
         self._set_state("processing")
-        logger.info(f"Processing backlog message {msg_id} in room {self.room_id}")
+        logger.info("Processing backlog message %s in room %s", msg_id, self.room_id)
 
         try:
             # Mark as processing on server BEFORE we start
@@ -765,7 +771,7 @@ class ExecutionContext:
             if len(self._processed_ids) > self._max_processed_ids:
                 self._processed_ids.popitem(last=False)
 
-            logger.debug(f"Message {msg_id} processed successfully")
+            logger.debug("Message %s processed successfully", msg_id)
 
         except Exception as e:
             # FAILURE: Mark as failed on server
@@ -793,7 +799,7 @@ class ExecutionContext:
                     and event.payload
                     and event.payload.id == msg_id
                 ):
-                    logger.debug(f"Removed duplicate from WS queue: {msg_id}")
+                    logger.debug("Removed duplicate from WS queue: %s", msg_id)
                     continue
                 items.append(event)
             except asyncio.QueueEmpty:
@@ -825,18 +831,18 @@ class ExecutionContext:
                 and payload.sender_type == "Agent"
                 and payload.sender_id == self._agent_id
             ):
-                logger.debug(f"Skipping self-message {msg_id}")
+                logger.debug("Skipping self-message %s", msg_id)
                 return
 
             # Skip permanently failed messages
             if self._retry_tracker.is_permanently_failed(msg_id):
-                logger.debug(f"Skipping permanently failed message {msg_id}")
+                logger.debug("Skipping permanently failed message %s", msg_id)
                 return
 
             # Skip duplicates
             if msg_id in self._processed_ids:
                 self._processed_ids.move_to_end(msg_id)
-                logger.debug(f"Skipping duplicate message {msg_id}")
+                logger.debug("Skipping duplicate message %s", msg_id)
                 return
 
             # Track attempts
@@ -848,7 +854,7 @@ class ExecutionContext:
                 return
 
         self._set_state("processing")
-        logger.debug(f"Processing {event.type} in room {self.room_id}")
+        logger.debug("Processing %s in room %s", event.type, self.room_id)
 
         try:
             # For messages: mark as processing on server
@@ -878,10 +884,10 @@ class ExecutionContext:
                 if len(self._processed_ids) > self._max_processed_ids:
                     self._processed_ids.popitem(last=False)
 
-            logger.debug(f"Event {event.type} processed successfully")
+            logger.debug("Event %s processed successfully", event.type)
 
         except Exception as e:
-            logger.error(f"Error processing {event.type}: {e}", exc_info=True)
+            logger.error("Error processing %s: %s", event.type, e, exc_info=True)
             # For messages: mark as failed on server
             if isinstance(event, MessageEvent) and msg_id:
                 await self.link.mark_failed(self.room_id, msg_id, str(e))
