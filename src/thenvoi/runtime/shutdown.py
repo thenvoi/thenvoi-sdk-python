@@ -187,6 +187,16 @@ class GracefulShutdown:
             signum: The signal number received.
         """
         sig_name = signal.Signals(signum).name
+
+        # Guard against multiple signals - once shutdown starts, ignore subsequent signals
+        if self._shutting_down or self._shutdown_task is not None:
+            logger.info(
+                "Received %s, but shutdown already in progress. "
+                "Please wait for cleanup to complete (or send SIGKILL to force exit).",
+                sig_name,
+            )
+            return
+
         logger.info("Received %s, initiating graceful shutdown...", sig_name)
 
         # Call user callback if provided
@@ -200,11 +210,6 @@ class GracefulShutdown:
         if self._shutdown_event:
             self._shutdown_event.set()
 
-        # Guard against multiple signals triggering multiple shutdown tasks
-        # Use flag to prevent race between check and task creation
-        if self._shutting_down or self._shutdown_task is not None:
-            logger.debug("Shutdown already in progress, ignoring signal")
-            return
         self._shutting_down = True
 
         # Schedule the shutdown coroutine.
@@ -219,16 +224,27 @@ class GracefulShutdown:
         Perform graceful shutdown of the agent.
 
         Waits for current processing to complete within timeout,
-        then stops the agent.
+        then stops the agent. The shutdown is shielded from cancellation
+        to ensure cleanup completes even if additional signals arrive.
         """
         logger.info("Shutting down agent (timeout: %ss)...", self.timeout)
+        logger.info("Please wait for cleanup to complete...")
 
         try:
-            graceful = await self.agent.stop(timeout=self.timeout)
+            # Shield the stop() call from cancellation so cleanup can complete
+            # even if additional signals arrive
+            graceful = await asyncio.shield(self.agent.stop(timeout=self.timeout))
             if graceful:
                 logger.info("Agent shut down gracefully")
             else:
                 logger.warning("Agent shut down with processing interrupted")
+        except asyncio.CancelledError:
+            # Even if cancelled, try to complete the shutdown
+            logger.warning("Shutdown was cancelled, forcing immediate stop...")
+            try:
+                await self.agent.stop(timeout=5.0)  # Quick cleanup attempt
+            except Exception:
+                pass
         except Exception as e:
             logger.error("Error during shutdown: %s", e, exc_info=True)
 

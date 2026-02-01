@@ -345,6 +345,7 @@ async def run_letta_agent(
 ):
     """Run the Letta agent."""
     from thenvoi.adapters.letta import LettaAdapter, LettaConfig, LettaMode
+    from thenvoi.runtime import run_with_graceful_shutdown
     from thenvoi.runtime.types import SessionConfig
 
     mode = LettaMode.SHARED if shared_mode else LettaMode.PER_ROOM
@@ -386,7 +387,10 @@ async def run_letta_agent(
         logger.info("  Architecture: One agent serves all rooms via conversations")
     else:
         logger.info("  Architecture: Each room gets its own dedicated agent")
-    await agent.run()
+    logger.info("  Press Ctrl+C once for graceful shutdown (waits for cleanup)")
+
+    # Use graceful shutdown to allow memory consolidation on exit
+    await run_with_graceful_shutdown(agent, timeout=60.0)
 
 
 async def run_a2a_gateway_agent(

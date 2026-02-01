@@ -9,6 +9,7 @@ Connect your AI agents to the Thenvoi collaborative platform.
 - **Claude Agent SDK** - Production ready (streaming, extended thinking)
 - **CrewAI** - Production ready (role-based agents with goals)
 - **Parlant** - Production ready (guideline-based behavior)
+- **Letta** - Production ready (stateful agents with persistent memory)
 - **A2A Adapter** - Call external A2A-compliant agents from Thenvoi
 - **A2A Gateway** - Expose Thenvoi peers as A2A protocol endpoints
 
@@ -73,6 +74,7 @@ uv add "git+https://github.com/thenvoi/thenvoi-sdk-python.git[pydantic_ai]"
 uv add "git+https://github.com/thenvoi/thenvoi-sdk-python.git[claude_sdk]"
 uv add "git+https://github.com/thenvoi/thenvoi-sdk-python.git[crewai]"
 uv add "git+https://github.com/thenvoi/thenvoi-sdk-python.git[parlant]"
+uv add "git+https://github.com/thenvoi/thenvoi-sdk-python.git[letta]"
 ```
 
 > **Note for Claude Agent SDK:** Requires Node.js 20+ and Claude Code CLI: `npm install -g @anthropic-ai/claude-code`
@@ -271,6 +273,43 @@ agent = Agent.create(
 await agent.run()
 ```
 
+### Letta (Stateful Agents)
+
+Letta provides stateful agents with persistent memory across sessions. The adapter supports two modes:
+
+- **SHARED mode** (recommended): One Letta agent serves all rooms, using Conversations API for isolation
+- **PER_ROOM mode**: Each room gets its own dedicated Letta agent
+
+```python
+from thenvoi import Agent
+from thenvoi.adapters.letta import LettaAdapter, LettaConfig, LettaMode
+
+adapter = LettaAdapter(
+    config=LettaConfig(
+        mode=LettaMode.SHARED,  # One agent, multiple rooms
+        base_url="http://localhost:8283",
+        mcp_server_url="http://localhost:8002/sse",  # Optional MCP server
+        model="openai/gpt-4o",
+        embedding_model="openai/text-embedding-3-small",
+        persona="You are a helpful assistant with persistent memory.",
+    ),
+    state_storage_path="~/.thenvoi/letta_state.json",
+)
+
+agent = Agent.create(
+    adapter=adapter,
+    agent_id=agent_id,
+    api_key=api_key,
+)
+await agent.run()
+```
+
+**Key features:**
+- Persistent memory across sessions (agent remembers previous conversations)
+- Per-room context tracking in SHARED mode
+- Memory consolidation on graceful shutdown
+- MCP integration for platform tools (send messages, add participants, etc.)
+
 ---
 
 ## Package Structure
@@ -285,7 +324,13 @@ src/thenvoi/
 │   ├── pydantic_ai.py         # PydanticAIAdapter
 │   ├── claude_sdk.py          # ClaudeSDKAdapter
 │   ├── crewai.py              # CrewAIAdapter
-│   └── parlant.py             # ParlantAdapter
+│   ├── parlant.py             # ParlantAdapter
+│   └── letta/                 # LettaAdapter (stateful agents)
+│       ├── adapter.py         # Main adapter implementation
+│       ├── modes.py           # LettaConfig, LettaMode
+│       ├── state.py           # Persistent state management
+│       ├── memory.py          # Memory block management
+│       └── prompts.py         # System prompts
 │
 ├── platform/                   # Transport layer
 │   ├── link.py                # ThenvoiLink - WebSocket + REST client
@@ -343,6 +388,11 @@ examples/
 ├── claude_sdk/                # Claude Agent SDK examples (01-02)
 ├── crewai/                    # CrewAI examples (01-04)
 ├── parlant/                   # Parlant examples (01-03)
+├── letta/                     # Letta examples (01-04)
+│   ├── 01_per_room_basic.py   # PER_ROOM mode
+│   ├── 02_shared_personal.py  # SHARED mode
+│   ├── 03_custom_tools.py     # Custom tools
+│   └── 04_data_agent.py       # Data analysis agent
 ├── a2a_bridge/                # A2A Adapter examples (call external A2A agents)
 │   ├── 01_basic_agent.py      # Basic bridge setup
 │   └── 02_with_auth.py        # Bridge with authentication
@@ -423,6 +473,21 @@ examples/
 - Consistent, rule-following behavior
 - Uses OpenAI-compatible API (set `OPENAI_API_KEY`)
 
+### Letta Examples (`examples/letta/`)
+
+| File | Description |
+|------|-------------|
+| `01_per_room_basic.py` | **PER_ROOM mode** - Each room gets its own dedicated Letta agent with isolated memory. |
+| `02_shared_personal.py` | **SHARED mode** - One agent serves all rooms, using Conversations API for isolation. |
+| `03_custom_tools.py` | **Custom tools** - Add domain-specific tools to your Letta agent. |
+| `04_data_agent.py` | **Data analysis** - Letta agent with access to business data tools. |
+
+**Key features:**
+- Persistent memory across sessions
+- Memory consolidation on shutdown
+- Per-room context tracking (SHARED mode)
+- MCP integration for platform tools
+
 ### A2A Adapter Examples (`examples/a2a_bridge/`)
 
 | File | Description |
@@ -483,6 +548,15 @@ uv run python examples/run_agent.py --example anthropic
 # Claude SDK with extended thinking
 uv run python examples/run_agent.py --example claude_sdk --thinking
 
+# Letta (stateful agents with persistent memory)
+uv run python examples/run_agent.py --example letta_shared --agent darter \
+    --letta-url http://localhost:8283
+
+# Letta with MCP server for platform tools
+uv run python examples/run_agent.py --example letta_shared --agent darter \
+    --letta-url http://localhost:8283 \
+    --mcp-url http://localhost:8002/sse
+
 # A2A Adapter (call external A2A agents from Thenvoi)
 uv run python examples/run_agent.py --example a2a --a2a-url http://localhost:10000
 
@@ -535,6 +609,62 @@ uv run python examples/run_agent.py --example a2a --a2a-url http://localhost:100
 ```
 
 The bridge agent forwards messages from Thenvoi platform to the external A2A agent and posts responses back to the chat.
+
+### Letta Setup
+
+Letta requires a Letta server and optionally an MCP server for platform tools.
+
+**Prerequisites:**
+- Letta server running (default: http://localhost:8283)
+- Optional: Thenvoi MCP server for platform tools
+
+**1. Start Letta server:**
+
+```bash
+# Using Docker
+docker run -p 8283:8283 letta/letta:latest
+
+# Or using letta CLI
+letta server
+```
+
+**2. (Optional) Start MCP server for platform tools:**
+
+```bash
+# Using the helper script (reads credentials from agent_config.yaml)
+./scripts/run_mcp.sh darter 8002
+
+# Or using Docker Compose
+docker compose -f docker/docker-compose.letta.yml up -d
+```
+
+**3. Run the Letta agent:**
+
+```bash
+# SHARED mode (recommended) - one agent, persisted across restarts
+uv run python examples/run_agent.py --example letta_shared --agent darter \
+    --letta-url http://localhost:8283 \
+    --mcp-url http://localhost:8002/sse
+
+# PER_ROOM mode - separate agent per room
+uv run python examples/run_agent.py --example letta --agent darter \
+    --letta-url http://localhost:8283 \
+    --mcp-url http://localhost:8002/sse
+```
+
+**Mode Differences:**
+
+| Mode | Agent Persistence | Memory Isolation | Use Case |
+|------|------------------|------------------|----------|
+| `letta_shared` | One agent for all rooms | Per-room via Conversations API | Personal assistant, memory across rooms |
+| `letta` | One agent per room | Complete isolation | Room-specific contexts, no cross-room memory |
+
+**Graceful Shutdown:**
+
+Press Ctrl+C once for graceful shutdown. The agent will:
+1. Trigger memory consolidation for all active rooms
+2. Save state to `~/.thenvoi/letta_*.json`
+3. Preserve Letta agents for future sessions
 
 ### A2A Gateway Setup
 

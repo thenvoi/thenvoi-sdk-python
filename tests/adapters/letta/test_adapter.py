@@ -263,10 +263,14 @@ class TestOnMessagePerRoom:
         mock_letta_client.agents.messages.create.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_sends_response_to_thenvoi(
+    async def test_sends_response_as_thought(
         self, adapter, platform_message, mock_tools, mock_letta_client
     ):
-        """Should send Letta response back to Thenvoi."""
+        """Should send Letta response as internal thought (not chat message).
+
+        Assistant text is internal thinking - actual messages should be sent
+        via MCP tools (create_agent_chat_message) which execute on Letta server.
+        """
         await _init_adapter_with_mock(adapter, mock_letta_client)
 
         await adapter.on_message(
@@ -278,10 +282,17 @@ class TestOnMessagePerRoom:
             room_id="room-456",
         )
 
-        # Verify response was sent to Thenvoi via execute_tool_call with mention to sender
-        mock_tools.execute_tool_call.assert_called_once_with(
-            "send_message",
-            {"content": "Hello! I'm here to help.", "mentions": ["Alice"]},
+        # Verify response was sent as a thought event (not as a chat message)
+        mock_tools.send_event.assert_called()
+        # Check one of the calls was a thought event with the assistant content
+        thought_calls = [
+            call
+            for call in mock_tools.send_event.call_args_list
+            if call.kwargs.get("message_type") == "thought"
+            and "Hello! I'm here to help." in call.kwargs.get("content", "")
+        ]
+        assert len(thought_calls) == 1, (
+            "Expected one thought event with assistant content"
         )
 
     @pytest.mark.asyncio

@@ -221,6 +221,10 @@ class LettaAdapter(SimpleAdapter[list[dict[str, Any]]]):
                 await self._verify_agent_exists(self.config.shared_agent_id)
                 self.state.shared_agent_id = self.config.shared_agent_id
                 self._state_store.save()
+                # Update agent config (system prompt, tools, etc.)
+                await self._update_agent_config(
+                    self.config.shared_agent_id, LettaMode.SHARED
+                )
                 logger.info(
                     f"Using configured shared agent: {self.config.shared_agent_id}"
                 )
@@ -235,6 +239,10 @@ class LettaAdapter(SimpleAdapter[list[dict[str, Any]]]):
         if self.state.shared_agent_id:
             try:
                 await self._verify_agent_exists(self.state.shared_agent_id)
+                # Update agent config (system prompt, tools, etc.)
+                await self._update_agent_config(
+                    self.state.shared_agent_id, LettaMode.SHARED
+                )
                 logger.info(
                     f"Using persisted shared agent: {self.state.shared_agent_id}"
                 )
@@ -253,6 +261,41 @@ class LettaAdapter(SimpleAdapter[list[dict[str, Any]]]):
             self.client.agents.retrieve(agent_id=agent_id)
         except Exception as e:
             raise LettaAgentNotFoundError(agent_id) from e
+
+    async def _update_agent_config(self, agent_id: str, mode: LettaMode) -> None:
+        """
+        Update an existing agent's configuration.
+
+        Updates system prompt and tools to ensure they're current,
+        even when reusing a persisted agent.
+
+        Args:
+            agent_id: The Letta agent ID to update
+            mode: The operating mode (affects system prompt)
+        """
+        logger.info(f"Updating agent {agent_id} configuration...")
+
+        # Build updated system prompt
+        system_prompt = self._build_system_prompt(mode)
+
+        # Get tool IDs (memory tools + any custom tools)
+        tool_ids = get_letta_tool_ids(self.client, self._thenvoi_tool_ids)
+
+        try:
+            # Update agent via Letta API
+            self.client.agents.update(
+                agent_id=agent_id,
+                system=system_prompt,
+                tool_ids=tool_ids,
+            )
+            logger.info(f"Updated system prompt and tools for agent {agent_id}")
+
+            # Sync MCP tools (these are attached separately)
+            self._sync_mcp_tools_to_agent(agent_id)
+
+        except Exception as e:
+            logger.warning(f"Failed to update agent config: {e}")
+            # Don't fail - agent still exists, just with old config
 
     def _register_mcp_server(self) -> str | None:
         """
@@ -532,6 +575,8 @@ class LettaAdapter(SimpleAdapter[list[dict[str, Any]]]):
         if existing_agent_id:
             try:
                 await self._verify_agent_exists(existing_agent_id)
+                # Update agent config (system prompt, tools, etc.)
+                await self._update_agent_config(existing_agent_id, LettaMode.PER_ROOM)
                 logger.debug(
                     f"Using existing agent {existing_agent_id} for room {room_id}"
                 )
@@ -776,31 +821,17 @@ class LettaAdapter(SimpleAdapter[list[dict[str, Any]]]):
                 )
 
                 if msg_type in ("assistant_message", "assistant"):
+                    # Assistant text is internal thinking, NOT sent to participants.
+                    # The agent uses create_agent_chat_message tool to send messages.
                     content = getattr(item, "content", "") or getattr(item, "text", "")
                     if content:
-                        # Mentions are required - mention the sender or first participant
-                        # reply_to could be empty string, so check it's non-empty
-                        if reply_to and reply_to != self._thenvoi_agent_name:
-                            mentions = [reply_to]
-                        elif participant_names:
-                            mentions = [participant_names[0]]
-                        else:
-                            # No valid participants to mention - skip send_message
-                            logger.warning(
-                                f"No valid participants to mention, skipping send_message. "
-                                f"Content: {content[:50]}..."
-                            )
-                            assistant_content.append(content)
-                            continue
-
-                        result = await tools.execute_tool_call(
-                            "send_message",
-                            {"content": content, "mentions": mentions},
+                        # Log as thought event for visibility
+                        await tools.send_event(
+                            content=content,
+                            message_type="thought",
                         )
-                        # execute_tool_call returns error strings on failure
-                        if isinstance(result, str) and result.startswith("Error"):
-                            logger.error(f"send_message failed: {result}")
                         assistant_content.append(content)
+                        logger.debug(f"Agent internal thought: {content[:100]}...")
 
                 elif msg_type == "tool_call":
                     # Tool calls are executed server-side by Letta (via MCP or stubs)
