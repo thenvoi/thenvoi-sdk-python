@@ -278,20 +278,25 @@ class LettaAdapter(SimpleAdapter[list[dict[str, Any]]]):
         # Build updated system prompt
         system_prompt = self._build_system_prompt(mode)
 
-        # Get tool IDs (memory tools + any custom tools)
-        tool_ids = get_letta_tool_ids(self.client, self._thenvoi_tool_ids)
+        # Get all tool IDs: memory tools + MCP tools
+        # IMPORTANT: We must combine them, not replace one with the other
+        memory_tool_ids = get_letta_tool_ids(self.client, self._thenvoi_tool_ids)
+        mcp_tool_ids = self._get_mcp_tool_ids()
+        all_tool_ids = list(set(memory_tool_ids + mcp_tool_ids))
+
+        logger.info(
+            f"Attaching {len(memory_tool_ids)} memory tools + "
+            f"{len(mcp_tool_ids)} MCP tools = {len(all_tool_ids)} total"
+        )
 
         try:
-            # Update agent via Letta API
+            # Update agent via Letta API with ALL tools at once
             self.client.agents.update(
                 agent_id=agent_id,
                 system=system_prompt,
-                tool_ids=tool_ids,
+                tool_ids=all_tool_ids,
             )
             logger.info(f"Updated system prompt and tools for agent {agent_id}")
-
-            # Sync MCP tools (these are attached separately)
-            self._sync_mcp_tools_to_agent(agent_id)
 
         except Exception as e:
             logger.warning(f"Failed to update agent config: {e}")
@@ -428,8 +433,15 @@ class LettaAdapter(SimpleAdapter[list[dict[str, Any]]]):
 
         persona = self.config.persona or self._thenvoi_agent_description
 
-        # Get tool IDs (Thenvoi stub tools + memory tools)
-        tool_ids = get_letta_tool_ids(self.client, self._thenvoi_tool_ids)
+        # Get ALL tool IDs: memory tools + MCP tools
+        memory_tool_ids = get_letta_tool_ids(self.client, self._thenvoi_tool_ids)
+        mcp_tool_ids = self._get_mcp_tool_ids()
+        all_tool_ids = list(set(memory_tool_ids + mcp_tool_ids))
+
+        logger.info(
+            f"Creating agent with {len(memory_tool_ids)} memory tools + "
+            f"{len(mcp_tool_ids)} MCP tools = {len(all_tool_ids)} total"
+        )
 
         # Build system prompt with agent identity
         system_prompt = self._build_system_prompt(LettaMode.SHARED)
@@ -455,11 +467,8 @@ class LettaAdapter(SimpleAdapter[list[dict[str, Any]]]):
                 },
             ],
             system=system_prompt,
-            tool_ids=tool_ids,
+            tool_ids=all_tool_ids,
         )
-
-        # Sync MCP tools to agent after creation
-        self._sync_mcp_tools_to_agent(agent.id)
 
         logger.info(f"Created shared Letta agent: {agent.id}")
         return agent.id
@@ -589,8 +598,15 @@ class LettaAdapter(SimpleAdapter[list[dict[str, Any]]]):
         # Create new agent for this room
         persona = self.config.persona or self._thenvoi_agent_description
 
-        # Get tool IDs (Thenvoi stub tools + memory tools)
-        tool_ids = get_letta_tool_ids(self.client, self._thenvoi_tool_ids)
+        # Get ALL tool IDs: memory tools + MCP tools
+        memory_tool_ids = get_letta_tool_ids(self.client, self._thenvoi_tool_ids)
+        mcp_tool_ids = self._get_mcp_tool_ids()
+        all_tool_ids = list(set(memory_tool_ids + mcp_tool_ids))
+
+        logger.info(
+            f"Creating room agent with {len(memory_tool_ids)} memory tools + "
+            f"{len(mcp_tool_ids)} MCP tools = {len(all_tool_ids)} total"
+        )
 
         # Build system prompt with agent identity
         system_prompt = self._build_system_prompt(LettaMode.PER_ROOM)
@@ -615,11 +631,8 @@ class LettaAdapter(SimpleAdapter[list[dict[str, Any]]]):
                 },
             ],
             system=system_prompt,
-            tool_ids=tool_ids,
+            tool_ids=all_tool_ids,
         )
-
-        # Sync MCP tools to agent after creation
-        self._sync_mcp_tools_to_agent(agent.id)
 
         # Persist mapping
         self.state.set_room_agent(room_id, agent.id)
