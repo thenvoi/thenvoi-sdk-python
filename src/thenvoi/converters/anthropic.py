@@ -2,14 +2,11 @@
 
 from __future__ import annotations
 
-import logging
 from typing import Any
 
 from thenvoi.core.protocols import HistoryConverter
 
 from ._tool_parsing import parse_tool_call, parse_tool_result
-
-logger = logging.getLogger(__name__)
 
 # Type alias for Anthropic messages (can have structured content)
 AnthropicMessages = list[dict[str, Any]]
