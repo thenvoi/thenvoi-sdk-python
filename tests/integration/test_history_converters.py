@@ -5,10 +5,14 @@ history from the platform. This catches any mismatches between the expected
 format in the converters and the actual format stored by the platform.
 
 Run with: uv run pytest tests/integration/test_history_converters.py -v -s
+
+End-to-end tests (require ANTHROPIC_API_KEY):
+    uv run pytest tests/integration/test_history_converters.py::TestEndToEndWithRealLLM -v -s
 """
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 
@@ -19,7 +23,7 @@ from thenvoi_rest.types import (
     ParticipantRequest,
 )
 
-from tests.integration.conftest import requires_api
+from tests.integration.conftest import requires_api, requires_llm_api
 
 logger = logging.getLogger(__name__)
 
@@ -595,3 +599,345 @@ class TestEdgeCasesIntegration:
                 )
 
         logger.info("SUCCESS: Error events are properly skipped")
+
+
+@requires_llm_api
+class TestEndToEndWithRealLLM:
+    """End-to-end tests that run real adapters with actual LLM calls.
+
+    These tests verify the full flow:
+    1. Create an Agent with enable_execution_reporting=True
+    2. Agent processes a message and makes real tool calls
+    3. Tool events are emitted to the platform
+    4. Fetch history and convert with our converters
+    5. Verify the converted output is valid
+
+    Requires: THENVOI_API_KEY and ANTHROPIC_API_KEY
+    """
+
+    @pytest.fixture
+    def get_time_tool(self):
+        """A simple custom tool that returns the current time."""
+        from thenvoi.runtime.custom_tools import CustomToolDef
+
+        async def get_current_time() -> str:
+            """Get the current UTC time."""
+            from datetime import datetime, timezone
+
+            return datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+
+        return CustomToolDef(
+            name="get_current_time",
+            description="Get the current UTC time. Call this when asked for the time.",
+            handler=get_current_time,
+            parameters={},
+        )
+
+    async def test_anthropic_adapter_emits_tool_events(
+        self, api_client, integration_settings, get_time_tool
+    ):
+        """Verify AnthropicAdapter emits tool_call and tool_result events.
+
+        This test:
+        1. Creates an AnthropicAdapter with enable_execution_reporting=True
+        2. Runs the agent and sends a message that triggers a tool call
+        3. Waits for the agent to process and emit tool events
+        4. Fetches history from platform
+        5. Converts with AnthropicHistoryConverter
+        6. Verifies the tool_use and tool_result blocks are present
+        """
+        from thenvoi import Agent
+        from thenvoi.adapters import AnthropicAdapter
+        from thenvoi.converters.anthropic import AnthropicHistoryConverter
+
+        # === SETUP: Create chat and get agent info ===
+        response = await api_client.agent_api.create_agent_chat(chat=ChatRoomRequest())
+        chat_id = response.data.id
+        logger.info("Created chat: %s", chat_id)
+
+        agent_me = await api_client.agent_api.get_agent_me()
+        agent_name = agent_me.data.name
+        agent_id = str(agent_me.data.id)
+        logger.info("Agent: %s (id=%s)", agent_name, agent_id)
+
+        # === Create adapter with execution reporting enabled ===
+        adapter = AnthropicAdapter(
+            model="claude-sonnet-4-5-20250929",
+            custom_section=(
+                "You are a helpful assistant. When asked about the time, "
+                "you MUST use the get_current_time tool. Always use tools when available."
+            ),
+            enable_execution_reporting=True,
+            additional_tools=[get_time_tool],
+        )
+
+        # === Create and start agent ===
+        agent = Agent.create(
+            adapter=adapter,
+            agent_id=agent_id,
+            api_key=integration_settings.thenvoi_api_key,
+            ws_url=integration_settings.thenvoi_ws_url,
+            rest_url=integration_settings.thenvoi_base_url,
+        )
+
+        # Start agent in background
+        agent_task = asyncio.create_task(agent.run(shutdown_timeout=5.0))
+        logger.info("Started agent in background")
+
+        try:
+            # Wait for agent to connect
+            await asyncio.sleep(2)
+
+            # === Send message that triggers tool call ===
+            await api_client.agent_api.create_agent_chat_message(
+                chat_id,
+                message=ChatMessageRequest(
+                    content=f"@{agent_name} What time is it right now?",
+                    mentions=[Mention(id=agent_id, name=agent_name)],
+                ),
+            )
+            logger.info("Sent message to trigger tool call")
+
+            # === Wait for tool events to appear ===
+            # Poll for tool_call and tool_result events
+            max_wait = 30  # seconds
+            poll_interval = 1  # second
+            tool_call_found = False
+            tool_result_found = False
+
+            for _ in range(max_wait // poll_interval):
+                await asyncio.sleep(poll_interval)
+
+                context_response = await api_client.agent_api.get_agent_chat_context(
+                    chat_id
+                )
+                raw_history = [msg.model_dump() for msg in context_response.data]
+
+                for msg in raw_history:
+                    msg_type = msg.get("message_type", "text")
+                    if msg_type == "tool_call":
+                        tool_call_found = True
+                        logger.info("Found tool_call event")
+                    elif msg_type == "tool_result":
+                        tool_result_found = True
+                        logger.info("Found tool_result event")
+
+                if tool_call_found and tool_result_found:
+                    break
+
+            assert tool_call_found, "Tool call event was not emitted to platform"
+            assert tool_result_found, "Tool result event was not emitted to platform"
+
+            # === Fetch final history and convert ===
+            context_response = await api_client.agent_api.get_agent_chat_context(
+                chat_id
+            )
+            raw_history = [msg.model_dump() for msg in context_response.data]
+            logger.info("Fetched %d messages from platform", len(raw_history))
+
+            # Log raw history for debugging
+            for i, msg in enumerate(raw_history):
+                logger.debug(
+                    "Raw[%d]: type=%s, content=%s...",
+                    i,
+                    msg.get("message_type"),
+                    str(msg.get("content", ""))[:50],
+                )
+
+            # === Convert using Anthropic converter ===
+            converter = AnthropicHistoryConverter(agent_name=agent_name)
+            result = converter.convert(raw_history)
+            logger.info("Converted to %d Anthropic messages", len(result))
+
+            # === Verify conversion ===
+            # Find tool_use message
+            tool_use_messages = [
+                m
+                for m in result
+                if m.get("role") == "assistant"
+                and isinstance(m.get("content"), list)
+                and any(b.get("type") == "tool_use" for b in m["content"])
+            ]
+            assert len(tool_use_messages) >= 1, (
+                "Converter should produce at least one tool_use message"
+            )
+
+            tool_use_block = next(
+                b
+                for b in tool_use_messages[0]["content"]
+                if b.get("type") == "tool_use"
+            )
+            assert tool_use_block["name"] == "get_current_time"
+            assert "id" in tool_use_block
+            logger.info("tool_use block: %s", tool_use_block)
+
+            # Find tool_result message
+            tool_result_messages = [
+                m
+                for m in result
+                if m.get("role") == "user"
+                and isinstance(m.get("content"), list)
+                and any(b.get("type") == "tool_result" for b in m["content"])
+            ]
+            assert len(tool_result_messages) >= 1, (
+                "Converter should produce at least one tool_result message"
+            )
+
+            tool_result_block = next(
+                b
+                for b in tool_result_messages[0]["content"]
+                if b.get("type") == "tool_result"
+            )
+            assert tool_result_block["tool_use_id"] == tool_use_block["id"]
+            assert "UTC" in tool_result_block["content"]
+            logger.info("tool_result block: %s", tool_result_block)
+
+            logger.info(
+                "SUCCESS: End-to-end test passed - real LLM tool events "
+                "were correctly converted"
+            )
+
+        finally:
+            # Stop the agent
+            await agent.stop(timeout=5.0)
+            agent_task.cancel()
+            try:
+                await agent_task
+            except asyncio.CancelledError:
+                pass
+            logger.info("Agent stopped")
+
+    async def test_pydantic_ai_converter_with_anthropic_events(
+        self, api_client, integration_settings, get_time_tool
+    ):
+        """Verify PydanticAIHistoryConverter works with real Anthropic tool events.
+
+        This test uses the AnthropicAdapter to generate real tool events, then
+        verifies that the PydanticAIHistoryConverter can also parse them correctly.
+        This ensures format compatibility across converters.
+        """
+        pydantic_ai_messages = pytest.importorskip("pydantic_ai.messages")
+        ModelRequest = pydantic_ai_messages.ModelRequest
+        ModelResponse = pydantic_ai_messages.ModelResponse
+
+        from thenvoi import Agent
+        from thenvoi.adapters import AnthropicAdapter
+        from thenvoi.converters.pydantic_ai import PydanticAIHistoryConverter
+
+        # === SETUP ===
+        response = await api_client.agent_api.create_agent_chat(chat=ChatRoomRequest())
+        chat_id = response.data.id
+
+        agent_me = await api_client.agent_api.get_agent_me()
+        agent_name = agent_me.data.name
+        agent_id = str(agent_me.data.id)
+
+        # === Create adapter ===
+        adapter = AnthropicAdapter(
+            model="claude-sonnet-4-5-20250929",
+            custom_section=(
+                "You are a helpful assistant. When asked about the time, "
+                "you MUST use the get_current_time tool."
+            ),
+            enable_execution_reporting=True,
+            additional_tools=[get_time_tool],
+        )
+
+        agent = Agent.create(
+            adapter=adapter,
+            agent_id=agent_id,
+            api_key=integration_settings.thenvoi_api_key,
+            ws_url=integration_settings.thenvoi_ws_url,
+            rest_url=integration_settings.thenvoi_base_url,
+        )
+
+        agent_task = asyncio.create_task(agent.run(shutdown_timeout=5.0))
+
+        try:
+            await asyncio.sleep(2)
+
+            # Send message
+            await api_client.agent_api.create_agent_chat_message(
+                chat_id,
+                message=ChatMessageRequest(
+                    content=f"@{agent_name} Tell me what time it is",
+                    mentions=[Mention(id=agent_id, name=agent_name)],
+                ),
+            )
+
+            # Wait for tool events
+            max_wait = 30
+            tool_result_found = False
+
+            for _ in range(max_wait):
+                await asyncio.sleep(1)
+                context_response = await api_client.agent_api.get_agent_chat_context(
+                    chat_id
+                )
+                raw_history = [msg.model_dump() for msg in context_response.data]
+
+                for msg in raw_history:
+                    if msg.get("message_type") == "tool_result":
+                        tool_result_found = True
+                        break
+                if tool_result_found:
+                    break
+
+            assert tool_result_found, "Tool result event was not emitted"
+
+            # === Convert with PydanticAI converter ===
+            context_response = await api_client.agent_api.get_agent_chat_context(
+                chat_id
+            )
+            raw_history = [msg.model_dump() for msg in context_response.data]
+
+            converter = PydanticAIHistoryConverter(agent_name=agent_name)
+            result = converter.convert(raw_history)
+
+            # === Verify conversion ===
+            # Find ModelResponse with ToolCallPart
+            tool_call_responses = [m for m in result if isinstance(m, ModelResponse)]
+            assert len(tool_call_responses) >= 1, "Should have ModelResponse"
+
+            tool_call_parts = [
+                p
+                for r in tool_call_responses
+                for p in r.parts
+                if hasattr(p, "tool_call_id") and hasattr(p, "tool_name")
+            ]
+            assert len(tool_call_parts) >= 1, "Should have ToolCallPart"
+            assert tool_call_parts[0].tool_name == "get_current_time"
+
+            # Find ModelRequest with ToolReturnPart
+            tool_return_requests = [
+                m
+                for m in result
+                if isinstance(m, ModelRequest)
+                and any(
+                    hasattr(p, "tool_call_id") and hasattr(p, "content")
+                    for p in m.parts
+                )
+            ]
+            assert len(tool_return_requests) >= 1, "Should have ModelRequest"
+
+            tool_return_parts = [
+                p
+                for r in tool_return_requests
+                for p in r.parts
+                if hasattr(p, "tool_call_id") and hasattr(p, "content")
+            ]
+            assert len(tool_return_parts) >= 1, "Should have ToolReturnPart"
+            assert "UTC" in tool_return_parts[0].content
+
+            logger.info(
+                "SUCCESS: PydanticAI converter correctly handles real "
+                "Anthropic tool events"
+            )
+
+        finally:
+            await agent.stop(timeout=5.0)
+            agent_task.cancel()
+            try:
+                await agent_task
+            except asyncio.CancelledError:
+                pass
