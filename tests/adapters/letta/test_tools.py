@@ -100,20 +100,24 @@ class TestGetLettaToolIds:
     def mock_client(self):
         """Create mock Letta client."""
         client = MagicMock()
-        # Mock tools.list to return some tools
+        # Mock tools.list to return the default base tools
         tool1 = MagicMock()
-        tool1.name = "memory_replace"
-        tool1.id = "tool-memory-replace-123"
-        tool1.tags = ["letta"]
+        tool1.name = "memory"
+        tool1.id = "tool-memory-123"
+        tool1.tags = ["letta_memory_core"]
         tool2 = MagicMock()
-        tool2.name = "memory_insert"
-        tool2.id = "tool-memory-insert-123"
-        tool2.tags = ["letta"]
+        tool2.name = "conversation_search"
+        tool2.id = "tool-conv-search-123"
+        tool2.tags = ["letta_core"]
         tool3 = MagicMock()
-        tool3.name = "conversation_search"
-        tool3.id = "tool-conv-search-123"
-        tool3.tags = ["letta"]
-        client.tools.list.return_value = [tool1, tool2, tool3]
+        tool3.name = "archival_memory_insert"
+        tool3.id = "tool-archival-insert-123"
+        tool3.tags = ["letta_core"]
+        tool4 = MagicMock()
+        tool4.name = "archival_memory_search"
+        tool4.id = "tool-archival-search-123"
+        tool4.tags = ["letta_core"]
+        client.tools.list.return_value = [tool1, tool2, tool3, tool4]
         return client
 
     def test_includes_thenvoi_tool_ids(self, mock_client):
@@ -122,31 +126,33 @@ class TestGetLettaToolIds:
             "send_message": "tool-send-123",
             "add_participant": "tool-add-123",
         }
-        tool_ids = get_letta_tool_ids(
-            mock_client, thenvoi_ids, include_memory_tools=False
-        )
+        tool_ids = get_letta_tool_ids(mock_client, thenvoi_ids, letta_base_tools=[])
 
         assert "tool-send-123" in tool_ids
         assert "tool-add-123" in tool_ids
 
-    def test_includes_memory_tools_by_default(self, mock_client):
-        """Should include Letta memory tools by default."""
+    def test_includes_base_tools_by_default(self, mock_client):
+        """Should include Letta base tools by default."""
         thenvoi_ids = {"send_message": "tool-send-123"}
         tool_ids = get_letta_tool_ids(mock_client, thenvoi_ids)
 
-        # Should include memory tools
-        assert "tool-memory-replace-123" in tool_ids
-        assert "tool-memory-insert-123" in tool_ids
+        # Should include default base tools
+        assert "tool-memory-123" in tool_ids
+        assert "tool-conv-search-123" in tool_ids
+        assert "tool-archival-insert-123" in tool_ids
+        assert "tool-archival-search-123" in tool_ids
 
-    def test_excludes_memory_tools_when_disabled(self, mock_client):
-        """Should exclude memory tools when disabled."""
+    def test_uses_custom_base_tools_when_provided(self, mock_client):
+        """Should use custom base tools when provided."""
         thenvoi_ids = {"send_message": "tool-send-123"}
         tool_ids = get_letta_tool_ids(
-            mock_client, thenvoi_ids, include_memory_tools=False
+            mock_client, thenvoi_ids, letta_base_tools=["memory"]
         )
 
-        assert "tool-memory-replace-123" not in tool_ids
-        assert len(tool_ids) == 1
+        # Should only include memory tool
+        assert "tool-memory-123" in tool_ids
+        assert "tool-conv-search-123" not in tool_ids
+        assert len(tool_ids) == 2  # send_message + memory
 
 
 class TestCustomToolBuilder:

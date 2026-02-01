@@ -75,6 +75,7 @@ def make_mock_ctx(
     ctx.participants_changed = MagicMock(return_value=participants_changed)
     ctx.mark_llm_initialized = MagicMock()
     ctx.mark_participants_sent = MagicMock()
+    ctx.load_participants = AsyncMock()
     ctx.get_context = AsyncMock(
         return_value=MagicMock(
             messages=history_messages or [],
