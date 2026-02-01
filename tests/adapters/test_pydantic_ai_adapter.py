@@ -97,13 +97,13 @@ def mock_pydantic_agent():
     """Create a mock Pydantic AI Agent."""
     agent = MagicMock()
     agent._function_tools = {
-        "send_message": MagicMock(name="send_message"),
-        "send_event": MagicMock(name="send_event"),
-        "add_participant": MagicMock(name="add_participant"),
-        "remove_participant": MagicMock(name="remove_participant"),
-        "lookup_peers": MagicMock(name="lookup_peers"),
-        "get_participants": MagicMock(name="get_participants"),
-        "create_chatroom": MagicMock(name="create_chatroom"),
+        "thenvoi_send_message": MagicMock(name="thenvoi_send_message"),
+        "thenvoi_send_event": MagicMock(name="thenvoi_send_event"),
+        "thenvoi_add_participant": MagicMock(name="thenvoi_add_participant"),
+        "thenvoi_remove_participant": MagicMock(name="thenvoi_remove_participant"),
+        "thenvoi_lookup_peers": MagicMock(name="thenvoi_lookup_peers"),
+        "thenvoi_get_participants": MagicMock(name="thenvoi_get_participants"),
+        "thenvoi_create_chatroom": MagicMock(name="thenvoi_create_chatroom"),
     }
     return agent
 
@@ -199,13 +199,13 @@ class TestOnStarted:
         tool_names = list(adapter._agent._function_tools.keys())
 
         expected_tools = [
-            "send_message",
-            "send_event",
-            "add_participant",
-            "remove_participant",
-            "lookup_peers",
-            "get_participants",
-            "create_chatroom",
+            "thenvoi_send_message",
+            "thenvoi_send_event",
+            "thenvoi_add_participant",
+            "thenvoi_remove_participant",
+            "thenvoi_lookup_peers",
+            "thenvoi_get_participants",
+            "thenvoi_create_chatroom",
         ]
 
         for tool in expected_tools:

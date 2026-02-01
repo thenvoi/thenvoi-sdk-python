@@ -104,7 +104,7 @@ def create_parlant_tools() -> list[Any]:
         return []
 
     @p.tool
-    async def send_message(
+    async def thenvoi_send_message(
         context: ToolContext,
         content: str,
         mentions: str,
@@ -151,7 +151,7 @@ def create_parlant_tools() -> list[Any]:
             return ToolResult(data=f"Error sending message: {e}")
 
     @p.tool
-    async def send_event(
+    async def thenvoi_send_event(
         context: ToolContext,
         content: str,
         message_type: str,
@@ -193,7 +193,7 @@ def create_parlant_tools() -> list[Any]:
             return ToolResult(data=f"Error sending event: {e}")
 
     @p.tool
-    async def add_participant(
+    async def thenvoi_add_participant(
         context: ToolContext,
         name: str,
     ) -> ToolResult:
@@ -238,7 +238,7 @@ def create_parlant_tools() -> list[Any]:
             return ToolResult(data=f"Error adding participant '{name}': {e}")
 
     @p.tool
-    async def remove_participant(
+    async def thenvoi_remove_participant(
         context: ToolContext,
         name: str,
     ) -> ToolResult:
@@ -278,7 +278,7 @@ def create_parlant_tools() -> list[Any]:
             return ToolResult(data=f"Error removing participant '{name}': {e}")
 
     @p.tool
-    async def lookup_peers(
+    async def thenvoi_lookup_peers(
         context: ToolContext,
     ) -> ToolResult:
         """
@@ -328,7 +328,7 @@ def create_parlant_tools() -> list[Any]:
             return ToolResult(data=f"Error looking up peers: {e}")
 
     @p.tool
-    async def get_participants(
+    async def thenvoi_get_participants(
         context: ToolContext,
     ) -> ToolResult:
         """
@@ -370,7 +370,7 @@ def create_parlant_tools() -> list[Any]:
             return ToolResult(data=f"Error getting participants: {e}")
 
     @p.tool
-    async def create_chatroom(
+    async def thenvoi_create_chatroom(
         context: ToolContext,
         task_id: str = "",
     ) -> ToolResult:
@@ -403,11 +403,11 @@ def create_parlant_tools() -> list[Any]:
             return ToolResult(data=f"Error creating chatroom: {e}")
 
     return [
-        send_message,
-        send_event,
-        add_participant,
-        remove_participant,
-        lookup_peers,
-        get_participants,
-        create_chatroom,
+        thenvoi_send_message,
+        thenvoi_send_event,
+        thenvoi_add_participant,
+        thenvoi_remove_participant,
+        thenvoi_lookup_peers,
+        thenvoi_get_participants,
+        thenvoi_create_chatroom,
     ]

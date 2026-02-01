@@ -205,10 +205,10 @@ class TestUsageInAdapterTests:
         tools = FakeAgentTools()
 
         # Simulate LLM tool calls
-        await tools.execute_tool_call("send_message", {"content": "Hi"})
-        await tools.execute_tool_call("add_participant", {"name": "Alice"})
+        await tools.execute_tool_call("thenvoi_send_message", {"content": "Hi"})
+        await tools.execute_tool_call("thenvoi_add_participant", {"name": "Alice"})
 
         # Verify tool calls were made
         assert len(tools.tool_calls) == 2
-        assert tools.tool_calls[0]["tool_name"] == "send_message"
-        assert tools.tool_calls[1]["tool_name"] == "add_participant"
+        assert tools.tool_calls[0]["tool_name"] == "thenvoi_send_message"
+        assert tools.tool_calls[1]["tool_name"] == "thenvoi_add_participant"

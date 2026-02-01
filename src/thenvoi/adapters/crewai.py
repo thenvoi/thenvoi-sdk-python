@@ -58,19 +58,19 @@ MessageType = Literal["thought", "error", "task"]
 PLATFORM_INSTRUCTIONS = """## Environment
 
 Multi-participant chat on Thenvoi platform. Messages show sender: [Name]: content.
-Use the `send_message` tool to respond. Plain text output is not delivered.
+Use the `thenvoi_send_message` tool to respond. Plain text output is not delivered.
 
 ## CRITICAL: Delegate When You Cannot Help Directly
 
 You have NO internet access and NO real-time data. When asked about weather, news, stock prices,
 or any current information you cannot answer directly:
 
-1. Call `lookup_peers` to find available specialized agents
-2. If a relevant agent exists (e.g., Weather Agent), call `add_participant` to add them
-3. Ask that agent using `send_message` with their name in mentions
+1. Call `thenvoi_lookup_peers` to find available specialized agents
+2. If a relevant agent exists (e.g., Weather Agent), call `thenvoi_add_participant` to add them
+3. Ask that agent using `thenvoi_send_message` with their name in mentions
 4. Wait for their response and relay it back to the user
 
-NEVER say "I can't do that" without first checking if another agent can help via `lookup_peers`.
+NEVER say "I can't do that" without first checking if another agent can help via `thenvoi_lookup_peers`.
 
 ## CRITICAL: Do NOT Remove Agents Automatically
 
@@ -90,7 +90,7 @@ When someone asks you to get information from another agent:
 
 ## IMPORTANT: Always Share Your Thinking
 
-Call `send_event` with message_type="thought" BEFORE every action to share your reasoning."""
+Call `thenvoi_send_event` with message_type="thought" BEFORE every action to share your reasoning."""
 
 
 def _ensure_nest_asyncio() -> None:
@@ -492,8 +492,8 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
             )
 
         class SendMessageTool(BaseTool):
-            name: str = "send_message"
-            description: str = get_tool_description("send_message")
+            name: str = "thenvoi_send_message"
+            description: str = get_tool_description("thenvoi_send_message")
             args_schema: Type[BaseModel] = SendMessageInput
 
             # *_args is required by BaseTool's _run signature even though we don't use it
@@ -519,8 +519,8 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
                 return adapter._execute_tool("send_message", execute)
 
         class SendEventTool(BaseTool):
-            name: str = "send_event"
-            description: str = get_tool_description("send_event")
+            name: str = "thenvoi_send_event"
+            description: str = get_tool_description("thenvoi_send_event")
             args_schema: Type[BaseModel] = SendEventInput
 
             def _run(self, *_args: Any, **kwargs: Any) -> Any:
@@ -536,8 +536,8 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
                 return adapter._execute_tool("send_event", execute)
 
         class AddParticipantTool(BaseTool):
-            name: str = "add_participant"
-            description: str = get_tool_description("add_participant")
+            name: str = "thenvoi_add_participant"
+            description: str = get_tool_description("thenvoi_add_participant")
             args_schema: Type[BaseModel] = AddParticipantInput
 
             def _run(self, *_args: Any, **kwargs: Any) -> Any:
@@ -557,8 +557,8 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
                 return adapter._execute_tool("add_participant", execute)
 
         class RemoveParticipantTool(BaseTool):
-            name: str = "remove_participant"
-            description: str = get_tool_description("remove_participant")
+            name: str = "thenvoi_remove_participant"
+            description: str = get_tool_description("thenvoi_remove_participant")
             args_schema: Type[BaseModel] = RemoveParticipantInput
 
             def _run(self, *_args: Any, **kwargs: Any) -> Any:
@@ -579,8 +579,8 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
                 return adapter._execute_tool("remove_participant", execute)
 
         class GetParticipantsTool(BaseTool):
-            name: str = "get_participants"
-            description: str = get_tool_description("get_participants")
+            name: str = "thenvoi_get_participants"
+            description: str = get_tool_description("thenvoi_get_participants")
             args_schema: Type[BaseModel] = GetParticipantsInput
 
             def _run(self, *_args: Any, **_kwargs: Any) -> Any:
@@ -598,8 +598,8 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
                 return adapter._execute_tool("get_participants", execute)
 
         class LookupPeersTool(BaseTool):
-            name: str = "lookup_peers"
-            description: str = get_tool_description("lookup_peers")
+            name: str = "thenvoi_lookup_peers"
+            description: str = get_tool_description("thenvoi_lookup_peers")
             args_schema: Type[BaseModel] = LookupPeersInput
 
             # *_args is required by BaseTool's _run signature even though we don't use it
@@ -618,8 +618,8 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
                 return adapter._execute_tool("lookup_peers", execute)
 
         class CreateChatroomTool(BaseTool):
-            name: str = "create_chatroom"
-            description: str = get_tool_description("create_chatroom")
+            name: str = "thenvoi_create_chatroom"
+            description: str = get_tool_description("thenvoi_create_chatroom")
             args_schema: Type[BaseModel] = CreateChatroomInput
 
             def _run(self, *_args: Any, **kwargs: Any) -> Any:

@@ -95,37 +95,37 @@ def agent_tools_to_langchain(tools: AgentToolsProtocol) -> list[Any]:
     return [
         StructuredTool.from_function(
             coroutine=send_message_wrapper,
-            name="send_message",
-            description=get_tool_description("send_message"),
+            name="thenvoi_send_message",
+            description=get_tool_description("thenvoi_send_message"),
         ),
         StructuredTool.from_function(
             coroutine=add_participant_wrapper,
-            name="add_participant",
-            description=get_tool_description("add_participant"),
+            name="thenvoi_add_participant",
+            description=get_tool_description("thenvoi_add_participant"),
         ),
         StructuredTool.from_function(
             coroutine=remove_participant_wrapper,
-            name="remove_participant",
-            description=get_tool_description("remove_participant"),
+            name="thenvoi_remove_participant",
+            description=get_tool_description("thenvoi_remove_participant"),
         ),
         StructuredTool.from_function(
             coroutine=lookup_peers_wrapper,
-            name="lookup_peers",
-            description=get_tool_description("lookup_peers"),
+            name="thenvoi_lookup_peers",
+            description=get_tool_description("thenvoi_lookup_peers"),
         ),
         StructuredTool.from_function(
             coroutine=get_participants_wrapper,
-            name="get_participants",
-            description=get_tool_description("get_participants"),
+            name="thenvoi_get_participants",
+            description=get_tool_description("thenvoi_get_participants"),
         ),
         StructuredTool.from_function(
             coroutine=create_chatroom_wrapper,
-            name="create_chatroom",
-            description=get_tool_description("create_chatroom"),
+            name="thenvoi_create_chatroom",
+            description=get_tool_description("thenvoi_create_chatroom"),
         ),
         StructuredTool.from_function(
             coroutine=send_event_wrapper,
-            name="send_event",
-            description=get_tool_description("send_event"),
+            name="thenvoi_send_event",
+            description=get_tool_description("thenvoi_send_event"),
         ),
     ]

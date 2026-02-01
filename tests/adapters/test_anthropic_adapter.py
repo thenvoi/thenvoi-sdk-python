@@ -272,7 +272,7 @@ class TestToolExecution:
             ToolUseBlock(
                 type="tool_use",
                 id="tool-1",
-                name="send_message",
+                name="thenvoi_send_message",
                 input={"content": "Hello"},
             )
         ]
@@ -410,7 +410,9 @@ class TestCustomTools:
 
         # Mock platform tools returning some schemas
         mock_tools.get_anthropic_tool_schemas = MagicMock(
-            return_value=[{"name": "send_message", "description": "Send a message"}]
+            return_value=[
+                {"name": "thenvoi_send_message", "description": "Send a message"}
+            ]
         )
 
         captured_tools = []
@@ -438,7 +440,7 @@ class TestCustomTools:
         # Should have both platform and custom tool
         assert len(captured_tools) == 2
         tool_names = [t["name"] for t in captured_tools]
-        assert "send_message" in tool_names
+        assert "thenvoi_send_message" in tool_names
         assert "echo" in tool_names
 
     @pytest.mark.asyncio
@@ -484,7 +486,7 @@ class TestCustomTools:
             ToolUseBlock(
                 type="tool_use",
                 id="tool-1",
-                name="send_message",
+                name="thenvoi_send_message",
                 input={"content": "Hello", "mentions": ["User"]},
             )
         ]
@@ -495,7 +497,7 @@ class TestCustomTools:
 
         # Should have called platform execute_tool_call
         mock_tools.execute_tool_call.assert_called_once_with(
-            "send_message", {"content": "Hello", "mentions": ["User"]}
+            "thenvoi_send_message", {"content": "Hello", "mentions": ["User"]}
         )
 
         assert len(results) == 1

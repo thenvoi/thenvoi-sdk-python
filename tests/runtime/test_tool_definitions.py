@@ -123,13 +123,13 @@ class TestToolModelsRegistry:
     def test_all_tools_registered(self):
         """All expected tools should be in the registry."""
         expected = {
-            "send_message",
-            "send_event",
-            "add_participant",
-            "remove_participant",
-            "lookup_peers",
-            "get_participants",
-            "create_chatroom",
+            "thenvoi_send_message",
+            "thenvoi_send_event",
+            "thenvoi_add_participant",
+            "thenvoi_remove_participant",
+            "thenvoi_lookup_peers",
+            "thenvoi_get_participants",
+            "thenvoi_create_chatroom",
         }
         assert set(TOOL_MODELS.keys()) == expected
 

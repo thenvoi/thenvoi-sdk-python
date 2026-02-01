@@ -21,7 +21,7 @@ their results. The matching strategy should be:
 
 ## Message Type Filtering
 
-When the LLM responds via tools (e.g., send_message), skip assistant text messages
+When the LLM responds via tools (e.g., thenvoi_send_message), skip assistant text messages
 during history reconstruction. The actual LLM output is in the tool calls, not the
 text. Including both would:
 - Duplicate content in the conversation
