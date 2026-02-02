@@ -14,6 +14,7 @@ Usage:
     # Run with verbose output to see heartbeat/reconnection logs
     uv run pytest tests/integration/test_websocket_stability.py -v -s
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -25,7 +26,9 @@ import pytest
 from websockets.server import serve, WebSocketServerProtocol
 
 from phoenix_channels_python_client.client import PHXChannelsClient
-from phoenix_channels_python_client.protocol_handler import PhoenixChannelsProtocolVersion
+from phoenix_channels_python_client.protocol_handler import (
+    PhoenixChannelsProtocolVersion,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -59,7 +62,9 @@ class MockPhoenixServer:
         finally:
             self.client_ws = None
 
-    async def _handle_message(self, websocket: WebSocketServerProtocol, data: list) -> None:
+    async def _handle_message(
+        self, websocket: WebSocketServerProtocol, data: list
+    ) -> None:
         """Handle Phoenix protocol messages."""
         if not isinstance(data, list) or len(data) != 5:
             return
@@ -67,17 +72,35 @@ class MockPhoenixServer:
         join_ref, msg_ref, topic, event, payload = data
 
         if event == "phx_join":
-            reply = [join_ref, msg_ref, topic, "phx_reply", {"status": "ok", "response": {}}]
+            reply = [
+                join_ref,
+                msg_ref,
+                topic,
+                "phx_reply",
+                {"status": "ok", "response": {}},
+            ]
             await websocket.send(json.dumps(reply))
             logger.debug("[MockServer] Joined topic: %s", topic)
 
         elif event == "heartbeat" and topic == "phoenix":
-            reply = [join_ref, msg_ref, "phoenix", "phx_reply", {"status": "ok", "response": {}}]
+            reply = [
+                join_ref,
+                msg_ref,
+                "phoenix",
+                "phx_reply",
+                {"status": "ok", "response": {}},
+            ]
             await websocket.send(json.dumps(reply))
             logger.debug("[MockServer] Heartbeat acknowledged")
 
         elif event == "phx_leave":
-            reply = [join_ref, msg_ref, topic, "phx_reply", {"status": "ok", "response": {}}]
+            reply = [
+                join_ref,
+                msg_ref,
+                topic,
+                "phx_reply",
+                {"status": "ok", "response": {}},
+            ]
             await websocket.send(json.dumps(reply))
             logger.debug("[MockServer] Left topic: %s", topic)
 
@@ -113,7 +136,9 @@ async def mock_server():
 
 
 @pytest.mark.asyncio
-async def test_heartbeat_is_sent_and_acknowledged(mock_server: MockPhoenixServer, caplog):
+async def test_heartbeat_is_sent_and_acknowledged(
+    mock_server: MockPhoenixServer, caplog
+):
     """
     Test that heartbeat messages are sent and acknowledged.
 
@@ -211,7 +236,9 @@ async def test_automatic_reconnection_after_disconnect(mock_server: MockPhoenixS
         assert reconnect_count == 1, "Should reconnect automatically"
 
         # Verify connection is active
-        assert client.connection is not None, "Connection should be active after reconnect"
+        assert client.connection is not None, (
+            "Connection should be active after reconnect"
+        )
 
 
 @pytest.mark.asyncio
