@@ -5,7 +5,7 @@ This is a Python SDK that connects AI agents to the Thenvoi collaborative platfo
 ## Core Features
 
 1. Multi-framework support (LangGraph, Anthropic, CrewAI)
-2. Platform tools: thenvoi_send_message, thenvoi_send_event, thenvoi_add_participant, thenvoi_remove_participant, thenvoi_get_participants, thenvoi_lookup_peers
+2. Platform tools: thenvoi_send_message, thenvoi_send_event, thenvoi_add_participant, thenvoi_remove_participant, thenvoi_get_participants, thenvoi_lookup_peers, thenvoi_create_chatroom
 3. WebSocket + REST transport: Real-time messaging with REST API fallback
 
 ## Code Structure
