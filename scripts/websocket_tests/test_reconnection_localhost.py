@@ -19,7 +19,6 @@ Usage:
 import argparse
 import asyncio
 import logging
-import sys
 from datetime import datetime
 
 from phoenix_channels_python_client.client import PHXChannelsClient
