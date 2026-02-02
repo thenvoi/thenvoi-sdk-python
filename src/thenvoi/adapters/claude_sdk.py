@@ -203,7 +203,7 @@ class ClaudeSDKAdapter(SimpleAdapter[str]):
             return adapter._room_tools.get(room_id)
 
         @tool(
-            "send_message",
+            "thenvoi_send_message",
             get_tool_description("thenvoi_send_message"),
             {
                 "room_id": str,
@@ -244,7 +244,7 @@ class ClaudeSDKAdapter(SimpleAdapter[str]):
                 return _make_error(str(e))
 
         @tool(
-            "send_event",
+            "thenvoi_send_event",
             get_tool_description("thenvoi_send_event"),
             {"room_id": str, "content": str, "message_type": str},
         )
@@ -268,7 +268,7 @@ class ClaudeSDKAdapter(SimpleAdapter[str]):
                 return _make_error(str(e))
 
         @tool(
-            "add_participant",
+            "thenvoi_add_participant",
             get_tool_description("thenvoi_add_participant"),
             {"room_id": str, "name": str, "role": str},
         )
@@ -298,7 +298,7 @@ class ClaudeSDKAdapter(SimpleAdapter[str]):
                 return _make_error(str(e))
 
         @tool(
-            "remove_participant",
+            "thenvoi_remove_participant",
             get_tool_description("thenvoi_remove_participant"),
             {"room_id": str, "name": str},
         )
@@ -327,7 +327,7 @@ class ClaudeSDKAdapter(SimpleAdapter[str]):
                 return _make_error(str(e))
 
         @tool(
-            "get_participants",
+            "thenvoi_get_participants",
             get_tool_description("thenvoi_get_participants"),
             {"room_id": str},
         )
@@ -355,7 +355,7 @@ class ClaudeSDKAdapter(SimpleAdapter[str]):
                 return _make_error(str(e))
 
         @tool(
-            "lookup_peers",
+            "thenvoi_lookup_peers",
             get_tool_description("thenvoi_lookup_peers"),
             {"room_id": str, "page": int, "page_size": int},
         )

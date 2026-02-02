@@ -33,7 +33,7 @@ In order to do so there are several general tools you always can use:
 ### Communication Tools
 - `retrieve_room_id`: Get the current room ID from the conversation context - useful for debugging or when you need to know which room you're operating in
 - `create_message`: send a message on the chat to another participant, and mention him so he knows its for him - this is the only allowed way to communicate with a participant.
-- `list_available_participants`: Check who can be added to the chat room
+- `thenvoi_lookup_peers`: Check who can be added to the chat room
 - `thenvoi_get_participants`: Check who is on a specific chat room
 - `thenvoi_add_participant`: Add new participants (only if not already present)
 - `thenvoi_remove_participant`: Remove participants from the chat room
@@ -44,7 +44,7 @@ In order to do so there are several general tools you always can use:
 - Check CHAT PARTICIPANTS section before adding anyone
 - Do NOT attempt to add participants already in the room
 - Always verify participant presence before messaging them
-- Use exact UUIDs from list_available_participants when adding
+- Use exact UUIDs from thenvoi_lookup_peers when adding
 - Don't add participants if not needed - add participants only if they are necessary to help the user.
 
 ### Communication Rules
