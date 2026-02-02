@@ -8,6 +8,7 @@ closes the connection to trigger automatic reconnection.
 Usage:
     uv run python test_reconnection_automated.py
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -53,7 +54,9 @@ class MockPhoenixServer:
         finally:
             self.client_ws = None
 
-    async def _handle_message(self, websocket: WebSocketServerProtocol, data: list) -> None:
+    async def _handle_message(
+        self, websocket: WebSocketServerProtocol, data: list
+    ) -> None:
         """Handle Phoenix protocol messages."""
         if not isinstance(data, list) or len(data) != 5:
             return
@@ -62,19 +65,37 @@ class MockPhoenixServer:
 
         # Handle join
         if event == "phx_join":
-            reply = [join_ref, msg_ref, topic, "phx_reply", {"status": "ok", "response": {}}]
+            reply = [
+                join_ref,
+                msg_ref,
+                topic,
+                "phx_reply",
+                {"status": "ok", "response": {}},
+            ]
             await websocket.send(json.dumps(reply))
             logger.info("[SERVER] Joined topic: %s", topic)
 
         # Handle heartbeat
         elif event == "heartbeat" and topic == "phoenix":
-            reply = [join_ref, msg_ref, "phoenix", "phx_reply", {"status": "ok", "response": {}}]
+            reply = [
+                join_ref,
+                msg_ref,
+                "phoenix",
+                "phx_reply",
+                {"status": "ok", "response": {}},
+            ]
             await websocket.send(json.dumps(reply))
             logger.debug("[SERVER] Heartbeat acknowledged")
 
         # Handle leave
         elif event == "phx_leave":
-            reply = [join_ref, msg_ref, topic, "phx_reply", {"status": "ok", "response": {}}]
+            reply = [
+                join_ref,
+                msg_ref,
+                topic,
+                "phx_reply",
+                {"status": "ok", "response": {}},
+            ]
             await websocket.send(json.dumps(reply))
             logger.info("[SERVER] Left topic: %s", topic)
 
@@ -101,7 +122,9 @@ class MockPhoenixServer:
 async def test_reconnection() -> bool:
     """Test automatic reconnection after server disconnect."""
     from phoenix_channels_python_client.client import PHXChannelsClient
-    from phoenix_channels_python_client.protocol_handler import PhoenixChannelsProtocolVersion
+    from phoenix_channels_python_client.protocol_handler import (
+        PhoenixChannelsProtocolVersion,
+    )
 
     logger.info("")
     logger.info("=" * 70)
@@ -118,7 +141,9 @@ async def test_reconnection() -> bool:
     async def on_disconnect(error):
         nonlocal disconnect_count
         disconnect_count += 1
-        logger.info("[CLIENT] DISCONNECTED! (count: %d, error: %s)", disconnect_count, error)
+        logger.info(
+            "[CLIENT] DISCONNECTED! (count: %d, error: %s)", disconnect_count, error
+        )
         disconnect_event.set()
 
     async def on_reconnect():

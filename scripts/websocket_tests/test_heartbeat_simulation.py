@@ -25,7 +25,9 @@ from datetime import datetime
 from typing import Optional
 
 from phoenix_channels_python_client.client import PHXChannelsClient
-from phoenix_channels_python_client.protocol_handler import PhoenixChannelsProtocolVersion
+from phoenix_channels_python_client.protocol_handler import (
+    PhoenixChannelsProtocolVersion,
+)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -63,7 +65,9 @@ async def test_connection(
     logger.info("TEST: %s", test_name)
     logger.info("=" * 70)
     logger.info("WebSocket URL: %s", ws_url)
-    logger.info("Heartbeat: %s", f"{heartbeat_interval}s" if heartbeat_interval else "DISABLED")
+    logger.info(
+        "Heartbeat: %s", f"{heartbeat_interval}s" if heartbeat_interval else "DISABLED"
+    )
     logger.info("Test duration: %d seconds", test_duration)
     logger.info("-" * 70)
 
@@ -90,7 +94,9 @@ async def test_connection(
             logger.info("✅ Connected at %s", start_time.strftime("%H:%M:%S"))
 
             if heartbeat_interval:
-                logger.info("✅ Heartbeat task running (interval: %ss)", heartbeat_interval)
+                logger.info(
+                    "✅ Heartbeat task running (interval: %ss)", heartbeat_interval
+                )
             else:
                 logger.info("⚠️  Heartbeat DISABLED - connection may drop after ~60s")
 
@@ -104,28 +110,43 @@ async def test_connection(
 
                 # Check if connection is still alive
                 if client.connection is None:
-                    logger.error("❌ Connection DROPPED at %.1f seconds!", elapsed_actual)
+                    logger.error(
+                        "❌ Connection DROPPED at %.1f seconds!", elapsed_actual
+                    )
                     result["connection_dropped"] = True
                     result["duration_actual"] = elapsed_actual
                     result["error"] = f"Connection dropped at {elapsed_actual:.1f}s"
                     return result
 
                 # Check if heartbeat task died (if enabled)
-                if heartbeat_interval and client._heartbeat_task and client._heartbeat_task.done():
+                if (
+                    heartbeat_interval
+                    and client._heartbeat_task
+                    and client._heartbeat_task.done()
+                ):
                     exc = client._heartbeat_task.exception()
-                    logger.error("❌ Heartbeat task died at %.1f seconds! Error: %s", elapsed_actual, exc)
+                    logger.error(
+                        "❌ Heartbeat task died at %.1f seconds! Error: %s",
+                        elapsed_actual,
+                        exc,
+                    )
                     result["error"] = f"Heartbeat task died: {exc}"
                     result["duration_actual"] = elapsed_actual
                     return result
 
                 status = "🟢" if elapsed_actual > 60 else "🔵"
-                logger.info("%s Connection alive at %.0f seconds", status, elapsed_actual)
+                logger.info(
+                    "%s Connection alive at %.0f seconds", status, elapsed_actual
+                )
 
             # Test completed successfully
             result["duration_actual"] = (datetime.now() - start_time).total_seconds()
             result["success"] = True
             logger.info("")
-            logger.info("✅ SUCCESS: Connection stayed alive for %.0f seconds!", result["duration_actual"])
+            logger.info(
+                "✅ SUCCESS: Connection stayed alive for %.0f seconds!",
+                result["duration_actual"],
+            )
 
     except Exception as e:
         elapsed = (datetime.now() - start_time).total_seconds()
@@ -167,7 +188,9 @@ async def run_simulation(args):
         else:
             logger.warning("")
             logger.warning("⚠️  UNEXPECTED: Connection stayed alive without heartbeat")
-            logger.warning("   Either the server timeout is longer, or heartbeat isn't required")
+            logger.warning(
+                "   Either the server timeout is longer, or heartbeat isn't required"
+            )
 
     # Test 2: WITH heartbeat (should stay alive)
     logger.info("")
@@ -193,8 +216,13 @@ async def run_simulation(args):
     for r in results:
         status = "✅ PASS" if r["success"] == r["heartbeat_enabled"] else "❌ FAIL"
         hb_status = "enabled" if r["heartbeat_enabled"] else "disabled"
-        logger.info("%s | %s | Heartbeat %s | Duration: %.0fs",
-                   status, r["test_name"], hb_status, r["duration_actual"])
+        logger.info(
+            "%s | %s | Heartbeat %s | Duration: %.0fs",
+            status,
+            r["test_name"],
+            hb_status,
+            r["duration_actual"],
+        )
 
     logger.info("=" * 70)
 
@@ -240,23 +268,23 @@ Examples:
 
   # Skip the 70-second no-heartbeat test (faster)
   uv run python test_heartbeat_simulation.py --skip-no-heartbeat --ws-url ws://localhost:4000/socket/websocket --api-key test_key
-        """
+        """,
     )
 
     parser.add_argument(
         "--ws-url",
         default="ws://localhost:4000/api/v1/socket/websocket",
-        help="WebSocket URL (default: ws://localhost:4000/api/v1/socket/websocket)"
+        help="WebSocket URL (default: ws://localhost:4000/api/v1/socket/websocket)",
     )
     parser.add_argument(
         "--api-key",
         default="test_key",
-        help="API key for authentication (default: test_key)"
+        help="API key for authentication (default: test_key)",
     )
     parser.add_argument(
         "--skip-no-heartbeat",
         action="store_true",
-        help="Skip the 70-second test without heartbeat"
+        help="Skip the 70-second test without heartbeat",
     )
 
     args = parser.parse_args()

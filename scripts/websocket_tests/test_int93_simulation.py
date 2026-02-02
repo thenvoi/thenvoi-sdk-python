@@ -23,6 +23,7 @@ Usage:
     # Test reconnection (requires manual server restart)
     uv run python test_int93_simulation.py --test-reconnection --ws-url ws://localhost:4000/api/v1/socket/websocket --api-key YOUR_KEY
 """
+
 from __future__ import annotations
 
 import argparse
@@ -64,7 +65,9 @@ async def test_connection_without_heartbeat(ws_url: str, api_key: str) -> dict:
     """
     # Import here to avoid issues if phoenix client not installed
     from phoenix_channels_python_client.client import PHXChannelsClient
-    from phoenix_channels_python_client.protocol_handler import PhoenixChannelsProtocolVersion
+    from phoenix_channels_python_client.protocol_handler import (
+        PhoenixChannelsProtocolVersion,
+    )
 
     print_banner("TEST 1: Connection WITHOUT Heartbeat")
     logger.info("Expected: Connection should DROP after ~60 seconds")
@@ -94,7 +97,9 @@ async def test_connection_without_heartbeat(ws_url: str, api_key: str) -> dict:
 
         async with client:
             logger.info("[OK] Connected at %s", start_time.strftime("%H:%M:%S"))
-            logger.info("[WARN] Heartbeat DISABLED - server will timeout connection after ~60s")
+            logger.info(
+                "[WARN] Heartbeat DISABLED - server will timeout connection after ~60s"
+            )
 
             check_interval = 5
             for elapsed in range(0, test_duration + 1, check_interval):
@@ -105,14 +110,18 @@ async def test_connection_without_heartbeat(ws_url: str, api_key: str) -> dict:
 
                 # Check if connection is still alive
                 if client.connection is None:
-                    logger.info("[X] Connection DROPPED at %.1f seconds!", actual_elapsed)
+                    logger.info(
+                        "[X] Connection DROPPED at %.1f seconds!", actual_elapsed
+                    )
                     result["connection_dropped"] = True
                     result["actual_duration"] = actual_elapsed
                     result["success"] = True  # Expected behavior!
                     return result
 
                 status = "[OK]" if actual_elapsed <= 55 else "[?]"
-                logger.info("%s Connection alive at %.0f seconds", status, actual_elapsed)
+                logger.info(
+                    "%s Connection alive at %.0f seconds", status, actual_elapsed
+                )
 
             # If we get here, connection stayed alive (unexpected)
             result["actual_duration"] = (datetime.now() - start_time).total_seconds()
@@ -136,7 +145,9 @@ async def test_connection_with_heartbeat(ws_url: str, api_key: str) -> dict:
     This proves the heartbeat fix for INT-93 works.
     """
     from phoenix_channels_python_client.client import PHXChannelsClient
-    from phoenix_channels_python_client.protocol_handler import PhoenixChannelsProtocolVersion
+    from phoenix_channels_python_client.protocol_handler import (
+        PhoenixChannelsProtocolVersion,
+    )
 
     print_banner("TEST 2: Connection WITH Heartbeat")
     logger.info("Expected: Connection should STAY ALIVE beyond 60 seconds")
@@ -177,11 +188,15 @@ async def test_connection_with_heartbeat(ws_url: str, api_key: str) -> dict:
 
                 # Check if connection is still alive
                 if client.connection is None:
-                    logger.error("[X] Connection DROPPED at %.1f seconds!", actual_elapsed)
+                    logger.error(
+                        "[X] Connection DROPPED at %.1f seconds!", actual_elapsed
+                    )
                     result["connection_dropped"] = True
                     result["actual_duration"] = actual_elapsed
                     result["success"] = False  # Should NOT drop with heartbeat!
-                    result["error"] = f"Connection dropped at {actual_elapsed:.1f}s despite heartbeat"
+                    result["error"] = (
+                        f"Connection dropped at {actual_elapsed:.1f}s despite heartbeat"
+                    )
                     return result
 
                 # Check heartbeat task health
@@ -194,14 +209,20 @@ async def test_connection_with_heartbeat(ws_url: str, api_key: str) -> dict:
 
                 # Show progress with emphasis on passing 60s mark
                 if actual_elapsed > 60:
-                    logger.info("[OK] Connection still alive at %.0f seconds (PAST 60s timeout!)", actual_elapsed)
+                    logger.info(
+                        "[OK] Connection still alive at %.0f seconds (PAST 60s timeout!)",
+                        actual_elapsed,
+                    )
                 else:
                     logger.info("[..] Connection alive at %.0f seconds", actual_elapsed)
 
             # Success - connection stayed alive!
             result["actual_duration"] = (datetime.now() - start_time).total_seconds()
             result["success"] = True
-            logger.info("[OK] SUCCESS: Connection stayed alive for %.0f seconds!", result["actual_duration"])
+            logger.info(
+                "[OK] SUCCESS: Connection stayed alive for %.0f seconds!",
+                result["actual_duration"],
+            )
 
     except Exception as e:
         elapsed = (datetime.now() - start_time).total_seconds()
@@ -218,7 +239,9 @@ async def test_reconnection(ws_url: str, api_key: str) -> dict:
     Test automatic reconnection - interactive test requiring server restart.
     """
     from phoenix_channels_python_client.client import PHXChannelsClient
-    from phoenix_channels_python_client.protocol_handler import PhoenixChannelsProtocolVersion
+    from phoenix_channels_python_client.protocol_handler import (
+        PhoenixChannelsProtocolVersion,
+    )
 
     print_banner("TEST 3: Automatic Reconnection")
     logger.info("This test requires you to restart the server to trigger reconnection")
@@ -313,10 +336,14 @@ async def test_reconnection(ws_url: str, api_key: str) -> dict:
             logger.info("[OK] RECONNECTION VERIFIED!")
         elif result["disconnect_count"] == 0:
             logger.info("")
-            logger.info("[INFO] No disconnections occurred. Restart your server to test.")
+            logger.info(
+                "[INFO] No disconnections occurred. Restart your server to test."
+            )
         else:
             logger.warning("")
-            logger.warning("[WARN] Disconnections but no reconnections. Check server availability.")
+            logger.warning(
+                "[WARN] Disconnections but no reconnections. Check server availability."
+            )
 
     except Exception as e:
         logger.error("Test error: %s", e)
@@ -342,12 +369,16 @@ async def run_simulation(args) -> bool:
 
         if result1["success"]:
             logger.info("")
-            logger.info("[OK] CONFIRMED: Without heartbeat, connection drops after ~60s")
+            logger.info(
+                "[OK] CONFIRMED: Without heartbeat, connection drops after ~60s"
+            )
             logger.info("     This is the bug that INT-93 reports!")
         else:
             logger.warning("")
             logger.warning("[?] UNEXPECTED: Connection stayed alive without heartbeat")
-            logger.warning("    Server may have longer timeout or doesn't require heartbeat")
+            logger.warning(
+                "    Server may have longer timeout or doesn't require heartbeat"
+            )
 
     # Test 2: With heartbeat (should stay alive)
     if not args.test_reconnection:
@@ -426,28 +457,24 @@ Examples:
 
   # Test automatic reconnection (interactive)
   uv run python test_int93_simulation.py --test-reconnection --ws-url ws://localhost:4000/api/v1/socket/websocket --api-key YOUR_KEY
-        """
+        """,
     )
 
     parser.add_argument(
         "--ws-url",
         required=True,
-        help="WebSocket URL (e.g., ws://localhost:4000/api/v1/socket/websocket)"
+        help="WebSocket URL (e.g., ws://localhost:4000/api/v1/socket/websocket)",
     )
-    parser.add_argument(
-        "--api-key",
-        required=True,
-        help="API key for authentication"
-    )
+    parser.add_argument("--api-key", required=True, help="API key for authentication")
     parser.add_argument(
         "--skip-no-heartbeat",
         action="store_true",
-        help="Skip the 70-second test without heartbeat"
+        help="Skip the 70-second test without heartbeat",
     )
     parser.add_argument(
         "--test-reconnection",
         action="store_true",
-        help="Run interactive reconnection test (requires manual server restart)"
+        help="Run interactive reconnection test (requires manual server restart)",
     )
 
     args = parser.parse_args()

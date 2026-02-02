@@ -22,7 +22,9 @@ import logging
 from datetime import datetime
 
 from phoenix_channels_python_client.client import PHXChannelsClient
-from phoenix_channels_python_client.protocol_handler import PhoenixChannelsProtocolVersion
+from phoenix_channels_python_client.protocol_handler import (
+    PhoenixChannelsProtocolVersion,
+)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -119,6 +121,7 @@ async def test_reconnection(args):
 
             # Try to subscribe to a test topic (may fail if topic doesn't exist, that's OK)
             try:
+
                 async def message_handler(message):
                     tracker.messages_received += 1
                     logger.info("📨 Received message: %s", message.event)
@@ -126,12 +129,14 @@ async def test_reconnection(args):
                 # Use a generic topic that might exist
                 test_topic = f"test:reconnection_{datetime.now().strftime('%H%M%S')}"
                 logger.info("Attempting to subscribe to topic: %s", test_topic)
-                logger.info("(Subscription may fail if topic doesn't exist - that's OK)")
+                logger.info(
+                    "(Subscription may fail if topic doesn't exist - that's OK)"
+                )
 
                 try:
                     await asyncio.wait_for(
                         client.subscribe_to_topic(test_topic, message_handler),
-                        timeout=5.0
+                        timeout=5.0,
                     )
                     logger.info("✅ Subscribed to topic: %s", test_topic)
                 except Exception as e:
@@ -145,8 +150,12 @@ async def test_reconnection(args):
             logger.info("=" * 70)
             logger.info("🔄 CONNECTION ACTIVE - Waiting for events...")
             logger.info("")
-            logger.info("   👉 NOW: Restart your local Phoenix server to test reconnection")
-            logger.info("   👉 Or wait and watch heartbeats being sent every 30 seconds")
+            logger.info(
+                "   👉 NOW: Restart your local Phoenix server to test reconnection"
+            )
+            logger.info(
+                "   👉 Or wait and watch heartbeats being sent every 30 seconds"
+            )
             logger.info("   👉 Press Ctrl+C to stop")
             logger.info("=" * 70)
             logger.info("")
@@ -200,13 +209,9 @@ def main():
     parser.add_argument(
         "--ws-url",
         default="ws://localhost:4000/api/v1/socket/websocket",
-        help="WebSocket URL (default: ws://localhost:4000/api/v1/socket/websocket)"
+        help="WebSocket URL (default: ws://localhost:4000/api/v1/socket/websocket)",
     )
-    parser.add_argument(
-        "--api-key",
-        required=True,
-        help="API key for authentication"
-    )
+    parser.add_argument("--api-key", required=True, help="API key for authentication")
 
     args = parser.parse_args()
 
