@@ -166,7 +166,7 @@ class TestToolCallPairing:
                 "content": json.dumps(
                     {
                         "event": "on_tool_start",
-                        "name": "send_message",
+                        "name": "thenvoi_send_message",
                         "run_id": "run-123",
                         "data": {"input": {"content": "Hello!", "mentions": []}},
                     }
@@ -178,11 +178,11 @@ class TestToolCallPairing:
                 "content": json.dumps(
                     {
                         "event": "on_tool_end",
-                        "name": "send_message",
+                        "name": "thenvoi_send_message",
                         "run_id": "run-456",
                         "data": {
                             "input": {},
-                            "output": "content='OK' name='send_message' tool_call_id='call_abc123'",
+                            "output": "content='OK' name='thenvoi_send_message' tool_call_id='call_abc123'",
                         },
                     }
                 ),
@@ -198,7 +198,7 @@ class TestToolCallPairing:
         assert isinstance(result[0], AIMessage)
         assert result[0].content == ""
         assert len(result[0].tool_calls) == 1
-        assert result[0].tool_calls[0]["name"] == "send_message"
+        assert result[0].tool_calls[0]["name"] == "thenvoi_send_message"
         assert result[0].tool_calls[0]["id"] == "call_abc123"
         assert result[0].tool_calls[0]["args"] == {"content": "Hello!", "mentions": []}
 
@@ -371,7 +371,7 @@ class TestExtractToolCallId:
 
     def test_extracts_tool_call_id(self):
         """Should extract tool_call_id from output string."""
-        output = "content='OK' name='send_message' tool_call_id='call_wzMushVvBFE8tBwupFDEZQGE'"
+        output = "content='OK' name='thenvoi_send_message' tool_call_id='call_wzMushVvBFE8tBwupFDEZQGE'"
 
         result = LangChainHistoryConverter._extract_tool_call_id(output)
 

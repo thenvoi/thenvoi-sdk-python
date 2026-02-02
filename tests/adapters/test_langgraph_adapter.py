@@ -336,7 +336,7 @@ class TestStreamEventHandling:
 
         event = {
             "event": "on_tool_start",
-            "name": "send_message",
+            "name": "thenvoi_send_message",
             "run_id": "run-123",
             "data": {"input": {"content": "Hello"}},
         }
@@ -357,7 +357,7 @@ class TestStreamEventHandling:
 
         event = {
             "event": "on_tool_end",
-            "name": "send_message",
+            "name": "thenvoi_send_message",
             "run_id": "run-123",
             "data": {"output": "success"},
         }
