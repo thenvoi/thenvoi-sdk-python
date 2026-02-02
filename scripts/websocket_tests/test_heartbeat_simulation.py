@@ -76,7 +76,7 @@ async def test_connection(
         "test_name": test_name,
         "heartbeat_enabled": heartbeat_interval is not None,
         "duration_target": test_duration,
-        "duration_actual": 0,
+        "duration_actual": 0.0,
         "success": False,
         "error": None,
         "connection_dropped": False,

@@ -135,6 +135,7 @@ addopts = "-v"
 project_excludes = [
     "tests/**",                 # Tests use mocks with duck typing
     "examples/**",              # Examples use local imports
+    "scripts/**",               # Manual test scripts
 ]
 
 [tool.commitizen]

@@ -77,7 +77,7 @@ async def test_connection_without_heartbeat(ws_url: str, api_key: str) -> dict:
     result = {
         "test_name": "Without Heartbeat",
         "expected_behavior": "Connection drops after ~60s",
-        "actual_duration": 0,
+        "actual_duration": 0.0,
         "connection_dropped": False,
         "success": False,
         "error": None,
@@ -157,7 +157,7 @@ async def test_connection_with_heartbeat(ws_url: str, api_key: str) -> dict:
     result = {
         "test_name": "With Heartbeat",
         "expected_behavior": "Connection stays alive beyond 60s",
-        "actual_duration": 0,
+        "actual_duration": 0.0,
         "connection_dropped": False,
         "success": False,
         "error": None,
