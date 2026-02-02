@@ -57,7 +57,7 @@ parlant = [
 crewai = [
     # Upper bound due to reliance on kickoff_async message list behavior.
     # TODO: Test against CrewAI 1.0 when released and update upper bound if compatible.
-    "crewai>=0.80.0,<1.0.0",
+    "crewai>=0.80.0,<2.0.0",
     "openai>=1.0.0",
     "nest-asyncio>=1.6.0",  # Required for sync-to-async bridging in CrewAI tools
 ]
