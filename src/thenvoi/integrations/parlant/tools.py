@@ -18,6 +18,7 @@ because Parlant's @p.tool decorator checks annotation types at runtime.
 """
 
 import logging
+import warnings
 from typing import Any, Optional
 
 logger = logging.getLogger(__name__)
@@ -65,8 +66,6 @@ def was_message_sent(session_id: str) -> bool:
 # Keep old API for backwards compatibility (deprecated)
 def set_current_tools(tools: Optional[Any]) -> None:
     """Deprecated: Use set_session_tools instead."""
-    import warnings
-
     warnings.warn(
         "set_current_tools is deprecated, use set_session_tools instead",
         DeprecationWarning,
@@ -76,8 +75,6 @@ def set_current_tools(tools: Optional[Any]) -> None:
 
 def get_current_tools() -> Optional[Any]:
     """Deprecated: Use get_session_tools instead."""
-    import warnings
-
     warnings.warn(
         "get_current_tools is deprecated, use get_session_tools instead",
         DeprecationWarning,

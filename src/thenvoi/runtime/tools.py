@@ -7,6 +7,7 @@ Bound to a room_id. Uses AsyncRestClient directly for API calls.
 from __future__ import annotations
 
 import logging
+import warnings
 from typing import TYPE_CHECKING, Any, Literal, cast
 
 from pydantic import BaseModel, Field, ValidationError
@@ -138,8 +139,6 @@ def get_tool_description(name: str) -> str:
     Returns:
         Tool description string
     """
-    import warnings
-
     # Try exact match first
     model = TOOL_MODELS.get(name)
     if model and model.__doc__:
