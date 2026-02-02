@@ -97,13 +97,13 @@ async def main() -> None:
         checkpointer=InMemorySaver(),
         additional_tools=[calculate, get_weather],  # Add your tools here
         custom_section="""You are a helpful assistant with access to:
-        - Platform tools (send_message, add_participant, etc.)
+        - Platform tools (thenvoi_send_message, thenvoi_add_participant, etc.)
         - Calculator tool for math
         - Weather tool for weather info
 
         When users ask math questions, use the calculator.
         When users ask about weather, use get_weather.
-        Always send your response using send_message.""",
+        Always send your response using thenvoi_send_message.""",
     )
 
     # Create and start agent

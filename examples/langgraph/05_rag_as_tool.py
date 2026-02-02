@@ -21,7 +21,7 @@ The RAG graph:
 - Generates grounded answers based on retrieved context
 
 Pattern:
-- Main agent handles chat interactions (send_message, add_participant, etc.)
+- Main agent handles chat interactions (thenvoi_send_message, thenvoi_add_participant, etc.)
 - RAG subgraph handles intelligent document retrieval and question answering
 - User asks questions → Agent delegates to RAG → Agent sends response
 
@@ -116,19 +116,19 @@ by retrieving information from Lilian Weng's blog posts.
 When someone asks a question about AI topics:
 1. Use `research_ai_topics` with the question
 2. Get the researched answer from the tool
-3. Use `send_message` to send the answer back to the chat
+3. Use `thenvoi_send_message` to send the answer back to the chat
 
 ### "Tell X about Y" Pattern:
 When a user says "tell [Person/Agent] about [Topic]":
-1. Get their info: `get_participants()` to find their ID and username
+1. Get their info: `thenvoi_get_participants()` to find their ID and username
 2. Research topic: `research_ai_topics` to get information about the topic
-3. Send with mention: `send_message` with "@Username, [information]" and mentions parameter
+3. Send with mention: `thenvoi_send_message` with "@Username, [information]" and mentions parameter
 
 **Example:**
 User: "tell nvidia about reward hacking"
-1. get_participants() → find Nvidia_Agent
+1. thenvoi_get_participants() → find Nvidia_Agent
 2. research_ai_topics(messages=[{'role': 'user', 'content': 'What is reward hacking?'}]) → get answer
-3. send_message(content="@Nvidia_Agent, [answer from research]", mentions='[{"id":"xxx","username":"Nvidia_Agent"}]')
+3. thenvoi_send_message(content="@Nvidia_Agent, [answer from research]", mentions='[{"id":"xxx","username":"Nvidia_Agent"}]')
 """
 
     # Create adapter with RAG tool
