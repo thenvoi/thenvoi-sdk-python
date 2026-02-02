@@ -166,3 +166,15 @@ class LettaConfig:
 
     room_contexts_limit: int | None = 5000
     """Character limit for room_contexts block. None for unlimited."""
+
+    def __post_init__(self) -> None:
+        """Validate configuration values."""
+        # Validate memory block limits must be positive or None
+        for field_name in (
+            "persona_limit",
+            "participants_limit",
+            "room_contexts_limit",
+        ):
+            value = getattr(self, field_name)
+            if value is not None and value <= 0:
+                raise ValueError(f"{field_name} must be positive or None, got {value}")

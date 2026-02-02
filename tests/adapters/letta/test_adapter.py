@@ -563,3 +563,234 @@ class TestUtilities:
         result = adapter._format_participants(participants)
         assert "Alice (User)" in result
         assert "DataBot (Agent)" in result
+
+
+class TestBuildMemoryBlock:
+    """Tests for _build_memory_block() helper."""
+
+    @pytest.fixture
+    def initialized_adapter(self, adapter, mock_letta_client):
+        """Adapter with client initialized (needed for helper access)."""
+        adapter._client = mock_letta_client
+        return adapter
+
+    def test_includes_label_value_description(self, initialized_adapter):
+        """Should include label, value, and description."""
+        block = initialized_adapter._build_memory_block(
+            "persona", "test value", "test description", 1000
+        )
+        assert block["label"] == "persona"
+        assert block["value"] == "test value"
+        assert block["description"] == "test description"
+
+    def test_includes_limit_when_provided(self, initialized_adapter):
+        """Should include limit when not None."""
+        block = initialized_adapter._build_memory_block(
+            "persona", "value", "desc", 2000
+        )
+        assert block["limit"] == 2000
+
+    def test_omits_limit_when_none(self, initialized_adapter):
+        """Should not include limit key when None."""
+        block = initialized_adapter._build_memory_block(
+            "persona", "value", "desc", None
+        )
+        assert "limit" not in block
+
+
+class TestAgentCreationMemoryBlocks:
+    """Tests verifying memory blocks are created with correct structure."""
+
+    @pytest.mark.asyncio
+    async def test_per_room_agent_memory_blocks_have_description(
+        self, adapter, mock_letta_client, mock_tools, platform_message
+    ):
+        """PER_ROOM agent should have description on all memory blocks."""
+        await _init_adapter_with_mock(adapter, mock_letta_client)
+
+        await adapter.on_message(
+            msg=platform_message,
+            tools=mock_tools,
+            history=[],
+            participants_msg=None,
+            is_session_bootstrap=True,
+            room_id="room-456",
+        )
+
+        call_kwargs = mock_letta_client.agents.create.call_args.kwargs
+        memory_blocks = call_kwargs["memory_blocks"]
+
+        # PER_ROOM has 2 blocks: persona, participants
+        assert len(memory_blocks) == 2
+        for block in memory_blocks:
+            assert "description" in block
+            assert block["description"]  # Not empty
+
+    @pytest.mark.asyncio
+    async def test_per_room_agent_memory_blocks_have_limit(
+        self, adapter, mock_letta_client, mock_tools, platform_message
+    ):
+        """PER_ROOM agent should have limit on memory blocks."""
+        await _init_adapter_with_mock(adapter, mock_letta_client)
+
+        await adapter.on_message(
+            msg=platform_message,
+            tools=mock_tools,
+            history=[],
+            participants_msg=None,
+            is_session_bootstrap=True,
+            room_id="room-456",
+        )
+
+        call_kwargs = mock_letta_client.agents.create.call_args.kwargs
+        memory_blocks = call_kwargs["memory_blocks"]
+
+        persona_block = next(b for b in memory_blocks if b["label"] == "persona")
+        participants_block = next(
+            b for b in memory_blocks if b["label"] == "participants"
+        )
+
+        assert persona_block["limit"] == 2000  # default
+        assert participants_block["limit"] == 2000  # default
+
+    @pytest.mark.asyncio
+    async def test_shared_agent_memory_blocks_have_description(
+        self, shared_adapter, mock_letta_client
+    ):
+        """SHARED agent should have description on all memory blocks."""
+        # Use partial init, then manually trigger agent creation
+        from thenvoi.adapters.letta.memory import MemoryManager
+
+        shared_adapter._client = mock_letta_client
+        shared_adapter._memory_manager = MemoryManager(mock_letta_client)
+        shared_adapter._thenvoi_agent_name = "TestBot"
+        shared_adapter._thenvoi_agent_description = "Test assistant"
+
+        # Trigger actual shared agent creation
+        await shared_adapter._create_shared_agent()
+
+        call_kwargs = mock_letta_client.agents.create.call_args.kwargs
+        memory_blocks = call_kwargs["memory_blocks"]
+
+        # SHARED has 3 blocks: persona, participants, room_contexts
+        assert len(memory_blocks) == 3
+        for block in memory_blocks:
+            assert "description" in block
+            assert block["description"]  # Not empty
+
+    @pytest.mark.asyncio
+    async def test_shared_agent_room_contexts_has_larger_limit(
+        self, shared_adapter, mock_letta_client
+    ):
+        """SHARED agent room_contexts should have 5000 char limit."""
+        # Use partial init, then manually trigger agent creation
+        from thenvoi.adapters.letta.memory import MemoryManager
+
+        shared_adapter._client = mock_letta_client
+        shared_adapter._memory_manager = MemoryManager(mock_letta_client)
+        shared_adapter._thenvoi_agent_name = "TestBot"
+        shared_adapter._thenvoi_agent_description = "Test assistant"
+
+        # Trigger actual shared agent creation
+        await shared_adapter._create_shared_agent()
+
+        call_kwargs = mock_letta_client.agents.create.call_args.kwargs
+        memory_blocks = call_kwargs["memory_blocks"]
+
+        room_contexts_block = next(
+            b for b in memory_blocks if b["label"] == "room_contexts"
+        )
+        assert room_contexts_block["limit"] == 5000  # default for room_contexts
+
+    @pytest.mark.asyncio
+    async def test_custom_limits_are_applied(
+        self, tmp_path, mock_letta_client, mock_tools
+    ):
+        """Custom limit config should be applied to memory blocks."""
+        config = LettaConfig(
+            api_key="test-key",
+            mode=LettaMode.PER_ROOM,
+            base_url="http://localhost:8283",
+            persona_limit=500,
+            participants_limit=1000,
+        )
+        adapter = LettaAdapter(
+            config=config, state_storage_path=tmp_path / "state.json"
+        )
+        await _init_adapter_with_mock(adapter, mock_letta_client)
+
+        msg = PlatformMessage(
+            id="msg-123",
+            room_id="room-456",
+            content="Hello",
+            sender_id="user-789",
+            sender_type="User",
+            sender_name="Alice",
+            message_type="text",
+            metadata={},
+            created_at=datetime.now(timezone.utc),
+        )
+
+        await adapter.on_message(
+            msg=msg,
+            tools=mock_tools,
+            history=[],
+            participants_msg=None,
+            is_session_bootstrap=True,
+            room_id="room-123",
+        )
+
+        call_kwargs = mock_letta_client.agents.create.call_args.kwargs
+        memory_blocks = call_kwargs["memory_blocks"]
+
+        persona_block = next(b for b in memory_blocks if b["label"] == "persona")
+        participants_block = next(
+            b for b in memory_blocks if b["label"] == "participants"
+        )
+
+        assert persona_block["limit"] == 500
+        assert participants_block["limit"] == 1000
+
+    @pytest.mark.asyncio
+    async def test_none_limit_omits_limit_field(
+        self, tmp_path, mock_letta_client, mock_tools
+    ):
+        """Setting limit to None should omit limit field entirely."""
+        config = LettaConfig(
+            api_key="test-key",
+            mode=LettaMode.PER_ROOM,
+            base_url="http://localhost:8283",
+            persona_limit=None,
+            participants_limit=None,
+        )
+        adapter = LettaAdapter(
+            config=config, state_storage_path=tmp_path / "state.json"
+        )
+        await _init_adapter_with_mock(adapter, mock_letta_client)
+
+        msg = PlatformMessage(
+            id="msg-123",
+            room_id="room-456",
+            content="Hello",
+            sender_id="user-789",
+            sender_type="User",
+            sender_name="Alice",
+            message_type="text",
+            metadata={},
+            created_at=datetime.now(timezone.utc),
+        )
+
+        await adapter.on_message(
+            msg=msg,
+            tools=mock_tools,
+            history=[],
+            participants_msg=None,
+            is_session_bootstrap=True,
+            room_id="room-123",
+        )
+
+        call_kwargs = mock_letta_client.agents.create.call_args.kwargs
+        memory_blocks = call_kwargs["memory_blocks"]
+
+        for block in memory_blocks:
+            assert "limit" not in block

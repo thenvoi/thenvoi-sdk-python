@@ -1,5 +1,7 @@
 """Tests for Letta adapter modes and configuration."""
 
+import pytest
+
 from thenvoi.adapters.letta.modes import LettaConfig, LettaMode
 
 
@@ -83,3 +85,75 @@ class TestLettaConfig:
         assert len(config.custom_tools) == 2
         assert config.custom_tools[0] == mock_tool
         assert config.custom_tools[1] == "builtin_tool"
+
+
+class TestLettaConfigMemoryBlockLimits:
+    """Tests for memory block limit defaults and validation."""
+
+    def test_default_memory_block_limits(self):
+        """Default memory block limits should be set."""
+        config = LettaConfig()
+        assert config.persona_limit == 2000
+        assert config.participants_limit == 2000
+        assert config.room_contexts_limit == 5000
+
+    def test_accepts_none_limits(self):
+        """Should accept None as unlimited."""
+        config = LettaConfig(
+            persona_limit=None,
+            participants_limit=None,
+            room_contexts_limit=None,
+        )
+        assert config.persona_limit is None
+        assert config.participants_limit is None
+        assert config.room_contexts_limit is None
+
+    def test_accepts_positive_limits(self):
+        """Should accept positive limits."""
+        config = LettaConfig(
+            persona_limit=500,
+            participants_limit=1000,
+            room_contexts_limit=3000,
+        )
+        assert config.persona_limit == 500
+        assert config.participants_limit == 1000
+        assert config.room_contexts_limit == 3000
+
+    def test_accepts_limit_of_one(self):
+        """Should accept limit of 1 (minimum valid positive)."""
+        config = LettaConfig(persona_limit=1)
+        assert config.persona_limit == 1
+
+
+class TestLettaConfigValidation:
+    """Tests for LettaConfig validation errors."""
+
+    def test_rejects_zero_persona_limit(self):
+        """Should reject persona_limit of 0."""
+        with pytest.raises(ValueError, match="persona_limit must be positive"):
+            LettaConfig(persona_limit=0)
+
+    def test_rejects_negative_persona_limit(self):
+        """Should reject negative persona_limit."""
+        with pytest.raises(ValueError, match="persona_limit must be positive"):
+            LettaConfig(persona_limit=-100)
+
+    def test_rejects_zero_participants_limit(self):
+        """Should reject participants_limit of 0."""
+        with pytest.raises(ValueError, match="participants_limit must be positive"):
+            LettaConfig(participants_limit=0)
+
+    def test_rejects_negative_participants_limit(self):
+        """Should reject negative participants_limit."""
+        with pytest.raises(ValueError, match="participants_limit must be positive"):
+            LettaConfig(participants_limit=-50)
+
+    def test_rejects_zero_room_contexts_limit(self):
+        """Should reject room_contexts_limit of 0."""
+        with pytest.raises(ValueError, match="room_contexts_limit must be positive"):
+            LettaConfig(room_contexts_limit=0)
+
+    def test_rejects_negative_room_contexts_limit(self):
+        """Should reject negative room_contexts_limit."""
+        with pytest.raises(ValueError, match="room_contexts_limit must be positive"):
+            LettaConfig(room_contexts_limit=-1)
