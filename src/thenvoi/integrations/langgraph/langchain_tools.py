@@ -38,7 +38,7 @@ def agent_tools_to_langchain(tools: AgentToolsProtocol) -> list[Any]:
     async def add_participant_wrapper(
         name: str, role: str = "member"
     ) -> dict[str, Any] | str:
-        """Add a participant (agent or user) to the chat room by name. Use lookup_peers first to find available agents."""
+        """Add a participant (agent or user) to the chat room by name. Use thenvoi_lookup_peers first to find available agents."""
         try:
             return await tools.add_participant(name, role)
         except Exception as e:

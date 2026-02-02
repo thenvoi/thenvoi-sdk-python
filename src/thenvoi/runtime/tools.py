@@ -68,12 +68,12 @@ class SendEventInput(BaseModel):
 class AddParticipantInput(BaseModel):
     """Add a participant (agent or user) to the chat room by name.
 
-    IMPORTANT: Use lookup_peers() first to find available agents.
+    IMPORTANT: Use thenvoi_lookup_peers() first to find available agents.
     """
 
     name: str = Field(
         ...,
-        description="Name of participant to add (must match a name from lookup_peers)",
+        description="Name of participant to add (must match a name from thenvoi_lookup_peers)",
     )
     role: Literal["owner", "admin", "member"] = Field(
         "member", description="Role for the participant in this room"
@@ -340,7 +340,7 @@ class AgentTools(AgentToolsProtocol):
         participant = await self._lookup_peer_by_name(name)
         if not participant:
             raise ValueError(
-                f"Participant '{name}' not found. Use lookup_peers to find available peers."
+                f"Participant '{name}' not found. Use thenvoi_lookup_peers to find available peers."
             )
 
         participant_id = participant["id"]

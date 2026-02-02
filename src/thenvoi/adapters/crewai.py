@@ -467,7 +467,7 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
         class AddParticipantInput(BaseModel):
             participant_name: str = Field(
                 ...,
-                description="Name of participant to add (must match from lookup_peers)",
+                description="Name of participant to add (must match from thenvoi_lookup_peers)",
             )
             role: str = Field(
                 default="member", description="Role: 'owner', 'admin', or 'member'"

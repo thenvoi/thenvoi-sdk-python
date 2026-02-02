@@ -202,7 +202,7 @@ def create_thenvoi_mcp_server(agent: Any):
 
     @tool(
         "thenvoi_add_participant",
-        "Add a participant (user or agent) to the chat room by name. Use lookup_peers first to see available participants.",
+        "Add a participant (user or agent) to the chat room by name. Use thenvoi_lookup_peers first to see available participants.",
         {
             "room_id": str,
             "name": str,
