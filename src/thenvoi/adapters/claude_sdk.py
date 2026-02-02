@@ -379,7 +379,7 @@ class ClaudeSDKAdapter(SimpleAdapter[str]):
                 return _make_error(str(e))
 
         @tool(
-            "create_chatroom",
+            "thenvoi_create_chatroom",
             get_tool_description("thenvoi_create_chatroom"),
             {"room_id": str, "task_id": str},
         )
