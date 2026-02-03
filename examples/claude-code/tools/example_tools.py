@@ -18,6 +18,7 @@ async def calculator(args: dict) -> dict:
 async def get_time(args: dict) -> dict:
     """Returns current time in ISO format"""
     from datetime import datetime
+
     return {"content": [{"type": "text", "text": datetime.now().isoformat()}]}
 
 
@@ -25,5 +26,6 @@ async def get_time(args: dict) -> dict:
 async def random_number(args: dict) -> dict:
     """Example: random_number(1, 100) → "42" """
     import random
+
     result = random.randint(args.get("min", 1), args.get("max", 100))
     return {"content": [{"type": "text", "text": str(result)}]}
