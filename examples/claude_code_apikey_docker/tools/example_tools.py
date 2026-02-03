@@ -30,10 +30,16 @@ _FUNCTIONS = {
 }
 
 
-def _safe_eval(node: ast.AST) -> float | int:
+# Maximum recursion depth for expression evaluation
+_MAX_DEPTH = 50
+
+
+def _safe_eval(node: ast.AST, depth: int = 0) -> float | int:
     """Safely evaluate an AST node containing only math operations."""
+    if depth > _MAX_DEPTH:
+        raise ValueError(f"Expression too deeply nested (max depth: {_MAX_DEPTH})")
     if isinstance(node, ast.Expression):
-        return _safe_eval(node.body)
+        return _safe_eval(node.body, depth + 1)
     elif isinstance(node, ast.Constant):
         if isinstance(node.value, (int, float)):
             return node.value
@@ -42,14 +48,14 @@ def _safe_eval(node: ast.AST) -> float | int:
         op_type = type(node.op)
         if op_type not in _OPERATORS:
             raise ValueError(f"Unsupported operator: {op_type.__name__}")
-        left = _safe_eval(node.left)
-        right = _safe_eval(node.right)
+        left = _safe_eval(node.left, depth + 1)
+        right = _safe_eval(node.right, depth + 1)
         return _OPERATORS[op_type](left, right)
     elif isinstance(node, ast.UnaryOp):
         op_type = type(node.op)
         if op_type not in _OPERATORS:
             raise ValueError(f"Unsupported operator: {op_type.__name__}")
-        operand = _safe_eval(node.operand)
+        operand = _safe_eval(node.operand, depth + 1)
         return _OPERATORS[op_type](operand)
     elif isinstance(node, ast.Call):
         if not isinstance(node.func, ast.Name):
@@ -57,7 +63,7 @@ def _safe_eval(node: ast.AST) -> float | int:
         func_name = node.func.id
         if func_name not in _FUNCTIONS:
             raise ValueError(f"Unsupported function: {func_name}")
-        eval_args = [_safe_eval(arg) for arg in node.args]
+        eval_args = [_safe_eval(arg, depth + 1) for arg in node.args]
         return _FUNCTIONS[func_name](*eval_args)
     else:
         raise ValueError(f"Unsupported expression type: {type(node).__name__}")

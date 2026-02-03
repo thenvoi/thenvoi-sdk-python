@@ -1,5 +1,8 @@
 # Agent Configuration
 # Get agent_id and api_key from https://app.thenvoi.com
+#
+# WARNING: Do NOT commit this file with real credentials!
+# Copy to agent1.yaml (which is gitignored) and add your keys there.
 
 agent_id: "your-agent-id"
 api_key: "your-api-key"

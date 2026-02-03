@@ -77,6 +77,10 @@ def load_custom_tools(tools_dir: Path, tool_names: list[str]) -> list:
     except ImportError as e:
         logger.warning(f"Could not load custom tools: {e}")
         return []
+    finally:
+        # Clean up sys.path modification
+        if str(tools_dir.parent) in sys.path:
+            sys.path.remove(str(tools_dir.parent))
 
 
 async def main():
