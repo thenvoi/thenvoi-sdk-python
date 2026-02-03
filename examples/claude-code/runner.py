@@ -34,8 +34,19 @@ def load_config(config_path: str) -> dict:
         logger.error(f"Config file not found: {config_path}")
         sys.exit(1)
 
-    with open(path) as f:
-        config = yaml.safe_load(f)
+    try:
+        with open(path) as f:
+            config = yaml.safe_load(f)
+    except yaml.YAMLError as e:
+        logger.error(f"Invalid YAML in config file: {e}")
+        sys.exit(1)
+    except OSError as e:
+        logger.error(f"Failed to read config file: {e}")
+        sys.exit(1)
+
+    if config is None:
+        logger.error("Config file is empty")
+        sys.exit(1)
 
     # Validate required fields
     required = ["agent_id", "api_key"]
