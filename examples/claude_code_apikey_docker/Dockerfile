@@ -27,7 +27,9 @@ COPY pyproject.toml uv.lock ./
 COPY src/ ./src/
 
 # Install thenvoi SDK with claude_sdk extras
-RUN uv sync --extra claude_sdk
+# Rewrite SSH URLs to HTTPS to avoid SSH auth issues in Docker
+RUN git config --global url."https://github.com/".insteadOf "git@github.com:" && \
+    uv sync --extra claude_sdk
 
 # Copy runner and example tools
 COPY examples/claude_code_apikey_docker/runner.py ./runner.py
