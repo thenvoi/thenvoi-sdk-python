@@ -1,4 +1,10 @@
-#!/usr/bin/env python3
+# /// script
+# requires-python = ">=3.11"
+# dependencies = ["thenvoi-sdk"]
+#
+# [tool.uv.sources]
+# thenvoi-sdk = { git = "https://github.com/thenvoi/thenvoi-sdk-python.git" }
+# ///
 """
 Basic Claude Code Desktop Agent Example.
 
@@ -27,10 +33,8 @@ How it works:
     - Supports session persistence for multi-turn conversations per room
     - Claude responds with structured JSON actions to interact with Thenvoi
 
-Usage:
-    cp .env.example .env
-    # Edit .env with your Thenvoi credentials
-    python 01_basic_agent.py
+Run with:
+    uv run examples/claude_code_desktop/01_basic_agent.py
 """
 
 from __future__ import annotations
@@ -42,11 +46,7 @@ import sys
 
 from dotenv import load_dotenv
 
-# Add examples directory to path for imports
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-
-# Load .env file from the same directory as this script
-load_dotenv(os.path.join(os.path.dirname(__file__), ".env"))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from setup_logging import setup_logging
 from thenvoi import Agent
@@ -56,8 +56,9 @@ setup_logging()
 logger = logging.getLogger(__name__)
 
 
-async def main():
+async def main() -> None:
     """Run the basic Claude Code Desktop agent."""
+    load_dotenv(os.path.join(os.path.dirname(__file__), ".env"))
 
     # Get credentials from environment
     agent_id = os.environ.get("THENVOI_AGENT_ID", "")
@@ -66,12 +67,10 @@ async def main():
     rest_url = os.environ.get("THENVOI_REST_URL")
 
     if not agent_id or not api_key:
-        logger.error("THENVOI_AGENT_ID and THENVOI_API_KEY must be set")
-        sys.exit(1)
+        raise ValueError("THENVOI_AGENT_ID and THENVOI_API_KEY must be set")
 
     if not ws_url or not rest_url:
-        logger.error("THENVOI_WS_URL and THENVOI_REST_URL must be set")
-        sys.exit(1)
+        raise ValueError("THENVOI_WS_URL and THENVOI_REST_URL must be set")
 
     # Create adapter with Claude Code Desktop settings
     adapter = ClaudeCodeDesktopAdapter(
