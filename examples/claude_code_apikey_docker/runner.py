@@ -16,6 +16,7 @@ import logging
 import os
 import sys
 from pathlib import Path
+from typing import Any
 
 import yaml
 
@@ -27,9 +28,9 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-def load_config(config_path: str) -> dict:
+def load_config(config_path: str) -> dict[str, Any]:
     """Load agent configuration from YAML file."""
-    path = Path(config_path)
+    path = Path(config_path).resolve()
     if not path.exists():
         logger.error(f"Config file not found: {config_path}")
         sys.exit(1)
@@ -58,17 +59,35 @@ def load_config(config_path: str) -> dict:
     return config
 
 
-def load_custom_tools(tools_dir: Path, tool_names: list[str]) -> list:
+def load_custom_tools(tools_dir: Path, config_dir: Path, tool_names: list[str]) -> list:
     """Load custom tools from tools directory.
+
+    Args:
+        tools_dir: Path to the tools directory.
+        config_dir: Path to the config directory (for path traversal validation).
+        tool_names: List of tool names to load.
 
     Returns a list of tool functions (decorated with @tool from claude_agent_sdk).
     """
-    tools_init = tools_dir / "__init__.py"
+    # Resolve and validate path to prevent path traversal
+    resolved_tools_dir = tools_dir.resolve()
+    resolved_config_dir = config_dir.resolve()
+
+    # Ensure tools_dir is within or a sibling of config_dir
+    try:
+        resolved_tools_dir.relative_to(resolved_config_dir.parent)
+    except ValueError:
+        logger.warning(
+            f"Tools directory {resolved_tools_dir} is outside allowed path, skipping"
+        )
+        return []
+
+    tools_init = resolved_tools_dir / "__init__.py"
     if not tools_init.exists():
         return []
 
     # Import the tools module
-    sys.path.insert(0, str(tools_dir.parent))
+    sys.path.insert(0, str(resolved_tools_dir.parent))
     try:
         from tools import TOOL_REGISTRY
 
@@ -79,8 +98,8 @@ def load_custom_tools(tools_dir: Path, tool_names: list[str]) -> list:
         return []
     finally:
         # Clean up sys.path modification
-        if str(tools_dir.parent) in sys.path:
-            sys.path.remove(str(tools_dir.parent))
+        if str(resolved_tools_dir.parent) in sys.path:
+            sys.path.remove(str(resolved_tools_dir.parent))
 
 
 async def main():
@@ -109,8 +128,9 @@ async def main():
     # Load custom tools if specified
     custom_tools = []
     if tool_names:
-        tools_dir = Path(config_path).parent / "tools"
-        custom_tools = load_custom_tools(tools_dir, tool_names)
+        config_dir = Path(config_path).parent
+        tools_dir = config_dir / "tools"
+        custom_tools = load_custom_tools(tools_dir, config_dir, tool_names)
         if custom_tools:
             tool_fn_names = [getattr(t, "_tool_name", t.__name__) for t in custom_tools]
             logger.info(f"Loaded custom tools: {tool_fn_names}")

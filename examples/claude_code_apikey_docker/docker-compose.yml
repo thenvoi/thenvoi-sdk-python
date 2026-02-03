@@ -11,10 +11,11 @@ x-agent: &agent-base
     - ./:/app/config:ro
   restart: unless-stopped
   healthcheck:
-    test: ["CMD", "python", "-c", "import thenvoi"]
+    test: ["CMD", "python", "-c", "import thenvoi; from thenvoi.adapters import ClaudeSDKAdapter"]
     interval: 30s
     timeout: 10s
     retries: 3
+    start_period: 10s
 
 services:
   agent1:

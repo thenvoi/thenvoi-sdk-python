@@ -1,4 +1,13 @@
-"""Example tools - copy what you need to __init__.py"""
+"""
+Example tools for the Thenvoi Claude SDK agent runner.
+
+Tool Response Format:
+    Tools must return a dict with:
+    - "content": list of content blocks, e.g., [{"type": "text", "text": "result"}]
+    - "is_error": (optional) set to True if the tool encountered an error
+
+Copy the tools you need and register them in __init__.py.
+"""
 
 from __future__ import annotations
 
@@ -100,8 +109,8 @@ async def calculator(args: dict[str, Any]) -> dict[str, Any]:
 
 
 @tool("get_time", "Get current date/time", {})
-async def get_time(args: dict[str, Any]) -> dict[str, Any]:
-    """Returns current time in ISO format"""
+async def get_time(_args: dict[str, Any]) -> dict[str, Any]:
+    """Returns current time in ISO format."""
     return {"content": [{"type": "text", "text": datetime.now().isoformat()}]}
 
 
