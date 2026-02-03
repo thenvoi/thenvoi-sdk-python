@@ -18,7 +18,7 @@ services:
       AGENT_CONFIG: /app/config/agent1.yaml
 
   # Add more agents:
-  # agent1:
+  # agent2:
   #   <<: *agent-base
   #   environment:
-  #     AGENT_CONFIG: /app/config/agent1.yaml
+  #     AGENT_CONFIG: /app/config/agent2.yaml

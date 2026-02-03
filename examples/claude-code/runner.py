@@ -47,24 +47,25 @@ def load_config(config_path: str) -> dict:
     return config
 
 
-def load_custom_tools(tools_dir: Path, tool_names: list[str]) -> dict:
-    """Load custom tools from tools directory."""
+def load_custom_tools(tools_dir: Path, tool_names: list[str]) -> list:
+    """Load custom tools from tools directory.
+
+    Returns a list of tool functions (decorated with @tool from claude_agent_sdk).
+    """
     tools_init = tools_dir / "__init__.py"
     if not tools_init.exists():
-        return {}
+        return []
 
     # Import the tools module
     sys.path.insert(0, str(tools_dir.parent))
     try:
         from tools import TOOL_REGISTRY
 
-        # Filter to only requested tools
-        return {
-            name: TOOL_REGISTRY[name] for name in tool_names if name in TOOL_REGISTRY
-        }
+        # Filter to only requested tools, return as list
+        return [TOOL_REGISTRY[name] for name in tool_names if name in TOOL_REGISTRY]
     except ImportError as e:
         logger.warning(f"Could not load custom tools: {e}")
-        return {}
+        return []
 
 
 async def main():
@@ -91,12 +92,13 @@ async def main():
     tool_names = config.get("tools", [])
 
     # Load custom tools if specified
-    custom_tools = {}
+    custom_tools = []
     if tool_names:
         tools_dir = Path(config_path).parent / "tools"
         custom_tools = load_custom_tools(tools_dir, tool_names)
         if custom_tools:
-            logger.info(f"Loaded custom tools: {list(custom_tools.keys())}")
+            tool_fn_names = [getattr(t, "_tool_name", t.__name__) for t in custom_tools]
+            logger.info(f"Loaded custom tools: {tool_fn_names}")
 
     # Create adapter
     adapter = ClaudeSDKAdapter(
@@ -104,6 +106,7 @@ async def main():
         custom_section=prompt,
         max_thinking_tokens=thinking_tokens,
         enable_execution_reporting=True,
+        custom_tools=custom_tools if custom_tools else None,
     )
 
     # Create agent
