@@ -1,0 +1,37 @@
+# Letta Bridge Configuration
+# Copy to bridge_config.yaml and fill in your values
+#
+# Usage:
+#   cp bridge_config.yaml.example bridge_config.yaml
+#   # Edit bridge_config.yaml with your credentials
+#   ./scripts/run_bridge.sh
+
+# Platform connection (Thenvoi)
+platform:
+  # Production
+  rest_url: "https://app.thenvoi.com/"
+  ws_url: "wss://app.thenvoi.com/api/v1/socket/websocket"
+
+  # Local development (uncomment to use)
+  # rest_url: "http://host.docker.internal:4000/"
+  # ws_url: "ws://host.docker.internal:4000/api/v1/socket/websocket"
+
+# Agent credentials (get from Thenvoi dashboard)
+agent:
+  id: "your-agent-uuid-here"
+  api_key: "thnv_a_your_agent_api_key_here"
+  name: "My Agent"
+  persona: |
+    You are a helpful AI assistant.
+    Be concise and friendly.
+
+# Letta settings
+letta:
+  # Mode: "per_room" (one agent per chat) or "shared" (one agent for all chats)
+  mode: "per_room"
+
+  # LLM model (provider/model format)
+  model: "openai/gpt-4o"
+
+  # Embedding model for memory
+  embedding_model: "openai/text-embedding-3-small"

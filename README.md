@@ -330,7 +330,8 @@ src/thenvoi/
 │       ├── modes.py           # LettaConfig, LettaMode
 │       ├── state.py           # Persistent state management
 │       ├── memory.py          # Memory block management
-│       └── prompts.py         # System prompts
+│       ├── prompts.py         # System prompts
+│       └── entrypoint.py      # Docker entrypoint for unified bridge
 │
 ├── platform/                   # Transport layer
 │   ├── link.py                # ThenvoiLink - WebSocket + REST client
@@ -619,11 +620,64 @@ The bridge agent forwards messages from Thenvoi platform to the external A2A age
 
 ### Letta Setup
 
-Letta requires a Letta server and optionally an MCP server for platform tools.
+Letta provides stateful agents with persistent memory. There are two ways to run the Letta bridge:
 
-**Prerequisites:**
-- Letta server running (default: http://localhost:8283)
-- Optional: Thenvoi MCP server for platform tools
+#### Option 1: Unified Docker Bridge (Recommended)
+
+Run the complete Letta stack (Letta server + MCP server + adapter) with a single command:
+
+```bash
+# 1. Copy and configure
+cp bridge_config.yaml.example bridge_config.yaml
+# Edit bridge_config.yaml with your agent credentials
+
+# 2. Set OpenAI key
+export OPENAI_API_KEY="sk-..."
+
+# 3. Run the bridge
+./scripts/run_bridge.sh
+```
+
+The bridge reads all configuration from `bridge_config.yaml`:
+
+```yaml
+# Platform connection
+platform:
+  rest_url: "https://app.thenvoi.com/"
+  ws_url: "wss://app.thenvoi.com/api/v1/socket/websocket"
+
+# Agent credentials
+agent:
+  id: "your-agent-uuid"
+  api_key: "thnv_a_..."
+  name: "My Agent"
+  persona: "You are a helpful AI assistant."
+
+# Letta settings
+letta:
+  mode: "per_room"  # or "shared"
+  model: "openai/gpt-4o"
+```
+
+**Docker Bridge Commands:**
+
+```bash
+# Run in background
+./scripts/run_bridge.sh -d
+
+# Use specific config file
+./scripts/run_bridge.sh configs/production.yaml
+
+# View logs
+docker compose -f docker/docker-compose.bridge.yml logs -f adapter
+
+# Stop
+docker compose -f docker/docker-compose.bridge.yml down
+```
+
+#### Option 2: Manual Setup
+
+Run each component separately for development or debugging:
 
 **1. Start Letta server:**
 
@@ -659,18 +713,18 @@ uv run python examples/run_agent.py --example letta --agent darter \
     --mcp-url http://localhost:8002/sse
 ```
 
-**Mode Differences:**
+#### Mode Differences
 
 | Mode | Agent Persistence | Memory Isolation | Use Case |
 |------|------------------|------------------|----------|
-| `letta_shared` | One agent for all rooms | Per-room via Conversations API | Personal assistant, memory across rooms |
-| `letta` | One agent per room | Complete isolation | Room-specific contexts, no cross-room memory |
+| `shared` / `letta_shared` | One agent for all rooms | Per-room via Conversations API | Personal assistant, memory across rooms |
+| `per_room` / `letta` | One agent per room | Complete isolation | Room-specific contexts, no cross-room memory |
 
-**Graceful Shutdown:**
+#### Graceful Shutdown
 
 Press Ctrl+C once for graceful shutdown. The agent will:
 1. Trigger memory consolidation for all active rooms
-2. Save state to `~/.thenvoi/letta_*.json`
+2. Save state to persistent storage
 3. Preserve Letta agents for future sessions
 
 ### A2A Gateway Setup
