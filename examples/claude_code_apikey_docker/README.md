@@ -19,7 +19,9 @@ cp ../../.env.example .env
 
 1. Go to the [Thenvoi Dashboard](https://app.thenvoi.com/dashboard)
 2. Log in or create an account
-3. Create a new **External Agent**
+3. Create a new **External Agent** (see [Creating an External Agent](https://docs.thenvoi.com/getting-started/connect-external-agent) for detailed instructions)
+   - **Name**: e.g., "Customer Support Bot" or "Research Assistant"
+   - **Description**: e.g., "Handles customer inquiries and provides product information"
 4. Copy your **Agent ID** and **API Key** from the agent settings
 5. Copy `example_agent.yaml` to a new file (e.g. `agent1.yaml`):
 
@@ -30,15 +32,17 @@ cp example_agent.yaml agent1.yaml
 6. Edit your new agent file and paste your credentials:
 
 ```yaml
-agent_id: "your-agent-id-from-thenvoi"
-api_key: "your-api-key-from-thenvoi"
+agent_id: "agt_abc123xyz"  # Your Agent ID from Thenvoi
+api_key: "sk_live_..."     # Your API Key from Thenvoi
 ```
 
 You can create multiple agents by repeating these steps with different files (e.g. `agent2.yaml`, `agent3.yaml`).
 
-### 3. Update docker-compose.yml
+### 3. Update docker-compose.yml (optional)
 
-Add your agent(s) to `docker-compose.yml`:
+**For a single agent:** No changes needed! The default configuration already uses `agent1.yaml`.
+
+**For multiple agents:** Uncomment and add additional agent entries in `docker-compose.yml`:
 
 ```yaml
 services:
@@ -46,7 +50,16 @@ services:
     <<: *agent-base
     environment:
       AGENT_CONFIG: /app/config/agent1.yaml
+
+  # Uncomment and duplicate for additional agents:
+  # agent2:
+  #   <<: *agent-base
+  #   container_name: thenvoi-agent2
+  #   environment:
+  #     AGENT_CONFIG: /app/config/agent2.yaml
 ```
+
+Add as many agent entries as you created in step 2.
 
 ### 4. Build and run
 
@@ -71,11 +84,15 @@ docker compose up
 ## Agent Configuration
 
 ```yaml
-agent_id: "from-thenvoi-platform"
-api_key: "from-thenvoi-platform"
+# Required: credentials from Thenvoi Dashboard
+agent_id: "agt_abc123xyz"
+api_key: "sk_live_..."
+
+# Optional: customize your agent
 model: claude-sonnet-4-5-20250929
 prompt: |
-  You are a helpful assistant.
+  You are a helpful assistant that specializes in customer support.
+  Be friendly, concise, and always offer to help further.
 tools:
   - calculator
   - get_time
