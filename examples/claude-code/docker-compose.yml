@@ -1,6 +1,10 @@
-# Run: docker compose up
+# Build:  docker compose build
+# Run:    docker compose up
 
 x-agent: &agent-base
+  build:
+    context: ../..
+    dockerfile: examples/claude-code/Dockerfile
   image: thenvoi-claude-sdk:latest
   env_file: .env
   volumes:

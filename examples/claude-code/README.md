@@ -5,37 +5,17 @@ Run AI agents powered by Claude SDK with Docker - no coding required.
 ## Prerequisites
 
 - [Docker](https://docs.docker.com/get-docker/)
-- [Git LFS](https://git-lfs.github.com/) (required to download the Docker image)
-
-Install Git LFS:
-```bash
-# macOS
-brew install git-lfs
-
-# Ubuntu/Debian
-sudo apt install git-lfs
-
-# Then initialize
-git lfs install
-```
 
 ## Quick Start
 
-### 1. Clone this repo
-```bash
-git lfs install  # if not already done
-git clone https://github.com/thenvoi/claude-code-sdk-docker-example.git
-cd claude-code-sdk-docker-example
-```
-
-### 2. Configure your environment
+### 1. Configure your environment
 
 ```bash
-cp .env.example .env
+cp ../../.env.example .env
 # Edit .env - add your ANTHROPIC_API_KEY
 ```
 
-### 3. Create your agent
+### 2. Create your agent
 
 1. Go to the [Thenvoi Dashboard](https://app.thenvoi.com/dashboard)
 2. Log in or create an account
@@ -56,7 +36,7 @@ api_key: "your-api-key-from-thenvoi"
 
 You can create multiple agents by repeating these steps with different files (e.g. `agent2.yaml`, `agent3.yaml`).
 
-### 4. Update docker-compose.yml
+### 3. Update docker-compose.yml
 
 Add your agent(s) to `docker-compose.yml`:
 
@@ -68,15 +48,13 @@ services:
       AGENT_CONFIG: /app/config/agent1.yaml
 ```
 
-### 5. Load the Docker image
+### 4. Build and run
 
 ```bash
-docker load -i thenvoi-claude-sdk.tar
-```
+# Build the Docker image
+docker compose build
 
-### 6. Run
-
-```bash
+# Run the agent
 docker compose up
 ```
 
@@ -84,10 +62,10 @@ docker compose up
 
 | File | Description |
 |------|-------------|
-| `.env.example` | Template for environment variables (copy to `.env`) |
 | `example_agent.yaml` | Template for agent configuration (copy this to create your agents) |
 | `docker-compose.yml` | Docker configuration (add your agents here) |
-| `thenvoi-claude-sdk.tar` | Docker image (load with `docker load -i`) |
+| `Dockerfile` | Docker image definition (builds from SDK source) |
+| `runner.py` | Agent runner script (reads YAML config) |
 | `tools/` | Custom tools for your agent |
 
 ## Agent Configuration
@@ -105,7 +83,7 @@ tools:
 
 ## Multiple Agents
 
-To run multiple agents, repeat steps 3-4 for each agent:
+To run multiple agents, repeat steps 2-3 for each agent:
 
 1. Create a new external agent on Thenvoi and copy the credentials
 2. Copy `example_agent.yaml` to a new file (e.g. `agent2.yaml`)
@@ -128,8 +106,9 @@ Then enable in `tools/__init__.py` and add to your agent config.
 ## Commands
 
 ```bash
-docker compose up -d       # Start in background
-docker compose logs -f     # View logs
-docker compose down        # Stop
-docker compose restart     # Restart
+docker compose build        # Build the image
+docker compose up -d        # Start in background
+docker compose logs -f      # View logs
+docker compose down         # Stop
+docker compose restart      # Restart
 ```
