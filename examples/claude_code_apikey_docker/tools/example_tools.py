@@ -49,6 +49,9 @@ _MAX_DEPTH = 50
 _MAX_POW_BASE = 10000
 _MAX_POW_EXPONENT = 100
 
+# Maximum expression length to prevent DoS via very long strings
+_MAX_EXPRESSION_LENGTH = 1000
+
 
 def _safe_eval(node: ast.AST, depth: int = 0) -> float | int:
     """Safely evaluate an AST node containing only math operations."""
@@ -104,6 +107,10 @@ def _safe_eval(node: ast.AST, depth: int = 0) -> float | int:
 
 def safe_math_eval(expression: str) -> float | int:
     """Safely evaluate a mathematical expression string."""
+    if len(expression) > _MAX_EXPRESSION_LENGTH:
+        raise ValueError(
+            f"Expression too long (max {_MAX_EXPRESSION_LENGTH} characters)"
+        )
     tree = ast.parse(expression, mode="eval")
     return _safe_eval(tree)
 

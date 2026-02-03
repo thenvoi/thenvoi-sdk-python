@@ -1,4 +1,11 @@
 #!/usr/bin/env python3
+# /// script
+# requires-python = ">=3.11"
+# dependencies = ["thenvoi-sdk[claude_sdk]", "pyyaml"]
+#
+# [tool.uv.sources]
+# thenvoi-sdk = { git = "https://github.com/thenvoi/thenvoi-sdk-python.git" }
+# ///
 """
 YAML-based agent runner for Thenvoi Claude SDK.
 
@@ -15,7 +22,6 @@ import asyncio
 import importlib.util
 import logging
 import os
-import sys
 from pathlib import Path
 from typing import Any
 
@@ -33,29 +39,24 @@ def load_config(config_path: str) -> dict[str, Any]:
     """Load agent configuration from YAML file."""
     path = Path(config_path).resolve()
     if not path.exists():
-        logger.error(f"Config file not found: {config_path}")
-        sys.exit(1)
+        raise ValueError(f"Config file not found: {config_path}")
 
     try:
         with open(path) as f:
             config = yaml.safe_load(f)
     except yaml.YAMLError as e:
-        logger.error(f"Invalid YAML in config file: {e}")
-        sys.exit(1)
+        raise ValueError(f"Invalid YAML in config file: {e}") from e
     except OSError as e:
-        logger.error(f"Failed to read config file: {e}")
-        sys.exit(1)
+        raise ValueError(f"Failed to read config file: {e}") from e
 
     if config is None:
-        logger.error("Config file is empty")
-        sys.exit(1)
+        raise ValueError("Config file is empty")
 
     # Validate required fields
     required = ["agent_id", "api_key"]
     missing = [field for field in required if not config.get(field)]
     if missing:
-        logger.error(f"Missing required config fields: {missing}")
-        sys.exit(1)
+        raise ValueError(f"Missing required config fields: {missing}")
 
     return config
 
@@ -105,13 +106,20 @@ def load_custom_tools(tools_dir: Path, config_dir: Path, tool_names: list[str]) 
         return []
 
 
-async def main():
+async def main() -> None:
     """Run the agent from YAML configuration."""
     # Get config path from environment
     config_path = os.environ.get("AGENT_CONFIG")
     if not config_path:
-        logger.error("AGENT_CONFIG environment variable not set")
-        sys.exit(1)
+        raise ValueError("AGENT_CONFIG environment variable not set")
+
+    # Validate Thenvoi platform URLs
+    ws_url = os.environ.get("THENVOI_WS_URL", "wss://api.thenvoi.com/ws")
+    rest_url = os.environ.get("THENVOI_REST_URL", "https://api.thenvoi.com")
+    if not ws_url:
+        raise ValueError("THENVOI_WS_URL environment variable is empty")
+    if not rest_url:
+        raise ValueError("THENVOI_REST_URL environment variable is empty")
 
     logger.info(f"Loading config from: {config_path}")
     config = load_config(config_path)
@@ -152,6 +160,8 @@ async def main():
         adapter=adapter,
         agent_id=agent_id,
         api_key=api_key,
+        ws_url=ws_url,
+        rest_url=rest_url,
     )
 
     logger.info(f"Starting agent: {agent_id}")

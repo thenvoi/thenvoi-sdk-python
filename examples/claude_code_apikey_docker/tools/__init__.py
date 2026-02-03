@@ -11,14 +11,9 @@ Then enable in agent.yaml:
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable
-from typing import Any
-
 from .example_tools import calculator, get_time, random_number
 
-ToolFunction = Callable[..., Awaitable[dict[str, Any]]]
-
-TOOL_REGISTRY: dict[str, ToolFunction] = {
+TOOL_REGISTRY: dict[str, object] = {
     "calculator": calculator,
     "get_time": get_time,
     "random_number": random_number,

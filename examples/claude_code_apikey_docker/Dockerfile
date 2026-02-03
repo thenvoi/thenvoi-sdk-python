@@ -20,7 +20,9 @@ RUN apt-get update && apt-get install -y \
 RUN curl -LsSf https://astral.sh/uv/install.sh | sh
 ENV PATH="/root/.local/bin:${PATH}"
 
-# Copy SDK source and install (include uv.lock for reproducible builds)
+# Copy SDK source and install
+# Note: uv.lock must exist in the repo root for reproducible builds.
+# If building from a partial clone, run `uv lock` first to generate it.
 COPY pyproject.toml uv.lock ./
 COPY src/ ./src/
 

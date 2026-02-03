@@ -38,6 +38,8 @@ api_key: "sk_live_..."     # Your API Key from Thenvoi
 
 You can create multiple agents by repeating these steps with different files (e.g. `agent2.yaml`, `agent3.yaml`).
 
+> **Note:** Files matching `agent*.yaml` are git-ignored to protect your credentials. Only `example_agent.yaml` is tracked.
+
 ### 3. Update docker-compose.yml (optional)
 
 **For a single agent:** No changes needed! The default configuration already uses `agent1.yaml`.
