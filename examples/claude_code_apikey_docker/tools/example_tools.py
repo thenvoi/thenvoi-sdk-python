@@ -87,6 +87,16 @@ def _safe_eval(node: ast.AST, depth: int = 0) -> float | int:
         if func_name not in _FUNCTIONS:
             raise ValueError(f"Unsupported function: {func_name}")
         eval_args = [_safe_eval(arg, depth + 1) for arg in node.args]
+        # Bounds check for pow() function to prevent resource exhaustion
+        if func_name == "pow" and len(eval_args) >= 2:
+            if (
+                abs(eval_args[0]) > _MAX_POW_BASE
+                or abs(eval_args[1]) > _MAX_POW_EXPONENT
+            ):
+                raise ValueError(
+                    f"Pow operands too large (max base: {_MAX_POW_BASE}, "
+                    f"max exponent: {_MAX_POW_EXPONENT})"
+                )
         return _FUNCTIONS[func_name](*eval_args)
     else:
         raise ValueError(f"Unsupported expression type: {type(node).__name__}")
@@ -117,5 +127,15 @@ async def get_time(_args: dict[str, Any]) -> dict[str, Any]:
 @tool("random_number", "Generate random number", {"min": int, "max": int})
 async def random_number(args: dict[str, Any]) -> dict[str, Any]:
     """Example: random_number(1, 100) → "42" """
-    result = randint(args["min"], args["max"])
-    return {"content": [{"type": "text", "text": str(result)}]}
+    try:
+        min_val = int(args["min"])
+        max_val = int(args["max"])
+        if min_val > max_val:
+            return {
+                "content": [{"type": "text", "text": "Error: min must be <= max"}],
+                "is_error": True,
+            }
+        result = randint(min_val, max_val)
+        return {"content": [{"type": "text", "text": str(result)}]}
+    except (ValueError, TypeError, KeyError) as e:
+        return {"content": [{"type": "text", "text": f"Error: {e}"}], "is_error": True}

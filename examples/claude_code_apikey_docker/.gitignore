@@ -1,8 +1,0 @@
-# Agent configuration files with credentials
-agent*.yaml
-!example_agent.yaml
-
-# Environment files
-.env
-.env.*
-!.env.example

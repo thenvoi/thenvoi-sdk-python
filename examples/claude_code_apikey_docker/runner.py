@@ -12,6 +12,7 @@ Usage:
 from __future__ import annotations
 
 import asyncio
+import importlib.util
 import logging
 import os
 import sys
@@ -86,20 +87,22 @@ def load_custom_tools(tools_dir: Path, config_dir: Path, tool_names: list[str]) 
     if not tools_init.exists():
         return []
 
-    # Import the tools module
-    sys.path.insert(0, str(resolved_tools_dir.parent))
+    # Use importlib to load module without modifying sys.path
     try:
-        from tools import TOOL_REGISTRY
+        spec = importlib.util.spec_from_file_location("tools", tools_init)
+        if spec is None or spec.loader is None:
+            logger.warning("Could not create module spec for tools")
+            return []
 
+        tools_module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(tools_module)
+
+        tool_registry = getattr(tools_module, "TOOL_REGISTRY", {})
         # Filter to only requested tools, return as list
-        return [TOOL_REGISTRY[name] for name in tool_names if name in TOOL_REGISTRY]
-    except ImportError as e:
+        return [tool_registry[name] for name in tool_names if name in tool_registry]
+    except Exception as e:
         logger.warning(f"Could not load custom tools: {e}")
         return []
-    finally:
-        # Clean up sys.path modification
-        if str(resolved_tools_dir.parent) in sys.path:
-            sys.path.remove(str(resolved_tools_dir.parent))
 
 
 async def main():
@@ -161,6 +164,10 @@ async def main():
         await agent.run()
     except KeyboardInterrupt:
         logger.info("Shutting down...")
+    finally:
+        if hasattr(agent, "close"):
+            await agent.close()
+        logger.info("Agent stopped")
 
 
 if __name__ == "__main__":
