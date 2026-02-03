@@ -36,8 +36,8 @@ COPY src/ ./src/
 RUN uv sync --extra claude_sdk
 
 # Copy runner and example tools
-COPY examples/claude-code/runner.py ./runner.py
-COPY examples/claude-code/tools/ ./tools/
+COPY examples/claude_code_apikey_docker/runner.py ./runner.py
+COPY examples/claude_code_apikey_docker/tools/ ./tools/
 
 # Config will be mounted at runtime
 VOLUME /app/config
