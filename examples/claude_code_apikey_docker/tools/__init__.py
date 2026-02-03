@@ -9,9 +9,16 @@ Then enable in agent.yaml:
       - calculator
 """
 
+from __future__ import annotations
+
+from collections.abc import Awaitable, Callable
+from typing import Any
+
 from .example_tools import calculator, get_time, random_number
 
-TOOL_REGISTRY = {
+ToolFunction = Callable[..., Awaitable[dict[str, Any]]]
+
+TOOL_REGISTRY: dict[str, ToolFunction] = {
     "calculator": calculator,
     "get_time": get_time,
     "random_number": random_number,

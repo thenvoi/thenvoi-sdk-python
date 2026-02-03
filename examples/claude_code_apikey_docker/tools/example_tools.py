@@ -1,9 +1,12 @@
 """Example tools - copy what you need to __init__.py"""
 
+from __future__ import annotations
+
 import ast
 import operator
 from datetime import datetime
 from random import randint
+from typing import Any
 
 from claude_agent_sdk import tool
 
@@ -33,6 +36,10 @@ _FUNCTIONS = {
 # Maximum recursion depth for expression evaluation
 _MAX_DEPTH = 50
 
+# Maximum allowed values for pow operations to prevent resource exhaustion
+_MAX_POW_BASE = 10000
+_MAX_POW_EXPONENT = 100
+
 
 def _safe_eval(node: ast.AST, depth: int = 0) -> float | int:
     """Safely evaluate an AST node containing only math operations."""
@@ -50,6 +57,13 @@ def _safe_eval(node: ast.AST, depth: int = 0) -> float | int:
             raise ValueError(f"Unsupported operator: {op_type.__name__}")
         left = _safe_eval(node.left, depth + 1)
         right = _safe_eval(node.right, depth + 1)
+        # Bounds check for pow to prevent resource exhaustion
+        if op_type is ast.Pow:
+            if abs(left) > _MAX_POW_BASE or abs(right) > _MAX_POW_EXPONENT:
+                raise ValueError(
+                    f"Pow operands too large (max base: {_MAX_POW_BASE}, "
+                    f"max exponent: {_MAX_POW_EXPONENT})"
+                )
         return _OPERATORS[op_type](left, right)
     elif isinstance(node, ast.UnaryOp):
         op_type = type(node.op)
@@ -76,23 +90,23 @@ def safe_math_eval(expression: str) -> float | int:
 
 
 @tool("calculator", "Evaluate math expressions", {"expression": str})
-async def calculator(args: dict) -> dict:
+async def calculator(args: dict[str, Any]) -> dict[str, Any]:
     """Example: calculator("2 + 2") → "4" """
     try:
         result = safe_math_eval(args["expression"])
         return {"content": [{"type": "text", "text": str(result)}]}
-    except Exception as e:
+    except (ValueError, SyntaxError, TypeError, KeyError) as e:
         return {"content": [{"type": "text", "text": f"Error: {e}"}], "is_error": True}
 
 
 @tool("get_time", "Get current date/time", {})
-async def get_time(args: dict) -> dict:
+async def get_time(args: dict[str, Any]) -> dict[str, Any]:
     """Returns current time in ISO format"""
     return {"content": [{"type": "text", "text": datetime.now().isoformat()}]}
 
 
 @tool("random_number", "Generate random number", {"min": int, "max": int})
-async def random_number(args: dict) -> dict:
+async def random_number(args: dict[str, Any]) -> dict[str, Any]:
     """Example: random_number(1, 100) → "42" """
     result = randint(args.get("min", 1), args.get("max", 100))
     return {"content": [{"type": "text", "text": str(result)}]}
