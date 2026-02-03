@@ -1,14 +1,79 @@
 """Example tools - copy what you need to __init__.py"""
 
+import ast
+import operator
+from datetime import datetime
+from random import randint
+
 from claude_agent_sdk import tool
+
+# Safe operators for calculator
+_OPERATORS = {
+    ast.Add: operator.add,
+    ast.Sub: operator.sub,
+    ast.Mult: operator.mul,
+    ast.Div: operator.truediv,
+    ast.FloorDiv: operator.floordiv,
+    ast.Mod: operator.mod,
+    ast.Pow: operator.pow,
+    ast.USub: operator.neg,
+    ast.UAdd: operator.pos,
+}
+
+# Safe functions for calculator
+_FUNCTIONS = {
+    "abs": abs,
+    "round": round,
+    "min": min,
+    "max": max,
+    "pow": pow,
+}
+
+
+def _safe_eval(node: ast.AST) -> float | int:
+    """Safely evaluate an AST node containing only math operations."""
+    if isinstance(node, ast.Expression):
+        return _safe_eval(node.body)
+    elif isinstance(node, ast.Constant):
+        if isinstance(node.value, (int, float)):
+            return node.value
+        raise ValueError(f"Unsupported constant type: {type(node.value)}")
+    elif isinstance(node, ast.BinOp):
+        op_type = type(node.op)
+        if op_type not in _OPERATORS:
+            raise ValueError(f"Unsupported operator: {op_type.__name__}")
+        left = _safe_eval(node.left)
+        right = _safe_eval(node.right)
+        return _OPERATORS[op_type](left, right)
+    elif isinstance(node, ast.UnaryOp):
+        op_type = type(node.op)
+        if op_type not in _OPERATORS:
+            raise ValueError(f"Unsupported operator: {op_type.__name__}")
+        operand = _safe_eval(node.operand)
+        return _OPERATORS[op_type](operand)
+    elif isinstance(node, ast.Call):
+        if not isinstance(node.func, ast.Name):
+            raise ValueError("Only simple function calls are supported")
+        func_name = node.func.id
+        if func_name not in _FUNCTIONS:
+            raise ValueError(f"Unsupported function: {func_name}")
+        eval_args = [_safe_eval(arg) for arg in node.args]
+        return _FUNCTIONS[func_name](*eval_args)
+    else:
+        raise ValueError(f"Unsupported expression type: {type(node).__name__}")
+
+
+def safe_math_eval(expression: str) -> float | int:
+    """Safely evaluate a mathematical expression string."""
+    tree = ast.parse(expression, mode="eval")
+    return _safe_eval(tree)
 
 
 @tool("calculator", "Evaluate math expressions", {"expression": str})
 async def calculator(args: dict) -> dict:
     """Example: calculator("2 + 2") → "4" """
     try:
-        allowed = {"abs": abs, "round": round, "min": min, "max": max, "pow": pow}
-        result = eval(args["expression"], {"__builtins__": allowed}, {})
+        result = safe_math_eval(args["expression"])
         return {"content": [{"type": "text", "text": str(result)}]}
     except Exception as e:
         return {"content": [{"type": "text", "text": f"Error: {e}"}], "is_error": True}
@@ -17,15 +82,11 @@ async def calculator(args: dict) -> dict:
 @tool("get_time", "Get current date/time", {})
 async def get_time(args: dict) -> dict:
     """Returns current time in ISO format"""
-    from datetime import datetime
-
     return {"content": [{"type": "text", "text": datetime.now().isoformat()}]}
 
 
 @tool("random_number", "Generate random number", {"min": int, "max": int})
 async def random_number(args: dict) -> dict:
     """Example: random_number(1, 100) → "42" """
-    import random
-
-    result = random.randint(args.get("min", 1), args.get("max", 100))
+    result = randint(args.get("min", 1), args.get("max", 100))
     return {"content": [{"type": "text", "text": str(result)}]}
