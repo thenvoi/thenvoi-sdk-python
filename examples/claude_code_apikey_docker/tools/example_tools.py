@@ -108,5 +108,5 @@ async def get_time(args: dict[str, Any]) -> dict[str, Any]:
 @tool("random_number", "Generate random number", {"min": int, "max": int})
 async def random_number(args: dict[str, Any]) -> dict[str, Any]:
     """Example: random_number(1, 100) → "42" """
-    result = randint(args.get("min", 1), args.get("max", 100))
+    result = randint(args["min"], args["max"])
     return {"content": [{"type": "text", "text": str(result)}]}
