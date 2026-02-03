@@ -20,8 +20,8 @@ RUN apt-get update && apt-get install -y \
 RUN curl -LsSf https://astral.sh/uv/install.sh | sh
 ENV PATH="/root/.local/bin:${PATH}"
 
-# Copy SDK source and install
-COPY pyproject.toml ./
+# Copy SDK source and install (include uv.lock for reproducible builds)
+COPY pyproject.toml uv.lock ./
 COPY src/ ./src/
 
 # Install thenvoi SDK with claude_sdk extras
