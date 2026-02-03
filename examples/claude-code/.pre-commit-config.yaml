@@ -1,0 +1,27 @@
+repos:
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.18.2
+    hooks:
+      - id: gitleaks
+  - repo: local
+    hooks:
+      - id: ruff-check
+        name: ruff check
+        entry: uv run ruff check
+        language: system
+        types: [python]
+        pass_filenames: false
+
+      - id: ruff-format
+        name: ruff format
+        entry: uv run ruff format --diff
+        language: system
+        types: [python]
+        pass_filenames: false
+
+      - id: pyrefly
+        name: pyrefly
+        entry: uv run --extra examples pyrefly check
+        language: system
+        types: [python]
+        pass_filenames: false

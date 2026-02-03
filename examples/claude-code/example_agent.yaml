@@ -1,0 +1,19 @@
+# Agent Configuration
+# Get agent_id and api_key from https://app.thenvoi.com
+
+agent_id: "your-agent-id"
+api_key: "your-api-key"
+
+model: claude-sonnet-4-5-20250929
+
+prompt: |
+  You are a helpful assistant.
+  Be concise and friendly.
+
+# Optional: custom tools
+# tools:
+#   - calculator
+#   - get_time
+
+# Optional: extended thinking
+# thinking_tokens: 10000
