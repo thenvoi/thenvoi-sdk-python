@@ -22,10 +22,14 @@ import asyncio
 import importlib.util
 import logging
 import os
+import signal
 from pathlib import Path
 from typing import Any
 
 import yaml
+
+# Global flag for graceful shutdown
+_shutdown_event: asyncio.Event | None = None
 
 # Setup logging
 logging.basicConfig(
@@ -106,8 +110,23 @@ def load_custom_tools(tools_dir: Path, config_dir: Path, tool_names: list[str]) 
         return []
 
 
+def _handle_signal(sig: signal.Signals) -> None:
+    """Handle shutdown signals (SIGTERM, SIGINT)."""
+    logger.info(f"Received {sig.name}, initiating graceful shutdown...")
+    if _shutdown_event:
+        _shutdown_event.set()
+
+
 async def main() -> None:
     """Run the agent from YAML configuration."""
+    global _shutdown_event
+    _shutdown_event = asyncio.Event()
+
+    # Setup signal handlers for graceful shutdown (Docker sends SIGTERM)
+    loop = asyncio.get_running_loop()
+    for sig in (signal.SIGTERM, signal.SIGINT):
+        loop.add_signal_handler(sig, _handle_signal, sig)
+
     # Get config path from environment
     config_path = os.environ.get("AGENT_CONFIG")
     if not config_path:
@@ -171,10 +190,32 @@ async def main() -> None:
     logger.info("Press Ctrl+C to stop")
 
     try:
-        await agent.run()
-    except KeyboardInterrupt:
-        logger.info("Shutting down...")
+        # Run agent with shutdown event monitoring
+        agent_task = asyncio.create_task(agent.run())
+        shutdown_task = asyncio.create_task(_shutdown_event.wait())
+
+        # Wait for either agent completion or shutdown signal
+        done, pending = await asyncio.wait(
+            [agent_task, shutdown_task],
+            return_when=asyncio.FIRST_COMPLETED,
+        )
+
+        # Cancel pending tasks
+        for task in pending:
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+
+        # Check if agent task raised an exception
+        if agent_task in done:
+            agent_task.result()
+
+    except asyncio.CancelledError:
+        logger.info("Agent task cancelled")
     finally:
+        logger.info("Shutting down...")
         if hasattr(agent, "close"):
             await agent.close()
         logger.info("Agent stopped")

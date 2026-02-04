@@ -10,12 +10,13 @@ x-agent: &agent-base
   volumes:
     - ./:/app/config:ro
   restart: unless-stopped
+  stop_grace_period: 30s
   healthcheck:
-    test: ["CMD", "python", "-c", "import thenvoi; from thenvoi.adapters import ClaudeSDKAdapter"]
+    test: ["CMD", "uv", "run", "--extra", "claude_sdk", "python", "healthcheck.py"]
     interval: 30s
-    timeout: 10s
+    timeout: 15s
     retries: 3
-    start_period: 10s
+    start_period: 30s
 
 services:
   agent1:

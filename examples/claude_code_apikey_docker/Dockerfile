@@ -31,8 +31,9 @@ COPY src/ ./src/
 RUN git config --global url."https://github.com/".insteadOf "git@github.com:" && \
     uv sync --extra claude_sdk
 
-# Copy runner and example tools
+# Copy runner, healthcheck, and example tools
 COPY examples/claude_code_apikey_docker/runner.py ./runner.py
+COPY examples/claude_code_apikey_docker/healthcheck.py ./healthcheck.py
 COPY examples/claude_code_apikey_docker/tools/ ./tools/
 
 # Config will be mounted at runtime
