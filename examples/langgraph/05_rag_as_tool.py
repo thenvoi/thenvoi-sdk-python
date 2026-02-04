@@ -89,9 +89,9 @@ async def main() -> None:
             )
         },
         # Extract the final answer from the RAG agent's messages
-        result_formatter=lambda state: state["messages"][-1].content
-        if state.get("messages")
-        else "No result",
+        result_formatter=lambda state: (
+            state["messages"][-1].content if state.get("messages") else "No result"
+        ),
         # Enable memory: RAG graph will remember conversation context within the same room
         isolate_thread=False,
     )
