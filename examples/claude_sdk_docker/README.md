@@ -10,7 +10,7 @@ Run AI agents powered by Claude SDK with Docker - no coding required.
 
 ### 1. Configure your environment
 
-From the repository root directory:
+From the **repository root** directory:
 
 ```bash
 cp .env.example .env
@@ -27,9 +27,10 @@ cp .env.example .env
    - **Name**: e.g., "Customer Support Bot" or "Research Assistant"
    - **Description**: e.g., "Handles customer inquiries and provides product information"
 4. Copy your **Agent ID** and **API Key** from the agent settings
-5. Copy `example_agent.yaml` to a new file (e.g. `agent1.yaml`):
+5. Navigate to the example directory and copy `example_agent.yaml` to a new file:
 
 ```bash
+cd examples/claude_sdk_docker
 cp example_agent.yaml agent1.yaml
 ```
 
@@ -69,6 +70,8 @@ Add as many agent entries as you created in step 2.
 
 ### 4. Build and run
 
+From the `examples/claude_sdk_docker` directory:
+
 ```bash
 # Build the Docker image
 docker compose build
@@ -76,6 +79,8 @@ docker compose build
 # Run the agent
 docker compose up
 ```
+
+> **Important:** Docker commands must be run from `examples/claude_sdk_docker/` directory where `docker-compose.yml` is located.
 
 ## Files
 
@@ -134,6 +139,8 @@ async def my_tool(args: dict) -> dict:
 Then enable in `tools/__init__.py` and add to your agent config.
 
 ## Commands
+
+Run all commands from the `examples/claude_sdk_docker` directory:
 
 ```bash
 docker compose build        # Build the image
