@@ -152,7 +152,7 @@ async def main() -> None:
         custom_section=prompt,
         max_thinking_tokens=thinking_tokens,
         enable_execution_reporting=True,
-        custom_tools=custom_tools if custom_tools else None,
+        additional_tools=custom_tools if custom_tools else None,
     )
 
     # Create agent
