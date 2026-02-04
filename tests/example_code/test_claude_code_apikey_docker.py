@@ -314,22 +314,26 @@ class TestHealthcheck:
 
     def test_healthcheck_valid_config_no_httpx(self, tmp_path: Path) -> None:
         """Test healthcheck passes with valid config when httpx unavailable."""
+        import builtins
 
         config_file = tmp_path / "agent.yaml"
         config_file.write_text(
             yaml.dump({"agent_id": "test-agent", "api_key": "sk_test_key"})
         )
 
-        # Mock httpx import to raise ImportError
+        original_import = builtins.__import__
+
+        def mock_import(name: str, *args: object, **kwargs: object) -> object:
+            if name == "httpx":
+                raise ImportError("Mocked: httpx not available")
+            return original_import(name, *args, **kwargs)
+
         with (
             patch.dict(os.environ, {"AGENT_CONFIG": str(config_file)}),
-            patch.dict(sys.modules, {"httpx": None}),
+            patch.object(builtins, "__import__", mock_import),
         ):
-            # Force reimport to trigger ImportError
-            import importlib
-            import healthcheck
+            from healthcheck import main
 
-            importlib.reload(healthcheck)
+            result = main()
 
-            # The test should still pass with config validation only
-            # when httpx is not available
+        assert result == 0  # Should pass with config validation only
