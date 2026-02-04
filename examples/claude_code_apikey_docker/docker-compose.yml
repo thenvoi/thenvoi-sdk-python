@@ -1,12 +1,15 @@
 # Build:  docker compose build
 # Run:    docker compose up
+#
+# Only agents defined in this file will run.
+# To add more agents, copy the agent1 block and update the config path.
 
 x-agent: &agent-base
   build:
     context: ../..
     dockerfile: examples/claude_code_apikey_docker/Dockerfile
   image: thenvoi-claude-sdk:latest
-  env_file: .env
+  env_file: ../../.env
   volumes:
     - ./:/app/config:ro
   restart: unless-stopped

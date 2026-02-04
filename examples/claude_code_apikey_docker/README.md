@@ -10,10 +10,14 @@ Run AI agents powered by Claude SDK with Docker - no coding required.
 
 ### 1. Configure your environment
 
+From the repository root directory:
+
 ```bash
 cp .env.example .env
 # Edit .env - add your ANTHROPIC_API_KEY
 ```
+
+> **Note:** This example uses the root `.env` file (not a local one).
 
 ### 2. Create your agent
 
@@ -77,12 +81,13 @@ docker compose up
 
 | File | Description |
 |------|-------------|
-| `.env.example` | Environment variables template (copy to `.env`) |
 | `example_agent.yaml` | Template for agent configuration (copy this to create your agents) |
-| `docker-compose.yml` | Docker configuration (add your agents here) |
+| `docker-compose.yml` | Docker configuration (only agents defined here will run) |
 | `Dockerfile` | Docker image definition (builds from SDK source) |
 | `runner.py` | Agent runner script (reads YAML config) |
 | `tools/` | Custom tools for your agent |
+
+> **Note:** Environment variables are loaded from the root `.env` file. Copy `.env.example` to `.env` in the repository root.
 
 ## Agent Configuration
 

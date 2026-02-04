@@ -619,20 +619,29 @@ Add your agent IDs and API keys to `agent_config.yaml`.
 
 ### Running Examples with Docker Compose
 
+The example agents are defined in `docker-compose.examples.yml` (not `docker-compose.yml`) to avoid accidentally starting all agents.
+
 ```bash
 # LangGraph examples
-docker compose up langgraph-01-simple
-docker compose up langgraph-02-custom-tools
-docker compose up langgraph-03-custom-personality
+docker compose -f docker-compose.examples.yml up langgraph-01-simple
+docker compose -f docker-compose.examples.yml up langgraph-02-custom-tools
+docker compose -f docker-compose.examples.yml up langgraph-03-custom-personality
 
 # Rebuild after changes
-docker compose up --build langgraph-01-simple
+docker compose -f docker-compose.examples.yml up --build langgraph-01-simple
 
 # Force recreate all containers
-docker compose up --build --force-recreate
+docker compose -f docker-compose.examples.yml up --build --force-recreate
 
 # Clean rebuild (removes cached layers)
-docker compose build --no-cache
+docker compose -f docker-compose.examples.yml build --no-cache
+docker compose -f docker-compose.examples.yml up
+```
+
+For the Claude SDK Docker example (single agent), use the dedicated compose file:
+
+```bash
+cd examples/claude_code_apikey_docker
 docker compose up
 ```
 

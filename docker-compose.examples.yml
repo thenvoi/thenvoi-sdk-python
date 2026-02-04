@@ -1,3 +1,16 @@
+# LangGraph Example Agents
+#
+# This file contains all LangGraph example agents. It's named docker-compose.examples.yml
+# (not docker-compose.yml) to prevent accidentally starting all agents when running
+# `docker compose up` from the root directory.
+#
+# Usage:
+#   docker compose -f docker-compose.examples.yml up langgraph-01-simple
+#   docker compose -f docker-compose.examples.yml up langgraph-02-custom-tools
+#
+# For the Claude SDK Docker example, use the dedicated compose file:
+#   cd examples/claude_code_apikey_docker && docker compose up
+
 # Shared configuration using YAML anchors
 x-common-env: &common-env
   THENVOI_REST_URL: ${THENVOI_REST_URL}
