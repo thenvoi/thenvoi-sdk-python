@@ -1,8 +1,5 @@
 # Build:  docker compose build
 # Run:    docker compose up
-#
-# Only agents defined in this file will run.
-# To add more agents, copy the agent1 block and update the config path.
 
 x-agent: &agent-base
   build:
@@ -13,24 +10,15 @@ x-agent: &agent-base
   volumes:
     - ./:/app/config:ro
   restart: unless-stopped
-  stop_grace_period: 30s
-  healthcheck:
-    test: ["CMD", "uv", "run", "--extra", "claude_sdk", "python", "healthcheck.py"]
-    interval: 30s
-    timeout: 30s
-    retries: 3
-    start_period: 30s
 
 services:
   agent1:
     <<: *agent-base
-    container_name: thenvoi-agent1
     environment:
       AGENT_CONFIG: /app/config/agent1.yaml
 
   # Add more agents:
   # agent2:
   #   <<: *agent-base
-  #   container_name: thenvoi-agent2
   #   environment:
   #     AGENT_CONFIG: /app/config/agent2.yaml

@@ -30,9 +30,7 @@ COPY examples/ ./examples/
 FROM base AS langgraph
 
 # Install dependencies with langgraph extras (fresh resolution from pyproject.toml)
-# Rewrite SSH URLs to HTTPS to avoid SSH auth issues in Docker
-RUN git config --global url."https://github.com/".insteadOf "git@github.com:" && \
-    uv sync --extra langgraph
+RUN uv sync --extra langgraph
 
 # Set default command
 CMD ["uv", "run", "--extra", "langgraph", "python", "examples/langgraph/01_simple_agent.py"]

@@ -147,7 +147,6 @@ run_test_agent.py
 
 # Agent configuration files
 agent_config.yaml
-examples/claude_code_apikey_docker/agent*.yaml
 
 # Parlant local data (sessions, cache, databases)
 parlant-data/
