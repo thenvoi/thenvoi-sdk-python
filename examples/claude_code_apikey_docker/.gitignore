@@ -1,0 +1,10 @@
+# Environment variables (contain secrets)
+.env
+
+# Agent config files (contain secrets)
+agent*.yaml
+!example_agent.yaml
+
+# Python cache
+__pycache__/
+*.pyc

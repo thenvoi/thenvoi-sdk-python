@@ -1,49 +1,94 @@
-# Thenvoi Agent Runner - Docker Compose Configuration
-#
-# Build:  docker compose build
-# Run:    docker compose up
-#
-# Each agent is configured via a YAML file in the agents/ directory.
-# To add a new agent:
-#   1. Create agents/your-agent.yaml with agent_id, api_key, model, prompt
-#   2. Add a new service below pointing to that config file
-#   3. Run: docker compose up your-agent
+# Shared configuration using YAML anchors
+x-common-env: &common-env
+  THENVOI_REST_URL: ${THENVOI_REST_URL}
+  THENVOI_WS_URL: ${THENVOI_WS_URL}
+  OPENAI_API_KEY: ${OPENAI_API_KEY}
+  # Note: Agent-specific API keys are in agent_config.yaml (mounted as volume)
 
-x-agent: &agent-base
-  build:
-    context: .
-    dockerfile: Dockerfile
-  image: thenvoi-agent:latest
-  env_file: .env
-  volumes:
-    - ./agents:/app/config:ro
-  restart: unless-stopped
-  stop_grace_period: 30s
-  healthcheck:
-    test: ["CMD", "uv", "run", "--extra", "claude_sdk", "python", "healthcheck.py"]
-    interval: 30s
-    timeout: 15s
-    retries: 3
-    start_period: 30s
+x-common-build: &common-build
+  context: .
 
 services:
-  # Example agent - uses agents/agent1.yaml
-  agent1:
-    <<: *agent-base
-    container_name: thenvoi-agent1
+  # LangGraph Examples - Basic Integration (01-03)
+  langgraph-01-simple:
+    build:
+      <<: *common-build
+      target: langgraph
     environment:
-      AGENT_CONFIG: /app/config/agent1.yaml
+      <<: *common-env
+    volumes:
+      - ./agent_config.yaml:/app/agent_config.yaml
+    command: ["uv", "run", "--extra", "langgraph", "python", "examples/langgraph/01_simple_agent.py"]
 
-  # Add more agents by creating config files and uncommenting/adding services:
-  #
-  # agent2:
-  #   <<: *agent-base
-  #   container_name: thenvoi-agent2
-  #   environment:
-  #     AGENT_CONFIG: /app/config/agent2.yaml
-  #
-  # custom-assistant:
-  #   <<: *agent-base
-  #   container_name: thenvoi-custom-assistant
-  #   environment:
-  #     AGENT_CONFIG: /app/config/custom-assistant.yaml
+  langgraph-02-custom-tools:
+    build:
+      <<: *common-build
+      target: langgraph
+    environment:
+      <<: *common-env
+    volumes:
+      - ./agent_config.yaml:/app/agent_config.yaml
+    command: ["uv", "run", "--extra", "langgraph", "python", "examples/langgraph/02_custom_tools.py"]
+
+  langgraph-03-custom-personality:
+    build:
+      <<: *common-build
+      target: langgraph
+    environment:
+      <<: *common-env
+    volumes:
+      - ./agent_config.yaml:/app/agent_config.yaml
+    command: ["uv", "run", "--extra", "langgraph", "python", "examples/langgraph/03_custom_personality.py"]
+
+  # LangGraph Examples - Composition (10-19)
+  langgraph-10-calculator:
+    build:
+      <<: *common-build
+      target: langgraph
+    environment:
+      <<: *common-env
+    volumes:
+      - ./agent_config.yaml:/app/agent_config.yaml
+    command: ["uv", "run", "--extra", "langgraph", "python", "examples/langgraph/10_calculator_as_tool.py"]
+
+  langgraph-11-rag:
+    build:
+      <<: *common-build
+      target: langgraph
+    environment:
+      <<: *common-env
+    volumes:
+      - ./agent_config.yaml:/app/agent_config.yaml
+    command: ["uv", "run", "--extra", "langgraph", "python", "examples/langgraph/11_rag_as_tool.py"]
+
+  langgraph-12-sql-agent:
+    build:
+      <<: *common-build
+      target: langgraph
+    environment:
+      <<: *common-env
+    volumes:
+      - ./agent_config.yaml:/app/agent_config.yaml
+    command: ["uv", "run", "--extra", "langgraph", "python", "examples/langgraph/12_delegate_to_sql_agent.py"]
+
+  # LangGraph Examples - Custom Graph Architecture (20+)
+  langgraph-20-custom-agent-with-instructions:
+    build:
+      <<: *common-build
+      target: langgraph
+    environment:
+      <<: *common-env
+    volumes:
+      - ./agent_config.yaml:/app/agent_config.yaml
+    command: ["uv", "run", "--extra", "langgraph", "python", "examples/langgraph/20_custom_agent_with_instructions.py"]
+
+  langgraph-21-custom-graph:
+    build:
+      <<: *common-build
+      target: langgraph
+    environment:
+      <<: *common-env
+    volumes:
+      - ./agent_config.yaml:/app/agent_config.yaml
+    command: ["uv", "run", "--extra", "langgraph", "python", "examples/langgraph/21_custom_graph.py"]
+

@@ -37,8 +37,11 @@ def main() -> int:
     try:
         with open(path) as f:
             config = yaml.safe_load(f)
-    except Exception as e:
-        print(f"Failed to load config: {e}")
+    except yaml.YAMLError as e:
+        print(f"Invalid YAML in config: {e}")
+        return 1
+    except OSError as e:
+        print(f"Failed to read config: {e}")
         return 1
 
     if not config or not config.get("agent_id") or not config.get("api_key"):

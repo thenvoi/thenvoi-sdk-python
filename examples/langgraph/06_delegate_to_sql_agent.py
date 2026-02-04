@@ -81,9 +81,9 @@ async def main() -> None:
             "messages": "List of messages with the database question. Format: [{'role': 'user', 'content': 'How many employees are there?'}]"
         },
         # Extract the final answer from the SQL agent's messages
-        result_formatter=lambda state: (
-            state["messages"][-1].content if state.get("messages") else "No result"
-        ),
+        result_formatter=lambda state: state["messages"][-1].content
+        if state.get("messages")
+        else "No result",
         # Enable memory: subgraph will remember context within the same room
         isolate_thread=False,
     )
