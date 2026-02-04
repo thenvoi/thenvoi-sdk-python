@@ -16,8 +16,8 @@ RUN apt-get update && apt-get install -y \
     build-essential \
     && rm -rf /var/lib/apt/lists/*
 
-# Install uv package manager
-RUN curl -LsSf https://astral.sh/uv/install.sh | sh
+# Install uv package manager (pinned version for reproducibility)
+RUN curl -LsSf https://astral.sh/uv/0.5.18/install.sh | sh
 ENV PATH="/root/.local/bin:${PATH}"
 
 # Copy SDK source and install

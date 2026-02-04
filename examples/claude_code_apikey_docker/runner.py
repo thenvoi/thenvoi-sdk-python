@@ -31,6 +31,11 @@ import yaml
 # Global flag for graceful shutdown
 _shutdown_event: asyncio.Event | None = None
 
+# Retry configuration for connection failures
+MAX_RETRIES = 5
+INITIAL_RETRY_DELAY = 1.0  # seconds
+MAX_RETRY_DELAY = 60.0  # seconds
+
 # Setup logging
 logging.basicConfig(
     level=logging.INFO,
@@ -189,36 +194,61 @@ async def main() -> None:
         logger.info(f"Extended thinking: {thinking_tokens} tokens")
     logger.info("Press Ctrl+C to stop")
 
+    retry_count = 0
+    retry_delay = INITIAL_RETRY_DELAY
+
+    while not _shutdown_event.is_set():
+        try:
+            # Run agent with shutdown event monitoring
+            agent_task = asyncio.create_task(agent.run())
+            shutdown_task = asyncio.create_task(_shutdown_event.wait())
+
+            # Wait for either agent completion or shutdown signal
+            done, pending = await asyncio.wait(
+                [agent_task, shutdown_task],
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+
+            # Cancel pending tasks
+            for task in pending:
+                task.cancel()
+                try:
+                    await task
+                except asyncio.CancelledError:
+                    pass
+
+            # Check if agent task raised an exception
+            if agent_task in done:
+                agent_task.result()
+
+            # If we get here without exception, agent completed normally
+            break
+
+        except (ConnectionError, OSError) as e:
+            retry_count += 1
+            if retry_count > MAX_RETRIES:
+                logger.error(f"Max retries ({MAX_RETRIES}) exceeded, giving up")
+                raise
+
+            logger.warning(
+                f"Connection error: {e}. Retrying in {retry_delay:.1f}s "
+                f"(attempt {retry_count}/{MAX_RETRIES})"
+            )
+            await asyncio.sleep(retry_delay)
+            # Exponential backoff with cap
+            retry_delay = min(retry_delay * 2, MAX_RETRY_DELAY)
+
+        except asyncio.CancelledError:
+            logger.info("Agent task cancelled")
+            break
+
+    logger.info("Shutting down...")
     try:
-        # Run agent with shutdown event monitoring
-        agent_task = asyncio.create_task(agent.run())
-        shutdown_task = asyncio.create_task(_shutdown_event.wait())
-
-        # Wait for either agent completion or shutdown signal
-        done, pending = await asyncio.wait(
-            [agent_task, shutdown_task],
-            return_when=asyncio.FIRST_COMPLETED,
-        )
-
-        # Cancel pending tasks
-        for task in pending:
-            task.cancel()
-            try:
-                await task
-            except asyncio.CancelledError:
-                pass
-
-        # Check if agent task raised an exception
-        if agent_task in done:
-            agent_task.result()
-
-    except asyncio.CancelledError:
-        logger.info("Agent task cancelled")
-    finally:
-        logger.info("Shutting down...")
         if hasattr(agent, "close"):
             await agent.close()
-        logger.info("Agent stopped")
+    except Exception as e:
+        logger.warning(f"Error during agent cleanup: {e}")
+    logger.info("Agent stopped")
 
 
 if __name__ == "__main__":

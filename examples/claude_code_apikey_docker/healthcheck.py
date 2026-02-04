@@ -58,6 +58,7 @@ def main() -> int:
         import httpx
 
         # Verify agent can authenticate with the platform
+        # Timeout of 10s provides buffer within Docker's 30s healthcheck timeout
         api_key = config["api_key"]
         with httpx.Client(timeout=10.0) as client:
             response = client.get(

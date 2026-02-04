@@ -99,7 +99,12 @@ prompt: |
 tools:
   - calculator
   - get_time
+
+# Optional: extended thinking (requires claude-sonnet-4-5-20250929 or newer)
+# thinking_tokens: 10000
 ```
+
+> **Note:** The `thinking_tokens` option enables extended thinking and requires Claude Sonnet 4.5 or newer models (e.g., `claude-sonnet-4-5-20250929`).
 
 ## Multiple Agents
 
