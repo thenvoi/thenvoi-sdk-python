@@ -1,0 +1,3 @@
+# Agent config files (contain credentials)
+agent*.yaml
+!example_agent.yaml
