@@ -17,8 +17,9 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # Install uv package manager (pinned version for reproducibility)
-RUN curl -LsSf https://astral.sh/uv/0.5.18/install.sh | sh
-ENV PATH="/root/.local/bin:${PATH}"
+# Install to /usr/local/bin so it's available to all users
+RUN curl -LsSf https://astral.sh/uv/0.5.18/install.sh | sh && \
+    cp /root/.local/bin/uv /usr/local/bin/uv
 
 # Copy SDK source and install
 # Note: uv.lock must exist in the repo root for reproducible builds.
@@ -34,6 +35,11 @@ RUN git config --global url."https://github.com/".insteadOf "git@github.com:" &&
 # Copy runner and example tools
 COPY examples/claude_code_apikey_docker/runner.py ./runner.py
 COPY examples/claude_code_apikey_docker/tools/ ./tools/
+
+# Create non-root user for security
+RUN useradd -m -u 1000 appuser && \
+    chown -R appuser:appuser /app
+USER appuser
 
 # Config will be mounted at runtime
 VOLUME /app/config

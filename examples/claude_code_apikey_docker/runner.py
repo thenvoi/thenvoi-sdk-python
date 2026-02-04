@@ -51,7 +51,7 @@ def load_config(config_path: str) -> dict[str, Any]:
         raise ValueError(f"Config file not found: {config_path}")
 
     try:
-        with open(path) as f:
+        with open(path, encoding="utf-8") as f:
             config = yaml.safe_load(f)
     except yaml.YAMLError as e:
         raise ValueError(f"Invalid YAML in config file: {e}") from e
@@ -220,6 +220,10 @@ async def main() -> None:
             # Check if agent task raised an exception
             if agent_task in done:
                 agent_task.result()
+
+            # Reset retry state on successful connection
+            retry_count = 0
+            retry_delay = INITIAL_RETRY_DELAY
 
             # If we get here without exception, agent completed normally
             break

@@ -14,6 +14,7 @@ x-agent: &agent-base
 services:
   agent1:
     <<: *agent-base
+    container_name: thenvoi-agent1
     environment:
       AGENT_CONFIG: /app/config/agent1.yaml
 
