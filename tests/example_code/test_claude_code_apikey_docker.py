@@ -254,6 +254,19 @@ class TestSafeMathEval:
         with pytest.raises(SyntaxError):
             safe_math_eval("(2 + 3")
 
+    def test_division_by_zero(self) -> None:
+        """Test that division by zero raises ZeroDivisionError."""
+        from tools.example_tools import safe_math_eval
+
+        with pytest.raises(ZeroDivisionError):
+            safe_math_eval("1 / 0")
+
+        with pytest.raises(ZeroDivisionError):
+            safe_math_eval("10 // 0")
+
+        with pytest.raises(ZeroDivisionError):
+            safe_math_eval("5 % 0")
+
 
 # Note: Tool tests (TestCalculatorTool, TestGetTimeTool, TestRandomNumberTool) removed
 # because @tool decorator from claude_agent_sdk wraps functions in SdkMcpTool objects

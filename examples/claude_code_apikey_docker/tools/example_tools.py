@@ -121,7 +121,7 @@ async def calculator(args: dict[str, Any]) -> dict[str, Any]:
     try:
         result = safe_math_eval(args["expression"])
         return {"content": [{"type": "text", "text": str(result)}]}
-    except (ValueError, SyntaxError, TypeError, KeyError) as e:
+    except (ValueError, SyntaxError, TypeError, KeyError, ZeroDivisionError) as e:
         return {"content": [{"type": "text", "text": f"Error: {e}"}], "is_error": True}
 
 
