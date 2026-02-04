@@ -156,8 +156,9 @@ class ClaudeCodeDesktopAdapter(SimpleAdapter[str]):
 
         if session_id:
             cmd.extend(["--resume", session_id])
-        else:
-            cmd.append("--no-session-persistence")
+        # Note: We do NOT use --no-session-persistence here because we need
+        # the session to be persisted so we can resume it on subsequent messages.
+        # The session_id is captured from the response and stored per-room.
 
         return cmd
 
