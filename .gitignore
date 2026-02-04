@@ -145,10 +145,12 @@ phx_events_debug.log
 refactoring-docs/
 run_test_agent.py
 
-# Agent configuration files
+# Agent configuration files (contain secrets)
 agent_config.yaml
 examples/claude_code_apikey_docker/agent*.yaml
 !examples/claude_code_apikey_docker/example_agent.yaml
+agents/*.yaml
+!agents/example_agent.yaml
 
 # Parlant local data (sessions, cache, databases)
 parlant-data/

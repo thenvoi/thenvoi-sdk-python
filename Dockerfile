@@ -1,13 +1,13 @@
-# Multi-stage Dockerfile for Thenvoi Python SDK examples
-# Supports LangGraph adapter examples
+# Dockerfile for Thenvoi Agent Runner
 #
-# Usage:
-#   docker build -t thenvoi-sdk .
-#   docker compose up langgraph-01-simple
+# Build:   docker compose build
+# Run:     docker compose up
+#
+# This image provides a YAML-configured agent runner for the Thenvoi platform.
+# Each agent is configured via its own YAML file in the agents/ directory.
 
-FROM python:3.11-slim AS base
+FROM python:3.11-slim
 
-# Set working directory
 WORKDIR /app
 
 # Install system dependencies
@@ -21,21 +21,25 @@ RUN apt-get update && apt-get install -y \
 RUN curl -LsSf https://astral.sh/uv/install.sh | sh
 ENV PATH="/root/.local/bin:${PATH}"
 
-# Copy project files
+# Copy SDK source and install
+# Note: uv.lock is optional - uv sync will create it if missing
 COPY pyproject.toml ./
 COPY src/ ./src/
-COPY examples/ ./examples/
 
-# Create stage for LangGraph adapter
-FROM base AS langgraph
-
-# Install dependencies with langgraph extras (fresh resolution from pyproject.toml)
+# Install thenvoi SDK with claude_sdk extras
 # Rewrite SSH URLs to HTTPS to avoid SSH auth issues in Docker
 RUN git config --global url."https://github.com/".insteadOf "git@github.com:" && \
-    uv sync --extra langgraph
+    uv sync --extra claude_sdk
 
-# Set default command
-CMD ["uv", "run", "--extra", "langgraph", "python", "examples/langgraph/01_simple_agent.py"]
+# Copy runner and healthcheck
+COPY examples/claude_code_apikey_docker/runner.py ./runner.py
+COPY examples/claude_code_apikey_docker/healthcheck.py ./healthcheck.py
 
-# Default stage is langgraph
-FROM langgraph AS default
+# Copy default tools (can be overridden by mounting custom tools)
+COPY examples/claude_code_apikey_docker/tools/ ./tools/
+
+# Config will be mounted at runtime
+VOLUME /app/config
+
+# Run the agent runner
+CMD ["uv", "run", "--extra", "claude_sdk", "python", "runner.py"]
