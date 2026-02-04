@@ -672,8 +672,8 @@ The `.env` file contains platform URLs (pre-configured) and LLM API keys:
 
 ```bash
 # Platform URLs
-THENVOI_REST_URL=https://api.thenvoi.com
-THENVOI_WS_URL=wss://api.thenvoi.com/ws
+THENVOI_REST_URL=https://app.thenvoi.com
+THENVOI_WS_URL=wss://app.thenvoi.com/ws
 
 # LLM API Keys - fill these in
 OPENAI_API_KEY=sk-your-key-here

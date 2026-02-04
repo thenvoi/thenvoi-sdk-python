@@ -62,8 +62,8 @@ class ThenvoiLink:
         self,
         agent_id: str,
         api_key: str,
-        ws_url: str = "wss://api.thenvoi.com/ws",
-        rest_url: str = "https://api.thenvoi.com",
+        ws_url: str = "wss://app.thenvoi.com/ws",
+        rest_url: str = "https://app.thenvoi.com",
     ):
         self.agent_id = agent_id
         self.api_key = api_key
