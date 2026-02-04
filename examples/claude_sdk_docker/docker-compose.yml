@@ -4,7 +4,7 @@
 x-agent: &agent-base
   build:
     context: ../..
-    dockerfile: examples/claude_code_apikey_docker/Dockerfile
+    dockerfile: examples/claude_sdk_docker/Dockerfile
   image: thenvoi-claude-sdk:latest
   env_file: ../../.env
   volumes:

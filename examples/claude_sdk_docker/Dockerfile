@@ -33,8 +33,8 @@ RUN git config --global url."https://github.com/".insteadOf "git@github.com:" &&
     uv sync --extra claude_sdk
 
 # Copy runner and example tools
-COPY examples/claude_code_apikey_docker/runner.py ./runner.py
-COPY examples/claude_code_apikey_docker/tools/ ./tools/
+COPY examples/claude_sdk_docker/runner.py ./runner.py
+COPY examples/claude_sdk_docker/tools/ ./tools/
 
 # Create non-root user for security
 RUN useradd -m -u 1000 appuser && \
