@@ -11,8 +11,12 @@ class OutputTypeAdapter(Protocol):
     def get_length(self, result: Any) -> int: ...
     def get_content(self, result: Any, index: int) -> str: ...
     def get_role(self, result: Any, index: int) -> str: ...
-    def has_tool_call(self, result: Any, index: int, name: str | None, tool_id: str | None) -> bool: ...
-    def has_tool_result(self, result: Any, index: int, tool_id: str | None, content: str | None) -> bool: ...
+    def has_tool_call(
+        self, result: Any, index: int, name: str | None, tool_id: str | None
+    ) -> bool: ...
+    def has_tool_result(
+        self, result: Any, index: int, tool_id: str | None, content: str | None
+    ) -> bool: ...
     def get_tool_call_count(self, result: Any, index: int) -> int: ...
     def get_tool_result_count(self, result: Any, index: int) -> int: ...
     def has_is_error(self, result: Any, index: int, expected: bool) -> bool: ...
@@ -31,10 +35,14 @@ class BaseAdapter:
         return len(result) if result else 0
 
     # Default implementations for tool methods (most adapters don't support these)
-    def has_tool_call(self, result: Any, index: int, name: str | None, tool_id: str | None) -> bool:
+    def has_tool_call(
+        self, result: Any, index: int, name: str | None, tool_id: str | None
+    ) -> bool:
         return False
 
-    def has_tool_result(self, result: Any, index: int, tool_id: str | None, content: str | None) -> bool:
+    def has_tool_result(
+        self, result: Any, index: int, tool_id: str | None, content: str | None
+    ) -> bool:
         return False
 
     def get_tool_call_count(self, result: Any, index: int) -> int:
@@ -70,7 +78,9 @@ class DictListAdapter(BaseAdapter):
             return content[0]
         return None
 
-    def has_tool_call(self, result: Any, index: int, name: str | None, tool_id: str | None) -> bool:
+    def has_tool_call(
+        self, result: Any, index: int, name: str | None, tool_id: str | None
+    ) -> bool:
         if (block := self._get_tool_block(result, index)) is None:
             return False
         if block.get("type") != "tool_use":
@@ -81,7 +91,9 @@ class DictListAdapter(BaseAdapter):
             return False
         return True
 
-    def has_tool_result(self, result: Any, index: int, tool_id: str | None, content: str | None) -> bool:
+    def has_tool_result(
+        self, result: Any, index: int, tool_id: str | None, content: str | None
+    ) -> bool:
         if (block := self._get_tool_block(result, index)) is None:
             return False
         if block.get("type") != "tool_result":
@@ -128,14 +140,18 @@ class StringAdapter(BaseAdapter):
     def get_role(self, result: Any, index: int) -> str:
         return ""
 
-    def has_tool_call(self, result: Any, index: int, name: str | None, tool_id: str | None) -> bool:
+    def has_tool_call(
+        self, result: Any, index: int, name: str | None, tool_id: str | None
+    ) -> bool:
         lines = self._lines(result)
         if index >= len(lines):
             return False
         line = lines[index]
         return (not name or f'"{name}"' in line) and (not tool_id or tool_id in line)
 
-    def has_tool_result(self, result: Any, index: int, tool_id: str | None, content: str | None) -> bool:
+    def has_tool_result(
+        self, result: Any, index: int, tool_id: str | None, content: str | None
+    ) -> bool:
         lines = self._lines(result)
         if index >= len(lines):
             return False
@@ -161,7 +177,9 @@ class LangChainAdapter(BaseAdapter):
             return "assistant"
         return ""
 
-    def has_tool_call(self, result: Any, index: int, name: str | None, tool_id: str | None) -> bool:
+    def has_tool_call(
+        self, result: Any, index: int, name: str | None, tool_id: str | None
+    ) -> bool:
         from langchain_core.messages import AIMessage
 
         if (msg := self._get(result, index)) is None:
@@ -169,9 +187,13 @@ class LangChainAdapter(BaseAdapter):
         if not isinstance(msg, AIMessage) or not msg.tool_calls:
             return False
         tc = msg.tool_calls[0]
-        return (not name or tc.get("name") == name) and (not tool_id or tc.get("id") == tool_id)
+        return (not name or tc.get("name") == name) and (
+            not tool_id or tc.get("id") == tool_id
+        )
 
-    def has_tool_result(self, result: Any, index: int, tool_id: str | None, content: str | None) -> bool:
+    def has_tool_result(
+        self, result: Any, index: int, tool_id: str | None, content: str | None
+    ) -> bool:
         from langchain_core.messages import ToolMessage
 
         if (msg := self._get(result, index)) is None:
@@ -185,7 +207,9 @@ class LangChainAdapter(BaseAdapter):
 
         if (msg := self._get(result, index)) is None:
             return 0
-        return len(msg.tool_calls) if isinstance(msg, AIMessage) and msg.tool_calls else 0
+        return (
+            len(msg.tool_calls) if isinstance(msg, AIMessage) and msg.tool_calls else 0
+        )
 
 
 class PydanticAIAdapter(BaseAdapter):
@@ -201,9 +225,13 @@ class PydanticAIAdapter(BaseAdapter):
         if (msg := self._get(result, index)) is None:
             return ""
         name = type(msg).__name__
-        return "user" if "Request" in name else "assistant" if "Response" in name else ""
+        return (
+            "user" if "Request" in name else "assistant" if "Response" in name else ""
+        )
 
-    def has_tool_call(self, result: Any, index: int, name: str | None, tool_id: str | None) -> bool:
+    def has_tool_call(
+        self, result: Any, index: int, name: str | None, tool_id: str | None
+    ) -> bool:
         from pydantic_ai.messages import ModelResponse, ToolCallPart
 
         if (msg := self._get(result, index)) is None:
@@ -213,9 +241,13 @@ class PydanticAIAdapter(BaseAdapter):
         part = msg.parts[0]
         if not isinstance(part, ToolCallPart):
             return False
-        return (not name or part.tool_name == name) and (not tool_id or part.tool_call_id == tool_id)
+        return (not name or part.tool_name == name) and (
+            not tool_id or part.tool_call_id == tool_id
+        )
 
-    def has_tool_result(self, result: Any, index: int, tool_id: str | None, content: str | None) -> bool:
+    def has_tool_result(
+        self, result: Any, index: int, tool_id: str | None, content: str | None
+    ) -> bool:
         from pydantic_ai.messages import ModelRequest, ToolReturnPart, RetryPromptPart
 
         if (msg := self._get(result, index)) is None:
@@ -225,21 +257,29 @@ class PydanticAIAdapter(BaseAdapter):
         part = msg.parts[0]
         if not isinstance(part, (ToolReturnPart, RetryPromptPart)):
             return False
-        return (not tool_id or part.tool_call_id == tool_id) and (not content or part.content == content)
+        return (not tool_id or part.tool_call_id == tool_id) and (
+            not content or part.content == content
+        )
 
     def get_tool_call_count(self, result: Any, index: int) -> int:
         from pydantic_ai.messages import ModelResponse, ToolCallPart
 
-        if (msg := self._get(result, index)) is None or not isinstance(msg, ModelResponse):
+        if (msg := self._get(result, index)) is None or not isinstance(
+            msg, ModelResponse
+        ):
             return 0
         return sum(1 for p in msg.parts if isinstance(p, ToolCallPart))
 
     def get_tool_result_count(self, result: Any, index: int) -> int:
         from pydantic_ai.messages import ModelRequest, ToolReturnPart, RetryPromptPart
 
-        if (msg := self._get(result, index)) is None or not isinstance(msg, ModelRequest):
+        if (msg := self._get(result, index)) is None or not isinstance(
+            msg, ModelRequest
+        ):
             return 0
-        return sum(1 for p in msg.parts if isinstance(p, (ToolReturnPart, RetryPromptPart)))
+        return sum(
+            1 for p in msg.parts if isinstance(p, (ToolReturnPart, RetryPromptPart))
+        )
 
     def has_is_error(self, result: Any, index: int, expected: bool) -> bool:
         from pydantic_ai.messages import ModelRequest, ToolReturnPart, RetryPromptPart
@@ -249,4 +289,8 @@ class PydanticAIAdapter(BaseAdapter):
         if not isinstance(msg, ModelRequest) or not msg.parts:
             return False
         part = msg.parts[0]
-        return isinstance(part, RetryPromptPart) if expected else isinstance(part, ToolReturnPart)
+        return (
+            isinstance(part, RetryPromptPart)
+            if expected
+            else isinstance(part, ToolReturnPart)
+        )
