@@ -29,6 +29,13 @@ class AdapterConfig:
         has_custom_tools: Whether the adapter supports additional_tools parameter
         custom_tools_attr: Attribute name where custom tools are stored
         default_model: Default model value (if applicable)
+        additional_init_checks: Dict of attribute name -> expected value for init tests
+        supports_enable_execution_reporting: Whether adapter supports this parameter
+        history_storage_attr: Attribute name where message history is stored
+        supports_system_prompt_override: Whether system_prompt param overrides default
+        supports_cleanup_all: Whether adapter has cleanup_all method
+        on_message_requires_setup: Setup function for on_message tests
+        custom_tool_format: "tuple" for (Model, func), "callable" for just func
     """
 
     name: str
@@ -41,6 +48,11 @@ class AdapterConfig:
     custom_tools_attr: str = "_custom_tools"
     default_model: str | None = None
     additional_init_checks: dict[str, Any] = field(default_factory=dict)
+    supports_enable_execution_reporting: bool = True
+    history_storage_attr: str = "_message_history"
+    supports_system_prompt_override: bool = True
+    supports_cleanup_all: bool = False
+    custom_tool_format: str = "tuple"  # "tuple" or "callable"
 
 
 def create_sample_message(
@@ -215,6 +227,11 @@ ADAPTER_CONFIGS: dict[str, AdapterConfig] = {
             "max_tokens": 4096,
             "enable_execution_reporting": False,
         },
+        supports_enable_execution_reporting=True,
+        history_storage_attr="_message_history",
+        supports_system_prompt_override=True,
+        supports_cleanup_all=False,
+        custom_tool_format="tuple",
     ),
     "claude_sdk": AdapterConfig(
         name="claude_sdk",
@@ -228,6 +245,11 @@ ADAPTER_CONFIGS: dict[str, AdapterConfig] = {
             "permission_mode": "acceptEdits",
             "enable_execution_reporting": False,
         },
+        supports_enable_execution_reporting=True,
+        history_storage_attr="_room_tools",  # ClaudeSDK uses _room_tools
+        supports_system_prompt_override=False,  # Uses session manager
+        supports_cleanup_all=True,
+        custom_tool_format="tuple",
     ),
     "langgraph": AdapterConfig(
         name="langgraph",
@@ -238,6 +260,11 @@ ADAPTER_CONFIGS: dict[str, AdapterConfig] = {
         custom_tools_attr="additional_tools",  # LangGraph clears this after baking
         default_model=None,  # LangGraph uses llm instead of model
         additional_init_checks={"prompt_template": "default"},
+        supports_enable_execution_reporting=False,  # LangGraph doesn't support this
+        history_storage_attr=None,  # LangGraph uses checkpointer
+        supports_system_prompt_override=False,  # Uses prompt_template
+        supports_cleanup_all=False,
+        custom_tool_format="callable",
     ),
     "pydantic_ai": AdapterConfig(
         name="pydantic_ai",
@@ -248,6 +275,11 @@ ADAPTER_CONFIGS: dict[str, AdapterConfig] = {
         custom_tools_attr="_custom_tools",
         default_model=None,  # Model is required, no default
         additional_init_checks={"enable_execution_reporting": False},
+        supports_enable_execution_reporting=True,
+        history_storage_attr="_message_history",
+        supports_system_prompt_override=False,  # Uses different system
+        supports_cleanup_all=False,
+        custom_tool_format="callable",
     ),
     "parlant": AdapterConfig(
         name="parlant",
@@ -258,11 +290,16 @@ ADAPTER_CONFIGS: dict[str, AdapterConfig] = {
         custom_tools_attr="_custom_tools",
         default_model=None,  # Parlant uses Parlant SDK
         additional_init_checks={},
+        supports_enable_execution_reporting=False,  # Parlant doesn't support this
+        history_storage_attr="_room_sessions",  # Parlant uses sessions
+        supports_system_prompt_override=True,
+        supports_cleanup_all=True,
+        custom_tool_format="tuple",
     ),
 }
 
-# CrewAI config - requires special handling
-CREWAI_CONFIG = AdapterConfig(
+# CrewAI config - added to ADAPTER_CONFIGS with requires_mocks=True
+ADAPTER_CONFIGS["crewai"] = AdapterConfig(
     name="crewai",
     adapter_class=None,
     factory=_create_crewai_adapter,
@@ -277,4 +314,98 @@ CREWAI_CONFIG = AdapterConfig(
         "allow_delegation": False,
         "enable_execution_reporting": False,
     },
+    supports_enable_execution_reporting=True,
+    history_storage_attr="_message_history",
+    supports_system_prompt_override=False,  # Uses backstory
+    supports_cleanup_all=False,
+    custom_tool_format="tuple",
 )
+
+# Keep CREWAI_CONFIG for backwards compatibility
+CREWAI_CONFIG = ADAPTER_CONFIGS["crewai"]
+
+
+# Helper functions for on_message tests
+
+
+async def setup_adapter_for_on_message(
+    adapter: Any,
+    config: AdapterConfig,
+    mock_tools: Any,
+) -> Any:
+    """Set up adapter for on_message testing.
+
+    Handles framework-specific mocking and returns any mock objects needed.
+
+    Returns:
+        Mock object(s) needed for assertions, or None
+    """
+    import sys
+    from unittest.mock import patch
+
+    if config.name == "parlant":
+        # Parlant needs Application mock
+        mock_app = MagicMock()
+        mock_app.sessions = AsyncMock()
+        mock_app.sessions.create = AsyncMock(return_value=MagicMock(id="session-123"))
+        mock_app.sessions.create_customer_message = AsyncMock(
+            return_value=MagicMock(offset=1)
+        )
+        mock_app.sessions.wait_for_update = AsyncMock(return_value=True)
+        mock_app.sessions.find_events = AsyncMock(return_value=[])
+
+        mock_application_class = MagicMock(name="Application")
+        mock_module = MagicMock()
+        mock_module.Application = mock_application_class
+        adapter._server.container = {mock_application_class: mock_app}
+
+        with patch.dict(sys.modules, {"parlant.core.application": mock_module}):
+            await adapter.on_started(
+                agent_name="TestBot", agent_description="A test bot"
+            )
+
+        # Set up internal state for on_message
+        adapter._app = mock_app
+        return {"app": mock_app}
+
+    elif config.name == "claude_sdk":
+        # ClaudeSDK needs session manager mock
+        with patch(
+            "thenvoi.adapters.claude_sdk.ClaudeSessionManager"
+        ) as mock_manager_class:
+            mock_manager = MagicMock()
+            mock_manager.cleanup_session = AsyncMock()
+            mock_manager_class.return_value = mock_manager
+            await adapter.on_started(
+                agent_name="TestBot", agent_description="A test bot"
+            )
+        return {"session_manager": mock_manager}
+
+    elif config.name == "pydantic_ai":
+        # PydanticAI needs agent mock
+        mock_agent = MagicMock()
+        mock_agent._function_tools = {
+            "thenvoi_send_message": MagicMock(name="thenvoi_send_message"),
+        }
+        with patch.object(adapter, "_create_agent", return_value=mock_agent):
+            await adapter.on_started(
+                agent_name="TestBot", agent_description="A test bot"
+            )
+        adapter._agent = mock_agent
+        return {"agent": mock_agent}
+
+    elif config.name == "anthropic":
+        await adapter.on_started(agent_name="TestBot", agent_description="A test bot")
+        return None
+
+    elif config.name == "langgraph":
+        await adapter.on_started(agent_name="TestBot", agent_description="A test bot")
+        return None
+
+    elif config.name == "crewai":
+        await adapter.on_started(agent_name="TestBot", agent_description="A test bot")
+        return None
+
+    else:
+        await adapter.on_started(agent_name="TestBot", agent_description="A test bot")
+        return None

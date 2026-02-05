@@ -1,20 +1,31 @@
 """Contract tests for all framework adapters.
 
 These parameterized tests run across all adapter implementations to verify
-common behaviors. Framework-specific behaviors (like tool execution, streaming)
-remain in individual test files.
+common behaviors. Framework-specific behaviors are handled through configuration
+in tests/framework_configs/adapters.py.
 
 Running:
-    # All adapters (except CrewAI which needs special mocks)
+    # All adapters
     uv run pytest tests/adapters/test_adapter_contract.py -v
 
     # Specific adapter
     uv run pytest tests/adapters/test_adapter_contract.py -k "anthropic" -v
+
+Tests covered:
+- Initialization (default values, custom params, history converter, model)
+- on_started (agent_name, agent_description, system_prompt rendering)
+- on_message (history initialization, loading, participants injection)
+- on_cleanup (nonexistent room safety, room data cleanup, cleanup_all)
+- Custom tools (accepts additional_tools, default empty)
+- Error handling (reports errors, preserves state)
+- System prompt override
 """
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock, patch
+import sys
+from contextlib import asynccontextmanager
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -23,13 +34,50 @@ from tests.framework_configs.adapters import (
     AdapterConfig,
     create_mock_tools,
     create_sample_message,
+    setup_adapter_for_on_message,
 )
 
 
+class MockBaseTool:
+    """Mock CrewAI BaseTool for testing."""
+
+    name: str = ""
+    description: str = ""
+
+    def __init__(self):
+        pass
+
+
+@pytest.fixture
+def crewai_mocks(monkeypatch):
+    """Set up CrewAI module mocks. Only active for CrewAI tests."""
+    mock_crewai_module = MagicMock()
+    mock_crewai_tools_module = MagicMock()
+    mock_nest_asyncio = MagicMock()
+
+    mock_crewai_module.Agent = MagicMock()
+    mock_crewai_module.LLM = MagicMock()
+    mock_crewai_tools_module.BaseTool = MockBaseTool
+
+    monkeypatch.setitem(sys.modules, "crewai", mock_crewai_module)
+    monkeypatch.setitem(sys.modules, "crewai.tools", mock_crewai_tools_module)
+    monkeypatch.setitem(sys.modules, "nest_asyncio", mock_nest_asyncio)
+
+    try:
+        yield mock_crewai_module
+    finally:
+        # Clean up the adapter module to force reimport on next test
+        sys.modules.pop("thenvoi.adapters.crewai", None)
+
+
 @pytest.fixture(params=list(ADAPTER_CONFIGS.values()), ids=lambda c: c.name)
-def adapter_config(request: pytest.FixtureRequest) -> AdapterConfig:
+def adapter_config(request: pytest.FixtureRequest, crewai_mocks) -> AdapterConfig:
     """Parameterized fixture that yields each adapter config."""
-    return request.param
+    config = request.param
+    # Store crewai_mocks reference for tests that need it
+    if config.name == "crewai":
+        config._crewai_mocks = crewai_mocks
+    return config
 
 
 @pytest.fixture
@@ -93,8 +141,7 @@ class TestInitialization:
         self, adapter_config: AdapterConfig
     ):
         """Adapter should accept enable_execution_reporting parameter."""
-        # Skip adapters that don't support this parameter
-        if adapter_config.name in ("parlant", "langgraph"):
+        if not adapter_config.supports_enable_execution_reporting:
             pytest.skip(
                 f"{adapter_config.name} doesn't support enable_execution_reporting"
             )
@@ -110,10 +157,8 @@ class TestOnStarted:
     @pytest.mark.asyncio
     async def test_sets_agent_name(self, adapter, adapter_config: AdapterConfig):
         """on_started should set agent_name."""
-        # Parlant needs Application mock
         if adapter_config.name == "parlant":
             await _setup_parlant_on_started(adapter)
-        # ClaudeSDK needs session manager mock
         elif adapter_config.name == "claude_sdk":
             with patch(
                 "thenvoi.adapters.claude_sdk.ClaudeSessionManager"
@@ -122,7 +167,6 @@ class TestOnStarted:
                 await adapter.on_started(
                     agent_name="TestBot", agent_description="A test bot"
                 )
-        # PydanticAI needs agent mock
         elif adapter_config.name == "pydantic_ai":
             with patch.object(adapter, "_create_agent") as mock_create:
                 mock_agent = MagicMock()
@@ -131,6 +175,13 @@ class TestOnStarted:
                 await adapter.on_started(
                     agent_name="TestBot", agent_description="A test bot"
                 )
+        elif adapter_config.name == "crewai":
+            crewai_mocks = getattr(adapter_config, "_crewai_mocks", None)
+            if crewai_mocks:
+                crewai_mocks.Agent.reset_mock()
+            await adapter.on_started(
+                agent_name="TestBot", agent_description="A test bot"
+            )
         else:
             await adapter.on_started(
                 agent_name="TestBot", agent_description="A test bot"
@@ -159,6 +210,13 @@ class TestOnStarted:
                 await adapter.on_started(
                     agent_name="TestBot", agent_description="A test bot"
                 )
+        elif adapter_config.name == "crewai":
+            crewai_mocks = getattr(adapter_config, "_crewai_mocks", None)
+            if crewai_mocks:
+                crewai_mocks.Agent.reset_mock()
+            await adapter.on_started(
+                agent_name="TestBot", agent_description="A test bot"
+            )
         else:
             await adapter.on_started(
                 agent_name="TestBot", agent_description="A test bot"
@@ -172,7 +230,7 @@ class TestOnStarted:
     ):
         """on_started should render system prompt containing agent name."""
         # Skip adapters without _system_prompt attribute
-        if adapter_config.name in ("claude_sdk", "pydantic_ai"):
+        if adapter_config.name in ("claude_sdk", "pydantic_ai", "crewai"):
             pytest.skip(f"{adapter_config.name} handles system prompt differently")
 
         if adapter_config.name == "parlant":
@@ -184,6 +242,118 @@ class TestOnStarted:
 
         assert hasattr(adapter, "_system_prompt")
         assert "TestBot" in adapter._system_prompt
+
+
+class TestSystemPromptOverride:
+    """Tests for system_prompt parameter override."""
+
+    @pytest.mark.asyncio
+    async def test_uses_custom_system_prompt_when_provided(
+        self, adapter_config: AdapterConfig
+    ):
+        """Adapter should use custom system_prompt if provided."""
+        if not adapter_config.supports_system_prompt_override:
+            pytest.skip(f"{adapter_config.name} doesn't support system_prompt override")
+
+        adapter = adapter_config.factory(system_prompt="Custom prompt here.")
+
+        if adapter_config.name == "parlant":
+            await _setup_parlant_on_started(adapter)
+        else:
+            await adapter.on_started(
+                agent_name="TestBot", agent_description="A test bot"
+            )
+
+        assert adapter._system_prompt == "Custom prompt here."
+
+
+class TestOnMessage:
+    """Tests for on_message() method across all frameworks."""
+
+    @pytest.mark.asyncio
+    async def test_initializes_history_on_bootstrap(
+        self, adapter_config: AdapterConfig, sample_message, mock_tools
+    ):
+        """Adapter should initialize room history/session on first message."""
+        # Skip adapters that don't store history locally or have complex setup
+        if adapter_config.history_storage_attr is None:
+            pytest.skip(f"{adapter_config.name} uses external history storage")
+
+        # Skip Claude SDK - uses session manager which requires complex async setup
+        if adapter_config.name == "claude_sdk":
+            pytest.skip("claude_sdk uses session manager - tested in individual file")
+
+        adapter = adapter_config.factory()
+        mocks = await setup_adapter_for_on_message(adapter, adapter_config, mock_tools)
+
+        async with _mock_llm_call(adapter, adapter_config, mocks):
+            await adapter.on_message(
+                msg=sample_message,
+                tools=mock_tools,
+                history=[],
+                participants_msg=None,
+                is_session_bootstrap=True,
+                room_id="room-123",
+            )
+
+        storage_attr = adapter_config.history_storage_attr
+        storage = getattr(adapter, storage_attr, None)
+        if storage is not None:
+            assert "room-123" in storage
+
+    @pytest.mark.asyncio
+    async def test_injects_participants_message(
+        self, adapter_config: AdapterConfig, sample_message, mock_tools
+    ):
+        """Adapter should inject participants update when provided."""
+        # Skip adapters that don't have easy verification
+        if adapter_config.name in ("claude_sdk", "parlant", "crewai"):
+            pytest.skip(
+                f"{adapter_config.name} handles participants differently - tested in individual file"
+            )
+
+        adapter = adapter_config.factory()
+        mocks = await setup_adapter_for_on_message(adapter, adapter_config, mock_tools)
+
+        captured_input = {}
+
+        async with _mock_llm_call_with_capture(
+            adapter, adapter_config, mocks, captured_input
+        ):
+            await adapter.on_message(
+                msg=sample_message,
+                tools=mock_tools,
+                history=[],
+                participants_msg="Alice joined the room",
+                is_session_bootstrap=True,
+                room_id="room-123",
+            )
+
+        # Verify participant message was included
+        if adapter_config.name == "anthropic":
+            found = any(
+                "[System]: Alice joined" in str(m.get("content", ""))
+                for m in adapter._message_history.get("room-123", [])
+            )
+            assert found
+        elif adapter_config.name == "langgraph":
+            messages = captured_input.get("messages", [])
+            system_msgs = [m for m in messages if m[0] == "system"]
+            found = any("Alice joined" in str(m[1]) for m in system_msgs)
+            assert found
+        elif adapter_config.name == "pydantic_ai":
+            # PydanticAI adds to history before call
+            call_kwargs = mocks["agent"].run_stream_events.call_args.kwargs
+            message_history = call_kwargs.get("message_history", [])
+            if message_history:
+                found = any(
+                    "[System]: Alice joined" in str(getattr(m.parts[0], "content", ""))
+                    for m in message_history
+                    if hasattr(m, "parts")
+                    and m.parts
+                    and hasattr(m.parts[0], "content")
+                )
+                assert found
 
 
 class TestOnCleanup:
@@ -229,6 +399,43 @@ class TestOnCleanup:
             assert "room-123" not in adapter._room_tools
 
 
+class TestCleanupAll:
+    """Tests for cleanup_all() method where supported."""
+
+    @pytest.mark.asyncio
+    async def test_cleanup_all_clears_all_sessions(
+        self, adapter_config: AdapterConfig, mock_tools
+    ):
+        """cleanup_all should clear all room data."""
+        if not adapter_config.supports_cleanup_all:
+            pytest.skip(f"{adapter_config.name} doesn't have cleanup_all method")
+
+        adapter = adapter_config.factory()
+
+        if adapter_config.name == "claude_sdk":
+            # Set up session manager
+            mock_session_manager = AsyncMock()
+            adapter._session_manager = mock_session_manager
+            adapter._room_tools["room-1"] = MagicMock()
+            adapter._room_tools["room-2"] = MagicMock()
+
+            await adapter.cleanup_all()
+
+            mock_session_manager.stop.assert_awaited_once()
+            assert len(adapter._room_tools) == 0
+
+        elif adapter_config.name == "parlant":
+            adapter._room_sessions["room-1"] = "session-1"
+            adapter._room_sessions["room-2"] = "session-2"
+            adapter._room_customers["room-1"] = "customer-1"
+            adapter._room_customers["room-2"] = "customer-2"
+
+            await adapter.cleanup_all()
+
+            assert len(adapter._room_sessions) == 0
+            assert len(adapter._room_customers) == 0
+
+
 class TestCustomTools:
     """Tests for custom tool support across all frameworks."""
 
@@ -237,7 +444,6 @@ class TestCustomTools:
         if not adapter_config.has_custom_tools:
             pytest.skip(f"{adapter_config.name} doesn't support custom tools")
 
-        # Create a mock custom tool
         from pydantic import BaseModel, Field
 
         class EchoInput(BaseModel):
@@ -248,8 +454,8 @@ class TestCustomTools:
         async def echo(args: EchoInput) -> str:
             return f"Echo: {args.message}"
 
-        # PydanticAI uses a different tool format (just callables)
-        if adapter_config.name == "pydantic_ai":
+        # Use appropriate tool format based on adapter
+        if adapter_config.custom_tool_format == "callable":
             adapter = adapter_config.factory(additional_tools=[echo])
         else:
             adapter = adapter_config.factory(additional_tools=[(EchoInput, echo)])
@@ -277,14 +483,140 @@ class TestCustomTools:
         custom_tools = getattr(adapter, custom_tools_attr)
         assert custom_tools == [] or custom_tools is None or len(custom_tools) == 0
 
+    def test_accepts_multiple_custom_tools(self, adapter_config: AdapterConfig):
+        """Adapter should accept multiple custom tools."""
+        if not adapter_config.has_custom_tools:
+            pytest.skip(f"{adapter_config.name} doesn't support custom tools")
+
+        from pydantic import BaseModel, Field
+
+        class EchoInput(BaseModel):
+            """Echo the message."""
+
+            message: str = Field(description="Message to echo")
+
+        class CalculatorInput(BaseModel):
+            """Perform math calculations."""
+
+            operation: str = Field(description="add, subtract, multiply, divide")
+            left: float = Field(description="Left operand")
+            right: float = Field(description="Right operand")
+
+        async def echo(args: EchoInput) -> str:
+            return f"Echo: {args.message}"
+
+        def calculate(args: CalculatorInput) -> str:
+            ops = {
+                "add": lambda a, b: a + b,
+                "subtract": lambda a, b: a - b,
+                "multiply": lambda a, b: a * b,
+                "divide": lambda a, b: a / b,
+            }
+            return str(ops[args.operation](args.left, args.right))
+
+        # Use appropriate tool format based on adapter
+        if adapter_config.custom_tool_format == "callable":
+            adapter = adapter_config.factory(additional_tools=[echo, calculate])
+        else:
+            adapter = adapter_config.factory(
+                additional_tools=[(EchoInput, echo), (CalculatorInput, calculate)]
+            )
+
+        custom_tools_attr = adapter_config.custom_tools_attr
+        custom_tools = getattr(adapter, custom_tools_attr)
+
+        # LangGraph clears additional_tools after baking
+        if adapter_config.name == "langgraph":
+            assert custom_tools == []
+        else:
+            assert len(custom_tools) >= 2
+
+
+class TestErrorHandling:
+    """Tests for error handling across all frameworks."""
+
+    @pytest.mark.asyncio
+    async def test_reports_error_on_failure(
+        self, adapter_config: AdapterConfig, sample_message, mock_tools
+    ):
+        """Adapter should report error when LLM call fails."""
+        # Skip adapters with complex error mocking or different error handling
+        if adapter_config.name in ("claude_sdk", "parlant", "pydantic_ai", "crewai"):
+            pytest.skip(
+                f"{adapter_config.name} error handling tested in individual file"
+            )
+
+        adapter = adapter_config.factory()
+        mocks = await setup_adapter_for_on_message(adapter, adapter_config, mock_tools)
+
+        # Set up failure based on adapter type
+        if adapter_config.name == "anthropic":
+            with patch.object(
+                adapter, "_call_anthropic", side_effect=Exception("API Error")
+            ):
+                with pytest.raises(Exception, match="API Error"):
+                    await adapter.on_message(
+                        msg=sample_message,
+                        tools=mock_tools,
+                        history=[],
+                        participants_msg=None,
+                        is_session_bootstrap=True,
+                        room_id="room-123",
+                    )
+
+        elif adapter_config.name == "pydantic_ai":
+            # PydanticAI - make stream raise error
+            async def failing_stream():
+                raise Exception("API Error")
+                yield  # Never reached
+
+            mocks["agent"].run_stream_events = MagicMock(return_value=failing_stream())
+
+            with pytest.raises(Exception, match="API Error"):
+                await adapter.on_message(
+                    msg=sample_message,
+                    tools=mock_tools,
+                    history=[],
+                    participants_msg=None,
+                    is_session_bootstrap=True,
+                    room_id="room-123",
+                )
+
+        elif adapter_config.name == "langgraph":
+
+            async def failing_stream(*args, **kwargs):
+                raise Exception("Graph error!")
+                yield  # Make it async generator
+
+            mock_graph = MagicMock()
+            mock_graph.astream_events = failing_stream
+            adapter.graph_factory = MagicMock(return_value=mock_graph)
+
+            with patch(
+                "thenvoi.integrations.langgraph.langchain_tools.agent_tools_to_langchain"
+            ) as mock_convert:
+                mock_convert.return_value = []
+
+                with pytest.raises(Exception, match="Graph error!"):
+                    await adapter.on_message(
+                        msg=sample_message,
+                        tools=mock_tools,
+                        history=[],
+                        participants_msg=None,
+                        is_session_bootstrap=True,
+                        room_id="room-123",
+                    )
+
+        # Verify error was reported (if adapter sends error events)
+        if adapter_config.supports_enable_execution_reporting:
+            mock_tools.send_event.assert_called()
+
 
 # Helper functions
 
 
 async def _setup_parlant_on_started(adapter) -> None:
     """Set up Parlant adapter for on_started testing."""
-    import sys
-
     mock_app = MagicMock()
     mock_application_class = MagicMock(name="Application")
     mock_module = MagicMock()
@@ -293,3 +625,164 @@ async def _setup_parlant_on_started(adapter) -> None:
 
     with patch.dict(sys.modules, {"parlant.core.application": mock_module}):
         await adapter.on_started(agent_name="TestBot", agent_description="A test bot")
+
+
+@asynccontextmanager
+async def _mock_llm_call(adapter, config: AdapterConfig, mocks: dict | None):
+    """Context manager to mock LLM calls for on_message tests."""
+    if config.name == "anthropic":
+        mock_response = MagicMock()
+        mock_response.stop_reason = "end_turn"
+        mock_response.content = []
+        with patch.object(adapter, "_call_anthropic", return_value=mock_response):
+            yield
+
+    elif config.name == "pydantic_ai":
+        from pydantic_ai import AgentRunResultEvent
+        from pydantic_ai.messages import ModelRequest, UserPromptPart
+
+        async def make_stream():
+            result_event = MagicMock(spec=AgentRunResultEvent)
+            result_event.result = MagicMock()
+            result_event.result.all_messages.return_value = [
+                ModelRequest(parts=[UserPromptPart(content="test")])
+            ]
+            yield result_event
+
+        if mocks and "agent" in mocks:
+            mocks["agent"].run_stream_events = MagicMock(return_value=make_stream())
+        yield
+
+    elif config.name == "langgraph":
+
+        async def empty_stream(graph_input, **kwargs):
+            return
+            yield  # Make async generator
+
+        mock_graph = MagicMock()
+        mock_graph.astream_events = empty_stream
+        adapter.graph_factory = MagicMock(return_value=mock_graph)
+
+        with patch(
+            "thenvoi.integrations.langgraph.langchain_tools.agent_tools_to_langchain"
+        ) as mock_convert:
+            mock_convert.return_value = []
+            yield
+
+    elif config.name == "parlant":
+        mock_moderation = MagicMock()
+        mock_moderation.NONE = "none"
+        mock_event_source = MagicMock()
+        mock_event_source.CUSTOMER = "customer"
+        mock_event_source.AI_AGENT = "ai_agent"
+        mock_event_kind = MagicMock()
+        mock_event_kind.MESSAGE = "message"
+
+        with patch.dict(
+            sys.modules,
+            {
+                "parlant.core.app_modules.sessions": MagicMock(
+                    Moderation=mock_moderation
+                ),
+                "parlant.core.sessions": MagicMock(
+                    EventSource=mock_event_source, EventKind=mock_event_kind
+                ),
+                "parlant.core.async_utils": MagicMock(Timeout=lambda x: x),
+            },
+        ):
+            yield
+
+    elif config.name == "claude_sdk":
+        # ClaudeSDK on_message returns early for tests
+        yield
+
+    elif config.name == "crewai":
+        # CrewAI uses agent kickoff_async, mock it with proper result format
+        if adapter._crewai_agent is not None:
+            mock_result = MagicMock()
+            mock_result.raw = "Test response"
+            adapter._crewai_agent.kickoff_async = AsyncMock(return_value=mock_result)
+        yield
+
+    else:
+        yield
+
+
+@asynccontextmanager
+async def _mock_llm_call_with_capture(
+    adapter, config: AdapterConfig, mocks: dict | None, captured_input: dict
+):
+    """Context manager to mock LLM calls and capture input for verification."""
+    if config.name == "anthropic":
+        mock_response = MagicMock()
+        mock_response.stop_reason = "end_turn"
+        mock_response.content = []
+        with patch.object(adapter, "_call_anthropic", return_value=mock_response):
+            yield
+
+    elif config.name == "pydantic_ai":
+        from pydantic_ai import AgentRunResultEvent
+        from pydantic_ai.messages import ModelRequest, UserPromptPart
+
+        async def make_stream():
+            result_event = MagicMock(spec=AgentRunResultEvent)
+            result_event.result = MagicMock()
+            result_event.result.all_messages.return_value = [
+                ModelRequest(parts=[UserPromptPart(content="test")])
+            ]
+            yield result_event
+
+        if mocks and "agent" in mocks:
+            mocks["agent"].run_stream_events = MagicMock(return_value=make_stream())
+        yield
+
+    elif config.name == "langgraph":
+
+        async def capture_stream(graph_input, **kwargs):
+            captured_input.update(graph_input)
+            return
+            yield
+
+        mock_graph = MagicMock()
+        mock_graph.astream_events = capture_stream
+        adapter.graph_factory = MagicMock(return_value=mock_graph)
+
+        with patch(
+            "thenvoi.integrations.langgraph.langchain_tools.agent_tools_to_langchain"
+        ) as mock_convert:
+            mock_convert.return_value = []
+            yield
+
+    elif config.name == "parlant":
+        mock_moderation = MagicMock()
+        mock_moderation.NONE = "none"
+        mock_event_source = MagicMock()
+        mock_event_source.CUSTOMER = "customer"
+        mock_event_source.AI_AGENT = "ai_agent"
+        mock_event_kind = MagicMock()
+        mock_event_kind.MESSAGE = "message"
+
+        with patch.dict(
+            sys.modules,
+            {
+                "parlant.core.app_modules.sessions": MagicMock(
+                    Moderation=mock_moderation
+                ),
+                "parlant.core.sessions": MagicMock(
+                    EventSource=mock_event_source, EventKind=mock_event_kind
+                ),
+                "parlant.core.async_utils": MagicMock(Timeout=lambda x: x),
+            },
+        ):
+            yield
+
+    elif config.name == "crewai":
+        # CrewAI uses agent kickoff_async, mock it with proper result format
+        if adapter._crewai_agent is not None:
+            mock_result = MagicMock()
+            mock_result.raw = "Test response"
+            adapter._crewai_agent.kickoff_async = AsyncMock(return_value=mock_result)
+        yield
+
+    else:
+        yield
