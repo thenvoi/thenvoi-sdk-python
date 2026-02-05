@@ -135,7 +135,6 @@ addopts = "-v"
 project_excludes = [
     "tests/**",                 # Tests use mocks with duck typing
     "examples/**",              # Examples use local imports
-    "src/thenvoi/integrations/parlant/tools.py",  # Parlant @p.tool decorator has complex typing
 ]
 
 [tool.commitizen]
@@ -149,6 +148,3 @@ version_files = [
 tag_format = "thenvoi-sdk-python-v$version"
 
 [tool.ruff]
-# Allow E402 (imports not at top of file) in examples since they need to call load_dotenv() first
-[tool.ruff.lint.per-file-ignores]
-"examples/**/*.py" = ["E402"]
