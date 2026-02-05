@@ -1,18 +1,16 @@
-"""Framework adapter configurations for parameterized contract tests.
-
-This module defines the configuration for each adapter framework, allowing
-contract tests to run the same test logic across all adapters while handling
-framework-specific behaviors through configuration.
-"""
+"""Framework adapter configurations for parameterized conformance tests."""
 
 from __future__ import annotations
 
+import sys
+from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Any, Callable, Literal, Protocol
-from unittest.mock import AsyncMock, MagicMock
+from typing import Any, AsyncIterator, Callable, Literal, Protocol
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from thenvoi.core.types import PlatformMessage
+
 
 # =============================================================================
 # Type Definitions
@@ -20,21 +18,9 @@ from thenvoi.core.types import PlatformMessage
 
 
 class AdapterFactory(Protocol):
-    """Protocol for adapter factory functions.
+    """Protocol for adapter factory functions."""
 
-    Factory functions create adapter instances with optional keyword arguments.
-    """
-
-    def __call__(self, **kwargs: Any) -> Any:
-        """Create an adapter instance with optional configuration.
-
-        Args:
-            **kwargs: Configuration options passed to the adapter constructor.
-
-        Returns:
-            An adapter instance conforming to FrameworkAdapter protocol.
-        """
-        ...
+    def __call__(self, **kwargs: Any) -> Any: ...
 
 
 class ParticipantsVerifier(Protocol):
@@ -42,17 +28,13 @@ class ParticipantsVerifier(Protocol):
 
     def __call__(
         self, adapter: Any, captured_input: dict[str, Any], participants_msg: str
-    ) -> bool:
-        """Verify participants message was injected correctly."""
-        ...
+    ) -> bool: ...
 
 
 class OnStartedCallback(Protocol):
     """Protocol for on_started setup callbacks."""
 
-    async def __call__(self, adapter: Any, config: "AdapterConfig") -> None:
-        """Set up and call on_started with appropriate mocking."""
-        ...
+    async def __call__(self, adapter: Any, config: "AdapterConfig") -> None: ...
 
 
 class MockLLMCallback(Protocol):
@@ -60,57 +42,25 @@ class MockLLMCallback(Protocol):
 
     def __call__(
         self, adapter: Any, mocks: dict | None, captured_input: dict | None
-    ) -> Any:
-        """Return a context manager that mocks LLM calls."""
-        ...
+    ) -> Any: ...
 
 
 class ErrorSetupCallback(Protocol):
     """Protocol for error handling test setup."""
 
-    def __call__(self, adapter: Any, mocks: dict | None) -> Any:
-        """Return a context manager that makes adapter raise an error."""
-        ...
+    def __call__(self, adapter: Any, mocks: dict | None) -> Any: ...
 
 
-# Literal type for tool formats
 ToolFormat = Literal["tuple", "callable"]
 
 
 @dataclass
 class AdapterConfig:
-    """Configuration for a framework's adapter.
-
-    This dataclass defines all configuration needed to test an adapter
-    implementation in the conformance test suite.
-
-    Attributes:
-        name: Human-readable framework name (used as test ID)
-        adapter_class: The adapter class to instantiate (may be None if requires_mocks)
-        factory: Factory function to create adapter with required dependencies
-        requires_mocks: Whether the adapter needs module-level mocks before import
-        mock_setup: Optional function to set up mocks before adapter creation
-        has_history_converter: Whether the adapter has a history_converter attribute
-        has_custom_tools: Whether the adapter supports additional_tools parameter
-        custom_tools_attr: Attribute name where custom tools are stored
-        default_model: Default model value (if applicable)
-        additional_init_checks: Dict of attribute name -> expected value for init tests
-        supports_enable_execution_reporting: Whether adapter supports this parameter
-        history_storage_attr: Attribute name where message history is stored
-        supports_system_prompt_override: Whether system_prompt param overrides default
-        supports_cleanup_all: Whether adapter has cleanup_all method
-        custom_tool_format: "tuple" for (Model, func), "callable" for just func
-        system_prompt_attr: Attribute name for system prompt
-        system_prompt_contains_name: Whether system prompt should contain agent name
-        alternative_prompt_attr: Alternative attribute for prompt (e.g., backstory)
-        error_trigger_method: Method name to patch for error testing
-        cleanup_storage_attrs: List of storage attributes to verify cleanup
-        verify_participants_injection: Callback to verify participants were injected
-    """
+    """Configuration for a framework's adapter in conformance tests."""
 
     # Required fields
     name: str
-    adapter_class: type[Any] | None  # May be None if requires_mocks
+    adapter_class: type[Any] | None
     factory: AdapterFactory
 
     # Mock configuration
@@ -128,7 +78,7 @@ class AdapterConfig:
     custom_tools_attr: str = "_custom_tools"
     history_storage_attr: str | None = "_message_history"
     system_prompt_attr: str | None = "_system_prompt"
-    alternative_prompt_attr: str | None = None  # e.g., "backstory" for crewai
+    alternative_prompt_attr: str | None = None
 
     # Configuration values
     default_model: str | None = None
@@ -137,18 +87,21 @@ class AdapterConfig:
     system_prompt_contains_name: bool = True
 
     # Error handling configuration
-    error_trigger_method: str | None = None  # Method to patch for error testing
+    error_trigger_method: str | None = None
 
     # Cleanup configuration
     cleanup_storage_attrs: list[str] = field(default_factory=list)
 
-    # Verification callbacks
+    # Callbacks
     verify_participants_injection: ParticipantsVerifier | None = None
-
-    # Setup callbacks (move framework-specific logic out of tests)
     on_started_callback: OnStartedCallback | None = None
     mock_llm_callback: MockLLMCallback | None = None
     error_setup_callback: ErrorSetupCallback | None = None
+
+
+# =============================================================================
+# Test Helpers
+# =============================================================================
 
 
 def create_sample_message(
@@ -203,80 +156,63 @@ def create_mock_tools() -> AsyncMock:
     return tools
 
 
-# Factory functions for each adapter
+# =============================================================================
+# Adapter Factory Functions
+# =============================================================================
 
 
 def _create_anthropic_adapter(**kwargs: Any) -> Any:
-    """Create AnthropicAdapter instance."""
     from thenvoi.adapters.anthropic import AnthropicAdapter
 
     return AnthropicAdapter(**kwargs)
 
 
 def _create_claude_sdk_adapter(**kwargs: Any) -> Any:
-    """Create ClaudeSDKAdapter instance."""
     from thenvoi.adapters.claude_sdk import ClaudeSDKAdapter
 
     return ClaudeSDKAdapter(**kwargs)
 
 
 def _create_langgraph_adapter(**kwargs: Any) -> Any:
-    """Create LangGraphAdapter instance with mock dependencies."""
     from thenvoi.adapters.langgraph import LangGraphAdapter
 
-    # LangGraph requires llm + checkpointer or graph_factory or graph
-    mock_llm = kwargs.pop("llm", MagicMock())
-    mock_checkpointer = kwargs.pop("checkpointer", MagicMock())
-
-    return LangGraphAdapter(llm=mock_llm, checkpointer=mock_checkpointer, **kwargs)
+    return LangGraphAdapter(
+        llm=kwargs.pop("llm", MagicMock()),
+        checkpointer=kwargs.pop("checkpointer", MagicMock()),
+        **kwargs,
+    )
 
 
 def _create_pydantic_ai_adapter(**kwargs: Any) -> Any:
-    """Create PydanticAIAdapter instance."""
     from thenvoi.adapters.pydantic_ai import PydanticAIAdapter
 
-    # PydanticAI requires model parameter
-    model = kwargs.pop("model", "openai:gpt-4o")
-
-    return PydanticAIAdapter(model=model, **kwargs)
+    return PydanticAIAdapter(model=kwargs.pop("model", "openai:gpt-4o"), **kwargs)
 
 
 def _create_crewai_adapter(crewai_mocks: Any = None, **kwargs: Any) -> Any:
-    """Create CrewAIAdapter instance.
-
-    Note: CrewAI requires module-level mocking, so this expects mocks
-    to already be set up via the crewai_mocks fixture.
-    """
     import importlib
 
-    module = importlib.import_module("thenvoi.adapters.crewai")
-    return module.CrewAIAdapter(**kwargs)
+    return importlib.import_module("thenvoi.adapters.crewai").CrewAIAdapter(**kwargs)
 
 
 def _create_parlant_adapter(**kwargs: Any) -> Any:
-    """Create ParlantAdapter instance with mock dependencies."""
     from thenvoi.adapters.parlant import ParlantAdapter
 
-    # Parlant requires server and parlant_agent
-    mock_server = kwargs.pop("server", None)
-    mock_agent = kwargs.pop("parlant_agent", None)
+    server = kwargs.pop("server", None)
+    agent = kwargs.pop("parlant_agent", None)
 
-    if mock_server is None:
-        mock_server = MagicMock()
-        mock_server.create_customer = AsyncMock(
-            return_value=MagicMock(id="customer-123")
-        )
+    if server is None:
+        server = MagicMock()
+        server.create_customer = AsyncMock(return_value=MagicMock(id="customer-123"))
 
-    if mock_agent is None:
-        mock_agent = MagicMock()
-        mock_agent.id = "parlant-agent-123"
-        mock_agent.name = "TestBot"
+    if agent is None:
+        agent = MagicMock(id="parlant-agent-123", name="TestBot")
 
-    return ParlantAdapter(server=mock_server, parlant_agent=mock_agent, **kwargs)
+    return ParlantAdapter(server=server, parlant_agent=agent, **kwargs)
 
 
 # =============================================================================
-# Factory Functions for AdapterConfig
+# Config Factory
 # =============================================================================
 
 
@@ -305,35 +241,7 @@ def make_standard_adapter_config(
     mock_llm_callback: MockLLMCallback | None = None,
     error_setup_callback: ErrorSetupCallback | None = None,
 ) -> AdapterConfig:
-    """Create AdapterConfig with standard defaults.
-
-    This factory function reduces boilerplate when creating adapter configs
-    by providing sensible defaults for common configurations.
-
-    Args:
-        name: Human-readable framework name (used as test ID)
-        factory: Factory function to create adapter
-        default_model: Default model value (if applicable)
-        supports_system_prompt_override: Whether system_prompt param overrides default
-        has_history_converter: Whether the adapter has a history_converter attribute
-        has_custom_tools: Whether the adapter supports additional_tools parameter
-        custom_tools_attr: Attribute name where custom tools are stored
-        custom_tool_format: "tuple" for (Model, func), "callable" for just func
-        supports_enable_execution_reporting: Whether adapter supports this parameter
-        history_storage_attr: Attribute name where message history is stored
-        system_prompt_attr: Attribute name for system prompt
-        system_prompt_contains_name: Whether system prompt should contain agent name
-        cleanup_storage_attrs: List of storage attributes to verify cleanup
-        additional_init_checks: Dict of attribute name -> expected value
-        error_trigger_method: Method name to patch for error testing
-        alternative_prompt_attr: Alternative attribute for prompt (e.g., backstory)
-        supports_cleanup_all: Whether adapter has cleanup_all method
-        requires_mocks: Whether the adapter needs module-level mocks
-        verify_participants_injection: Callback to verify participants were injected
-
-    Returns:
-        Configured AdapterConfig instance
-    """
+    """Create AdapterConfig with standard defaults."""
     return AdapterConfig(
         name=name,
         adapter_class=None,
@@ -362,41 +270,29 @@ def make_standard_adapter_config(
 
 
 # =============================================================================
-# On-Started Callbacks (per-adapter)
+# On-Started Callbacks
 # =============================================================================
 
 
-async def _anthropic_on_started(adapter: Any, config: "AdapterConfig") -> None:
-    """Call on_started for Anthropic adapter."""
+async def _simple_on_started(adapter: Any, config: AdapterConfig) -> None:
+    """Default on_started for adapters without special requirements."""
     await adapter.on_started(agent_name="TestBot", agent_description="A test bot")
 
 
-async def _langgraph_on_started(adapter: Any, config: "AdapterConfig") -> None:
-    """Call on_started for LangGraph adapter."""
-    await adapter.on_started(agent_name="TestBot", agent_description="A test bot")
-
-
-async def _crewai_on_started(adapter: Any, config: "AdapterConfig") -> None:
-    """Call on_started for CrewAI adapter."""
+async def _crewai_on_started(adapter: Any, config: AdapterConfig) -> None:
     crewai_mocks = getattr(config, "_crewai_mocks", None)
     if crewai_mocks:
         crewai_mocks.Agent.reset_mock()
     await adapter.on_started(agent_name="TestBot", agent_description="A test bot")
 
 
-async def _claude_sdk_on_started(adapter: Any, config: "AdapterConfig") -> None:
-    """Call on_started for ClaudeSDK adapter."""
-    from unittest.mock import patch
-
+async def _claude_sdk_on_started(adapter: Any, config: AdapterConfig) -> None:
     with patch("thenvoi.adapters.claude_sdk.ClaudeSessionManager") as mock_manager:
         mock_manager.return_value = MagicMock()
         await adapter.on_started(agent_name="TestBot", agent_description="A test bot")
 
 
-async def _pydantic_ai_on_started(adapter: Any, config: "AdapterConfig") -> None:
-    """Call on_started for PydanticAI adapter."""
-    from unittest.mock import patch
-
+async def _pydantic_ai_on_started(adapter: Any, config: AdapterConfig) -> None:
     with patch.object(adapter, "_create_agent") as mock_create:
         mock_agent = MagicMock()
         mock_agent._function_tools = {}
@@ -404,11 +300,7 @@ async def _pydantic_ai_on_started(adapter: Any, config: "AdapterConfig") -> None
         await adapter.on_started(agent_name="TestBot", agent_description="A test bot")
 
 
-async def _parlant_on_started(adapter: Any, config: "AdapterConfig") -> None:
-    """Call on_started for Parlant adapter."""
-    import sys
-    from unittest.mock import patch
-
+async def _parlant_on_started(adapter: Any, config: AdapterConfig) -> None:
     mock_app = MagicMock()
     mock_application_class = MagicMock(name="Application")
     mock_module = MagicMock()
@@ -420,44 +312,33 @@ async def _parlant_on_started(adapter: Any, config: "AdapterConfig") -> None:
 
 
 # =============================================================================
-# Mock LLM Callbacks (per-adapter)
+# Mock LLM Callbacks
 # =============================================================================
 
 
 def _anthropic_mock_llm(
     adapter: Any, mocks: dict | None, captured_input: dict | None
 ) -> Any:
-    """Return context manager for mocking Anthropic LLM calls."""
-    from contextlib import asynccontextmanager
-    from unittest.mock import MagicMock, patch
-
     @asynccontextmanager
-    async def mock_ctx():
-        mock_response = MagicMock()
-        mock_response.stop_reason = "end_turn"
-        mock_response.content = []
+    async def ctx() -> AsyncIterator[None]:
+        mock_response = MagicMock(stop_reason="end_turn", content=[])
         with patch.object(adapter, "_call_anthropic", return_value=mock_response):
             yield
 
-    return mock_ctx()
+    return ctx()
 
 
 def _langgraph_mock_llm(
     adapter: Any, mocks: dict | None, captured_input: dict | None
 ) -> Any:
-    """Return context manager for mocking LangGraph LLM calls."""
-    from contextlib import asynccontextmanager
-    from typing import AsyncIterator
-    from unittest.mock import MagicMock, patch
-
     @asynccontextmanager
-    async def mock_ctx() -> AsyncIterator[None]:
+    async def ctx() -> AsyncIterator[None]:
         async def capture_stream(
             graph_input: dict, **kwargs: Any
         ) -> AsyncIterator[Any]:
             if captured_input is not None:
                 captured_input.update(graph_input)
-            if False:  # Make this an async generator
+            if False:
                 yield
 
         mock_graph = MagicMock()
@@ -470,36 +351,27 @@ def _langgraph_mock_llm(
             mock_convert.return_value = []
             yield
 
-    return mock_ctx()
+    return ctx()
 
 
 def _crewai_mock_llm(
     adapter: Any, mocks: dict | None, captured_input: dict | None
 ) -> Any:
-    """Return context manager for mocking CrewAI LLM calls."""
-    from contextlib import asynccontextmanager
-    from unittest.mock import MagicMock
-
     @asynccontextmanager
-    async def mock_ctx():
+    async def ctx() -> AsyncIterator[None]:
         if adapter._crewai_agent is not None:
-            mock_result = MagicMock()
-            mock_result.raw = "Test response"
+            mock_result = MagicMock(raw="Test response")
             adapter._crewai_agent.kickoff_async = AsyncMock(return_value=mock_result)
         yield
 
-    return mock_ctx()
+    return ctx()
 
 
 def _claude_sdk_mock_llm(
     adapter: Any, mocks: dict | None, captured_input: dict | None
 ) -> Any:
-    """Return context manager for mocking ClaudeSDK LLM calls."""
-    from contextlib import asynccontextmanager
-    from unittest.mock import patch
-
     @asynccontextmanager
-    async def mock_ctx():
+    async def ctx() -> AsyncIterator[None]:
         mock_client = AsyncMock()
         mock_client.query = AsyncMock(return_value=None)
         if adapter._session_manager:
@@ -509,22 +381,18 @@ def _claude_sdk_mock_llm(
         with patch.object(adapter, "_process_response", return_value=None):
             yield
 
-    return mock_ctx()
+    return ctx()
 
 
 def _pydantic_ai_mock_llm(
     adapter: Any, mocks: dict | None, captured_input: dict | None
 ) -> Any:
-    """Return context manager for mocking PydanticAI LLM calls."""
-    from contextlib import asynccontextmanager
-    from unittest.mock import MagicMock
-
     from pydantic_ai import AgentRunResultEvent
     from pydantic_ai.messages import ModelRequest, UserPromptPart
 
     @asynccontextmanager
-    async def mock_ctx():
-        async def make_stream():
+    async def ctx() -> AsyncIterator[None]:
+        async def make_stream() -> AsyncIterator[Any]:
             result_event = MagicMock(spec=AgentRunResultEvent)
             result_event.result = MagicMock()
             result_event.result.all_messages.return_value = [
@@ -536,26 +404,17 @@ def _pydantic_ai_mock_llm(
             mocks["agent"].run_stream_events = MagicMock(return_value=make_stream())
         yield
 
-    return mock_ctx()
+    return ctx()
 
 
 def _parlant_mock_llm(
     adapter: Any, mocks: dict | None, captured_input: dict | None
 ) -> Any:
-    """Return context manager for mocking Parlant LLM calls."""
-    import sys
-    from contextlib import asynccontextmanager
-    from unittest.mock import MagicMock, patch
-
     @asynccontextmanager
-    async def mock_ctx():
-        mock_moderation = MagicMock()
-        mock_moderation.NONE = "none"
-        mock_event_source = MagicMock()
-        mock_event_source.CUSTOMER = "customer"
-        mock_event_source.AI_AGENT = "ai_agent"
-        mock_event_kind = MagicMock()
-        mock_event_kind.MESSAGE = "message"
+    async def ctx() -> AsyncIterator[None]:
+        mock_moderation = MagicMock(NONE="none")
+        mock_event_source = MagicMock(CUSTOMER="customer", AI_AGENT="ai_agent")
+        mock_event_kind = MagicMock(MESSAGE="message")
 
         with patch.dict(
             sys.modules,
@@ -571,40 +430,31 @@ def _parlant_mock_llm(
         ):
             yield
 
-    return mock_ctx()
+    return ctx()
 
 
 # =============================================================================
-# Error Setup Callbacks (per-adapter)
+# Error Setup Callbacks
 # =============================================================================
 
 
 def _anthropic_error_setup(adapter: Any, mocks: dict | None) -> Any:
-    """Return context manager that makes Anthropic adapter raise error."""
-    from contextlib import asynccontextmanager
-    from unittest.mock import patch
-
     @asynccontextmanager
-    async def error_ctx():
+    async def ctx() -> AsyncIterator[str]:
         with patch.object(
             adapter, "_call_anthropic", side_effect=Exception("API Error")
         ):
             yield "API Error"
 
-    return error_ctx()
+    return ctx()
 
 
 def _langgraph_error_setup(adapter: Any, mocks: dict | None) -> Any:
-    """Return context manager that makes LangGraph adapter raise error."""
-    from contextlib import asynccontextmanager
-    from typing import AsyncIterator
-    from unittest.mock import MagicMock, patch
-
     @asynccontextmanager
-    async def error_ctx() -> AsyncIterator[str]:
+    async def ctx() -> AsyncIterator[str]:
         async def failing_stream(*args: Any, **kwargs: Any) -> AsyncIterator[Any]:
             raise Exception("Graph error!")
-            if False:  # Make this an async generator
+            if False:
                 yield
 
         mock_graph = MagicMock()
@@ -617,30 +467,24 @@ def _langgraph_error_setup(adapter: Any, mocks: dict | None) -> Any:
             mock_convert.return_value = []
             yield "Graph error!"
 
-    return error_ctx()
+    return ctx()
 
 
 def _crewai_error_setup(adapter: Any, mocks: dict | None) -> Any:
-    """Return context manager that makes CrewAI adapter raise error."""
-    from contextlib import asynccontextmanager
-
     @asynccontextmanager
-    async def error_ctx():
+    async def ctx() -> AsyncIterator[str]:
         if adapter._crewai_agent is not None:
             adapter._crewai_agent.kickoff_async = AsyncMock(
                 side_effect=Exception("CrewAI Error")
             )
         yield "CrewAI Error"
 
-    return error_ctx()
+    return ctx()
 
 
 def _claude_sdk_error_setup(adapter: Any, mocks: dict | None) -> Any:
-    """Return context manager that makes ClaudeSDK adapter raise error."""
-    from contextlib import asynccontextmanager
-
     @asynccontextmanager
-    async def error_ctx():
+    async def ctx() -> AsyncIterator[str]:
         mock_client = AsyncMock()
         mock_client.query = AsyncMock(side_effect=Exception("Claude SDK Error"))
         adapter._session_manager.get_or_create_session = AsyncMock(
@@ -648,52 +492,43 @@ def _claude_sdk_error_setup(adapter: Any, mocks: dict | None) -> Any:
         )
         yield "Claude SDK Error"
 
-    return error_ctx()
+    return ctx()
 
 
 def _pydantic_ai_error_setup(adapter: Any, mocks: dict | None) -> Any:
-    """Return context manager that makes PydanticAI adapter raise error."""
-    from contextlib import asynccontextmanager
-    from typing import AsyncIterator
-    from unittest.mock import MagicMock
-
     @asynccontextmanager
-    async def error_ctx() -> AsyncIterator[str]:
+    async def ctx() -> AsyncIterator[str]:
         async def failing_stream() -> AsyncIterator[Any]:
             raise Exception("PydanticAI Error")
-            if False:  # Make this an async generator
+            if False:
                 yield
 
         if mocks and "agent" in mocks:
             mocks["agent"].run_stream_events = MagicMock(return_value=failing_stream())
         yield "PydanticAI Error"
 
-    return error_ctx()
+    return ctx()
 
 
 def _parlant_error_setup(adapter: Any, mocks: dict | None) -> Any:
-    """Return context manager that makes Parlant adapter raise error."""
-    from contextlib import asynccontextmanager
-
     @asynccontextmanager
-    async def error_ctx():
+    async def ctx() -> AsyncIterator[str]:
         adapter._app.sessions.create_customer_message = AsyncMock(
             side_effect=Exception("Parlant Error")
         )
         yield "Parlant Error"
 
-    return error_ctx()
+    return ctx()
 
 
 # =============================================================================
-# Participants Verification Functions (per-adapter)
+# Participants Verification
 # =============================================================================
 
 
 def _verify_anthropic_participants(
     adapter: Any, captured_input: dict, participants_msg: str
 ) -> bool:
-    """Verify participants message was injected into Anthropic adapter history."""
     return any(
         "[System]: Alice joined" in str(m.get("content", ""))
         for m in adapter._message_history.get("room-123", [])
@@ -703,7 +538,6 @@ def _verify_anthropic_participants(
 def _verify_langgraph_participants(
     adapter: Any, captured_input: dict, participants_msg: str
 ) -> bool:
-    """Verify participants message was passed to LangGraph."""
     messages = captured_input.get("messages", [])
     system_msgs = [m for m in messages if m[0] == "system"]
     return any("Alice joined" in str(m[1]) for m in system_msgs)
@@ -712,12 +546,10 @@ def _verify_langgraph_participants(
 def _verify_pydantic_ai_participants(
     adapter: Any, captured_input: dict, participants_msg: str, mocks: dict | None = None
 ) -> bool:
-    """Verify participants message was added to PydanticAI history."""
     if mocks and "agent" in mocks:
         call_args = mocks["agent"].run_stream_events.call_args
         if call_args:
-            call_kwargs = call_args.kwargs
-            message_history = call_kwargs.get("message_history", [])
+            message_history = call_args.kwargs.get("message_history", [])
             if message_history:
                 return any(
                     "[System]: Alice joined" in str(getattr(m.parts[0], "content", ""))
@@ -732,29 +564,16 @@ def _verify_pydantic_ai_participants(
 def _verify_crewai_participants(
     adapter: Any, captured_input: dict, participants_msg: str
 ) -> bool:
-    """Verify participants message was included in CrewAI context."""
-    # CrewAI includes participants in message context
     return "room-123" in adapter._message_history
 
 
-def _verify_claude_sdk_participants(
-    adapter: Any, captured_input: dict, participants_msg: str
-) -> bool:
-    """Verify Claude SDK participants handling (passes through session)."""
-    # Claude SDK passes participants through session - verify no error occurred
-    return True
-
-
-def _verify_parlant_participants(
-    adapter: Any, captured_input: dict, participants_msg: str
-) -> bool:
-    """Verify Parlant participants handling (uses SDK)."""
-    # Parlant handles participants through SDK - verify session was created
+def _always_true(adapter: Any, captured_input: dict, participants_msg: str) -> bool:
+    """Trivial verifier for adapters that handle participants internally."""
     return True
 
 
 # =============================================================================
-# Adapter Configurations (using factory for conciseness)
+# Adapter Configurations
 # =============================================================================
 
 ADAPTER_CONFIGS: dict[str, AdapterConfig] = {
@@ -767,7 +586,7 @@ ADAPTER_CONFIGS: dict[str, AdapterConfig] = {
             "enable_execution_reporting": False,
         },
         verify_participants_injection=_verify_anthropic_participants,
-        on_started_callback=_anthropic_on_started,
+        on_started_callback=_simple_on_started,
         mock_llm_callback=_anthropic_mock_llm,
         error_setup_callback=_anthropic_error_setup,
     ),
@@ -786,7 +605,7 @@ ADAPTER_CONFIGS: dict[str, AdapterConfig] = {
             "permission_mode": "acceptEdits",
             "enable_execution_reporting": False,
         },
-        verify_participants_injection=_verify_claude_sdk_participants,
+        verify_participants_injection=_always_true,
         on_started_callback=_claude_sdk_on_started,
         mock_llm_callback=_claude_sdk_mock_llm,
         error_setup_callback=_claude_sdk_error_setup,
@@ -802,7 +621,7 @@ ADAPTER_CONFIGS: dict[str, AdapterConfig] = {
         cleanup_storage_attrs=[],
         additional_init_checks={"prompt_template": "default"},
         verify_participants_injection=_verify_langgraph_participants,
-        on_started_callback=_langgraph_on_started,
+        on_started_callback=_simple_on_started,
         mock_llm_callback=_langgraph_mock_llm,
         error_setup_callback=_langgraph_error_setup,
     ),
@@ -826,7 +645,7 @@ ADAPTER_CONFIGS: dict[str, AdapterConfig] = {
         history_storage_attr="_room_sessions",
         supports_cleanup_all=True,
         cleanup_storage_attrs=["_room_sessions", "_room_customers"],
-        verify_participants_injection=_verify_parlant_participants,
+        verify_participants_injection=_always_true,
         on_started_callback=_parlant_on_started,
         mock_llm_callback=_parlant_mock_llm,
         error_setup_callback=_parlant_error_setup,
@@ -854,26 +673,16 @@ ADAPTER_CONFIGS: dict[str, AdapterConfig] = {
 }
 
 
-# Helper functions for on_message tests
+# =============================================================================
+# On-Message Setup Helper
+# =============================================================================
 
 
 async def setup_adapter_for_on_message(
-    adapter: Any,
-    config: AdapterConfig,
-    mock_tools: Any,
+    adapter: Any, config: AdapterConfig, mock_tools: Any
 ) -> Any:
-    """Set up adapter for on_message testing.
-
-    Handles framework-specific mocking and returns any mock objects needed.
-
-    Returns:
-        Mock object(s) needed for assertions, or None
-    """
-    import sys
-    from unittest.mock import patch
-
+    """Set up adapter for on_message testing. Returns mocks needed for assertions."""
     if config.name == "parlant":
-        # Parlant needs Application mock
         mock_app = MagicMock()
         mock_app.sessions = AsyncMock()
         mock_app.sessions.create = AsyncMock(return_value=MagicMock(id="session-123"))
@@ -892,13 +701,10 @@ async def setup_adapter_for_on_message(
             await adapter.on_started(
                 agent_name="TestBot", agent_description="A test bot"
             )
-
-        # Set up internal state for on_message
         adapter._app = mock_app
         return {"app": mock_app}
 
-    elif config.name == "claude_sdk":
-        # ClaudeSDK needs session manager mock
+    if config.name == "claude_sdk":
         with patch(
             "thenvoi.adapters.claude_sdk.ClaudeSessionManager"
         ) as mock_manager_class:
@@ -910,12 +716,9 @@ async def setup_adapter_for_on_message(
             )
         return {"session_manager": mock_manager}
 
-    elif config.name == "pydantic_ai":
-        # PydanticAI needs agent mock
+    if config.name == "pydantic_ai":
         mock_agent = MagicMock()
-        mock_agent._function_tools = {
-            "thenvoi_send_message": MagicMock(name="thenvoi_send_message"),
-        }
+        mock_agent._function_tools = {"thenvoi_send_message": MagicMock()}
         with patch.object(adapter, "_create_agent", return_value=mock_agent):
             await adapter.on_started(
                 agent_name="TestBot", agent_description="A test bot"
@@ -923,18 +726,5 @@ async def setup_adapter_for_on_message(
         adapter._agent = mock_agent
         return {"agent": mock_agent}
 
-    elif config.name == "anthropic":
-        await adapter.on_started(agent_name="TestBot", agent_description="A test bot")
-        return None
-
-    elif config.name == "langgraph":
-        await adapter.on_started(agent_name="TestBot", agent_description="A test bot")
-        return None
-
-    elif config.name == "crewai":
-        await adapter.on_started(agent_name="TestBot", agent_description="A test bot")
-        return None
-
-    else:
-        await adapter.on_started(agent_name="TestBot", agent_description="A test bot")
-        return None
+    await adapter.on_started(agent_name="TestBot", agent_description="A test bot")
+    return None
