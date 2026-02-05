@@ -1,3 +1,10 @@
+# /// script
+# requires-python = ">=3.11"
+# dependencies = ["thenvoi-sdk[parlant]"]
+#
+# [tool.uv.sources]
+# thenvoi-sdk = { git = "https://github.com/thenvoi/thenvoi-sdk-python.git" }
+# ///
 """
 Customer support agent using Parlant SDK with guidelines.
 
@@ -5,10 +12,12 @@ This example demonstrates a realistic customer support agent with
 behavioral guidelines using the Parlant SDK directly.
 
 Run with:
-    uv run python examples/parlant/03_support_agent.py
+    uv run examples/parlant/03_support_agent.py
 
 See also: https://github.com/emcie-co/parlant/blob/develop/examples/travel_voice_agent.py
 """
+
+from __future__ import annotations
 
 import asyncio
 import logging
@@ -107,7 +116,7 @@ async def main() -> None:
     async with p.Server() as server:
         # Create support agent with guidelines
         parlant_agent = await setup_support_agent(server)
-        logger.info(f"Support agent created: {parlant_agent.id}")
+        logger.info("Support agent created: %s", parlant_agent.id)
 
         # Create adapter using Parlant SDK directly
         adapter = ParlantAdapter(
