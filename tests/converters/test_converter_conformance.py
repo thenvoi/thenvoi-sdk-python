@@ -1,15 +1,15 @@
-"""Contract tests for all history converters.
+"""Conformance tests for all history converters.
 
 These parameterized tests run across all converter implementations to verify
-common behaviors. All tests are parameterized by framework, with framework-specific
-behaviors handled through configuration in ConverterConfig.
+they conform to expected behaviors. All tests are parameterized by framework,
+with framework-specific behaviors handled through configuration in ConverterConfig.
 
 Running:
     # All converters
-    uv run pytest tests/converters/test_converter_contract.py -v
+    uv run pytest tests/converters/test_converter_conformance.py -v
 
     # Specific converter
-    uv run pytest tests/converters/test_converter_contract.py -k "anthropic" -v
+    uv run pytest tests/converters/test_converter_conformance.py -k "anthropic" -v
 """
 
 from __future__ import annotations

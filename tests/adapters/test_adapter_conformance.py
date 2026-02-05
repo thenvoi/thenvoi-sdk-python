@@ -1,15 +1,15 @@
-"""Contract tests for all framework adapters.
+"""Conformance tests for all framework adapters.
 
 These parameterized tests run across all adapter implementations to verify
-common behaviors. Framework-specific behaviors are handled through configuration
-in tests/framework_configs/adapters.py.
+they conform to expected behaviors. Framework-specific behaviors are handled
+through configuration in tests/framework_configs/adapters.py.
 
 Running:
     # All adapters
-    uv run pytest tests/adapters/test_adapter_contract.py -v
+    uv run pytest tests/adapters/test_adapter_conformance.py -v
 
     # Specific adapter
-    uv run pytest tests/adapters/test_adapter_contract.py -k "anthropic" -v
+    uv run pytest tests/adapters/test_adapter_conformance.py -k "anthropic" -v
 
 Tests covered:
 - Initialization (default values, custom params, history converter, model)
