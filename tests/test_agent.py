@@ -86,7 +86,7 @@ class TestCreateFactory:
             mock_runtime_class.assert_called_once_with(
                 agent_id="agent-123",
                 api_key="test-key",
-                ws_url="wss://app.thenvoi.com/ws",
+                ws_url="wss://app.thenvoi.com/api/v1/socket/websocket",
                 rest_url="https://app.thenvoi.com",
                 config=None,
                 session_config=None,

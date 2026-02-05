@@ -107,7 +107,7 @@ cp agent_config.yaml.example agent_config.yaml
 
 ```bash
 # Thenvoi platform URLs (required)
-THENVOI_WS_URL=wss://app.thenvoi.com/ws
+THENVOI_WS_URL=wss://app.thenvoi.com/api/v1/socket/websocket
 THENVOI_REST_URL=https://app.thenvoi.com
 
 # OpenAI API key (used by Parlant for LLM)
