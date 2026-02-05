@@ -118,7 +118,7 @@ class PydanticAIAdapter(SimpleAdapter[PydanticAIMessages]):
         # Register platform tools dynamically from centralized definitions
         # All tools catch exceptions and return error strings so LLM can see failures
 
-        async def send_message(
+        async def thenvoi_send_message(
             ctx: RunContext[AgentToolsProtocol],
             content: str,
             mentions: list[str],
@@ -128,10 +128,10 @@ class PydanticAIAdapter(SimpleAdapter[PydanticAIMessages]):
             except Exception as e:
                 return f"Error sending message: {e}"
 
-        send_message.__doc__ = get_tool_description("send_message")
-        agent.tool(send_message)
+        thenvoi_send_message.__doc__ = get_tool_description("thenvoi_send_message")
+        agent.tool(thenvoi_send_message)
 
-        async def send_event(
+        async def thenvoi_send_event(
             ctx: RunContext[AgentToolsProtocol],
             content: str,
             message_type: str,
@@ -142,10 +142,10 @@ class PydanticAIAdapter(SimpleAdapter[PydanticAIMessages]):
             except Exception as e:
                 return f"Error sending event: {e}"
 
-        send_event.__doc__ = get_tool_description("send_event")
-        agent.tool(send_event)
+        thenvoi_send_event.__doc__ = get_tool_description("thenvoi_send_event")
+        agent.tool(thenvoi_send_event)
 
-        async def add_participant(
+        async def thenvoi_add_participant(
             ctx: RunContext[AgentToolsProtocol],
             name: str,
             role: str = "member",
@@ -155,10 +155,12 @@ class PydanticAIAdapter(SimpleAdapter[PydanticAIMessages]):
             except Exception as e:
                 return f"Error adding participant '{name}': {e}"
 
-        add_participant.__doc__ = get_tool_description("add_participant")
-        agent.tool(add_participant)
+        thenvoi_add_participant.__doc__ = get_tool_description(
+            "thenvoi_add_participant"
+        )
+        agent.tool(thenvoi_add_participant)
 
-        async def remove_participant(
+        async def thenvoi_remove_participant(
             ctx: RunContext[AgentToolsProtocol],
             name: str,
         ) -> dict[str, Any] | str:
@@ -167,10 +169,12 @@ class PydanticAIAdapter(SimpleAdapter[PydanticAIMessages]):
             except Exception as e:
                 return f"Error removing participant '{name}': {e}"
 
-        remove_participant.__doc__ = get_tool_description("remove_participant")
-        agent.tool(remove_participant)
+        thenvoi_remove_participant.__doc__ = get_tool_description(
+            "thenvoi_remove_participant"
+        )
+        agent.tool(thenvoi_remove_participant)
 
-        async def lookup_peers(
+        async def thenvoi_lookup_peers(
             ctx: RunContext[AgentToolsProtocol],
             page: int = 1,
             page_size: int = 50,
@@ -180,10 +184,10 @@ class PydanticAIAdapter(SimpleAdapter[PydanticAIMessages]):
             except Exception as e:
                 return f"Error looking up peers: {e}"
 
-        lookup_peers.__doc__ = get_tool_description("lookup_peers")
-        agent.tool(lookup_peers)
+        thenvoi_lookup_peers.__doc__ = get_tool_description("thenvoi_lookup_peers")
+        agent.tool(thenvoi_lookup_peers)
 
-        async def get_participants(
+        async def thenvoi_get_participants(
             ctx: RunContext[AgentToolsProtocol],
         ) -> list[dict[str, Any]] | str:
             try:
@@ -191,10 +195,12 @@ class PydanticAIAdapter(SimpleAdapter[PydanticAIMessages]):
             except Exception as e:
                 return f"Error getting participants: {e}"
 
-        get_participants.__doc__ = get_tool_description("get_participants")
-        agent.tool(get_participants)
+        thenvoi_get_participants.__doc__ = get_tool_description(
+            "thenvoi_get_participants"
+        )
+        agent.tool(thenvoi_get_participants)
 
-        async def create_chatroom(
+        async def thenvoi_create_chatroom(
             ctx: RunContext[AgentToolsProtocol],
             task_id: str | None = None,
         ) -> str:
@@ -203,8 +209,10 @@ class PydanticAIAdapter(SimpleAdapter[PydanticAIMessages]):
             except Exception as e:
                 return f"Error creating chatroom (task_id={task_id}): {e}"
 
-        create_chatroom.__doc__ = get_tool_description("create_chatroom")
-        agent.tool(create_chatroom)
+        thenvoi_create_chatroom.__doc__ = get_tool_description(
+            "thenvoi_create_chatroom"
+        )
+        agent.tool(thenvoi_create_chatroom)
 
         # Register custom tools (user-provided PydanticAI-compatible functions)
         for custom_tool in self._custom_tools:

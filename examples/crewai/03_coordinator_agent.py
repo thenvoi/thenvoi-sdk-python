@@ -60,18 +60,18 @@ async def main() -> None:
         and know how to combine their outputs into cohesive solutions.
 
         You have access to tools that let you:
-        - Look up available agents (lookup_peers)
-        - Add agents to the conversation (add_participant)
-        - Remove agents when they're no longer needed (remove_participant)
-        - Create new chat rooms for focused discussions (create_chatroom)
+        - Look up available agents (thenvoi_lookup_peers)
+        - Add agents to the conversation (thenvoi_add_participant)
+        - Remove agents when they're no longer needed (thenvoi_remove_participant)
+        - Create new chat rooms for focused discussions (thenvoi_create_chatroom)
 
         Use these tools to build the right team for each user request.""",
         custom_section="""
 When coordinating:
 1. First understand what the user needs
 2. Identify which specialists would be helpful
-3. Use lookup_peers to find available agents
-4. Add relevant agents with add_participant
+3. Use thenvoi_lookup_peers to find available agents
+4. Add relevant agents with thenvoi_add_participant
 5. Direct the conversation by mentioning specific agents
 6. Synthesize outputs from multiple agents
 7. Clean up by removing agents no longer needed

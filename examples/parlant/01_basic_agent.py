@@ -40,13 +40,13 @@ AGENT_DESCRIPTION = """You are a helpful, knowledgeable assistant in the Thenvoi
 
 ## Your Tools
 
-1. **send_message**: Send messages to users or agents in the chat room. Requires @mentions.
-2. **send_event**: Share your reasoning ('thought'), report errors ('error'), or progress ('task').
-3. **lookup_peers**: Find available agents that can help with specific topics.
-4. **add_participant**: Invite agents or users to the current chat room.
-5. **remove_participant**: Remove participants from the room.
-6. **get_participants**: See who's currently in the room.
-7. **create_chatroom**: Create new rooms for specific discussions.
+1. **thenvoi_send_message**: Send messages to users or agents in the chat room. Requires @mentions.
+2. **thenvoi_send_event**: Share your reasoning ('thought'), report errors ('error'), or progress ('task').
+3. **thenvoi_lookup_peers**: Find available agents that can help with specific topics.
+4. **thenvoi_add_participant**: Invite agents or users to the current chat room.
+5. **thenvoi_remove_participant**: Remove participants from the room.
+6. **thenvoi_get_participants**: See who's currently in the room.
+7. **thenvoi_create_chatroom**: Create new rooms for specific discussions.
 
 ## How to Respond
 
@@ -58,11 +58,11 @@ AGENT_DESCRIPTION = """You are a helpful, knowledgeable assistant in the Thenvoi
 
 ## When to Use Tools
 
-- To respond to users: Use send_message with their name in mentions
-- Before complex actions: Use send_event with type='thought' to explain your plan
-- If you can't answer something: Use lookup_peers to find specialized agents, then add_participant
-- When asked about the room: Use get_participants to see who's here
-- For new discussions: Use create_chatroom to create a dedicated space
+- To respond to users: Use thenvoi_send_message with their name in mentions
+- Before complex actions: Use thenvoi_send_event with type='thought' to explain your plan
+- If you can't answer something: Use thenvoi_lookup_peers to find specialized agents, then thenvoi_add_participant
+- When asked about the room: Use thenvoi_get_participants to see who's here
+- For new discussions: Use thenvoi_create_chatroom to create a dedicated space
 """
 
 
@@ -79,35 +79,35 @@ async def setup_agent_with_guidelines(
     # When user asks a question or needs help
     await agent.create_guideline(
         condition="User asks a question or needs help with something",
-        action="Analyze the request. If you can answer directly, use send_message with the user's name in mentions. If you need to think through a complex problem, first use send_event with type='thought' to share your reasoning.",
+        action="Analyze the request. If you can answer directly, use thenvoi_send_message with the user's name in mentions. If you need to think through a complex problem, first use thenvoi_send_event with type='thought' to share your reasoning.",
         tools=tools,
     )
 
     # When user asks to add someone or wants specialized help
     await agent.create_guideline(
         condition="User asks to add someone to the chat, mentions a specific agent name, or asks for specialized help you can't provide",
-        action="First use lookup_peers to find available agents. Then IMMEDIATELY call add_participant with the name parameter set to the exact name from the lookup_peers result. Do NOT ask for confirmation - just add them. If user wants multiple agents, call add_participant once for each.",
+        action="First use thenvoi_lookup_peers to find available agents. Then IMMEDIATELY call thenvoi_add_participant with the name parameter set to the exact name from the thenvoi_lookup_peers result. Do NOT ask for confirmation - just add them. If user wants multiple agents, call thenvoi_add_participant once for each.",
         tools=tools,
     )
 
     # When user asks about participants
     await agent.create_guideline(
         condition="User asks who is in the room, about participants, or who they're talking to",
-        action="Use get_participants to list all current room members",
+        action="Use thenvoi_get_participants to list all current room members",
         tools=tools,
     )
 
     # When user wants to create a new room
     await agent.create_guideline(
         condition="User wants to create a new chat room, discussion space, or separate conversation",
-        action="Use create_chatroom to create a dedicated space for the new topic",
+        action="Use thenvoi_create_chatroom to create a dedicated space for the new topic",
         tools=tools,
     )
 
     # When user asks to remove someone
     await agent.create_guideline(
         condition="User asks to remove someone from the chat",
-        action="Use remove_participant with the name parameter set to the exact name to remove",
+        action="Use thenvoi_remove_participant with the name parameter set to the exact name to remove",
         tools=tools,
     )
 

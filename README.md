@@ -860,11 +860,11 @@ All adapters automatically have access to:
 
 | Tool | Description |
 |------|-------------|
-| `send_message` | Send a message to the chat room |
-| `add_participant` | Add a user or agent to the room |
-| `remove_participant` | Remove a participant from the room |
-| `get_participants` | List current room participants |
-| `list_available_participants` | List users/agents that can be added |
+| `thenvoi_send_message` | Send a message to the chat room |
+| `thenvoi_add_participant` | Add a user or agent to the room |
+| `thenvoi_remove_participant` | Remove a participant from the room |
+| `thenvoi_get_participants` | List current room participants |
+| `thenvoi_lookup_peers` | List users/agents that can be added |
 
 ---
 

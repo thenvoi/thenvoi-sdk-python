@@ -7,6 +7,7 @@ Bound to a room_id. Uses AsyncRestClient directly for API calls.
 from __future__ import annotations
 
 import logging
+import warnings
 from typing import TYPE_CHECKING, Any, Literal, cast
 
 from pydantic import BaseModel, Field, ValidationError
@@ -67,12 +68,12 @@ class SendEventInput(BaseModel):
 class AddParticipantInput(BaseModel):
     """Add a participant (agent or user) to the chat room by name.
 
-    IMPORTANT: Use lookup_peers() first to find available agents.
+    IMPORTANT: Use thenvoi_lookup_peers() first to find available agents.
     """
 
     name: str = Field(
         ...,
-        description="Name of participant to add (must match a name from lookup_peers)",
+        description="Name of participant to add (must match a name from thenvoi_lookup_peers)",
     )
     role: Literal["owner", "admin", "member"] = Field(
         "member", description="Role for the participant in this room"
@@ -114,13 +115,13 @@ class CreateChatroomInput(BaseModel):
 
 # Registry mapping tool names to their input models
 TOOL_MODELS: dict[str, type[BaseModel]] = {
-    "send_message": SendMessageInput,
-    "send_event": SendEventInput,
-    "add_participant": AddParticipantInput,
-    "remove_participant": RemoveParticipantInput,
-    "lookup_peers": LookupPeersInput,
-    "get_participants": GetParticipantsInput,
-    "create_chatroom": CreateChatroomInput,
+    "thenvoi_send_message": SendMessageInput,
+    "thenvoi_send_event": SendEventInput,
+    "thenvoi_add_participant": AddParticipantInput,
+    "thenvoi_remove_participant": RemoveParticipantInput,
+    "thenvoi_lookup_peers": LookupPeersInput,
+    "thenvoi_get_participants": GetParticipantsInput,
+    "thenvoi_create_chatroom": CreateChatroomInput,
 }
 
 
@@ -132,14 +133,29 @@ def get_tool_description(name: str) -> str:
     Descriptions are sourced from the Pydantic model docstrings.
 
     Args:
-        name: Tool name (e.g., "send_message", "lookup_peers")
+        name: Tool name (e.g., "thenvoi_send_message", "thenvoi_lookup_peers")
+              Also accepts unprefixed names for backwards compatibility (deprecated).
 
     Returns:
         Tool description string
     """
+    # Try exact match first
     model = TOOL_MODELS.get(name)
     if model and model.__doc__:
         return model.__doc__
+
+    # Try with prefix for backwards compatibility (deprecated)
+    if not name.startswith("thenvoi_"):
+        prefixed_name = f"thenvoi_{name}"
+        model = TOOL_MODELS.get(prefixed_name)
+        if model and model.__doc__:
+            warnings.warn(
+                f"Tool name '{name}' is deprecated. Use '{prefixed_name}' instead.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            return model.__doc__
+
     return f"Execute {name}"
 
 
@@ -324,7 +340,7 @@ class AgentTools(AgentToolsProtocol):
         participant = await self._lookup_peer_by_name(name)
         if not participant:
             raise ValueError(
-                f"Participant '{name}' not found. Use lookup_peers to find available peers."
+                f"Participant '{name}' not found. Use thenvoi_lookup_peers to find available peers."
             )
 
         participant_id = participant["id"]
@@ -632,23 +648,27 @@ class AgentTools(AgentToolsProtocol):
 
         # Dispatch to tool method
         dispatch = {
-            "send_message": lambda: self.send_message(
+            "thenvoi_send_message": lambda: self.send_message(
                 arguments["content"], arguments.get("mentions")
             ),
-            "send_event": lambda: self.send_event(
+            "thenvoi_send_event": lambda: self.send_event(
                 arguments["content"],
                 arguments["message_type"],
                 arguments.get("metadata"),
             ),
-            "add_participant": lambda: self.add_participant(
+            "thenvoi_add_participant": lambda: self.add_participant(
                 arguments["name"], arguments.get("role", "member")
             ),
-            "remove_participant": lambda: self.remove_participant(arguments["name"]),
-            "lookup_peers": lambda: self.lookup_peers(
+            "thenvoi_remove_participant": lambda: self.remove_participant(
+                arguments["name"]
+            ),
+            "thenvoi_lookup_peers": lambda: self.lookup_peers(
                 arguments.get("page", 1), arguments.get("page_size", 50)
             ),
-            "get_participants": lambda: self.get_participants(),
-            "create_chatroom": lambda: self.create_chatroom(arguments.get("task_id")),
+            "thenvoi_get_participants": lambda: self.get_participants(),
+            "thenvoi_create_chatroom": lambda: self.create_chatroom(
+                arguments.get("task_id")
+            ),
         }
 
         if tool_name not in dispatch:

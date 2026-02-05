@@ -97,13 +97,13 @@ def mock_pydantic_agent():
     """Create a mock Pydantic AI Agent."""
     agent = MagicMock()
     agent._function_tools = {
-        "send_message": MagicMock(name="send_message"),
-        "send_event": MagicMock(name="send_event"),
-        "add_participant": MagicMock(name="add_participant"),
-        "remove_participant": MagicMock(name="remove_participant"),
-        "lookup_peers": MagicMock(name="lookup_peers"),
-        "get_participants": MagicMock(name="get_participants"),
-        "create_chatroom": MagicMock(name="create_chatroom"),
+        "thenvoi_send_message": MagicMock(name="thenvoi_send_message"),
+        "thenvoi_send_event": MagicMock(name="thenvoi_send_event"),
+        "thenvoi_add_participant": MagicMock(name="thenvoi_add_participant"),
+        "thenvoi_remove_participant": MagicMock(name="thenvoi_remove_participant"),
+        "thenvoi_lookup_peers": MagicMock(name="thenvoi_lookup_peers"),
+        "thenvoi_get_participants": MagicMock(name="thenvoi_get_participants"),
+        "thenvoi_create_chatroom": MagicMock(name="thenvoi_create_chatroom"),
     }
     return agent
 
@@ -199,13 +199,13 @@ class TestOnStarted:
         tool_names = list(adapter._agent._function_tools.keys())
 
         expected_tools = [
-            "send_message",
-            "send_event",
-            "add_participant",
-            "remove_participant",
-            "lookup_peers",
-            "get_participants",
-            "create_chatroom",
+            "thenvoi_send_message",
+            "thenvoi_send_event",
+            "thenvoi_add_participant",
+            "thenvoi_remove_participant",
+            "thenvoi_lookup_peers",
+            "thenvoi_get_participants",
+            "thenvoi_create_chatroom",
         ]
 
         for tool in expected_tools:
@@ -446,7 +446,7 @@ class TestExecutionReporting:
         adapter._agent.run_stream_events = MagicMock(
             return_value=make_stream_events(
                 result_messages=[],
-                tool_calls=[("send_message", {"content": "Hello"}, "call-123")],
+                tool_calls=[("thenvoi_send_message", {"content": "Hello"}, "call-123")],
             )
         )
 
@@ -461,7 +461,7 @@ class TestExecutionReporting:
 
         # Verify send_event was called with tool_call
         mock_tools.send_event.assert_any_call(
-            content='{"name": "send_message", "args": {"content": "Hello"}, "tool_call_id": "call-123"}',
+            content='{"name": "thenvoi_send_message", "args": {"content": "Hello"}, "tool_call_id": "call-123"}',
             message_type="tool_call",
         )
 
@@ -482,7 +482,7 @@ class TestExecutionReporting:
             return_value=make_stream_events(
                 result_messages=[],
                 tool_results=[
-                    ("send_message", "Message sent successfully", "call-123")
+                    ("thenvoi_send_message", "Message sent successfully", "call-123")
                 ],
             )
         )
@@ -498,7 +498,7 @@ class TestExecutionReporting:
 
         # Verify send_event was called with tool_result
         mock_tools.send_event.assert_any_call(
-            content='{"name": "send_message", "output": "Message sent successfully", "tool_call_id": "call-123"}',
+            content='{"name": "thenvoi_send_message", "output": "Message sent successfully", "tool_call_id": "call-123"}',
             message_type="tool_result",
         )
 
@@ -515,8 +515,8 @@ class TestExecutionReporting:
         adapter._agent.run_stream_events = MagicMock(
             return_value=make_stream_events(
                 result_messages=[],
-                tool_calls=[("send_message", {"content": "Hello"}, "call-123")],
-                tool_results=[("send_message", "Message sent", "call-123")],
+                tool_calls=[("thenvoi_send_message", {"content": "Hello"}, "call-123")],
+                tool_results=[("thenvoi_send_message", "Message sent", "call-123")],
             )
         )
 
@@ -551,14 +551,14 @@ class TestExecutionReporting:
             return_value=make_stream_events(
                 result_messages=[],
                 tool_calls=[
-                    ("lookup_peers", {}, "call-1"),
-                    ("add_participant", {"name": "Helper"}, "call-2"),
-                    ("send_message", {"content": "Done"}, "call-3"),
+                    ("thenvoi_lookup_peers", {}, "call-1"),
+                    ("thenvoi_add_participant", {"name": "Helper"}, "call-2"),
+                    ("thenvoi_send_message", {"content": "Done"}, "call-3"),
                 ],
                 tool_results=[
-                    ("lookup_peers", "[{...}]", "call-1"),
-                    ("add_participant", "Added", "call-2"),
-                    ("send_message", "Sent", "call-3"),
+                    ("thenvoi_lookup_peers", "[{...}]", "call-1"),
+                    ("thenvoi_add_participant", "Added", "call-2"),
+                    ("thenvoi_send_message", "Sent", "call-3"),
                 ],
             )
         )
@@ -607,7 +607,7 @@ class TestExecutionReporting:
         adapter._agent.run_stream_events = MagicMock(
             return_value=make_stream_events(
                 result_messages=[ModelRequest(parts=[UserPromptPart(content="test")])],
-                tool_calls=[("send_message", {"content": "Hello"}, "call-123")],
+                tool_calls=[("thenvoi_send_message", {"content": "Hello"}, "call-123")],
             )
         )
 

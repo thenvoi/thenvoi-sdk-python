@@ -203,8 +203,8 @@ class ClaudeSDKAdapter(SimpleAdapter[str]):
             return adapter._room_tools.get(room_id)
 
         @tool(
-            "send_message",
-            get_tool_description("send_message"),
+            "thenvoi_send_message",
+            get_tool_description("thenvoi_send_message"),
             {
                 "room_id": str,
                 "content": str,
@@ -244,8 +244,8 @@ class ClaudeSDKAdapter(SimpleAdapter[str]):
                 return _make_error(str(e))
 
         @tool(
-            "send_event",
-            get_tool_description("send_event"),
+            "thenvoi_send_event",
+            get_tool_description("thenvoi_send_event"),
             {"room_id": str, "content": str, "message_type": str},
         )
         async def send_event(args: dict[str, Any]) -> dict[str, Any]:
@@ -268,8 +268,8 @@ class ClaudeSDKAdapter(SimpleAdapter[str]):
                 return _make_error(str(e))
 
         @tool(
-            "add_participant",
-            get_tool_description("add_participant"),
+            "thenvoi_add_participant",
+            get_tool_description("thenvoi_add_participant"),
             {"room_id": str, "name": str, "role": str},
         )
         async def add_participant(args: dict[str, Any]) -> dict[str, Any]:
@@ -298,8 +298,8 @@ class ClaudeSDKAdapter(SimpleAdapter[str]):
                 return _make_error(str(e))
 
         @tool(
-            "remove_participant",
-            get_tool_description("remove_participant"),
+            "thenvoi_remove_participant",
+            get_tool_description("thenvoi_remove_participant"),
             {"room_id": str, "name": str},
         )
         async def remove_participant(args: dict[str, Any]) -> dict[str, Any]:
@@ -327,8 +327,8 @@ class ClaudeSDKAdapter(SimpleAdapter[str]):
                 return _make_error(str(e))
 
         @tool(
-            "get_participants",
-            get_tool_description("get_participants"),
+            "thenvoi_get_participants",
+            get_tool_description("thenvoi_get_participants"),
             {"room_id": str},
         )
         async def get_participants(args: dict[str, Any]) -> dict[str, Any]:
@@ -355,8 +355,8 @@ class ClaudeSDKAdapter(SimpleAdapter[str]):
                 return _make_error(str(e))
 
         @tool(
-            "lookup_peers",
-            get_tool_description("lookup_peers"),
+            "thenvoi_lookup_peers",
+            get_tool_description("thenvoi_lookup_peers"),
             {"room_id": str, "page": int, "page_size": int},
         )
         async def lookup_peers(args: dict[str, Any]) -> dict[str, Any]:
@@ -379,8 +379,8 @@ class ClaudeSDKAdapter(SimpleAdapter[str]):
                 return _make_error(str(e))
 
         @tool(
-            "create_chatroom",
-            get_tool_description("create_chatroom"),
+            "thenvoi_create_chatroom",
+            get_tool_description("thenvoi_create_chatroom"),
             {"room_id": str, "task_id": str},
         )
         async def create_chatroom(args: dict[str, Any]) -> dict[str, Any]:

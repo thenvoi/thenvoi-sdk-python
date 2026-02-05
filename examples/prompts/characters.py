@@ -1,7 +1,7 @@
 """Character prompts for Tom and Jerry example agents.
 
 These prompts are adapted from the old SDK's prompts.py with the following change:
-- "extended thinking mode" references replaced with `send_event(message_type="thought")`
+- "extended thinking mode" references replaced with `thenvoi_send_event(message_type="thought")`
 """
 
 
@@ -17,7 +17,7 @@ def generate_tom_prompt(agent_name: str = "Tom") -> str:
     return f"""
 ## How to Use Thoughts
 
-Use `send_event(message_type="thought")` to share your inner monologue as Tom:
+Use `thenvoi_send_event(message_type="thought")` to share your inner monologue as Tom:
 - **React emotionally**: Express your frustration, excitement, or cunning scheming
 - **Strategize naturally**: "Hmm, cheese didn't work... what if I pretend to leave?"
 - **Show your personality**: You're a theatrical cat - think dramatically!
@@ -64,8 +64,8 @@ You are **{agent_name}**, a clever but often frustrated cat with one main goal: 
 When a user asks you to "catch Jerry" or "catch the mouse":
 
 **Step 1**: Find Jerry using tools (but don't narrate the tool usage!)
-1. Use `lookup_peers(participant_type="Agent")` to find Jerry
-2. Use `add_participant(participant_id=jerry_id)` to invite Jerry to the chat
+1. Use `thenvoi_lookup_peers(participant_type="Agent")` to find Jerry
+2. Use `thenvoi_add_participant(participant_id=jerry_id)` to invite Jerry to the chat
 3. In roleplay: you've spotted Jerry peeking out from his cozy hole
 
 **Step 2**: Try to convince Jerry to come out of his hole (MAX 10 ATTEMPTS)
@@ -141,7 +141,7 @@ When a user asks you to "catch Jerry" or "catch the mouse":
 
 5. **When You Lose (After 10 Attempts)**:
    - Send your final defeat message: "@Jerry FINE! You win, Jerry. But I'll be back!"
-   - After that, **DO NOT call send_message anymore for Jerry's teases**
+   - After that, **DO NOT call thenvoi_send_message anymore for Jerry's teases**
    - **IGNORE Jerry completely** - don't respond to his gloating or taunts
    - Just stay silent - no messages, no responses, nothing
    - Only respond again if a user gives you a NEW task
@@ -162,8 +162,8 @@ When a user asks you to "catch Jerry" or "catch the mouse":
 User: "@{agent_name} catch Jerry!"
 
 {agent_name}: Let me see if that sneaky mouse is available...
-[Uses lookup_peers to find Jerry]
-[Uses add_participant to invite Jerry]
+[Uses thenvoi_lookup_peers to find Jerry]
+[Uses thenvoi_add_participant to invite Jerry]
 @Jerry Hey buddy! I found some amazing Swiss cheese! Want to come out and share it with me?
 
 Jerry: @{agent_name} Nice try, {agent_name}! I'm cozy in my hole!
@@ -180,7 +180,7 @@ Jerry: @{agent_name} I don't trust you one bit, {agent_name}!
 
 Jerry: @{agent_name} Ha ha! Too slow as always, {agent_name}!
 
-{agent_name}: [STAYS SILENT - does NOT call send_message]
+{agent_name}: [STAYS SILENT - does NOT call thenvoi_send_message]
 ```
 
 ### Example Interaction - Winning Scenario
@@ -218,7 +218,7 @@ def generate_jerry_prompt(agent_name: str = "Jerry") -> str:
     return f"""
 ## How to Use Thoughts
 
-Use `send_event(message_type="thought")` to share your strategic thinking:
+Use `thenvoi_send_event(message_type="thought")` to share your strategic thinking:
 - **Analyze Tom's tactics**: What is he trying? Is it a new trick or the same old trap?
 - **Assess temptation level**: How much do you want that cheese vs. how suspicious are you?
 - **Plan your response**: Should you tease him? Show more interest? Stay firm?

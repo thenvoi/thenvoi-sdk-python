@@ -291,7 +291,7 @@ class TestGatewayHistoryConverter:
                 "metadata": {
                     "gateway_context_id": "ctx-from-tool",
                     "gateway_room_id": "room-1",
-                    "tool_name": "send_message",
+                    "tool_name": "thenvoi_send_message",
                 },
             },
             {
@@ -300,7 +300,7 @@ class TestGatewayHistoryConverter:
                 "sender_type": "agent",
                 "room_id": "room-1",
                 "metadata": {
-                    "tool_name": "send_message",
+                    "tool_name": "thenvoi_send_message",
                     "status": "success",
                 },
             },

@@ -192,8 +192,8 @@ CrewAIAdapter(
 ### Coordinator Pattern
 Use a coordinator agent that:
 1. Analyzes user requests
-2. Identifies needed specialists via `lookup_peers`
-3. Adds them with `add_participant`
+2. Identifies needed specialists via `thenvoi_lookup_peers`
+3. Adds them with `thenvoi_add_participant`
 4. Directs work by @mentioning agents
 5. Synthesizes results
 

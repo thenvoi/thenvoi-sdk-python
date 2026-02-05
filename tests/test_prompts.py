@@ -20,7 +20,7 @@ class TestRenderSystemPromptDefaults:
 
         assert "## Environment" in prompt
         assert "Multi-participant chat" in prompt
-        assert "send_event" in prompt
+        assert "thenvoi_send_event" in prompt
 
     def test_includes_agent_identity(self):
         """Should include agent name and description."""
@@ -56,7 +56,7 @@ class TestRenderSystemPromptWithoutBaseInstructions:
         # Should NOT have the opinionated instructions
         assert "## Environment" not in prompt
         assert "CRITICAL: Always Relay Information" not in prompt
-        assert "send_event" not in prompt
+        assert "thenvoi_send_event" not in prompt
         assert "thought" not in prompt
 
     def test_still_includes_agent_identity_when_disabled(self):

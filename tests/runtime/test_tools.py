@@ -348,13 +348,13 @@ class TestAgentToolsSchemas:
 
     def test_tool_models_registry(self):
         """TOOL_MODELS should contain all tool input models."""
-        assert "send_message" in TOOL_MODELS
-        assert "send_event" in TOOL_MODELS
-        assert "add_participant" in TOOL_MODELS
-        assert "remove_participant" in TOOL_MODELS
-        assert "lookup_peers" in TOOL_MODELS
-        assert "get_participants" in TOOL_MODELS
-        assert "create_chatroom" in TOOL_MODELS
+        assert "thenvoi_send_message" in TOOL_MODELS
+        assert "thenvoi_send_event" in TOOL_MODELS
+        assert "thenvoi_add_participant" in TOOL_MODELS
+        assert "thenvoi_remove_participant" in TOOL_MODELS
+        assert "thenvoi_lookup_peers" in TOOL_MODELS
+        assert "thenvoi_get_participants" in TOOL_MODELS
+        assert "thenvoi_create_chatroom" in TOOL_MODELS
 
     def test_tool_models_property(self, mock_rest_client):
         """tool_models property should return registry."""
@@ -369,7 +369,9 @@ class TestAgentToolsSchemas:
         schemas = tools.get_tool_schemas("openai")
 
         assert len(schemas) == 7
-        send_msg = next(s for s in schemas if s["function"]["name"] == "send_message")
+        send_msg = next(
+            s for s in schemas if s["function"]["name"] == "thenvoi_send_message"
+        )
         assert send_msg["type"] == "function"
         assert "parameters" in send_msg["function"]
         assert "description" in send_msg["function"]
@@ -381,7 +383,7 @@ class TestAgentToolsSchemas:
         schemas = tools.get_tool_schemas("anthropic")
 
         assert len(schemas) == 7
-        send_msg = next(s for s in schemas if s["name"] == "send_message")
+        send_msg = next(s for s in schemas if s["name"] == "thenvoi_send_message")
         assert "input_schema" in send_msg
         assert "description" in send_msg
 
@@ -390,39 +392,39 @@ class TestAgentToolsExecuteToolCall:
     """Test execute_tool_call dispatch."""
 
     async def test_execute_send_message(self, mock_rest_client, participants):
-        """execute_tool_call() should dispatch send_message."""
+        """execute_tool_call() should dispatch thenvoi_send_message."""
         tools = AgentTools("room-123", mock_rest_client, participants)
 
         result = await tools.execute_tool_call(
-            "send_message", {"content": "Hello!", "mentions": ["User One"]}
+            "thenvoi_send_message", {"content": "Hello!", "mentions": ["User One"]}
         )
 
         assert result["id"] == "msg-123"
 
     async def test_execute_send_event(self, mock_rest_client):
-        """execute_tool_call() should dispatch send_event."""
+        """execute_tool_call() should dispatch thenvoi_send_event."""
         tools = AgentTools("room-123", mock_rest_client)
 
         result = await tools.execute_tool_call(
-            "send_event", {"content": "Thinking...", "message_type": "thought"}
+            "thenvoi_send_event", {"content": "Thinking...", "message_type": "thought"}
         )
 
         assert result["message_type"] == "thought"
 
     async def test_execute_lookup_peers(self, mock_rest_client):
-        """execute_tool_call() should dispatch lookup_peers."""
+        """execute_tool_call() should dispatch thenvoi_lookup_peers."""
         tools = AgentTools("room-123", mock_rest_client)
 
-        result = await tools.execute_tool_call("lookup_peers", {"page": 1})
+        result = await tools.execute_tool_call("thenvoi_lookup_peers", {"page": 1})
 
         assert "peers" in result
         assert "metadata" in result
 
     async def test_execute_get_participants(self, mock_rest_client):
-        """execute_tool_call() should dispatch get_participants."""
+        """execute_tool_call() should dispatch thenvoi_get_participants."""
         tools = AgentTools("room-123", mock_rest_client)
 
-        result = await tools.execute_tool_call("get_participants", {})
+        result = await tools.execute_tool_call("thenvoi_get_participants", {})
 
         assert isinstance(result, list)
 
@@ -439,9 +441,11 @@ class TestAgentToolsExecuteToolCall:
         tools = AgentTools("room-123", mock_rest_client)
 
         # Missing required field
-        result = await tools.execute_tool_call("send_message", {"content": "Hello"})
+        result = await tools.execute_tool_call(
+            "thenvoi_send_message", {"content": "Hello"}
+        )
 
-        assert "Invalid arguments for send_message" in result
+        assert "Invalid arguments for thenvoi_send_message" in result
         assert "mentions" in result  # Should mention the missing field
 
     async def test_execute_runtime_error(self, mock_rest_client, participants):
@@ -452,7 +456,7 @@ class TestAgentToolsExecuteToolCall:
         tools = AgentTools("room-123", mock_rest_client, participants)
 
         result = await tools.execute_tool_call(
-            "send_message", {"content": "Hello!", "mentions": ["User One"]}
+            "thenvoi_send_message", {"content": "Hello!", "mentions": ["User One"]}
         )
 
         assert "Error executing" in result

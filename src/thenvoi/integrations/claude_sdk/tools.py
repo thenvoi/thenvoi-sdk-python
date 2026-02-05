@@ -116,7 +116,7 @@ def create_thenvoi_mcp_server(agent: Any):
         return [p.get("name", "") for p in participants if p.get("name")]
 
     @tool(
-        "send_message",
+        "thenvoi_send_message",
         "Send a message to the Thenvoi chat room. Use this to respond to users. You MUST use this tool to communicate - text responses without this tool won't reach users.",
         {
             "room_id": str,
@@ -169,7 +169,7 @@ def create_thenvoi_mcp_server(agent: Any):
             return _make_error(str(e))
 
     @tool(
-        "send_event",
+        "thenvoi_send_event",
         "Send an event (thought, tool_call, tool_result, error) to the chat room for transparency.",
         {
             "room_id": str,
@@ -201,8 +201,8 @@ def create_thenvoi_mcp_server(agent: Any):
             return _make_error(str(e))
 
     @tool(
-        "add_participant",
-        "Add a participant (user or agent) to the chat room by name. Use lookup_peers first to see available participants.",
+        "thenvoi_add_participant",
+        "Add a participant (user or agent) to the chat room by name. Use thenvoi_lookup_peers first to see available participants.",
         {
             "room_id": str,
             "name": str,
@@ -256,7 +256,7 @@ def create_thenvoi_mcp_server(agent: Any):
             return _make_error(str(e))
 
     @tool(
-        "remove_participant",
+        "thenvoi_remove_participant",
         "Remove a participant from the chat room by name.",
         {
             "room_id": str,
@@ -294,7 +294,7 @@ def create_thenvoi_mcp_server(agent: Any):
             return _make_error(str(e))
 
     @tool(
-        "get_participants",
+        "thenvoi_get_participants",
         "Get list of participants currently in the chat room.",
         {
             "room_id": str,
@@ -323,7 +323,7 @@ def create_thenvoi_mcp_server(agent: Any):
             return _make_error(str(e))
 
     @tool(
-        "lookup_peers",
+        "thenvoi_lookup_peers",
         "Look up available users and agents that can be added to the chat room. Returns peers NOT already in the room.",
         {
             "room_id": str,

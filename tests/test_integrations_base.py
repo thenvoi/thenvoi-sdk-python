@@ -38,7 +38,7 @@ class TestCheckAndFormatParticipants:
         # Should contain participant info and usage hint
         assert "## Current Participants" in result
         assert "Alice" in result
-        assert "send_message" in result
+        assert "thenvoi_send_message" in result
         ctx.mark_participants_sent.assert_called_once()
 
     def test_marks_participants_sent_automatically(self):
