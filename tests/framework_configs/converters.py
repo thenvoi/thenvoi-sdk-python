@@ -601,12 +601,13 @@ class ToolCallAssertion:
         return self._adapter.has_is_error(self.result, index, expected)
 
 
-# Tool format types - different frameworks expect different JSON structures
-ToolFormat = Literal["anthropic", "langchain"]
+# Tool JSON format types - different frameworks expect different JSON structures
+# (Not to be confused with adapters.ToolFormat which is "tuple" | "callable")
+ToolJsonFormat = Literal["anthropic", "langchain"]
 
 
 def make_tool_call(
-    name: str, args: dict, tool_call_id: str, fmt: ToolFormat = "anthropic"
+    name: str, args: dict, tool_call_id: str, fmt: ToolJsonFormat = "anthropic"
 ) -> dict:
     """Create a tool_call message in the appropriate format."""
     if fmt == "langchain":
@@ -626,7 +627,7 @@ def make_tool_result(
     output: str,
     tool_call_id: str,
     is_error: bool | None = None,
-    fmt: ToolFormat = "anthropic",
+    fmt: ToolJsonFormat = "anthropic",
 ) -> dict:
     """Create a tool_result message in the appropriate format."""
     if fmt == "langchain":
@@ -648,8 +649,8 @@ def make_tool_result(
     }
 
 
-def get_tool_format(config: "ConverterConfig") -> ToolFormat:
-    """Get the tool format expected by a converter."""
+def get_tool_format(config: "ConverterConfig") -> ToolJsonFormat:
+    """Get the tool JSON format expected by a converter."""
     if config.tool_handling_mode == "langchain":
         return "langchain"
     return "anthropic"

@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Any, Callable, Literal, Protocol, TypeVar
+from typing import Any, Callable, Literal, Protocol
 from unittest.mock import AsyncMock, MagicMock
 
 from thenvoi.core.types import PlatformMessage
@@ -17,9 +17,6 @@ from thenvoi.core.types import PlatformMessage
 # =============================================================================
 # Type Definitions
 # =============================================================================
-
-# TypeVar for adapter instances
-AdapterT = TypeVar("AdapterT")
 
 
 class AdapterFactory(Protocol):
@@ -276,40 +273,6 @@ def _create_parlant_adapter(**kwargs: Any) -> Any:
         mock_agent.name = "TestBot"
 
     return ParlantAdapter(server=mock_server, parlant_agent=mock_agent, **kwargs)
-
-
-# Adapter configurations
-# Note: CrewAI requires special handling due to module-level mocking
-
-
-def _get_anthropic_adapter_class() -> type:
-    from thenvoi.adapters.anthropic import AnthropicAdapter
-
-    return AnthropicAdapter
-
-
-def _get_claude_sdk_adapter_class() -> type:
-    from thenvoi.adapters.claude_sdk import ClaudeSDKAdapter
-
-    return ClaudeSDKAdapter
-
-
-def _get_langgraph_adapter_class() -> type:
-    from thenvoi.adapters.langgraph import LangGraphAdapter
-
-    return LangGraphAdapter
-
-
-def _get_pydantic_ai_adapter_class() -> type:
-    from thenvoi.adapters.pydantic_ai import PydanticAIAdapter
-
-    return PydanticAIAdapter
-
-
-def _get_parlant_adapter_class() -> type:
-    from thenvoi.adapters.parlant import ParlantAdapter
-
-    return ParlantAdapter
 
 
 # =============================================================================
