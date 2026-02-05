@@ -1,10 +1,3 @@
-# /// script
-# requires-python = ">=3.11"
-# dependencies = ["thenvoi-sdk[parlant]"]
-#
-# [tool.uv.sources]
-# thenvoi-sdk = { git = "https://github.com/thenvoi/thenvoi-sdk-python.git" }
-# ///
 """
 Parlant agent with behavioral guidelines using the official Parlant SDK.
 
@@ -12,19 +5,22 @@ This example shows how to use Parlant's guideline system for controlled
 agent behavior with the full Thenvoi toolset.
 
 Run with:
-    uv run examples/parlant/02_with_guidelines.py
+    uv run python examples/parlant/02_with_guidelines.py
 
 See also: https://github.com/emcie-co/parlant/blob/develop/examples/travel_voice_agent.py
 """
 
-from __future__ import annotations
+# IMPORTANT: Load .env BEFORE importing parlant.sdk
+# Parlant checks OPENAI_API_KEY during module import
+from dotenv import load_dotenv
+
+load_dotenv()
 
 import asyncio
 import logging
 import os
 
 import parlant.sdk as p
-from dotenv import load_dotenv
 
 from setup_logging import setup_logging
 from thenvoi import Agent
@@ -46,19 +42,20 @@ You are a collaborative assistant in the Thenvoi multi-agent platform.
 - Create new chat rooms when needed for specific topics
 
 ## Your Tools
-- thenvoi_send_message: Respond to users (requires mentions)
-- thenvoi_send_event: Share thoughts, errors, or task progress
-- thenvoi_lookup_peers: Find available agents
-- thenvoi_add_participant: Add agents/users to room
-- thenvoi_remove_participant: Remove participants
-- thenvoi_get_participants: List current participants
-- thenvoi_create_chatroom: Create new rooms
+Same as other Thenvoi agents:
+- send_message: Respond to users (requires mentions)
+- send_event: Share thoughts, errors, or task progress
+- lookup_peers: Find available agents
+- add_participant: Add agents/users to room
+- remove_participant: Remove participants
+- get_participants: List current participants
+- create_chatroom: Create new rooms
 
 ## Guidelines
 1. Be proactive about suggesting relevant agents to add
 2. Keep responses focused and actionable
 3. Always confirm actions taken with the user
-4. Use thenvoi_send_event with type='thought' before complex actions
+4. Use send_event with type='thought' before complex actions
 """
 
 
@@ -75,59 +72,59 @@ async def setup_agent_with_guidelines(
     # Communication guidelines
     await agent.create_guideline(
         condition="User asks a question or sends a message",
-        action="Use thenvoi_send_message to respond, with the user's name in the mentions field",
+        action="Use send_message to respond, with the user's name in the mentions field",
         tools=tools,
     )
 
     await agent.create_guideline(
         condition="You are about to perform a complex action or multi-step process",
-        action="First use thenvoi_send_event with type='thought' to explain what you're about to do and why",
+        action="First use send_event with type='thought' to explain what you're about to do and why",
         tools=tools,
     )
 
     # Participant management guidelines
     await agent.create_guideline(
         condition="User mentions a specific participant, agent name, or asks to add someone",
-        action="First use thenvoi_lookup_peers to find available agents. Then IMMEDIATELY call thenvoi_add_participant with the name parameter set to the exact name from the thenvoi_lookup_peers result. Do NOT ask for confirmation - just add them. If user wants multiple agents, call thenvoi_add_participant once for each.",
+        action="First use lookup_peers to find available agents. Then IMMEDIATELY call add_participant with the name parameter set to the exact name from the lookup_peers result. Do NOT ask for confirmation - just add them. If user wants multiple agents, call add_participant once for each.",
         tools=tools,
     )
 
     await agent.create_guideline(
         condition="User asks about current participants or who is in the room",
-        action="Use thenvoi_get_participants to list all current room members",
+        action="Use get_participants to list all current room members",
         tools=tools,
     )
 
     await agent.create_guideline(
         condition="User asks to remove someone from the chat",
-        action="Use thenvoi_remove_participant with the name parameter set to the exact name to remove",
+        action="Use remove_participant with the name parameter set to the exact name to remove",
         tools=tools,
     )
 
     # Room management guidelines
     await agent.create_guideline(
         condition="User wants to create a new chat, discussion space, or separate topic",
-        action="Use thenvoi_create_chatroom to create a dedicated space for the new topic",
+        action="Use create_chatroom to create a dedicated space for the new topic",
         tools=tools,
     )
 
     # Error handling guideline
     await agent.create_guideline(
         condition="An error occurs or something goes wrong",
-        action="Use thenvoi_send_event with type='error' to report the problem, then try to suggest alternatives",
+        action="Use send_event with type='error' to report the problem, then try to suggest alternatives",
         tools=tools,
     )
 
     # Conversation flow guidelines
     await agent.create_guideline(
         condition="User asks for help and you cannot directly provide it",
-        action="Use thenvoi_lookup_peers to find specialized agents, explain your plan using thenvoi_send_event with type='thought', then add the most relevant agent",
+        action="Use lookup_peers to find specialized agents, explain your plan using send_event with type='thought', then add the most relevant agent",
         tools=tools,
     )
 
     await agent.create_guideline(
         condition="Conversation is ending or user says goodbye",
-        action="Use thenvoi_send_message to summarize what was discussed and offer to help with anything else",
+        action="Use send_message to summarize what was discussed and offer to help with anything else",
         tools=tools,
     )
 
@@ -135,8 +132,6 @@ async def setup_agent_with_guidelines(
 
 
 async def main() -> None:
-    load_dotenv()
-
     ws_url = os.getenv("THENVOI_WS_URL")
     rest_url = os.getenv("THENVOI_REST_URL")
 
@@ -153,14 +148,12 @@ async def main() -> None:
         # Create Parlant tools INSIDE server context
         parlant_tools = create_parlant_tools()
         logger.info(
-            "Created %s Parlant tools: %s",
-            len(parlant_tools),
-            [t.tool.name for t in parlant_tools],
+            f"Created {len(parlant_tools)} Parlant tools: {[t.tool.name for t in parlant_tools]}"
         )
 
         # Create Parlant agent with comprehensive guidelines and tools
         parlant_agent = await setup_agent_with_guidelines(server, parlant_tools)
-        logger.info("Parlant agent with guidelines created: %s", parlant_agent.id)
+        logger.info(f"Parlant agent with guidelines created: {parlant_agent.id}")
 
         # Create adapter using Parlant SDK directly
         adapter = ParlantAdapter(

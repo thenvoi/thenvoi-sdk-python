@@ -3,11 +3,12 @@
 import logging
 
 
-def setup_logging(level=logging.INFO):
+def setup_logging(level=logging.INFO, debug=False):
     """Configure logging to show only thenvoi logs, hiding noisy dependencies.
 
     Args:
         level: Log level for thenvoi namespace (default INFO)
+        debug: If True, enables DEBUG for all thenvoi components including WebSocket
     """
     logging.basicConfig(
         level=logging.WARNING,
@@ -15,6 +16,7 @@ def setup_logging(level=logging.INFO):
         datefmt="%Y-%m-%d %H:%M:%S",
     )
 
-    logging.getLogger("thenvoi").setLevel(level)
+    actual_level = logging.DEBUG if debug else level
+    logging.getLogger("thenvoi").setLevel(actual_level)
     # Also enable logging for the parlant adapter module
-    logging.getLogger("thenvoi_parlant_agent").setLevel(level)
+    logging.getLogger("thenvoi_parlant_agent").setLevel(actual_level)

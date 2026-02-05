@@ -76,7 +76,7 @@ async with p.Server() as server:
 
 ## Guidelines System
 
-Parlant's guidelines are the key differentiator. They ensure consistent behavior through condition/action pairs:
+Parlant's guidelines are the key differentiator. They ensure consistent behavior through condition/action pairs that are **actually enforced** by the Parlant SDK:
 
 ```python
 # Using the Parlant SDK directly
@@ -90,6 +90,15 @@ await agent.create_guideline(
     action="Acknowledge their frustration before providing solutions",
 )
 ```
+
+### How Guidelines Work
+
+1. **Registration**: Guidelines are registered with the Parlant agent via the SDK
+2. **Condition Matching**: Parlant evaluates each message against guideline conditions
+3. **Action Enforcement**: When a condition matches, the corresponding action is enforced
+4. **Consistent Behavior**: Guidelines are reliably followed, not just "suggested"
+
+This is fundamentally different from system prompts that LLMs may ignore. The Parlant SDK ensures guidelines are actually followed through its guideline matching engine.
 
 ---
 
@@ -200,3 +209,19 @@ uv sync --extra parlant
 # or
 pip install 'thenvoi-sdk[parlant]'
 ```
+
+### Guidelines not being followed
+
+Guidelines are registered with the Parlant agent. If they're not being followed:
+
+1. Check the Parlant logs for guideline registration
+2. Verify the condition matches your test messages
+3. Try more specific conditions
+
+---
+
+## Learn More
+
+- [Parlant Documentation](https://www.parlant.io/docs)
+- [Parlant GitHub](https://github.com/emcie-co/parlant)
+- [Thenvoi SDK Documentation](https://github.com/thenvoi/thenvoi-sdk-python)

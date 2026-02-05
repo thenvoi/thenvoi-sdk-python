@@ -1,157 +1,17 @@
-"""Tests for LangChainHistoryConverter."""
+"""Framework-specific tests for LangChainHistoryConverter.
+
+Common behaviors (user messages, assistant filtering, multi-agent, edge cases)
+are tested in test_converter_contract.py. This file tests LangChain-specific:
+- Tool call/result pairing and message type conversion
+- tool_call_id extraction from output strings
+- Error handling for malformed JSON
+"""
 
 import json
 
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
 from thenvoi.converters.langchain import LangChainHistoryConverter
-
-
-class TestUserMessages:
-    """Tests for user message conversion."""
-
-    def test_converts_user_text_to_human_message(self):
-        """User text messages become HumanMessage with sender prefix."""
-        converter = LangChainHistoryConverter()
-        raw = [
-            {
-                "role": "user",
-                "content": "Hello, agent!",
-                "sender_name": "Alice",
-                "message_type": "text",
-            }
-        ]
-
-        result = converter.convert(raw)
-
-        assert len(result) == 1
-        assert isinstance(result[0], HumanMessage)
-        assert result[0].content == "[Alice]: Hello, agent!"
-
-    def test_handles_empty_sender_name(self):
-        """Should handle empty sender_name gracefully."""
-        converter = LangChainHistoryConverter()
-        raw = [
-            {
-                "role": "user",
-                "content": "Hi",
-                "sender_name": "",
-                "message_type": "text",
-            }
-        ]
-
-        result = converter.convert(raw)
-
-        assert result[0].content == "[]: Hi"
-
-
-class TestAssistantMessages:
-    """Tests for assistant message handling."""
-
-    def test_skips_own_assistant_text_messages(self):
-        """This agent's text messages are skipped (redundant with tool calls)."""
-        converter = LangChainHistoryConverter(agent_name="Agent")
-        raw = [
-            {
-                "role": "assistant",
-                "content": "I'll help you with that.",
-                "sender_name": "Agent",
-                "message_type": "text",
-            }
-        ]
-
-        result = converter.convert(raw)
-
-        assert len(result) == 0
-
-
-class TestMultiAgentMessages:
-    """Tests for multi-agent message handling."""
-
-    def test_includes_other_agents_messages(self):
-        """Other agents' messages should be included as HumanMessage."""
-        converter = LangChainHistoryConverter(agent_name="Main Agent")
-        raw = [
-            {
-                "role": "assistant",
-                "content": "It's sunny today!",
-                "sender_name": "Weather Agent",
-                "message_type": "text",
-            }
-        ]
-
-        result = converter.convert(raw)
-
-        assert len(result) == 1
-        assert isinstance(result[0], HumanMessage)
-        assert result[0].content == "[Weather Agent]: It's sunny today!"
-
-    def test_skips_only_own_messages(self):
-        """Only skip THIS agent's text, include other agents."""
-        converter = LangChainHistoryConverter()
-        converter.set_agent_name("Main Agent")
-        raw = [
-            {
-                "role": "assistant",
-                "content": "I'll help",
-                "sender_name": "Main Agent",
-                "message_type": "text",
-            },
-            {
-                "role": "assistant",
-                "content": "It's sunny!",
-                "sender_name": "Weather Agent",
-                "message_type": "text",
-            },
-        ]
-
-        result = converter.convert(raw)
-
-        assert len(result) == 1  # Only Weather Agent's message
-        assert "[Weather Agent]:" in result[0].content
-
-    def test_set_agent_name_updates_filtering(self):
-        """set_agent_name should update which messages are skipped."""
-        converter = LangChainHistoryConverter()
-        raw = [
-            {
-                "role": "assistant",
-                "content": "Hello",
-                "sender_name": "Agent",
-                "message_type": "text",
-            }
-        ]
-
-        # Before setting name - all assistant messages included
-        assert len(converter.convert(raw)) == 1
-
-        # After setting name - own messages skipped
-        converter.set_agent_name("Agent")
-        assert len(converter.convert(raw)) == 0
-
-    def test_includes_all_assistant_messages_when_no_agent_name(self):
-        """When agent name is not set, include all assistant messages."""
-        converter = LangChainHistoryConverter()
-        raw = [
-            {
-                "role": "assistant",
-                "content": "Hello from agent 1",
-                "sender_name": "Agent 1",
-                "message_type": "text",
-            },
-            {
-                "role": "assistant",
-                "content": "Hello from agent 2",
-                "sender_name": "Agent 2",
-                "message_type": "text",
-            },
-        ]
-
-        result = converter.convert(raw)
-
-        assert len(result) == 2
-        assert "[Agent 1]:" in result[0].content
-        assert "[Agent 2]:" in result[1].content
 
 
 class TestToolCallPairing:
@@ -394,8 +254,8 @@ class TestExtractToolCallId:
         assert result == "call_123abc"
 
 
-class TestMixedHistory:
-    """Integration tests with mixed message types."""
+class TestMixedHistoryWithTools:
+    """Integration tests with mixed message types including tools."""
 
     def test_full_conversation_flow(self):
         """Should handle a realistic conversation with all message types."""
@@ -467,74 +327,3 @@ class TestMixedHistory:
 
         assert isinstance(result[3], HumanMessage)
         assert result[3].content == "[Alice]: Thanks!"
-
-    def test_empty_history(self):
-        """Should handle empty history."""
-        converter = LangChainHistoryConverter()
-
-        result = converter.convert([])
-
-        assert result == []
-
-    def test_defaults_to_text_message_type(self):
-        """Should default to 'text' message_type when not specified."""
-        converter = LangChainHistoryConverter()
-        raw = [
-            {
-                "role": "user",
-                "content": "Hello",
-                "sender_name": "Bob",
-                # No message_type specified
-            }
-        ]
-
-        result = converter.convert(raw)
-
-        assert len(result) == 1
-        assert isinstance(result[0], HumanMessage)
-
-    def test_multi_agent_conversation_flow(self):
-        """Should include other agents' messages in multi-agent conversations."""
-        converter = LangChainHistoryConverter(agent_name="Main Agent")
-        raw = [
-            # User asks Main Agent to get weather
-            {
-                "role": "user",
-                "content": "What's the weather in Tokyo?",
-                "sender_name": "Alice",
-                "message_type": "text",
-            },
-            # Main Agent asks Weather Agent
-            {
-                "role": "assistant",
-                "content": "Let me check with the weather agent.",
-                "sender_name": "Main Agent",
-                "message_type": "text",
-            },
-            # Weather Agent responds
-            {
-                "role": "assistant",
-                "content": "Tokyo is 15°C and cloudy.",
-                "sender_name": "Weather Agent",
-                "message_type": "text",
-            },
-            # Main Agent relays the response
-            {
-                "role": "assistant",
-                "content": "The weather in Tokyo is 15°C and cloudy.",
-                "sender_name": "Main Agent",
-                "message_type": "text",
-            },
-        ]
-
-        result = converter.convert(raw)
-
-        # Should have: Alice's message + Weather Agent's message
-        # (Main Agent's own messages are skipped)
-        assert len(result) == 2
-
-        assert isinstance(result[0], HumanMessage)
-        assert result[0].content == "[Alice]: What's the weather in Tokyo?"
-
-        assert isinstance(result[1], HumanMessage)
-        assert result[1].content == "[Weather Agent]: Tokyo is 15°C and cloudy."
