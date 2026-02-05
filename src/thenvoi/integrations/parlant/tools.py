@@ -240,7 +240,10 @@ def create_parlant_tools() -> list[Any]:
             return ToolResult(data=f"Successfully added '{name}' to the room")
         except Exception as e:
             logger.error(
-                "[Parlant Tool] Error adding participant '%s': %s", name, e, exc_info=True
+                "[Parlant Tool] Error adding participant '%s': %s",
+                name,
+                e,
+                exc_info=True,
             )
             return ToolResult(data=f"Error adding participant '{name}': {e}")
 

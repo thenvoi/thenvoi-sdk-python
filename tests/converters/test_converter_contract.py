@@ -461,7 +461,14 @@ class TestToolBatching:
         tool_call_3 = make_tool_call("tool3", {}, "toolu_3", fmt)
         tool_result_3 = make_tool_result("tool3", "result3", "toolu_3", fmt=fmt)
 
-        raw = [tool_call_1, tool_call_2, tool_result_1, tool_result_2, tool_call_3, tool_result_3]
+        raw = [
+            tool_call_1,
+            tool_call_2,
+            tool_result_1,
+            tool_result_2,
+            tool_call_3,
+            tool_result_3,
+        ]
 
         result = converter.convert(raw)
         assertion = ToolCallAssertion(result, converter_config)
@@ -480,7 +487,9 @@ class TestToolBatching:
         if converter_config.tool_handling_mode == "skip":
             pytest.skip(f"{converter_config.name} skips tool events")
         if converter_config.requires_tool_result_for_output:
-            pytest.skip(f"{converter_config.name} requires matching tool_result for output")
+            pytest.skip(
+                f"{converter_config.name} requires matching tool_result for output"
+            )
 
         fmt = get_tool_format(converter_config)
         tool_call_1 = make_tool_call("tool1", {}, "toolu_1", fmt)
@@ -511,7 +520,9 @@ class TestToolErrorHandling:
 
         fmt = get_tool_format(converter_config)
         tool_call = make_tool_call("search", {"query": "test"}, "toolu_123", fmt)
-        tool_result_error = make_tool_result("search", "Error: API failed", "toolu_123", is_error=True, fmt=fmt)
+        tool_result_error = make_tool_result(
+            "search", "Error: API failed", "toolu_123", is_error=True, fmt=fmt
+        )
         raw = [tool_call, tool_result_error]
 
         result = converter.convert(raw)
@@ -520,16 +531,16 @@ class TestToolErrorHandling:
         assert assertion.get_length() == 2
         assert assertion.has_is_error_at(1, expected=True)
 
-    def test_handles_is_error_false(
-        self, converter, converter_config: ConverterConfig
-    ):
+    def test_handles_is_error_false(self, converter, converter_config: ConverterConfig):
         """Tool result with is_error=False is handled correctly."""
         if not converter_config.supports_is_error:
             pytest.skip(f"{converter_config.name} doesn't support is_error")
 
         fmt = get_tool_format(converter_config)
         tool_call = make_tool_call("search", {"query": "test"}, "toolu_123", fmt)
-        tool_result_success = make_tool_result("search", "result", "toolu_123", is_error=False, fmt=fmt)
+        tool_result_success = make_tool_result(
+            "search", "result", "toolu_123", is_error=False, fmt=fmt
+        )
         raw = [tool_call, tool_result_success]
 
         result = converter.convert(raw)
@@ -761,7 +772,9 @@ class TestMixedHistory:
         else:
             # Text + tool messages
             if converter_config.skips_own_messages:
-                assert assertion.has_length(4)  # Alice + tool call + tool result + Thanks
+                assert assertion.has_length(
+                    4
+                )  # Alice + tool call + tool result + Thanks
             else:
                 assert assertion.has_length(5)  # + agent's message
 

@@ -159,7 +159,11 @@ class ContentAssertion:
         """Get content at index."""
         if self.config.output_type == "string":
             # For string output, split by newline and get line
-            lines = [line for line in self.result.split("\n") if line.strip()] if self.result else []
+            lines = (
+                [line for line in self.result.split("\n") if line.strip()]
+                if self.result
+                else []
+            )
             return lines[index] if index < len(lines) else ""
 
         if self.config.output_type == "dict_list":
@@ -209,7 +213,9 @@ class ToolCallAssertion:
         """Get number of output items."""
         return _get_result_length(self.result, self.config)
 
-    def has_tool_call_at(self, index: int, name: str = None, tool_id: str = None) -> bool:
+    def has_tool_call_at(
+        self, index: int, name: str = None, tool_id: str = None
+    ) -> bool:
         """Check if there's a tool call at the given index with optional name/id match."""
         if self.config.tool_handling_mode == "skip":
             return False
@@ -233,6 +239,7 @@ class ToolCallAssertion:
 
         if self.config.output_type == "langchain_messages":
             from langchain_core.messages import AIMessage
+
             if not self.result or index >= len(self.result):
                 return False
             msg = self.result[index]
@@ -247,6 +254,7 @@ class ToolCallAssertion:
 
         if self.config.output_type == "pydantic_ai_messages":
             from pydantic_ai.messages import ModelResponse, ToolCallPart
+
             if not self.result or index >= len(self.result):
                 return False
             msg = self.result[index]
@@ -278,7 +286,9 @@ class ToolCallAssertion:
 
         return False
 
-    def has_tool_result_at(self, index: int, tool_id: str = None, content: str = None) -> bool:
+    def has_tool_result_at(
+        self, index: int, tool_id: str = None, content: str = None
+    ) -> bool:
         """Check if there's a tool result at the given index."""
         if self.config.tool_handling_mode == "skip":
             return False
@@ -302,6 +312,7 @@ class ToolCallAssertion:
 
         if self.config.output_type == "langchain_messages":
             from langchain_core.messages import ToolMessage
+
             if not self.result or index >= len(self.result):
                 return False
             msg = self.result[index]
@@ -312,7 +323,12 @@ class ToolCallAssertion:
             return True
 
         if self.config.output_type == "pydantic_ai_messages":
-            from pydantic_ai.messages import ModelRequest, ToolReturnPart, RetryPromptPart
+            from pydantic_ai.messages import (
+                ModelRequest,
+                ToolReturnPart,
+                RetryPromptPart,
+            )
+
             if not self.result or index >= len(self.result):
                 return False
             msg = self.result[index]
@@ -355,6 +371,7 @@ class ToolCallAssertion:
 
         if self.config.output_type == "langchain_messages":
             from langchain_core.messages import AIMessage
+
             if not self.result or index >= len(self.result):
                 return 0
             msg = self.result[index]
@@ -364,6 +381,7 @@ class ToolCallAssertion:
 
         if self.config.output_type == "pydantic_ai_messages":
             from pydantic_ai.messages import ModelResponse, ToolCallPart
+
             if not self.result or index >= len(self.result):
                 return 0
             msg = self.result[index]
@@ -384,13 +402,22 @@ class ToolCallAssertion:
             return sum(1 for block in content if block.get("type") == "tool_result")
 
         if self.config.output_type == "pydantic_ai_messages":
-            from pydantic_ai.messages import ModelRequest, ToolReturnPart, RetryPromptPart
+            from pydantic_ai.messages import (
+                ModelRequest,
+                ToolReturnPart,
+                RetryPromptPart,
+            )
+
             if not self.result or index >= len(self.result):
                 return 0
             msg = self.result[index]
             if not isinstance(msg, ModelRequest):
                 return 0
-            return sum(1 for part in msg.parts if isinstance(part, (ToolReturnPart, RetryPromptPart)))
+            return sum(
+                1
+                for part in msg.parts
+                if isinstance(part, (ToolReturnPart, RetryPromptPart))
+            )
 
         return 0
 
@@ -415,7 +442,12 @@ class ToolCallAssertion:
                 return "is_error" not in tool_block
 
         if self.config.output_type == "pydantic_ai_messages":
-            from pydantic_ai.messages import ModelRequest, ToolReturnPart, RetryPromptPart
+            from pydantic_ai.messages import (
+                ModelRequest,
+                ToolReturnPart,
+                RetryPromptPart,
+            )
+
             if not self.result or index >= len(self.result):
                 return False
             msg = self.result[index]
@@ -461,7 +493,9 @@ def make_tool_result(
     if fmt == "langchain":
         # LangChain extracts tool_call_id from output via regex
         output_with_id = f"{output} tool_call_id='{tool_call_id}'"
-        content = json.dumps({"name": name, "data": {"output": output_with_id}, "run_id": tool_call_id})
+        content = json.dumps(
+            {"name": name, "data": {"output": output_with_id}, "run_id": tool_call_id}
+        )
     else:
         data: dict = {"name": name, "output": output, "tool_call_id": tool_call_id}
         if is_error is not None:

@@ -291,7 +291,9 @@ class ParlantAdapter(SimpleAdapter[ParlantMessages]):
                     i += 2
                 else:
                     # User message without response - skip (it's pending)
-                    logger.debug("Skipping unanswered user message: %s...", content[:50])
+                    logger.debug(
+                        "Skipping unanswered user message: %s...", content[:50]
+                    )
                     i += 1
             elif role == "assistant" and content:
                 # Standalone assistant message (rare) - include it
@@ -389,7 +391,9 @@ class ParlantAdapter(SimpleAdapter[ParlantMessages]):
                     source=EventSource.AI_AGENT,
                     timeout=Timeout(120),  # Increased timeout for tool execution
                 )
-                logger.info("Room %s: wait_for_update returned: %s", room_id, has_update)
+                logger.info(
+                    "Room %s: wait_for_update returned: %s", room_id, has_update
+                )
             except Exception as e:
                 logger.error(
                     "Room %s: Error waiting for update: %s", room_id, e, exc_info=True
@@ -397,7 +401,8 @@ class ParlantAdapter(SimpleAdapter[ParlantMessages]):
                 # Check if message was sent via tool before giving up
                 if was_message_sent(session_id_str):
                     logger.info(
-                        "Room %s: Message was sent via tool, error is acceptable", room_id
+                        "Room %s: Message was sent via tool, error is acceptable",
+                        room_id,
                     )
                 return
 
@@ -428,7 +433,9 @@ class ParlantAdapter(SimpleAdapter[ParlantMessages]):
                 return
 
             if not events:
-                logger.warning("Room %s: No events found despite update signal", room_id)
+                logger.warning(
+                    "Room %s: No events found despite update signal", room_id
+                )
                 return
 
             # Process events and track if we got a non-preamble message
@@ -504,7 +511,9 @@ class ParlantAdapter(SimpleAdapter[ParlantMessages]):
                                 exc_info=True,
                             )
                     else:
-                        logger.warning("Room %s: Empty message content in event", room_id)
+                        logger.warning(
+                            "Room %s: Empty message content in event", room_id
+                        )
 
             # If we got a final (non-preamble) message, we're done
             if got_final_message:
