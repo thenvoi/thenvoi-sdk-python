@@ -132,10 +132,9 @@ asyncio_mode = "auto"
 addopts = "-v"
 
 [tool.pyrefly]
-project_excludes = [
-    "tests/**",                 # Tests use mocks with duck typing
-    "examples/**",              # Examples use local imports
-]
+# Type check only production code - tests/examples use dynamic patterns
+# (mocks, sys.path manipulation) that static analysis can't handle
+project_includes = ["src/**/*.py"]
 
 [tool.commitizen]
 name = "cz_conventional_commits"
@@ -146,5 +145,3 @@ version_files = [
 ]
 # Tag format aligned with release-please (package-name-v$version)
 tag_format = "thenvoi-sdk-python-v$version"
-
-[tool.ruff]
