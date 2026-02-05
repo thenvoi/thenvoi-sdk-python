@@ -189,7 +189,7 @@ def _create_pydantic_ai_adapter(**kwargs: Any) -> Any:
     return PydanticAIAdapter(model=kwargs.pop("model", "openai:gpt-4o"), **kwargs)
 
 
-def _create_crewai_adapter(crewai_mocks: Any = None, **kwargs: Any) -> Any:
+def _create_crewai_adapter(**kwargs: Any) -> Any:
     import importlib
 
     return importlib.import_module("thenvoi.adapters.crewai").CrewAIAdapter(**kwargs)
@@ -567,11 +567,6 @@ def _verify_crewai_participants(
     return "room-123" in adapter._message_history
 
 
-def _always_true(adapter: Any, captured_input: dict, participants_msg: str) -> bool:
-    """Trivial verifier for adapters that handle participants internally."""
-    return True
-
-
 # =============================================================================
 # Adapter Configurations
 # =============================================================================
@@ -605,7 +600,6 @@ ADAPTER_CONFIGS: dict[str, AdapterConfig] = {
             "permission_mode": "acceptEdits",
             "enable_execution_reporting": False,
         },
-        verify_participants_injection=_always_true,
         on_started_callback=_claude_sdk_on_started,
         mock_llm_callback=_claude_sdk_mock_llm,
         error_setup_callback=_claude_sdk_error_setup,
@@ -645,7 +639,6 @@ ADAPTER_CONFIGS: dict[str, AdapterConfig] = {
         history_storage_attr="_room_sessions",
         supports_cleanup_all=True,
         cleanup_storage_attrs=["_room_sessions", "_room_customers"],
-        verify_participants_injection=_always_true,
         on_started_callback=_parlant_on_started,
         mock_llm_callback=_parlant_mock_llm,
         error_setup_callback=_parlant_error_setup,
