@@ -61,7 +61,7 @@ uv run pyrefly check
 ## Environment Variables
 
 - `THENVOI_REST_URL`: REST API URL (default: https://app.thenvoi.com)
-- `THENVOI_WS_URL`: WebSocket URL (default: wss://app.thenvoi.com/ws)
+- `THENVOI_WS_URL`: WebSocket URL (default: wss://app.thenvoi.com/api/v1/socket/websocket)
 - `OPENAI_API_KEY`: OpenAI API key (for LangGraph examples)
 - `ANTHROPIC_API_KEY`: Anthropic API key (for Anthropic/Claude SDK examples)
 
