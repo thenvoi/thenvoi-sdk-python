@@ -36,6 +36,11 @@ class AdapterConfig:
         supports_cleanup_all: Whether adapter has cleanup_all method
         on_message_requires_setup: Setup function for on_message tests
         custom_tool_format: "tuple" for (Model, func), "callable" for just func
+        system_prompt_attr: Attribute name for system prompt (or alternative like backstory)
+        system_prompt_contains_name: Whether system prompt should contain agent name
+        alternative_prompt_attr: Alternative attribute for prompt (e.g., backstory for crewai)
+        error_trigger_method: Method name to patch for error testing
+        cleanup_storage_attrs: List of storage attributes to verify cleanup
     """
 
     name: str
@@ -49,10 +54,18 @@ class AdapterConfig:
     default_model: str | None = None
     additional_init_checks: dict[str, Any] = field(default_factory=dict)
     supports_enable_execution_reporting: bool = True
-    history_storage_attr: str = "_message_history"
+    history_storage_attr: str | None = "_message_history"
     supports_system_prompt_override: bool = True
     supports_cleanup_all: bool = False
     custom_tool_format: str = "tuple"  # "tuple" or "callable"
+    # System prompt configuration
+    system_prompt_attr: str | None = "_system_prompt"
+    system_prompt_contains_name: bool = True
+    alternative_prompt_attr: str | None = None  # e.g., "backstory" for crewai
+    # Error handling configuration
+    error_trigger_method: str | None = None  # Method to patch for error testing
+    # Cleanup configuration
+    cleanup_storage_attrs: list[str] = field(default_factory=list)
 
 
 def create_sample_message(
@@ -232,6 +245,10 @@ ADAPTER_CONFIGS: dict[str, AdapterConfig] = {
         supports_system_prompt_override=True,
         supports_cleanup_all=False,
         custom_tool_format="tuple",
+        system_prompt_attr="_system_prompt",
+        system_prompt_contains_name=True,
+        error_trigger_method="_call_anthropic",
+        cleanup_storage_attrs=["_message_history"],
     ),
     "claude_sdk": AdapterConfig(
         name="claude_sdk",
@@ -250,6 +267,10 @@ ADAPTER_CONFIGS: dict[str, AdapterConfig] = {
         supports_system_prompt_override=False,  # Uses session manager
         supports_cleanup_all=True,
         custom_tool_format="tuple",
+        system_prompt_attr=None,  # Uses session manager
+        system_prompt_contains_name=False,
+        error_trigger_method=None,  # Complex session-based error handling
+        cleanup_storage_attrs=["_room_tools"],
     ),
     "langgraph": AdapterConfig(
         name="langgraph",
@@ -265,6 +286,10 @@ ADAPTER_CONFIGS: dict[str, AdapterConfig] = {
         supports_system_prompt_override=False,  # Uses prompt_template
         supports_cleanup_all=False,
         custom_tool_format="callable",
+        system_prompt_attr="_system_prompt",
+        system_prompt_contains_name=True,
+        error_trigger_method="graph_factory",  # Mock graph to raise error
+        cleanup_storage_attrs=[],
     ),
     "pydantic_ai": AdapterConfig(
         name="pydantic_ai",
@@ -277,9 +302,13 @@ ADAPTER_CONFIGS: dict[str, AdapterConfig] = {
         additional_init_checks={"enable_execution_reporting": False},
         supports_enable_execution_reporting=True,
         history_storage_attr="_message_history",
-        supports_system_prompt_override=False,  # Uses different system
+        supports_system_prompt_override=False,  # Uses agent-level system
         supports_cleanup_all=False,
         custom_tool_format="callable",
+        system_prompt_attr=None,  # Uses agent._system_prompt internally
+        system_prompt_contains_name=False,
+        error_trigger_method="_agent.run_stream_events",
+        cleanup_storage_attrs=["_message_history"],
     ),
     "parlant": AdapterConfig(
         name="parlant",
@@ -295,6 +324,10 @@ ADAPTER_CONFIGS: dict[str, AdapterConfig] = {
         supports_system_prompt_override=True,
         supports_cleanup_all=True,
         custom_tool_format="tuple",
+        system_prompt_attr="_system_prompt",
+        system_prompt_contains_name=True,
+        error_trigger_method=None,  # Complex Parlant SDK error handling
+        cleanup_storage_attrs=["_room_sessions", "_room_customers"],
     ),
 }
 
@@ -319,6 +352,11 @@ ADAPTER_CONFIGS["crewai"] = AdapterConfig(
     supports_system_prompt_override=False,  # Uses backstory
     supports_cleanup_all=False,
     custom_tool_format="tuple",
+    system_prompt_attr=None,  # Uses backstory in CrewAI agent
+    system_prompt_contains_name=False,
+    alternative_prompt_attr="backstory",  # CrewAI uses backstory
+    error_trigger_method="_crewai_agent.kickoff_async",
+    cleanup_storage_attrs=["_message_history"],
 )
 
 # Keep CREWAI_CONFIG for backwards compatibility
