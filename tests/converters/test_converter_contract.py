@@ -401,9 +401,6 @@ class TestToolBatching:
         self, converter, converter_config: ConverterConfig
     ):
         """Consecutive tool calls are batched if framework supports it."""
-        if converter_config.tool_handling_mode == "skip":
-            pytest.skip(f"{converter_config.name} skips tool events")
-
         fmt = get_tool_format(converter_config)
         tool_call_1 = make_tool_call("tool1", {}, "toolu_1", fmt)
         tool_call_2 = make_tool_call("tool2", {}, "toolu_2", fmt)
@@ -413,7 +410,10 @@ class TestToolBatching:
         result = converter.convert(raw)
         assertion = ToolCallAssertion(result, converter_config)
 
-        if converter_config.batches_tool_calls:
+        if converter_config.tool_handling_mode == "skip":
+            # CrewAI, Parlant skip tool events entirely
+            assert assertion.get_length() == 0
+        elif converter_config.batches_tool_calls:
             # Anthropic, PydanticAI batch tool calls
             assert assertion.get_length() == 2
             assert assertion.get_tool_call_count_at(0) == 2
@@ -425,9 +425,6 @@ class TestToolBatching:
         self, converter, converter_config: ConverterConfig
     ):
         """Consecutive tool results are batched if framework supports it."""
-        if converter_config.tool_handling_mode == "skip":
-            pytest.skip(f"{converter_config.name} skips tool events")
-
         fmt = get_tool_format(converter_config)
         tool_call_1 = make_tool_call("tool1", {}, "toolu_1", fmt)
         tool_call_2 = make_tool_call("tool2", {}, "toolu_2", fmt)
@@ -438,7 +435,10 @@ class TestToolBatching:
         result = converter.convert(raw)
         assertion = ToolCallAssertion(result, converter_config)
 
-        if converter_config.batches_tool_results:
+        if converter_config.tool_handling_mode == "skip":
+            # CrewAI, Parlant skip tool events entirely
+            assert assertion.get_length() == 0
+        elif converter_config.batches_tool_results:
             # Anthropic, PydanticAI batch tool results
             assert assertion.get_length() == 2
             assert assertion.get_tool_result_count_at(1) == 2
@@ -450,9 +450,6 @@ class TestToolBatching:
         self, converter, converter_config: ConverterConfig
     ):
         """Interleaved tool calls and results are handled correctly."""
-        if converter_config.tool_handling_mode == "skip":
-            pytest.skip(f"{converter_config.name} skips tool events")
-
         fmt = get_tool_format(converter_config)
         tool_call_1 = make_tool_call("tool1", {}, "toolu_1", fmt)
         tool_call_2 = make_tool_call("tool2", {}, "toolu_2", fmt)
@@ -473,7 +470,10 @@ class TestToolBatching:
         result = converter.convert(raw)
         assertion = ToolCallAssertion(result, converter_config)
 
-        if converter_config.batches_tool_calls:
+        if converter_config.tool_handling_mode == "skip":
+            # CrewAI, Parlant skip tool events entirely
+            assert assertion.get_length() == 0
+        elif converter_config.batches_tool_calls:
             # Batched: [calls 1&2] [results 1&2] [call 3] [result 3]
             assert assertion.get_length() == 4
         else:
@@ -484,13 +484,6 @@ class TestToolBatching:
         self, converter, converter_config: ConverterConfig
     ):
         """Trailing tool calls at end of history are properly flushed."""
-        if converter_config.tool_handling_mode == "skip":
-            pytest.skip(f"{converter_config.name} skips tool events")
-        if converter_config.requires_tool_result_for_output:
-            pytest.skip(
-                f"{converter_config.name} requires matching tool_result for output"
-            )
-
         fmt = get_tool_format(converter_config)
         tool_call_1 = make_tool_call("tool1", {}, "toolu_1", fmt)
         tool_call_2 = make_tool_call("tool2", {}, "toolu_2", fmt)
@@ -499,7 +492,13 @@ class TestToolBatching:
         result = converter.convert(raw)
         assertion = ToolCallAssertion(result, converter_config)
 
-        if converter_config.batches_tool_calls:
+        if converter_config.tool_handling_mode == "skip":
+            # CrewAI, Parlant skip tool events entirely
+            assert assertion.get_length() == 0
+        elif converter_config.requires_tool_result_for_output:
+            # LangChain requires matching tool_result for output
+            assert assertion.get_length() == 0
+        elif converter_config.batches_tool_calls:
             # Both calls batched into one message
             assert assertion.get_length() == 1
             assert assertion.get_tool_call_count_at(0) == 2
@@ -515,9 +514,6 @@ class TestToolErrorHandling:
         self, converter, converter_config: ConverterConfig
     ):
         """Tool result with is_error=True is handled correctly."""
-        if not converter_config.supports_is_error:
-            pytest.skip(f"{converter_config.name} doesn't support is_error")
-
         fmt = get_tool_format(converter_config)
         tool_call = make_tool_call("search", {"query": "test"}, "toolu_123", fmt)
         tool_result_error = make_tool_result(
@@ -528,14 +524,20 @@ class TestToolErrorHandling:
         result = converter.convert(raw)
         assertion = ToolCallAssertion(result, converter_config)
 
-        assert assertion.get_length() == 2
-        assert assertion.has_is_error_at(1, expected=True)
+        if converter_config.tool_handling_mode == "skip":
+            # CrewAI, Parlant skip tool events entirely
+            assert assertion.get_length() == 0
+        elif not converter_config.supports_is_error:
+            # Frameworks that don't support is_error still process the tool result
+            # but don't preserve the is_error field
+            assert assertion.get_length() == 2
+        else:
+            # Frameworks that support is_error preserve it
+            assert assertion.get_length() == 2
+            assert assertion.has_is_error_at(1, expected=True)
 
     def test_handles_is_error_false(self, converter, converter_config: ConverterConfig):
         """Tool result with is_error=False is handled correctly."""
-        if not converter_config.supports_is_error:
-            pytest.skip(f"{converter_config.name} doesn't support is_error")
-
         fmt = get_tool_format(converter_config)
         tool_call = make_tool_call("search", {"query": "test"}, "toolu_123", fmt)
         tool_result_success = make_tool_result(
@@ -546,8 +548,17 @@ class TestToolErrorHandling:
         result = converter.convert(raw)
         assertion = ToolCallAssertion(result, converter_config)
 
-        assert assertion.get_length() == 2
-        assert assertion.has_is_error_at(1, expected=False)
+        if converter_config.tool_handling_mode == "skip":
+            # CrewAI, Parlant skip tool events entirely
+            assert assertion.get_length() == 0
+        elif not converter_config.supports_is_error:
+            # Frameworks that don't support is_error still process the tool result
+            # but don't preserve the is_error field
+            assert assertion.get_length() == 2
+        else:
+            # Frameworks that support is_error correctly omit is_error when False
+            assert assertion.get_length() == 2
+            assert assertion.has_is_error_at(1, expected=False)
 
 
 class TestMalformedToolJson:
@@ -557,15 +568,15 @@ class TestMalformedToolJson:
         self, converter, converter_config: ConverterConfig, caplog
     ):
         """Malformed tool_call JSON is skipped."""
-        if converter_config.tool_handling_mode == "skip":
-            pytest.skip(f"{converter_config.name} skips tool events")
-
         raw = [MALFORMED_TOOL_CALL]
 
         result = converter.convert(raw)
         assertion = ToolCallAssertion(result, converter_config)
 
-        if converter_config.tool_handling_mode == "raw_json":
+        if converter_config.tool_handling_mode == "skip":
+            # CrewAI, Parlant skip tool events entirely
+            assert assertion.get_length() == 0
+        elif converter_config.tool_handling_mode == "raw_json":
             # ClaudeSDK includes raw JSON as-is (even if malformed)
             assert assertion.get_length() == 1
         else:
@@ -579,15 +590,15 @@ class TestMalformedToolJson:
         self, converter, converter_config: ConverterConfig, caplog
     ):
         """Malformed tool_result JSON is skipped."""
-        if converter_config.tool_handling_mode == "skip":
-            pytest.skip(f"{converter_config.name} skips tool events")
-
         raw = [MALFORMED_TOOL_RESULT]
 
         result = converter.convert(raw)
         assertion = ToolCallAssertion(result, converter_config)
 
-        if converter_config.tool_handling_mode == "raw_json":
+        if converter_config.tool_handling_mode == "skip":
+            # CrewAI, Parlant skip tool events entirely
+            assert assertion.get_length() == 0
+        elif converter_config.tool_handling_mode == "raw_json":
             # ClaudeSDK includes raw JSON as-is
             assert assertion.get_length() == 1
         else:
@@ -600,34 +611,50 @@ class TestMalformedToolJson:
     def test_skips_tool_call_with_missing_id(
         self, converter, converter_config: ConverterConfig, caplog
     ):
-        """Tool call without tool_call_id is skipped."""
-        if converter_config.tool_handling_mode not in ("structured",):
-            pytest.skip(f"{converter_config.name} doesn't validate tool_call_id")
-
+        """Tool call without tool_call_id is handled according to framework mode."""
         raw = [TOOL_CALL_MISSING_ID]
 
         result = converter.convert(raw)
         assertion = ToolCallAssertion(result, converter_config)
 
-        assert assertion.get_length() == 0
-        if converter_config.logs_malformed_json:
-            assert "missing tool_call_id" in caplog.text
+        if converter_config.tool_handling_mode == "skip":
+            # CrewAI, Parlant skip tool events entirely
+            assert assertion.get_length() == 0
+        elif converter_config.tool_handling_mode == "raw_json":
+            # ClaudeSDK includes raw JSON as-is
+            assert assertion.get_length() == 1
+        elif converter_config.tool_handling_mode == "langchain":
+            # LangChain has different format and validation
+            assert assertion.get_length() == 0
+        elif converter_config.tool_handling_mode == "structured":
+            # Anthropic, PydanticAI validate and skip missing id
+            assert assertion.get_length() == 0
+            if converter_config.logs_malformed_json:
+                assert "missing tool_call_id" in caplog.text
 
     def test_skips_tool_call_with_missing_name(
         self, converter, converter_config: ConverterConfig, caplog
     ):
-        """Tool call without name is skipped."""
-        if converter_config.tool_handling_mode not in ("structured",):
-            pytest.skip(f"{converter_config.name} doesn't validate name")
-
+        """Tool call without name is handled according to framework mode."""
         raw = [TOOL_CALL_MISSING_NAME]
 
         result = converter.convert(raw)
         assertion = ToolCallAssertion(result, converter_config)
 
-        assert assertion.get_length() == 0
-        if converter_config.logs_malformed_json:
-            assert "missing name" in caplog.text
+        if converter_config.tool_handling_mode == "skip":
+            # CrewAI, Parlant skip tool events entirely
+            assert assertion.get_length() == 0
+        elif converter_config.tool_handling_mode == "raw_json":
+            # ClaudeSDK includes raw JSON as-is
+            assert assertion.get_length() == 1
+        elif converter_config.tool_handling_mode == "langchain":
+            # LangChain has different format and validation
+            assert assertion.get_length() == 0
+        elif converter_config.tool_handling_mode == "structured":
+            # Anthropic, PydanticAI validate and skip missing name
+            assert assertion.get_length() == 0
+            if converter_config.logs_malformed_json:
+                assert "missing name" in caplog.text
 
 
 class TestMixedHistory:
