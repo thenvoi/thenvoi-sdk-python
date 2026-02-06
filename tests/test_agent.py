@@ -445,6 +445,8 @@ class TestStartupRaceCondition:
                 mock_ctx = MagicMock()
                 mock_ctx.is_llm_initialized = False
                 mock_ctx.mark_llm_initialized = MagicMock()
+                mock_ctx.mark_participants_sent = MagicMock()
+                mock_ctx.load_participants = AsyncMock()
                 mock_ctx.get_context = AsyncMock(
                     return_value=ConversationContext(
                         room_id="room-123",
@@ -456,6 +458,9 @@ class TestStartupRaceCondition:
                 mock_ctx.participants = []
                 mock_ctx.participants_changed = MagicMock(return_value=False)
                 mock_ctx.room_id = "room-123"
+                mock_ctx.config = SessionConfig(enable_context_hydration=True)
+                mock_ctx.link = MagicMock()
+                mock_ctx.link.rest = MagicMock()
 
                 # Create a proper MessageEvent (not a MagicMock)
                 message_event = MessageEvent(

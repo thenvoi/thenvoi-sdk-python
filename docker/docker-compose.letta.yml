@@ -1,0 +1,50 @@
+# Docker Compose for Letta + MCP integration
+#
+# Usage:
+#   # Start Letta server and MCP server for darter agent
+#   docker compose -f docker/docker-compose.letta.yml up -d
+#
+#   # Or start just the MCP server (if Letta is already running)
+#   docker compose -f docker/docker-compose.letta.yml up -d mcp-agent-darter
+#
+# Configuration:
+#   Set these environment variables or create a .env file:
+#   - DARTER_API_KEY: API key from agent_config.yaml for darter agent
+#   - OPENAI_API_KEY: OpenAI API key for Letta LLM
+#   - THENVOI_BASE_URL: Thenvoi platform URL (default: http://host.docker.internal:4000)
+
+version: '3.8'
+
+services:
+  # Letta server for stateful agents
+  letta:
+    image: letta/letta:latest
+    container_name: letta-server
+    ports:
+      - "8283:8283"
+    environment:
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+    volumes:
+      - letta-data:/root/.letta
+    restart: unless-stopped
+
+  # MCP server for darter agent
+  # Provides Thenvoi tools via MCP protocol
+  mcp-agent-darter:
+    build:
+      context: ../
+      dockerfile: docker/Dockerfile.mcp
+    image: thenvoi-mcp
+    container_name: mcp-agent-darter
+    ports:
+      - "8002:8000"
+    environment:
+      - THENVOI_API_KEY=${DARTER_API_KEY}
+      - THENVOI_BASE_URL=${THENVOI_BASE_URL:-http://host.docker.internal:4000}
+      - MCP_TRANSPORT=sse
+      - MCP_HOST=0.0.0.0
+      - MCP_PORT=8000
+    restart: unless-stopped
+
+volumes:
+  letta-data:

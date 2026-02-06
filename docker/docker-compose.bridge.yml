@@ -1,0 +1,56 @@
+# Unified Docker Compose for Letta Bridge
+# Runs: Letta server + MCP server + Python adapter
+#
+# Usage:
+#   ./scripts/run_bridge.sh [config_file]
+#   docker compose -f docker/docker-compose.bridge.yml up
+
+services:
+  letta:
+    image: letta/letta:latest
+    ports:
+      - "8284:8283"  # Mapped to 8284 to avoid conflict with local Letta
+    environment:
+      - OPENAI_API_KEY
+      - ANTHROPIC_API_KEY
+    volumes:
+      - letta-data:/root/.letta
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8283/v1/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  mcp:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.mcp
+    environment:
+      - THENVOI_API_KEY
+      - THENVOI_BASE_URL
+    depends_on:
+      letta:
+        condition: service_healthy
+
+  adapter:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.adapter
+    environment:
+      - OPENAI_API_KEY
+      - LETTA_BASE_URL=http://letta:8283
+      - MCP_SERVER_URL=http://mcp:8000/sse
+    volumes:
+      - ${CONFIG_FILE:-./bridge_config.yaml}:/config/bridge_config.yaml:ro
+      - adapter-state:/app/state
+    depends_on:
+      letta:
+        condition: service_healthy
+      mcp:
+        condition: service_started
+    restart: unless-stopped
+
+volumes:
+  letta-data:
+  adapter-state:

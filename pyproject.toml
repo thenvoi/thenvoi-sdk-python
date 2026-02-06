@@ -77,6 +77,10 @@ a2a_gateway_demo = [
     "langchain-openai>=0.3.0",  # OpenAI model for LLM
     "click>=8.0.0",         # CLI for demo orchestrator
 ]
+letta = [
+    "letta-client>=0.6.0",  # Letta Python SDK for stateful agents
+    "thenvoi-mcp @ git+https://github.com/thenvoi/thenvoi-mcp.git",  # Thenvoi MCP server for tool execution
+]
 
 dev = [
     "thenvoi-testing-python @ git+https://github.com/thenvoi/thenvoi-testing-python.git@thenvoi-testing-python-v0.1.1",
@@ -110,6 +114,8 @@ dev = [
     # Include crewai for testing
     "crewai>=0.80.0",
     "nest-asyncio>=1.6.0",  # Required for CrewAI adapter sync-to-async bridging
+    # Include letta for testing
+    "letta-client>=0.6.0",
     # Development tools
     "pre-commit>=3.0.0",
     "ruff>=0.8.0",

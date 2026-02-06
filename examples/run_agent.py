@@ -17,6 +17,9 @@ Usage:
     uv run python examples/run_agent.py --example parlant
     uv run python examples/run_agent.py --example crewai
     uv run python examples/run_agent.py --example crewai --streaming  # Show tool calls
+    uv run python examples/run_agent.py --example letta                    # Letta PER_ROOM mode
+    uv run python examples/run_agent.py --example letta_shared             # Letta SHARED mode
+    uv run python examples/run_agent.py --example letta --letta-url http://localhost:8283
     uv run python examples/run_agent.py --example a2a --a2a-url http://localhost:10000  # A2A bridge
     uv run python examples/run_agent.py --example a2a_gateway              # A2A Gateway (exposes peers)
     uv run python examples/run_agent.py --example a2a_gateway --gateway-port 8080  # Custom port
@@ -29,7 +32,7 @@ Setup:
 1. Copy .env.example to .env and configure:
    - THENVOI_REST_URL (default: production, change for local dev)
    - THENVOI_WS_URL (default: production, change for local dev)
-   - OPENAI_API_KEY (required for langgraph/openai/parlant/crewai models)
+   - OPENAI_API_KEY (required for langgraph/openai/parlant/crewai/letta models)
    - ANTHROPIC_API_KEY (required for anthropic models)
 
 2. Configure agent in agent_config.yaml
@@ -37,6 +40,9 @@ Setup:
 3. For A2A example, start a remote A2A agent first (e.g., LangGraph currency agent)
 
 4. For A2A Gateway example, the gateway exposes Thenvoi platform peers as A2A endpoints
+
+5. For Letta examples, start a Letta server first:
+   docker run -p 8283:8283 --env-file .env letta/letta:latest
 """
 
 import argparse
@@ -325,6 +331,72 @@ async def run_a2a_agent(
     await agent.run()
 
 
+async def run_letta_agent(
+    agent_id: str,
+    api_key: str,
+    rest_url: str,
+    ws_url: str,
+    letta_url: str,
+    letta_model: str,
+    mcp_url: str | None,
+    persona: str,
+    shared_mode: bool,
+    mcp_tools: list[str] | None,
+    letta_base_tools: list[str] | None,
+    logger: logging.Logger,
+):
+    """Run the Letta agent."""
+    from thenvoi.adapters.letta import LettaAdapter, LettaConfig, LettaMode
+    from thenvoi.runtime import run_with_graceful_shutdown
+    from thenvoi.runtime.types import SessionConfig
+
+    mode = LettaMode.SHARED if shared_mode else LettaMode.PER_ROOM
+    state_file = (
+        "letta_shared_state.json" if shared_mode else "letta_per_room_state.json"
+    )
+
+    adapter = LettaAdapter(
+        config=LettaConfig(
+            mode=mode,
+            base_url=letta_url,
+            mcp_server_url=mcp_url,
+            model=letta_model,
+            embedding_model="openai/text-embedding-3-small",
+            persona=persona,
+            mcp_tools=mcp_tools,
+            letta_base_tools=letta_base_tools,
+        ),
+        state_storage_path=f"~/.thenvoi/{state_file}",
+    )
+
+    agent = Agent.create(
+        adapter=adapter,
+        agent_id=agent_id,
+        api_key=api_key,
+        ws_url=ws_url,
+        rest_url=rest_url,
+        # IMPORTANT: Letta manages its own conversation history
+        session_config=SessionConfig(enable_context_hydration=False),
+    )
+
+    mode_str = "SHARED" if shared_mode else "PER_ROOM"
+    logger.info(f"Starting Letta agent in {mode_str} mode")
+    logger.info(f"  Letta server: {letta_url}")
+    logger.info(f"  Model: {letta_model}")
+    if mcp_url:
+        logger.info(f"  MCP server: {mcp_url}")
+    else:
+        logger.info("  MCP server: Not configured (tools will use stubs)")
+    if shared_mode:
+        logger.info("  Architecture: One agent serves all rooms via conversations")
+    else:
+        logger.info("  Architecture: Each room gets its own dedicated agent")
+    logger.info("  Press Ctrl+C once for graceful shutdown (waits for cleanup)")
+
+    # Use graceful shutdown to allow memory consolidation on exit
+    await run_with_graceful_shutdown(agent, timeout=60.0)
+
+
 async def run_a2a_gateway_agent(
     agent_id: str,
     api_key: str,
@@ -392,6 +464,10 @@ Examples:
   uv run python examples/run_agent.py --example parlant --streaming       # With tool visibility
   uv run python examples/run_agent.py --example crewai                    # CrewAI adapter
   uv run python examples/run_agent.py --example crewai --streaming        # With tool visibility
+  uv run python examples/run_agent.py --example letta                     # Letta PER_ROOM mode (agent per room)
+  uv run python examples/run_agent.py --example letta_shared              # Letta SHARED mode (one agent, many rooms)
+  uv run python examples/run_agent.py --example letta --letta-url http://localhost:8283
+  uv run python examples/run_agent.py --example letta --letta-model openai/gpt-4o
   uv run python examples/run_agent.py --example a2a                       # A2A bridge (default: localhost:10000)
   uv run python examples/run_agent.py --example a2a --debug               # A2A with debug logging (context_id tracing)
   uv run python examples/run_agent.py --example a2a --a2a-url http://remote:8080  # A2A with custom URL
@@ -412,6 +488,8 @@ Examples:
             "claude_sdk",
             "parlant",
             "crewai",
+            "letta",
+            "letta_shared",
             "a2a",
             "a2a_gateway",
         ],
@@ -471,6 +549,38 @@ Examples:
         action="store_true",
         help="Enable debug logging for adapter internals (e.g., A2A context_id tracing)",
     )
+    parser.add_argument(
+        "--letta-url",
+        default=os.getenv("LETTA_BASE_URL", "http://localhost:8283"),
+        help="Letta server URL (default: http://localhost:8283 or LETTA_BASE_URL env var)",
+    )
+    parser.add_argument(
+        "--letta-model",
+        default=os.getenv("LETTA_MODEL", "openai/gpt-4o"),
+        help="Letta LLM model (default: openai/gpt-4o or LETTA_MODEL env var)",
+    )
+    parser.add_argument(
+        "--mcp-url",
+        default=os.getenv("MCP_SERVER_URL"),
+        help="MCP server URL for Letta tools (e.g., http://localhost:8002/sse)",
+    )
+    parser.add_argument(
+        "--persona",
+        default="You are a helpful assistant with persistent memory.",
+        help="Agent persona for Letta examples",
+    )
+    parser.add_argument(
+        "--letta-mcp-tools",
+        type=str,
+        default=None,
+        help="Comma-separated MCP tool names for Letta (default: all agent tools)",
+    )
+    parser.add_argument(
+        "--letta-base-tools",
+        type=str,
+        default=None,
+        help="Comma-separated Letta base tools (default: memory,conversation_search,archival_memory_insert,archival_memory_search)",
+    )
 
     args = parser.parse_args()
 
@@ -484,6 +594,8 @@ Examples:
         "claude_sdk": "anthropic_agent",
         "parlant": "parlant_agent",
         "crewai": "crewai_agent",
+        "letta": "letta_agent",
+        "letta_shared": "letta_agent",
         "a2a": "a2a_agent",
         "a2a_gateway": "a2a_gateway_agent",
     }
@@ -590,6 +702,36 @@ Examples:
                 model=model,
                 custom_section=args.custom_section,
                 enable_streaming=args.streaming,
+                logger=logger,
+            )
+        elif args.example in ("letta", "letta_shared"):
+            # Parse comma-separated tool lists (filter empty strings)
+            mcp_tools = None
+            if args.letta_mcp_tools:
+                mcp_tools = [
+                    t.strip() for t in args.letta_mcp_tools.split(",") if t.strip()
+                ]
+                mcp_tools = mcp_tools or None  # Convert empty list to None
+
+            letta_base_tools = None
+            if args.letta_base_tools:
+                letta_base_tools = [
+                    t.strip() for t in args.letta_base_tools.split(",") if t.strip()
+                ]
+                letta_base_tools = letta_base_tools or None
+
+            await run_letta_agent(
+                agent_id=agent_id,
+                api_key=api_key,
+                rest_url=rest_url,
+                ws_url=ws_url,
+                letta_url=args.letta_url,
+                letta_model=args.letta_model,
+                mcp_url=args.mcp_url,
+                persona=args.persona,
+                shared_mode=(args.example == "letta_shared"),
+                mcp_tools=mcp_tools,
+                letta_base_tools=letta_base_tools,
                 logger=logger,
             )
         elif args.example == "a2a":

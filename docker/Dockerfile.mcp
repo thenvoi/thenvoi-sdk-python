@@ -1,0 +1,64 @@
+# Dockerfile for Thenvoi MCP Server
+# Runs an MCP server that provides Thenvoi tools to Letta agents
+#
+# Usage:
+#   docker build -f docker/Dockerfile.mcp -t thenvoi-mcp .
+#   docker run -p 8002:8000 -e THENVOI_API_KEY=... thenvoi-mcp
+
+FROM python:3.12-slim
+
+WORKDIR /app
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    git \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install uv package manager
+RUN curl -LsSf https://astral.sh/uv/install.sh | sh
+ENV PATH="/root/.local/bin:${PATH}"
+
+# Configure git to use HTTPS instead of SSH for GitHub (for submodules)
+RUN git config --global url."https://github.com/".insteadOf "git@github.com:"
+
+# Install thenvoi-mcp from GitHub
+RUN uv pip install --system "thenvoi-mcp @ git+https://github.com/thenvoi/thenvoi-mcp.git"
+
+# Create wrapper script that disables DNS rebinding protection
+RUN echo '#!/usr/bin/env python3\n\
+import sys\n\
+\n\
+# Patch thenvoi_mcp.shared to create FastMCP with security disabled\n\
+from mcp.server.transport_security import TransportSecuritySettings\n\
+from mcp.server.fastmcp import FastMCP\n\
+\n\
+# Store original FastMCP class\n\
+OriginalFastMCP = FastMCP\n\
+\n\
+# Create wrapper that sets transport_security\n\
+def PatchedFastMCP(*args, **kwargs):\n\
+    kwargs.setdefault("transport_security", TransportSecuritySettings(\n\
+        enable_dns_rebinding_protection=False\n\
+    ))\n\
+    return OriginalFastMCP(*args, **kwargs)\n\
+\n\
+# Monkey-patch before shared.py imports it\n\
+import mcp.server.fastmcp\n\
+mcp.server.fastmcp.FastMCP = PatchedFastMCP\n\
+\n\
+# Now run the server\n\
+from thenvoi_mcp.server import run\n\
+run()\n\
+' > /app/run_server.py && chmod +x /app/run_server.py
+
+# Default environment variables
+ENV MCP_TRANSPORT=sse
+ENV MCP_HOST=0.0.0.0
+ENV MCP_PORT=8000
+
+# Expose MCP server port
+EXPOSE 8000
+
+# Run MCP server with security patch
+CMD ["python", "/app/run_server.py", "--transport", "sse", "--host", "0.0.0.0", "--port", "8000"]

@@ -57,6 +57,9 @@ class DefaultPreprocessor(Preprocessor):
             logger.debug("Room %s: Skipping own message %s", room_id, msg_data.id)
             return None
 
+        # Load participants first (needed for sender name lookup and participant messages)
+        await ctx.load_participants()
+
         # Look up sender name from participants list
         sender_name = self._lookup_sender_name(ctx, msg_data.sender_id)
 

@@ -75,6 +75,7 @@ def make_mock_ctx(
     ctx.participants_changed = MagicMock(return_value=participants_changed)
     ctx.mark_llm_initialized = MagicMock()
     ctx.mark_participants_sent = MagicMock()
+    ctx.load_participants = AsyncMock()
     ctx.get_context = AsyncMock(
         return_value=MagicMock(
             messages=history_messages or [],
@@ -426,6 +427,104 @@ class TestAgentToolsCreation:
 
         mock_tools_cls.from_context.assert_called_once_with(ctx)
         assert result.tools == mock_agent_tools
+
+
+class TestSenderNameResolution:
+    """Tests for sender name lookup from participants."""
+
+    async def test_resolves_sender_name_after_loading_participants(self):
+        """Should resolve sender_name from participants loaded via load_participants().
+
+        This tests the real scenario where:
+        1. ctx.participants starts empty (before load_participants is called)
+        2. load_participants() populates the list
+        3. sender_name should be resolved correctly
+
+        Bug scenario: If _lookup_sender_name is called BEFORE load_participants(),
+        the participants list is empty and sender_name will be None.
+        """
+        preprocessor = DefaultPreprocessor()
+
+        # Create context with EMPTY participants initially
+        ctx = MagicMock()
+        ctx.room_id = "room-1"
+        ctx.is_llm_initialized = True  # Skip bootstrap logic
+        ctx.config = SessionConfig(enable_context_hydration=False)
+        ctx.participants = []  # Start empty - simulates real state before loading
+        ctx.participants_changed = MagicMock(return_value=False)
+        ctx.mark_llm_initialized = MagicMock()
+        ctx.mark_participants_sent = MagicMock()
+        ctx.link = MagicMock()
+        ctx.link.rest = MagicMock()
+
+        # load_participants should populate the list when called
+        async def populate_participants():
+            ctx.participants = [{"id": "user-123", "name": "John Doe", "type": "User"}]
+
+        ctx.load_participants = AsyncMock(side_effect=populate_participants)
+
+        # Message from user-123 (John Doe)
+        event = make_message_event(
+            sender_id="user-123",
+            sender_type="User",
+            content="Hello!",
+        )
+
+        with patch("thenvoi.preprocessing.default.AgentTools") as mock_tools:
+            mock_tools.from_context.return_value = MagicMock()
+            with patch(
+                "thenvoi.preprocessing.default.check_and_format_participants"
+            ) as mock_participants:
+                mock_participants.return_value = None
+                result = await preprocessor.process(ctx, event, agent_id="agent-1")
+
+        # Verify load_participants was called
+        ctx.load_participants.assert_called_once()
+
+        # The sender_name should be "John Doe", NOT None
+        assert result.msg.sender_name == "John Doe", (
+            f"Expected sender_name='John Doe', got '{result.msg.sender_name}'. "
+            "This indicates _lookup_sender_name was called BEFORE load_participants()."
+        )
+
+    async def test_sender_name_none_when_not_in_participants(self):
+        """Should return None for sender_name when sender not in participants list."""
+        preprocessor = DefaultPreprocessor()
+
+        ctx = MagicMock()
+        ctx.room_id = "room-1"
+        ctx.is_llm_initialized = True
+        ctx.config = SessionConfig(enable_context_hydration=False)
+        ctx.participants = []
+        ctx.participants_changed = MagicMock(return_value=False)
+        ctx.mark_llm_initialized = MagicMock()
+        ctx.mark_participants_sent = MagicMock()
+        ctx.link = MagicMock()
+        ctx.link.rest = MagicMock()
+
+        # load_participants populates with different user
+        async def populate_participants():
+            ctx.participants = [{"id": "other-user", "name": "Alice", "type": "User"}]
+
+        ctx.load_participants = AsyncMock(side_effect=populate_participants)
+
+        # Message from unknown user (not in participants)
+        event = make_message_event(
+            sender_id="unknown-user",
+            sender_type="User",
+            content="Hello!",
+        )
+
+        with patch("thenvoi.preprocessing.default.AgentTools") as mock_tools:
+            mock_tools.from_context.return_value = MagicMock()
+            with patch(
+                "thenvoi.preprocessing.default.check_and_format_participants"
+            ) as mock_participants:
+                mock_participants.return_value = None
+                result = await preprocessor.process(ctx, event, agent_id="agent-1")
+
+        # sender_name should be None since sender not in participants
+        assert result.msg.sender_name is None
 
 
 class TestHistoryLoadingErrors:

@@ -147,6 +147,7 @@ run_test_agent.py
 
 # Agent configuration files
 agent_config.yaml
+bridge_config.yaml
 examples/claude_sdk_docker/agent*.yaml
 !examples/claude_sdk_docker/example_agent.yaml
 

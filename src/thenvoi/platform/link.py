@@ -19,6 +19,7 @@ from .event import (
     MessageEvent,
     RoomAddedEvent,
     RoomRemovedEvent,
+    RoomDeletedEvent,
     ParticipantAddedEvent,
     ParticipantRemovedEvent,
     PlatformEvent,
@@ -29,6 +30,7 @@ if TYPE_CHECKING:
         MessageCreatedPayload,
         RoomAddedPayload,
         RoomRemovedPayload,
+        RoomDeletedPayload,
     )
     from thenvoi.runtime.types import PlatformMessage
 
@@ -179,6 +181,7 @@ class ThenvoiLink:
             room_id,
             on_participant_added=lambda p: self._on_participant_added(room_id, p),
             on_participant_removed=lambda p: self._on_participant_removed(room_id, p),
+            on_room_deleted=lambda p: self._on_room_deleted(room_id, p),
         )
 
         self._subscribed_rooms.add(room_id)
@@ -285,6 +288,21 @@ class ThenvoiLink:
         event = ParticipantRemovedEvent(
             room_id=room_id,
             payload=ParticipantRemovedPayload(**payload),
+        )
+        self._queue_event(event)
+
+    async def _on_room_deleted(
+        self, room_id: str, payload: "RoomDeletedPayload"
+    ) -> None:
+        """
+        Handle room_deleted from WebSocket (via room_participants channel).
+
+        This event indicates the room has been deleted entirely,
+        triggering cleanup and memory consolidation.
+        """
+        event = RoomDeletedEvent(
+            room_id=room_id,
+            payload=payload,
         )
         self._queue_event(event)
 
