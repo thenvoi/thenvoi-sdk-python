@@ -78,7 +78,7 @@ class GatewayClient:
             data = response.json()
             return data.get("peers", [])
         except Exception as e:
-            logger.warning(f"Could not fetch peers from gateway: {e}")
+            logger.warning("Could not fetch peers from gateway: %s", e)
             return []
 
     async def discover_peer(self, peer_id: str) -> bool:
@@ -98,7 +98,7 @@ class GatewayClient:
             await resolver.get_agent_card()
             return True
         except Exception as e:
-            logger.debug(f"Peer {peer_id} not available: {e}")
+            logger.debug("Peer %s not available: %s", peer_id, e)
             return False
 
     async def call_peer(
@@ -123,13 +123,13 @@ class GatewayClient:
         peer_url = f"{self.gateway_url}/agents/{peer_id}"
         http_client = await self._get_http_client()
 
-        logger.info(f"Calling peer '{peer_id}' via gateway: {peer_url}")
+        logger.info("Calling peer '%s' via gateway: %s", peer_id, peer_url)
 
         try:
             # Resolve agent card
             resolver = A2ACardResolver(http_client, peer_url)
             card = await resolver.get_agent_card()
-            logger.debug(f"Resolved agent card for peer '{peer_id}': {card.name}")
+            logger.debug("Resolved agent card for peer '%s': %s", peer_id, card.name)
 
             # Create A2A client
             client = A2AClient(http_client, card, url=peer_url)

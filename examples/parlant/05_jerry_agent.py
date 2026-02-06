@@ -67,7 +67,7 @@ async def main() -> None:
         # Add guideline for using tools
         await parlant_agent.create_guideline(
             condition="User sends a message or asks something",
-            action="Respond using send_message with the user's name in mentions. Stay in character as Jerry the mouse.",
+            action="Respond using thenvoi_send_message with the user's name in mentions. Stay in character as Jerry the mouse.",
             tools=parlant_tools,
         )
 

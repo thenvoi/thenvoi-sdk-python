@@ -46,6 +46,7 @@ Then external agents can connect:
 """
 
 import asyncio
+import logging
 import os
 
 from dotenv import load_dotenv
@@ -56,6 +57,7 @@ from thenvoi.adapters import A2AGatewayAdapter
 from thenvoi.config import load_agent_config
 
 setup_logging()
+logger = logging.getLogger(__name__)
 
 
 async def main():
@@ -100,12 +102,13 @@ async def main():
         rest_url=rest_url,
     )
 
-    print(f"Starting A2A Gateway on {gateway_url}...")
-    print("Peers will be exposed at:")
-    print(f"  - {gateway_url}/agents/{{peer_id}}/.well-known/agent.json (discovery)")
-    print(f"  - {gateway_url}/agents/{{peer_id}}/v1/message:stream (messaging)")
-    print()
-    print("Waiting for peers to be discovered...")
+    logger.info("Starting A2A Gateway on %s...", gateway_url)
+    logger.info("Peers will be exposed at:")
+    logger.info(
+        "  - %s/agents/{peer_id}/.well-known/agent.json (discovery)", gateway_url
+    )
+    logger.info("  - %s/agents/{peer_id}/v1/message:stream (messaging)", gateway_url)
+    logger.info("Waiting for peers to be discovered...")
 
     await agent.run()
 

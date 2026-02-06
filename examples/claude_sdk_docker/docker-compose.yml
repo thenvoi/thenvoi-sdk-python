@@ -1,0 +1,25 @@
+# Build:  docker compose build
+# Run:    docker compose up
+
+x-agent: &agent-base
+  build:
+    context: ../..
+    dockerfile: examples/claude_sdk_docker/Dockerfile
+  image: thenvoi-claude-sdk:latest
+  env_file: ../../.env
+  volumes:
+    - ./:/app/config:ro
+  restart: unless-stopped
+
+services:
+  agent1:
+    <<: *agent-base
+    container_name: thenvoi-agent1
+    environment:
+      AGENT_CONFIG: /app/config/agent1.yaml
+
+  # Add more agents:
+  # agent2:
+  #   <<: *agent-base
+  #   environment:
+  #     AGENT_CONFIG: /app/config/agent2.yaml

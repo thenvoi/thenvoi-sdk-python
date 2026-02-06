@@ -108,7 +108,7 @@ def download_chinook_db():
 
     db_path = "Chinook.db"
     if os.path.exists(db_path):
-        logger.info(f"Database already exists at {db_path}")
+        logger.info("Database already exists at %s", db_path)
         return db_path
 
     logger.info("Downloading Chinook sample database...")
@@ -116,10 +116,10 @@ def download_chinook_db():
 
     try:
         urllib.request.urlretrieve(url, db_path)
-        logger.info(f"Downloaded database to {db_path}")
+        logger.info("Downloaded database to %s", db_path)
         return db_path
     except Exception as e:
-        logger.error(f"Error downloading database: {e}")
+        logger.error("Error downloading database: %s", e)
         logger.info("Creating minimal test database instead...")
 
         # Create minimal test database if download fails
@@ -149,7 +149,7 @@ def download_chinook_db():
 
         conn.commit()
         conn.close()
-        logger.info(f"Created minimal test database at {db_path}")
+        logger.info("Created minimal test database at %s", db_path)
         return db_path
 
 
@@ -181,7 +181,7 @@ if __name__ == "__main__":
         logger.info("=" * 60)
 
         for question in questions:
-            logger.info(f"Question: {question}")
+            logger.info("Question: %s", question)
             logger.info("-" * 60)
 
             result = await sql_agent.ainvoke(
@@ -192,8 +192,8 @@ if __name__ == "__main__":
             # Get the final AI response
             final_message = result["messages"][-1]
             if isinstance(final_message, AIMessage):
-                logger.info(f"Answer: {final_message.content}")
+                logger.info("Answer: %s", final_message.content)
             else:
-                logger.info(f"Response: {final_message}")
+                logger.info("Response: %s", final_message)
 
     asyncio.run(test())

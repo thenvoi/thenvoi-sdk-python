@@ -93,4 +93,4 @@ class ParticipantTracker:
     def mark_sent(self) -> None:
         """Mark current state as sent to LLM."""
         self._last_sent = self._participants.copy()
-        logger.debug(f"Session {self._room_id}: Participants sent to LLM")
+        logger.debug("Session %s: Participants sent to LLM", self._room_id)

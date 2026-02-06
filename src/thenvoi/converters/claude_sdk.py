@@ -65,7 +65,7 @@ class ClaudeSDKHistoryConverter(HistoryConverter[str]):
             if message_type == "text":
                 # Skip own text (redundant with tool results)
                 if role == "assistant" and sender_name == self._agent_name:
-                    logger.debug(f"Skipping own message: {content[:50]}...")
+                    logger.debug("Skipping own message: %s...", content[:50])
                     continue
                 # Include user and other agents' messages
                 if content:

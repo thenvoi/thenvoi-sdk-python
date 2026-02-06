@@ -17,6 +17,7 @@ from thenvoi.runtime.tools import (
     SendEventInput,
     AddParticipantInput,
     LookupPeersInput,
+    get_tool_description,
 )
 
 
@@ -123,13 +124,13 @@ class TestToolModelsRegistry:
     def test_all_tools_registered(self):
         """All expected tools should be in the registry."""
         expected = {
-            "send_message",
-            "send_event",
-            "add_participant",
-            "remove_participant",
-            "lookup_peers",
-            "get_participants",
-            "create_chatroom",
+            "thenvoi_send_message",
+            "thenvoi_send_event",
+            "thenvoi_add_participant",
+            "thenvoi_remove_participant",
+            "thenvoi_lookup_peers",
+            "thenvoi_get_participants",
+            "thenvoi_create_chatroom",
         }
         assert set(TOOL_MODELS.keys()) == expected
 
@@ -145,3 +146,28 @@ class TestToolModelsRegistry:
             assert "properties" in schema or "type" in schema, (
                 f"{name} should generate valid schema"
             )
+
+
+class TestGetToolDescription:
+    """Tests for get_tool_description function."""
+
+    def test_returns_description_for_prefixed_name(self):
+        """Should return description for prefixed tool name."""
+        desc = get_tool_description("thenvoi_send_message")
+        assert desc is not None
+        assert len(desc) > 0
+        assert "Execute" not in desc  # Should be real description, not fallback
+
+    def test_deprecation_warning_for_unprefixed_name(self):
+        """Should emit deprecation warning for unprefixed tool name."""
+        with pytest.warns(DeprecationWarning, match="send_message.*deprecated"):
+            desc = get_tool_description("send_message")
+
+        # Should still return the description
+        assert desc is not None
+        assert len(desc) > 0
+
+    def test_fallback_for_unknown_tool(self):
+        """Should return fallback for unknown tool name."""
+        desc = get_tool_description("unknown_tool")
+        assert desc == "Execute unknown_tool"

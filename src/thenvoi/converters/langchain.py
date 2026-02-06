@@ -70,7 +70,7 @@ class LangChainHistoryConverter(HistoryConverter[LangChainMessages]):
                     event = json.loads(content)
                     pending_tool_calls.append(event)
                 except json.JSONDecodeError:
-                    logger.warning(f"Failed to parse tool_call: {content[:100]}")
+                    logger.warning("Failed to parse tool_call: %s", content[:100])
 
             elif message_type == "tool_result":
                 try:
@@ -108,12 +108,12 @@ class LangChainHistoryConverter(HistoryConverter[LangChainMessages]):
                         ToolMessage(content=str(output), tool_call_id=tool_call_id)
                     )
                 except json.JSONDecodeError:
-                    logger.warning(f"Failed to parse tool_result: {content[:100]}")
+                    logger.warning("Failed to parse tool_result: %s", content[:100])
 
             elif message_type == "text":
                 if role == "assistant" and sender_name == self._agent_name:
                     # Skip only THIS agent's text (redundant with tool calls)
-                    logger.debug(f"Skipping own message: {content[:50]}")
+                    logger.debug("Skipping own message: %s", content[:50])
                 else:
                     # Include user messages AND other agents' messages
                     messages.append(HumanMessage(content=f"[{sender_name}]: {content}"))

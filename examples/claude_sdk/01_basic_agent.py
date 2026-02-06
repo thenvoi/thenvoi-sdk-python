@@ -68,7 +68,7 @@ async def main():
     )
 
     logger.info("Starting Claude SDK agent...")
-    logger.info(f"Agent ID: {agent_id}")
+    logger.info("Agent ID: %s", agent_id)
     logger.info("Press Ctrl+C to stop")
 
     try:

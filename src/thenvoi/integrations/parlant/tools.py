@@ -18,6 +18,7 @@ because Parlant's @p.tool decorator checks annotation types at runtime.
 """
 
 import logging
+import warnings
 from typing import Any, Optional
 
 logger = logging.getLogger(__name__)
@@ -39,7 +40,7 @@ def set_session_tools(session_id: str, tools: Optional[Any]) -> None:
     else:
         _session_tools[session_id] = tools
         _session_message_sent[session_id] = False
-    logger.debug(f"Set tools for session {session_id}: {tools is not None}")
+    logger.debug("Set tools for session %s: %s", session_id, tools is not None)
 
 
 def get_session_tools(session_id: str) -> Optional[Any]:
@@ -54,7 +55,7 @@ def get_session_tools(session_id: str) -> Optional[Any]:
 def mark_message_sent(session_id: str) -> None:
     """Mark that a message was sent via the send_message tool for this session."""
     _session_message_sent[session_id] = True
-    logger.debug(f"Marked message sent for session {session_id}")
+    logger.debug("Marked message sent for session %s", session_id)
 
 
 def was_message_sent(session_id: str) -> bool:
@@ -65,8 +66,6 @@ def was_message_sent(session_id: str) -> bool:
 # Keep old API for backwards compatibility (deprecated)
 def set_current_tools(tools: Optional[Any]) -> None:
     """Deprecated: Use set_session_tools instead."""
-    import warnings
-
     warnings.warn(
         "set_current_tools is deprecated, use set_session_tools instead",
         DeprecationWarning,
@@ -76,8 +75,6 @@ def set_current_tools(tools: Optional[Any]) -> None:
 
 def get_current_tools() -> Optional[Any]:
     """Deprecated: Use get_session_tools instead."""
-    import warnings
-
     warnings.warn(
         "get_current_tools is deprecated, use get_session_tools instead",
         DeprecationWarning,
@@ -104,7 +101,7 @@ def create_parlant_tools() -> list[Any]:
         return []
 
     @p.tool
-    async def send_message(
+    async def thenvoi_send_message(
         context: ToolContext,
         content: str,
         mentions: str,
@@ -140,18 +137,18 @@ def create_parlant_tools() -> list[Any]:
                 logger.warning("[Parlant Tool] send_message: No mentions provided")
                 return ToolResult(data="Error: At least one mention is required")
 
-            logger.info(f"[Parlant Tool] Sending message to: {mention_list}")
+            logger.info("[Parlant Tool] Sending message to: %s", mention_list)
             await tools.send_message(content, mention_list)
             # Mark that we sent a message via the tool (so adapter doesn't duplicate)
             mark_message_sent(context.session_id)
             logger.info("[Parlant Tool] Message sent successfully via tool")
             return ToolResult(data=f"Message sent to {', '.join(mention_list)}")
         except Exception as e:
-            logger.error(f"[Parlant Tool] Error sending message: {e}", exc_info=True)
+            logger.error("[Parlant Tool] Error sending message: %s", e, exc_info=True)
             return ToolResult(data=f"Error sending message: {e}")
 
     @p.tool
-    async def send_event(
+    async def thenvoi_send_event(
         context: ToolContext,
         content: str,
         message_type: str,
@@ -186,14 +183,14 @@ def create_parlant_tools() -> list[Any]:
 
         try:
             await tools.send_event(content, message_type, None)
-            logger.info(f"[Parlant Tool] Event ({message_type}) sent successfully")
+            logger.info("[Parlant Tool] Event (%s) sent successfully", message_type)
             return ToolResult(data=f"Event ({message_type}) sent successfully")
         except Exception as e:
-            logger.error(f"[Parlant Tool] Error sending event: {e}", exc_info=True)
+            logger.error("[Parlant Tool] Error sending event: %s", e, exc_info=True)
             return ToolResult(data=f"Error sending event: {e}")
 
     @p.tool
-    async def add_participant(
+    async def thenvoi_add_participant(
         context: ToolContext,
         name: str,
     ) -> ToolResult:
@@ -225,11 +222,11 @@ def create_parlant_tools() -> list[Any]:
             result = await tools.add_participant(name, "member")
             status = result.get("status", "added")
             if status == "already_in_room":
-                logger.info(f"[Parlant Tool] '{name}' is already in the room")
+                logger.info("[Parlant Tool] '%s' is already in the room", name)
                 return ToolResult(
                     data=f"'{name}' is already in the room - no action needed"
                 )
-            logger.info(f"[Parlant Tool] Successfully added '{name}' to the room")
+            logger.info("[Parlant Tool] Successfully added '%s' to the room", name)
             return ToolResult(data=f"Successfully added '{name}' to the room")
         except Exception as e:
             logger.error(
@@ -238,7 +235,7 @@ def create_parlant_tools() -> list[Any]:
             return ToolResult(data=f"Error adding participant '{name}': {e}")
 
     @p.tool
-    async def remove_participant(
+    async def thenvoi_remove_participant(
         context: ToolContext,
         name: str,
     ) -> ToolResult:
@@ -268,7 +265,7 @@ def create_parlant_tools() -> list[Any]:
 
         try:
             await tools.remove_participant(name)
-            logger.info(f"[Parlant Tool] Successfully removed '{name}' from the room")
+            logger.info("[Parlant Tool] Successfully removed '%s' from the room", name)
             return ToolResult(data=f"Successfully removed '{name}' from the room")
         except Exception as e:
             logger.error(
@@ -278,7 +275,7 @@ def create_parlant_tools() -> list[Any]:
             return ToolResult(data=f"Error removing participant '{name}': {e}")
 
     @p.tool
-    async def lookup_peers(
+    async def thenvoi_lookup_peers(
         context: ToolContext,
     ) -> ToolResult:
         """
@@ -293,7 +290,9 @@ def create_parlant_tools() -> list[Any]:
         Returns:
             List of available agents with their names and descriptions
         """
-        logger.info(f"[Parlant Tool] lookup_peers called: session={context.session_id}")
+        logger.info(
+            "[Parlant Tool] lookup_peers called: session=%s", context.session_id
+        )
         tools = get_session_tools(context.session_id)
         if not tools:
             logger.error(
@@ -304,7 +303,7 @@ def create_parlant_tools() -> list[Any]:
         try:
             # Use defaults - pagination rarely needed for agent lookups
             result = await tools.lookup_peers(page=1, page_size=50)
-            logger.info(f"[Parlant Tool] lookup_peers result: {result}")
+            logger.info("[Parlant Tool] lookup_peers result: %s", result)
             if isinstance(result, dict):
                 peers = result.get("peers", [])
                 metadata = result.get("metadata", {})
@@ -322,11 +321,11 @@ def create_parlant_tools() -> list[Any]:
                 return ToolResult(data="\n".join(lines))
             return ToolResult(data=str(result))
         except Exception as e:
-            logger.error(f"[Parlant Tool] Error looking up peers: {e}", exc_info=True)
+            logger.error("[Parlant Tool] Error looking up peers: %s", e, exc_info=True)
             return ToolResult(data=f"Error looking up peers: {e}")
 
     @p.tool
-    async def get_participants(
+    async def thenvoi_get_participants(
         context: ToolContext,
     ) -> ToolResult:
         """
@@ -350,7 +349,7 @@ def create_parlant_tools() -> list[Any]:
 
         try:
             result = await tools.get_participants()
-            logger.info(f"[Parlant Tool] get_participants result: {result}")
+            logger.info("[Parlant Tool] get_participants result: %s", result)
             if isinstance(result, list):
                 if not result:
                     return ToolResult(data="No participants in the room")
@@ -368,7 +367,7 @@ def create_parlant_tools() -> list[Any]:
             return ToolResult(data=f"Error getting participants: {e}")
 
     @p.tool
-    async def create_chatroom(
+    async def thenvoi_create_chatroom(
         context: ToolContext,
         task_id: str = "",
     ) -> ToolResult:
@@ -394,18 +393,18 @@ def create_parlant_tools() -> list[Any]:
 
         try:
             result = await tools.create_chatroom(task_id if task_id else None)
-            logger.info(f"[Parlant Tool] Created chatroom: {result}")
+            logger.info("[Parlant Tool] Created chatroom: %s", result)
             return ToolResult(data=f"Created new chat room: {result}")
         except Exception as e:
-            logger.error(f"[Parlant Tool] Error creating chatroom: {e}", exc_info=True)
+            logger.error("[Parlant Tool] Error creating chatroom: %s", e, exc_info=True)
             return ToolResult(data=f"Error creating chatroom: {e}")
 
     return [
-        send_message,
-        send_event,
-        add_participant,
-        remove_participant,
-        lookup_peers,
-        get_participants,
-        create_chatroom,
+        thenvoi_send_message,
+        thenvoi_send_event,
+        thenvoi_add_participant,
+        thenvoi_remove_participant,
+        thenvoi_lookup_peers,
+        thenvoi_get_participants,
+        thenvoi_create_chatroom,
     ]

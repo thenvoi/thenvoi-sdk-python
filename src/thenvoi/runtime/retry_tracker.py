@@ -57,4 +57,4 @@ class MessageRetryTracker:
     def mark_permanently_failed(self, msg_id: str) -> None:
         """Explicitly mark message as permanently failed."""
         self._failed.add(msg_id)
-        logger.warning(f"Message {msg_id} marked as permanently failed")
+        logger.warning("Message %s marked as permanently failed", msg_id)

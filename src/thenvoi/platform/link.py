@@ -45,6 +45,9 @@ class ThenvoiLink:
     REST client exposed directly via self.rest for API calls.
 
     Example:
+        import logging
+        logger = logging.getLogger(__name__)
+
         link = ThenvoiLink(agent_id="...", api_key="...")
         await link.connect()
         await link.subscribe_agent_rooms(agent_id)
@@ -52,7 +55,7 @@ class ThenvoiLink:
         async for event in link:
             match event:
                 case MessageEvent(payload=msg):
-                    print(f"Message: {msg.content}")
+                    logger.info("Message: %s", msg.content)
                 case RoomAddedEvent(room_id=rid):
                     await link.subscribe_room(rid)
     """
@@ -182,7 +185,7 @@ class ThenvoiLink:
         )
 
         self._subscribed_rooms.add(room_id)
-        logger.debug(f"Subscribed to room {room_id}")
+        logger.debug("Subscribed to room %s", room_id)
 
     async def unsubscribe_room(self, room_id: str) -> None:
         """
@@ -198,14 +201,16 @@ class ThenvoiLink:
         try:
             await self._ws.leave_chat_room_channel(room_id)
         except Exception as e:
-            logger.warning(f"Error unsubscribing from chat_room:{room_id}: {e}")
+            logger.warning("Error unsubscribing from chat_room:%s: %s", room_id, e)
 
         try:
             await self._ws.leave_room_participants_channel(room_id)
         except Exception as e:
-            logger.warning(f"Error unsubscribing from room_participants:{room_id}: {e}")
+            logger.warning(
+                "Error unsubscribing from room_participants:%s: %s", room_id, e
+            )
 
-        logger.debug(f"Unsubscribed from room {room_id}")
+        logger.debug("Unsubscribed from room %s", room_id)
 
     # --- Event handlers (from ThenvoiAgent, unified into PlatformEvent) ---
 
@@ -309,14 +314,14 @@ class ThenvoiLink:
 
         Tells the server this message is being handled, so /next won't return it.
         """
-        logger.debug(f"Marking message {message_id} as processing")
+        logger.debug("Marking message %s as processing", message_id)
         try:
             await self.rest.agent_api.mark_agent_message_processing(
                 chat_id=room_id,
                 id=message_id,
             )
         except Exception as e:
-            logger.warning(f"Failed to mark message {message_id} as processing: {e}")
+            logger.warning("Failed to mark message %s as processing: %s", message_id, e)
 
     async def mark_processed(self, room_id: str, message_id: str) -> None:
         """
@@ -324,14 +329,14 @@ class ThenvoiLink:
 
         Clears the message from unprocessed queue.
         """
-        logger.debug(f"Marking message {message_id} as processed")
+        logger.debug("Marking message %s as processed", message_id)
         try:
             await self.rest.agent_api.mark_agent_message_processed(
                 chat_id=room_id,
                 id=message_id,
             )
         except Exception as e:
-            logger.warning(f"Failed to mark message {message_id} as processed: {e}")
+            logger.warning("Failed to mark message %s as processed: %s", message_id, e)
 
     async def mark_failed(self, room_id: str, message_id: str, error: str) -> None:
         """
@@ -339,7 +344,7 @@ class ThenvoiLink:
 
         Records the error and may trigger retry logic on the server side.
         """
-        logger.warning(f"Marking message {message_id} as failed: {error}")
+        logger.warning("Marking message %s as failed: %s", message_id, error)
         try:
             await self.rest.agent_api.mark_agent_message_failed(
                 chat_id=room_id,
@@ -347,7 +352,7 @@ class ThenvoiLink:
                 error=error,
             )
         except Exception as e:
-            logger.warning(f"Failed to mark message {message_id} as failed: {e}")
+            logger.warning("Failed to mark message %s as failed: %s", message_id, e)
 
     async def get_next_message(self, room_id: str) -> "PlatformMessage | None":
         """
@@ -362,7 +367,7 @@ class ThenvoiLink:
         from thenvoi_rest.core.api_error import ApiError
         from thenvoi.runtime.types import PlatformMessage
 
-        logger.debug(f"Getting next message for room {room_id}")
+        logger.debug("Getting next message for room %s", room_id)
         try:
             response = await self.rest.agent_api.get_agent_next_message(
                 chat_id=room_id,
@@ -385,10 +390,10 @@ class ThenvoiLink:
         except ApiError as e:
             # 204 No Content means no unprocessed messages - expected
             if e.status_code == 204:
-                logger.debug(f"No unprocessed messages for room {room_id}")
+                logger.debug("No unprocessed messages for room %s", room_id)
                 return None
-            logger.warning(f"Failed to get next message: {e}")
+            logger.warning("Failed to get next message: %s", e)
             return None
         except Exception as e:
-            logger.warning(f"Failed to get next message: {e}")
+            logger.warning("Failed to get next message: %s", e)
             return None

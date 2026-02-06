@@ -161,7 +161,7 @@ class TestBuildParticipantsMessage:
     def test_includes_mention_instruction(self):
         participants = [{"id": "1", "name": "Test", "type": "User"}]
         result = build_participants_message(participants)
-        assert "send_message" in result
+        assert "thenvoi_send_message" in result
         # Instruction now says to use EXACT name, not ID
         assert "EXACT name" in result
 

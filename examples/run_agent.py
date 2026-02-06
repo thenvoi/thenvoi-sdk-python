@@ -156,7 +156,7 @@ async def run_pydantic_ai_agent(
     )
 
     streaming_str = " with execution reporting" if enable_streaming else ""
-    logger.info(f"Starting Pydantic AI agent with model: {model}{streaming_str}")
+    logger.info("Starting Pydantic AI agent with model: %s%s", model, streaming_str)
     await agent.run()
 
 
@@ -188,7 +188,7 @@ async def run_anthropic_agent(
     )
 
     streaming_str = " with execution reporting" if enable_streaming else ""
-    logger.info(f"Starting Anthropic agent with model: {model}{streaming_str}")
+    logger.info("Starting Anthropic agent with model: %s%s", model, streaming_str)
     await agent.run()
 
 
@@ -227,7 +227,7 @@ async def run_claude_sdk_agent(
     if enable_streaming:
         options.append("execution reporting")
     options_str = f" with {', '.join(options)}" if options else ""
-    logger.info(f"Starting Claude SDK agent with model: {model}{options_str}")
+    logger.info("Starting Claude SDK agent with model: %s%s", model, options_str)
     await agent.run()
 
 
@@ -259,7 +259,7 @@ async def run_parlant_agent(
         rest_url=rest_url,
     )
 
-    logger.info(f"Starting Parlant agent with model: {model}")
+    logger.info("Starting Parlant agent with model: %s", model)
     await agent.run()
 
 
@@ -293,7 +293,7 @@ async def run_crewai_agent(
         rest_url=rest_url,
     )
 
-    logger.info(f"Starting CrewAI agent with model: {model}")
+    logger.info("Starting CrewAI agent with model: %s", model)
     await agent.run()
 
 
@@ -327,7 +327,7 @@ async def run_a2a_agent(
         rest_url=rest_url,
     )
 
-    logger.info(f"Starting A2A bridge agent (forwarding to {a2a_url})...")
+    logger.info("Starting A2A bridge agent (forwarding to %s)...", a2a_url)
     await agent.run()
 
 
@@ -435,12 +435,12 @@ async def run_a2a_gateway_agent(
         rest_url=rest_url,
     )
 
-    logger.info(f"Starting A2A Gateway on {gateway_url}...")
+    logger.info("Starting A2A Gateway on %s...", gateway_url)
     logger.info("Peers will be exposed at:")
     logger.info(
-        f"  - {gateway_url}/agents/{{peer_id}}/.well-known/agent.json (discovery)"
+        "  - %s/agents/{peer_id}/.well-known/agent.json (discovery)", gateway_url
     )
-    logger.info(f"  - {gateway_url}/agents/{{peer_id}}/v1/message:stream (messaging)")
+    logger.info("  - %s/agents/{peer_id}/v1/message:stream (messaging)", gateway_url)
     await agent.run()
 
 
@@ -617,10 +617,10 @@ Examples:
     except Exception as e:
         parser.error(f"Failed to load agent config '{args.agent}': {e}")
 
-    logger.info(f"Agent: {args.agent} ({agent_id})")
-    logger.info(f"Example: {args.example}")
-    logger.info(f"REST URL: {rest_url}")
-    logger.info(f"WS URL: {ws_url}")
+    logger.info("Agent: %s (%s)", args.agent, agent_id)
+    logger.info("Example: %s", args.example)
+    logger.info("REST URL: %s", rest_url)
+    logger.info("WS URL: %s", ws_url)
 
     try:
         if args.example == "langgraph":

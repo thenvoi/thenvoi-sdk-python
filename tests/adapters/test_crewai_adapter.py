@@ -256,13 +256,13 @@ class TestOnStarted:
         # Check for required platform tools (don't check exact count to avoid brittleness)
         tool_names = [t.name for t in tools]
         required_tools = [
-            "send_message",
-            "send_event",
-            "add_participant",
-            "remove_participant",
-            "get_participants",
-            "lookup_peers",
-            "create_chatroom",
+            "thenvoi_send_message",
+            "thenvoi_send_event",
+            "thenvoi_add_participant",
+            "thenvoi_remove_participant",
+            "thenvoi_get_participants",
+            "thenvoi_lookup_peers",
+            "thenvoi_create_chatroom",
         ]
         for tool_name in required_tools:
             assert tool_name in tool_names, f"Missing required tool: {tool_name}"
@@ -280,8 +280,8 @@ class TestOnStarted:
         backstory = call_kwargs["backstory"]
 
         assert "Multi-participant chat on Thenvoi platform" in backstory
-        assert "send_message" in backstory
-        assert "lookup_peers" in backstory
+        assert "thenvoi_send_message" in backstory
+        assert "thenvoi_lookup_peers" in backstory
 
 
 class TestOnMessage:
@@ -519,7 +519,7 @@ class TestToolExecution:
 
         call_kwargs = crewai_mocks.Agent.call_args[1]
         tools = call_kwargs["tools"]
-        send_message_tool = next(t for t in tools if t.name == "send_message")
+        send_message_tool = next(t for t in tools if t.name == "thenvoi_send_message")
 
         # Call tool without setting context variable (simulates call outside message handling)
         result = send_message_tool._run(content="Hello!", mentions="[]")
@@ -539,23 +539,23 @@ class TestToolExecution:
         call_kwargs = crewai_mocks.Agent.call_args[1]
         tools = call_kwargs["tools"]
 
-        # send_message should have content and mentions, but NOT room_id
-        send_message = next(t for t in tools if t.name == "send_message")
+        # thenvoi_send_message should have content and mentions, but NOT room_id
+        send_message = next(t for t in tools if t.name == "thenvoi_send_message")
         assert send_message.args_schema is not None
         schema_fields = send_message.args_schema.model_fields
         assert "room_id" not in schema_fields
         assert "content" in schema_fields
         assert "mentions" in schema_fields
 
-        # add_participant should have participant_name and role, but NOT room_id
-        add_participant = next(t for t in tools if t.name == "add_participant")
+        # thenvoi_add_participant should have participant_name and role, but NOT room_id
+        add_participant = next(t for t in tools if t.name == "thenvoi_add_participant")
         schema_fields = add_participant.args_schema.model_fields
         assert "room_id" not in schema_fields
         assert "participant_name" in schema_fields
         assert "role" in schema_fields
 
-        # lookup_peers should have no user-facing parameters (pagination is hardcoded)
-        lookup_peers = next(t for t in tools if t.name == "lookup_peers")
+        # thenvoi_lookup_peers should have no user-facing parameters (pagination is hardcoded)
+        lookup_peers = next(t for t in tools if t.name == "thenvoi_lookup_peers")
         schema_fields = lookup_peers.args_schema.model_fields
         assert "room_id" not in schema_fields
         assert "page" not in schema_fields
@@ -573,7 +573,7 @@ class TestToolExecution:
         call_kwargs = crewai_mocks.Agent.call_args[1]
         tools = call_kwargs["tools"]
 
-        send_event = next(t for t in tools if t.name == "send_event")
+        send_event = next(t for t in tools if t.name == "thenvoi_send_event")
         schema_fields = send_event.args_schema.model_fields
 
         assert "message_type" in schema_fields
@@ -593,7 +593,9 @@ class TestToolExecution:
 
         call_kwargs = crewai_mocks.Agent.call_args[1]
         tools = call_kwargs["tools"]
-        get_participants_tool = next(t for t in tools if t.name == "get_participants")
+        get_participants_tool = next(
+            t for t in tools if t.name == "thenvoi_get_participants"
+        )
 
         with room_context("room-123"):
             result = get_participants_tool._run()
@@ -617,7 +619,9 @@ class TestToolExecution:
 
         call_kwargs = crewai_mocks.Agent.call_args[1]
         tools = call_kwargs["tools"]
-        get_participants_tool = next(t for t in tools if t.name == "get_participants")
+        get_participants_tool = next(
+            t for t in tools if t.name == "thenvoi_get_participants"
+        )
 
         with room_context("room-123"):
             result = get_participants_tool._run()
@@ -648,7 +652,7 @@ class TestExecutionReporting:
 
         call_kwargs = crewai_mocks.Agent.call_args[1]
         tools = call_kwargs["tools"]
-        send_message_tool = next(t for t in tools if t.name == "send_message")
+        send_message_tool = next(t for t in tools if t.name == "thenvoi_send_message")
 
         with room_context("room-123"):
             send_message_tool._run(content="Hello!", mentions="[]")
@@ -763,7 +767,7 @@ class TestMentionsValidator:
 
         call_kwargs = crewai_mocks.Agent.call_args[1]
         tools = call_kwargs["tools"]
-        send_message_tool = next(t for t in tools if t.name == "send_message")
+        send_message_tool = next(t for t in tools if t.name == "thenvoi_send_message")
 
         input_model = send_message_tool.args_schema
 
@@ -783,7 +787,7 @@ class TestMentionsValidator:
 
         call_kwargs = crewai_mocks.Agent.call_args[1]
         tools = call_kwargs["tools"]
-        send_message_tool = next(t for t in tools if t.name == "send_message")
+        send_message_tool = next(t for t in tools if t.name == "thenvoi_send_message")
 
         input_model = send_message_tool.args_schema
 
@@ -806,7 +810,7 @@ class TestMentionsValidator:
 
         call_kwargs = crewai_mocks.Agent.call_args[1]
         tools = call_kwargs["tools"]
-        send_message_tool = next(t for t in tools if t.name == "send_message")
+        send_message_tool = next(t for t in tools if t.name == "thenvoi_send_message")
 
         input_model = send_message_tool.args_schema
 
@@ -836,9 +840,9 @@ class TestPlatformInstructionsConstant:
         instructions = module.PLATFORM_INSTRUCTIONS
 
         assert "Environment" in instructions
-        assert "send_message" in instructions
-        assert "lookup_peers" in instructions
-        assert "add_participant" in instructions
+        assert "thenvoi_send_message" in instructions
+        assert "thenvoi_lookup_peers" in instructions
+        assert "thenvoi_add_participant" in instructions
 
 
 # Custom tool input models for testing
@@ -923,7 +927,7 @@ class TestCustomTools:
 
         # Check that custom tool is included alongside platform tools
         tool_names = [t.name for t in tools]
-        assert "send_message" in tool_names  # Platform tool should exist
+        assert "thenvoi_send_message" in tool_names  # Platform tool should exist
         assert "echo" in tool_names  # Custom tool should exist
 
         # Find the echo tool
@@ -950,7 +954,7 @@ class TestCustomTools:
 
         # Check that both custom tools are included alongside platform tools
         tool_names = [t.name for t in tools]
-        assert "send_message" in tool_names  # Platform tool should exist
+        assert "thenvoi_send_message" in tool_names  # Platform tool should exist
         assert "echo" in tool_names  # Custom tool should exist
         assert "calculator" in tool_names  # Custom tool should exist
 

@@ -170,8 +170,10 @@ class ClaudeSDKAdapter(SimpleAdapter[str]):
         self._session_manager = ClaudeSessionManager(sdk_options)
 
         logger.info(
-            f"Claude SDK adapter started for agent: {agent_name} "
-            f"(model={self.model}, thinking={self.max_thinking_tokens})"
+            "Claude SDK adapter started for agent: %s (model=%s, thinking=%s)",
+            agent_name,
+            self.model,
+            self.max_thinking_tokens,
         )
 
     def _create_mcp_server(self):
@@ -201,8 +203,8 @@ class ClaudeSDKAdapter(SimpleAdapter[str]):
             return adapter._room_tools.get(room_id)
 
         @tool(
-            "send_message",
-            get_tool_description("send_message"),
+            "thenvoi_send_message",
+            get_tool_description("thenvoi_send_message"),
             {
                 "room_id": str,
                 "content": str,
@@ -227,7 +229,7 @@ class ClaudeSDKAdapter(SimpleAdapter[str]):
                     except json.JSONDecodeError:
                         pass
 
-                logger.info(f"[{room_id}] send_message: {content[:100]}...")
+                logger.info("[%s] send_message: %s...", room_id, content[:100])
 
                 tools = _get_tools(room_id)
                 if not tools:
@@ -238,12 +240,12 @@ class ClaudeSDKAdapter(SimpleAdapter[str]):
                 return _make_result({"status": "success", "message": "Message sent"})
 
             except Exception as e:
-                logger.error(f"send_message failed: {e}", exc_info=True)
+                logger.error("send_message failed: %s", e, exc_info=True)
                 return _make_error(str(e))
 
         @tool(
-            "send_event",
-            get_tool_description("send_event"),
+            "thenvoi_send_event",
+            get_tool_description("thenvoi_send_event"),
             {"room_id": str, "content": str, "message_type": str},
         )
         async def send_event(args: dict[str, Any]) -> dict[str, Any]:
@@ -262,12 +264,12 @@ class ClaudeSDKAdapter(SimpleAdapter[str]):
                 return _make_result({"status": "success", "message": "Event sent"})
 
             except Exception as e:
-                logger.error(f"send_event failed: {e}", exc_info=True)
+                logger.error("send_event failed: %s", e, exc_info=True)
                 return _make_error(str(e))
 
         @tool(
-            "add_participant",
-            get_tool_description("add_participant"),
+            "thenvoi_add_participant",
+            get_tool_description("thenvoi_add_participant"),
             {"room_id": str, "name": str, "role": str},
         )
         async def add_participant(args: dict[str, Any]) -> dict[str, Any]:
@@ -292,12 +294,12 @@ class ClaudeSDKAdapter(SimpleAdapter[str]):
                 )
 
             except Exception as e:
-                logger.error(f"add_participant failed: {e}", exc_info=True)
+                logger.error("add_participant failed: %s", e, exc_info=True)
                 return _make_error(str(e))
 
         @tool(
-            "remove_participant",
-            get_tool_description("remove_participant"),
+            "thenvoi_remove_participant",
+            get_tool_description("thenvoi_remove_participant"),
             {"room_id": str, "name": str},
         )
         async def remove_participant(args: dict[str, Any]) -> dict[str, Any]:
@@ -321,12 +323,12 @@ class ClaudeSDKAdapter(SimpleAdapter[str]):
                 )
 
             except Exception as e:
-                logger.error(f"remove_participant failed: {e}", exc_info=True)
+                logger.error("remove_participant failed: %s", e, exc_info=True)
                 return _make_error(str(e))
 
         @tool(
-            "get_participants",
-            get_tool_description("get_participants"),
+            "thenvoi_get_participants",
+            get_tool_description("thenvoi_get_participants"),
             {"room_id": str},
         )
         async def get_participants(args: dict[str, Any]) -> dict[str, Any]:
@@ -349,12 +351,12 @@ class ClaudeSDKAdapter(SimpleAdapter[str]):
                 )
 
             except Exception as e:
-                logger.error(f"get_participants failed: {e}", exc_info=True)
+                logger.error("get_participants failed: %s", e, exc_info=True)
                 return _make_error(str(e))
 
         @tool(
-            "lookup_peers",
-            get_tool_description("lookup_peers"),
+            "thenvoi_lookup_peers",
+            get_tool_description("thenvoi_lookup_peers"),
             {"room_id": str, "page": int, "page_size": int},
         )
         async def lookup_peers(args: dict[str, Any]) -> dict[str, Any]:
@@ -373,12 +375,12 @@ class ClaudeSDKAdapter(SimpleAdapter[str]):
                 return _make_result({"status": "success", **result})
 
             except Exception as e:
-                logger.error(f"lookup_peers failed: {e}", exc_info=True)
+                logger.error("lookup_peers failed: %s", e, exc_info=True)
                 return _make_error(str(e))
 
         @tool(
-            "create_chatroom",
-            get_tool_description("create_chatroom"),
+            "thenvoi_create_chatroom",
+            get_tool_description("thenvoi_create_chatroom"),
             {"room_id": str, "task_id": str},
         )
         async def create_chatroom(args: dict[str, Any]) -> dict[str, Any]:
@@ -457,7 +459,9 @@ class ClaudeSDKAdapter(SimpleAdapter[str]):
                         return _make_result(result)
 
                     except Exception as e:
-                        logger.error(f"Custom tool {name} failed: {e}", exc_info=True)
+                        logger.error(
+                            "Custom tool %s failed: %s", name, e, exc_info=True
+                        )
                         return _make_error(str(e))
 
                 return mcp_wrapper
@@ -469,7 +473,7 @@ class ClaudeSDKAdapter(SimpleAdapter[str]):
             decorated = tool(tool_name, tool_description, mcp_schema)(wrapper)
             all_tools.append(decorated)
 
-            logger.debug(f"Registered custom MCP tool: {tool_name}")
+            logger.debug("Registered custom MCP tool: %s", tool_name)
 
         server = create_sdk_mcp_server(
             name="thenvoi",
@@ -478,8 +482,9 @@ class ClaudeSDKAdapter(SimpleAdapter[str]):
         )
 
         logger.info(
-            f"Thenvoi MCP SDK server created with {len(all_tools)} tools "
-            f"({len(adapter._custom_tools)} custom)"
+            "Thenvoi MCP SDK server created with %s tools (%s custom)",
+            len(all_tools),
+            len(adapter._custom_tools),
         )
 
         return server
@@ -503,7 +508,7 @@ class ClaudeSDKAdapter(SimpleAdapter[str]):
         - Include room_id in the message so Claude can pass it to tools
         - Stream response and log events (tools execute via MCP)
         """
-        logger.debug(f"Handling message {msg.id} in room {room_id}")
+        logger.debug("Handling message %s in room %s", msg.id, room_id)
 
         if not self._session_manager:
             logger.error("Session manager not initialized")
@@ -550,7 +555,7 @@ class ClaudeSDKAdapter(SimpleAdapter[str]):
         # Inject participants message if changed
         if participants_msg:
             messages_to_send.append(f"{room_context}[System]: {participants_msg}")
-            logger.info(f"Room {room_id}: Participants updated")
+            logger.info("Room %s: Participants updated", room_id)
 
         # Add current message with room_id context
         user_message = f"{room_context}{msg.format_for_llm()}"
@@ -572,11 +577,11 @@ class ClaudeSDKAdapter(SimpleAdapter[str]):
             await self._process_response(client, room_id, tools)
 
         except Exception as e:
-            logger.error(f"Error processing message: {e}", exc_info=True)
+            logger.error("Error processing message: %s", e, exc_info=True)
             await self._report_error(tools, str(e))
             raise
 
-        logger.debug(f"Message {msg.id} processed successfully")
+        logger.debug("Message %s processed successfully", msg.id)
 
     # --- Copied from ThenvoiClaudeSDKAgent._process_response ---
     async def _process_response(
@@ -592,7 +597,9 @@ class ClaudeSDKAdapter(SimpleAdapter[str]):
                 for block in sdk_message.content:
                     if isinstance(block, TextBlock):
                         if block.text:
-                            logger.debug(f"Room {room_id}: Text: {block.text[:100]}...")
+                            logger.debug(
+                                "Room %s: Text: %s...", room_id, block.text[:100]
+                            )
 
                     elif isinstance(block, ThinkingBlock):
                         if block.thinking:
@@ -629,7 +636,7 @@ class ClaudeSDKAdapter(SimpleAdapter[str]):
                                     message_type="tool_call",
                                 )
                             except Exception as e:
-                                logger.warning(f"Failed to send tool_call event: {e}")
+                                logger.warning("Failed to send tool_call event: %s", e)
 
                     elif isinstance(block, ToolResultBlock):
                         logger.debug(
@@ -648,7 +655,9 @@ class ClaudeSDKAdapter(SimpleAdapter[str]):
                                     message_type="tool_result",
                                 )
                             except Exception as e:
-                                logger.warning(f"Failed to send tool_result event: {e}")
+                                logger.warning(
+                                    "Failed to send tool_result event: %s", e
+                                )
 
             elif isinstance(sdk_message, ResultMessage):
                 logger.info(
@@ -675,7 +684,7 @@ class ClaudeSDKAdapter(SimpleAdapter[str]):
             del self._session_context[room_id]
         if room_id in self._session_ids:
             del self._session_ids[room_id]
-        logger.debug(f"Room {room_id}: Cleaned up Claude SDK session")
+        logger.debug("Room %s: Cleaned up Claude SDK session", room_id)
 
     # --- Copied from BaseFrameworkAgent._report_error ---
     async def _report_error(self, tools: AgentToolsProtocol, error: str) -> None:

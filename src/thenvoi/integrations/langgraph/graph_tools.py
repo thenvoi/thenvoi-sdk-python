@@ -150,18 +150,19 @@ def graph_as_tool(
         config: RunnableConfig = kwargs.pop("config", {})
         main_thread_id = config.get("configurable", {}).get("thread_id")
 
-        logger.debug(f"[{name}] Invoking subgraph with inputs: {kwargs}")
-        logger.debug(f"[{name}] Main thread_id: {main_thread_id}")
+        logger.debug("[%s] Invoking subgraph with inputs: %s", name, kwargs)
+        logger.debug("[%s] Main thread_id: %s", name, main_thread_id)
 
         # Determine thread_id for subgraph execution
         if isolate_thread:
             invocation_id = uuid.uuid4().hex[:8]
             subgraph_thread = f"subgraph:{name}:{main_thread_id}:{invocation_id}"
-            logger.debug(f"[{name}] Using isolated thread: {subgraph_thread}")
+            logger.debug("[%s] Using isolated thread: %s", name, subgraph_thread)
         else:
             subgraph_thread = main_thread_id
             logger.debug(
-                f"[{name}] Using shared thread_id - subgraph will remember across invocations"
+                "[%s] Using shared thread_id - subgraph will remember across invocations",
+                name,
             )
 
         # Invoke the subgraph - let errors bubble up
@@ -172,8 +173,8 @@ def graph_as_tool(
             {"configurable": {"thread_id": subgraph_thread}},
         )
 
-        logger.debug(f"[{name}] Subgraph execution completed")
-        logger.debug(f"[{name}] Raw result: {result}")
+        logger.debug("[%s] Subgraph execution completed", name)
+        logger.debug("[%s] Raw result: %s", name, result)
 
         # Format the result for the main agent
         # The subgraph returns its entire final state, but the main agent usually

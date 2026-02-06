@@ -116,7 +116,7 @@ def create_thenvoi_mcp_server(agent: Any):
         return [p.get("name", "") for p in participants if p.get("name")]
 
     @tool(
-        "send_message",
+        "thenvoi_send_message",
         "Send a message to the Thenvoi chat room. Use this to respond to users. You MUST use this tool to communicate - text responses without this tool won't reach users.",
         {
             "room_id": str,
@@ -143,7 +143,7 @@ def create_thenvoi_mcp_server(agent: Any):
                 except json.JSONDecodeError:
                     pass
 
-            logger.info(f"[{room_id}] send_message: {content[:100]}...")
+            logger.info("[%s] send_message: %s...", room_id, content[:100])
 
             # Get AgentTools for this room and send message
             tools = _get_tools(room_id)
@@ -165,11 +165,11 @@ def create_thenvoi_mcp_server(agent: Any):
             )
 
         except Exception as e:
-            logger.error(f"send_message failed: {e}", exc_info=True)
+            logger.error("send_message failed: %s", e, exc_info=True)
             return _make_error(str(e))
 
     @tool(
-        "send_event",
+        "thenvoi_send_event",
         "Send an event (thought, tool_call, tool_result, error) to the chat room for transparency.",
         {
             "room_id": str,
@@ -184,7 +184,7 @@ def create_thenvoi_mcp_server(agent: Any):
             content = args.get("content", "")
             message_type = args.get("message_type", "thought")
 
-            logger.debug(f"[{room_id}] send_event: type={message_type}")
+            logger.debug("[%s] send_event: type=%s", room_id, message_type)
 
             tools = _get_tools(room_id)
             await tools.send_event(content, message_type)
@@ -197,12 +197,12 @@ def create_thenvoi_mcp_server(agent: Any):
             )
 
         except Exception as e:
-            logger.error(f"send_event failed: {e}", exc_info=True)
+            logger.error("send_event failed: %s", e, exc_info=True)
             return _make_error(str(e))
 
     @tool(
-        "add_participant",
-        "Add a participant (user or agent) to the chat room by name. Use lookup_peers first to see available participants.",
+        "thenvoi_add_participant",
+        "Add a participant (user or agent) to the chat room by name. Use thenvoi_lookup_peers first to see available participants.",
         {
             "room_id": str,
             "name": str,
@@ -216,7 +216,7 @@ def create_thenvoi_mcp_server(agent: Any):
             name = args.get("name", "")
             role = args.get("role", "member")
 
-            logger.info(f"[{room_id}] add_participant: {name} as {role}")
+            logger.info("[%s] add_participant: %s as %s", room_id, name, role)
 
             tools = _get_tools(room_id)
             result = await tools.add_participant(name, role)
@@ -252,11 +252,11 @@ def create_thenvoi_mcp_server(agent: Any):
             )
 
         except Exception as e:
-            logger.error(f"add_participant failed: {e}", exc_info=True)
+            logger.error("add_participant failed: %s", e, exc_info=True)
             return _make_error(str(e))
 
     @tool(
-        "remove_participant",
+        "thenvoi_remove_participant",
         "Remove a participant from the chat room by name.",
         {
             "room_id": str,
@@ -269,7 +269,7 @@ def create_thenvoi_mcp_server(agent: Any):
             room_id = args.get("room_id", "")
             name = args.get("name", "")
 
-            logger.info(f"[{room_id}] remove_participant: {name}")
+            logger.info("[%s] remove_participant: %s", room_id, name)
 
             tools = _get_tools(room_id)
             result = await tools.remove_participant(name)
@@ -290,11 +290,11 @@ def create_thenvoi_mcp_server(agent: Any):
             )
 
         except Exception as e:
-            logger.error(f"remove_participant failed: {e}", exc_info=True)
+            logger.error("remove_participant failed: %s", e, exc_info=True)
             return _make_error(str(e))
 
     @tool(
-        "get_participants",
+        "thenvoi_get_participants",
         "Get list of participants currently in the chat room.",
         {
             "room_id": str,
@@ -305,7 +305,7 @@ def create_thenvoi_mcp_server(agent: Any):
         try:
             room_id = args.get("room_id", "")
 
-            logger.debug(f"[{room_id}] get_participants")
+            logger.debug("[%s] get_participants", room_id)
 
             tools = _get_tools(room_id)
             participants = await tools.get_participants()
@@ -319,11 +319,11 @@ def create_thenvoi_mcp_server(agent: Any):
             )
 
         except Exception as e:
-            logger.error(f"get_participants failed: {e}", exc_info=True)
+            logger.error("get_participants failed: %s", e, exc_info=True)
             return _make_error(str(e))
 
     @tool(
-        "lookup_peers",
+        "thenvoi_lookup_peers",
         "Look up available users and agents that can be added to the chat room. Returns peers NOT already in the room.",
         {
             "room_id": str,
@@ -353,7 +353,7 @@ def create_thenvoi_mcp_server(agent: Any):
             )
 
         except Exception as e:
-            logger.error(f"lookup_peers failed: {e}", exc_info=True)
+            logger.error("lookup_peers failed: %s", e, exc_info=True)
             return _make_error(str(e))
 
     # Create MCP SDK server with all tools
