@@ -135,7 +135,7 @@ class A2AGatewayAdapter(SimpleAdapter[GatewaySessionState]):
         page_size = 100
 
         while True:
-            response = await self._rest.agent_api.list_agent_peers(
+            response = await self._rest.agent_api_peers.list_agent_peers(
                 page=page,
                 page_size=page_size,
             )
@@ -285,7 +285,7 @@ class A2AGatewayAdapter(SimpleAdapter[GatewaySessionState]):
         # Use peer name for mention
         peer_name = peer.name
 
-        await self._rest.agent_api.create_agent_chat_message(
+        await self._rest.agent_api_messages.create_agent_chat_message(
             chat_id=room_id,
             message=ChatMessageRequest(
                 content=f"@{peer_name} {content}",
@@ -323,13 +323,13 @@ class A2AGatewayAdapter(SimpleAdapter[GatewaySessionState]):
         # New or None context_id → create new room
         if context_id is None or context_id not in self._context_to_room:
             # Create new room via REST
-            response = await self._rest.agent_api.create_agent_chat(
+            response = await self._rest.agent_api_chats.create_agent_chat(
                 chat=ChatRoomRequest()
             )
             room_id = response.data.id
 
             # Add target peer to room
-            await self._rest.agent_api.add_agent_chat_participant(
+            await self._rest.agent_api_participants.add_agent_chat_participant(
                 chat_id=room_id,
                 participant=ParticipantRequest(
                     participant_id=target_peer_id, role="member"
@@ -352,7 +352,7 @@ class A2AGatewayAdapter(SimpleAdapter[GatewaySessionState]):
 
             # Same context, different peer → add to room (multi-agent conversation)
             if target_peer_id not in self._room_participants.get(room_id, set()):
-                await self._rest.agent_api.add_agent_chat_participant(
+                await self._rest.agent_api_participants.add_agent_chat_participant(
                     chat_id=room_id,
                     participant=ParticipantRequest(
                         participant_id=target_peer_id, role="member"
@@ -459,7 +459,7 @@ class A2AGatewayAdapter(SimpleAdapter[GatewaySessionState]):
             room_id: The room ID.
             context_id: The A2A context ID.
         """
-        await self._rest.agent_api.create_agent_chat_event(
+        await self._rest.agent_api_events.create_agent_chat_event(
             chat_id=room_id,
             event=ChatEventRequest(
                 content="A2A gateway context",

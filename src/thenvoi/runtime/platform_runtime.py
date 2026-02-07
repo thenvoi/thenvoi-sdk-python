@@ -161,7 +161,7 @@ class PlatformRuntime:
         if not self._link:
             raise RuntimeError("Link not initialized")
 
-        response = await self._link.rest.agent_api.get_agent_me()
+        response = await self._link.rest.agent_api_identity.get_agent_me()
         if not response.data:
             raise RuntimeError("Failed to fetch agent metadata")
 

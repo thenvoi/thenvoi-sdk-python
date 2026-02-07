@@ -13,7 +13,7 @@ def mock_link():
     """Create mock ThenvoiLink."""
     link = MagicMock()
     link.rest = MagicMock()
-    link.rest.agent_api = MagicMock()
+    link.rest.agent_api_identity = MagicMock()
     link.disconnect = AsyncMock()
     link.run_forever = AsyncMock()
 
@@ -24,7 +24,7 @@ def mock_link():
 
     mock_response = MagicMock()
     mock_response.data = mock_agent
-    link.rest.agent_api.get_agent_me = AsyncMock(return_value=mock_response)
+    link.rest.agent_api_identity.get_agent_me = AsyncMock(return_value=mock_response)
 
     return link
 
@@ -189,7 +189,7 @@ class TestStart:
                 on_execute = AsyncMock()
                 await runtime.start(on_execute=on_execute)
 
-                mock_link.rest.agent_api.get_agent_me.assert_awaited_once()
+                mock_link.rest.agent_api_identity.get_agent_me.assert_awaited_once()
                 assert runtime.agent_name == "TestBot"
                 assert runtime.agent_description == "A test bot"
 
@@ -267,7 +267,7 @@ class TestStart:
     @pytest.mark.asyncio
     async def test_raises_on_missing_metadata(self, mock_link, mock_runtime):
         """Should raise if agent metadata response is empty."""
-        mock_link.rest.agent_api.get_agent_me = AsyncMock(
+        mock_link.rest.agent_api_identity.get_agent_me = AsyncMock(
             return_value=MagicMock(data=None)
         )
 
@@ -290,7 +290,7 @@ class TestStart:
         mock_agent.name = "TestBot"
         mock_agent.description = None
 
-        mock_link.rest.agent_api.get_agent_me = AsyncMock(
+        mock_link.rest.agent_api_identity.get_agent_me = AsyncMock(
             return_value=MagicMock(data=mock_agent)
         )
 

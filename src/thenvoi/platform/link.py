@@ -298,7 +298,7 @@ class ThenvoiLink:
         """
         logger.debug("Marking message %s as processing", message_id)
         try:
-            await self.rest.agent_api.mark_agent_message_processing(
+            await self.rest.agent_api_messages.mark_agent_message_processing(
                 chat_id=room_id,
                 id=message_id,
             )
@@ -313,7 +313,7 @@ class ThenvoiLink:
         """
         logger.debug("Marking message %s as processed", message_id)
         try:
-            await self.rest.agent_api.mark_agent_message_processed(
+            await self.rest.agent_api_messages.mark_agent_message_processed(
                 chat_id=room_id,
                 id=message_id,
             )
@@ -328,7 +328,7 @@ class ThenvoiLink:
         """
         logger.warning("Marking message %s as failed: %s", message_id, error)
         try:
-            await self.rest.agent_api.mark_agent_message_failed(
+            await self.rest.agent_api_messages.mark_agent_message_failed(
                 chat_id=room_id,
                 id=message_id,
                 error=error,
@@ -351,7 +351,7 @@ class ThenvoiLink:
 
         logger.debug("Getting next message for room %s", room_id)
         try:
-            response = await self.rest.agent_api.get_agent_next_message(
+            response = await self.rest.agent_api_messages.get_agent_next_message(
                 chat_id=room_id,
             )
             if response.data is None:

@@ -379,7 +379,7 @@ class ExecutionContext:
             return self._participants
 
         try:
-            response = await self.link.rest.agent_api.list_agent_chat_participants(
+            response = await self.link.rest.agent_api_participants.list_agent_chat_participants(
                 chat_id=self.room_id,
             )
             if response.data:
@@ -429,8 +429,10 @@ class ExecutionContext:
             await self.load_participants()
 
             # Load context from API
-            context_response = await self.link.rest.agent_api.get_agent_chat_context(
-                chat_id=self.room_id,
+            context_response = (
+                await self.link.rest.agent_api_context.get_agent_chat_context(
+                    chat_id=self.room_id,
+                )
             )
 
             messages = []

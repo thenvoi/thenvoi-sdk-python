@@ -31,7 +31,7 @@ class TestFullWorkflow:
         logger.info("STEP 1: Get Agent Identity")
         logger.info("=" * 60)
 
-        response = await api_client.agent_api.get_agent_me()
+        response = await api_client.agent_api_identity.get_agent_me()
         assert response.data is not None, "Agent profile should not be None"
 
         agent = response.data
@@ -51,7 +51,7 @@ class TestFullWorkflow:
         logger.info("STEP 2: List Available Peers")
         logger.info("=" * 60)
 
-        response = await api_client.agent_api.list_agent_peers()
+        response = await api_client.agent_api_peers.list_agent_peers()
         peers = response.data
         assert peers is not None and len(peers) > 0, "Need at least one peer"
         logger.info("Found %s available peers", len(peers))
@@ -77,7 +77,9 @@ class TestFullWorkflow:
         logger.info("STEP 3: Create New Chat")
         logger.info("=" * 60)
 
-        response = await api_client.agent_api.create_agent_chat(chat=ChatRoomRequest())
+        response = await api_client.agent_api_chats.create_agent_chat(
+            chat=ChatRoomRequest()
+        )
         assert response.data is not None, "Created chat should not be None"
 
         chat = response.data
@@ -91,7 +93,7 @@ class TestFullWorkflow:
         logger.info("STEP 4: Get Chat Details")
         logger.info("=" * 60)
 
-        response = await api_client.agent_api.get_agent_chat(id=chat_id)
+        response = await api_client.agent_api_chats.get_agent_chat(id=chat_id)
         assert response.data is not None, "Chat should exist"
         assert response.data.id == chat_id, "Chat ID should match"
         logger.info("Retrieved chat: %s", response.data.title)
@@ -103,7 +105,7 @@ class TestFullWorkflow:
         logger.info("STEP 5: List Chats (verify new chat appears)")
         logger.info("=" * 60)
 
-        response = await api_client.agent_api.list_agent_chats()
+        response = await api_client.agent_api_chats.list_agent_chats()
         chat_ids = [c.id for c in response.data] if response.data else []
         assert chat_id in chat_ids, "New chat should appear in chat list"
         logger.info(
@@ -117,7 +119,9 @@ class TestFullWorkflow:
         logger.info("STEP 6: List Initial Participants")
         logger.info("=" * 60)
 
-        response = await api_client.agent_api.list_agent_chat_participants(chat_id)
+        response = await api_client.agent_api_participants.list_agent_chat_participants(
+            chat_id
+        )
         initial_participants = response.data or []
         logger.info("Initial participants: %s", len(initial_participants))
         for p in initial_participants:
@@ -130,7 +134,7 @@ class TestFullWorkflow:
         logger.info("STEP 7: Add Participant to Chat")
         logger.info("=" * 60)
 
-        await api_client.agent_api.add_agent_chat_participant(
+        await api_client.agent_api_participants.add_agent_chat_participant(
             chat_id,
             participant=ParticipantRequest(participant_id=peer_id, role="member"),
         )
@@ -143,7 +147,9 @@ class TestFullWorkflow:
         logger.info("STEP 8: Verify Participant Added")
         logger.info("=" * 60)
 
-        response = await api_client.agent_api.list_agent_chat_participants(chat_id)
+        response = await api_client.agent_api_participants.list_agent_chat_participants(
+            chat_id
+        )
         participants = response.data or []
         participant_ids = [p.id for p in participants]
         assert peer_id in participant_ids, "Peer should now be a participant"
@@ -163,7 +169,7 @@ class TestFullWorkflow:
         )
         mentions = [Mention(id=peer_id, name=peer_name)]
 
-        response = await api_client.agent_api.create_agent_chat_message(
+        response = await api_client.agent_api_messages.create_agent_chat_message(
             chat_id,
             message=ChatMessageRequest(
                 content=message_content,
@@ -183,7 +189,7 @@ class TestFullWorkflow:
         logger.info("STEP 10: Get Chat Context")
         logger.info("=" * 60)
 
-        response = await api_client.agent_api.get_agent_chat_context(chat_id)
+        response = await api_client.agent_api_context.get_agent_chat_context(chat_id)
         context = response.data or []
         message_ids = [m.id for m in context if hasattr(m, "id")]
         assert message_id in message_ids, "Our message should appear in context"
@@ -197,7 +203,7 @@ class TestFullWorkflow:
         logger.info("=" * 60)
 
         event_content = "Processing the user's request about integration testing..."
-        response = await api_client.agent_api.create_agent_chat_event(
+        response = await api_client.agent_api_events.create_agent_chat_event(
             chat_id,
             event=ChatEventRequest(
                 content=event_content,
@@ -223,7 +229,7 @@ class TestFullWorkflow:
                 "arguments": {"query": "integration test"},
             }
         }
-        response = await api_client.agent_api.create_agent_chat_event(
+        response = await api_client.agent_api_events.create_agent_chat_event(
             chat_id,
             event=ChatEventRequest(
                 content="Calling search_database",
@@ -242,7 +248,7 @@ class TestFullWorkflow:
         logger.info("=" * 60)
 
         result_metadata = {"result": {"found": 5, "items": ["item1", "item2"]}}
-        response = await api_client.agent_api.create_agent_chat_event(
+        response = await api_client.agent_api_events.create_agent_chat_event(
             chat_id,
             event=ChatEventRequest(
                 content="Search completed successfully",
@@ -260,7 +266,9 @@ class TestFullWorkflow:
         logger.info("STEP 14: Mark Message Processing")
         logger.info("=" * 60)
 
-        await api_client.agent_api.mark_agent_message_processing(chat_id, message_id)
+        await api_client.agent_api_messages.mark_agent_message_processing(
+            chat_id, message_id
+        )
         logger.info("Marked message %s as processing", message_id)
 
         # ============================================================
@@ -270,7 +278,9 @@ class TestFullWorkflow:
         logger.info("STEP 15: Mark Message Processed")
         logger.info("=" * 60)
 
-        await api_client.agent_api.mark_agent_message_processed(chat_id, message_id)
+        await api_client.agent_api_messages.mark_agent_message_processed(
+            chat_id, message_id
+        )
         logger.info("Marked message %s as processed", message_id)
 
         # ============================================================
@@ -280,7 +290,9 @@ class TestFullWorkflow:
         logger.info("STEP 16: Verify User Still in Chat")
         logger.info("=" * 60)
 
-        response = await api_client.agent_api.list_agent_chat_participants(chat_id)
+        response = await api_client.agent_api_participants.list_agent_chat_participants(
+            chat_id
+        )
         participants = response.data or []
         participant_ids = [p.id for p in participants]
         assert peer_id in participant_ids, "User should still be a participant"
@@ -310,12 +322,14 @@ class TestMessageFailureLifecycle:
         logger.info("=" * 60)
 
         # Create a chat for this test
-        response = await api_client.agent_api.create_agent_chat(chat=ChatRoomRequest())
+        response = await api_client.agent_api_chats.create_agent_chat(
+            chat=ChatRoomRequest()
+        )
         chat_id = response.data.id
         logger.info("Created test chat: %s", chat_id)
 
         # Get peers and find a User peer to add to the chat
-        response = await api_client.agent_api.list_agent_peers()
+        response = await api_client.agent_api_peers.list_agent_peers()
         peers = response.data or []
         assert len(peers) > 0, "Need at least one peer"
 
@@ -326,14 +340,14 @@ class TestMessageFailureLifecycle:
         peer_id = user_peer.id
         peer_name = user_peer.name
 
-        await api_client.agent_api.add_agent_chat_participant(
+        await api_client.agent_api_participants.add_agent_chat_participant(
             chat_id,
             participant=ParticipantRequest(participant_id=peer_id, role="member"),
         )
         logger.info("Added User peer: %s", peer_name)
 
         # Add descriptive message (triggers auto-title)
-        await api_client.agent_api.create_agent_chat_message(
+        await api_client.agent_api_messages.create_agent_chat_message(
             chat_id,
             message=ChatMessageRequest(
                 content=f"Message failure lifecycle test: @{peer_name} testing mark_message_failed with error message",
@@ -342,7 +356,7 @@ class TestMessageFailureLifecycle:
         )
 
         # Send a message
-        response = await api_client.agent_api.create_agent_chat_message(
+        response = await api_client.agent_api_messages.create_agent_chat_message(
             chat_id,
             message=ChatMessageRequest(
                 content=f"Test message for @{peer_name}",
@@ -353,18 +367,22 @@ class TestMessageFailureLifecycle:
         logger.info("Created message: %s", message_id)
 
         # Mark as processing
-        await api_client.agent_api.mark_agent_message_processing(chat_id, message_id)
+        await api_client.agent_api_messages.mark_agent_message_processing(
+            chat_id, message_id
+        )
         logger.info("Marked as processing")
 
         # Mark as failed
         error_message = "SDK integration test simulated failure"
-        await api_client.agent_api.mark_agent_message_failed(
+        await api_client.agent_api_messages.mark_agent_message_failed(
             chat_id, message_id, error=error_message
         )
         logger.info("Marked as failed with error: %s", error_message)
 
         # Verify User is still in the chat
-        response = await api_client.agent_api.list_agent_chat_participants(chat_id)
+        response = await api_client.agent_api_participants.list_agent_chat_participants(
+            chat_id
+        )
         participants = response.data or []
         participant_ids = [p.id for p in participants]
         assert peer_id in participant_ids, "User should still be a participant"
@@ -377,9 +395,7 @@ class TestMessageFailureLifecycle:
 class TestParticipantOperations:
     """Test participant add/remove operations."""
 
-    async def test_add_and_remove_participant(
-        self, api_client, test_chat, test_peer_id
-    ):
+    async def test_add_and_remove_participant(self, api_client, test_peer_id):
         """Test adding and removing a participant from a chat."""
         logger.info("\n" + "=" * 60)
         logger.info("Testing: Add -> Verify -> Remove -> Verify Cycle")
@@ -390,9 +406,16 @@ class TestParticipantOperations:
 
             pytest.skip("No peer available for testing")
 
+        # Create a fresh chat for this test (avoid conflicts with test_chat fixture)
+        response = await api_client.agent_api_chats.create_agent_chat(
+            chat=ChatRoomRequest()
+        )
+        test_chat = response.data.id
+        logger.info("Created fresh chat: %s", test_chat)
+
         # Step 1: Add participant
         logger.info("\nStep 1: Adding participant...")
-        await api_client.agent_api.add_agent_chat_participant(
+        await api_client.agent_api_participants.add_agent_chat_participant(
             test_chat,
             participant=ParticipantRequest(participant_id=test_peer_id, role="member"),
         )
@@ -400,7 +423,9 @@ class TestParticipantOperations:
 
         # Step 2: Verify participant is present
         logger.info("\nStep 2: Verifying participant is present...")
-        response = await api_client.agent_api.list_agent_chat_participants(test_chat)
+        response = await api_client.agent_api_participants.list_agent_chat_participants(
+            test_chat
+        )
         participants = response.data or []
         participant_ids = [p.id for p in participants]
         assert test_peer_id in participant_ids, "Peer should be in participant list"
@@ -408,14 +433,16 @@ class TestParticipantOperations:
 
         # Step 3: Remove participant
         logger.info("\nStep 3: Removing participant...")
-        await api_client.agent_api.remove_agent_chat_participant(
+        await api_client.agent_api_participants.remove_agent_chat_participant(
             test_chat, test_peer_id
         )
         logger.info("Removed participant")
 
         # Step 4: Verify participant is removed
         logger.info("\nStep 4: Verifying participant is removed...")
-        response = await api_client.agent_api.list_agent_chat_participants(test_chat)
+        response = await api_client.agent_api_participants.list_agent_chat_participants(
+            test_chat
+        )
         participants = response.data or []
         participant_ids = [p.id for p in participants]
         assert test_peer_id not in participant_ids, (

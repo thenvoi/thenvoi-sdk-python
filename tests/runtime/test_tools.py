@@ -20,7 +20,11 @@ from thenvoi.runtime.tools import (
 def mock_rest_client():
     """Mock AsyncRestClient for testing AgentTools."""
     client = MagicMock()
-    client.agent_api = MagicMock()
+    client.agent_api_messages = MagicMock()
+    client.agent_api_events = MagicMock()
+    client.agent_api_participants = MagicMock()
+    client.agent_api_peers = MagicMock()
+    client.agent_api_chats = MagicMock()
 
     # Mock create_agent_chat_message
     message_response = MagicMock()
@@ -30,7 +34,7 @@ def mock_rest_client():
         "content": "Hello",
         "sender_id": "agent-1",
     }
-    client.agent_api.create_agent_chat_message = AsyncMock(
+    client.agent_api_messages.create_agent_chat_message = AsyncMock(
         return_value=message_response
     )
 
@@ -42,14 +46,16 @@ def mock_rest_client():
         "content": "Thinking...",
         "message_type": "thought",
     }
-    client.agent_api.create_agent_chat_event = AsyncMock(return_value=event_response)
+    client.agent_api_events.create_agent_chat_event = AsyncMock(
+        return_value=event_response
+    )
 
     # Mock list_agent_chat_participants
     participant1 = MagicMock()
     participant1.id = "user-1"
     participant1.name = "User One"
     participant1.type = "User"
-    client.agent_api.list_agent_chat_participants = AsyncMock(
+    client.agent_api_participants.list_agent_chat_participants = AsyncMock(
         return_value=MagicMock(data=[participant1])
     )
 
@@ -66,13 +72,13 @@ def mock_rest_client():
     peers_response.metadata.page_size = 50
     peers_response.metadata.total_count = 1
     peers_response.metadata.total_pages = 1
-    client.agent_api.list_agent_peers = AsyncMock(return_value=peers_response)
+    client.agent_api_peers.list_agent_peers = AsyncMock(return_value=peers_response)
 
     # Mock add_agent_chat_participant
-    client.agent_api.add_agent_chat_participant = AsyncMock()
+    client.agent_api_participants.add_agent_chat_participant = AsyncMock()
 
     # Mock remove_agent_chat_participant
-    client.agent_api.remove_agent_chat_participant = AsyncMock()
+    client.agent_api_participants.remove_agent_chat_participant = AsyncMock()
 
     return client
 
@@ -143,7 +149,7 @@ class TestAgentToolsSendMessage:
         result = await tools.send_message("Hello!", mentions=["User One"])
 
         assert result["id"] == "msg-123"
-        mock_rest_client.agent_api.create_agent_chat_message.assert_called_once()
+        mock_rest_client.agent_api_messages.create_agent_chat_message.assert_called_once()
 
     async def test_send_message_resolves_mentions(self, mock_rest_client, participants):
         """send_message() should resolve mention names to IDs."""
@@ -151,7 +157,9 @@ class TestAgentToolsSendMessage:
 
         await tools.send_message("Hello @User One!", mentions=["User One"])
 
-        call_args = mock_rest_client.agent_api.create_agent_chat_message.call_args
+        call_args = (
+            mock_rest_client.agent_api_messages.create_agent_chat_message.call_args
+        )
         message = call_args.kwargs["message"]
         assert len(message.mentions) == 1
         assert message.mentions[0].id == "user-1"
@@ -170,8 +178,8 @@ class TestAgentToolsSendMessage:
         self, mock_rest_client, participants
     ):
         """send_message() should raise if no response data."""
-        mock_rest_client.agent_api.create_agent_chat_message.return_value = MagicMock(
-            data=None
+        mock_rest_client.agent_api_messages.create_agent_chat_message.return_value = (
+            MagicMock(data=None)
         )
         tools = AgentTools("room-123", mock_rest_client, participants)
 
@@ -189,7 +197,7 @@ class TestAgentToolsSendEvent:
         result = await tools.send_event("Thinking...", "thought")
 
         assert result["message_type"] == "thought"
-        mock_rest_client.agent_api.create_agent_chat_event.assert_called_once()
+        mock_rest_client.agent_api_events.create_agent_chat_event.assert_called_once()
 
     async def test_send_event_with_metadata(self, mock_rest_client):
         """send_event() should pass metadata."""
@@ -197,14 +205,14 @@ class TestAgentToolsSendEvent:
 
         await tools.send_event("Error!", "error", metadata={"code": 500})
 
-        call_args = mock_rest_client.agent_api.create_agent_chat_event.call_args
+        call_args = mock_rest_client.agent_api_events.create_agent_chat_event.call_args
         event = call_args.kwargs["event"]
         assert event.metadata == {"code": 500}
 
     async def test_send_event_no_response_raises(self, mock_rest_client):
         """send_event() should raise if no response data."""
-        mock_rest_client.agent_api.create_agent_chat_event.return_value = MagicMock(
-            data=None
+        mock_rest_client.agent_api_events.create_agent_chat_event.return_value = (
+            MagicMock(data=None)
         )
         tools = AgentTools("room-123", mock_rest_client)
 
@@ -225,12 +233,12 @@ class TestAgentToolsAddParticipant:
         assert result["name"] == "Agent Two"
         assert result["role"] == "member"
         assert result["status"] == "added"
-        mock_rest_client.agent_api.add_agent_chat_participant.assert_called_once()
+        mock_rest_client.agent_api_participants.add_agent_chat_participant.assert_called_once()
 
     async def test_add_participant_not_found_raises(self, mock_rest_client):
         """add_participant() should raise if peer not found."""
         # Return empty peers
-        mock_rest_client.agent_api.list_agent_peers.return_value = MagicMock(
+        mock_rest_client.agent_api_peers.list_agent_peers.return_value = MagicMock(
             data=[], metadata=MagicMock(total_pages=1)
         )
         tools = AgentTools("room-123", mock_rest_client)
@@ -251,13 +259,13 @@ class TestAgentToolsRemoveParticipant:
         assert result["id"] == "user-1"
         assert result["name"] == "User One"
         assert result["status"] == "removed"
-        mock_rest_client.agent_api.remove_agent_chat_participant.assert_called_once()
+        mock_rest_client.agent_api_participants.remove_agent_chat_participant.assert_called_once()
 
     async def test_remove_participant_not_found_raises(self, mock_rest_client):
         """remove_participant() should raise if not in room."""
         # Return empty participants
-        mock_rest_client.agent_api.list_agent_chat_participants.return_value = (
-            MagicMock(data=[])
+        mock_rest_client.agent_api_participants.list_agent_chat_participants.return_value = MagicMock(
+            data=[]
         )
         tools = AgentTools("room-123", mock_rest_client)
 
@@ -284,7 +292,7 @@ class TestAgentToolsLookupPeers:
 
         await tools.lookup_peers()
 
-        call_args = mock_rest_client.agent_api.list_agent_peers.call_args
+        call_args = mock_rest_client.agent_api_peers.list_agent_peers.call_args
         assert call_args.kwargs["not_in_chat"] == "room-123"
 
 
@@ -302,8 +310,8 @@ class TestAgentToolsGetParticipants:
 
     async def test_get_participants_empty(self, mock_rest_client):
         """get_participants() should return empty list if none."""
-        mock_rest_client.agent_api.list_agent_chat_participants.return_value = (
-            MagicMock(data=None)
+        mock_rest_client.agent_api_participants.list_agent_chat_participants.return_value = MagicMock(
+            data=None
         )
         tools = AgentTools("room-123", mock_rest_client)
 
@@ -319,7 +327,7 @@ class TestAgentToolsCreateChatroom:
         """create_chatroom() should call REST API and return room ID."""
         mock_response = Mock()
         mock_response.data.id = "room-123"
-        mock_rest_client.agent_api.create_agent_chat = AsyncMock(
+        mock_rest_client.agent_api_chats.create_agent_chat = AsyncMock(
             return_value=mock_response
         )
 
@@ -327,13 +335,13 @@ class TestAgentToolsCreateChatroom:
         result = await tools.create_chatroom(task_id="task-789")
 
         assert result == "room-123"
-        mock_rest_client.agent_api.create_agent_chat.assert_called_once()
+        mock_rest_client.agent_api_chats.create_agent_chat.assert_called_once()
 
     async def test_create_chatroom_without_task_id(self, mock_rest_client):
         """create_chatroom() should work without task_id."""
         mock_response = Mock()
         mock_response.data.id = "room-abc"
-        mock_rest_client.agent_api.create_agent_chat = AsyncMock(
+        mock_rest_client.agent_api_chats.create_agent_chat = AsyncMock(
             return_value=mock_response
         )
 
@@ -450,8 +458,8 @@ class TestAgentToolsExecuteToolCall:
 
     async def test_execute_runtime_error(self, mock_rest_client, participants):
         """execute_tool_call() should return execution error."""
-        mock_rest_client.agent_api.create_agent_chat_message.side_effect = Exception(
-            "Network error"
+        mock_rest_client.agent_api_messages.create_agent_chat_message.side_effect = (
+            Exception("Network error")
         )
         tools = AgentTools("room-123", mock_rest_client, participants)
 

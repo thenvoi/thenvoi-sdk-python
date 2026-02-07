@@ -47,8 +47,11 @@ def make_peer(peer_id: str, name: str, description: str = "") -> Peer:
     return Peer(
         id=peer_id,
         name=name,
-        type="agent",
+        type="Agent",
         description=description,
+        handle=name.lower().replace(" ", "-"),
+        is_contact=False,
+        source="registry",
     )
 
 
@@ -122,7 +125,9 @@ class TestA2AGatewayAdapterOnStarted:
             make_peer("weather", "Weather Agent"),
             make_peer("servicenow", "ServiceNow Agent"),
         ]
-        adapter._rest.agent_api.list_agent_peers = AsyncMock(return_value=mock_response)
+        adapter._rest.agent_api_peers.list_agent_peers = AsyncMock(
+            return_value=mock_response
+        )
 
         # Mock server
         with patch(
@@ -150,7 +155,9 @@ class TestA2AGatewayAdapterOnStarted:
         # Mock REST client
         mock_response = MagicMock()
         mock_response.data = [make_peer("weather", "Weather Agent")]
-        adapter._rest.agent_api.list_agent_peers = AsyncMock(return_value=mock_response)
+        adapter._rest.agent_api_peers.list_agent_peers = AsyncMock(
+            return_value=mock_response
+        )
 
         # Mock server
         with patch(
@@ -174,7 +181,9 @@ class TestA2AGatewayAdapterOnStarted:
         # Mock REST client
         mock_response = MagicMock()
         mock_response.data = []
-        adapter._rest.agent_api.list_agent_peers = AsyncMock(return_value=mock_response)
+        adapter._rest.agent_api_peers.list_agent_peers = AsyncMock(
+            return_value=mock_response
+        )
 
         # Mock server
         with patch(
@@ -198,10 +207,10 @@ class TestA2AGatewayAdapterOnMessage:
         """Create adapter with mocked dependencies."""
         adapter = A2AGatewayAdapter()
         adapter._peers = {"weather": make_peer("weather", "Weather Agent")}
-        adapter._rest.agent_api.create_agent_chat = AsyncMock()
-        adapter._rest.agent_api.add_agent_chat_participant = AsyncMock()
-        adapter._rest.agent_api.create_agent_chat_message = AsyncMock()
-        adapter._rest.agent_api.create_agent_chat_event = AsyncMock()
+        adapter._rest.agent_api_chats.create_agent_chat = AsyncMock()
+        adapter._rest.agent_api_participants.add_agent_chat_participant = AsyncMock()
+        adapter._rest.agent_api_messages.create_agent_chat_message = AsyncMock()
+        adapter._rest.agent_api_events.create_agent_chat_event = AsyncMock()
         return adapter
 
     @pytest.mark.asyncio
@@ -324,10 +333,10 @@ class TestA2AGatewayAdapterRoomManagement:
         mock_chat_response = MagicMock()
         mock_chat_response.data = MagicMock()
         mock_chat_response.data.id = "new-room-123"
-        adapter._rest.agent_api.create_agent_chat = AsyncMock(
+        adapter._rest.agent_api_chats.create_agent_chat = AsyncMock(
             return_value=mock_chat_response
         )
-        adapter._rest.agent_api.add_agent_chat_participant = AsyncMock()
+        adapter._rest.agent_api_participants.add_agent_chat_participant = AsyncMock()
         return adapter
 
     @pytest.mark.asyncio
@@ -345,8 +354,8 @@ class TestA2AGatewayAdapterRoomManagement:
         assert "weather" in adapter_with_mocks._room_participants[room_id]
 
         # REST calls should be made
-        adapter_with_mocks._rest.agent_api.create_agent_chat.assert_called_once()
-        adapter_with_mocks._rest.agent_api.add_agent_chat_participant.assert_called_once()
+        adapter_with_mocks._rest.agent_api_chats.create_agent_chat.assert_called_once()
+        adapter_with_mocks._rest.agent_api_participants.add_agent_chat_participant.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_get_or_create_room_existing_context(
@@ -365,7 +374,7 @@ class TestA2AGatewayAdapterRoomManagement:
         assert context_id == "existing-ctx"
 
         # No new room should be created
-        adapter_with_mocks._rest.agent_api.create_agent_chat.assert_not_called()
+        adapter_with_mocks._rest.agent_api_chats.create_agent_chat.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_get_or_create_room_adds_new_participant(
@@ -384,8 +393,8 @@ class TestA2AGatewayAdapterRoomManagement:
         assert "weather" in adapter_with_mocks._room_participants["room-1"]
 
         # Should add participant but not create room
-        adapter_with_mocks._rest.agent_api.create_agent_chat.assert_not_called()
-        adapter_with_mocks._rest.agent_api.add_agent_chat_participant.assert_called_once()
+        adapter_with_mocks._rest.agent_api_chats.create_agent_chat.assert_not_called()
+        adapter_with_mocks._rest.agent_api_participants.add_agent_chat_participant.assert_called_once()
 
 
 class TestA2AGatewayAdapterRehydration:
@@ -571,10 +580,10 @@ class TestGatewayContextIdRoomMapping:
             mock_response.data.id = room_id
             return mock_response
 
-        adapter._rest.agent_api.create_agent_chat = AsyncMock(
+        adapter._rest.agent_api_chats.create_agent_chat = AsyncMock(
             side_effect=create_room_side_effect
         )
-        adapter._rest.agent_api.add_agent_chat_participant = AsyncMock()
+        adapter._rest.agent_api_participants.add_agent_chat_participant = AsyncMock()
         adapter._rooms_created = rooms_created  # Expose for assertions
         return adapter
 
@@ -587,11 +596,15 @@ class TestGatewayContextIdRoomMapping:
 
         # First request with context_id
         room_id_1, ctx_1 = await adapter._get_or_create_room("ctx-user-123", "weather")
-        create_calls_after_first = adapter._rest.agent_api.create_agent_chat.call_count
+        create_calls_after_first = (
+            adapter._rest.agent_api_chats.create_agent_chat.call_count
+        )
 
         # Second request with SAME context_id
         room_id_2, ctx_2 = await adapter._get_or_create_room("ctx-user-123", "weather")
-        create_calls_after_second = adapter._rest.agent_api.create_agent_chat.call_count
+        create_calls_after_second = (
+            adapter._rest.agent_api_chats.create_agent_chat.call_count
+        )
 
         # Same room, same context
         assert room_id_1 == room_id_2
@@ -615,7 +628,7 @@ class TestGatewayContextIdRoomMapping:
         assert ctx_1 == "ctx-first"
         assert ctx_2 == "ctx-second"
         # Created twice
-        assert adapter._rest.agent_api.create_agent_chat.call_count == 2
+        assert adapter._rest.agent_api_chats.create_agent_chat.call_count == 2
 
     @pytest.mark.asyncio
     async def test_same_context_different_peers_same_room(
@@ -634,5 +647,8 @@ class TestGatewayContextIdRoomMapping:
         assert "weather" in adapter._room_participants[room_id_1]
         assert "data" in adapter._room_participants[room_id_1]
         # Room created once, but participant added twice
-        assert adapter._rest.agent_api.create_agent_chat.call_count == 1
-        assert adapter._rest.agent_api.add_agent_chat_participant.call_count == 2
+        assert adapter._rest.agent_api_chats.create_agent_chat.call_count == 1
+        assert (
+            adapter._rest.agent_api_participants.add_agent_chat_participant.call_count
+            == 2
+        )

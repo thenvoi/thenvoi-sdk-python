@@ -256,7 +256,7 @@ class RoomPresence:
         logger.debug("Subscribing to existing rooms")
 
         try:
-            response = await self.link.rest.agent_api.list_agent_chats()
+            response = await self.link.rest.agent_api_chats.list_agent_chats()
             if not response.data:
                 return
 

@@ -44,31 +44,33 @@ class TestWebSocketNotifications:
         logger.info("=" * 60)
 
         # Get Agent 1 info (receiver, will subscribe to WebSocket)
-        response = await api_client.agent_api.get_agent_me()
+        response = await api_client.agent_api_identity.get_agent_me()
         agent1_id = response.data.id
         agent1_name = response.data.name
         logger.info("Agent 1 (receiver): %s (ID: %s)", agent1_name, agent1_id)
 
         # Get Agent 2 info (sender)
-        response = await api_client_2.agent_api.get_agent_me()
+        response = await api_client_2.agent_api_identity.get_agent_me()
         agent2_id = response.data.id
         agent2_name = response.data.name
         logger.info("Agent 2 (sender): %s (ID: %s)", agent2_name, agent2_id)
 
         # Agent 1 creates a chat
-        response = await api_client.agent_api.create_agent_chat(chat=ChatRoomRequest())
+        response = await api_client.agent_api_chats.create_agent_chat(
+            chat=ChatRoomRequest()
+        )
         chat_id = response.data.id
         logger.info("Created chat: %s", chat_id)
 
         # Add Agent 2 to the chat
-        await api_client.agent_api.add_agent_chat_participant(
+        await api_client.agent_api_participants.add_agent_chat_participant(
             chat_id,
             participant=ParticipantRequest(participant_id=agent2_id, role="member"),
         )
         logger.info("Added Agent 2 to chat: %s", agent2_name)
 
         # Add descriptive message (triggers auto-title)
-        await api_client.agent_api.create_agent_chat_message(
+        await api_client.agent_api_messages.create_agent_chat_message(
             chat_id,
             message=ChatMessageRequest(
                 content=f"WebSocket multi-agent test: @{agent2_name} testing message_created notification when @mentioned by another agent",
@@ -101,7 +103,7 @@ class TestWebSocketNotifications:
 
             # Agent 2 sends a message @mentioning Agent 1
             message_content = f"Hello @{agent1_name}, WebSocket multi-agent test!"
-            response = await api_client_2.agent_api.create_agent_chat_message(
+            response = await api_client_2.agent_api_messages.create_agent_chat_message(
                 chat_id,
                 message=ChatMessageRequest(
                     content=message_content,
@@ -130,7 +132,13 @@ class TestWebSocketNotifications:
         assert our_message is not None, (
             f"Agent 1 should have received message {sent_message_id}"
         )
-        assert our_message.content == message_content
+        # Server stores mentions as @[[uuid]] format, so check for the text portion
+        # Expected formats:
+        #   - "Hello @AR-2 Darter, WebSocket multi-agent test!" (client sends)
+        #   - "Hello @[[uuid]], WebSocket multi-agent test!" (server stores)
+        assert "WebSocket multi-agent test!" in our_message.content, (
+            f"Message should contain expected text, got: {our_message.content}"
+        )
         assert our_message.chat_room_id == chat_id
         logger.info("Verified message content: '%s...'", our_message.content[:50])
 
@@ -144,7 +152,7 @@ class TestWebSocketNotifications:
         logger.info("=" * 60)
 
         # Get agent info
-        response = await api_client.agent_api.get_agent_me()
+        response = await api_client.agent_api_identity.get_agent_me()
         agent_id = response.data.id
         agent_name = response.data.name
         logger.info("Agent: %s (ID: %s)", agent_name, agent_id)
@@ -178,17 +186,17 @@ class TestWebSocketNotifications:
             await asyncio.sleep(0.2)
 
             # Create a new chat via REST API (agent is automatically owner)
-            response = await api_client.agent_api.create_agent_chat(
+            response = await api_client.agent_api_chats.create_agent_chat(
                 chat=ChatRoomRequest()
             )
             created_chat_id = response.data.id
             logger.info("Created chat via REST: %s", created_chat_id)
 
             # Get a peer to add to the room so we can send a descriptive message
-            peers_response = await api_client.agent_api.list_agent_peers()
+            peers_response = await api_client.agent_api_peers.list_agent_peers()
             if peers_response.data:
                 peer = peers_response.data[0]
-                await api_client.agent_api.add_agent_chat_participant(
+                await api_client.agent_api_participants.add_agent_chat_participant(
                     created_chat_id,
                     participant=ParticipantRequest(
                         participant_id=peer.id, role="member"
@@ -196,7 +204,7 @@ class TestWebSocketNotifications:
                 )
 
                 # Add descriptive message (triggers auto-title)
-                await api_client.agent_api.create_agent_chat_message(
+                await api_client.agent_api_messages.create_agent_chat_message(
                     created_chat_id,
                     message=ChatMessageRequest(
                         content=f"WebSocket room_added test: @{peer.name} testing that agent receives room_added notification",

@@ -245,7 +245,7 @@ class AgentTools(AgentToolsProtocol):
             for m in resolved_mentions
         ]
 
-        response = await self.rest.agent_api.create_agent_chat_message(
+        response = await self.rest.agent_api_messages.create_agent_chat_message(
             chat_id=self.room_id,
             message=ChatMessageRequest(content=content, mentions=mention_items),
         )
@@ -276,7 +276,7 @@ class AgentTools(AgentToolsProtocol):
 
         logger.debug("Sending %s event to room %s", message_type, self.room_id)
 
-        response = await self.rest.agent_api.create_agent_chat_event(
+        response = await self.rest.agent_api_events.create_agent_chat_event(
             chat_id=self.room_id,
             event=ChatEventRequest(
                 content=content,
@@ -299,7 +299,7 @@ class AgentTools(AgentToolsProtocol):
             Room ID of the created room
         """
         logger.debug("Creating chatroom with task_id=%s", task_id)
-        response = await self.rest.agent_api.create_agent_chat(
+        response = await self.rest.agent_api_chats.create_agent_chat(
             chat=ChatRoomRequest(task_id=task_id)
         )
         return response.data.id
@@ -346,7 +346,7 @@ class AgentTools(AgentToolsProtocol):
         participant_id = participant["id"]
         logger.debug("Resolved '%s' to ID: %s", name, participant_id)
 
-        await self.rest.agent_api.add_agent_chat_participant(
+        await self.rest.agent_api_participants.add_agent_chat_participant(
             chat_id=self.room_id,
             participant=ParticipantRequest(participant_id=participant_id, role=role),
         )
@@ -400,7 +400,7 @@ class AgentTools(AgentToolsProtocol):
         participant_id = participant["id"]
         logger.debug("Resolved '%s' to ID: %s", name, participant_id)
 
-        await self.rest.agent_api.remove_agent_chat_participant(
+        await self.rest.agent_api_participants.remove_agent_chat_participant(
             self.room_id,
             participant_id,
         )
@@ -435,7 +435,7 @@ class AgentTools(AgentToolsProtocol):
             Dict with 'peers' list and 'metadata' (page, page_size, total_count, total_pages)
         """
         logger.debug("Looking up peers: page=%s, page_size=%s", page, page_size)
-        response = await self.rest.agent_api.list_agent_peers(
+        response = await self.rest.agent_api_peers.list_agent_peers(
             page=page,
             page_size=page_size,
             not_in_chat=self.room_id,
@@ -474,7 +474,7 @@ class AgentTools(AgentToolsProtocol):
             List of participant information dictionaries
         """
         logger.debug("Getting participants for room %s", self.room_id)
-        response = await self.rest.agent_api.list_agent_chat_participants(
+        response = await self.rest.agent_api_participants.list_agent_chat_participants(
             chat_id=self.room_id,
         )
         if not response.data:
