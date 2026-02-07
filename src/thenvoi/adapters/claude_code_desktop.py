@@ -44,7 +44,7 @@ class ClaudeCodeDesktopAdapter(SimpleAdapter[str]):
     Claude Code Desktop adapter using SimpleAdapter pattern.
 
     Uses Claude Code CLI as a subprocess for LLM interactions.
-    The CLI is invoked with --print --output-format json for non-interactive use.
+    The CLI is invoked with --print --output-format stream-json for non-interactive use.
 
     Session Management:
     - First message in a room: Uses --no-session-persistence (new session)
@@ -67,6 +67,7 @@ class ClaudeCodeDesktopAdapter(SimpleAdapter[str]):
         cli_path: str | None = None,
         cli_timeout: int = 120000,
         history_converter: ClaudeSDKHistoryConverter | None = None,
+        allowed_tools: list[str] | None = None,
     ):
         """
         Initialize adapter.
@@ -77,6 +78,9 @@ class ClaudeCodeDesktopAdapter(SimpleAdapter[str]):
                      env var or searches PATH.
             cli_timeout: CLI invocation timeout in milliseconds (default: 2 minutes).
             history_converter: Optional history converter. Defaults to ClaudeSDKHistoryConverter.
+            allowed_tools: Optional list of Claude Code tools to enable (e.g.
+                          ["Read", "Write", "Edit"]). When set, these tools are
+                          auto-approved via --allowedTools. Default: None (no tools).
         """
         super().__init__(
             history_converter=history_converter or ClaudeSDKHistoryConverter()
@@ -85,6 +89,7 @@ class ClaudeCodeDesktopAdapter(SimpleAdapter[str]):
         self.custom_section = custom_section
         self.cli_path = cli_path
         self.cli_timeout = cli_timeout
+        self.allowed_tools = allowed_tools or []
 
         # Per-room session IDs (for CLI session resume)
         self._session_ids: dict[str, str] = {}
@@ -152,7 +157,10 @@ class ClaudeCodeDesktopAdapter(SimpleAdapter[str]):
             List of command arguments
         """
         cli_path = self._get_cli_path()
-        cmd = [cli_path, "--print", "--output-format", "json"]
+        cmd = [cli_path, "--print", "--output-format", "stream-json", "--verbose"]
+
+        if self.allowed_tools:
+            cmd.extend(["--allowedTools", ",".join(self.allowed_tools)])
 
         if session_id:
             cmd.extend(["--resume", session_id])
@@ -164,23 +172,61 @@ class ClaudeCodeDesktopAdapter(SimpleAdapter[str]):
 
     def _parse_cli_response(self, output: str) -> dict[str, Any]:
         """
-        Parse JSON response from CLI.
+        Parse stream-json (NDJSON) response from CLI.
+
+        The stream-json format emits one JSON object per line. We look for
+        the ``type=result`` line which contains session_id, cost, and the
+        final result text. Tool-use blocks from ``type=assistant`` lines are
+        logged for visibility.
+
+        Falls back to single-JSON parsing for backward compatibility.
 
         Args:
-            output: Raw JSON output from CLI
+            output: Raw NDJSON output from CLI
 
         Returns:
             Parsed response dict with at least 'result' key
         """
-        try:
-            data = json.loads(output)
-            return data
-        except json.JSONDecodeError as e:
-            logger.error(f"Failed to parse CLI response: {e}")
-            return {
-                "result": output,
-                "is_error": True,
-            }
+        result_data: dict[str, Any] = {}
+        tool_calls: list[dict[str, Any]] = []
+
+        for line in output.strip().split("\n"):
+            if not line.strip():
+                continue
+            try:
+                data = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+
+            msg_type = data.get("type")
+
+            if msg_type == "result":
+                # Final result line - has session_id, cost, result text
+                result_data = data
+
+            elif msg_type == "assistant":
+                # Capture tool calls for logging
+                message = data.get("message", {})
+                for block in message.get("content", []):
+                    if block.get("type") == "tool_use":
+                        tool_calls.append({
+                            "tool": block.get("name"),
+                            "input": block.get("input"),
+                        })
+
+        if not result_data:
+            # Fallback: try parsing entire output as single JSON (backward compat)
+            try:
+                result_data = json.loads(output)
+            except json.JSONDecodeError:
+                logger.error("Failed to parse CLI response as JSON or NDJSON")
+                return {"result": output, "is_error": True}
+
+        # Log tool calls for visibility
+        if tool_calls:
+            logger.info(f"Tools used: {[tc['tool'] for tc in tool_calls]}")
+
+        return result_data
 
     def _generate_prompt(
         self,
