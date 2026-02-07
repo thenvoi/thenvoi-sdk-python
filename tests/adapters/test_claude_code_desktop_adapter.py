@@ -52,6 +52,7 @@ class TestClaudeCodeDesktopInitialization:
         assert adapter.cli_path is None  # Auto-detect from PATH or env var
         assert adapter.cli_timeout == 120000  # 2 minutes default
         assert adapter._session_ids == {}
+        assert adapter.allowed_tools == []
 
     def test_custom_initialization(self):
         """Should accept custom parameters."""
@@ -64,6 +65,20 @@ class TestClaudeCodeDesktopInitialization:
         assert adapter.custom_section == "Be helpful."
         assert adapter.cli_path == "/custom/path/to/claude"
         assert adapter.cli_timeout == 60000
+
+    def test_initialization_with_allowed_tools(self):
+        """Should accept allowed_tools parameter."""
+        adapter = ClaudeCodeDesktopAdapter(
+            allowed_tools=["Read", "Write", "Edit"],
+        )
+
+        assert adapter.allowed_tools == ["Read", "Write", "Edit"]
+
+    def test_allowed_tools_none_defaults_to_empty_list(self):
+        """Should default allowed_tools to empty list when None."""
+        adapter = ClaudeCodeDesktopAdapter(allowed_tools=None)
+
+        assert adapter.allowed_tools == []
 
 
 class TestClaudeCodeDesktopCLIDetection:
@@ -156,7 +171,7 @@ class TestClaudeCodeDesktopCLIInvocation:
 
     @pytest.mark.asyncio
     async def test_builds_correct_cli_command(self):
-        """Should build correct CLI command with all flags."""
+        """Should build correct CLI command with stream-json flags."""
         adapter = ClaudeCodeDesktopAdapter(cli_path="/usr/bin/claude")
 
         cmd = adapter._build_cli_command("Test prompt", session_id=None)
@@ -164,8 +179,10 @@ class TestClaudeCodeDesktopCLIInvocation:
         assert cmd[0] == "/usr/bin/claude"
         assert "--print" in cmd
         assert "--output-format" in cmd
-        assert "json" in cmd
-        assert "--no-session-persistence" in cmd
+        assert "stream-json" in cmd
+        assert "--verbose" in cmd
+        # No --allowedTools when no tools configured
+        assert "--allowedTools" not in cmd
 
     @pytest.mark.asyncio
     async def test_builds_command_with_session_resume(self):
@@ -176,29 +193,111 @@ class TestClaudeCodeDesktopCLIInvocation:
 
         assert "--resume" in cmd
         assert "session-123" in cmd
-        assert "--no-session-persistence" not in cmd
 
     @pytest.mark.asyncio
-    async def test_parses_json_response(self):
-        """Should parse JSON response from CLI."""
+    async def test_builds_command_with_allowed_tools(self):
+        """Should include --allowedTools flag when tools are configured."""
+        adapter = ClaudeCodeDesktopAdapter(
+            cli_path="/usr/bin/claude",
+            allowed_tools=["Read", "Write", "Edit"],
+        )
+
+        cmd = adapter._build_cli_command("Test prompt", session_id=None)
+
+        assert "--allowedTools" in cmd
+        tools_idx = cmd.index("--allowedTools")
+        assert cmd[tools_idx + 1] == "Read,Write,Edit"
+
+    @pytest.mark.asyncio
+    async def test_builds_command_no_allowed_tools_when_empty(self):
+        """Should not include --allowedTools when no tools configured."""
+        adapter = ClaudeCodeDesktopAdapter(cli_path="/usr/bin/claude")
+
+        cmd = adapter._build_cli_command("Test prompt", session_id=None)
+
+        assert "--allowedTools" not in cmd
+
+    @pytest.mark.asyncio
+    async def test_parses_stream_json_response(self):
+        """Should parse NDJSON stream-json response from CLI."""
         adapter = ClaudeCodeDesktopAdapter()
 
-        json_output = json.dumps(
-            {
+        # Simulate stream-json NDJSON output (multiple lines)
+        lines = [
+            json.dumps({"type": "system", "subtype": "init", "session_id": "s-1"}),
+            json.dumps({
+                "type": "assistant",
+                "message": {
+                    "content": [{"type": "text", "text": "I'll help you."}],
+                },
+            }),
+            json.dumps({
                 "type": "result",
                 "subtype": "success",
                 "result": "Hello! I can help you.",
                 "session_id": "new-session-123",
                 "total_cost_usd": 0.024,
                 "usage": {"input_tokens": 100, "output_tokens": 50},
-            }
-        )
+            }),
+        ]
+        ndjson_output = "\n".join(lines)
+
+        result = adapter._parse_cli_response(ndjson_output)
+
+        assert result["result"] == "Hello! I can help you."
+        assert result["session_id"] == "new-session-123"
+        assert result["total_cost_usd"] == 0.024
+
+    @pytest.mark.asyncio
+    async def test_parses_stream_json_with_tool_calls(self):
+        """Should capture tool calls from assistant messages in NDJSON."""
+        adapter = ClaudeCodeDesktopAdapter()
+
+        lines = [
+            json.dumps({
+                "type": "assistant",
+                "message": {
+                    "content": [
+                        {"type": "text", "text": "Let me read that file."},
+                        {
+                            "type": "tool_use",
+                            "name": "Read",
+                            "input": {"file_path": "/tmp/test.md"},
+                        },
+                    ],
+                },
+            }),
+            json.dumps({
+                "type": "result",
+                "subtype": "success",
+                "result": "File contents here.",
+                "session_id": "s-456",
+            }),
+        ]
+        ndjson_output = "\n".join(lines)
+
+        result = adapter._parse_cli_response(ndjson_output)
+
+        assert result["result"] == "File contents here."
+        assert result["session_id"] == "s-456"
+
+    @pytest.mark.asyncio
+    async def test_parses_single_json_fallback(self):
+        """Should fall back to single JSON parsing for backward compat."""
+        adapter = ClaudeCodeDesktopAdapter()
+
+        json_output = json.dumps({
+            "type": "result",
+            "subtype": "success",
+            "result": "Hello! I can help you.",
+            "session_id": "new-session-123",
+            "total_cost_usd": 0.024,
+        })
 
         result = adapter._parse_cli_response(json_output)
 
         assert result["result"] == "Hello! I can help you."
         assert result["session_id"] == "new-session-123"
-        assert result["total_cost_usd"] == 0.024
 
     @pytest.mark.asyncio
     async def test_handles_error_response(self):
@@ -218,6 +317,39 @@ class TestClaudeCodeDesktopCLIInvocation:
 
         assert result["is_error"] is True
         assert result["result"] == "An error occurred"
+
+    @pytest.mark.asyncio
+    async def test_handles_unparseable_output(self):
+        """Should return error when output is not valid JSON or NDJSON."""
+        adapter = ClaudeCodeDesktopAdapter()
+
+        result = adapter._parse_cli_response("not json at all")
+
+        assert result["is_error"] is True
+        assert result["result"] == "not json at all"
+
+    @pytest.mark.asyncio
+    async def test_handles_ndjson_with_blank_lines(self):
+        """Should skip blank lines in NDJSON output."""
+        adapter = ClaudeCodeDesktopAdapter()
+
+        lines = [
+            "",
+            json.dumps({"type": "system", "subtype": "init"}),
+            "",
+            json.dumps({
+                "type": "result",
+                "result": "Done.",
+                "session_id": "s-789",
+            }),
+            "",
+        ]
+        ndjson_output = "\n".join(lines)
+
+        result = adapter._parse_cli_response(ndjson_output)
+
+        assert result["result"] == "Done."
+        assert result["session_id"] == "s-789"
 
 
 class TestClaudeCodeDesktopPromptGeneration:
