@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 from typing import Callable, Awaitable
 
+from thenvoi.client.rest import DEFAULT_REQUEST_OPTIONS
 from thenvoi.platform.link import ThenvoiLink
 from thenvoi.platform.event import PlatformEvent
 from thenvoi.runtime.runtime import AgentRuntime
@@ -161,7 +162,9 @@ class PlatformRuntime:
         if not self._link:
             raise RuntimeError("Link not initialized")
 
-        response = await self._link.rest.agent_api.get_agent_me()
+        response = await self._link.rest.agent_api.get_agent_me(
+            request_options=DEFAULT_REQUEST_OPTIONS,
+        )
         if not response.data:
             raise RuntimeError("Failed to fetch agent metadata")
 

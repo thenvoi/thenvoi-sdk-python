@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING, Any, Literal, cast
 
 from pydantic import BaseModel, Field, ValidationError
 
-from thenvoi.client.rest import ChatRoomRequest
+from thenvoi.client.rest import ChatRoomRequest, DEFAULT_REQUEST_OPTIONS
 from thenvoi.core.protocols import AgentToolsProtocol
 
 if TYPE_CHECKING:
@@ -248,6 +248,7 @@ class AgentTools(AgentToolsProtocol):
         response = await self.rest.agent_api.create_agent_chat_message(
             chat_id=self.room_id,
             message=ChatMessageRequest(content=content, mentions=mention_items),
+            request_options=DEFAULT_REQUEST_OPTIONS,
         )
         if not response.data:
             raise RuntimeError("Failed to send message - no response data")
@@ -283,6 +284,7 @@ class AgentTools(AgentToolsProtocol):
                 message_type=message_type,
                 metadata=metadata,
             ),
+            request_options=DEFAULT_REQUEST_OPTIONS,
         )
         if not response.data:
             raise RuntimeError("Failed to send event - no response data")
@@ -300,7 +302,8 @@ class AgentTools(AgentToolsProtocol):
         """
         logger.debug("Creating chatroom with task_id=%s", task_id)
         response = await self.rest.agent_api.create_agent_chat(
-            chat=ChatRoomRequest(task_id=task_id)
+            chat=ChatRoomRequest(task_id=task_id),
+            request_options=DEFAULT_REQUEST_OPTIONS,
         )
         return response.data.id
 
@@ -349,6 +352,7 @@ class AgentTools(AgentToolsProtocol):
         await self.rest.agent_api.add_agent_chat_participant(
             chat_id=self.room_id,
             participant=ParticipantRequest(participant_id=participant_id, role=role),
+            request_options=DEFAULT_REQUEST_OPTIONS,
         )
 
         # Update internal participant cache for immediate mention resolution
@@ -403,6 +407,7 @@ class AgentTools(AgentToolsProtocol):
         await self.rest.agent_api.remove_agent_chat_participant(
             self.room_id,
             participant_id,
+            request_options=DEFAULT_REQUEST_OPTIONS,
         )
 
         # Update internal participant cache
@@ -439,6 +444,7 @@ class AgentTools(AgentToolsProtocol):
             page=page,
             page_size=page_size,
             not_in_chat=self.room_id,
+            request_options=DEFAULT_REQUEST_OPTIONS,
         )
 
         peers = []
@@ -476,6 +482,7 @@ class AgentTools(AgentToolsProtocol):
         logger.debug("Getting participants for room %s", self.room_id)
         response = await self.rest.agent_api.list_agent_chat_participants(
             chat_id=self.room_id,
+            request_options=DEFAULT_REQUEST_OPTIONS,
         )
         if not response.data:
             return []
