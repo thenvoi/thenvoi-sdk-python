@@ -287,25 +287,8 @@ class TestOnMessage:
         # Use verification callback if available
         if adapter_config.verify_participants_injection is not None:
             assert adapter_config.verify_participants_injection(
-                adapter, captured_input, participants_msg
+                adapter, captured_input, participants_msg, mocks
             )
-        elif adapter_config.name == "pydantic_ai":
-            # PydanticAI needs mocks passed - special case
-            if mocks and "agent" in mocks:
-                call_args = mocks["agent"].run_stream_events.call_args
-                if call_args:
-                    call_kwargs = call_args.kwargs
-                    message_history = call_kwargs.get("message_history", [])
-                    if message_history:
-                        found = any(
-                            "[System]: Alice joined"
-                            in str(getattr(m.parts[0], "content", ""))
-                            for m in message_history
-                            if hasattr(m, "parts")
-                            and m.parts
-                            and hasattr(m.parts[0], "content")
-                        )
-                        assert found
 
 
 class TestOnCleanup:

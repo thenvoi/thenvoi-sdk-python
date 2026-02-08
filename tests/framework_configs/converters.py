@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
+from enum import Enum
 from typing import Any, Literal
 
 from thenvoi.converters.anthropic import AnthropicHistoryConverter
@@ -44,8 +45,16 @@ except ImportError:
 OutputType = Literal[
     "dict_list", "langchain_messages", "pydantic_ai_messages", "string"
 ]
-ToolHandlingMode = Literal["structured", "langchain", "raw_json", "skip"]
 ToolJsonFormat = Literal["anthropic", "langchain"]
+
+
+class ToolHandlingMode(str, Enum):
+    """How a converter handles tool_call and tool_result messages."""
+
+    STRUCTURED = "structured"  # Convert to structured format (Anthropic, PydanticAI)
+    LANGCHAIN = "langchain"  # Convert to LangChain message format
+    RAW_JSON = "raw_json"  # Include as raw JSON string (ClaudeSDK)
+    SKIP = "skip"  # Skip tool messages entirely (CrewAI, Parlant)
 
 
 # =============================================================================
@@ -81,7 +90,7 @@ class ConverterConfig:
     preserves_other_agents_as_assistant: bool = False
     skips_empty_content: bool = False
     empty_sender_prefix_behavior: Literal["empty_brackets", "no_prefix"] = "no_prefix"
-    tool_handling_mode: ToolHandlingMode = "skip"
+    tool_handling_mode: ToolHandlingMode = ToolHandlingMode.SKIP
     batches_tool_calls: bool = False
     batches_tool_results: bool = False
     supports_is_error: bool = False
@@ -151,14 +160,14 @@ class ToolCallAssertion:
     def has_tool_call_at(
         self, index: int, name: str | None = None, tool_id: str | None = None
     ) -> bool:
-        if self.config.tool_handling_mode == "skip":
+        if self.config.tool_handling_mode == ToolHandlingMode.SKIP:
             return False
         return self._adapter.has_tool_call(self.result, index, name, tool_id)
 
     def has_tool_result_at(
         self, index: int, tool_id: str | None = None, content: str | None = None
     ) -> bool:
-        if self.config.tool_handling_mode == "skip":
+        if self.config.tool_handling_mode == ToolHandlingMode.SKIP:
             return False
         return self._adapter.has_tool_result(self.result, index, tool_id, content)
 
@@ -181,7 +190,11 @@ class ToolCallAssertion:
 
 def get_tool_format(config: ConverterConfig) -> ToolJsonFormat:
     """Get the tool JSON format expected by a converter."""
-    return "langchain" if config.tool_handling_mode == "langchain" else "anthropic"
+    return (
+        "langchain"
+        if config.tool_handling_mode == ToolHandlingMode.LANGCHAIN
+        else "anthropic"
+    )
 
 
 def make_tool_call(
@@ -251,7 +264,7 @@ CONVERTER_CONFIGS: dict[str, ConverterConfig] = {
         name="anthropic",
         converter_class=AnthropicHistoryConverter,
         output_type="dict_list",
-        tool_handling_mode="structured",
+        tool_handling_mode=ToolHandlingMode.STRUCTURED,
         batches_tool_calls=True,
         batches_tool_results=True,
         supports_is_error=True,
@@ -269,7 +282,7 @@ CONVERTER_CONFIGS: dict[str, ConverterConfig] = {
         converter_class=ClaudeSDKHistoryConverter,
         output_type="string",
         skips_empty_content=True,
-        tool_handling_mode="raw_json",
+        tool_handling_mode=ToolHandlingMode.RAW_JSON,
     ),
     "parlant": ConverterConfig(
         name="parlant",
@@ -288,7 +301,7 @@ if LANGCHAIN_AVAILABLE and LangChainHistoryConverter is not None:
         converter_class=LangChainHistoryConverter,
         output_type="langchain_messages",
         empty_sender_prefix_behavior="empty_brackets",
-        tool_handling_mode="langchain",
+        tool_handling_mode=ToolHandlingMode.LANGCHAIN,
         requires_tool_result_for_output=True,
     )
 
@@ -297,7 +310,7 @@ if PYDANTIC_AI_AVAILABLE and PydanticAIHistoryConverter is not None:
         name="pydantic_ai",
         converter_class=PydanticAIHistoryConverter,
         output_type="pydantic_ai_messages",
-        tool_handling_mode="structured",
+        tool_handling_mode=ToolHandlingMode.STRUCTURED,
         batches_tool_calls=True,
         batches_tool_results=True,
         supports_is_error=True,

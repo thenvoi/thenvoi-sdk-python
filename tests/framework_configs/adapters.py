@@ -27,7 +27,11 @@ class ParticipantsVerifier(Protocol):
     """Protocol for participants verification callbacks."""
 
     def __call__(
-        self, adapter: Any, captured_input: dict[str, Any], participants_msg: str
+        self,
+        adapter: Any,
+        captured_input: dict[str, Any],
+        participants_msg: str,
+        mocks: dict[str, Any] | None = None,
     ) -> bool: ...
 
 
@@ -338,8 +342,9 @@ def _langgraph_mock_llm(
         ) -> AsyncIterator[Any]:
             if captured_input is not None:
                 captured_input.update(graph_input)
-            if False:
-                yield
+            # Empty async generator - yield makes this an AsyncIterator
+            return
+            yield  # pragma: no cover
 
         mock_graph = MagicMock()
         mock_graph.astream_events = capture_stream
@@ -454,8 +459,8 @@ def _langgraph_error_setup(adapter: Any, mocks: dict | None) -> Any:
     async def ctx() -> AsyncIterator[str]:
         async def failing_stream(*args: Any, **kwargs: Any) -> AsyncIterator[Any]:
             raise Exception("Graph error!")
-            if False:
-                yield
+            # Unreachable - yield makes this an AsyncIterator
+            yield  # pragma: no cover
 
         mock_graph = MagicMock()
         mock_graph.astream_events = failing_stream
@@ -500,8 +505,8 @@ def _pydantic_ai_error_setup(adapter: Any, mocks: dict | None) -> Any:
     async def ctx() -> AsyncIterator[str]:
         async def failing_stream() -> AsyncIterator[Any]:
             raise Exception("PydanticAI Error")
-            if False:
-                yield
+            # Unreachable - yield makes this an AsyncIterator
+            yield  # pragma: no cover
 
         if mocks and "agent" in mocks:
             mocks["agent"].run_stream_events = MagicMock(return_value=failing_stream())
@@ -527,7 +532,10 @@ def _parlant_error_setup(adapter: Any, mocks: dict | None) -> Any:
 
 
 def _verify_anthropic_participants(
-    adapter: Any, captured_input: dict, participants_msg: str
+    adapter: Any,
+    captured_input: dict,
+    participants_msg: str,
+    mocks: dict | None = None,
 ) -> bool:
     return any(
         "[System]: Alice joined" in str(m.get("content", ""))
@@ -536,7 +544,10 @@ def _verify_anthropic_participants(
 
 
 def _verify_langgraph_participants(
-    adapter: Any, captured_input: dict, participants_msg: str
+    adapter: Any,
+    captured_input: dict,
+    participants_msg: str,
+    mocks: dict | None = None,
 ) -> bool:
     messages = captured_input.get("messages", [])
     system_msgs = [m for m in messages if m[0] == "system"]
@@ -544,7 +555,10 @@ def _verify_langgraph_participants(
 
 
 def _verify_pydantic_ai_participants(
-    adapter: Any, captured_input: dict, participants_msg: str, mocks: dict | None = None
+    adapter: Any,
+    captured_input: dict,
+    participants_msg: str,
+    mocks: dict | None = None,
 ) -> bool:
     if mocks and "agent" in mocks:
         call_args = mocks["agent"].run_stream_events.call_args
@@ -562,7 +576,10 @@ def _verify_pydantic_ai_participants(
 
 
 def _verify_crewai_participants(
-    adapter: Any, captured_input: dict, participants_msg: str
+    adapter: Any,
+    captured_input: dict,
+    participants_msg: str,
+    mocks: dict | None = None,
 ) -> bool:
     return "room-123" in adapter._message_history
 
@@ -627,6 +644,7 @@ ADAPTER_CONFIGS: dict[str, AdapterConfig] = {
         system_prompt_attr=None,
         system_prompt_contains_name=False,
         additional_init_checks={"enable_execution_reporting": False},
+        verify_participants_injection=_verify_pydantic_ai_participants,
         on_started_callback=_pydantic_ai_on_started,
         mock_llm_callback=_pydantic_ai_mock_llm,
         error_setup_callback=_pydantic_ai_error_setup,
