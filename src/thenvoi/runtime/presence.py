@@ -11,6 +11,7 @@ import asyncio
 import logging
 from typing import Awaitable, Callable, Set
 
+from thenvoi.client.rest import DEFAULT_REQUEST_OPTIONS
 from thenvoi.platform.event import (
     RoomAddedEvent,
     RoomRemovedEvent,
@@ -256,7 +257,9 @@ class RoomPresence:
         logger.debug("Subscribing to existing rooms")
 
         try:
-            response = await self.link.rest.agent_api.list_agent_chats()
+            response = await self.link.rest.agent_api.list_agent_chats(
+                request_options=DEFAULT_REQUEST_OPTIONS,
+            )
             if not response.data:
                 return
 
