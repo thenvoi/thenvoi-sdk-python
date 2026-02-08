@@ -160,8 +160,11 @@ class ParlantAdapter(SimpleAdapter[ParlantMessages]):
             injected = await self._inject_history(session_id, history)
             logger.info("Room %s: Injected %s messages from history", room_id, injected)
 
-        # Send customer message to Parlant
+        # Build user message, prepending participants update if changed
         user_message = msg.format_for_llm()
+        if participants_msg:
+            user_message = f"[System Update]: {participants_msg}\n\n{user_message}"
+            logger.info("Room %s: Included participants update in message", room_id)
         logger.info(
             "Room %s: Sending message to Parlant: %s...", room_id, user_message[:100]
         )
