@@ -46,7 +46,7 @@ def set_session_tools(session_id: str, tools: Optional[Any]) -> None:
 def get_session_tools(session_id: str) -> Optional[Any]:
     """Get the tools for a specific Parlant session."""
     tools = _session_tools.get(session_id)
-    logger.info(
+    logger.debug(
         "Get tools for session_id=%s: found=%s, available_sessions=%s",
         session_id,
         tools is not None,
@@ -299,12 +299,11 @@ def create_parlant_tools() -> list[Any]:
 
         Args:
             context: Parlant tool context (automatically provided)
-            page: Page number for pagination (default 1)
-            page_size: Number of results per page (default 50, max 100)
 
         Returns:
             List of available agents with their names and descriptions
         """
+        # Pagination defaults - not exposed as parameters to keep tool simple
         page = 1
         page_size = 50
         logger.info(
