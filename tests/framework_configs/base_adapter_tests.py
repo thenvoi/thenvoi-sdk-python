@@ -49,9 +49,8 @@ Running:
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from contextlib import nullcontext
 from datetime import datetime, timezone
-from typing import Any, ClassVar, Literal
+from typing import TYPE_CHECKING, Any, ClassVar, Literal
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -59,12 +58,15 @@ from pydantic import BaseModel, Field
 
 from thenvoi.core.types import PlatformMessage
 
+if TYPE_CHECKING:
+    from thenvoi.core.protocols import FrameworkAdapter
+
 
 class BaseAdapterTests(ABC):
     """Base class providing conformance tests for adapters.
 
     Subclasses must set:
-        - adapter_class: The adapter class to test
+        - adapter_class: The adapter class to test (must implement FrameworkAdapter protocol)
 
     Subclasses must implement:
         - create_adapter(**kwargs): Factory method to create adapter instances
@@ -87,7 +89,8 @@ class BaseAdapterTests(ABC):
     """
 
     # Required - must be set by subclass
-    adapter_class: ClassVar[type]
+    # Type is 'type' at runtime but should implement FrameworkAdapter protocol
+    adapter_class: ClassVar[type[FrameworkAdapter]]
 
     # Optional configuration (sensible defaults)
     has_history_converter: ClassVar[bool] = True

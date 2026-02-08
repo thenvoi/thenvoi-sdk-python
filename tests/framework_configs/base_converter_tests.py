@@ -31,16 +31,19 @@ from __future__ import annotations
 
 import json
 from abc import ABC
-from typing import Any, ClassVar, Literal
+from typing import TYPE_CHECKING, Any, ClassVar, Literal
 
 import pytest
+
+if TYPE_CHECKING:
+    from thenvoi.core.protocols import HistoryConverter
 
 
 class BaseConverterTests(ABC):
     """Base class providing all conformance tests for converters.
 
     Subclasses must set:
-        - converter_class: The converter class to test
+        - converter_class: The converter class to test (must implement HistoryConverter protocol)
         - output_type: One of "dict_list", "langchain_messages", "pydantic_ai_messages", "string"
 
     Subclasses may override:
@@ -57,7 +60,8 @@ class BaseConverterTests(ABC):
     """
 
     # Required - must be set by subclass
-    converter_class: ClassVar[type]
+    # Type is 'type' at runtime but should implement HistoryConverter protocol
+    converter_class: ClassVar[type[HistoryConverter[Any]]]
     output_type: ClassVar[Literal["dict_list", "langchain_messages", "pydantic_ai_messages", "string"]]
 
     # Optional configuration (sensible defaults)

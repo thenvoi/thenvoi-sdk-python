@@ -268,6 +268,9 @@ class ParlantAdapter(SimpleAdapter[ParlantMessages]):
         User messages without a following assistant response are NOT injected,
         as they represent pending/unanswered questions that should be handled
         by the current message flow.
+
+        Note: Empty history is handled naturally by the loops below (they simply
+        don't execute), so no early return check is needed.
         """
         if not self._app:
             return 0
