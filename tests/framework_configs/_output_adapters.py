@@ -27,7 +27,7 @@ class BaseAdapter:
 
     def _get(self, result: Any, index: int) -> Any:
         """Safely get item at index, returns None if out of bounds."""
-        if not result or index >= len(result):
+        if not result or index < 0 or index >= len(result):
             return None
         return result[index]
 
@@ -135,7 +135,7 @@ class StringAdapter(BaseAdapter):
 
     def get_content(self, result: Any, index: int) -> str:
         lines = self._lines(result)
-        return lines[index] if index < len(lines) else ""
+        return lines[index] if 0 <= index < len(lines) else ""
 
     def get_role(self, result: Any, index: int) -> str:
         return ""
@@ -144,19 +144,24 @@ class StringAdapter(BaseAdapter):
         self, result: Any, index: int, name: str | None, tool_id: str | None
     ) -> bool:
         lines = self._lines(result)
-        if index >= len(lines):
+        if index < 0 or index >= len(lines):
             return False
         line = lines[index]
-        return (not name or f'"{name}"' in line) and (not tool_id or tool_id in line)
+        # Use "name": to match JSON key exactly and avoid partial matches
+        return (not name or f'"name": "{name}"' in line) and (
+            not tool_id or f'"tool_call_id": "{tool_id}"' in line
+        )
 
     def has_tool_result(
         self, result: Any, index: int, tool_id: str | None, content: str | None
     ) -> bool:
         lines = self._lines(result)
-        if index >= len(lines):
+        if index < 0 or index >= len(lines):
             return False
         line = lines[index]
-        return (not tool_id or tool_id in line) and (not content or content in line)
+        return (not tool_id or f'"tool_call_id": "{tool_id}"' in line) and (
+            not content or content in line
+        )
 
 
 class LangChainAdapter(BaseAdapter):
@@ -200,7 +205,11 @@ class LangChainAdapter(BaseAdapter):
             return False
         if not isinstance(msg, ToolMessage):
             return False
-        return not tool_id or msg.tool_call_id == tool_id
+        if tool_id and msg.tool_call_id != tool_id:
+            return False
+        if content and msg.content != content:
+            return False
+        return True
 
     def get_tool_call_count(self, result: Any, index: int) -> int:
         from langchain_core.messages import AIMessage
