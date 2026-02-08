@@ -496,17 +496,14 @@ Examples:
 
     if not rest_url:
         parser.error("THENVOI_REST_URL environment variable is required")
-        raise SystemExit(1)  # Unreachable, but helps type checker
     if not ws_url:
         parser.error("THENVOI_WS_URL environment variable is required")
-        raise SystemExit(1)  # Unreachable, but helps type checker
 
     # Load agent credentials
     try:
         agent_id, api_key = load_agent_config(args.agent)
     except Exception as e:
         parser.error(f"Failed to load agent config '{args.agent}': {e}")
-        raise SystemExit(1)  # Unreachable, but helps type checker
 
     logger.info("Agent: %s (%s)", args.agent, agent_id)
     logger.info("Example: %s", args.example)

@@ -28,7 +28,7 @@ from __future__ import annotations
 import sys
 from contextlib import asynccontextmanager
 from typing import Generator
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import MagicMock
 
 import pytest
 from pydantic import BaseModel, Field
@@ -51,6 +51,10 @@ from tests.framework_configs.adapters import (
 #
 # The mocks are stored in a module-level dict (not on the config object) to
 # avoid mutating the frozen AdapterConfig dataclass.
+#
+# NOTE: This module-level mutable state is not compatible with pytest-xdist
+# parallel execution. If parallel test runs are needed, this will require
+# refactoring (e.g., per-worker state or session-scoped fixtures).
 # =============================================================================
 
 # Store CrewAI mocks separately from config to avoid mutating frozen dataclass
@@ -147,15 +151,10 @@ class TestInitialization:
         self, adapter, adapter_config: AdapterConfig
     ):
         """Adapter should have history_converter if configured."""
-        if adapter_config.has_history_converter:
-            assert hasattr(adapter, "history_converter")
-            assert adapter.history_converter is not None
-        else:
-            # Verify it either doesn't have it or it's None
-            has_converter = hasattr(adapter, "history_converter")
-            if has_converter:
-                # Some adapters have it but don't use it
-                pass  # OK either way
+        if not adapter_config.has_history_converter:
+            pytest.skip("Adapter does not require a standalone history converter")
+        assert hasattr(adapter, "history_converter")
+        assert adapter.history_converter is not None
 
     def test_has_default_model_if_applicable(
         self, adapter, adapter_config: AdapterConfig
@@ -165,10 +164,10 @@ class TestInitialization:
             assert hasattr(adapter, "model")
             assert adapter.model == adapter_config.default_model
         else:
-            # Adapters without default model may not have model attr or it's None
+            # No default model configured; if the adapter still has a model
+            # attribute it was provided during factory creation and must not be None
             if hasattr(adapter, "model"):
-                # Model was provided during creation (e.g., pydantic_ai)
-                pass
+                assert adapter.model is not None
 
     def test_additional_init_checks(self, adapter, adapter_config: AdapterConfig):
         """Adapter should have correct additional init values."""
@@ -362,28 +361,18 @@ class TestCleanupAll:
         adapter = adapter_config.factory()
 
         if adapter_config.supports_cleanup_all:
-            # Set up data to clean
-            if adapter_config.name == "claude_sdk":
-                mock_session_manager = AsyncMock()
-                adapter._session_manager = mock_session_manager
-                adapter._room_tools["room-1"] = MagicMock()
-                adapter._room_tools["room-2"] = MagicMock()
+            if adapter_config.cleanup_all_setup:
+                adapter_config.cleanup_all_setup(adapter)
 
-                await adapter.cleanup_all()
+            await adapter.cleanup_all()
 
-                mock_session_manager.stop.assert_awaited_once()
-                assert len(adapter._room_tools) == 0
-
-            elif adapter_config.name == "parlant":
-                adapter._room_sessions["room-1"] = "session-1"
-                adapter._room_sessions["room-2"] = "session-2"
-                adapter._room_customers["room-1"] = "customer-1"
-                adapter._room_customers["room-2"] = "customer-2"
-
-                await adapter.cleanup_all()
-
-                assert len(adapter._room_sessions) == 0
-                assert len(adapter._room_customers) == 0
+            if adapter_config.cleanup_all_verify:
+                assert adapter_config.cleanup_all_verify(adapter)
+            else:
+                # Generic: verify storage attrs are empty
+                for attr in adapter_config.cleanup_storage_attrs:
+                    if hasattr(adapter, attr):
+                        assert len(getattr(adapter, attr)) == 0
         else:
             # Adapter doesn't support cleanup_all - verify method doesn't exist
             # or calling it doesn't break anything

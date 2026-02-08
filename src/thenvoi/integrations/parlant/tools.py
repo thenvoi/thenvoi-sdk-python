@@ -231,7 +231,13 @@ def create_parlant_tools() -> list[Any]:
             return ToolResult(data="Error: No tools available in current context")
 
         try:
-            await tools.add_participant(name, "member")
+            result = await tools.add_participant(name, "member")
+            status = result.get("status", "added")
+            if status == "already_in_room":
+                logger.info("[Parlant Tool] '%s' is already in the room", name)
+                return ToolResult(
+                    data=f"'{name}' is already in the room - no action needed"
+                )
             logger.info("[Parlant Tool] Successfully added '%s' to the room", name)
             return ToolResult(data=f"Successfully added '{name}' to the room")
         except Exception as e:
