@@ -164,10 +164,26 @@ class BaseAdapterTests(ABC):
         tools.send_message = AsyncMock(return_value={"status": "sent"})
         tools.send_event = AsyncMock(return_value={"status": "sent"})
         tools.execute_tool_call = AsyncMock(return_value={"status": "success"})
-        tools.add_participant = AsyncMock(return_value={"id": "123", "name": "Test", "status": "added"})
-        tools.remove_participant = AsyncMock(return_value={"id": "123", "name": "Test", "status": "removed"})
-        tools.get_participants = AsyncMock(return_value=[{"id": "123", "name": "Alice", "type": "User"}])
-        tools.lookup_peers = AsyncMock(return_value={"peers": [], "metadata": {"page": 1, "page_size": 50, "total_count": 0, "total_pages": 1}})
+        tools.add_participant = AsyncMock(
+            return_value={"id": "123", "name": "Test", "status": "added"}
+        )
+        tools.remove_participant = AsyncMock(
+            return_value={"id": "123", "name": "Test", "status": "removed"}
+        )
+        tools.get_participants = AsyncMock(
+            return_value=[{"id": "123", "name": "Alice", "type": "User"}]
+        )
+        tools.lookup_peers = AsyncMock(
+            return_value={
+                "peers": [],
+                "metadata": {
+                    "page": 1,
+                    "page_size": 50,
+                    "total_count": 0,
+                    "total_pages": 1,
+                },
+            }
+        )
         tools.create_chatroom = AsyncMock(return_value="new-room-123")
         return tools
 
@@ -322,6 +338,7 @@ class BaseAdapterTests(ABC):
 
         class EchoInput(BaseModel):
             """Echo the message."""
+
             message: str = Field(description="Message to echo")
 
         async def echo(args: EchoInput) -> str:
@@ -354,10 +371,12 @@ class BaseAdapterTests(ABC):
 
         class EchoInput(BaseModel):
             """Echo the message."""
+
             message: str = Field(description="Message to echo")
 
         class CalculatorInput(BaseModel):
             """Perform math calculations."""
+
             operation: str = Field(description="add, subtract, multiply, divide")
             left: float = Field(description="Left operand")
             right: float = Field(description="Right operand")
@@ -366,13 +385,20 @@ class BaseAdapterTests(ABC):
             return f"Echo: {args.message}"
 
         def calculate(args: CalculatorInput) -> str:
-            ops = {"add": lambda a, b: a + b, "subtract": lambda a, b: a - b, "multiply": lambda a, b: a * b, "divide": lambda a, b: a / b}
+            ops = {
+                "add": lambda a, b: a + b,
+                "subtract": lambda a, b: a - b,
+                "multiply": lambda a, b: a * b,
+                "divide": lambda a, b: a / b,
+            }
             return str(ops[args.operation](args.left, args.right))
 
         if self.custom_tool_format == "callable":
             adapter = self.create_adapter(additional_tools=[echo, calculate])
         else:
-            adapter = self.create_adapter(additional_tools=[(EchoInput, echo), (CalculatorInput, calculate)])
+            adapter = self.create_adapter(
+                additional_tools=[(EchoInput, echo), (CalculatorInput, calculate)]
+            )
 
         custom_tools = getattr(adapter, self.custom_tools_attr)
         # Some adapters clear tools after processing

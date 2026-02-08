@@ -62,17 +62,23 @@ class BaseConverterTests(ABC):
     # Required - must be set by subclass
     # Type is 'type' at runtime but should implement HistoryConverter protocol
     converter_class: ClassVar[type[HistoryConverter[Any]]]
-    output_type: ClassVar[Literal["dict_list", "langchain_messages", "pydantic_ai_messages", "string"]]
+    output_type: ClassVar[
+        Literal["dict_list", "langchain_messages", "pydantic_ai_messages", "string"]
+    ]
 
     # Optional configuration (sensible defaults)
-    tool_handling_mode: ClassVar[Literal["skip", "structured", "langchain", "raw_json"]] = "skip"
+    tool_handling_mode: ClassVar[
+        Literal["skip", "structured", "langchain", "raw_json"]
+    ] = "skip"
     skips_own_messages: ClassVar[bool] = True
     converts_other_agents_to_user: ClassVar[bool] = True
     batches_tool_calls: ClassVar[bool] = False
     batches_tool_results: ClassVar[bool] = False
     supports_is_error: ClassVar[bool] = False
     skips_empty_content: ClassVar[bool] = False
-    empty_sender_prefix_behavior: ClassVar[Literal["no_prefix", "empty_brackets"]] = "no_prefix"
+    empty_sender_prefix_behavior: ClassVar[Literal["no_prefix", "empty_brackets"]] = (
+        "no_prefix"
+    )
     requires_tool_result_for_output: ClassVar[bool] = False
     logs_malformed_json: ClassVar[bool] = False
 
@@ -145,7 +151,13 @@ class BaseConverterTests(ABC):
             if index >= len(result):
                 return ""
             name = type(result[index]).__name__
-            return "user" if "Request" in name else "assistant" if "Response" in name else ""
+            return (
+                "user"
+                if "Request" in name
+                else "assistant"
+                if "Response" in name
+                else ""
+            )
 
         return ""
 
@@ -164,36 +176,44 @@ class BaseConverterTests(ABC):
         if self.tool_handling_mode == "langchain":
             return {
                 "role": "assistant",
-                "content": json.dumps({
-                    "event": "on_tool_start",
-                    "name": name,
-                    "run_id": tool_id,
-                    "data": {"input": args},
-                }),
+                "content": json.dumps(
+                    {
+                        "event": "on_tool_start",
+                        "name": name,
+                        "run_id": tool_id,
+                        "data": {"input": args},
+                    }
+                ),
                 "message_type": "tool_call",
             }
         else:
             return {
                 "role": "assistant",
-                "content": json.dumps({
-                    "name": name,
-                    "args": args,
-                    "tool_call_id": tool_id,
-                }),
+                "content": json.dumps(
+                    {
+                        "name": name,
+                        "args": args,
+                        "tool_call_id": tool_id,
+                    }
+                ),
                 "message_type": "tool_call",
             }
 
-    def _make_tool_result(self, name: str, output: str, tool_id: str, is_error: bool = False) -> dict:
+    def _make_tool_result(
+        self, name: str, output: str, tool_id: str, is_error: bool = False
+    ) -> dict:
         """Create a tool result message in the appropriate format."""
         if self.tool_handling_mode == "langchain":
             return {
                 "role": "assistant",
-                "content": json.dumps({
-                    "event": "on_tool_end",
-                    "name": name,
-                    "run_id": tool_id,
-                    "data": {"output": f"{output} tool_call_id='{tool_id}'"},
-                }),
+                "content": json.dumps(
+                    {
+                        "event": "on_tool_end",
+                        "name": name,
+                        "run_id": tool_id,
+                        "data": {"output": f"{output} tool_call_id='{tool_id}'"},
+                    }
+                ),
                 "message_type": "tool_result",
             }
         else:
@@ -264,7 +284,9 @@ class BaseConverterTests(ABC):
 
     # ==================== Assistant Message Tests ====================
 
-    def test_skips_own_assistant_text_messages_when_configured(self, converter_with_name):
+    def test_skips_own_assistant_text_messages_when_configured(
+        self, converter_with_name
+    ):
         """This agent's text messages are skipped (if configured)."""
         raw = [
             {
@@ -520,7 +542,9 @@ class BaseConverterTests(ABC):
     def test_preserves_is_error_when_true(self, converter):
         """Tool result with is_error=True is handled correctly."""
         tool_call = self._make_tool_call("search", {"query": "test"}, "toolu_123")
-        tool_result_error = self._make_tool_result("search", "Error: API failed", "toolu_123", is_error=True)
+        tool_result_error = self._make_tool_result(
+            "search", "Error: API failed", "toolu_123", is_error=True
+        )
         raw = [tool_call, tool_result_error]
 
         result = converter.convert(raw)
@@ -642,7 +666,9 @@ class BaseConverterTests(ABC):
                 assert self._get_length(result) == 3  # + agent's message
         else:
             if self.skips_own_messages:
-                assert self._get_length(result) == 4  # Alice + tool call + tool result + Thanks
+                assert (
+                    self._get_length(result) == 4
+                )  # Alice + tool call + tool result + Thanks
             else:
                 assert self._get_length(result) == 5  # + agent's message
 
