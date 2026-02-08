@@ -29,7 +29,6 @@ Running:
 
 from __future__ import annotations
 
-import json
 from abc import ABC
 from typing import TYPE_CHECKING, Any, ClassVar, Literal
 
@@ -172,63 +171,30 @@ class BaseConverterTests(ABC):
         return len(result)
 
     def _make_tool_call(self, name: str, args: dict, tool_id: str) -> dict:
-        """Create a tool call message in the appropriate format."""
-        if self.tool_handling_mode == "langchain":
-            return {
-                "role": "assistant",
-                "content": json.dumps(
-                    {
-                        "event": "on_tool_start",
-                        "name": name,
-                        "run_id": tool_id,
-                        "data": {"input": args},
-                    }
-                ),
-                "message_type": "tool_call",
-            }
-        else:
-            return {
-                "role": "assistant",
-                "content": json.dumps(
-                    {
-                        "name": name,
-                        "args": args,
-                        "tool_call_id": tool_id,
-                    }
-                ),
-                "message_type": "tool_call",
-            }
+        """Create a tool call message in the appropriate format.
+
+        Delegates to the shared factory in converters.py to ensure consistent
+        JSON structure across base class tests and conformance tests.
+        """
+        from tests.framework_configs.converters import make_tool_call
+
+        fmt = "langchain" if self.tool_handling_mode == "langchain" else "anthropic"
+        return make_tool_call(name, args, tool_id, fmt=fmt)
 
     def _make_tool_result(
         self, name: str, output: str, tool_id: str, is_error: bool = False
     ) -> dict:
-        """Create a tool result message in the appropriate format."""
-        if self.tool_handling_mode == "langchain":
-            return {
-                "role": "assistant",
-                "content": json.dumps(
-                    {
-                        "event": "on_tool_end",
-                        "name": name,
-                        "run_id": tool_id,
-                        "data": {"output": f"{output} tool_call_id='{tool_id}'"},
-                    }
-                ),
-                "message_type": "tool_result",
-            }
-        else:
-            data = {
-                "name": name,
-                "output": output,
-                "tool_call_id": tool_id,
-            }
-            if is_error:
-                data["is_error"] = True
-            return {
-                "role": "assistant",
-                "content": json.dumps(data),
-                "message_type": "tool_result",
-            }
+        """Create a tool result message in the appropriate format.
+
+        Delegates to the shared factory in converters.py to ensure consistent
+        JSON structure across base class tests and conformance tests.
+        """
+        from tests.framework_configs.converters import make_tool_result
+
+        fmt = "langchain" if self.tool_handling_mode == "langchain" else "anthropic"
+        return make_tool_result(
+            name, output, tool_id, is_error=is_error if is_error else None, fmt=fmt
+        )
 
     # ==================== User Message Tests ====================
 

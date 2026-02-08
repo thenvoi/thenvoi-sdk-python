@@ -284,9 +284,6 @@ async def _simple_on_started(adapter: Any, config: AdapterConfig) -> None:
 
 
 async def _crewai_on_started(adapter: Any, config: AdapterConfig) -> None:
-    crewai_mocks = getattr(config, "_crewai_mocks", None)
-    if crewai_mocks:
-        crewai_mocks.Agent.reset_mock()
     await adapter.on_started(agent_name="TestBot", agent_description="A test bot")
 
 

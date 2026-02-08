@@ -351,8 +351,8 @@ class BaseAdapterTests(ABC):
 
         assert hasattr(adapter, self.custom_tools_attr)
         custom_tools = getattr(adapter, self.custom_tools_attr)
-        # Some adapters clear tools after processing, so just verify no error
-        assert custom_tools is not None or custom_tools == []
+        # Some adapters process/clear tools during init, so verify accepted without error
+        assert custom_tools is not None
 
     def test_defaults_to_empty_custom_tools(self):
         """Adapter should have empty custom tools by default."""
@@ -401,5 +401,5 @@ class BaseAdapterTests(ABC):
             )
 
         custom_tools = getattr(adapter, self.custom_tools_attr)
-        # Some adapters clear tools after processing
-        assert custom_tools is not None or custom_tools == []
+        # Some adapters process/clear tools during init, so verify accepted without error
+        assert custom_tools is not None

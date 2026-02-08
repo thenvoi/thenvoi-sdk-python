@@ -48,17 +48,7 @@ from tests.framework_configs.adapters import (
 # CrewAI requires module-level mocking because it imports external dependencies
 # (crewai, nest_asyncio) at module load time. We mock these before the adapter
 # module is imported to avoid ImportError.
-#
-# The mocks are stored in a module-level dict (not on the config object) to
-# avoid mutating the frozen AdapterConfig dataclass.
-#
-# NOTE: This module-level mutable state is not compatible with pytest-xdist
-# parallel execution. If parallel test runs are needed, this will require
-# refactoring (e.g., per-worker state or session-scoped fixtures).
 # =============================================================================
-
-# Store CrewAI mocks separately from config to avoid mutating frozen dataclass
-_crewai_test_mocks: dict[str, MagicMock] = {}
 
 
 class MockBaseTool:
@@ -71,15 +61,12 @@ class MockBaseTool:
         pass
 
 
-def _setup_crewai_mocks(monkeypatch) -> MagicMock:
+def _setup_crewai_mocks(monkeypatch) -> None:
     """Set up CrewAI module mocks.
 
     CrewAI adapter imports crewai and nest_asyncio at module level, so we must
     mock these before the adapter module is loaded. The monkeypatch fixture
     ensures mocks are automatically cleaned up after each test.
-
-    Returns:
-        The mock crewai module for assertions in tests.
     """
     mock_crewai_module = MagicMock()
     mock_crewai_tools_module = MagicMock()
@@ -92,8 +79,6 @@ def _setup_crewai_mocks(monkeypatch) -> MagicMock:
     monkeypatch.setitem(sys.modules, "crewai", mock_crewai_module)
     monkeypatch.setitem(sys.modules, "crewai.tools", mock_crewai_tools_module)
     monkeypatch.setitem(sys.modules, "nest_asyncio", mock_nest_asyncio)
-
-    return mock_crewai_module
 
 
 @pytest.fixture(params=list(ADAPTER_CONFIGS.values()), ids=lambda c: c.name)
@@ -109,15 +94,14 @@ def adapter_config(
 
     # Only set up CrewAI mocks when testing CrewAI adapter
     if config.name == "crewai":
-        _crewai_test_mocks["crewai"] = _setup_crewai_mocks(monkeypatch)
+        _setup_crewai_mocks(monkeypatch)
 
     try:
         yield config
     finally:
-        # Clean up CrewAI module and mocks if it was loaded
+        # Clean up CrewAI module if it was loaded
         if config.name == "crewai":
             sys.modules.pop("thenvoi.adapters.crewai", None)
-            _crewai_test_mocks.pop("crewai", None)
 
 
 @pytest.fixture
