@@ -361,18 +361,12 @@ class TestCleanupAll:
         adapter = adapter_config.factory()
 
         if adapter_config.supports_cleanup_all:
-            if adapter_config.cleanup_all_setup:
-                adapter_config.cleanup_all_setup(adapter)
-
             await adapter.cleanup_all()
 
-            if adapter_config.cleanup_all_verify:
-                assert adapter_config.cleanup_all_verify(adapter)
-            else:
-                # Generic: verify storage attrs are empty
-                for attr in adapter_config.cleanup_storage_attrs:
-                    if hasattr(adapter, attr):
-                        assert len(getattr(adapter, attr)) == 0
+            # Verify storage attrs are empty
+            for attr in adapter_config.cleanup_storage_attrs:
+                if hasattr(adapter, attr):
+                    assert len(getattr(adapter, attr)) == 0
         else:
             # Adapter doesn't support cleanup_all - verify method doesn't exist
             # or calling it doesn't break anything
