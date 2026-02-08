@@ -21,6 +21,7 @@ from tests.framework_configs.converters import (
     ContentAssertion,
     ConverterConfig,
     ToolCallAssertion,
+    ToolHandlingMode,
     get_tool_format,
     make_tool_call,
     make_tool_result,
@@ -357,17 +358,20 @@ class TestToolEventHandling:
         result = converter.convert(raw)
         assertion = ToolCallAssertion(result, converter_config)
 
-        if converter_config.tool_handling_mode == "skip":
+        if converter_config.tool_handling_mode == ToolHandlingMode.SKIP:
             # CrewAI, Parlant skip tool events
             assert assertion.get_length() == 0
         elif converter_config.requires_tool_result_for_output:
             # LangChain: tool_call alone produces no output (needs matching result)
             assert assertion.get_length() == 0
-        elif converter_config.tool_handling_mode == "raw_json":
+        elif converter_config.tool_handling_mode == ToolHandlingMode.RAW_JSON:
             # ClaudeSDK includes as raw JSON
             assert assertion.get_length() == 1
             assert assertion.has_tool_call_at(0, name="search")
-        elif converter_config.tool_handling_mode in ("structured", "langchain"):
+        elif converter_config.tool_handling_mode in (
+            ToolHandlingMode.STRUCTURED,
+            ToolHandlingMode.LANGCHAIN,
+        ):
             # Anthropic, PydanticAI convert to structured format
             assert assertion.get_length() == 1
             assert assertion.has_tool_call_at(0, name="search", tool_id="toolu_123")
@@ -384,11 +388,14 @@ class TestToolEventHandling:
         result = converter.convert(raw)
         assertion = ToolCallAssertion(result, converter_config)
 
-        if converter_config.tool_handling_mode == "skip":
+        if converter_config.tool_handling_mode == ToolHandlingMode.SKIP:
             assert assertion.get_length() == 0
-        elif converter_config.tool_handling_mode == "raw_json":
+        elif converter_config.tool_handling_mode == ToolHandlingMode.RAW_JSON:
             assert assertion.get_length() == 2
-        elif converter_config.tool_handling_mode in ("structured", "langchain"):
+        elif converter_config.tool_handling_mode in (
+            ToolHandlingMode.STRUCTURED,
+            ToolHandlingMode.LANGCHAIN,
+        ):
             assert assertion.get_length() == 2
             assert assertion.has_tool_call_at(0)
             assert assertion.has_tool_result_at(1, tool_id="toolu_123")
@@ -410,7 +417,7 @@ class TestToolBatching:
         result = converter.convert(raw)
         assertion = ToolCallAssertion(result, converter_config)
 
-        if converter_config.tool_handling_mode == "skip":
+        if converter_config.tool_handling_mode == ToolHandlingMode.SKIP:
             # CrewAI, Parlant skip tool events entirely
             assert assertion.get_length() == 0
         elif converter_config.batches_tool_calls:
@@ -435,7 +442,7 @@ class TestToolBatching:
         result = converter.convert(raw)
         assertion = ToolCallAssertion(result, converter_config)
 
-        if converter_config.tool_handling_mode == "skip":
+        if converter_config.tool_handling_mode == ToolHandlingMode.SKIP:
             # CrewAI, Parlant skip tool events entirely
             assert assertion.get_length() == 0
         elif converter_config.batches_tool_results:
@@ -470,7 +477,7 @@ class TestToolBatching:
         result = converter.convert(raw)
         assertion = ToolCallAssertion(result, converter_config)
 
-        if converter_config.tool_handling_mode == "skip":
+        if converter_config.tool_handling_mode == ToolHandlingMode.SKIP:
             # CrewAI, Parlant skip tool events entirely
             assert assertion.get_length() == 0
         elif converter_config.batches_tool_calls:
@@ -492,7 +499,7 @@ class TestToolBatching:
         result = converter.convert(raw)
         assertion = ToolCallAssertion(result, converter_config)
 
-        if converter_config.tool_handling_mode == "skip":
+        if converter_config.tool_handling_mode == ToolHandlingMode.SKIP:
             # CrewAI, Parlant skip tool events entirely
             assert assertion.get_length() == 0
         elif converter_config.requires_tool_result_for_output:
@@ -524,7 +531,7 @@ class TestToolErrorHandling:
         result = converter.convert(raw)
         assertion = ToolCallAssertion(result, converter_config)
 
-        if converter_config.tool_handling_mode == "skip":
+        if converter_config.tool_handling_mode == ToolHandlingMode.SKIP:
             # CrewAI, Parlant skip tool events entirely
             assert assertion.get_length() == 0
         elif not converter_config.supports_is_error:
@@ -548,7 +555,7 @@ class TestToolErrorHandling:
         result = converter.convert(raw)
         assertion = ToolCallAssertion(result, converter_config)
 
-        if converter_config.tool_handling_mode == "skip":
+        if converter_config.tool_handling_mode == ToolHandlingMode.SKIP:
             # CrewAI, Parlant skip tool events entirely
             assert assertion.get_length() == 0
         elif not converter_config.supports_is_error:
@@ -573,10 +580,10 @@ class TestMalformedToolJson:
         result = converter.convert(raw)
         assertion = ToolCallAssertion(result, converter_config)
 
-        if converter_config.tool_handling_mode == "skip":
+        if converter_config.tool_handling_mode == ToolHandlingMode.SKIP:
             # CrewAI, Parlant skip tool events entirely
             assert assertion.get_length() == 0
-        elif converter_config.tool_handling_mode == "raw_json":
+        elif converter_config.tool_handling_mode == ToolHandlingMode.RAW_JSON:
             # ClaudeSDK includes raw JSON as-is (even if malformed)
             assert assertion.get_length() == 1
         else:
@@ -595,10 +602,10 @@ class TestMalformedToolJson:
         result = converter.convert(raw)
         assertion = ToolCallAssertion(result, converter_config)
 
-        if converter_config.tool_handling_mode == "skip":
+        if converter_config.tool_handling_mode == ToolHandlingMode.SKIP:
             # CrewAI, Parlant skip tool events entirely
             assert assertion.get_length() == 0
-        elif converter_config.tool_handling_mode == "raw_json":
+        elif converter_config.tool_handling_mode == ToolHandlingMode.RAW_JSON:
             # ClaudeSDK includes raw JSON as-is
             assert assertion.get_length() == 1
         else:
@@ -617,16 +624,16 @@ class TestMalformedToolJson:
         result = converter.convert(raw)
         assertion = ToolCallAssertion(result, converter_config)
 
-        if converter_config.tool_handling_mode == "skip":
+        if converter_config.tool_handling_mode == ToolHandlingMode.SKIP:
             # CrewAI, Parlant skip tool events entirely
             assert assertion.get_length() == 0
-        elif converter_config.tool_handling_mode == "raw_json":
+        elif converter_config.tool_handling_mode == ToolHandlingMode.RAW_JSON:
             # ClaudeSDK includes raw JSON as-is
             assert assertion.get_length() == 1
-        elif converter_config.tool_handling_mode == "langchain":
+        elif converter_config.tool_handling_mode == ToolHandlingMode.LANGCHAIN:
             # LangChain has different format and validation
             assert assertion.get_length() == 0
-        elif converter_config.tool_handling_mode == "structured":
+        elif converter_config.tool_handling_mode == ToolHandlingMode.STRUCTURED:
             # Anthropic, PydanticAI validate and skip missing id
             assert assertion.get_length() == 0
             if converter_config.logs_malformed_json:
@@ -641,16 +648,16 @@ class TestMalformedToolJson:
         result = converter.convert(raw)
         assertion = ToolCallAssertion(result, converter_config)
 
-        if converter_config.tool_handling_mode == "skip":
+        if converter_config.tool_handling_mode == ToolHandlingMode.SKIP:
             # CrewAI, Parlant skip tool events entirely
             assert assertion.get_length() == 0
-        elif converter_config.tool_handling_mode == "raw_json":
+        elif converter_config.tool_handling_mode == ToolHandlingMode.RAW_JSON:
             # ClaudeSDK includes raw JSON as-is
             assert assertion.get_length() == 1
-        elif converter_config.tool_handling_mode == "langchain":
+        elif converter_config.tool_handling_mode == ToolHandlingMode.LANGCHAIN:
             # LangChain has different format and validation
             assert assertion.get_length() == 0
-        elif converter_config.tool_handling_mode == "structured":
+        elif converter_config.tool_handling_mode == ToolHandlingMode.STRUCTURED:
             # Anthropic, PydanticAI validate and skip missing name
             assert assertion.get_length() == 0
             if converter_config.logs_malformed_json:
@@ -790,7 +797,7 @@ class TestMixedHistory:
         assertion = ContentAssertion(result, converter_config)
 
         # Count depends on tool handling mode and skips_own_messages
-        if converter_config.tool_handling_mode == "skip":
+        if converter_config.tool_handling_mode == ToolHandlingMode.SKIP:
             # Only text messages (minus own if skips_own_messages)
             if converter_config.skips_own_messages:
                 assert assertion.has_length(2)  # Alice's two messages
