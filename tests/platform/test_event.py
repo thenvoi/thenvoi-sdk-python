@@ -15,7 +15,6 @@ from thenvoi.client.streaming import (
     ParticipantAddedPayload,
     ParticipantRemovedPayload,
     MessageMetadata,
-    RoomOwner,
 )
 
 
@@ -30,10 +29,9 @@ class TestMessageEvent:
             message_type="text",
             sender_id="user-789",
             sender_type="User",
-            chat_room_id="room-123",
             inserted_at="2024-01-01T00:00:00Z",
             updated_at="2024-01-01T00:00:00Z",
-            metadata=MessageMetadata(mentions=[], status="sent"),
+            metadata=MessageMetadata(mentions=[]),
         )
 
         event = MessageEvent(
@@ -47,26 +45,20 @@ class TestMessageEvent:
         assert event.payload.id == "msg-456"
         assert event.raw is None
 
-    def test_message_metadata_without_status(self):
-        """MessageMetadata.status is optional (websocket may omit it)."""
-        # INT-84: WebSocket API doesn't always include status field
-        metadata = MessageMetadata(mentions=[])
-        assert metadata.status is None
-
+    def test_message_metadata_optional(self):
+        """MessageMetadata is optional (websocket may omit it)."""
         payload = MessageCreatedPayload(
-            id="msg-no-status",
-            content="Hello without status",
+            id="msg-no-metadata",
+            content="Hello without metadata",
             message_type="text",
             sender_id="user-789",
             sender_type="User",
-            chat_room_id="room-123",
             inserted_at="2024-01-01T00:00:00Z",
             updated_at="2024-01-01T00:00:00Z",
-            metadata=metadata,
         )
 
         event = MessageEvent(room_id="room-123", payload=payload)
-        assert event.payload.metadata.status is None
+        assert event.payload.metadata is None
 
     def test_message_event_isinstance(self):
         """Test isinstance check for MessageEvent."""
@@ -76,10 +68,9 @@ class TestMessageEvent:
             message_type="text",
             sender_id="user-1",
             sender_type="User",
-            chat_room_id="room-1",
             inserted_at="2024-01-01T00:00:00Z",
             updated_at="2024-01-01T00:00:00Z",
-            metadata=MessageMetadata(mentions=[], status="sent"),
+            metadata=MessageMetadata(mentions=[]),
         )
 
         event = MessageEvent(room_id="room-1", payload=payload)
@@ -97,11 +88,8 @@ class TestRoomAddedEvent:
         payload = RoomAddedPayload(
             id="room-123",
             title="Test Room",
-            owner=RoomOwner(id="user-1", name="Test User", type="User"),
-            status="active",
-            type="direct",
-            created_at="2024-01-01T00:00:00Z",
-            participant_role="member",
+            inserted_at="2024-01-01T00:00:00Z",
+            updated_at="2024-01-01T00:00:00Z",
         )
 
         event = RoomAddedEvent(
@@ -119,11 +107,8 @@ class TestRoomAddedEvent:
         payload = RoomAddedPayload(
             id="room-1",
             title="Room",
-            owner=RoomOwner(id="user-1", name="User", type="User"),
-            status="active",
-            type="direct",
-            created_at="2024-01-01T00:00:00Z",
-            participant_role="member",
+            inserted_at="2024-01-01T00:00:00Z",
+            updated_at="2024-01-01T00:00:00Z",
         )
 
         event = RoomAddedEvent(room_id="room-1", payload=payload)
@@ -234,10 +219,9 @@ class TestEventPatternMatching:
             message_type="text",
             sender_id="user-1",
             sender_type="User",
-            chat_room_id="room-1",
             inserted_at="2024-01-01T00:00:00Z",
             updated_at="2024-01-01T00:00:00Z",
-            metadata=MessageMetadata(mentions=[], status="sent"),
+            metadata=MessageMetadata(mentions=[]),
         )
 
         event: PlatformEvent = MessageEvent(room_id="room-1", payload=payload)
@@ -258,11 +242,8 @@ class TestEventPatternMatching:
         payload = RoomAddedPayload(
             id="room-1",
             title="Room",
-            owner=RoomOwner(id="user-1", name="User", type="User"),
-            status="active",
-            type="direct",
-            created_at="2024-01-01T00:00:00Z",
-            participant_role="member",
+            inserted_at="2024-01-01T00:00:00Z",
+            updated_at="2024-01-01T00:00:00Z",
         )
 
         event: PlatformEvent = RoomAddedEvent(room_id="room-1", payload=payload)
@@ -289,10 +270,9 @@ class TestEventPatternMatching:
                     message_type="text",
                     sender_id="user-1",
                     sender_type="User",
-                    chat_room_id="room-1",
                     inserted_at="2024-01-01T00:00:00Z",
                     updated_at="2024-01-01T00:00:00Z",
-                    metadata=MessageMetadata(mentions=[], status="sent"),
+                    metadata=MessageMetadata(mentions=[]),
                 ),
             ),
             RoomAddedEvent(
@@ -300,11 +280,8 @@ class TestEventPatternMatching:
                 payload=RoomAddedPayload(
                     id="room-1",
                     title="Room",
-                    owner=RoomOwner(id="user-1", name="User", type="User"),
-                    status="active",
-                    type="direct",
-                    created_at="2024-01-01T00:00:00Z",
-                    participant_role="member",
+                    inserted_at="2024-01-01T00:00:00Z",
+                    updated_at="2024-01-01T00:00:00Z",
                 ),
             ),
             ParticipantAddedEvent(
@@ -347,10 +324,9 @@ class TestEventWithRawPayload:
             message_type="text",
             sender_id="user-1",
             sender_type="User",
-            chat_room_id="room-1",
             inserted_at="2024-01-01T00:00:00Z",
             updated_at="2024-01-01T00:00:00Z",
-            metadata=MessageMetadata(mentions=[], status="sent"),
+            metadata=MessageMetadata(mentions=[]),
         )
 
         event = MessageEvent(

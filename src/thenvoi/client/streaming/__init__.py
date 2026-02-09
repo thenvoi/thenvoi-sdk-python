@@ -15,7 +15,6 @@ from thenvoi.client.streaming.client import (
     ParticipantRemovedPayload,
     MessageMetadata,
     Mention,
-    RoomOwner,
 )
 
 __all__ = [
@@ -27,5 +26,4 @@ __all__ = [
     "ParticipantRemovedPayload",
     "MessageMetadata",
     "Mention",
-    "RoomOwner",
 ]

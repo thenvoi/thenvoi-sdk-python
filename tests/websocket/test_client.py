@@ -42,7 +42,7 @@ async def test_validates_room_added_payload():
         event = "room_added"
         payload = {
             "id": "room-123",
-            # Missing: owner, status, type, title, etc.
+            # Missing: title, inserted_at, updated_at
         }
 
     # Must provide callback for validation to occur (code returns early without callback)
@@ -53,7 +53,7 @@ async def test_validates_room_added_payload():
         await client._handle_events(MockMessage(), {"room_added": dummy_callback})
 
     error_str = str(exc_info.value)
-    assert "owner" in error_str or "required" in error_str.lower()
+    assert "title" in error_str or "required" in error_str.lower()
 
 
 async def test_validates_room_removed_payload():
@@ -94,13 +94,12 @@ async def test_accepts_valid_message_created_payload():
             "content": "@TestBot hi",
             "message_type": "text",
             "metadata": {
-                "mentions": [{"id": "agent-123", "username": "TestBot"}],
-                "status": "sent",
+                "mentions": [
+                    {"id": "agent-123", "handle": "testbot", "name": "TestBot"}
+                ],
             },
             "sender_id": "user-456",
             "sender_type": "User",
-            "chat_room_id": "room-123",
-            "thread_id": None,
             "inserted_at": "2025-11-17T11:20:10.284136Z",
             "updated_at": "2025-11-17T11:20:10.284136Z",
         }
@@ -123,12 +122,10 @@ async def test_accepts_valid_room_added_payload():
         event = "room_added"
         payload = {
             "id": "room-123",
-            "owner": {"id": "user-456", "name": "Test User", "type": "User"},
-            "status": "active",
-            "type": "direct",
             "title": "Test Room",
-            "created_at": "2025-11-17T09:05:35.642172Z",
-            "participant_role": "member",
+            "task_id": None,
+            "inserted_at": "2025-11-17T09:05:35.642172Z",
+            "updated_at": "2025-11-17T09:05:35.642172Z",
         }
 
     # Should not raise

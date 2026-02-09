@@ -19,56 +19,47 @@ logger = logging.getLogger(__name__)
 class Mention(BaseModel):
     """Mention object within message metadata."""
 
+    model_config = ConfigDict(extra="allow")
+
     id: str
-    username: str
+    handle: str
+    name: str
 
 
 class MessageMetadata(BaseModel):
     """Metadata within message_created payload."""
 
-    mentions: list[Mention]
-    status: str | None = None
+    model_config = ConfigDict(extra="allow")
+
+    mentions: Optional[list[Mention]] = None
 
 
 class MessageCreatedPayload(BaseModel):
-    """Payload for message_created events (observed from real WebSocket)."""
-
-    model_config = ConfigDict(
-        extra="allow"
-    )  # Allow extra fields backend might add later
-
-    id: str
-    content: str
-    message_type: str
-    metadata: MessageMetadata
-    sender_id: str
-    sender_type: str
-    chat_room_id: str
-    thread_id: Optional[str] = None
-    inserted_at: str
-    updated_at: str
-
-
-class RoomOwner(BaseModel):
-    """Owner object within room_added payload."""
-
-    id: str
-    name: str
-    type: str
-
-
-class RoomAddedPayload(BaseModel):
-    """Payload for room_added events (observed from real WebSocket)."""
+    """Payload for message_created events."""
 
     model_config = ConfigDict(extra="allow")
 
     id: str
-    owner: RoomOwner
-    status: str
-    type: str
+    content: str
+    message_type: str
+    sender_type: str
+    sender_id: str
+    sender_name: Optional[str] = None
+    metadata: Optional[MessageMetadata] = None
+    inserted_at: str
+    updated_at: str
+
+
+class RoomAddedPayload(BaseModel):
+    """Payload for room_added events."""
+
+    model_config = ConfigDict(extra="allow")
+
+    id: str
     title: str
-    created_at: str
-    participant_role: str
+    task_id: Optional[str] = None
+    inserted_at: str
+    updated_at: str
 
 
 class RoomRemovedPayload(BaseModel):

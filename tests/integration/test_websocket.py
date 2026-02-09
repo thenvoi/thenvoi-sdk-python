@@ -139,7 +139,6 @@ class TestWebSocketNotifications:
         assert "WebSocket multi-agent test!" in our_message.content, (
             f"Message should contain expected text, got: {our_message.content}"
         )
-        assert our_message.chat_room_id == chat_id
         logger.info("Verified message content: '%s...'", our_message.content[:50])
 
         logger.info("\nWebSocket message_created test passed!")

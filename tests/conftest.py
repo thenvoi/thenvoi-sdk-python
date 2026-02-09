@@ -26,7 +26,6 @@ from thenvoi.client.streaming import (
     MessageMetadata,
     RoomAddedPayload,
     RoomRemovedPayload,
-    RoomOwner,
     ParticipantAddedPayload,
     ParticipantRemovedPayload,
 )
@@ -65,10 +64,9 @@ def make_message_event(
         message_type=kwargs.get("message_type", "text"),
         sender_id=sender_id,
         sender_type=sender_type,
-        chat_room_id=room_id,
         inserted_at=kwargs.get("inserted_at", "2024-01-01T00:00:00Z"),
         updated_at=kwargs.get("updated_at", "2024-01-01T00:00:00Z"),
-        metadata=kwargs.get("metadata", MessageMetadata(mentions=[], status="sent")),
+        metadata=kwargs.get("metadata", MessageMetadata(mentions=[])),
     )
     return MessageEvent(room_id=room_id, payload=payload)
 
@@ -80,13 +78,9 @@ def make_room_added_event(
     payload = RoomAddedPayload(
         id=room_id,
         title=title,
-        owner=kwargs.get(
-            "owner", RoomOwner(id="user-1", name="Test User", type="User")
-        ),
-        status=kwargs.get("status", "active"),
-        type=kwargs.get("type", "direct"),
-        created_at=kwargs.get("created_at", "2024-01-01T00:00:00Z"),
-        participant_role=kwargs.get("participant_role", "member"),
+        task_id=kwargs.get("task_id"),
+        inserted_at=kwargs.get("inserted_at", "2024-01-01T00:00:00Z"),
+        updated_at=kwargs.get("updated_at", "2024-01-01T00:00:00Z"),
     )
     return RoomAddedEvent(room_id=room_id, payload=payload)
 
