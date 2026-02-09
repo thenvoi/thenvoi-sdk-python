@@ -171,53 +171,7 @@ uv run pytest \
 
 ---
 
-## 4. Conformance tests you must pass (contract)
-
-### Adapter conformance (`test_adapter_conformance.py`)
-
-| Test                                                | What it checks                                                                 |
-| --------------------------------------------------- | ------------------------------------------------------------------------------ |
-| `test_default_initialization`                     | Adapter defaults match config (`default_values`).                            |
-| `test_custom_initialization`                      | Adapter accepts and stores custom kwargs.                                      |
-| `test_defaults_to_empty_custom_tools`             | Custom tools attribute is `[]` by default (skipped if no such attr).         |
-| `test_has_history_converter`                     | Adapter has non-null `history_converter`.                                      |
-| `test_after_on_started_sets_agent_name_and_description` | After `on_started`, adapter has agent_name/agent_description set (skipped if live client). |
-| `test_cleanup_nonexistent_room_is_safe`           | `on_cleanup("nonexistent-room")` does not raise.                              |
-| `test_cleanup_all_safe_when_supported`            | If adapter has `cleanup_all()`, calling it does not raise (skipped if absent). |
-
-### Converter conformance (`test_converter_conformance.py`)
-
-| Test                                               | What it checks                                                                                  |
-| -------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
-| **User text**                                |                                                                                                 |
-| `test_converts_user_text_with_sender_name`       | User text includes `[Sender]: content`.                                                       |
-| `test_handles_empty_sender_name`                 | Empty `sender_name` per config (`content_as_is` / `brackets_empty` / `unknown_prefix`). |
-| `test_handles_missing_sender_name`               | Missing `sender_name` per config (skipped if not applicable).                                 |
-| **Empty / defaults**                         |                                                                                                 |
-| `test_empty_history`                             | `convert([])` returns config `empty_result`.                                                |
-| `test_defaults_to_text_message_type`             | No `message_type` → treated as text.                                                         |
-| **Filtering**                                |                                                                                                 |
-| `test_skips_thought_messages`                    | `message_type: "thought"` → not in output.                                                   |
-| `test_own_message_handling`                      | Own assistant messages filtered or included per config.                                         |
-| `test_includes_other_agents_messages`            | Other agents’ messages always included.                                                        |
-| `test_skips_only_own_keeps_others`               | Only own messages filtered; others kept.                                                        |
-| `test_set_agent_name_updates_filtering`          | `set_agent_name` changes which messages are filtered.                                         |
-| `test_includes_all_when_no_agent_name`           | No agent name → all assistant messages included.                                               |
-| **Edge cases**                               |                                                                                                 |
-| `test_handles_empty_content`                     | Empty `content` skipped or kept per config.                                                   |
-| `test_defaults_to_user_role`                     | No `role` → treated as user (skipped if no role concept).                                    |
-| **Tool events**                              |                                                                                                 |
-| `test_tool_events_skipped_for_simple_converters` | Tool call/result messages skipped when `skips_tool_events` (skipped otherwise).               |
-| **Tool event conversion** (when `skips_tool_events=False`) |                                                                                    |
-| `test_converts_tool_call_to_framework_format` | Tool_call + tool_result converted and appear in output.                                        |
-| `test_converts_tool_result_paired_with_call`  | Tool_result paired with tool_call.                                                             |
-| `test_mixed_history_includes_user_assistant_tool_messages` | User + assistant + tool messages converted in order.                              |
-
-Your framework config in `tests/framework_configs/adapters.py` and `tests/framework_configs/converters.py` must match this behavior; otherwise conformance tests will fail or be skipped as intended.
-
----
-
-## 5. Adding a new framework
+## 4. Adding a new framework
 
 1. Implement adapter and converter (and register in `src/thenvoi/`).
 2. Add `AdapterConfig` to `tests/framework_configs/adapters.py` and `ConverterConfig` to `tests/framework_configs/converters.py` (including an `OutputAdapter` if the converter returns a custom shape).
@@ -228,7 +182,7 @@ Your framework config in `tests/framework_configs/adapters.py` and `tests/framew
 
 ---
 
-## 6. Run all framework-related tests (all frameworks)
+## 5. Run all framework-related tests (all frameworks)
 
 ```bash
 uv run pytest tests/framework_conformance/ tests/adapters/ tests/converters/ -v --ignore=tests/integration/
@@ -236,48 +190,4 @@ uv run pytest tests/framework_conformance/ tests/adapters/ tests/converters/ -v 
 
 This excludes integration tests and shared helpers like `test_a2a_gateway.py`, `test_tool_parsing.py`; include them if you care about those contracts.
 
----
-
-## 7. Flat list: all mandatory parameterized tests (by name)
-
-Use this list to confirm every conformance test is covered. Each new framework must **pass** these (or be explicitly skipped only where the contract allows).
-
-**Adapter conformance** (`test_adapter_conformance.py`):
-
-- `TestAdapterInitialization::test_default_initialization`
-- `TestAdapterInitialization::test_custom_initialization`
-- `TestAdapterInitialization::test_defaults_to_empty_custom_tools`
-- `TestAdapterInitialization::test_has_history_converter`
-- `TestAdapterOnStarted::test_after_on_started_sets_agent_name_and_description`
-- `TestAdapterCleanup::test_cleanup_nonexistent_room_is_safe`
-- `TestAdapterCleanup::test_cleanup_all_safe_when_supported`
-
-**Converter conformance** (`test_converter_conformance.py`):
-
-- `TestUserTextMessages::test_converts_user_text_with_sender_name`
-- `TestUserTextMessages::test_handles_empty_sender_name`
-- `TestUserTextMessages::test_handles_missing_sender_name`
-- `TestEmptyHistory::test_empty_history`
-- `TestMessageTypeDefaults::test_defaults_to_text_message_type`
-- `TestThoughtMessageSkipping::test_skips_thought_messages`
-- `TestOwnMessageFiltering::test_own_message_handling`
-- `TestOwnMessageFiltering::test_includes_other_agents_messages`
-- `TestOwnMessageFiltering::test_skips_only_own_keeps_others`
-- `TestOwnMessageFiltering::test_set_agent_name_updates_filtering`
-- `TestOwnMessageFiltering::test_includes_all_when_no_agent_name`
-- `TestEdgeCases::test_handles_empty_content`
-- `TestEdgeCases::test_defaults_to_user_role`
-- `TestToolEventHandling::test_tool_events_skipped_for_simple_converters`
-- `TestToolEventConversion::test_converts_tool_call_to_framework_format`
-- `TestToolEventConversion::test_converts_tool_result_paired_with_call`
-- `TestToolEventConversion::test_mixed_history_includes_user_assistant_tool_messages`
-
-**Run all tests for one framework (conformance + framework-specific):**
-
-```bash
-uv run pytest tests/ --framework <framework_name> -v
-```
-
-Example: `uv run pytest tests/ --framework anthropic -v`. Valid names: `anthropic`, `langgraph`, `crewai`, `claude_sdk`, `pydantic_ai`, `parlant`.
-
-Framework-specific coverage (adapter and converter) is not a single test list: you must **implement** tests in your adapter/converter test files that cover each area in the tables in section "Mandatory tests to add a new framework" above.
+The authoritative list of all conformance tests is in the tables in section "Mandatory tests to add a new framework" above.

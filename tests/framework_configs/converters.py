@@ -51,6 +51,9 @@ class ConverterConfig:
     has_role_concept: bool = True
     has_missing_sender_name_test: bool = True
 
+    # Tool result output path differs (e.g. LangChain reads event["data"]["output"])
+    tool_result_uses_nested_path: bool = False
+
     # Output adapter for uniform assertions
     output_adapter: OutputAdapter = field(default_factory=DictListOutputAdapter)
 
@@ -120,6 +123,7 @@ CONVERTER_CONFIGS: list[ConverterConfig] = [
         empty_sender_behavior="brackets_empty",
         missing_sender_behavior="content_as_is",  # not tested (has_missing_sender_name_test=False)
         has_missing_sender_name_test=False,
+        tool_result_uses_nested_path=True,
         output_adapter=LangChainOutputAdapter(),
     ),
     ConverterConfig(

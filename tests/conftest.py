@@ -120,9 +120,7 @@ def pytest_collection_modifyitems(config, items):
             return True
         return False
 
-    for item in list(items):
-        if not keep(item):
-            items.remove(item)
+    items[:] = [item for item in items if keep(item)]
 
 
 # =============================================================================

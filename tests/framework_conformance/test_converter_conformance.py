@@ -386,10 +386,8 @@ class TestToolEventConversion:
 
         assert output.result_length(result) >= 1
         assert output.content_contains(result, "search")
-        # Tool result may appear in content or framework-specific shape; at least tool name present
-        if output.content_contains(result, "result data"):
-            pass  # preferred: tool result content visible
-        # else: some frameworks (e.g. LangChain with id mismatch) still convert structure
+        if not converter_config.tool_result_uses_nested_path:
+            assert output.content_contains(result, "result data")
 
     def test_mixed_history_includes_user_assistant_tool_messages(
         self, converter_config, make_converter, output
@@ -429,7 +427,5 @@ class TestToolEventConversion:
         assert output.result_length(result) >= 2
         assert output.content_contains(result, "Alice")
         assert output.content_contains(result, "search")
-        # Tool result text may be in content or framework-specific; at least user + tool call present
-        if output.content_contains(result, "found"):
-            pass  # preferred: tool result content visible
-        # else: structure and order still verified by result_length and "search"
+        if not converter_config.tool_result_uses_nested_path:
+            assert output.content_contains(result, "found")

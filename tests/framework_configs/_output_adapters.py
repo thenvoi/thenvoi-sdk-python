@@ -160,8 +160,11 @@ class StringOutputAdapter:
         return result.split("\n")[index]
 
     def get_role(self, result: str, index: int) -> str:
-        # ClaudeSDK returns a flat string; no role concept
-        raise NotImplementedError("StringOutputAdapter has no role concept")
+        # ClaudeSDK returns a flat string; infer role from prefix convention
+        line = result.split("\n")[index]
+        if line.startswith("[") and "]: " in line:
+            return "user"
+        return "unknown"
 
     def is_empty(self, result: str) -> bool:
         return result == ""
