@@ -28,6 +28,10 @@ from thenvoi.client.streaming import (
     RoomRemovedPayload,
     ParticipantAddedPayload,
     ParticipantRemovedPayload,
+    ContactRequestReceivedPayload,
+    ContactRequestUpdatedPayload,
+    ContactAddedPayload,
+    ContactRemovedPayload,
 )
 from thenvoi.platform.event import (
     MessageEvent,
@@ -35,6 +39,10 @@ from thenvoi.platform.event import (
     RoomRemovedEvent,
     ParticipantAddedEvent,
     ParticipantRemovedEvent,
+    ContactRequestReceivedEvent,
+    ContactRequestUpdatedEvent,
+    ContactAddedEvent,
+    ContactRemovedEvent,
 )
 from thenvoi.runtime.types import PlatformMessage
 
@@ -117,6 +125,64 @@ def make_participant_removed_event(
     """Create a ParticipantRemovedEvent using SDK-native types."""
     payload = ParticipantRemovedPayload(id=participant_id)
     return ParticipantRemovedEvent(room_id=room_id, payload=payload)
+
+
+def make_contact_request_received_event(
+    id: str = "req-123",
+    from_handle: str = "john_doe",
+    from_name: str = "John Doe",
+    **kwargs,
+) -> ContactRequestReceivedEvent:
+    """Create ContactRequestReceivedEvent for tests."""
+    payload = ContactRequestReceivedPayload(
+        id=id,
+        from_handle=from_handle,
+        from_name=from_name,
+        message=kwargs.get("message"),
+        status=kwargs.get("status", "pending"),
+        inserted_at=kwargs.get("inserted_at", "2026-01-01T00:00:00Z"),
+    )
+    return ContactRequestReceivedEvent(payload=payload)
+
+
+def make_contact_request_updated_event(
+    id: str = "req-123",
+    status: str = "approved",
+) -> ContactRequestUpdatedEvent:
+    """Create ContactRequestUpdatedEvent for tests."""
+    payload = ContactRequestUpdatedPayload(
+        id=id,
+        status=status,
+    )
+    return ContactRequestUpdatedEvent(payload=payload)
+
+
+def make_contact_added_event(
+    contact_id: str = "contact-123",
+    handle: str = "jane_smith",
+    name: str = "Jane Smith",
+    contact_type: str = "User",
+    **kwargs,
+) -> ContactAddedEvent:
+    """Create ContactAddedEvent for tests."""
+    payload = ContactAddedPayload(
+        id=contact_id,
+        handle=handle,
+        name=name,
+        type=contact_type,
+        description=kwargs.get("description"),
+        is_external=kwargs.get("is_external"),
+        inserted_at=kwargs.get("inserted_at", "2026-01-01T00:00:00Z"),
+    )
+    return ContactAddedEvent(payload=payload)
+
+
+def make_contact_removed_event(
+    contact_id: str = "contact-123",
+) -> ContactRemovedEvent:
+    """Create ContactRemovedEvent for tests."""
+    payload = ContactRemovedPayload(id=contact_id)
+    return ContactRemovedEvent(payload=payload)
 
 
 # =============================================================================

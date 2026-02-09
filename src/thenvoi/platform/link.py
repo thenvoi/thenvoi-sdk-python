@@ -21,6 +21,10 @@ from .event import (
     RoomRemovedEvent,
     ParticipantAddedEvent,
     ParticipantRemovedEvent,
+    ContactRequestReceivedEvent,
+    ContactRequestUpdatedEvent,
+    ContactAddedEvent,
+    ContactRemovedEvent,
     PlatformEvent,
 )
 
@@ -29,6 +33,10 @@ if TYPE_CHECKING:
         MessageCreatedPayload,
         RoomAddedPayload,
         RoomRemovedPayload,
+        ContactRequestReceivedPayload,
+        ContactRequestUpdatedPayload,
+        ContactAddedPayload,
+        ContactRemovedPayload,
     )
     from thenvoi.runtime.types import PlatformMessage
 
@@ -184,6 +192,24 @@ class ThenvoiLink:
         self._subscribed_rooms.add(room_id)
         logger.debug("Subscribed to room %s", room_id)
 
+    async def subscribe_agent_contacts(self, agent_id: str) -> None:
+        """
+        Subscribe to agent contact events.
+
+        Events: contact_request_received, contact_request_updated,
+                contact_added, contact_removed
+        """
+        if not self._ws:
+            raise RuntimeError("Not connected")
+
+        await self._ws.join_agent_contacts_channel(
+            agent_id,
+            on_contact_request_received=self._on_contact_request_received,
+            on_contact_request_updated=self._on_contact_request_updated,
+            on_contact_added=self._on_contact_added,
+            on_contact_removed=self._on_contact_removed,
+        )
+
     async def unsubscribe_room(self, room_id: str) -> None:
         """
         Unsubscribe from room.
@@ -209,6 +235,15 @@ class ThenvoiLink:
 
         logger.debug("Unsubscribed from room %s", room_id)
 
+    async def unsubscribe_agent_contacts(self) -> None:
+        """Unsubscribe from agent contacts channel."""
+        if not self._ws:
+            return
+        try:
+            await self._ws.leave_agent_contacts_channel(self.agent_id)
+        except Exception as e:
+            logger.warning("Error unsubscribing from agent_contacts: %s", e)
+
     # --- Event handlers (from ThenvoiAgent, unified into PlatformEvent) ---
 
     def _queue_event(self, event: PlatformEvent) -> None:
@@ -219,6 +254,10 @@ class ThenvoiLink:
             logger.warning(
                 f"Event queue full, dropping {event.type} event for room {event.room_id}"
             )
+
+    def queue_event(self, event: PlatformEvent) -> None:
+        """Queue a synthetic event for processing (public API)."""
+        self._queue_event(event)
 
     async def _on_room_added(self, payload: "RoomAddedPayload") -> None:
         """
@@ -285,6 +324,42 @@ class ThenvoiLink:
         event = ParticipantRemovedEvent(
             room_id=room_id,
             payload=ParticipantRemovedPayload(**payload),
+        )
+        self._queue_event(event)
+
+    async def _on_contact_request_received(
+        self, payload: "ContactRequestReceivedPayload"
+    ) -> None:
+        """Handle contact_request_received from WebSocket."""
+        event = ContactRequestReceivedEvent(
+            room_id=None,  # Contact events have no room context
+            payload=payload,
+        )
+        self._queue_event(event)
+
+    async def _on_contact_request_updated(
+        self, payload: "ContactRequestUpdatedPayload"
+    ) -> None:
+        """Handle contact_request_updated from WebSocket."""
+        event = ContactRequestUpdatedEvent(
+            room_id=None,
+            payload=payload,
+        )
+        self._queue_event(event)
+
+    async def _on_contact_added(self, payload: "ContactAddedPayload") -> None:
+        """Handle contact_added from WebSocket."""
+        event = ContactAddedEvent(
+            room_id=None,
+            payload=payload,
+        )
+        self._queue_event(event)
+
+    async def _on_contact_removed(self, payload: "ContactRemovedPayload") -> None:
+        """Handle contact_removed from WebSocket."""
+        event = ContactRemovedEvent(
+            room_id=None,
+            payload=payload,
         )
         self._queue_event(event)
 

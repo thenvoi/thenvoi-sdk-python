@@ -701,7 +701,7 @@ class AgentTools(AgentToolsProtocol):
             message: Optional message with the request
 
         Returns:
-            Dict with request_id and status ('pending' or 'approved')
+            Dict with id and status ('pending' or 'approved')
         """
         logger.debug("Adding contact: handle=%s", handle)
         response = await self.rest.agent_api_contacts.add_agent_contact(
@@ -710,7 +710,7 @@ class AgentTools(AgentToolsProtocol):
         if not response.data:
             raise RuntimeError("Failed to add contact - no response data")
         return {
-            "request_id": response.data.request_id,
+            "id": response.data.id,
             "status": response.data.status,
         }
 
@@ -763,7 +763,7 @@ class AgentTools(AgentToolsProtocol):
         if response.data and response.data.received:
             received = [
                 {
-                    "request_id": r.request_id,
+                    "id": r.id,
                     "from_handle": r.from_handle,
                     "from_name": r.from_name,
                     "message": r.message,
@@ -777,7 +777,7 @@ class AgentTools(AgentToolsProtocol):
         if response.data and response.data.sent:
             sent = [
                 {
-                    "request_id": s.request_id,
+                    "id": s.id,
                     "to_handle": s.to_handle,
                     "to_name": s.to_name,
                     "message": s.message,
@@ -824,7 +824,7 @@ class AgentTools(AgentToolsProtocol):
             request_id: Or request ID (UUID)
 
         Returns:
-            Dict with request_id and status
+            Dict with id and status
         """
         logger.debug(
             "Responding to contact request: action=%s, handle=%s, request_id=%s",
@@ -840,7 +840,7 @@ class AgentTools(AgentToolsProtocol):
                 "Failed to respond to contact request - no response data"
             )
         return {
-            "request_id": response.data.request_id,
+            "id": response.data.id,
             "status": response.data.status,
         }
 

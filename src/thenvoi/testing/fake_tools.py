@@ -94,7 +94,7 @@ class FakeAgentTools:
     async def add_contact(
         self, handle: str, message: str | None = None
     ) -> dict[str, Any]:
-        return {"request_id": str(uuid.uuid4()), "status": "pending"}
+        return {"id": str(uuid.uuid4()), "status": "pending"}
 
     async def remove_contact(
         self, handle: str | None = None, contact_id: str | None = None
@@ -124,7 +124,7 @@ class FakeAgentTools:
             "cancel": "cancelled",
         }
         return {
-            "request_id": request_id or str(uuid.uuid4()),
+            "id": request_id or str(uuid.uuid4()),
             "status": status_map.get(action, action),
         }
 

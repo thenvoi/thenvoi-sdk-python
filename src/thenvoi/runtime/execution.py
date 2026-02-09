@@ -621,7 +621,7 @@ class ExecutionContext:
                     try:
                         head = self.queue.get_nowait()
                         head_id = (
-                            head.payload.id
+                            getattr(head.payload, "id", None)
                             if hasattr(head, "payload") and head.payload
                             else None
                         )

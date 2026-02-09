@@ -92,6 +92,53 @@ class ParticipantRemovedPayload(BaseModel):
     id: str
 
 
+# Contact event payloads
+
+
+class ContactRequestReceivedPayload(BaseModel):
+    """Payload for contact_request_received events."""
+
+    model_config = ConfigDict(extra="allow")
+
+    id: str
+    from_handle: str
+    from_name: str
+    message: Optional[str] = None
+    status: str
+    inserted_at: str
+
+
+class ContactRequestUpdatedPayload(BaseModel):
+    """Payload for contact_request_updated events."""
+
+    model_config = ConfigDict(extra="allow")
+
+    id: str
+    status: str
+
+
+class ContactAddedPayload(BaseModel):
+    """Payload for contact_added events."""
+
+    model_config = ConfigDict(extra="allow")
+
+    id: str
+    handle: str
+    name: str
+    type: str
+    description: Optional[str] = None
+    is_external: Optional[bool] = None
+    inserted_at: str
+
+
+class ContactRemovedPayload(BaseModel):
+    """Payload for contact_removed events."""
+
+    model_config = ConfigDict(extra="allow")
+
+    id: str
+
+
 class WebSocketClient:
     def __init__(self, ws_url: str, api_key: str, agent_id: Optional[str] = None):
         self.ws_url = ws_url
@@ -136,6 +183,14 @@ class WebSocketClient:
             validated = RoomAddedPayload(**message.payload)
         elif message.event == "room_removed":
             validated = RoomRemovedPayload(**message.payload)
+        elif message.event == "contact_request_received":
+            validated = ContactRequestReceivedPayload(**message.payload)
+        elif message.event == "contact_request_updated":
+            validated = ContactRequestUpdatedPayload(**message.payload)
+        elif message.event == "contact_added":
+            validated = ContactAddedPayload(**message.payload)
+        elif message.event == "contact_removed":
+            validated = ContactRemovedPayload(**message.payload)
         else:
             # For other events (participant_added, participant_removed, etc.)
             # pass the raw payload dict
@@ -258,6 +313,43 @@ class WebSocketClient:
     async def leave_tasks_channel(self, user_id: str):
         """Unsubscribe from tasks topic"""
         topic = f"tasks:{user_id}"
+        return await self.client.unsubscribe_from_topic(topic)
+
+    async def join_agent_contacts_channel(
+        self,
+        agent_id: str,
+        on_contact_request_received: Callable[
+            [ContactRequestReceivedPayload], Awaitable[None]
+        ],
+        on_contact_request_updated: Callable[
+            [ContactRequestUpdatedPayload], Awaitable[None]
+        ],
+        on_contact_added: Callable[[ContactAddedPayload], Awaitable[None]],
+        on_contact_removed: Callable[[ContactRemovedPayload], Awaitable[None]],
+    ):
+        """Subscribe to agent contacts topic with async callbacks."""
+        topic = f"agent_contacts:{agent_id}"
+        logger.info("[WebSocket] Subscribing to topic: %s", topic)
+
+        async def message_handler(message):
+            await self._handle_events(
+                message,
+                {
+                    "contact_request_received": on_contact_request_received,
+                    "contact_request_updated": on_contact_request_updated,
+                    "contact_added": on_contact_added,
+                    "contact_removed": on_contact_removed,
+                },
+            )
+
+        result = await self.client.subscribe_to_topic(topic, message_handler)
+        logger.info("[WebSocket] Subscribed to topic: %s", topic)
+        return result
+
+    async def leave_agent_contacts_channel(self, agent_id: str):
+        """Unsubscribe from agent contacts topic."""
+        topic = f"agent_contacts:{agent_id}"
+        logger.info("[WebSocket] Unsubscribing from topic: %s", topic)
         return await self.client.unsubscribe_from_topic(topic)
 
     async def run_forever(self):
