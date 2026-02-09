@@ -65,6 +65,11 @@ def _crewai_factory(**kw: Any) -> Any:
     import importlib
     import sys
 
+    _SENTINEL = object()
+    mock_keys = ("crewai", "crewai.tools", "nest_asyncio")
+    saved = {k: sys.modules.get(k, _SENTINEL) for k in mock_keys}
+    saved_adapter = sys.modules.get("thenvoi.adapters.crewai", _SENTINEL)
+
     mock_crewai_module = MagicMock()
     mock_crewai_tools_module = MagicMock()
     mock_nest_asyncio = MagicMock()
@@ -81,14 +86,27 @@ def _crewai_factory(**kw: Any) -> Any:
 
     mock_crewai_tools_module.BaseTool = MockBaseTool
 
-    sys.modules["crewai"] = mock_crewai_module
-    sys.modules["crewai.tools"] = mock_crewai_tools_module
-    sys.modules["nest_asyncio"] = mock_nest_asyncio
+    try:
+        sys.modules["crewai"] = mock_crewai_module
+        sys.modules["crewai.tools"] = mock_crewai_tools_module
+        sys.modules["nest_asyncio"] = mock_nest_asyncio
 
-    # Force reimport to pick up mocked modules
-    sys.modules.pop("thenvoi.adapters.crewai", None)
-    module = importlib.import_module("thenvoi.adapters.crewai")
-    adapter = module.CrewAIAdapter(**kw)
+        # Force reimport to pick up mocked modules
+        sys.modules.pop("thenvoi.adapters.crewai", None)
+        module = importlib.import_module("thenvoi.adapters.crewai")
+        adapter = module.CrewAIAdapter(**kw)
+    finally:
+        # Restore original sys.modules state
+        for k, orig in saved.items():
+            if orig is _SENTINEL:
+                sys.modules.pop(k, None)
+            else:
+                sys.modules[k] = orig
+        if saved_adapter is _SENTINEL:
+            sys.modules.pop("thenvoi.adapters.crewai", None)
+        else:
+            sys.modules["thenvoi.adapters.crewai"] = saved_adapter
+
     return adapter
 
 
