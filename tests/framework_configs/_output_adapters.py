@@ -158,19 +158,52 @@ class PydanticAIOutputAdapter:
 
 
 class StringOutputAdapter:
-    """Adapter for ClaudeSDK converter output (newline-joined string)."""
+    """Adapter for ClaudeSDK converter output (newline-joined string).
+
+    The ClaudeSDK converter joins logical messages with ``"\\n"``.
+    Each message is either a ``[sender]: content`` text line or a raw
+    JSON object (tool_call / tool_result).  Because tool-event JSON is
+    always emitted as a single compact line by the converter, we split
+    on ``"\\n"`` to recover the individual messages.
+
+    To guard against silent miscounts when content contains embedded
+    newlines, ``_split_messages`` validates that every segment matches
+    one of the two expected formats.  If a segment doesn't match, an
+    ``AssertionError`` is raised so the test fails loudly rather than
+    producing a wrong count.
+    """
+
+    @staticmethod
+    def _split_messages(result: str) -> list[str]:
+        """Split the joined string back into logical messages.
+
+        Raises ``AssertionError`` if any segment looks like a fragment
+        caused by an embedded newline (i.e. it doesn't start with ``[``
+        or ``{``).
+        """
+        if not result:
+            return []
+        segments = result.split("\n")
+        for i, seg in enumerate(segments):
+            stripped = seg.lstrip()
+            if (
+                stripped
+                and not stripped.startswith("[")
+                and not stripped.startswith("{")
+            ):
+                raise AssertionError(
+                    f"StringOutputAdapter: segment {i} does not look like a "
+                    f"complete message (possible embedded newline in content).\n"
+                    f"  Segment: {seg!r}\n"
+                    f"  Full result: {result!r}"
+                )
+        return segments
 
     def result_length(self, result: str) -> int:
-        # NOTE: This assumes each logical message occupies exactly one line.
-        # If the ClaudeSDK converter ever produces messages with embedded
-        # newlines, this count will be incorrect.  In that case, consider
-        # switching to a delimiter-aware split or a structured return type.
-        if not result:
-            return 0
-        return len(result.split("\n"))
+        return len(self._split_messages(result))
 
     def get_content(self, result: str, index: int) -> str:
-        return result.split("\n")[index]
+        return self._split_messages(result)[index]
 
     def get_role(self, result: str, index: int) -> str:
         raise NotImplementedError(

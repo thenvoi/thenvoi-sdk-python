@@ -100,13 +100,13 @@ def _get_crewai_adapter_cls() -> type:
     ``CrewAIAdapter`` monkeypatch-based fixtures in
     tests/adapters/test_crewai_adapter.py.
 
-    **Divergence risk:** Because this function loads the adapter module
-    into an isolated namespace, the returned class is *not* the same
-    object as ``thenvoi.adapters.crewai.CrewAIAdapter``.  If the real
-    adapter's ``__init__`` signature changes (new required params,
-    renamed kwargs, removed defaults), conformance tests may silently
-    pass or fail with confusing errors.  When modifying
-    ``CrewAIAdapter.__init__``, always update the ``default_values``,
+    **Divergence risk (guarded):** Because this function loads the
+    adapter module into an isolated namespace, the returned class is
+    *not* the same object as ``thenvoi.adapters.crewai.CrewAIAdapter``.
+    A signature-equality check at the end of this function compares the
+    isolated class's ``__init__`` against the real one and raises
+    ``RuntimeError`` on mismatch.  When modifying
+    ``CrewAIAdapter.__init__``, also update the ``default_values``,
     ``custom_kwargs``, and ``custom_expected`` in the CrewAI
     ``AdapterConfig`` entry below and re-run conformance tests.
     """
@@ -166,7 +166,28 @@ def _get_crewai_adapter_cls() -> type:
     with patch.dict(sys.modules, mock_entries):
         spec.loader.exec_module(isolated_module)
 
-    return isolated_module.CrewAIAdapter
+    isolated_cls = isolated_module.CrewAIAdapter
+
+    # --- Signature drift guard ---
+    # Compare __init__ signatures so that changes to the real adapter
+    # (new required params, renamed kwargs, removed defaults) are caught
+    # immediately rather than producing silent conformance-test drift.
+    import inspect
+
+    from thenvoi.adapters.crewai import CrewAIAdapter as _RealCrewAIAdapter
+
+    real_sig = inspect.signature(_RealCrewAIAdapter.__init__)
+    isolated_sig = inspect.signature(isolated_cls.__init__)
+    if real_sig != isolated_sig:
+        raise RuntimeError(
+            "CrewAIAdapter __init__ signature drift detected!\n"
+            f"  Real:     {real_sig}\n"
+            f"  Isolated: {isolated_sig}\n"
+            "Update the CrewAI AdapterConfig (default_values, custom_kwargs, "
+            "custom_expected) and re-run conformance tests."
+        )
+
+    return isolated_cls
 
 
 def _crewai_factory(**kw: Any) -> Any:
