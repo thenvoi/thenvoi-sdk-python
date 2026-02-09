@@ -8,7 +8,7 @@ with the Thenvoi platform.
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any, Protocol, cast
+from typing import TYPE_CHECKING, Any
 
 from thenvoi.core.protocols import AgentToolsProtocol
 from thenvoi.core.simple_adapter import SimpleAdapter
@@ -22,50 +22,6 @@ if TYPE_CHECKING:
     import parlant.sdk as p
     from parlant.core.application import Application
     from parlant.core.sessions import SessionId
-
-
-class _ParlantSessionsAPI(Protocol):
-    """Protocol for the Parlant sessions module we use.
-
-    SessionModule has wait_for_update at runtime; parlant's type stubs
-    may not declare it. This protocol lets the type checker see the API we use.
-    """
-
-    def create(self, customer_id: Any, agent_id: Any, title: str) -> Any: ...
-    def create_customer_message(
-        self,
-        session_id: Any,
-        moderation: Any,
-        message: str,
-        source: Any,
-        trigger_processing: bool,
-        metadata: dict[str, Any] | None,
-    ) -> Any: ...
-    def create_event(
-        self,
-        session_id: Any,
-        kind: Any,
-        source: Any,
-        data: dict[str, Any],
-        metadata: dict[str, Any] | None,
-        trigger_processing: bool,
-    ) -> Any: ...
-    async def wait_for_update(
-        self,
-        session_id: Any,
-        min_offset: int,
-        kinds: Any,
-        source: Any,
-        timeout: Any,
-    ) -> bool: ...
-    def find_events(
-        self,
-        session_id: Any,
-        min_offset: int,
-        source: Any,
-        kinds: Any,
-        trace_id: str | None,
-    ) -> Any: ...
 
 
 logger = logging.getLogger(__name__)
@@ -440,8 +396,7 @@ class ParlantAdapter(SimpleAdapter[ParlantMessages]):
             )
 
             try:
-                sessions_api = cast(_ParlantSessionsAPI, app.sessions)
-                has_update = await sessions_api.wait_for_update(
+                has_update = await app.sessions.wait_for_update(
                     session_id=session_id,
                     min_offset=current_offset + 1,
                     kinds=[EventKind.MESSAGE],

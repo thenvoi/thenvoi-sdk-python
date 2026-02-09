@@ -337,7 +337,7 @@ class TestToolEventConversion:
     def test_converts_tool_call_to_framework_format(
         self, converter_config, make_converter, output
     ):
-        """Tool_call (and paired tool_result) are converted and appear in output."""
+        """Tool_call is converted and the tool name appears in output."""
         if converter_config.skips_tool_events:
             pytest.skip(f"{converter_config.display_name} skips tool events")
 
@@ -359,12 +359,15 @@ class TestToolEventConversion:
         result = converter.convert(raw)
 
         assert not output.is_empty(result)
+        # Tool name must appear somewhere in the converted output
         assert output.content_contains(result, "search")
+        # Both tool_call and tool_result should produce output entries
+        assert output.result_length(result) >= 2
 
     def test_converts_tool_result_paired_with_call(
         self, converter_config, make_converter, output
     ):
-        """Tool_result is converted and paired with tool_call (same tool_call_id)."""
+        """Tool_result output content is present and paired with its tool_call_id."""
         if converter_config.skips_tool_events:
             pytest.skip(f"{converter_config.display_name} skips tool events")
 
@@ -372,12 +375,12 @@ class TestToolEventConversion:
         raw = [
             {
                 "role": "assistant",
-                "content": '{"name": "search", "args": {"query": "test"}, "tool_call_id": "tc_1"}',
+                "content": '{"name": "lookup", "args": {"id": "42"}, "tool_call_id": "tc_2"}',
                 "message_type": "tool_call",
             },
             {
                 "role": "assistant",
-                "content": '{"name": "search", "output": "result data", "tool_call_id": "tc_1"}',
+                "content": '{"name": "lookup", "output": "found item 42", "tool_call_id": "tc_2"}',
                 "message_type": "tool_result",
             },
         ]
@@ -385,9 +388,11 @@ class TestToolEventConversion:
         result = converter.convert(raw)
 
         assert output.result_length(result) >= 1
-        assert output.content_contains(result, "search")
+        # Result output content must be present (focus of this test)
         if not converter_config.tool_result_uses_nested_path:
-            assert output.content_contains(result, "result data")
+            assert output.content_contains(result, "found item 42")
+        # Tool name must also be present
+        assert output.content_contains(result, "lookup")
 
     def test_mixed_history_includes_user_assistant_tool_messages(
         self, converter_config, make_converter, output
