@@ -376,7 +376,7 @@ class TestAgentToolsSchemas:
 
         schemas = tools.get_tool_schemas("openai")
 
-        assert len(schemas) == 7
+        assert len(schemas) == 12
         send_msg = next(
             s for s in schemas if s["function"]["name"] == "thenvoi_send_message"
         )
@@ -390,7 +390,7 @@ class TestAgentToolsSchemas:
 
         schemas = tools.get_tool_schemas("anthropic")
 
-        assert len(schemas) == 7
+        assert len(schemas) == 12
         send_msg = next(s for s in schemas if s["name"] == "thenvoi_send_message")
         assert "input_schema" in send_msg
         assert "description" in send_msg

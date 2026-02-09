@@ -131,6 +131,11 @@ class TestToolModelsRegistry:
             "thenvoi_lookup_peers",
             "thenvoi_get_participants",
             "thenvoi_create_chatroom",
+            "thenvoi_list_contacts",
+            "thenvoi_add_contact",
+            "thenvoi_remove_contact",
+            "thenvoi_list_contact_requests",
+            "thenvoi_respond_contact_request",
         }
         assert set(TOOL_MODELS.keys()) == expected
 

@@ -113,6 +113,65 @@ class CreateChatroomInput(BaseModel):
     )
 
 
+class ListContactsInput(BaseModel):
+    """List agent's contacts with pagination."""
+
+    page: int = Field(1, description="Page number", ge=1)
+    page_size: int = Field(50, description="Items per page", ge=1, le=100)
+
+
+class AddContactInput(BaseModel):
+    """Send a contact request to add someone as a contact.
+
+    Returns 'pending' when request is created.
+    Returns 'approved' when inverse request existed and was auto-accepted.
+    """
+
+    handle: str = Field(
+        ...,
+        description="Handle of user/agent to add (e.g., '@john' or '@john/agent-name')",
+    )
+    message: str | None = Field(None, description="Optional message with the request")
+
+
+class RemoveContactInput(BaseModel):
+    """Remove an existing contact by handle or ID."""
+
+    handle: str | None = Field(None, description="Contact's handle")
+    contact_id: str | None = Field(None, description="Or contact record ID (UUID)")
+
+
+class ListContactRequestsInput(BaseModel):
+    """List both received and sent contact requests.
+
+    Received requests are always filtered to pending status.
+    Sent requests can be filtered by status.
+    """
+
+    page: int = Field(1, description="Page number", ge=1)
+    page_size: int = Field(
+        50, description="Items per page per direction (max 100)", ge=1, le=100
+    )
+    sent_status: Literal["pending", "approved", "rejected", "cancelled", "all"] = Field(
+        "pending", description="Filter sent requests by status"
+    )
+
+
+class RespondContactRequestInput(BaseModel):
+    """Respond to a contact request.
+
+    Actions:
+    - 'approve'/'reject': For requests you RECEIVED (handle = requester's handle)
+    - 'cancel': For requests you SENT (handle = recipient's handle)
+    """
+
+    action: Literal["approve", "reject", "cancel"] = Field(
+        ..., description="Action to take"
+    )
+    handle: str | None = Field(None, description="Other party's handle")
+    request_id: str | None = Field(None, description="Or request ID (UUID)")
+
+
 # Registry mapping tool names to their input models
 TOOL_MODELS: dict[str, type[BaseModel]] = {
     "thenvoi_send_message": SendMessageInput,
@@ -122,6 +181,11 @@ TOOL_MODELS: dict[str, type[BaseModel]] = {
     "thenvoi_lookup_peers": LookupPeersInput,
     "thenvoi_get_participants": GetParticipantsInput,
     "thenvoi_create_chatroom": CreateChatroomInput,
+    "thenvoi_list_contacts": ListContactsInput,
+    "thenvoi_add_contact": AddContactInput,
+    "thenvoi_remove_contact": RemoveContactInput,
+    "thenvoi_list_contact_requests": ListContactRequestsInput,
+    "thenvoi_respond_contact_request": RespondContactRequestInput,
 }
 
 
@@ -489,6 +553,203 @@ class AgentTools(AgentToolsProtocol):
             for p in response.data
         ]
 
+    # --- Contact management tools ---
+
+    async def list_contacts(self, page: int = 1, page_size: int = 50) -> dict[str, Any]:
+        """
+        List agent's contacts with pagination.
+
+        Args:
+            page: Page number (default 1)
+            page_size: Items per page (default 50, max 100)
+
+        Returns:
+            Dict with 'contacts' list and 'metadata' (page, page_size, total_count, total_pages)
+        """
+        logger.debug("Listing contacts: page=%s, page_size=%s", page, page_size)
+        response = await self.rest.agent_api_contacts.list_agent_contacts(
+            page=page, page_size=page_size
+        )
+
+        contacts = []
+        if response.data:
+            contacts = [
+                {
+                    "id": c.id,
+                    "handle": c.handle,
+                    "name": c.name,
+                    "type": c.type,
+                }
+                for c in response.data
+            ]
+
+        metadata = {
+            "page": response.metadata.page if response.metadata else page,
+            "page_size": response.metadata.page_size
+            if response.metadata
+            else page_size,
+            "total_count": response.metadata.total_count
+            if response.metadata
+            else len(contacts),
+            "total_pages": response.metadata.total_pages if response.metadata else 1,
+        }
+
+        return {"contacts": contacts, "metadata": metadata}
+
+    async def add_contact(
+        self, handle: str, message: str | None = None
+    ) -> dict[str, Any]:
+        """
+        Send a contact request to add someone as a contact.
+
+        Args:
+            handle: Handle of user/agent to add (e.g., '@john' or '@john/agent-name')
+            message: Optional message with the request
+
+        Returns:
+            Dict with request_id and status ('pending' or 'approved')
+        """
+        logger.debug("Adding contact: handle=%s", handle)
+        response = await self.rest.agent_api_contacts.add_agent_contact(
+            handle=handle, message=message
+        )
+        if not response.data:
+            raise RuntimeError("Failed to add contact - no response data")
+        return {
+            "request_id": response.data.request_id,
+            "status": response.data.status,
+        }
+
+    async def remove_contact(
+        self, handle: str | None = None, contact_id: str | None = None
+    ) -> dict[str, Any]:
+        """
+        Remove an existing contact by handle or ID.
+
+        Args:
+            handle: Contact's handle
+            contact_id: Or contact record ID (UUID)
+
+        Returns:
+            Dict with status ('removed')
+        """
+        logger.debug("Removing contact: handle=%s, contact_id=%s", handle, contact_id)
+        response = await self.rest.agent_api_contacts.remove_agent_contact(
+            handle=handle, contact_id=contact_id
+        )
+        if not response.data:
+            raise RuntimeError("Failed to remove contact - no response data")
+        return {"status": response.data.status}
+
+    async def list_contact_requests(
+        self, page: int = 1, page_size: int = 50, sent_status: str = "pending"
+    ) -> dict[str, Any]:
+        """
+        List both received and sent contact requests.
+
+        Args:
+            page: Page number (default 1)
+            page_size: Items per page per direction (default 50, max 100)
+            sent_status: Filter sent requests by status (default 'pending')
+
+        Returns:
+            Dict with 'received', 'sent' lists and 'metadata'
+        """
+        logger.debug(
+            "Listing contact requests: page=%s, page_size=%s, sent_status=%s",
+            page,
+            page_size,
+            sent_status,
+        )
+        response = await self.rest.agent_api_contacts.list_agent_contact_requests(
+            page=page, page_size=page_size, sent_status=sent_status
+        )
+
+        received = []
+        if response.data and response.data.received:
+            received = [
+                {
+                    "request_id": r.request_id,
+                    "from_handle": r.from_handle,
+                    "from_name": r.from_name,
+                    "message": r.message,
+                    "status": r.status,
+                    "inserted_at": str(r.inserted_at) if r.inserted_at else None,
+                }
+                for r in response.data.received
+            ]
+
+        sent = []
+        if response.data and response.data.sent:
+            sent = [
+                {
+                    "request_id": s.request_id,
+                    "to_handle": s.to_handle,
+                    "to_name": s.to_name,
+                    "message": s.message,
+                    "status": s.status,
+                    "inserted_at": str(s.inserted_at) if s.inserted_at else None,
+                }
+                for s in response.data.sent
+            ]
+
+        metadata = {
+            "page": response.metadata.page if response.metadata else page,
+            "page_size": response.metadata.page_size
+            if response.metadata
+            else page_size,
+            "received": {
+                "total": response.metadata.received.total
+                if response.metadata and response.metadata.received
+                else 0,
+                "total_pages": response.metadata.received.total_pages
+                if response.metadata and response.metadata.received
+                else 0,
+            },
+            "sent": {
+                "total": response.metadata.sent.total
+                if response.metadata and response.metadata.sent
+                else 0,
+                "total_pages": response.metadata.sent.total_pages
+                if response.metadata and response.metadata.sent
+                else 0,
+            },
+        }
+
+        return {"received": received, "sent": sent, "metadata": metadata}
+
+    async def respond_contact_request(
+        self, action: str, handle: str | None = None, request_id: str | None = None
+    ) -> dict[str, Any]:
+        """
+        Respond to a contact request (approve, reject, or cancel).
+
+        Args:
+            action: Action to take ('approve', 'reject', 'cancel')
+            handle: Other party's handle
+            request_id: Or request ID (UUID)
+
+        Returns:
+            Dict with request_id and status
+        """
+        logger.debug(
+            "Responding to contact request: action=%s, handle=%s, request_id=%s",
+            action,
+            handle,
+            request_id,
+        )
+        response = await self.rest.agent_api_contacts.respond_to_agent_contact_request(
+            action=action, handle=handle, request_id=request_id
+        )
+        if not response.data:
+            raise RuntimeError(
+                "Failed to respond to contact request - no response data"
+            )
+        return {
+            "request_id": response.data.request_id,
+            "status": response.data.status,
+        }
+
     # --- Mention resolution ---
 
     def _resolve_mentions(
@@ -668,6 +929,25 @@ class AgentTools(AgentToolsProtocol):
             "thenvoi_get_participants": lambda: self.get_participants(),
             "thenvoi_create_chatroom": lambda: self.create_chatroom(
                 arguments.get("task_id")
+            ),
+            "thenvoi_list_contacts": lambda: self.list_contacts(
+                arguments.get("page", 1), arguments.get("page_size", 50)
+            ),
+            "thenvoi_add_contact": lambda: self.add_contact(
+                arguments["handle"], arguments.get("message")
+            ),
+            "thenvoi_remove_contact": lambda: self.remove_contact(
+                arguments.get("handle"), arguments.get("contact_id")
+            ),
+            "thenvoi_list_contact_requests": lambda: self.list_contact_requests(
+                arguments.get("page", 1),
+                arguments.get("page_size", 50),
+                arguments.get("sent_status", "pending"),
+            ),
+            "thenvoi_respond_contact_request": lambda: self.respond_contact_request(
+                arguments["action"],
+                arguments.get("handle"),
+                arguments.get("request_id"),
             ),
         }
 
