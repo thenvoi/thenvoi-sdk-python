@@ -11,35 +11,16 @@ from __future__ import annotations
 
 import sys
 import warnings
-from unittest.mock import MagicMock
 
 import pytest
 
-
-class MockBaseTool:
-    """Mock CrewAI BaseTool for testing."""
-
-    name: str = ""
-    description: str = ""
-
-    def __init__(self):
-        pass
+from tests.framework_configs.adapters import setup_crewai_mocks
 
 
 @pytest.fixture
 def crewai_mocks(monkeypatch):
     """Set up CrewAI module mocks."""
-    mock_crewai_module = MagicMock()
-    mock_crewai_tools_module = MagicMock()
-    mock_nest_asyncio = MagicMock()
-
-    mock_crewai_module.Agent = MagicMock()
-    mock_crewai_module.LLM = MagicMock()
-    mock_crewai_tools_module.BaseTool = MockBaseTool
-
-    monkeypatch.setitem(sys.modules, "crewai", mock_crewai_module)
-    monkeypatch.setitem(sys.modules, "crewai.tools", mock_crewai_tools_module)
-    monkeypatch.setitem(sys.modules, "nest_asyncio", mock_nest_asyncio)
+    mock_crewai_module = setup_crewai_mocks(monkeypatch)
 
     yield mock_crewai_module
 

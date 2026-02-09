@@ -28,7 +28,6 @@ from __future__ import annotations
 import sys
 from contextlib import asynccontextmanager
 from typing import Generator
-from unittest.mock import MagicMock
 
 import pytest
 from pydantic import BaseModel, Field
@@ -39,46 +38,8 @@ from tests.framework_configs.adapters import (
     create_mock_tools,
     create_sample_message,
     setup_adapter_for_on_message,
+    setup_crewai_mocks,
 )
-
-
-# =============================================================================
-# CrewAI Mocking Infrastructure
-# =============================================================================
-# CrewAI requires module-level mocking because it imports external dependencies
-# (crewai, nest_asyncio) at module load time. We mock these before the adapter
-# module is imported to avoid ImportError.
-# =============================================================================
-
-
-class MockBaseTool:
-    """Mock CrewAI BaseTool for testing."""
-
-    name: str = ""
-    description: str = ""
-
-    def __init__(self):
-        pass
-
-
-def _setup_crewai_mocks(monkeypatch) -> None:
-    """Set up CrewAI module mocks.
-
-    CrewAI adapter imports crewai and nest_asyncio at module level, so we must
-    mock these before the adapter module is loaded. The monkeypatch fixture
-    ensures mocks are automatically cleaned up after each test.
-    """
-    mock_crewai_module = MagicMock()
-    mock_crewai_tools_module = MagicMock()
-    mock_nest_asyncio = MagicMock()
-
-    mock_crewai_module.Agent = MagicMock()
-    mock_crewai_module.LLM = MagicMock()
-    mock_crewai_tools_module.BaseTool = MockBaseTool
-
-    monkeypatch.setitem(sys.modules, "crewai", mock_crewai_module)
-    monkeypatch.setitem(sys.modules, "crewai.tools", mock_crewai_tools_module)
-    monkeypatch.setitem(sys.modules, "nest_asyncio", mock_nest_asyncio)
 
 
 @pytest.fixture(params=list(ADAPTER_CONFIGS.values()), ids=lambda c: c.name)
@@ -87,14 +48,13 @@ def adapter_config(
 ) -> Generator[AdapterConfig, None, None]:
     """Parameterized fixture that yields each adapter config.
 
-    Only sets up CrewAI mocks when testing the CrewAI adapter. Mocks are stored
-    in a module-level dict rather than on the config to avoid mutating it.
+    Only sets up CrewAI mocks when testing the CrewAI adapter.
     """
     config = request.param
 
     # Only set up CrewAI mocks when testing CrewAI adapter
     if config.name == "crewai":
-        _setup_crewai_mocks(monkeypatch)
+        setup_crewai_mocks(monkeypatch)
 
     try:
         yield config
@@ -385,16 +345,13 @@ class TestCustomTools:
             assert hasattr(adapter, custom_tools_attr)
             custom_tools = getattr(adapter, custom_tools_attr)
 
-            # LangGraph clears additional_tools after baking into factory
-            if adapter_config.name == "langgraph":
+            if adapter_config.clears_tools_after_init:
                 assert custom_tools == []
             else:
                 assert len(custom_tools) >= 1
         else:
             # Adapter doesn't support custom tools (e.g., parlant uses SDK tools)
-            # Verify it has its own tool mechanism
             adapter = adapter_config.factory()
-            # Parlant uses Parlant SDK tools directly
             assert adapter is not None
 
     def test_defaults_to_empty_custom_tools(self, adapter_config: AdapterConfig):
@@ -450,8 +407,7 @@ class TestCustomTools:
             custom_tools_attr = adapter_config.custom_tools_attr
             custom_tools = getattr(adapter, custom_tools_attr)
 
-            # LangGraph clears additional_tools after baking
-            if adapter_config.name == "langgraph":
+            if adapter_config.clears_tools_after_init:
                 assert custom_tools == []
             else:
                 assert len(custom_tools) >= 2

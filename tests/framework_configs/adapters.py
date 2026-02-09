@@ -77,6 +77,7 @@ class AdapterConfig:
     supports_enable_execution_reporting: bool = True
     supports_system_prompt_override: bool = True
     supports_cleanup_all: bool = False
+    clears_tools_after_init: bool = False
 
     # Attribute names
     custom_tools_attr: str = "_custom_tools"
@@ -161,6 +162,50 @@ def create_mock_tools() -> AsyncMock:
 
 
 # =============================================================================
+# CrewAI Mocking Infrastructure
+# =============================================================================
+# CrewAI requires module-level mocking because it imports external dependencies
+# (crewai, nest_asyncio) at module load time. We mock these before the adapter
+# module is imported to avoid ImportError.
+# =============================================================================
+
+
+class MockBaseTool:
+    """Mock CrewAI BaseTool for testing."""
+
+    name: str = ""
+    description: str = ""
+
+    def __init__(self):
+        pass
+
+
+def setup_crewai_mocks(monkeypatch) -> MagicMock:
+    """Set up CrewAI module mocks.
+
+    CrewAI adapter imports crewai and nest_asyncio at module level, so we must
+    mock these before the adapter module is loaded. The monkeypatch fixture
+    ensures mocks are automatically cleaned up after each test.
+
+    Returns the mock crewai module (useful for CrewAI-specific tests that need
+    to inspect Agent/LLM calls).
+    """
+    mock_crewai_module = MagicMock()
+    mock_crewai_tools_module = MagicMock()
+    mock_nest_asyncio = MagicMock()
+
+    mock_crewai_module.Agent = MagicMock()
+    mock_crewai_module.LLM = MagicMock()
+    mock_crewai_tools_module.BaseTool = MockBaseTool
+
+    monkeypatch.setitem(sys.modules, "crewai", mock_crewai_module)
+    monkeypatch.setitem(sys.modules, "crewai.tools", mock_crewai_tools_module)
+    monkeypatch.setitem(sys.modules, "nest_asyncio", mock_nest_asyncio)
+
+    return mock_crewai_module
+
+
+# =============================================================================
 # Adapter Factory Functions
 # =============================================================================
 
@@ -230,6 +275,7 @@ def make_standard_adapter_config(
     has_custom_tools: bool = True,
     custom_tools_attr: str = "_custom_tools",
     custom_tool_format: ToolFormat = "tuple",
+    clears_tools_after_init: bool = False,
     supports_enable_execution_reporting: bool = True,
     history_storage_attr: str | None = "_message_history",
     system_prompt_attr: str | None = "_system_prompt",
@@ -254,6 +300,7 @@ def make_standard_adapter_config(
         has_history_converter=has_history_converter,
         has_custom_tools=has_custom_tools,
         custom_tools_attr=custom_tools_attr,
+        clears_tools_after_init=clears_tools_after_init,
         default_model=default_model,
         additional_init_checks=additional_init_checks or {},
         supports_enable_execution_reporting=supports_enable_execution_reporting,
@@ -280,10 +327,6 @@ def make_standard_adapter_config(
 
 async def _simple_on_started(adapter: Any, config: AdapterConfig) -> None:
     """Default on_started for adapters without special requirements."""
-    await adapter.on_started(agent_name="TestBot", agent_description="A test bot")
-
-
-async def _crewai_on_started(adapter: Any, config: AdapterConfig) -> None:
     await adapter.on_started(agent_name="TestBot", agent_description="A test bot")
 
 
@@ -623,6 +666,7 @@ ADAPTER_CONFIGS: dict[str, AdapterConfig] = {
         _create_langgraph_adapter,
         custom_tools_attr="additional_tools",
         custom_tool_format="callable",
+        clears_tools_after_init=True,
         supports_enable_execution_reporting=False,
         history_storage_attr=None,
         supports_system_prompt_override=False,
@@ -674,7 +718,7 @@ ADAPTER_CONFIGS: dict[str, AdapterConfig] = {
             "enable_execution_reporting": False,
         },
         verify_participants_injection=_verify_crewai_participants,
-        on_started_callback=_crewai_on_started,
+        on_started_callback=_simple_on_started,
         mock_llm_callback=_crewai_mock_llm,
         error_setup_callback=_crewai_error_setup,
     ),
