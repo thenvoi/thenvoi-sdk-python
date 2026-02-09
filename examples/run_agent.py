@@ -7,7 +7,10 @@ Usage:
     uv run python examples/run_agent.py --example langgraph
     uv run python examples/run_agent.py --example pydantic_ai
     uv run python examples/run_agent.py --example pydantic_ai --streaming  # With tool_call/tool_result events
-    uv run python examples/run_agent.py --example pydantic_ai_contacts     # Contact management via chat
+    uv run python examples/run_agent.py --example pydantic_ai --contacts auto      # Auto-approve contacts (CALLBACK)
+    uv run python examples/run_agent.py --example pydantic_ai --contacts hub       # LLM decides in hub room
+    uv run python examples/run_agent.py --example pydantic_ai --contacts broadcast # Broadcast-only awareness
+    uv run python examples/run_agent.py --example pydantic_ai_contacts     # Contact management via chat (legacy)
     uv run python examples/run_agent.py --example pydantic_ai --model anthropic:claude-sonnet-4-5
     uv run python examples/run_agent.py --example anthropic
     uv run python examples/run_agent.py --example anthropic --streaming  # With tool_call/tool_result events
@@ -49,9 +52,63 @@ from dotenv import load_dotenv
 
 from thenvoi import Agent
 from thenvoi.config import load_agent_config
+from thenvoi.platform.event import ContactRequestReceivedEvent, ContactEvent
+from thenvoi.runtime.contact_tools import ContactTools
+from thenvoi.runtime.types import ContactEventConfig, ContactEventStrategy
 
 # Load environment from .env
 load_dotenv()
+
+
+def build_contact_config(
+    mode: str | None,
+    logger: logging.Logger,
+) -> ContactEventConfig | None:
+    """Build ContactEventConfig based on mode.
+
+    Args:
+        mode: Contact mode (none, auto, hub, broadcast)
+        logger: Logger for auto-approve callback
+
+    Returns:
+        ContactEventConfig or None if mode is "none"
+    """
+    if mode is None or mode == "none":
+        return None
+
+    if mode == "auto":
+
+        async def auto_approve(event: ContactEvent, tools: ContactTools) -> None:
+            """Auto-approve all contact requests."""
+            if isinstance(event, ContactRequestReceivedEvent):
+                if event.payload:
+                    logger.info(
+                        "Auto-approving contact request from %s",
+                        event.payload.from_handle,
+                    )
+                    await tools.respond_contact_request(
+                        "approve", request_id=event.payload.id
+                    )
+
+        return ContactEventConfig(
+            strategy=ContactEventStrategy.CALLBACK,
+            on_event=auto_approve,
+            broadcast_changes=True,
+        )
+
+    if mode == "hub":
+        return ContactEventConfig(
+            strategy=ContactEventStrategy.HUB_ROOM,
+            broadcast_changes=True,
+        )
+
+    if mode == "broadcast":
+        return ContactEventConfig(
+            strategy=ContactEventStrategy.DISABLED,
+            broadcast_changes=True,
+        )
+
+    raise ValueError(f"Unknown contacts mode: {mode}")
 
 
 def setup_logging(level: str = "INFO") -> logging.Logger:
@@ -172,14 +229,27 @@ async def run_pydantic_ai_agent(
     model: str,
     custom_section: str,
     enable_streaming: bool,
+    contact_config: ContactEventConfig | None,
     logger: logging.Logger,
 ):
     """Run the Pydantic AI agent."""
     from thenvoi.adapters import PydanticAIAdapter
 
+    # Augment custom_section for contact modes
+    section = custom_section
+    if contact_config:
+        if contact_config.strategy == ContactEventStrategy.CALLBACK:
+            section += "\n\nContact requests are handled automatically."
+        elif contact_config.strategy == ContactEventStrategy.HUB_ROOM:
+            section += "\n\nYou will receive contact requests in a hub room. Use tools to approve/reject."
+        if contact_config.broadcast_changes:
+            section += (
+                "\nYou will see system messages when contacts are added or removed."
+            )
+
     adapter = PydanticAIAdapter(
         model=model,
-        custom_section=custom_section,
+        custom_section=section,
         enable_execution_reporting=enable_streaming,
     )
 
@@ -189,10 +259,21 @@ async def run_pydantic_ai_agent(
         api_key=api_key,
         ws_url=ws_url,
         rest_url=rest_url,
+        contact_config=contact_config,
     )
 
     streaming_str = " with execution reporting" if enable_streaming else ""
-    logger.info("Starting Pydantic AI agent with model: %s%s", model, streaming_str)
+    contacts_str = ""
+    if contact_config:
+        contacts_str = f", contacts={contact_config.strategy.value}"
+        if contact_config.broadcast_changes:
+            contacts_str += "+broadcast"
+    logger.info(
+        "Starting Pydantic AI agent with model: %s%s%s",
+        model,
+        streaming_str,
+        contacts_str,
+    )
     await agent.run()
 
 
@@ -204,6 +285,7 @@ async def run_anthropic_agent(
     model: str,
     custom_section: str,
     enable_streaming: bool,
+    contact_config: ContactEventConfig | None,
     logger: logging.Logger,
 ):
     """Run the Anthropic SDK agent."""
@@ -221,10 +303,19 @@ async def run_anthropic_agent(
         api_key=api_key,
         ws_url=ws_url,
         rest_url=rest_url,
+        contact_config=contact_config,
     )
 
     streaming_str = " with execution reporting" if enable_streaming else ""
-    logger.info("Starting Anthropic agent with model: %s%s", model, streaming_str)
+    contacts_str = (
+        f", contacts={contact_config.strategy.value}" if contact_config else ""
+    )
+    logger.info(
+        "Starting Anthropic agent with model: %s%s%s",
+        model,
+        streaming_str,
+        contacts_str,
+    )
     await agent.run()
 
 
@@ -237,6 +328,7 @@ async def run_claude_sdk_agent(
     custom_section: str,
     enable_thinking: bool,
     enable_streaming: bool,
+    contact_config: ContactEventConfig | None,
     logger: logging.Logger,
 ):
     """Run the Claude Agent SDK agent."""
@@ -255,6 +347,7 @@ async def run_claude_sdk_agent(
         api_key=api_key,
         ws_url=ws_url,
         rest_url=rest_url,
+        contact_config=contact_config,
     )
 
     options = []
@@ -262,6 +355,8 @@ async def run_claude_sdk_agent(
         options.append("extended thinking")
     if enable_streaming:
         options.append("execution reporting")
+    if contact_config:
+        options.append(f"contacts={contact_config.strategy.value}")
     options_str = f" with {', '.join(options)}" if options else ""
     logger.info("Starting Claude SDK agent with model: %s%s", model, options_str)
     await agent.run()
@@ -371,6 +466,173 @@ async def run_pydantic_ai_contacts_agent(
     await agent.run()
 
 
+async def run_contacts_auto_agent(
+    agent_id: str,
+    api_key: str,
+    rest_url: str,
+    ws_url: str,
+    model: str,
+    logger: logging.Logger,
+):
+    """Run agent with CALLBACK strategy that auto-approves contact requests.
+
+    This example demonstrates:
+    - ContactEventConfig with CALLBACK strategy
+    - Auto-approve logic for contact requests
+    - broadcast_changes=True to notify all rooms of contact updates
+    """
+    from thenvoi.adapters import PydanticAIAdapter
+    from thenvoi.platform.event import ContactRequestReceivedEvent, ContactEvent
+    from thenvoi.runtime.contact_tools import ContactTools
+
+    async def auto_approve(event: ContactEvent, tools: ContactTools) -> None:
+        """Auto-approve all contact requests."""
+        if isinstance(event, ContactRequestReceivedEvent):
+            if event.payload:
+                logger.info(
+                    "Auto-approving contact request from %s", event.payload.from_handle
+                )
+                await tools.respond_contact_request(
+                    "approve", request_id=event.payload.id
+                )
+
+    config = ContactEventConfig(
+        strategy=ContactEventStrategy.CALLBACK,
+        on_event=auto_approve,
+        broadcast_changes=True,  # All rooms see "[Contacts]: @X is now a contact"
+    )
+
+    adapter = PydanticAIAdapter(
+        model=model,
+        custom_section="""You are a helpful assistant. Contact requests are handled automatically.
+When you see system messages about new contacts, acknowledge them to the user.""",
+        enable_execution_reporting=True,
+    )
+
+    agent = Agent.create(
+        adapter=adapter,
+        agent_id=agent_id,
+        api_key=api_key,
+        ws_url=ws_url,
+        rest_url=rest_url,
+        contact_config=config,
+    )
+
+    logger.info("Starting contacts auto-approve agent with model: %s", model)
+    logger.info("Contact requests will be automatically approved")
+    logger.info("All rooms will see broadcast: '@handle (name) is now a contact'")
+    await agent.run()
+
+
+async def run_contacts_hub_agent(
+    agent_id: str,
+    api_key: str,
+    rest_url: str,
+    ws_url: str,
+    model: str,
+    logger: logging.Logger,
+):
+    """Run agent with HUB_ROOM strategy for LLM-driven contact decisions.
+
+    This example demonstrates:
+    - ContactEventConfig with HUB_ROOM strategy
+    - Contact events routed to a dedicated hub room
+    - Agent can reason about requests and respond using tools
+    - broadcast_changes=True to notify all rooms of outcomes
+    """
+    from thenvoi.adapters import PydanticAIAdapter
+
+    config = ContactEventConfig(
+        strategy=ContactEventStrategy.HUB_ROOM,
+        hub_task_id="contacts-hub",  # Custom task ID for the hub room
+        broadcast_changes=True,
+    )
+
+    adapter = PydanticAIAdapter(
+        model=model,
+        custom_section="""You are a helpful assistant that also manages contact requests.
+
+When you receive contact request notifications in the hub room:
+1. Review the request details (who sent it, any message included)
+2. Decide whether to approve or reject based on the context
+3. Use thenvoi_respond_contact_request tool to take action
+4. Explain your decision to the user
+
+Contact request format:
+- [Contact Request] name (@handle) wants to connect. Message: "..."
+
+Actions available:
+- thenvoi_respond_contact_request(action="approve", handle="...")
+- thenvoi_respond_contact_request(action="reject", handle="...")
+""",
+        enable_execution_reporting=True,
+    )
+
+    agent = Agent.create(
+        adapter=adapter,
+        agent_id=agent_id,
+        api_key=api_key,
+        ws_url=ws_url,
+        rest_url=rest_url,
+        contact_config=config,
+    )
+
+    logger.info("Starting contacts hub room agent with model: %s", model)
+    logger.info("Contact events will appear in hub room for LLM reasoning")
+    logger.info("All rooms will see broadcasts when contacts change")
+    await agent.run()
+
+
+async def run_contacts_broadcast_agent(
+    agent_id: str,
+    api_key: str,
+    rest_url: str,
+    ws_url: str,
+    model: str,
+    logger: logging.Logger,
+):
+    """Run agent with broadcast-only contact notifications.
+
+    This example demonstrates:
+    - ContactEventConfig with DISABLED strategy (no auto-handling)
+    - broadcast_changes=True for awareness in all rooms
+    - User can manually manage contacts via chat commands
+    """
+    from thenvoi.adapters import PydanticAIAdapter
+
+    config = ContactEventConfig(
+        strategy=ContactEventStrategy.DISABLED,  # No auto-handling
+        broadcast_changes=True,  # But broadcast updates to all rooms
+    )
+
+    adapter = PydanticAIAdapter(
+        model=model,
+        custom_section=CONTACTS_INSTRUCTIONS
+        + """
+
+## System Messages
+You will receive system messages when contacts are added or removed.
+These appear as "[Contacts]: @handle (name) is now a contact" or similar.
+Acknowledge these updates to the user when you see them.
+""",
+        enable_execution_reporting=True,
+    )
+
+    agent = Agent.create(
+        adapter=adapter,
+        agent_id=agent_id,
+        api_key=api_key,
+        ws_url=ws_url,
+        rest_url=rest_url,
+        contact_config=config,
+    )
+
+    logger.info("Starting contacts broadcast-only agent with model: %s", model)
+    logger.info("Contact changes will be broadcast to all rooms")
+    logger.info("Use chat commands to manually manage contacts")
+    await agent.run()
+
+
 async def run_a2a_agent(
     agent_id: str,
     api_key: str,
@@ -463,7 +725,11 @@ Examples:
   uv run python examples/run_agent.py --example pydantic_ai               # Pydantic AI with OpenAI
   uv run python examples/run_agent.py --example pydantic_ai --streaming   # With tool_call/tool_result events
   uv run python examples/run_agent.py --example pydantic_ai --model anthropic:claude-sonnet-4-5
-  uv run python examples/run_agent.py --example pydantic_ai_contacts      # Contact management via chat
+  uv run python examples/run_agent.py --example pydantic_ai --contacts auto      # Auto-approve contacts
+  uv run python examples/run_agent.py --example pydantic_ai --contacts hub       # LLM decides in hub room
+  uv run python examples/run_agent.py --example pydantic_ai --contacts broadcast # Broadcast-only awareness
+  uv run python examples/run_agent.py --example anthropic --contacts auto        # Anthropic with auto-approve
+  uv run python examples/run_agent.py --example claude_sdk --contacts hub        # Claude SDK with hub room
   uv run python examples/run_agent.py --example anthropic                 # Anthropic SDK
   uv run python examples/run_agent.py --example anthropic --streaming     # With tool_call/tool_result events
   uv run python examples/run_agent.py --example claude_sdk                # Claude Agent SDK
@@ -490,6 +756,9 @@ Examples:
             "langgraph",
             "pydantic_ai",
             "pydantic_ai_contacts",
+            "contacts_auto",
+            "contacts_hub",
+            "contacts_broadcast",
             "anthropic",
             "claude_sdk",
             "parlant",
@@ -553,6 +822,13 @@ Examples:
         action="store_true",
         help="Enable debug logging for adapter internals (e.g., A2A context_id tracing)",
     )
+    parser.add_argument(
+        "--contacts",
+        choices=["none", "auto", "hub", "broadcast"],
+        default="none",
+        help="Contact handling strategy: none (disabled), auto (auto-approve), "
+        "hub (LLM decides in hub room), broadcast (awareness only)",
+    )
 
     args = parser.parse_args()
 
@@ -561,8 +837,11 @@ Examples:
     # Set default agent based on example type if not specified
     default_agents = {
         "langgraph": "simple_agent",
-        "pydantic_ai": "pydantic_agent",
+        "pydantic_ai": "simple_agent",
         "pydantic_ai_contacts": "simple_agent",
+        "contacts_auto": "simple_agent",
+        "contacts_hub": "simple_agent",
+        "contacts_broadcast": "simple_agent",
         "anthropic": "anthropic_agent",
         "claude_sdk": "anthropic_agent",
         "parlant": "parlant_agent",
@@ -593,6 +872,15 @@ Examples:
     logger.info("REST URL: %s", rest_url)
     logger.info("WS URL: %s", ws_url)
 
+    # Build contact config if specified
+    contact_config = build_contact_config(args.contacts, logger)
+    if contact_config:
+        logger.info(
+            "Contacts: %s (broadcast=%s)",
+            contact_config.strategy.value,
+            contact_config.broadcast_changes,
+        )
+
     try:
         if args.example == "langgraph":
             await run_langgraph_agent(
@@ -612,6 +900,7 @@ Examples:
                 model=args.model,
                 custom_section=args.custom_section,
                 enable_streaming=args.streaming,
+                contact_config=contact_config,
                 logger=logger,
             )
         elif args.example == "pydantic_ai_contacts":
@@ -619,6 +908,42 @@ Examples:
             if model == "openai:gpt-4o":
                 model = "anthropic:claude-sonnet-4-5"
             await run_pydantic_ai_contacts_agent(
+                agent_id=agent_id,
+                api_key=api_key,
+                rest_url=rest_url,
+                ws_url=ws_url,
+                model=model,
+                logger=logger,
+            )
+        elif args.example == "contacts_auto":
+            model = args.model
+            if model == "openai:gpt-4o":
+                model = "anthropic:claude-sonnet-4-5"
+            await run_contacts_auto_agent(
+                agent_id=agent_id,
+                api_key=api_key,
+                rest_url=rest_url,
+                ws_url=ws_url,
+                model=model,
+                logger=logger,
+            )
+        elif args.example == "contacts_hub":
+            model = args.model
+            if model == "openai:gpt-4o":
+                model = "anthropic:claude-sonnet-4-5"
+            await run_contacts_hub_agent(
+                agent_id=agent_id,
+                api_key=api_key,
+                rest_url=rest_url,
+                ws_url=ws_url,
+                model=model,
+                logger=logger,
+            )
+        elif args.example == "contacts_broadcast":
+            model = args.model
+            if model == "openai:gpt-4o":
+                model = "anthropic:claude-sonnet-4-5"
+            await run_contacts_broadcast_agent(
                 agent_id=agent_id,
                 api_key=api_key,
                 rest_url=rest_url,
@@ -639,6 +964,7 @@ Examples:
                 model=model,
                 custom_section=args.custom_section,
                 enable_streaming=args.streaming,
+                contact_config=contact_config,
                 logger=logger,
             )
         elif args.example == "claude_sdk":
@@ -655,6 +981,7 @@ Examples:
                 custom_section=args.custom_section,
                 enable_thinking=args.thinking,
                 enable_streaming=args.streaming,
+                contact_config=contact_config,
                 logger=logger,
             )
         elif args.example == "parlant":

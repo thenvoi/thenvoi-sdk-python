@@ -16,6 +16,11 @@ from thenvoi.platform.event import (
     RoomAddedEvent,
     RoomRemovedEvent,
     PlatformEvent,
+    ContactEvent,
+    ContactRequestReceivedEvent,
+    ContactRequestUpdatedEvent,
+    ContactAddedEvent,
+    ContactRemovedEvent,
 )
 from thenvoi.platform.link import ThenvoiLink
 
@@ -83,6 +88,7 @@ class RoomPresence:
         self.on_room_event: Callable[[str, PlatformEvent], Awaitable[None]] | None = (
             None
         )
+        self.on_contact_event: Callable[[ContactEvent], Awaitable[None]] | None = None
 
         # Internal task for consuming events from link
         self._event_task: asyncio.Task | None = None
@@ -160,6 +166,14 @@ class RoomPresence:
                 await self._handle_room_added(event)
             case RoomRemovedEvent():
                 await self._handle_room_removed(event)
+            case (
+                ContactRequestReceivedEvent()
+                | ContactRequestUpdatedEvent()
+                | ContactAddedEvent()
+                | ContactRemovedEvent()
+            ):
+                # Contact events have no room_id - forward to contact handler
+                await self._handle_contact_event(event)
             case _ if event.room_id:
                 # Room-specific event - forward to on_room_event
                 await self._handle_room_event(event)
@@ -246,6 +260,24 @@ class RoomPresence:
             except Exception as e:
                 logger.error(
                     "on_room_event error for %s: %s", room_id, e, exc_info=True
+                )
+
+    async def _handle_contact_event(self, event: ContactEvent) -> None:
+        """
+        Handle contact events (requests, added, removed).
+
+        Contact events have no room context and are agent-level.
+        Forwards to on_contact_event callback.
+        """
+        if self.on_contact_event:
+            try:
+                await self.on_contact_event(event)
+            except Exception as e:
+                logger.error(
+                    "on_contact_event error for %s: %s",
+                    type(event).__name__,
+                    e,
+                    exc_info=True,
                 )
 
     async def _subscribe_to_existing_rooms(self) -> None:

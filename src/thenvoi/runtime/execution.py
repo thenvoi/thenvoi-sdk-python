@@ -93,6 +93,14 @@ class Execution(Protocol):
         """
         ...
 
+    def inject_system_message(self, message: str) -> None:
+        """
+        Queue a system message for injection on next processing.
+
+        Used by ContactEventHandler to broadcast contact changes.
+        """
+        ...
+
     async def on_event(self, event: PlatformEvent) -> None:
         """Handle a platform event for this room."""
         ...
@@ -179,6 +187,9 @@ class ExecutionContext:
         # Graceful shutdown: event signaled when state becomes idle
         self._idle_event: asyncio.Event = asyncio.Event()
         self._idle_event.set()  # Start as idle
+
+        # Pending system messages to inject (e.g., contact broadcasts)
+        self._pending_system_messages: list[str] = []
 
     @property
     def thread_id(self) -> str:
@@ -373,6 +384,34 @@ class ExecutionContext:
     def mark_participants_sent(self) -> None:
         """Mark current participants as sent to LLM."""
         self._last_participants_sent = self._participants.copy()
+
+    def inject_system_message(self, message: str) -> None:
+        """
+        Queue a system message for injection on next processing.
+
+        Used by ContactEventHandler to broadcast contact changes
+        into all active sessions.
+
+        Args:
+            message: System message to inject
+        """
+        self._pending_system_messages.append(message)
+        logger.debug(
+            "ExecutionContext %s: Queued system message: %s",
+            self.room_id,
+            message[:50],
+        )
+
+    def get_pending_system_messages(self) -> list[str]:
+        """
+        Get and clear pending system messages.
+
+        Returns:
+            List of pending messages (cleared after call)
+        """
+        messages = self._pending_system_messages.copy()
+        self._pending_system_messages.clear()
+        return messages
 
     async def load_participants(self) -> list[dict[str, Any]]:
         """Load participants from API."""

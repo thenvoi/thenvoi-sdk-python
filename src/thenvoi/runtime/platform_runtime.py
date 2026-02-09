@@ -2,17 +2,27 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Callable, Awaitable
 
 from thenvoi.client.rest import DEFAULT_REQUEST_OPTIONS
 from thenvoi.platform.link import ThenvoiLink
-from thenvoi.platform.event import PlatformEvent
+from thenvoi.platform.event import ContactEvent, MessageEvent, PlatformEvent
+from thenvoi.runtime.contact_handler import ContactEventHandler
 from thenvoi.runtime.runtime import AgentRuntime
 from thenvoi.runtime.execution import ExecutionContext
-from thenvoi.runtime.types import AgentConfig, SessionConfig
+from thenvoi.runtime.types import (
+    AgentConfig,
+    ContactEventConfig,
+    ContactEventStrategy,
+    SessionConfig,
+)
 
 logger = logging.getLogger(__name__)
+
+# Timeout waiting for hub room to be ready
+HUB_ROOM_READY_TIMEOUT = 30.0
 
 
 class PlatformRuntime:
@@ -38,6 +48,7 @@ class PlatformRuntime:
         rest_url: str = "https://api.thenvoi.com",
         config: AgentConfig | None = None,
         session_config: SessionConfig | None = None,
+        contact_config: ContactEventConfig | None = None,
     ):
         self._agent_id = agent_id
         self._api_key = api_key
@@ -45,11 +56,15 @@ class PlatformRuntime:
         self._rest_url = rest_url
         self._config = config or AgentConfig()
         self._session_config = session_config or SessionConfig()
+        self._contact_config = contact_config or ContactEventConfig()
 
         self._link: ThenvoiLink | None = None
         self._runtime: AgentRuntime | None = None
         self._agent_name: str = ""
         self._agent_description: str = ""
+        self._contact_handler: ContactEventHandler | None = None
+        self._pending_broadcasts: list[str] = []
+        self._contacts_subscribed: bool = False
 
     @property
     def agent_id(self) -> str:
@@ -74,6 +89,16 @@ class PlatformRuntime:
         if not self._runtime:
             raise RuntimeError("Runtime not started")
         return self._runtime
+
+    @property
+    def contact_config(self) -> ContactEventConfig:
+        """Get the contact event configuration."""
+        return self._contact_config
+
+    @property
+    def is_contacts_subscribed(self) -> bool:
+        """Check if subscribed to contact events channel."""
+        return self._contacts_subscribed
 
     async def initialize(self) -> None:
         """
@@ -131,6 +156,10 @@ class PlatformRuntime:
         )
 
         await self._runtime.start()
+
+        # Set up contact event handling after WebSocket is connected
+        await self._setup_contact_handling()
+
         logger.info("Platform runtime started for agent: %s", self._agent_name)
 
     async def stop(self, timeout: float | None = None) -> bool:
@@ -147,6 +176,13 @@ class PlatformRuntime:
         graceful = True
         if self._runtime:
             graceful = await self._runtime.stop(timeout=timeout)
+
+        # Unsubscribe from contacts channel before disconnecting
+        if self._link and self._contacts_subscribed:
+            await self._link.unsubscribe_agent_contacts()
+            self._contacts_subscribed = False
+            logger.debug("Unsubscribed from contacts channel")
+
         if self._link:
             await self._link.disconnect()
         logger.info("Platform runtime stopped")
@@ -179,3 +215,158 @@ class PlatformRuntime:
     @staticmethod
     async def _noop_cleanup(room_id: str) -> None:
         pass
+
+    async def _setup_contact_handling(self) -> None:
+        """Set up contact event handling based on config."""
+        if self._contact_config.strategy == ContactEventStrategy.DISABLED:
+            if not self._contact_config.broadcast_changes:
+                logger.debug("Contact handling disabled")
+                return
+            # Even if DISABLED, we may want broadcasts
+
+        assert self._link is not None
+        assert self._runtime is not None
+
+        # Create handler with broadcast callback if enabled
+        broadcast_fn = None
+        if self._contact_config.broadcast_changes:
+            broadcast_fn = self._queue_broadcast
+
+        # Create hub event callbacks for HUB_ROOM strategy
+        hub_event_fn = None
+        hub_init_fn = None
+        if self._contact_config.strategy == ContactEventStrategy.HUB_ROOM:
+            hub_event_fn = self._inject_hub_event
+            hub_init_fn = self._inject_hub_system_prompt
+
+        self._contact_handler = ContactEventHandler(
+            config=self._contact_config,
+            link=self._link,
+            on_broadcast=broadcast_fn,
+            on_hub_event=hub_event_fn,
+            on_hub_init=hub_init_fn,
+        )
+
+        # Set up contact event callback on presence
+        self._runtime.presence.on_contact_event = self._on_contact_event
+
+        # Subscribe to contacts channel
+        await self._link.subscribe_agent_contacts(self._agent_id)
+        self._contacts_subscribed = True
+        logger.info(
+            "Contact handling enabled: strategy=%s, broadcast=%s",
+            self._contact_config.strategy.value,
+            self._contact_config.broadcast_changes,
+        )
+
+    async def _on_contact_event(self, event: ContactEvent) -> None:
+        """Handle contact event from WebSocket."""
+        if self._contact_handler:
+            await self._contact_handler.handle(event)
+
+            # Process any pending broadcasts
+            await self._process_broadcasts()
+
+    def _queue_broadcast(self, message: str) -> None:
+        """Queue a broadcast message for injection into all sessions."""
+        self._pending_broadcasts.append(message)
+
+    async def _process_broadcasts(self) -> None:
+        """Inject pending broadcasts into all active sessions."""
+        if not self._pending_broadcasts or not self._runtime:
+            return
+
+        messages = self._pending_broadcasts.copy()
+        self._pending_broadcasts.clear()
+
+        # Inject into all active execution contexts
+        for room_id, execution in self._runtime.active_sessions.items():
+            for msg in messages:
+                execution.inject_system_message(f"[Contacts]: {msg}")
+                logger.debug("Broadcast injected into room %s: %s", room_id, msg)
+
+    async def _inject_hub_event(self, hub_room_id: str, event: MessageEvent) -> None:
+        """
+        Inject a MessageEvent into the hub room's ExecutionContext.
+
+        Waits for the ExecutionContext to be created if it doesn't exist yet
+        (hub room was just created via REST, waiting for room_added WebSocket event).
+
+        Args:
+            hub_room_id: The hub room ID
+            event: The MessageEvent to inject
+        """
+        if not self._runtime:
+            raise RuntimeError("Runtime not started")
+
+        # Wait for ExecutionContext to be created (hub room may have just been created)
+        execution = await self._wait_for_execution(hub_room_id)
+
+        # Inject the event into the execution queue
+        await execution.on_event(event)
+        logger.debug("Event injected into hub room %s", hub_room_id)
+
+    async def _inject_hub_system_prompt(self, hub_room_id: str, prompt: str) -> None:
+        """
+        Inject a system prompt into the hub room's ExecutionContext.
+
+        Called once when the hub room is first used to set up the agent's
+        instructions for managing contact requests.
+
+        Args:
+            hub_room_id: The hub room ID
+            prompt: The system prompt to inject
+        """
+        if not self._runtime:
+            raise RuntimeError("Runtime not started")
+
+        # Wait for ExecutionContext to be created
+        execution = await self._wait_for_execution(hub_room_id)
+
+        # Inject the system prompt
+        execution.inject_system_message(prompt)
+        logger.info("System prompt injected into hub room %s", hub_room_id)
+
+    async def _wait_for_execution(self, room_id: str) -> ExecutionContext:
+        """
+        Wait for an ExecutionContext to be created for a room.
+
+        Used when hub room is created via REST and we need to wait for
+        the room_added WebSocket event to trigger ExecutionContext creation.
+
+        Args:
+            room_id: The room ID to wait for
+
+        Returns:
+            The ExecutionContext for the room
+
+        Raises:
+            TimeoutError: If ExecutionContext is not created within timeout
+        """
+        if not self._runtime:
+            raise RuntimeError("Runtime not started")
+
+        # Check if already exists
+        execution = self._runtime.executions.get(room_id)
+        if execution:
+            return execution  # type: ignore[return-value]
+
+        # Wait for it to be created (poll with backoff)
+        start = asyncio.get_event_loop().time()
+        poll_interval = 0.1  # Start with 100ms
+
+        while True:
+            await asyncio.sleep(poll_interval)
+
+            execution = self._runtime.executions.get(room_id)
+            if execution:
+                return execution  # type: ignore[return-value]
+
+            elapsed = asyncio.get_event_loop().time() - start
+            if elapsed > HUB_ROOM_READY_TIMEOUT:
+                raise TimeoutError(
+                    f"Timed out waiting for ExecutionContext for room {room_id}"
+                )
+
+            # Increase poll interval (max 1s)
+            poll_interval = min(poll_interval * 1.5, 1.0)
