@@ -104,19 +104,20 @@ def _crewai_factory(**kw: Any) -> Any:
     # Save the original adapter module (if any) so we can restore it.
     _original = sys.modules.get("thenvoi.adapters.crewai")
 
-    with patch.dict(sys.modules, mock_modules):
-        # Force reimport to pick up mocked modules
-        sys.modules.pop("thenvoi.adapters.crewai", None)
-        module = importlib.import_module("thenvoi.adapters.crewai")
-        adapter = module.CrewAIAdapter(**kw)
-
-    # patch.dict restores crewai/crewai.tools/nest_asyncio.
-    # Explicitly restore the adapter module too, so later imports get
-    # the real (or absent) module — not the mock-backed reimport.
-    if _original is not None:
-        sys.modules["thenvoi.adapters.crewai"] = _original
-    else:
-        sys.modules.pop("thenvoi.adapters.crewai", None)
+    try:
+        with patch.dict(sys.modules, mock_modules):
+            # Force reimport to pick up mocked modules
+            sys.modules.pop("thenvoi.adapters.crewai", None)
+            module = importlib.import_module("thenvoi.adapters.crewai")
+            adapter = module.CrewAIAdapter(**kw)
+    finally:
+        # patch.dict restores crewai/crewai.tools/nest_asyncio.
+        # Explicitly restore the adapter module too, so later imports get
+        # the real (or absent) module — not the mock-backed reimport.
+        if _original is not None:
+            sys.modules["thenvoi.adapters.crewai"] = _original
+        else:
+            sys.modules.pop("thenvoi.adapters.crewai", None)
 
     return adapter
 

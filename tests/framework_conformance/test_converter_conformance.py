@@ -49,8 +49,8 @@ class TestUserTextMessages:
         behavior = converter_config.empty_sender_behavior
         if behavior == "content_as_is":
             assert output.content_contains(result, "Hello!")
-            # Should NOT have a sender prefix
-            assert not output.content_contains(result, "[Alice]")
+            # Should NOT have a bracket prefix (empty sender should not produce "[]: ")
+            assert not output.content_contains(result, "[]: ")
         elif behavior == "brackets_empty":
             assert output.content_contains(result, "[]: Hello!")
         elif behavior == "unknown_prefix":
