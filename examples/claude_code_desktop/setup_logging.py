@@ -1,5 +1,7 @@
 """Shared logging configuration for Claude Code Desktop examples."""
 
+from __future__ import annotations
+
 import logging
 
 
