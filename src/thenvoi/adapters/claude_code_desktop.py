@@ -489,13 +489,13 @@ class ClaudeCodeDesktopAdapter(SimpleAdapter[str]):
                 content = action_data.get("content", "")
                 mentions = action_data.get("mentions", [])
                 await tools.send_message(content, mentions)
-                logger.info(f"Sent message: {content[:50]}...")
+                logger.info(f"Sent message: {content[:50]}{'...' if len(content) > 50 else ''}")
 
             elif action == "send_event":
                 content = action_data.get("content", "")
                 message_type = action_data.get("message_type", "thought")
                 await tools.send_event(content, message_type)
-                logger.debug(f"Sent event ({message_type}): {content[:50]}...")
+                logger.debug(f"Sent event ({message_type}): {content[:50]}{'...' if len(content) > 50 else ''}")
 
             elif action == "add_participant":
                 name = action_data.get("name", "")
