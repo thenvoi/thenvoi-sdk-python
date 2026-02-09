@@ -12,7 +12,7 @@ import logging
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Set
 
-from thenvoi.client.rest import AsyncRestClient
+from thenvoi.client.rest import AsyncRestClient, DEFAULT_REQUEST_OPTIONS
 from thenvoi.client.streaming import WebSocketClient
 
 from .event import (
@@ -376,6 +376,7 @@ class ThenvoiLink:
             await self.rest.agent_api_messages.mark_agent_message_processing(
                 chat_id=room_id,
                 id=message_id,
+                request_options=DEFAULT_REQUEST_OPTIONS,
             )
         except Exception as e:
             logger.warning("Failed to mark message %s as processing: %s", message_id, e)
@@ -391,6 +392,7 @@ class ThenvoiLink:
             await self.rest.agent_api_messages.mark_agent_message_processed(
                 chat_id=room_id,
                 id=message_id,
+                request_options=DEFAULT_REQUEST_OPTIONS,
             )
         except Exception as e:
             logger.warning("Failed to mark message %s as processed: %s", message_id, e)
@@ -407,6 +409,7 @@ class ThenvoiLink:
                 chat_id=room_id,
                 id=message_id,
                 error=error,
+                request_options=DEFAULT_REQUEST_OPTIONS,
             )
         except Exception as e:
             logger.warning("Failed to mark message %s as failed: %s", message_id, e)
@@ -428,6 +431,7 @@ class ThenvoiLink:
         try:
             response = await self.rest.agent_api_messages.get_agent_next_message(
                 chat_id=room_id,
+                request_options=DEFAULT_REQUEST_OPTIONS,
             )
             if response.data is None:
                 return None

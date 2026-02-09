@@ -28,6 +28,7 @@ from typing import (
     runtime_checkable,
 )
 
+from thenvoi.client.rest import DEFAULT_REQUEST_OPTIONS
 from thenvoi.platform.event import (
     MessageEvent,
     ParticipantAddedEvent,
@@ -381,6 +382,7 @@ class ExecutionContext:
         try:
             response = await self.link.rest.agent_api_participants.list_agent_chat_participants(
                 chat_id=self.room_id,
+                request_options=DEFAULT_REQUEST_OPTIONS,
             )
             if response.data:
                 self._participants = [
@@ -432,6 +434,7 @@ class ExecutionContext:
             context_response = (
                 await self.link.rest.agent_api_context.get_agent_chat_context(
                     chat_id=self.room_id,
+                    request_options=DEFAULT_REQUEST_OPTIONS,
                 )
             )
 

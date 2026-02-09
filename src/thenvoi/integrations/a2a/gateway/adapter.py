@@ -20,21 +20,22 @@ from a2a.types import (
 )
 from a2a.utils import get_message_text
 
+from thenvoi.client.rest import (
+    AsyncRestClient,
+    ChatEventRequest,
+    ChatMessageRequest,
+    ChatMessageRequestMentionsItem,
+    ChatRoomRequest,
+    DEFAULT_REQUEST_OPTIONS,
+    ParticipantRequest,
+)
 from thenvoi.converters.a2a_gateway import GatewayHistoryConverter
 from thenvoi.core.protocols import AgentToolsProtocol
 from thenvoi.core.simple_adapter import SimpleAdapter
 from thenvoi.core.types import PlatformMessage
 from thenvoi.integrations.a2a.gateway.server import GatewayServer
 from thenvoi.integrations.a2a.gateway.types import GatewaySessionState, PendingA2ATask
-from thenvoi_rest import (
-    AsyncRestClient,
-    ChatEventRequest,
-    ChatMessageRequest,
-    ChatMessageRequestMentionsItem,
-    ChatRoomRequest,
-    ParticipantRequest,
-    Peer,
-)
+from thenvoi_rest import Peer
 
 logger = logging.getLogger(__name__)
 
@@ -138,6 +139,7 @@ class A2AGatewayAdapter(SimpleAdapter[GatewaySessionState]):
             response = await self._rest.agent_api_peers.list_agent_peers(
                 page=page,
                 page_size=page_size,
+                request_options=DEFAULT_REQUEST_OPTIONS,
             )
             all_peers.extend(response.data)
 
@@ -291,6 +293,7 @@ class A2AGatewayAdapter(SimpleAdapter[GatewaySessionState]):
                 content=f"@{peer_name} {content}",
                 mentions=[ChatMessageRequestMentionsItem(id=peer_uuid, name=peer_name)],
             ),
+            request_options=DEFAULT_REQUEST_OPTIONS,
         )
 
         logger.debug(
@@ -324,7 +327,8 @@ class A2AGatewayAdapter(SimpleAdapter[GatewaySessionState]):
         if context_id is None or context_id not in self._context_to_room:
             # Create new room via REST
             response = await self._rest.agent_api_chats.create_agent_chat(
-                chat=ChatRoomRequest()
+                chat=ChatRoomRequest(),
+                request_options=DEFAULT_REQUEST_OPTIONS,
             )
             room_id = response.data.id
 
@@ -334,6 +338,7 @@ class A2AGatewayAdapter(SimpleAdapter[GatewaySessionState]):
                 participant=ParticipantRequest(
                     participant_id=target_peer_id, role="member"
                 ),
+                request_options=DEFAULT_REQUEST_OPTIONS,
             )
 
             context_id = context_id or str(uuid4())
@@ -357,6 +362,7 @@ class A2AGatewayAdapter(SimpleAdapter[GatewaySessionState]):
                     participant=ParticipantRequest(
                         participant_id=target_peer_id, role="member"
                     ),
+                    request_options=DEFAULT_REQUEST_OPTIONS,
                 )
                 self._room_participants.setdefault(room_id, set()).add(target_peer_id)
 
