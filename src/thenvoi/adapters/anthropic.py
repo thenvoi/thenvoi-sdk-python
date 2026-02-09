@@ -93,6 +93,7 @@ class AnthropicAdapter(SimpleAdapter[AnthropicMessages]):
         tools: AgentToolsProtocol,
         history: AnthropicMessages,  # Already converted by SimpleAdapter
         participants_msg: str | None,
+        contacts_msg: str | None,
         *,
         is_session_bootstrap: bool,
         room_id: str,
@@ -104,6 +105,7 @@ class AnthropicAdapter(SimpleAdapter[AnthropicMessages]):
         - System prompt sent ONLY on first API call (part of messages param)
         - Historical messages injected on first message to prime conversation
         - Participant list injected ONLY when it changes
+        - Contact changes injected when broadcast
         - Tool loop runs until no more tool_use blocks
         """
         logger.debug("Handling message %s in room %s", msg.id, room_id)
@@ -132,6 +134,16 @@ class AnthropicAdapter(SimpleAdapter[AnthropicMessages]):
                 }
             )
             logger.info("Room %s: Participants updated", room_id)
+
+        # Inject contacts message if present
+        if contacts_msg:
+            self._message_history[room_id].append(
+                {
+                    "role": "user",
+                    "content": f"[System]: {contacts_msg}",
+                }
+            )
+            logger.info("Room %s: Contacts broadcast received", room_id)
 
         # Add current message
         user_message = msg.format_for_llm()

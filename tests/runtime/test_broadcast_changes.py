@@ -304,6 +304,10 @@ class TestBroadcastComposable:
             on_hub_event=capture_hub_event,
         )
 
+        # Initialize and mark ready
+        await handler.initialize_hub_room()
+        handler.mark_hub_room_ready()
+
         event = ContactAddedEvent(
             payload=ContactAddedPayload(
                 id="contact-999",

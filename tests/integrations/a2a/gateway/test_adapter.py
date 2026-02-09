@@ -231,6 +231,7 @@ class TestA2AGatewayAdapterOnMessage:
             tools,
             history,
             None,
+            None,
             is_session_bootstrap=True,
             room_id="room-123",
         )
@@ -273,6 +274,7 @@ class TestA2AGatewayAdapterOnMessage:
             tools,
             GatewaySessionState(),
             None,
+            None,
             is_session_bootstrap=False,
             room_id="room-123",
         )
@@ -311,6 +313,7 @@ class TestA2AGatewayAdapterOnMessage:
             msg,
             tools,
             GatewaySessionState(),
+            None,
             None,
             is_session_bootstrap=False,
             room_id="room-123",

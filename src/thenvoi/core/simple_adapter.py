@@ -60,6 +60,7 @@ class SimpleAdapter(Generic[H], ABC):
         tools: AgentToolsProtocol,
         history: H,
         participants_msg: str | None,
+        contacts_msg: str | None,
         *,
         is_session_bootstrap: bool,
         room_id: str,
@@ -72,6 +73,7 @@ class SimpleAdapter(Generic[H], ABC):
             tools: Agent tools (send_message, send_event, etc.)
             history: Converted history as type H
             participants_msg: Participants update message, or None
+            contacts_msg: Contact changes broadcast message, or None
             is_session_bootstrap: True if adapter session is starting (first message from this room)
             room_id: The room identifier
         """
@@ -107,6 +109,7 @@ class SimpleAdapter(Generic[H], ABC):
             tools=inp.tools,
             history=cast("H", converted_history),
             participants_msg=inp.participants_msg,
+            contacts_msg=inp.contacts_msg,
             is_session_bootstrap=inp.is_session_bootstrap,
             room_id=inp.room_id,
         )

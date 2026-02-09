@@ -278,12 +278,27 @@ class PydanticAIAdapter(SimpleAdapter[PydanticAIMessages]):
             handle: str | None = None,
             request_id: str | None = None,
         ) -> dict[str, Any] | str:
+            logger.info(
+                "thenvoi_respond_contact_request called: action=%s, handle=%s, request_id=%s",
+                action,
+                handle,
+                request_id,
+            )
             try:
-                return await ctx.deps.respond_contact_request(
+                result = await ctx.deps.respond_contact_request(
                     action, handle, request_id
                 )
+                logger.info("thenvoi_respond_contact_request result: %s", result)
+                return result
             except Exception as e:
-                return f"Error responding to contact request: {e}"
+                logger.error("thenvoi_respond_contact_request error: %s", e)
+                error_msg = f"Error responding to contact request: {e}"
+                # Auto-send error event so it's visible in the room
+                try:
+                    await ctx.deps.send_event(error_msg, "error")
+                except Exception:
+                    pass  # Don't fail if error reporting fails
+                return error_msg
 
         thenvoi_respond_contact_request.__doc__ = get_tool_description(
             "thenvoi_respond_contact_request"
@@ -304,6 +319,7 @@ class PydanticAIAdapter(SimpleAdapter[PydanticAIMessages]):
         tools: AgentToolsProtocol,
         history: PydanticAIMessages,  # Already converted by SimpleAdapter
         participants_msg: str | None,
+        contacts_msg: str | None,
         *,
         is_session_bootstrap: bool,
         room_id: str,
@@ -335,6 +351,15 @@ class PydanticAIAdapter(SimpleAdapter[PydanticAIMessages]):
                 )
             )
             logger.debug("Room %s: Injected participant update into history", room_id)
+
+        # Inject contacts message if present
+        if contacts_msg:
+            self._message_history[room_id].append(
+                ModelRequest(
+                    parts=[UserPromptPart(content=f"[System]: {contacts_msg}")]
+                )
+            )
+            logger.debug("Room %s: Injected contacts broadcast into history", room_id)
 
         # Build user message with sender prefix
         user_message = msg.format_for_llm()

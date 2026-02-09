@@ -680,6 +680,7 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
         tools: AgentToolsProtocol,
         history: CrewAIMessages,
         participants_msg: str | None,
+        contacts_msg: str | None,
         *,
         is_session_bootstrap: bool,
         room_id: str,
@@ -702,6 +703,7 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
                 tools=tools,
                 history=history,
                 participants_msg=participants_msg,
+                contacts_msg=contacts_msg,
                 is_session_bootstrap=is_session_bootstrap,
                 room_id=room_id,
             )
@@ -716,6 +718,7 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
         tools: AgentToolsProtocol,
         history: CrewAIMessages,
         participants_msg: str | None,
+        contacts_msg: str | None,
         *,
         is_session_bootstrap: bool,
         room_id: str,
@@ -756,6 +759,15 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
                 }
             )
             logger.info("Room %s: Participants updated", room_id)
+
+        if contacts_msg:
+            messages.append(
+                {
+                    "role": "user",
+                    "content": f"[System]: {contacts_msg}",
+                }
+            )
+            logger.info("Room %s: Contacts broadcast received", room_id)
 
         user_message = msg.format_for_llm()
         messages.append({"role": "user", "content": user_message})

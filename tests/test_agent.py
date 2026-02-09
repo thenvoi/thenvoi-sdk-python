@@ -90,6 +90,7 @@ class TestCreateFactory:
                 rest_url="https://api.thenvoi.com",
                 config=None,
                 session_config=None,
+                contact_config=None,
             )
 
     def test_creates_with_custom_urls(self, mock_adapter):
@@ -408,6 +409,7 @@ class TestStartupRaceCondition:
                 tools,
                 history,
                 participants_msg,
+                contacts_msg,
                 *,
                 is_session_bootstrap: bool,
                 room_id: str,

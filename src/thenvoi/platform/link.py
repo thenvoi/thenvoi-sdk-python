@@ -331,6 +331,12 @@ class ThenvoiLink:
         self, payload: "ContactRequestReceivedPayload"
     ) -> None:
         """Handle contact_request_received from WebSocket."""
+        logger.debug(
+            "WebSocket: contact_request_received from %s (%s), request_id=%s",
+            payload.from_name,
+            payload.from_handle,
+            payload.id,
+        )
         event = ContactRequestReceivedEvent(
             room_id=None,  # Contact events have no room context
             payload=payload,
@@ -341,6 +347,11 @@ class ThenvoiLink:
         self, payload: "ContactRequestUpdatedPayload"
     ) -> None:
         """Handle contact_request_updated from WebSocket."""
+        logger.debug(
+            "WebSocket: contact_request_updated request_id=%s, status=%s",
+            payload.id,
+            payload.status,
+        )
         event = ContactRequestUpdatedEvent(
             room_id=None,
             payload=payload,
@@ -349,6 +360,12 @@ class ThenvoiLink:
 
     async def _on_contact_added(self, payload: "ContactAddedPayload") -> None:
         """Handle contact_added from WebSocket."""
+        logger.debug(
+            "WebSocket: contact_added %s (%s), contact_id=%s",
+            payload.name,
+            payload.handle,
+            payload.id,
+        )
         event = ContactAddedEvent(
             room_id=None,
             payload=payload,
@@ -357,6 +374,7 @@ class ThenvoiLink:
 
     async def _on_contact_removed(self, payload: "ContactRemovedPayload") -> None:
         """Handle contact_removed from WebSocket."""
+        logger.debug("WebSocket: contact_removed contact_id=%s", payload.id)
         event = ContactRemovedEvent(
             room_id=None,
             payload=payload,

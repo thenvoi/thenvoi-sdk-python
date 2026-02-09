@@ -174,6 +174,7 @@ class A2AGatewayAdapter(SimpleAdapter[GatewaySessionState]):
         tools: AgentToolsProtocol,
         history: GatewaySessionState,
         participants_msg: str | None,
+        contacts_msg: str | None,
         *,
         is_session_bootstrap: bool,
         room_id: str,
@@ -191,6 +192,7 @@ class A2AGatewayAdapter(SimpleAdapter[GatewaySessionState]):
             tools: Agent tools (not used - we use REST client).
             history: Converted history as GatewaySessionState.
             participants_msg: Participants update message, or None.
+            contacts_msg: Contact changes broadcast message, or None.
             is_session_bootstrap: True if this is first message from room.
             room_id: The room identifier.
         """

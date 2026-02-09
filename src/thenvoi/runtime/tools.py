@@ -839,9 +839,32 @@ class AgentTools(AgentToolsProtocol):
             handle,
             request_id,
         )
-        response = await self.rest.agent_api_contacts.respond_to_agent_contact_request(
-            action=action, handle=handle, request_id=request_id
-        )
+        # Only pass non-None values to avoid sending null (which fails validation)
+        # The REST client uses OMIT for optional params, but passing None sends null
+        if handle is not None and request_id is not None:
+            response = (
+                await self.rest.agent_api_contacts.respond_to_agent_contact_request(
+                    action=action, handle=handle, request_id=request_id
+                )
+            )
+        elif handle is not None:
+            response = (
+                await self.rest.agent_api_contacts.respond_to_agent_contact_request(
+                    action=action, handle=handle
+                )
+            )
+        elif request_id is not None:
+            response = (
+                await self.rest.agent_api_contacts.respond_to_agent_contact_request(
+                    action=action, request_id=request_id
+                )
+            )
+        else:
+            response = (
+                await self.rest.agent_api_contacts.respond_to_agent_contact_request(
+                    action=action
+                )
+            )
         if not response.data:
             raise RuntimeError(
                 "Failed to respond to contact request - no response data"

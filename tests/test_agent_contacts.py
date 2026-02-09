@@ -255,16 +255,28 @@ class TestPlatformRuntimeContactSetup:
 
         mock_link = MagicMock()
         mock_link.subscribe_agent_contacts = AsyncMock()
+        # Mock REST client for hub room creation
+        mock_chat_response = MagicMock()
+        mock_chat_response.data = MagicMock()
+        mock_chat_response.data.id = "hub-room-123"
+        mock_link.rest = MagicMock()
+        mock_link.rest.agent_api_chats = MagicMock()
+        mock_link.rest.agent_api_chats.create_agent_chat = AsyncMock(
+            return_value=mock_chat_response
+        )
         runtime._link = mock_link
 
         mock_internal = MagicMock()
         mock_internal.presence = MagicMock()
+        mock_internal.executions = {}
         runtime._runtime = mock_internal
 
         await runtime._setup_contact_handling()
 
         mock_link.subscribe_agent_contacts.assert_called_once()
         assert runtime.is_contacts_subscribed is True
+        # Verify hub room was created at startup
+        mock_link.rest.agent_api_chats.create_agent_chat.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_setup_skips_subscription_when_disabled(self):
@@ -448,6 +460,17 @@ class TestStartupOrder:
             ws_connected_at_subscribe = mock_link.is_connected
 
         mock_link.subscribe_agent_contacts = check_connection_on_subscribe
+
+        # Mock REST client for hub room creation
+        mock_chat_response = MagicMock()
+        mock_chat_response.data = MagicMock()
+        mock_chat_response.data.id = "hub-room-123"
+        mock_link.rest = MagicMock()
+        mock_link.rest.agent_api_chats = MagicMock()
+        mock_link.rest.agent_api_chats.create_agent_chat = AsyncMock(
+            return_value=mock_chat_response
+        )
+
         runtime._link = mock_link
         runtime._agent_name = "Test Agent"
         runtime._agent_description = "Test"
@@ -462,6 +485,7 @@ class TestStartupOrder:
 
             mock_runtime_instance.start = simulate_ws_connect
             mock_runtime_instance.presence = MagicMock()
+            mock_runtime_instance.executions = {}
             MockAgentRuntime.return_value = mock_runtime_instance
 
             with patch.object(runtime, "initialize", new_callable=AsyncMock):

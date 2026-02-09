@@ -878,24 +878,36 @@ class ExecutionContext:
                 logger.debug("Skipping self-message %s", msg_id)
                 return
 
-            # Skip permanently failed messages
-            if self._retry_tracker.is_permanently_failed(msg_id):
-                logger.debug("Skipping permanently failed message %s", msg_id)
-                return
+            # Detect synthetic messages (e.g., contact events injected into hub room)
+            # These don't exist in the database, so skip all tracking and marking
+            is_synthetic = (
+                payload.sender_type == "System"
+                and payload.sender_id == "contact-events"
+            )
+            if is_synthetic:
+                logger.debug("Processing synthetic contact event message")
+                msg_id = None  # Clear to skip message marking later
+                # Skip all tracking for synthetic messages - go directly to processing
+            else:
+                # Only track retries and duplicates for real messages
+                # Skip permanently failed messages
+                if self._retry_tracker.is_permanently_failed(msg_id):
+                    logger.debug("Skipping permanently failed message %s", msg_id)
+                    return
 
-            # Skip duplicates
-            if msg_id in self._processed_ids:
-                self._processed_ids.move_to_end(msg_id)
-                logger.debug("Skipping duplicate message %s", msg_id)
-                return
+                # Skip duplicates
+                if msg_id in self._processed_ids:
+                    self._processed_ids.move_to_end(msg_id)
+                    logger.debug("Skipping duplicate message %s", msg_id)
+                    return
 
-            # Track attempts
-            attempts, exceeded = self._retry_tracker.record_attempt(msg_id)
-            if exceeded:
-                logger.warning(
-                    f"Message {msg_id} exceeded max retries ({attempts} attempts)"
-                )
-                return
+                # Track attempts
+                attempts, exceeded = self._retry_tracker.record_attempt(msg_id)
+                if exceeded:
+                    logger.warning(
+                        f"Message {msg_id} exceeded max retries ({attempts} attempts)"
+                    )
+                    return
 
         self._set_state("processing")
         logger.debug("Processing %s in room %s", event.type, self.room_id)

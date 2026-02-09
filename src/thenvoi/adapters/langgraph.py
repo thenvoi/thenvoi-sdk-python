@@ -119,6 +119,7 @@ class LangGraphAdapter(SimpleAdapter[LangChainMessages]):
         tools: AgentToolsProtocol,
         history: LangChainMessages,  # Fully typed!
         participants_msg: str | None,
+        contacts_msg: str | None,
         *,
         is_session_bootstrap: bool,
         room_id: str,
@@ -154,6 +155,9 @@ class LangGraphAdapter(SimpleAdapter[LangChainMessages]):
 
         if participants_msg:
             messages.append(("system", participants_msg))
+
+        if contacts_msg:
+            messages.append(("system", contacts_msg))
 
         messages.append(("user", msg.format_for_llm()))
 

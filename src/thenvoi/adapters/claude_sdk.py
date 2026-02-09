@@ -496,6 +496,7 @@ class ClaudeSDKAdapter(SimpleAdapter[str]):
         tools: AgentToolsProtocol,
         history: str,  # We ignore this, handle history ourselves
         participants_msg: str | None,
+        contacts_msg: str | None,
         *,
         is_session_bootstrap: bool,
         room_id: str,
@@ -556,6 +557,11 @@ class ClaudeSDKAdapter(SimpleAdapter[str]):
         if participants_msg:
             messages_to_send.append(f"{room_context}[System]: {participants_msg}")
             logger.info("Room %s: Participants updated", room_id)
+
+        # Inject contacts message if present
+        if contacts_msg:
+            messages_to_send.append(f"{room_context}[System]: {contacts_msg}")
+            logger.info("Room %s: Contacts broadcast received", room_id)
 
         # Add current message with room_id context
         user_message = f"{room_context}{msg.format_for_llm()}"

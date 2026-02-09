@@ -37,6 +37,7 @@ class RecordingAdapter(SimpleAdapter[str]):
         tools,
         history,
         participants_msg: str | None,
+        contacts_msg: str | None,
         *,
         is_session_bootstrap: bool,
         room_id: str,
@@ -47,6 +48,7 @@ class RecordingAdapter(SimpleAdapter[str]):
                 "tools": tools,
                 "history": history,
                 "participants_msg": participants_msg,
+                "contacts_msg": contacts_msg,
                 "is_session_bootstrap": is_session_bootstrap,
                 "room_id": room_id,
             }
@@ -75,6 +77,7 @@ def make_agent_input(
     content: str = "Hello",
     raw_history: list[dict[str, Any]] | None = None,
     participants_msg: str | None = None,
+    contacts_msg: str | None = None,
     is_session_bootstrap: bool = False,
 ) -> AgentInput:
     """Create a test AgentInput."""
@@ -83,6 +86,7 @@ def make_agent_input(
         tools=FakeAgentTools(),
         history=HistoryProvider(raw=raw_history or []),
         participants_msg=participants_msg,
+        contacts_msg=contacts_msg,
         is_session_bootstrap=is_session_bootstrap,
         room_id="room-1",
     )
@@ -223,6 +227,7 @@ class TestOnCleanup:
                 tools,
                 history,
                 participants_msg,
+                contacts_msg,
                 *,
                 is_session_bootstrap,
                 room_id,
@@ -251,6 +256,7 @@ class TestAdapterSubclassing:
                 tools,
                 history,
                 participants_msg,
+                contacts_msg,
                 *,
                 is_session_bootstrap,
                 room_id,
@@ -280,6 +286,7 @@ class TestAdapterSubclassing:
                 tools,
                 history,
                 participants_msg,
+                contacts_msg,
                 *,
                 is_session_bootstrap,
                 room_id,

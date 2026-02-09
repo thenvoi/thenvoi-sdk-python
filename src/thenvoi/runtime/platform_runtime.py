@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from typing import Callable, Awaitable
 
@@ -20,9 +19,6 @@ from thenvoi.runtime.types import (
 )
 
 logger = logging.getLogger(__name__)
-
-# Timeout waiting for hub room to be ready
-HUB_ROOM_READY_TIMEOUT = 30.0
 
 
 class PlatformRuntime:
@@ -65,6 +61,9 @@ class PlatformRuntime:
         self._contact_handler: ContactEventHandler | None = None
         self._pending_broadcasts: list[str] = []
         self._contacts_subscribed: bool = False
+        self._pending_hub_room_id: str | None = (
+            None  # Hub room waiting for ExecutionContext
+        )
 
     @property
     def agent_id(self) -> str:
@@ -253,6 +252,15 @@ class PlatformRuntime:
         # Subscribe to contacts channel
         await self._link.subscribe_agent_contacts(self._agent_id)
         self._contacts_subscribed = True
+
+        # For HUB_ROOM strategy, create hub room at startup
+        if self._contact_config.strategy == ContactEventStrategy.HUB_ROOM:
+            hub_room_id = await self._contact_handler.initialize_hub_room()
+            # The room_added WebSocket event will arrive and create ExecutionContext
+            # We'll mark the hub room as ready when that happens
+            self._pending_hub_room_id = hub_room_id
+            logger.info("Hub room initialized at startup: %s", hub_room_id)
+
         logger.info(
             "Contact handling enabled: strategy=%s, broadcast=%s",
             self._contact_config.strategy.value,
@@ -261,8 +269,11 @@ class PlatformRuntime:
 
     async def _on_contact_event(self, event: ContactEvent) -> None:
         """Handle contact event from WebSocket."""
+        logger.debug("PlatformRuntime received contact event: %s", type(event).__name__)
         if self._contact_handler:
             await self._contact_handler.handle(event)
+        else:
+            logger.warning("Contact event received but no handler configured")
 
             # Process any pending broadcasts
             await self._process_broadcasts()
@@ -289,9 +300,6 @@ class PlatformRuntime:
         """
         Inject a MessageEvent into the hub room's ExecutionContext.
 
-        Waits for the ExecutionContext to be created if it doesn't exist yet
-        (hub room was just created via REST, waiting for room_added WebSocket event).
-
         Args:
             hub_room_id: The hub room ID
             event: The MessageEvent to inject
@@ -299,8 +307,15 @@ class PlatformRuntime:
         if not self._runtime:
             raise RuntimeError("Runtime not started")
 
-        # Wait for ExecutionContext to be created (hub room may have just been created)
-        execution = await self._wait_for_execution(hub_room_id)
+        # Get ExecutionContext (should exist since hub room created at startup)
+        execution = self._runtime.executions.get(hub_room_id)
+        if not execution:
+            raise RuntimeError(f"ExecutionContext not found for hub room {hub_room_id}")
+
+        # Mark hub room as ready if this is the first successful injection
+        if self._contact_handler and self._pending_hub_room_id == hub_room_id:
+            self._contact_handler.mark_hub_room_ready()
+            self._pending_hub_room_id = None
 
         # Inject the event into the execution queue
         await execution.on_event(event)
@@ -320,53 +335,11 @@ class PlatformRuntime:
         if not self._runtime:
             raise RuntimeError("Runtime not started")
 
-        # Wait for ExecutionContext to be created
-        execution = await self._wait_for_execution(hub_room_id)
+        # Get ExecutionContext (should exist since hub room created at startup)
+        execution = self._runtime.executions.get(hub_room_id)
+        if not execution:
+            raise RuntimeError(f"ExecutionContext not found for hub room {hub_room_id}")
 
         # Inject the system prompt
         execution.inject_system_message(prompt)
         logger.info("System prompt injected into hub room %s", hub_room_id)
-
-    async def _wait_for_execution(self, room_id: str) -> ExecutionContext:
-        """
-        Wait for an ExecutionContext to be created for a room.
-
-        Used when hub room is created via REST and we need to wait for
-        the room_added WebSocket event to trigger ExecutionContext creation.
-
-        Args:
-            room_id: The room ID to wait for
-
-        Returns:
-            The ExecutionContext for the room
-
-        Raises:
-            TimeoutError: If ExecutionContext is not created within timeout
-        """
-        if not self._runtime:
-            raise RuntimeError("Runtime not started")
-
-        # Check if already exists
-        execution = self._runtime.executions.get(room_id)
-        if execution:
-            return execution  # type: ignore[return-value]
-
-        # Wait for it to be created (poll with backoff)
-        start = asyncio.get_event_loop().time()
-        poll_interval = 0.1  # Start with 100ms
-
-        while True:
-            await asyncio.sleep(poll_interval)
-
-            execution = self._runtime.executions.get(room_id)
-            if execution:
-                return execution  # type: ignore[return-value]
-
-            elapsed = asyncio.get_event_loop().time() - start
-            if elapsed > HUB_ROOM_READY_TIMEOUT:
-                raise TimeoutError(
-                    f"Timed out waiting for ExecutionContext for room {room_id}"
-                )
-
-            # Increase poll interval (max 1s)
-            poll_interval = min(poll_interval * 1.5, 1.0)

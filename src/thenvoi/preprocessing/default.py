@@ -87,6 +87,9 @@ class DefaultPreprocessor(Preprocessor):
         # Check participants
         participants_msg = check_and_format_participants(ctx)
 
+        # Get pending system messages (contact broadcasts)
+        contacts_msg = self._drain_system_messages(ctx)
+
         # Create tools
         tools = AgentTools.from_context(ctx)
 
@@ -95,9 +98,21 @@ class DefaultPreprocessor(Preprocessor):
             tools=tools,
             history=HistoryProvider(raw=raw_history),
             participants_msg=participants_msg,
+            contacts_msg=contacts_msg,
             is_session_bootstrap=is_bootstrap,
             room_id=room_id,
         )
+
+    def _drain_system_messages(self, ctx: ExecutionContext) -> str | None:
+        """Drain pending system messages from context.
+
+        Returns:
+            Combined system messages as a single string, or None if no messages.
+        """
+        messages = ctx.get_pending_system_messages()
+        if not messages:
+            return None
+        return "\n".join(messages)
 
     def _lookup_sender_name(self, ctx: ExecutionContext, sender_id: str) -> str | None:
         """Look up sender name from participants list by sender_id."""

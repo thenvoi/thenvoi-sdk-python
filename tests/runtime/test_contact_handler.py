@@ -425,13 +425,22 @@ class TestHubRoomStrategy:
         link = MagicMock()
         link.rest = MagicMock()
 
-        # Mock create_agent_chat (still needed for room creation)
+        # Mock create_agent_chat (for room creation at startup)
         mock_chat_response = MagicMock()
         mock_chat_response.data = MagicMock()
         mock_chat_response.data.id = "hub-room-123"
         link.rest.agent_api_chats = MagicMock()
         link.rest.agent_api_chats.create_agent_chat = AsyncMock(
             return_value=mock_chat_response
+        )
+
+        # Mock create_agent_chat_event (for task event posting)
+        mock_event_response = MagicMock()
+        mock_event_response.data = MagicMock()
+        mock_event_response.data.id = "event-123"
+        link.rest.agent_api_events = MagicMock()
+        link.rest.agent_api_events.create_agent_chat_event = AsyncMock(
+            return_value=mock_event_response
         )
 
         return link
@@ -441,10 +450,10 @@ class TestHubRoomStrategy:
         """Mock callback for hub event injection."""
         return AsyncMock()
 
-    async def test_hub_room_creates_room_on_first_event(
+    async def test_hub_room_creates_room_at_startup(
         self, mock_hub_link, mock_hub_event_callback, sample_request_received_event
     ):
-        """Hub room should be created lazily on first event."""
+        """Hub room should be created at startup via initialize_hub_room()."""
         config = ContactEventConfig(strategy=ContactEventStrategy.HUB_ROOM)
         handler = ContactEventHandler(
             config, mock_hub_link, on_hub_event=mock_hub_event_callback
@@ -453,7 +462,8 @@ class TestHubRoomStrategy:
         # Initially no hub room
         assert handler._hub_room_id is None
 
-        await handler.handle(sample_request_received_event)
+        # Initialize hub room at startup
+        await handler.initialize_hub_room()
 
         # Now hub room should be created
         assert handler._hub_room_id == "hub-room-123"
@@ -468,6 +478,10 @@ class TestHubRoomStrategy:
             config, mock_hub_link, on_hub_event=mock_hub_event_callback
         )
 
+        # Initialize hub room at startup and mark ready
+        await handler.initialize_hub_room()
+        handler.mark_hub_room_ready()
+
         # Handle two events
         await handler.handle(sample_request_received_event)
 
@@ -475,20 +489,24 @@ class TestHubRoomStrategy:
         handler._processed_events.clear()
         await handler.handle(sample_request_received_event)
 
-        # create_agent_chat should only be called once
+        # create_agent_chat should only be called once (at startup)
         assert mock_hub_link.rest.agent_api_chats.create_agent_chat.call_count == 1
 
         # on_hub_event should be called twice
         assert mock_hub_event_callback.call_count == 2
 
     async def test_hub_room_thread_safe(self, mock_hub_link, mock_hub_event_callback):
-        """Concurrent events should not create multiple rooms."""
+        """Concurrent events should reuse the same hub room."""
         import asyncio
 
         config = ContactEventConfig(strategy=ContactEventStrategy.HUB_ROOM)
         handler = ContactEventHandler(
             config, mock_hub_link, on_hub_event=mock_hub_event_callback
         )
+
+        # Initialize hub room at startup and mark ready
+        await handler.initialize_hub_room()
+        handler.mark_hub_room_ready()
 
         # Create multiple distinct events
         events = [
@@ -508,7 +526,7 @@ class TestHubRoomStrategy:
         # Handle all events concurrently
         await asyncio.gather(*[handler.handle(e) for e in events])
 
-        # Only one room should be created
+        # Only one room should be created (at startup)
         assert mock_hub_link.rest.agent_api_chats.create_agent_chat.call_count == 1
 
     async def test_hub_room_uses_custom_task_id(
@@ -524,7 +542,8 @@ class TestHubRoomStrategy:
             config, mock_hub_link, on_hub_event=mock_hub_event_callback
         )
 
-        await handler.handle(sample_request_received_event)
+        # Initialize hub room at startup
+        await handler.initialize_hub_room()
 
         call_args = mock_hub_link.rest.agent_api_chats.create_agent_chat.call_args
         chat_request = call_args.kwargs.get("chat") or call_args[1].get("chat")
@@ -540,6 +559,10 @@ class TestHubRoomStrategy:
         handler = ContactEventHandler(
             config, mock_hub_link, on_hub_event=mock_hub_event_callback
         )
+
+        # Initialize and mark ready
+        await handler.initialize_hub_room()
+        handler.mark_hub_room_ready()
 
         await handler.handle(sample_request_received_event)
 
@@ -566,6 +589,10 @@ class TestHubRoomStrategy:
             config, mock_hub_link, on_hub_event=mock_hub_event_callback
         )
 
+        # Initialize and mark ready
+        await handler.initialize_hub_room()
+        handler.mark_hub_room_ready()
+
         await handler.handle(sample_request_received_event)
 
         call_args = mock_hub_event_callback.call_args
@@ -581,6 +608,10 @@ class TestHubRoomStrategy:
         handler = ContactEventHandler(
             config, mock_hub_link, on_hub_event=mock_hub_event_callback
         )
+
+        # Initialize and mark ready
+        await handler.initialize_hub_room()
+        handler.mark_hub_room_ready()
 
         event = ContactRequestReceivedEvent(
             payload=ContactRequestReceivedPayload(
@@ -615,6 +646,10 @@ class TestHubRoomStrategy:
             config, mock_hub_link, on_hub_event=mock_hub_event_callback
         )
 
+        # Initialize and mark ready
+        await handler.initialize_hub_room()
+        handler.mark_hub_room_ready()
+
         event = ContactRequestUpdatedEvent(
             payload=ContactRequestUpdatedPayload(
                 id="req-update-test",
@@ -641,6 +676,10 @@ class TestHubRoomStrategy:
             config, mock_hub_link, on_hub_event=mock_hub_event_callback
         )
 
+        # Initialize and mark ready
+        await handler.initialize_hub_room()
+        handler.mark_hub_room_ready()
+
         await handler.handle(sample_contact_added_event)
 
         call_args = mock_hub_event_callback.call_args
@@ -660,6 +699,10 @@ class TestHubRoomStrategy:
         handler = ContactEventHandler(
             config, mock_hub_link, on_hub_event=mock_hub_event_callback
         )
+
+        # Initialize and mark ready
+        await handler.initialize_hub_room()
+        handler.mark_hub_room_ready()
 
         await handler.handle(sample_contact_removed_event)
 
@@ -682,6 +725,10 @@ class TestHubRoomStrategy:
             config, mock_hub_link, on_hub_event=failing_callback
         )
 
+        # Initialize and mark ready
+        await handler.initialize_hub_room()
+        handler.mark_hub_room_ready()
+
         # Should not raise
         await handler.handle(sample_request_received_event)
 
@@ -695,6 +742,10 @@ class TestHubRoomStrategy:
         """HUB_ROOM without on_hub_event callback should fail gracefully."""
         config = ContactEventConfig(strategy=ContactEventStrategy.HUB_ROOM)
         handler = ContactEventHandler(config, mock_hub_link)  # No callback
+
+        # Initialize hub room (but no callback to inject events)
+        await handler.initialize_hub_room()
+        handler.mark_hub_room_ready()
 
         # Should not raise
         await handler.handle(sample_request_received_event)
@@ -718,6 +769,10 @@ class TestHubRoomStrategy:
             on_hub_event=mock_hub_event_callback,
             on_hub_init=mock_hub_init_callback,
         )
+
+        # Initialize and mark ready
+        await handler.initialize_hub_room()
+        handler.mark_hub_room_ready()
 
         # Handle first event
         await handler.handle(sample_request_received_event)
@@ -753,3 +808,55 @@ class TestHubRoomStrategy:
             "do not" in HUB_ROOM_SYSTEM_PROMPT.lower()
             and "add_participant" in HUB_ROOM_SYSTEM_PROMPT.lower()
         )
+
+    async def test_hub_room_request_update_includes_cached_sender_info(
+        self, mock_hub_link, mock_hub_event_callback
+    ):
+        """ContactRequestUpdatedEvent should include sender info from cached request."""
+        config = ContactEventConfig(strategy=ContactEventStrategy.HUB_ROOM)
+        handler = ContactEventHandler(
+            config, mock_hub_link, on_hub_event=mock_hub_event_callback
+        )
+
+        # Initialize and mark ready
+        await handler.initialize_hub_room()
+        handler.mark_hub_room_ready()
+
+        # First: receive the request (this caches sender info)
+        received_event = ContactRequestReceivedEvent(
+            payload=ContactRequestReceivedPayload(
+                id="req-cached-123",
+                from_handle="@alice",
+                from_name="Alice Smith",
+                message="Hi there!",
+                status="pending",
+                inserted_at="2024-01-01T00:00:00Z",
+            )
+        )
+        await handler.handle(received_event)
+
+        # Clear call history to isolate the update event
+        mock_hub_event_callback.reset_mock()
+
+        # Clear dedup cache so update event is processed
+        handler._processed_events.clear()
+
+        # Second: receive the update (should use cached info)
+        update_event = ContactRequestUpdatedEvent(
+            payload=ContactRequestUpdatedPayload(
+                id="req-cached-123",
+                status="approved",
+            )
+        )
+        await handler.handle(update_event)
+
+        # Verify the update message includes the cached sender info
+        call_args = mock_hub_event_callback.call_args
+        message_event = call_args[0][1]
+        content = message_event.payload.content
+
+        assert "[Contact Request Update]" in content
+        assert "Alice Smith" in content  # Cached name
+        assert "@alice" in content  # Cached handle
+        assert "approved" in content
+        assert "req-cached-123" in content

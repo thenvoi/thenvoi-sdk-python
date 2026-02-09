@@ -132,6 +132,7 @@ class ParlantAdapter(SimpleAdapter[ParlantMessages]):
         tools: AgentToolsProtocol,
         history: ParlantMessages,
         participants_msg: str | None,
+        contacts_msg: str | None,
         *,
         is_session_bootstrap: bool,
         room_id: str,
@@ -168,11 +169,14 @@ class ParlantAdapter(SimpleAdapter[ParlantMessages]):
             injected = await self._inject_history(session_id, history)
             logger.info("Room %s: Injected %s messages from history", room_id, injected)
 
-        # Build user message, prepending participants update if changed
+        # Build user message, prepending updates if present
         user_message = msg.format_for_llm()
         if participants_msg:
             user_message = f"[System Update]: {participants_msg}\n\n{user_message}"
             logger.info("Room %s: Included participants update in message", room_id)
+        if contacts_msg:
+            user_message = f"[System Update]: {contacts_msg}\n\n{user_message}"
+            logger.info("Room %s: Included contacts broadcast in message", room_id)
         logger.info(
             f"Room {room_id}: Sending message to Parlant: {user_message[:100]}..."
         )

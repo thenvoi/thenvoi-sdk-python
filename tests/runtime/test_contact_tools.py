@@ -348,7 +348,7 @@ class TestRespondContactRequest:
         await contact_tools.respond_contact_request("approve", handle="@alice")
 
         mock_rest_client.agent_api_contacts.respond_to_agent_contact_request.assert_called_once_with(
-            action="approve", handle="@alice", request_id=None
+            action="approve", handle="@alice"
         )
 
     async def test_respond_contact_request_by_id(self, contact_tools, mock_rest_client):
@@ -364,5 +364,5 @@ class TestRespondContactRequest:
         await contact_tools.respond_contact_request("approve", request_id="req-789")
 
         mock_rest_client.agent_api_contacts.respond_to_agent_contact_request.assert_called_once_with(
-            action="approve", handle=None, request_id="req-789"
+            action="approve", request_id="req-789"
         )

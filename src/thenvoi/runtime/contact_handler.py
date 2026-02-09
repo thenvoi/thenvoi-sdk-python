@@ -18,7 +18,11 @@ from collections import OrderedDict
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any, Awaitable, Callable
 
-from thenvoi.client.rest import DEFAULT_REQUEST_OPTIONS, ChatRoomRequest
+from thenvoi.client.rest import (
+    DEFAULT_REQUEST_OPTIONS,
+    ChatEventRequest,
+    ChatRoomRequest,
+)
 from thenvoi.client.streaming import MessageCreatedPayload
 from thenvoi.platform.event import (
     ContactEvent,
@@ -120,14 +124,21 @@ class ContactEventHandler:
         # Using OrderedDict to maintain insertion order for LRU eviction
         self._processed_events: OrderedDict[str, bool] = OrderedDict()
 
-        # Hub room ID (for HUB_ROOM strategy, created lazily)
+        # Hub room ID (for HUB_ROOM strategy, created at startup)
         self._hub_room_id: str | None = None
 
         # Whether hub room has been initialized with system prompt
         self._hub_room_initialized: bool = False
 
+        # Event signaling hub room is ready (ExecutionContext exists)
+        self._hub_room_ready: asyncio.Event = asyncio.Event()
+
         # Lock for thread-safe hub room creation
         self._hub_room_lock: asyncio.Lock = asyncio.Lock()
+
+        # Cache for contact request info (request_id -> {from_handle, from_name, message})
+        # Used to enrich ContactRequestUpdatedEvent with sender info
+        self._request_cache: OrderedDict[str, dict[str, str | None]] = OrderedDict()
 
     @property
     def contact_tools(self) -> ContactTools:
@@ -136,6 +147,43 @@ class ContactEventHandler:
             self._contact_tools = ContactTools(self._link.rest)
         return self._contact_tools
 
+    @property
+    def hub_room_id(self) -> str | None:
+        """Get the hub room ID if created."""
+        return self._hub_room_id
+
+    async def initialize_hub_room(self) -> str:
+        """
+        Initialize hub room at startup.
+
+        Creates the hub room via REST. The room_added WebSocket event
+        will trigger ExecutionContext creation. Call mark_hub_room_ready()
+        when ExecutionContext is created.
+
+        Returns:
+            Hub room ID
+        """
+        async with self._hub_room_lock:
+            if self._hub_room_id is not None:
+                return self._hub_room_id
+
+            logger.info(
+                "Creating hub room for contact events at startup (task_id=%s)",
+                self._config.hub_task_id or "none",
+            )
+            response = await self._link.rest.agent_api_chats.create_agent_chat(
+                chat=ChatRoomRequest(task_id=self._config.hub_task_id or None),
+                request_options=DEFAULT_REQUEST_OPTIONS,
+            )
+            self._hub_room_id = response.data.id
+            logger.info("Hub room created at startup: %s", self._hub_room_id)
+            return self._hub_room_id
+
+    def mark_hub_room_ready(self) -> None:
+        """Mark hub room as ready (ExecutionContext exists)."""
+        self._hub_room_ready.set()
+        logger.info("Hub room marked as ready: %s", self._hub_room_id)
+
     async def handle(self, event: ContactEvent) -> None:
         """
         Handle a contact event based on configured strategy.
@@ -143,12 +191,21 @@ class ContactEventHandler:
         Args:
             event: Contact event to handle
         """
+        logger.debug(
+            "ContactEventHandler.handle: %s (strategy=%s)",
+            type(event).__name__,
+            self._config.strategy.value,
+        )
+
         # Skip if already processed (deduplication)
         if self._should_skip_duplicate(event):
             logger.debug(
                 "Skipping duplicate contact event: %s", self._get_dedup_key(event)
             )
             return
+
+        # Cache request info for later enrichment of update events
+        self._cache_request_info(event)
 
         # Handle broadcast if enabled (for contact_added/contact_removed)
         if self._config.broadcast_changes:
@@ -202,9 +259,10 @@ class ContactEventHandler:
         """
         Handle event via HUB_ROOM strategy.
 
-        Routes event to dedicated hub room for LLM reasoning.
-        Creates a synthetic MessageEvent and pushes it to the hub room's
-        ExecutionContext queue so the agent can process and respond.
+        Routes event to dedicated hub room for LLM reasoning:
+        1. Waits for hub room to be ready (created at startup)
+        2. Injects synthetic MessageEvent into ExecutionContext queue
+        3. Posts task event to room via REST for persistence/visibility
 
         Returns:
             True if event was routed successfully
@@ -213,9 +271,21 @@ class ContactEventHandler:
             logger.warning("HUB_ROOM strategy but no on_hub_event callback configured")
             return False
 
+        if self._hub_room_id is None:
+            logger.error("Hub room not initialized - call initialize_hub_room() first")
+            return False
+
         try:
-            # Ensure hub room exists
-            hub_id = await self._ensure_hub_room()
+            # Wait for hub room to be ready (ExecutionContext exists)
+            # Use a short timeout since hub room should be ready by now
+            try:
+                await asyncio.wait_for(self._hub_room_ready.wait(), timeout=5.0)
+            except asyncio.TimeoutError:
+                logger.warning(
+                    "Hub room not ready after 5s, proceeding anyway (may fail)"
+                )
+
+            hub_id = self._hub_room_id
 
             # Inject system prompt on first use
             if not self._hub_room_initialized and self._on_hub_init:
@@ -224,10 +294,10 @@ class ContactEventHandler:
                 self._hub_room_initialized = True
 
             # Format event as a message for LLM processing
-            content = self._format_event_for_room(event)
+            content = await self._format_event_for_room(event)
             event_type = self._get_event_type(event)
 
-            # Create synthetic MessageEvent
+            # Create synthetic MessageEvent for queue injection
             now = datetime.now(timezone.utc).isoformat()
             message_event = MessageEvent(
                 type="message_created",
@@ -246,11 +316,15 @@ class ContactEventHandler:
                 raw={"contact_event_type": event_type},
             )
 
-            # Push to hub room's execution context
+            # Push to hub room's execution context (triggers agent processing)
             logger.debug(
                 "Injecting contact event to hub room %s: %s", hub_id, event_type
             )
             await self._on_hub_event(hub_id, message_event)
+
+            # Also POST as task event to room for persistence/visibility
+            await self._post_task_event(hub_id, content, event_type)
+
             logger.debug("Contact event injected to hub room successfully")
             return True
 
@@ -260,32 +334,35 @@ class ContactEventHandler:
             )
             return False
 
-    async def _ensure_hub_room(self) -> str:
+    async def _post_task_event(
+        self, room_id: str, content: str, event_type: str
+    ) -> None:
         """
-        Ensure hub room exists, creating it if needed.
+        Post contact event as task event to room via REST.
 
-        Uses locking to prevent multiple rooms being created concurrently.
+        This persists the event in the room's history and makes it visible in UI.
 
-        Returns:
-            Hub room ID
+        Args:
+            room_id: Hub room ID
+            content: Formatted contact event content
+            event_type: Contact event type for metadata
         """
-        async with self._hub_room_lock:
-            if self._hub_room_id is not None:
-                return self._hub_room_id
-
-            logger.info(
-                "Creating hub room for contact events (task_id=%s)",
-                self._config.hub_task_id or "none",
-            )
-            response = await self._link.rest.agent_api_chats.create_agent_chat(
-                chat=ChatRoomRequest(task_id=self._config.hub_task_id or None),
+        try:
+            await self._link.rest.agent_api_events.create_agent_chat_event(
+                chat_id=room_id,
+                event=ChatEventRequest(
+                    content=content,
+                    message_type="task",
+                    metadata={"contact_event_type": event_type},
+                ),
                 request_options=DEFAULT_REQUEST_OPTIONS,
             )
-            self._hub_room_id = response.data.id
-            logger.info("Hub room created: %s", self._hub_room_id)
-            return self._hub_room_id
+            logger.debug("Task event posted to hub room: %s", event_type)
+        except Exception as e:
+            # Log but don't fail - the queue injection is the important part
+            logger.warning("Failed to post task event to hub room: %s", e)
 
-    def _format_event_for_room(self, event: ContactEvent) -> str:
+    async def _format_event_for_room(self, event: ContactEvent) -> str:
         """
         Format contact event as human-readable message for hub room.
 
@@ -315,6 +392,21 @@ class ContactEventHandler:
             case ContactRequestUpdatedEvent(payload=payload):
                 if payload is None:
                     return "[Contact Request Update] Unknown request"
+                # Try to get enriched request info (cache + API fallback)
+                info = await self._enrich_update_event(event)
+                if info:
+                    # Could be from received (from_*) or sent (to_*) request
+                    name = info.get("from_name") or info.get("to_name")
+                    handle = info.get("from_handle") or info.get("to_handle") or ""
+                    if handle and not handle.startswith("@"):
+                        handle = f"@{handle}"
+                    if name:
+                        direction = "from" if info.get("from_name") else "to"
+                        return (
+                            f"[Contact Request Update] Request {direction} {name} "
+                            f"({handle}) status changed to: {payload.status}\n"
+                            f"Request ID: {payload.id}"
+                        )
                 return (
                     f"[Contact Request Update] Request {payload.id} "
                     f"status changed to: {payload.status}"
@@ -468,6 +560,124 @@ class ContactEventHandler:
         key = self._get_dedup_key(event)
         if key is not None:
             self._processed_events.pop(key, None)
+
+    def _cache_request_info(self, event: ContactEvent) -> None:
+        """
+        Cache request info for enriching update events.
+
+        When ContactRequestReceivedEvent arrives, cache sender info.
+        This allows ContactRequestUpdatedEvent to include full sender details.
+        """
+        match event:
+            case ContactRequestReceivedEvent(payload=payload):
+                if payload is None:
+                    return
+                self._request_cache[payload.id] = {
+                    "from_handle": payload.from_handle,
+                    "from_name": payload.from_name,
+                    "message": payload.message,
+                }
+                # Maintain bounded cache size
+                while len(self._request_cache) > MAX_DEDUP_CACHE_SIZE:
+                    self._request_cache.popitem(last=False)
+            case _:
+                pass  # Only cache received events
+
+    def _get_cached_request_info(self, request_id: str) -> dict[str, str | None] | None:
+        """Get cached request info by ID."""
+        return self._request_cache.get(request_id)
+
+    async def _fetch_request_details(
+        self, request_id: str
+    ) -> dict[str, str | None] | None:
+        """
+        Fetch request details from API when cache misses.
+
+        Queries both sent and received contact requests to find the matching one.
+
+        Args:
+            request_id: The request ID to look up
+
+        Returns:
+            Dict with from_handle, from_name, to_handle, to_name, message if found
+        """
+        try:
+            response = (
+                await self._link.rest.agent_api_contacts.list_agent_contact_requests(
+                    page=1, page_size=100
+                )
+            )
+
+            if not response.data:
+                return None
+
+            # Check received requests (from_handle, from_name)
+            if response.data.received:
+                for req in response.data.received:
+                    if req.id == request_id:
+                        info = {
+                            "from_handle": req.from_handle,
+                            "from_name": req.from_name,
+                            "message": req.message,
+                        }
+                        # Cache for future use
+                        self._request_cache[request_id] = info
+                        logger.debug(
+                            "Fetched request details from API (received): %s",
+                            request_id,
+                        )
+                        return info
+
+            # Check sent requests (to_handle, to_name)
+            if response.data.sent:
+                for req in response.data.sent:
+                    if req.id == request_id:
+                        info = {
+                            "to_handle": req.to_handle,
+                            "to_name": req.to_name,
+                            "message": req.message,
+                        }
+                        # Cache for future use
+                        self._request_cache[request_id] = info
+                        logger.debug(
+                            "Fetched request details from API (sent): %s", request_id
+                        )
+                        return info
+
+            logger.debug("Request not found in API: %s", request_id)
+            return None
+
+        except Exception as e:
+            logger.warning("Failed to fetch request details from API: %s", e)
+            return None
+
+    async def _enrich_update_event(
+        self, event: ContactRequestUpdatedEvent
+    ) -> dict[str, str | None] | None:
+        """
+        Get enriched info for an update event.
+
+        Tries cache first, falls back to API fetch.
+
+        Args:
+            event: The update event to enrich
+
+        Returns:
+            Dict with sender/recipient info if found
+        """
+        if event.payload is None:
+            return None
+
+        request_id = event.payload.id
+
+        # Try cache first
+        cached = self._get_cached_request_info(request_id)
+        if cached:
+            return cached
+
+        # Cache miss - fetch from API
+        logger.debug("Cache miss for request %s, fetching from API", request_id)
+        return await self._fetch_request_details(request_id)
 
     def get_stats(self) -> dict[str, Any]:
         """
