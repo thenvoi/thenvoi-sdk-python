@@ -420,7 +420,7 @@ class ClaudeCodeDesktopAdapter(SimpleAdapter[str]):
         result = response.get("result", "")
 
         if response.get("is_error"):
-            logger.error(f"CLI returned error: {result}")
+            logger.error(f"Room {room_id}: CLI returned error: {result}")
             await tools.send_event(content=f"Error: {result}", message_type="error")
             return
 
@@ -429,10 +429,12 @@ class ClaudeCodeDesktopAdapter(SimpleAdapter[str]):
 
         if action_data:
             await self._execute_action(action_data, tools)
+            logger.debug(f"Room {room_id}: Executed action '{action_data.get('action')}'")
         else:
             # No structured action, send as message
             if result.strip():
                 await tools.send_message(result.strip(), [])
+                logger.debug(f"Room {room_id}: Sent plain text response")
 
     def _extract_action(self, result: str) -> dict[str, Any] | None:
         """
