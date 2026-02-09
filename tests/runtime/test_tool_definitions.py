@@ -136,6 +136,11 @@ class TestToolModelsRegistry:
             "thenvoi_remove_contact",
             "thenvoi_list_contact_requests",
             "thenvoi_respond_contact_request",
+            "thenvoi_list_memories",
+            "thenvoi_store_memory",
+            "thenvoi_get_memory",
+            "thenvoi_supersede_memory",
+            "thenvoi_archive_memory",
         }
         assert set(TOOL_MODELS.keys()) == expected
 

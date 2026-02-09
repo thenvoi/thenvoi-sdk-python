@@ -128,6 +128,66 @@ class FakeAgentTools:
             "status": status_map.get(action, action),
         }
 
+    async def list_memories(
+        self,
+        subject_id: str | None = None,
+        scope: str | None = None,
+        system: str | None = None,
+        type: str | None = None,
+        segment: str | None = None,
+        content_query: str | None = None,
+        page_size: int = 50,
+        status: str | None = None,
+    ) -> dict[str, Any]:
+        return {
+            "memories": [],
+            "metadata": {"page_size": page_size, "total_count": 0},
+        }
+
+    async def store_memory(
+        self,
+        content: str,
+        system: str,
+        type: str,
+        segment: str,
+        thought: str,
+        scope: str = "subject",
+        subject_id: str | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        return {
+            "id": str(uuid.uuid4()),
+            "content": content,
+            "system": system,
+            "type": type,
+            "segment": segment,
+            "scope": scope,
+            "status": "active",
+            "thought": thought,
+            "inserted_at": "2025-01-01T00:00:00Z",
+        }
+
+    async def get_memory(self, memory_id: str) -> dict[str, Any]:
+        return {
+            "id": memory_id,
+            "content": "Test memory content",
+            "system": "long_term",
+            "type": "semantic",
+            "segment": "user",
+            "scope": "subject",
+            "status": "active",
+            "thought": "Test thought",
+            "subject_id": None,
+            "source_agent_id": None,
+            "inserted_at": "2025-01-01T00:00:00Z",
+        }
+
+    async def supersede_memory(self, memory_id: str) -> dict[str, Any]:
+        return {"id": memory_id, "status": "superseded"}
+
+    async def archive_memory(self, memory_id: str) -> dict[str, Any]:
+        return {"id": memory_id, "status": "archived"}
+
     def get_tool_schemas(self, format: str) -> list[dict[str, Any]]:
         return []
 

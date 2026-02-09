@@ -172,6 +172,95 @@ class RespondContactRequestInput(BaseModel):
     request_id: str | None = Field(None, description="Or request ID (UUID)")
 
 
+class ListMemoriesInput(BaseModel):
+    """List memories accessible to the agent.
+
+    Returns memories about the specified subject (cross-agent sharing)
+    and organization-wide shared memories.
+    """
+
+    subject_id: str | None = Field(
+        None, description="Filter by subject UUID (required for subject-scoped queries)"
+    )
+    scope: Literal["subject", "organization", "all"] | None = Field(
+        None, description="Filter by scope"
+    )
+    system: Literal["sensory", "working", "long_term"] | None = Field(
+        None, description="Filter by memory system"
+    )
+    type: (
+        Literal["iconic", "echoic", "haptic", "episodic", "semantic", "procedural"]
+        | None
+    ) = Field(None, description="Filter by memory type")
+    segment: Literal["user", "agent", "tool", "guideline"] | None = Field(
+        None, description="Filter by segment"
+    )
+    content_query: str | None = Field(None, description="Full-text search query")
+    page_size: int = Field(50, description="Number of results per page", ge=1, le=50)
+    status: Literal["active", "superseded", "archived", "all"] | None = Field(
+        None, description="Filter by status"
+    )
+
+
+class StoreMemoryInput(BaseModel):
+    """Store a new memory entry.
+
+    The memory will be associated with the authenticated agent as the source.
+    For subject-scoped memories, provide a subject_id.
+    For organization-scoped memories, omit subject_id.
+    """
+
+    content: str = Field(..., description="The memory content")
+    system: Literal["sensory", "working", "long_term"] = Field(
+        ..., description="Memory system tier"
+    )
+    type: Literal[
+        "iconic", "echoic", "haptic", "episodic", "semantic", "procedural"
+    ] = Field(..., description="Memory type (must be valid for selected system)")
+    segment: Literal["user", "agent", "tool", "guideline"] = Field(
+        ..., description="Logical segment"
+    )
+    thought: str = Field(..., description="Agent's reasoning for storing this memory")
+    scope: Literal["subject", "organization"] = Field(
+        "subject", description="Visibility scope"
+    )
+    subject_id: str | None = Field(
+        None,
+        description="UUID of the subject this memory is about (required for subject scope)",
+    )
+    metadata: dict[str, Any] | None = Field(
+        None, description="Additional metadata (tags, references)"
+    )
+
+
+class GetMemoryInput(BaseModel):
+    """Retrieve a specific memory by ID."""
+
+    memory_id: str = Field(..., description="Memory ID (UUID)")
+
+
+class SupersedeMemoryInput(BaseModel):
+    """Mark a memory as superseded (soft delete).
+
+    Use when information is outdated or incorrect.
+    The memory remains for audit trail but won't appear in normal queries.
+    Only the source agent can supersede.
+    """
+
+    memory_id: str = Field(..., description="Memory ID (UUID)")
+
+
+class ArchiveMemoryInput(BaseModel):
+    """Archive a memory (hide but preserve).
+
+    Use when memory is valid but not currently needed.
+    Archived memories can be restored later by humans.
+    Only the source agent can archive.
+    """
+
+    memory_id: str = Field(..., description="Memory ID (UUID)")
+
+
 # Registry mapping tool names to their input models
 TOOL_MODELS: dict[str, type[BaseModel]] = {
     "thenvoi_send_message": SendMessageInput,
@@ -186,6 +275,11 @@ TOOL_MODELS: dict[str, type[BaseModel]] = {
     "thenvoi_remove_contact": RemoveContactInput,
     "thenvoi_list_contact_requests": ListContactRequestsInput,
     "thenvoi_respond_contact_request": RespondContactRequestInput,
+    "thenvoi_list_memories": ListMemoriesInput,
+    "thenvoi_store_memory": StoreMemoryInput,
+    "thenvoi_get_memory": GetMemoryInput,
+    "thenvoi_supersede_memory": SupersedeMemoryInput,
+    "thenvoi_archive_memory": ArchiveMemoryInput,
 }
 
 
@@ -750,6 +844,220 @@ class AgentTools(AgentToolsProtocol):
             "status": response.data.status,
         }
 
+    # --- Memory management tools ---
+
+    async def list_memories(
+        self,
+        subject_id: str | None = None,
+        scope: str | None = None,
+        system: str | None = None,
+        type: str | None = None,
+        segment: str | None = None,
+        content_query: str | None = None,
+        page_size: int = 50,
+        status: str | None = None,
+    ) -> dict[str, Any]:
+        """
+        List memories accessible to the agent.
+
+        Args:
+            subject_id: Filter by subject UUID
+            scope: Filter by scope (subject, organization, all)
+            system: Filter by memory system (sensory, working, long_term)
+            type: Filter by memory type
+            segment: Filter by segment (user, agent, tool, guideline)
+            content_query: Full-text search query
+            page_size: Number of results per page (max 50)
+            status: Filter by status (active, superseded, archived, all)
+
+        Returns:
+            Dict with memories list and metadata
+        """
+        logger.debug(
+            "Listing memories: subject_id=%s, scope=%s, system=%s",
+            subject_id,
+            scope,
+            system,
+        )
+        response = await self.rest.agent_api_memories.list_agent_memories(
+            subject_id=subject_id,
+            scope=scope,
+            system=system,
+            type=type,
+            segment=segment,
+            content_query=content_query,
+            page_size=page_size,
+            status=status,
+        )
+
+        memories = []
+        if response.data:
+            memories = [
+                {
+                    "id": m.id,
+                    "content": m.content,
+                    "system": m.system,
+                    "type": m.type,
+                    "segment": m.segment,
+                    "scope": m.scope,
+                    "status": m.status,
+                    "thought": m.thought,
+                    "subject_id": str(m.subject_id) if m.subject_id else None,
+                    "source_agent_id": str(m.source_agent_id)
+                    if m.source_agent_id
+                    else None,
+                    "inserted_at": str(m.inserted_at) if m.inserted_at else None,
+                }
+                for m in response.data
+            ]
+
+        metadata = {
+            "page_size": response.meta.page_size if response.meta else page_size,
+            "total_count": response.meta.total_count
+            if response.meta
+            else len(memories),
+        }
+
+        return {"memories": memories, "metadata": metadata}
+
+    async def store_memory(
+        self,
+        content: str,
+        system: str,
+        type: str,
+        segment: str,
+        thought: str,
+        scope: str = "subject",
+        subject_id: str | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """
+        Store a new memory entry.
+
+        Args:
+            content: The memory content
+            system: Memory system tier (sensory, working, long_term)
+            type: Memory type (iconic, echoic, haptic, episodic, semantic, procedural)
+            segment: Logical segment (user, agent, tool, guideline)
+            thought: Agent's reasoning for storing this memory
+            scope: Visibility scope (subject, organization)
+            subject_id: UUID of the subject (required for subject scope)
+            metadata: Additional metadata (tags, references)
+
+        Returns:
+            Dict with created memory details
+        """
+        from thenvoi.client.rest import MemoryCreateRequest
+
+        logger.debug(
+            "Storing memory: system=%s, type=%s, segment=%s, scope=%s",
+            system,
+            type,
+            segment,
+            scope,
+        )
+        response = await self.rest.agent_api_memories.create_agent_memory(
+            memory=MemoryCreateRequest(
+                content=content,
+                system=system,
+                type=type,
+                segment=segment,
+                thought=thought,
+                scope=scope,
+                subject_id=subject_id,
+                metadata=metadata,
+            )
+        )
+        if not response.data:
+            raise RuntimeError("Failed to store memory - no response data")
+        return {
+            "id": response.data.id,
+            "content": response.data.content,
+            "system": response.data.system,
+            "type": response.data.type,
+            "segment": response.data.segment,
+            "scope": response.data.scope,
+            "status": response.data.status,
+            "thought": response.data.thought,
+            "inserted_at": str(response.data.inserted_at)
+            if response.data.inserted_at
+            else None,
+        }
+
+    async def get_memory(self, memory_id: str) -> dict[str, Any]:
+        """
+        Retrieve a specific memory by ID.
+
+        Args:
+            memory_id: Memory ID (UUID)
+
+        Returns:
+            Dict with memory details
+        """
+        logger.debug("Getting memory: id=%s", memory_id)
+        response = await self.rest.agent_api_memories.get_agent_memory(id=memory_id)
+        if not response.data:
+            raise RuntimeError("Failed to get memory - no response data")
+        return {
+            "id": response.data.id,
+            "content": response.data.content,
+            "system": response.data.system,
+            "type": response.data.type,
+            "segment": response.data.segment,
+            "scope": response.data.scope,
+            "status": response.data.status,
+            "thought": response.data.thought,
+            "subject_id": str(response.data.subject_id)
+            if response.data.subject_id
+            else None,
+            "source_agent_id": str(response.data.source_agent_id)
+            if response.data.source_agent_id
+            else None,
+            "inserted_at": str(response.data.inserted_at)
+            if response.data.inserted_at
+            else None,
+        }
+
+    async def supersede_memory(self, memory_id: str) -> dict[str, Any]:
+        """
+        Mark a memory as superseded (soft delete).
+
+        Args:
+            memory_id: Memory ID (UUID)
+
+        Returns:
+            Dict with updated memory details
+        """
+        logger.debug("Superseding memory: id=%s", memory_id)
+        response = await self.rest.agent_api_memories.supersede_agent_memory(
+            id=memory_id
+        )
+        if not response.data:
+            raise RuntimeError("Failed to supersede memory - no response data")
+        return {
+            "id": response.data.id,
+            "status": response.data.status,
+        }
+
+    async def archive_memory(self, memory_id: str) -> dict[str, Any]:
+        """
+        Archive a memory (hide but preserve).
+
+        Args:
+            memory_id: Memory ID (UUID)
+
+        Returns:
+            Dict with updated memory details
+        """
+        logger.debug("Archiving memory: id=%s", memory_id)
+        response = await self.rest.agent_api_memories.archive_agent_memory(id=memory_id)
+        if not response.data:
+            raise RuntimeError("Failed to archive memory - no response data")
+        return {
+            "id": response.data.id,
+            "status": response.data.status,
+        }
+
     # --- Mention resolution ---
 
     def _resolve_mentions(
@@ -948,6 +1256,35 @@ class AgentTools(AgentToolsProtocol):
                 arguments["action"],
                 arguments.get("handle"),
                 arguments.get("request_id"),
+            ),
+            "thenvoi_list_memories": lambda: self.list_memories(
+                subject_id=arguments.get("subject_id"),
+                scope=arguments.get("scope"),
+                system=arguments.get("system"),
+                type=arguments.get("type"),
+                segment=arguments.get("segment"),
+                content_query=arguments.get("content_query"),
+                page_size=arguments.get("page_size", 50),
+                status=arguments.get("status"),
+            ),
+            "thenvoi_store_memory": lambda: self.store_memory(
+                content=arguments["content"],
+                system=arguments["system"],
+                type=arguments["type"],
+                segment=arguments["segment"],
+                thought=arguments["thought"],
+                scope=arguments.get("scope", "subject"),
+                subject_id=arguments.get("subject_id"),
+                metadata=arguments.get("metadata"),
+            ),
+            "thenvoi_get_memory": lambda: self.get_memory(
+                memory_id=arguments["memory_id"],
+            ),
+            "thenvoi_supersede_memory": lambda: self.supersede_memory(
+                memory_id=arguments["memory_id"],
+            ),
+            "thenvoi_archive_memory": lambda: self.archive_memory(
+                memory_id=arguments["memory_id"],
             ),
         }
 
