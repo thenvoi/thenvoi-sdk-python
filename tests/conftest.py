@@ -43,36 +43,34 @@ from thenvoi.platform.event import (
 from thenvoi.runtime.types import PlatformMessage
 from thenvoi_testing.markers import pytest_ignore_collect_in_ci as _ignore_collect_in_ci
 
+
 # Framework name -> (adapter_id, converter_id, adapter_file, converter_file)
 # Use this name with: pytest tests/ --framework <name>
-FRAMEWORK_RUN_MAP: dict[str, tuple[str, str, str, str]] = {
-    "anthropic": (
-        "anthropic",
-        "anthropic",
-        "test_anthropic_adapter.py",
-        "test_anthropic.py",
-    ),
-    "langgraph": (
-        "langgraph",
-        "langchain",
-        "test_langgraph_adapter.py",
-        "test_langchain.py",
-    ),
-    "crewai": ("crewai", "crewai", "test_crewai_adapter.py", "test_crewai.py"),
-    "claude_sdk": (
-        "claude_sdk",
-        "claude_sdk",
-        "test_claude_sdk_adapter.py",
-        "test_claude_sdk.py",
-    ),
-    "pydantic_ai": (
-        "pydantic_ai",
-        "pydantic_ai",
-        "test_pydantic_ai_adapter.py",
-        "test_pydantic_ai.py",
-    ),
-    "parlant": ("parlant", "parlant", "test_parlant_adapter.py", "test_parlant.py"),
-}
+# Derived from the config registries; add new frameworks there first.
+def _build_framework_run_map() -> dict[str, tuple[str, str, str, str]]:
+    from tests.framework_configs.adapters import ADAPTER_CONFIGS
+    from tests.framework_configs.converters import CONVERTER_CONFIGS
+
+    converter_by_id = {c.framework_id: c for c in CONVERTER_CONFIGS}
+    run_map: dict[str, tuple[str, str, str, str]] = {}
+
+    # Adapter config drives the mapping; converter_id may differ (e.g. langgraph -> langchain)
+    _CONVERTER_ID_FOR_ADAPTER: dict[str, str] = {
+        "langgraph": "langchain",
+    }
+
+    for ac in ADAPTER_CONFIGS:
+        fid = ac.framework_id
+        cid = _CONVERTER_ID_FOR_ADAPTER.get(fid, fid)
+        cc = converter_by_id[cid]
+        adapter_file = f"test_{fid}_adapter.py"
+        converter_file = f"test_{cc.framework_id}.py"
+        run_map[fid] = (fid, cid, adapter_file, converter_file)
+
+    return run_map
+
+
+FRAMEWORK_RUN_MAP = _build_framework_run_map()
 
 
 def pytest_addoption(parser):

@@ -88,6 +88,11 @@ def _crewai_factory(**kw: Any) -> Any:
         "nest_asyncio": mock_nest_asyncio,
     }
 
+    # Also include the adapter module itself so patch.dict restores it on exit
+    mock_modules["thenvoi.adapters.crewai"] = sys.modules.get(
+        "thenvoi.adapters.crewai", MagicMock()
+    )
+
     with patch.dict(sys.modules, mock_modules):
         # Force reimport to pick up mocked modules
         sys.modules.pop("thenvoi.adapters.crewai", None)

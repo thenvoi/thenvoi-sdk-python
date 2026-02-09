@@ -361,8 +361,8 @@ class TestToolEventConversion:
         assert not output.is_empty(result)
         # Tool name must appear somewhere in the converted output
         assert output.content_contains(result, "search")
-        # Both tool_call and tool_result should produce output entries
-        assert output.result_length(result) >= 2
+        # At least one output entry (some frameworks batch call+result into one message)
+        assert output.result_length(result) >= 1
 
     def test_converts_tool_result_paired_with_call(
         self, converter_config, make_converter, output
