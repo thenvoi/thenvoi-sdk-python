@@ -339,6 +339,8 @@ class ClaudeCodeDesktopAdapter(SimpleAdapter[str]):
             '  Example: {"action": "get_participants"}',
             f"- `lookup_peers`: {get_tool_description('lookup_peers')}",
             '  Example: {"action": "lookup_peers", "page": 1, "page_size": 50}',
+            f"- `create_chatroom`: {get_tool_description('create_chatroom')}",
+            '  Example: {"action": "create_chatroom", "task_id": "optional-task-id"}',
         ]
         return "\n".join(descriptions)
 
@@ -518,12 +520,18 @@ class ClaudeCodeDesktopAdapter(SimpleAdapter[str]):
                 await tools.lookup_peers(page, page_size)
                 logger.debug("Looked up peers")
 
+            elif action == "create_chatroom":
+                task_id = action_data.get("task_id") or None
+                new_room_id = await tools.create_chatroom(task_id)
+                logger.info(f"Created chatroom: {new_room_id}")
+
             else:
                 logger.warning(f"Unknown action: {action}")
                 await tools.send_event(
                     content=f"Unknown action type: {action}. "
                     "Available actions: send_message, send_event, add_participant, "
-                    "remove_participant, get_participants, lookup_peers",
+                    "remove_participant, get_participants, lookup_peers, "
+                    "create_chatroom",
                     message_type="error",
                 )
 

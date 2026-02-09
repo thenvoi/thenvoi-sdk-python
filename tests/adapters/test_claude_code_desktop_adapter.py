@@ -38,6 +38,7 @@ def mock_tools():
     tools.remove_participant = AsyncMock(return_value={"status": "removed"})
     tools.lookup_peers = AsyncMock(return_value={"peers": []})
     tools.get_participants = AsyncMock(return_value=[])
+    tools.create_chatroom = AsyncMock(return_value="new-room-abc")
     return tools
 
 
@@ -428,3 +429,27 @@ class TestClaudeCodeDesktopPromptGeneration:
         )
 
         assert "Bob has joined the chat" in prompt
+
+
+class TestClaudeCodeDesktopCreateChatroom:
+    """Tests for create_chatroom action."""
+
+    @pytest.mark.asyncio
+    async def test_execute_create_chatroom_action(self, mock_tools):
+        """Should execute create_chatroom action via tools."""
+        adapter = ClaudeCodeDesktopAdapter()
+
+        action_data = {"action": "create_chatroom", "task_id": "task-123"}
+        await adapter._execute_action(action_data, mock_tools)
+
+        mock_tools.create_chatroom.assert_called_once_with("task-123")
+
+    @pytest.mark.asyncio
+    async def test_execute_create_chatroom_without_task_id(self, mock_tools):
+        """Should pass None when task_id is not provided."""
+        adapter = ClaudeCodeDesktopAdapter()
+
+        action_data = {"action": "create_chatroom"}
+        await adapter._execute_action(action_data, mock_tools)
+
+        mock_tools.create_chatroom.assert_called_once_with(None)
