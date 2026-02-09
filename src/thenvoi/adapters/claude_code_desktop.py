@@ -68,6 +68,7 @@ class ClaudeCodeDesktopAdapter(SimpleAdapter[str]):
         cli_timeout: int = 120000,
         history_converter: ClaudeSDKHistoryConverter | None = None,
         allowed_tools: list[str] | None = None,
+        verbose: bool = False,
     ):
         """
         Initialize adapter.
@@ -81,6 +82,7 @@ class ClaudeCodeDesktopAdapter(SimpleAdapter[str]):
             allowed_tools: Optional list of Claude Code tools to enable (e.g.
                           ["Read", "Write", "Edit"]). When set, these tools are
                           auto-approved via --allowedTools. Default: None (no tools).
+            verbose: Pass --verbose to the CLI for detailed output (default: False).
         """
         super().__init__(
             history_converter=history_converter or ClaudeSDKHistoryConverter()
@@ -90,9 +92,18 @@ class ClaudeCodeDesktopAdapter(SimpleAdapter[str]):
         self.cli_path = cli_path
         self.cli_timeout = cli_timeout
         self.allowed_tools = allowed_tools or []
+        self.verbose = verbose
 
         # Per-room session IDs (for CLI session resume)
         self._session_ids: dict[str, str] = {}
+
+        self._sensitive_pattern = re.compile(
+            r"(/[\w./\\-]+)"          # file paths
+            r"|(sk-[a-zA-Z0-9]{8,})"  # API keys (sk-...)
+            r"|(key-[a-zA-Z0-9]{8,})" # API keys (key-...)
+            r"|(\b[A-Za-z_]*(token|secret|password|key)\s*[:=]\s*\S+)",  # assignments
+            re.IGNORECASE,
+        )
 
         logger.info("ClaudeCodeDesktopAdapter initialized")
 
@@ -132,6 +143,25 @@ class ClaudeCodeDesktopAdapter(SimpleAdapter[str]):
             "  3. Pass cli_path to ClaudeCodeDesktopAdapter"
         )
 
+    def _sanitize_error(self, error: str, max_length: int = 200) -> str:
+        """Sanitize error message before sending to the platform.
+
+        Redacts file paths, API keys, and token/secret assignments to avoid
+        leaking sensitive information into chat. The full error is still
+        available in server-side logs via logger.error().
+
+        Args:
+            error: Raw error message string.
+            max_length: Maximum length of the returned message.
+
+        Returns:
+            Sanitized, truncated error string.
+        """
+        sanitized = self._sensitive_pattern.sub("[redacted]", error)
+        if len(sanitized) > max_length:
+            sanitized = sanitized[:max_length] + "..."
+        return sanitized
+
     async def on_started(self, agent_name: str, agent_description: str) -> None:
         """Store agent metadata after agent info is fetched."""
         await super().on_started(agent_name, agent_description)
@@ -155,7 +185,10 @@ class ClaudeCodeDesktopAdapter(SimpleAdapter[str]):
             List of command arguments
         """
         cli_path = self._get_cli_path()
-        cmd = [cli_path, "--print", "--output-format", "stream-json", "--verbose"]
+        cmd = [cli_path, "--print", "--output-format", "stream-json"]
+
+        if self.verbose:
+            cmd.append("--verbose")
 
         if self.allowed_tools:
             cmd.extend(["--allowedTools", ",".join(self.allowed_tools)])
@@ -253,7 +286,7 @@ class ClaudeCodeDesktopAdapter(SimpleAdapter[str]):
         )
 
         # Tool descriptions for Thenvoi platform
-        tool_descriptions = self._get_tool_descriptions_text(room_id)
+        tool_descriptions = self._get_tool_descriptions_text()
 
         prompt_parts = [
             "## Thenvoi Platform Integration",
@@ -273,6 +306,12 @@ class ClaudeCodeDesktopAdapter(SimpleAdapter[str]):
             "**IMPORTANT: To send a message to the chat, respond with:**",
             "```json",
             '{"action": "send_message", "content": "Your message here"}',
+            "```",
+            "",
+            "To perform multiple actions in one response, use a JSON array:",
+            "```json",
+            '[{"action": "send_event", "content": "Thinking...", "message_type": "thought"}, '
+            '{"action": "send_message", "content": "Here is my answer."}]',
             "```",
             "",
             "Available actions:",
@@ -320,7 +359,7 @@ class ClaudeCodeDesktopAdapter(SimpleAdapter[str]):
 
         return "\n".join(prompt_parts)
 
-    def _get_tool_descriptions_text(self, room_id: str) -> str:  # noqa: ARG002
+    def _get_tool_descriptions_text(self) -> str:
         """Get tool descriptions formatted for the prompt.
 
         Descriptions are pulled from the centralized get_tool_description() registry.
@@ -423,54 +462,78 @@ class ClaudeCodeDesktopAdapter(SimpleAdapter[str]):
 
         if response.get("is_error"):
             logger.error(f"Room {room_id}: CLI returned error: {result}")
-            await tools.send_event(content=f"Error: {result}", message_type="error")
+            await tools.send_event(
+                content=f"Error: {self._sanitize_error(result)}",
+                message_type="error",
+            )
             return
 
-        # Try to extract JSON action from response
-        action_data = self._extract_action(result)
+        # Try to extract JSON actions from response
+        actions = self._extract_actions(result)
 
-        if action_data:
-            await self._execute_action(action_data, tools)
-            logger.debug(f"Room {room_id}: Executed action '{action_data.get('action')}'")
+        if actions:
+            for action_data in actions:
+                await self._execute_action(action_data, tools)
+                logger.debug(
+                    f"Room {room_id}: Executed action '{action_data.get('action')}'"
+                )
         else:
             # No structured action, send as message
             if result.strip():
                 await tools.send_message(result.strip(), [])
                 logger.debug(f"Room {room_id}: Sent plain text response")
 
-    def _extract_action(self, result: str) -> dict[str, Any] | None:
+    def _extract_actions(self, result: str) -> list[dict[str, Any]]:
         """
-        Extract JSON action from CLI response.
+        Extract all JSON actions from CLI response.
+
+        Supports:
+        - Single action object: {"action": "send_message", ...}
+        - Array of actions: [{"action": ...}, {"action": ...}]
+        - Multiple ```json``` code blocks each containing an action or array
+        - Raw JSON without code fences
 
         Args:
             result: Raw result string
 
         Returns:
-            Parsed action dict or None if no action found
+            List of parsed action dicts (empty if no actions found)
         """
-        # Try to find JSON in the response
-        # Look for ```json ... ``` blocks first
-        json_block = re.search(r"```json\s*(.*?)\s*```", result, re.DOTALL)
-        if json_block:
-            json_content = json_block.group(1)
+        actions: list[dict[str, Any]] = []
+
+        # Look for all ```json ... ``` blocks
+        for match in re.finditer(r"```json\s*(.*?)\s*```", result, re.DOTALL):
             try:
-                return json.loads(json_content)
+                data = json.loads(match.group(1))
+                if isinstance(data, dict) and "action" in data:
+                    actions.append(data)
+                elif isinstance(data, list):
+                    actions.extend(
+                        d for d in data if isinstance(d, dict) and "action" in d
+                    )
             except json.JSONDecodeError as e:
                 logger.warning(
                     f"Failed to parse JSON from code block: {e}. "
-                    f"Content: {json_content[:100]}..."
+                    f"Content: {match.group(1)[:100]}..."
                 )
 
-        # Try parsing the whole result as JSON
+        if actions:
+            return actions
+
+        # Fallback: try parsing the whole result as JSON
         try:
             data = json.loads(result)
             if isinstance(data, dict) and "action" in data:
-                return data
+                return [data]
+            if isinstance(data, list):
+                return [
+                    d for d in data if isinstance(d, dict) and "action" in d
+                ]
         except json.JSONDecodeError:
             # Not JSON or no action key - this is expected for plain text responses
             logger.debug("Result is not a JSON action, treating as plain text")
 
-        return None
+        return []
 
     async def _execute_action(
         self,
@@ -538,7 +601,7 @@ class ClaudeCodeDesktopAdapter(SimpleAdapter[str]):
         except Exception as e:
             logger.error(f"Action execution failed: {e}", exc_info=True)
             await tools.send_event(
-                content=f"Action failed: {e}",
+                content=f"Action failed: {self._sanitize_error(str(e))}",
                 message_type="error",
             )
 
@@ -603,7 +666,10 @@ class ClaudeCodeDesktopAdapter(SimpleAdapter[str]):
 
         except Exception as e:
             logger.error(f"Error processing message: {e}", exc_info=True)
-            await tools.send_event(content=f"Error: {e}", message_type="error")
+            await tools.send_event(
+                content=f"Error: {self._sanitize_error(str(e))}",
+                message_type="error",
+            )
             raise
 
         logger.debug(f"Message {msg.id} processed successfully")

@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from datetime import datetime, timezone
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -170,8 +171,7 @@ class TestClaudeCodeDesktopOnCleanup:
 class TestClaudeCodeDesktopCLIInvocation:
     """Tests for CLI invocation."""
 
-    @pytest.mark.asyncio
-    async def test_builds_correct_cli_command(self):
+    def test_builds_correct_cli_command(self):
         """Should build correct CLI command with stream-json flags."""
         adapter = ClaudeCodeDesktopAdapter(cli_path="/usr/bin/claude")
 
@@ -181,12 +181,10 @@ class TestClaudeCodeDesktopCLIInvocation:
         assert "--print" in cmd
         assert "--output-format" in cmd
         assert "stream-json" in cmd
-        assert "--verbose" in cmd
         # No --allowedTools when no tools configured
         assert "--allowedTools" not in cmd
 
-    @pytest.mark.asyncio
-    async def test_builds_command_with_session_resume(self):
+    def test_builds_command_with_session_resume(self):
         """Should build command with session resume when session_id exists."""
         adapter = ClaudeCodeDesktopAdapter(cli_path="/usr/bin/claude")
 
@@ -195,8 +193,7 @@ class TestClaudeCodeDesktopCLIInvocation:
         assert "--resume" in cmd
         assert "session-123" in cmd
 
-    @pytest.mark.asyncio
-    async def test_builds_command_with_allowed_tools(self):
+    def test_builds_command_with_allowed_tools(self):
         """Should include --allowedTools flag when tools are configured."""
         adapter = ClaudeCodeDesktopAdapter(
             cli_path="/usr/bin/claude",
@@ -209,8 +206,7 @@ class TestClaudeCodeDesktopCLIInvocation:
         tools_idx = cmd.index("--allowedTools")
         assert cmd[tools_idx + 1] == "Read,Write,Edit"
 
-    @pytest.mark.asyncio
-    async def test_builds_command_no_allowed_tools_when_empty(self):
+    def test_builds_command_no_allowed_tools_when_empty(self):
         """Should not include --allowedTools when no tools configured."""
         adapter = ClaudeCodeDesktopAdapter(cli_path="/usr/bin/claude")
 
@@ -218,8 +214,23 @@ class TestClaudeCodeDesktopCLIInvocation:
 
         assert "--allowedTools" not in cmd
 
-    @pytest.mark.asyncio
-    async def test_parses_stream_json_response(self):
+    def test_builds_command_without_verbose_by_default(self):
+        """Should not include --verbose flag by default."""
+        adapter = ClaudeCodeDesktopAdapter(cli_path="/usr/bin/claude")
+
+        cmd = adapter._build_cli_command(session_id=None)
+
+        assert "--verbose" not in cmd
+
+    def test_builds_command_with_verbose_when_enabled(self):
+        """Should include --verbose flag when verbose=True."""
+        adapter = ClaudeCodeDesktopAdapter(cli_path="/usr/bin/claude", verbose=True)
+
+        cmd = adapter._build_cli_command(session_id=None)
+
+        assert "--verbose" in cmd
+
+    def test_parses_stream_json_response(self):
         """Should parse NDJSON stream-json response from CLI."""
         adapter = ClaudeCodeDesktopAdapter()
 
@@ -253,8 +264,7 @@ class TestClaudeCodeDesktopCLIInvocation:
         assert result["session_id"] == "new-session-123"
         assert result["total_cost_usd"] == 0.024
 
-    @pytest.mark.asyncio
-    async def test_parses_stream_json_with_tool_calls(self):
+    def test_parses_stream_json_with_tool_calls(self):
         """Should capture tool calls from assistant messages in NDJSON."""
         adapter = ClaudeCodeDesktopAdapter()
 
@@ -290,8 +300,7 @@ class TestClaudeCodeDesktopCLIInvocation:
         assert result["result"] == "File contents here."
         assert result["session_id"] == "s-456"
 
-    @pytest.mark.asyncio
-    async def test_parses_single_json_fallback(self):
+    def test_parses_single_json_fallback(self):
         """Should fall back to single JSON parsing for backward compat."""
         adapter = ClaudeCodeDesktopAdapter()
 
@@ -310,8 +319,7 @@ class TestClaudeCodeDesktopCLIInvocation:
         assert result["result"] == "Hello! I can help you."
         assert result["session_id"] == "new-session-123"
 
-    @pytest.mark.asyncio
-    async def test_handles_error_response(self):
+    def test_handles_error_response(self):
         """Should handle error response from CLI."""
         adapter = ClaudeCodeDesktopAdapter()
 
@@ -329,8 +337,7 @@ class TestClaudeCodeDesktopCLIInvocation:
         assert result["is_error"] is True
         assert result["result"] == "An error occurred"
 
-    @pytest.mark.asyncio
-    async def test_handles_unparseable_output(self):
+    def test_handles_unparseable_output(self):
         """Should return error when output is not valid JSON or NDJSON."""
         adapter = ClaudeCodeDesktopAdapter()
 
@@ -339,8 +346,7 @@ class TestClaudeCodeDesktopCLIInvocation:
         assert result["is_error"] is True
         assert result["result"] == "not json at all"
 
-    @pytest.mark.asyncio
-    async def test_handles_ndjson_with_blank_lines(self):
+    def test_handles_ndjson_with_blank_lines(self):
         """Should skip blank lines in NDJSON output."""
         adapter = ClaudeCodeDesktopAdapter()
 
@@ -453,3 +459,693 @@ class TestClaudeCodeDesktopCreateChatroom:
         await adapter._execute_action(action_data, mock_tools)
 
         mock_tools.create_chatroom.assert_called_once_with(None)
+
+
+class TestClaudeCodeDesktopExecuteAction:
+    """Tests for _execute_action with all action types."""
+
+    @pytest.mark.asyncio
+    async def test_execute_send_message(self, mock_tools):
+        """Should call tools.send_message with content and mentions."""
+        adapter = ClaudeCodeDesktopAdapter()
+
+        action_data = {
+            "action": "send_message",
+            "content": "Hello!",
+            "mentions": ["user-1"],
+        }
+        await adapter._execute_action(action_data, mock_tools)
+
+        mock_tools.send_message.assert_called_once_with("Hello!", ["user-1"])
+
+    @pytest.mark.asyncio
+    async def test_execute_send_message_defaults(self, mock_tools):
+        """Should default to empty content and mentions when not provided."""
+        adapter = ClaudeCodeDesktopAdapter()
+
+        action_data = {"action": "send_message"}
+        await adapter._execute_action(action_data, mock_tools)
+
+        mock_tools.send_message.assert_called_once_with("", [])
+
+    @pytest.mark.asyncio
+    async def test_execute_send_event(self, mock_tools):
+        """Should call tools.send_event with content and message_type."""
+        adapter = ClaudeCodeDesktopAdapter()
+
+        action_data = {
+            "action": "send_event",
+            "content": "Processing...",
+            "message_type": "thought",
+        }
+        await adapter._execute_action(action_data, mock_tools)
+
+        mock_tools.send_event.assert_called_once_with("Processing...", "thought")
+
+    @pytest.mark.asyncio
+    async def test_execute_send_event_defaults(self, mock_tools):
+        """Should default message_type to 'thought'."""
+        adapter = ClaudeCodeDesktopAdapter()
+
+        action_data = {"action": "send_event", "content": "Thinking"}
+        await adapter._execute_action(action_data, mock_tools)
+
+        mock_tools.send_event.assert_called_once_with("Thinking", "thought")
+
+    @pytest.mark.asyncio
+    async def test_execute_add_participant(self, mock_tools):
+        """Should call tools.add_participant with name and role."""
+        adapter = ClaudeCodeDesktopAdapter()
+
+        action_data = {
+            "action": "add_participant",
+            "name": "Weather Agent",
+            "role": "admin",
+        }
+        await adapter._execute_action(action_data, mock_tools)
+
+        mock_tools.add_participant.assert_called_once_with("Weather Agent", "admin")
+
+    @pytest.mark.asyncio
+    async def test_execute_add_participant_defaults(self, mock_tools):
+        """Should default role to 'member'."""
+        adapter = ClaudeCodeDesktopAdapter()
+
+        action_data = {"action": "add_participant", "name": "Bot"}
+        await adapter._execute_action(action_data, mock_tools)
+
+        mock_tools.add_participant.assert_called_once_with("Bot", "member")
+
+    @pytest.mark.asyncio
+    async def test_execute_remove_participant(self, mock_tools):
+        """Should call tools.remove_participant with name."""
+        adapter = ClaudeCodeDesktopAdapter()
+
+        action_data = {"action": "remove_participant", "name": "Weather Agent"}
+        await adapter._execute_action(action_data, mock_tools)
+
+        mock_tools.remove_participant.assert_called_once_with("Weather Agent")
+
+    @pytest.mark.asyncio
+    async def test_execute_get_participants(self, mock_tools):
+        """Should call tools.get_participants."""
+        adapter = ClaudeCodeDesktopAdapter()
+
+        action_data = {"action": "get_participants"}
+        await adapter._execute_action(action_data, mock_tools)
+
+        mock_tools.get_participants.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_execute_lookup_peers(self, mock_tools):
+        """Should call tools.lookup_peers with page and page_size."""
+        adapter = ClaudeCodeDesktopAdapter()
+
+        action_data = {"action": "lookup_peers", "page": 2, "page_size": 25}
+        await adapter._execute_action(action_data, mock_tools)
+
+        mock_tools.lookup_peers.assert_called_once_with(2, 25)
+
+    @pytest.mark.asyncio
+    async def test_execute_lookup_peers_defaults(self, mock_tools):
+        """Should default page=1 and page_size=50."""
+        adapter = ClaudeCodeDesktopAdapter()
+
+        action_data = {"action": "lookup_peers"}
+        await adapter._execute_action(action_data, mock_tools)
+
+        mock_tools.lookup_peers.assert_called_once_with(1, 50)
+
+    @pytest.mark.asyncio
+    async def test_execute_unknown_action(self, mock_tools):
+        """Should send error event for unknown action."""
+        adapter = ClaudeCodeDesktopAdapter()
+
+        action_data = {"action": "do_something_weird"}
+        await adapter._execute_action(action_data, mock_tools)
+
+        mock_tools.send_event.assert_called_once()
+        call_args = mock_tools.send_event.call_args
+        assert "Unknown action type: do_something_weird" in call_args[1]["content"]
+        assert call_args[1]["message_type"] == "error"
+
+    @pytest.mark.asyncio
+    async def test_execute_action_handles_exception(self, mock_tools):
+        """Should send error event when action execution raises."""
+        adapter = ClaudeCodeDesktopAdapter()
+        mock_tools.send_message = AsyncMock(side_effect=RuntimeError("connection lost"))
+
+        action_data = {"action": "send_message", "content": "test"}
+        await adapter._execute_action(action_data, mock_tools)
+
+        # send_event should be called with the error
+        mock_tools.send_event.assert_called_once()
+        call_args = mock_tools.send_event.call_args
+        assert "connection lost" in call_args[1]["content"]
+        assert call_args[1]["message_type"] == "error"
+
+
+class TestClaudeCodeDesktopExecuteCLI:
+    """Tests for _execute_cli subprocess management."""
+
+    @pytest.mark.asyncio
+    async def test_execute_cli_success(self):
+        """Should execute CLI and return parsed response."""
+        adapter = ClaudeCodeDesktopAdapter(cli_path="/usr/bin/claude")
+
+        ndjson_output = json.dumps(
+            {
+                "type": "result",
+                "result": "Hello!",
+                "session_id": "s-1",
+            }
+        )
+
+        mock_process = AsyncMock()
+        mock_process.communicate = AsyncMock(
+            return_value=(ndjson_output.encode(), b"")
+        )
+        mock_process.returncode = 0
+
+        with patch(
+            "asyncio.create_subprocess_exec",
+            return_value=mock_process,
+        ):
+            result = await adapter._execute_cli("test prompt", None)
+
+        assert result["result"] == "Hello!"
+        assert result["session_id"] == "s-1"
+
+    @pytest.mark.asyncio
+    async def test_execute_cli_nonzero_exit(self):
+        """Should return error dict when CLI exits with non-zero code."""
+        adapter = ClaudeCodeDesktopAdapter(cli_path="/usr/bin/claude")
+
+        mock_process = AsyncMock()
+        mock_process.communicate = AsyncMock(
+            return_value=(b"", b"Error: model not found")
+        )
+        mock_process.returncode = 1
+
+        with patch(
+            "asyncio.create_subprocess_exec",
+            return_value=mock_process,
+        ):
+            result = await adapter._execute_cli("test prompt", None)
+
+        assert result["is_error"] is True
+        assert "model not found" in result["result"]
+
+    @pytest.mark.asyncio
+    async def test_execute_cli_timeout(self):
+        """Should return error and kill process on timeout."""
+        adapter = ClaudeCodeDesktopAdapter(
+            cli_path="/usr/bin/claude", cli_timeout=1000
+        )
+
+        mock_process = AsyncMock()
+        mock_process.communicate = AsyncMock(side_effect=asyncio.TimeoutError())
+        mock_process.kill = MagicMock()
+        mock_process.wait = AsyncMock()
+
+        with patch(
+            "asyncio.create_subprocess_exec",
+            return_value=mock_process,
+        ), patch("asyncio.wait_for", side_effect=asyncio.TimeoutError):
+            result = await adapter._execute_cli("test prompt", None)
+
+        assert result["is_error"] is True
+        assert "timed out" in result["result"]
+        mock_process.kill.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_execute_cli_general_exception(self):
+        """Should return error on unexpected exception."""
+        adapter = ClaudeCodeDesktopAdapter(cli_path="/usr/bin/claude")
+
+        with patch(
+            "asyncio.create_subprocess_exec",
+            side_effect=OSError("command not found"),
+        ):
+            result = await adapter._execute_cli("test prompt", None)
+
+        assert result["is_error"] is True
+        assert "command not found" in result["result"]
+
+    @pytest.mark.asyncio
+    async def test_execute_cli_passes_prompt_via_stdin(self):
+        """Should send prompt to CLI via stdin."""
+        adapter = ClaudeCodeDesktopAdapter(cli_path="/usr/bin/claude")
+
+        ndjson_output = json.dumps({"type": "result", "result": "ok"})
+        mock_process = AsyncMock()
+        mock_process.communicate = AsyncMock(
+            return_value=(ndjson_output.encode(), b"")
+        )
+        mock_process.returncode = 0
+
+        with patch(
+            "asyncio.create_subprocess_exec",
+            return_value=mock_process,
+        ):
+            await adapter._execute_cli("my test prompt", None)
+
+        mock_process.communicate.assert_called_once_with(
+            input=b"my test prompt"
+        )
+
+
+class TestClaudeCodeDesktopProcessResponse:
+    """Tests for _process_response."""
+
+    @pytest.mark.asyncio
+    async def test_process_error_response(self, mock_tools):
+        """Should send error event for is_error responses."""
+        adapter = ClaudeCodeDesktopAdapter()
+
+        response = {"result": "something broke", "is_error": True}
+        await adapter._process_response(response, mock_tools, "room-1")
+
+        mock_tools.send_event.assert_called_once()
+        call_args = mock_tools.send_event.call_args
+        assert "something broke" in call_args[1]["content"]
+
+    @pytest.mark.asyncio
+    async def test_process_json_action_response(self, mock_tools):
+        """Should extract and execute JSON action from result."""
+        adapter = ClaudeCodeDesktopAdapter()
+
+        response = {
+            "result": '{"action": "send_message", "content": "Hi there!"}'
+        }
+        await adapter._process_response(response, mock_tools, "room-1")
+
+        mock_tools.send_message.assert_called_once_with("Hi there!", [])
+
+    @pytest.mark.asyncio
+    async def test_process_plain_text_response(self, mock_tools):
+        """Should send plain text as message when no JSON action found."""
+        adapter = ClaudeCodeDesktopAdapter()
+
+        response = {"result": "Just a plain response."}
+        await adapter._process_response(response, mock_tools, "room-1")
+
+        mock_tools.send_message.assert_called_once_with(
+            "Just a plain response.", []
+        )
+
+    @pytest.mark.asyncio
+    async def test_process_empty_result(self, mock_tools):
+        """Should not send anything for empty result."""
+        adapter = ClaudeCodeDesktopAdapter()
+
+        response = {"result": ""}
+        await adapter._process_response(response, mock_tools, "room-1")
+
+        mock_tools.send_message.assert_not_called()
+        mock_tools.send_event.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_process_json_in_code_block(self, mock_tools):
+        """Should extract JSON action from markdown code block."""
+        adapter = ClaudeCodeDesktopAdapter()
+
+        response = {
+            "result": 'Here is my action:\n```json\n{"action": "send_message", "content": "Hello!"}\n```'
+        }
+        await adapter._process_response(response, mock_tools, "room-1")
+
+        mock_tools.send_message.assert_called_once_with("Hello!", [])
+
+
+class TestClaudeCodeDesktopOnMessage:
+    """Tests for on_message end-to-end flow."""
+
+    @pytest.mark.asyncio
+    async def test_on_message_bootstrap(self, sample_message, mock_tools):
+        """Should use no session_id on bootstrap and capture new session_id."""
+        adapter = ClaudeCodeDesktopAdapter(cli_path="/usr/bin/claude")
+        adapter.agent_name = "TestBot"
+        adapter.agent_description = "A test bot"
+
+        cli_response = json.dumps(
+            {
+                "type": "result",
+                "result": '{"action": "send_message", "content": "Hi!"}',
+                "session_id": "new-session-abc",
+                "total_cost_usd": 0.01,
+            }
+        )
+
+        mock_process = AsyncMock()
+        mock_process.communicate = AsyncMock(
+            return_value=(cli_response.encode(), b"")
+        )
+        mock_process.returncode = 0
+
+        with patch(
+            "asyncio.create_subprocess_exec",
+            return_value=mock_process,
+        ):
+            await adapter.on_message(
+                msg=sample_message,
+                tools=mock_tools,
+                history="previous context",
+                participants_msg=None,
+                is_session_bootstrap=True,
+                room_id="room-123",
+            )
+
+        # Should have captured session_id
+        assert adapter._session_ids["room-123"] == "new-session-abc"
+        # Should have sent the message
+        mock_tools.send_message.assert_called_once_with("Hi!", [])
+
+    @pytest.mark.asyncio
+    async def test_on_message_resume(self, sample_message, mock_tools):
+        """Should use stored session_id for --resume on subsequent messages."""
+        adapter = ClaudeCodeDesktopAdapter(cli_path="/usr/bin/claude")
+        adapter.agent_name = "TestBot"
+        adapter.agent_description = "A test bot"
+        adapter._session_ids["room-123"] = "existing-session"
+
+        cli_response = json.dumps(
+            {
+                "type": "result",
+                "result": "Plain text reply",
+                "session_id": "existing-session",
+            }
+        )
+
+        mock_process = AsyncMock()
+        mock_process.communicate = AsyncMock(
+            return_value=(cli_response.encode(), b"")
+        )
+        mock_process.returncode = 0
+
+        with patch(
+            "asyncio.create_subprocess_exec",
+            return_value=mock_process,
+        ) as mock_exec:
+            await adapter.on_message(
+                msg=sample_message,
+                tools=mock_tools,
+                history="",
+                participants_msg=None,
+                is_session_bootstrap=False,
+                room_id="room-123",
+            )
+
+        # Verify --resume was passed with session id
+        call_args = mock_exec.call_args[0]
+        assert "--resume" in call_args
+        assert "existing-session" in call_args
+
+    @pytest.mark.asyncio
+    async def test_on_message_cli_error_sends_event_and_raises(
+        self, sample_message, mock_tools
+    ):
+        """Should send error event and re-raise when CLI fails unexpectedly."""
+        adapter = ClaudeCodeDesktopAdapter(cli_path="/usr/bin/claude")
+        adapter.agent_name = "TestBot"
+        adapter.agent_description = "A test bot"
+
+        with patch(
+            "asyncio.create_subprocess_exec",
+            side_effect=OSError("cli missing"),
+        ):
+            # _execute_cli catches OSError and returns is_error dict,
+            # so on_message should NOT raise. It sends an error event instead.
+            await adapter.on_message(
+                msg=sample_message,
+                tools=mock_tools,
+                history="",
+                participants_msg=None,
+                is_session_bootstrap=True,
+                room_id="room-123",
+            )
+
+        mock_tools.send_event.assert_called_once()
+
+
+class TestClaudeCodeDesktopCleanupAll:
+    """Tests for cleanup_all method."""
+
+    @pytest.mark.asyncio
+    async def test_cleanup_all_clears_sessions(self):
+        """Should clear all session IDs."""
+        adapter = ClaudeCodeDesktopAdapter()
+        adapter._session_ids["room-1"] = "s-1"
+        adapter._session_ids["room-2"] = "s-2"
+
+        await adapter.cleanup_all()
+
+        assert adapter._session_ids == {}
+
+
+class TestClaudeCodeDesktopExtractActions:
+    """Tests for _extract_actions (multi-action support)."""
+
+    def test_single_json_object(self):
+        """Should extract a single JSON action object."""
+        adapter = ClaudeCodeDesktopAdapter()
+
+        result = '{"action": "send_message", "content": "Hello!"}'
+        actions = adapter._extract_actions(result)
+
+        assert len(actions) == 1
+        assert actions[0]["action"] == "send_message"
+        assert actions[0]["content"] == "Hello!"
+
+    def test_json_array_of_actions(self):
+        """Should extract multiple actions from a JSON array."""
+        adapter = ClaudeCodeDesktopAdapter()
+
+        result = json.dumps(
+            [
+                {"action": "send_event", "content": "Thinking...", "message_type": "thought"},
+                {"action": "send_message", "content": "Here is my answer."},
+            ]
+        )
+        actions = adapter._extract_actions(result)
+
+        assert len(actions) == 2
+        assert actions[0]["action"] == "send_event"
+        assert actions[1]["action"] == "send_message"
+
+    def test_single_code_block(self):
+        """Should extract action from a single code block."""
+        adapter = ClaudeCodeDesktopAdapter()
+
+        result = 'Here is my response:\n```json\n{"action": "send_message", "content": "Hi!"}\n```'
+        actions = adapter._extract_actions(result)
+
+        assert len(actions) == 1
+        assert actions[0]["content"] == "Hi!"
+
+    def test_multiple_code_blocks(self):
+        """Should extract actions from multiple code blocks."""
+        adapter = ClaudeCodeDesktopAdapter()
+
+        result = (
+            'First action:\n```json\n{"action": "send_event", "content": "Working...", "message_type": "thought"}\n```\n'
+            'Second action:\n```json\n{"action": "send_message", "content": "Done!"}\n```'
+        )
+        actions = adapter._extract_actions(result)
+
+        assert len(actions) == 2
+        assert actions[0]["action"] == "send_event"
+        assert actions[1]["action"] == "send_message"
+
+    def test_array_in_code_block(self):
+        """Should extract actions from a JSON array inside a code block."""
+        adapter = ClaudeCodeDesktopAdapter()
+
+        arr = json.dumps(
+            [
+                {"action": "add_participant", "name": "Bot", "role": "member"},
+                {"action": "send_message", "content": "Bot added!"},
+            ]
+        )
+        result = f"```json\n{arr}\n```"
+        actions = adapter._extract_actions(result)
+
+        assert len(actions) == 2
+        assert actions[0]["action"] == "add_participant"
+        assert actions[1]["action"] == "send_message"
+
+    def test_plain_text_returns_empty(self):
+        """Should return empty list for plain text."""
+        adapter = ClaudeCodeDesktopAdapter()
+
+        actions = adapter._extract_actions("Just a plain response")
+
+        assert actions == []
+
+    def test_json_without_action_key_returns_empty(self):
+        """Should return empty list for JSON without 'action' key."""
+        adapter = ClaudeCodeDesktopAdapter()
+
+        actions = adapter._extract_actions('{"message": "no action key"}')
+
+        assert actions == []
+
+    def test_array_filters_non_action_items(self):
+        """Should skip array items that lack an 'action' key."""
+        adapter = ClaudeCodeDesktopAdapter()
+
+        result = json.dumps(
+            [
+                {"action": "send_message", "content": "Valid"},
+                {"not_action": "invalid"},
+                "just a string",
+                {"action": "get_participants"},
+            ]
+        )
+        actions = adapter._extract_actions(result)
+
+        assert len(actions) == 2
+        assert actions[0]["action"] == "send_message"
+        assert actions[1]["action"] == "get_participants"
+
+    def test_invalid_json_in_code_block_skipped(self):
+        """Should skip invalid JSON code blocks and continue."""
+        adapter = ClaudeCodeDesktopAdapter()
+
+        result = (
+            '```json\n{invalid json\n```\n'
+            '```json\n{"action": "send_message", "content": "valid"}\n```'
+        )
+        actions = adapter._extract_actions(result)
+
+        assert len(actions) == 1
+        assert actions[0]["content"] == "valid"
+
+
+class TestClaudeCodeDesktopProcessResponseMultiAction:
+    """Tests for _process_response with multiple actions."""
+
+    @pytest.mark.asyncio
+    async def test_executes_multiple_actions(self, mock_tools):
+        """Should execute all actions from a JSON array result."""
+        adapter = ClaudeCodeDesktopAdapter()
+
+        response = {
+            "result": json.dumps(
+                [
+                    {"action": "send_event", "content": "Thinking...", "message_type": "thought"},
+                    {"action": "send_message", "content": "Here is my answer."},
+                ]
+            )
+        }
+        await adapter._process_response(response, mock_tools, "room-1")
+
+        mock_tools.send_event.assert_called_once_with("Thinking...", "thought")
+        mock_tools.send_message.assert_called_once_with("Here is my answer.", [])
+
+    @pytest.mark.asyncio
+    async def test_executes_actions_from_multiple_code_blocks(self, mock_tools):
+        """Should execute actions from multiple code blocks."""
+        adapter = ClaudeCodeDesktopAdapter()
+
+        response = {
+            "result": (
+                '```json\n{"action": "send_event", "content": "Processing...", "message_type": "thought"}\n```\n'
+                '```json\n{"action": "send_message", "content": "Done!"}\n```'
+            )
+        }
+        await adapter._process_response(response, mock_tools, "room-1")
+
+        mock_tools.send_event.assert_called_once_with("Processing...", "thought")
+        mock_tools.send_message.assert_called_once_with("Done!", [])
+
+
+class TestClaudeCodeDesktopSanitizeError:
+    """Tests for _sanitize_error."""
+
+    def test_redacts_file_paths(self):
+        """Should redact file paths from error messages."""
+        adapter = ClaudeCodeDesktopAdapter()
+
+        error = "Failed to read /home/user/.config/secrets.json: permission denied"
+        sanitized = adapter._sanitize_error(error)
+
+        assert "/home/user/.config/secrets.json" not in sanitized
+        assert "[redacted]" in sanitized
+        assert "permission denied" in sanitized
+
+    def test_redacts_api_keys(self):
+        """Should redact API keys starting with sk-."""
+        adapter = ClaudeCodeDesktopAdapter()
+
+        error = "Authentication failed for key sk-abcdef1234567890"
+        sanitized = adapter._sanitize_error(error)
+
+        assert "sk-abcdef1234567890" not in sanitized
+        assert "[redacted]" in sanitized
+
+    def test_redacts_token_assignments(self):
+        """Should redact token/secret/password assignments."""
+        adapter = ClaudeCodeDesktopAdapter()
+
+        error = "Config error: api_token = xyzzy12345 is invalid"
+        sanitized = adapter._sanitize_error(error)
+
+        assert "xyzzy12345" not in sanitized
+        assert "[redacted]" in sanitized
+
+    def test_truncates_long_messages(self):
+        """Should truncate messages exceeding max_length."""
+        adapter = ClaudeCodeDesktopAdapter()
+
+        error = "A" * 300
+        sanitized = adapter._sanitize_error(error, max_length=100)
+
+        assert len(sanitized) == 103  # 100 + "..."
+        assert sanitized.endswith("...")
+
+    def test_preserves_short_safe_messages(self):
+        """Should not alter short messages without sensitive data."""
+        adapter = ClaudeCodeDesktopAdapter()
+
+        error = "Connection refused"
+        sanitized = adapter._sanitize_error(error)
+
+        assert sanitized == "Connection refused"
+
+    def test_process_response_error_is_sanitized(self, mock_tools):
+        """Should sanitize error in _process_response."""
+        adapter = ClaudeCodeDesktopAdapter()
+
+        response = {
+            "result": "CLI error: failed at /usr/local/bin/claude with token=secret123",
+            "is_error": True,
+        }
+
+        import asyncio
+
+        asyncio.get_event_loop().run_until_complete(
+            adapter._process_response(response, mock_tools, "room-1")
+        )
+
+        call_args = mock_tools.send_event.call_args
+        content = call_args[1]["content"]
+        assert "/usr/local/bin/claude" not in content
+        assert "secret123" not in content
+        assert "[redacted]" in content
+
+    @pytest.mark.asyncio
+    async def test_execute_action_error_is_sanitized(self, mock_tools):
+        """Should sanitize error in _execute_action exception handler."""
+        adapter = ClaudeCodeDesktopAdapter()
+        mock_tools.send_message = AsyncMock(
+            side_effect=RuntimeError("failed at /tmp/secret with key=abc123")
+        )
+
+        action_data = {"action": "send_message", "content": "test"}
+        await adapter._execute_action(action_data, mock_tools)
+
+        call_args = mock_tools.send_event.call_args
+        content = call_args[1]["content"]
+        assert "/tmp/secret" not in content
+        assert "[redacted]" in content

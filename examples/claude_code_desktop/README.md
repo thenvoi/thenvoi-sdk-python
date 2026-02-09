@@ -8,7 +8,7 @@ This example uses your existing Claude Code setup (with all its capabilities: lo
 
 - [Node.js](https://nodejs.org/) 20+
 - [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code) installed and authenticated
-- Python 3.12+
+- Python 3.11+
 - A Thenvoi account with an External Agent configured
 
 ## Quick Start
