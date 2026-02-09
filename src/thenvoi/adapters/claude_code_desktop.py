@@ -98,9 +98,9 @@ class ClaudeCodeDesktopAdapter(SimpleAdapter[str]):
         self._session_ids: dict[str, str] = {}
 
         self._sensitive_pattern = re.compile(
-            r"(/[\w./\\-]+)"          # file paths
+            r"(/[\w./\\-]+)"  # file paths
             r"|(sk-[a-zA-Z0-9]{8,})"  # API keys (sk-...)
-            r"|(key-[a-zA-Z0-9]{8,})" # API keys (key-...)
+            r"|(key-[a-zA-Z0-9]{8,})"  # API keys (key-...)
             r"|(\b[A-Za-z_]*(token|secret|password|key)\s*[:=]\s*\S+)",  # assignments
             re.IGNORECASE,
         )
@@ -526,9 +526,7 @@ class ClaudeCodeDesktopAdapter(SimpleAdapter[str]):
             if isinstance(data, dict) and "action" in data:
                 return [data]
             if isinstance(data, list):
-                return [
-                    d for d in data if isinstance(d, dict) and "action" in d
-                ]
+                return [d for d in data if isinstance(d, dict) and "action" in d]
         except json.JSONDecodeError:
             # Not JSON or no action key - this is expected for plain text responses
             logger.debug("Result is not a JSON action, treating as plain text")
@@ -554,13 +552,17 @@ class ClaudeCodeDesktopAdapter(SimpleAdapter[str]):
                 content = action_data.get("content", "")
                 mentions = action_data.get("mentions", [])
                 await tools.send_message(content, mentions)
-                logger.info(f"Sent message: {content[:50]}{'...' if len(content) > 50 else ''}")
+                logger.info(
+                    f"Sent message: {content[:50]}{'...' if len(content) > 50 else ''}"
+                )
 
             elif action == "send_event":
                 content = action_data.get("content", "")
                 message_type = action_data.get("message_type", "thought")
                 await tools.send_event(content, message_type)
-                logger.debug(f"Sent event ({message_type}): {content[:50]}{'...' if len(content) > 50 else ''}")
+                logger.debug(
+                    f"Sent event ({message_type}): {content[:50]}{'...' if len(content) > 50 else ''}"
+                )
 
             elif action == "add_participant":
                 name = action_data.get("name", "")

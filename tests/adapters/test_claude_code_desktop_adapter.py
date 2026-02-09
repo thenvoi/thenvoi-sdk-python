@@ -622,9 +622,7 @@ class TestClaudeCodeDesktopExecuteCLI:
         )
 
         mock_process = AsyncMock()
-        mock_process.communicate = AsyncMock(
-            return_value=(ndjson_output.encode(), b"")
-        )
+        mock_process.communicate = AsyncMock(return_value=(ndjson_output.encode(), b""))
         mock_process.returncode = 0
 
         with patch(
@@ -659,19 +657,20 @@ class TestClaudeCodeDesktopExecuteCLI:
     @pytest.mark.asyncio
     async def test_execute_cli_timeout(self):
         """Should return error and kill process on timeout."""
-        adapter = ClaudeCodeDesktopAdapter(
-            cli_path="/usr/bin/claude", cli_timeout=1000
-        )
+        adapter = ClaudeCodeDesktopAdapter(cli_path="/usr/bin/claude", cli_timeout=1000)
 
         mock_process = AsyncMock()
         mock_process.communicate = AsyncMock(side_effect=asyncio.TimeoutError())
         mock_process.kill = MagicMock()
         mock_process.wait = AsyncMock()
 
-        with patch(
-            "asyncio.create_subprocess_exec",
-            return_value=mock_process,
-        ), patch("asyncio.wait_for", side_effect=asyncio.TimeoutError):
+        with (
+            patch(
+                "asyncio.create_subprocess_exec",
+                return_value=mock_process,
+            ),
+            patch("asyncio.wait_for", side_effect=asyncio.TimeoutError),
+        ):
             result = await adapter._execute_cli("test prompt", None)
 
         assert result["is_error"] is True
@@ -699,9 +698,7 @@ class TestClaudeCodeDesktopExecuteCLI:
 
         ndjson_output = json.dumps({"type": "result", "result": "ok"})
         mock_process = AsyncMock()
-        mock_process.communicate = AsyncMock(
-            return_value=(ndjson_output.encode(), b"")
-        )
+        mock_process.communicate = AsyncMock(return_value=(ndjson_output.encode(), b""))
         mock_process.returncode = 0
 
         with patch(
@@ -710,9 +707,7 @@ class TestClaudeCodeDesktopExecuteCLI:
         ):
             await adapter._execute_cli("my test prompt", None)
 
-        mock_process.communicate.assert_called_once_with(
-            input=b"my test prompt"
-        )
+        mock_process.communicate.assert_called_once_with(input=b"my test prompt")
 
 
 class TestClaudeCodeDesktopProcessResponse:
@@ -735,9 +730,7 @@ class TestClaudeCodeDesktopProcessResponse:
         """Should extract and execute JSON action from result."""
         adapter = ClaudeCodeDesktopAdapter()
 
-        response = {
-            "result": '{"action": "send_message", "content": "Hi there!"}'
-        }
+        response = {"result": '{"action": "send_message", "content": "Hi there!"}'}
         await adapter._process_response(response, mock_tools, "room-1")
 
         mock_tools.send_message.assert_called_once_with("Hi there!", [])
@@ -750,9 +743,7 @@ class TestClaudeCodeDesktopProcessResponse:
         response = {"result": "Just a plain response."}
         await adapter._process_response(response, mock_tools, "room-1")
 
-        mock_tools.send_message.assert_called_once_with(
-            "Just a plain response.", []
-        )
+        mock_tools.send_message.assert_called_once_with("Just a plain response.", [])
 
     @pytest.mark.asyncio
     async def test_process_empty_result(self, mock_tools):
@@ -798,9 +789,7 @@ class TestClaudeCodeDesktopOnMessage:
         )
 
         mock_process = AsyncMock()
-        mock_process.communicate = AsyncMock(
-            return_value=(cli_response.encode(), b"")
-        )
+        mock_process.communicate = AsyncMock(return_value=(cli_response.encode(), b""))
         mock_process.returncode = 0
 
         with patch(
@@ -838,9 +827,7 @@ class TestClaudeCodeDesktopOnMessage:
         )
 
         mock_process = AsyncMock()
-        mock_process.communicate = AsyncMock(
-            return_value=(cli_response.encode(), b"")
-        )
+        mock_process.communicate = AsyncMock(return_value=(cli_response.encode(), b""))
         mock_process.returncode = 0
 
         with patch(
@@ -923,7 +910,11 @@ class TestClaudeCodeDesktopExtractActions:
 
         result = json.dumps(
             [
-                {"action": "send_event", "content": "Thinking...", "message_type": "thought"},
+                {
+                    "action": "send_event",
+                    "content": "Thinking...",
+                    "message_type": "thought",
+                },
                 {"action": "send_message", "content": "Here is my answer."},
             ]
         )
@@ -1013,7 +1004,7 @@ class TestClaudeCodeDesktopExtractActions:
         adapter = ClaudeCodeDesktopAdapter()
 
         result = (
-            '```json\n{invalid json\n```\n'
+            "```json\n{invalid json\n```\n"
             '```json\n{"action": "send_message", "content": "valid"}\n```'
         )
         actions = adapter._extract_actions(result)
@@ -1033,7 +1024,11 @@ class TestClaudeCodeDesktopProcessResponseMultiAction:
         response = {
             "result": json.dumps(
                 [
-                    {"action": "send_event", "content": "Thinking...", "message_type": "thought"},
+                    {
+                        "action": "send_event",
+                        "content": "Thinking...",
+                        "message_type": "thought",
+                    },
                     {"action": "send_message", "content": "Here is my answer."},
                 ]
             )
