@@ -8,7 +8,7 @@ Tests for LangGraph adapter-specific behavior that isn't covered by conformance 
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -197,3 +197,54 @@ class TestOnStarted:
         )
 
         assert "Always respond in haiku format." in adapter._system_prompt
+
+
+class TestStreamEventHandling:
+    """Tests for _handle_stream_event() routing."""
+
+    @pytest.fixture
+    def mock_tools(self):
+        """Create mock AgentToolsProtocol."""
+        tools = AsyncMock()
+        tools.send_event = AsyncMock()
+        return tools
+
+    @pytest.mark.asyncio
+    async def test_handles_on_tool_start(self, mock_tools):
+        """Event with 'on_tool_start' → tools.send_event called with message_type='tool_call'."""
+        mock_llm = MagicMock()
+        adapter = LangGraphAdapter(llm=mock_llm, checkpointer=MagicMock())
+
+        event = {"event": "on_tool_start", "name": "search"}
+
+        await adapter._handle_stream_event(event, "room-123", mock_tools)
+
+        mock_tools.send_event.assert_awaited_once()
+        call_kwargs = mock_tools.send_event.call_args.kwargs
+        assert call_kwargs["message_type"] == "tool_call"
+
+    @pytest.mark.asyncio
+    async def test_handles_on_tool_end(self, mock_tools):
+        """Event with 'on_tool_end' → tools.send_event called with message_type='tool_result'."""
+        mock_llm = MagicMock()
+        adapter = LangGraphAdapter(llm=mock_llm, checkpointer=MagicMock())
+
+        event = {"event": "on_tool_end", "name": "search"}
+
+        await adapter._handle_stream_event(event, "room-123", mock_tools)
+
+        mock_tools.send_event.assert_awaited_once()
+        call_kwargs = mock_tools.send_event.call_args.kwargs
+        assert call_kwargs["message_type"] == "tool_result"
+
+    @pytest.mark.asyncio
+    async def test_ignores_other_events(self, mock_tools):
+        """Event with 'on_chat_model_start' → tools.send_event not called."""
+        mock_llm = MagicMock()
+        adapter = LangGraphAdapter(llm=mock_llm, checkpointer=MagicMock())
+
+        event = {"event": "on_chat_model_start", "name": "ChatOpenAI"}
+
+        await adapter._handle_stream_event(event, "room-123", mock_tools)
+
+        mock_tools.send_event.assert_not_called()

@@ -4,6 +4,7 @@ Tests for Anthropic adapter-specific behavior that isn't covered by conformance 
 - Helper methods (_extract_text_content, _serialize_content_blocks)
 - History loading from existing data
 - Tool execution reporting
+- Custom tool execution (_process_tool_calls routing and error handling)
 """
 
 from __future__ import annotations
@@ -11,8 +12,37 @@ from __future__ import annotations
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from pydantic import BaseModel, Field
 
 from thenvoi.adapters.anthropic import AnthropicAdapter
+
+
+# --- Custom tool helpers for TestCustomToolExecution ---
+
+
+class EchoInput(BaseModel):
+    """Echo the message back."""
+
+    message: str = Field(description="Message to echo")
+
+
+class CalculatorInput(BaseModel):
+    """Perform a calculation."""
+
+    a: int = Field(description="First number")
+    b: int = Field(description="Second number")
+
+
+async def echo_message(args: EchoInput) -> str:
+    return f"Echo: {args.message}"
+
+
+async def calculate(args: CalculatorInput) -> dict:
+    return {"result": args.a + args.b}
+
+
+async def failing_tool(args: EchoInput) -> str:
+    raise ValueError("Tool exploded")
 
 
 class TestExtractTextContent:
@@ -296,3 +326,187 @@ class TestToolExecutionReporting:
         for call in mock_tools.send_event.call_args_list:
             msg_type = call.kwargs.get("message_type")
             assert msg_type not in ("tool_call", "tool_result")
+
+
+class TestCustomToolExecution:
+    """Tests for _process_tool_calls() routing and error handling."""
+
+    @pytest.mark.asyncio
+    async def test_merges_custom_tool_schemas(self):
+        """Custom tool schemas should be appended to platform schemas in _call_anthropic."""
+        adapter = AnthropicAdapter(
+            additional_tools=[(EchoInput, echo_message)],
+        )
+        await adapter.on_started(agent_name="TestBot", agent_description="A test bot")
+
+        mock_msg = MagicMock()
+        mock_msg.id = "msg-123"
+        mock_msg.format_for_llm.return_value = "Test message"
+
+        mock_tools = MagicMock()
+        mock_tools.get_anthropic_tool_schemas.return_value = [
+            {"name": "thenvoi_send_message", "description": "Send", "input_schema": {}}
+        ]
+
+        mock_response = MagicMock()
+        mock_response.stop_reason = "end_turn"
+        mock_response.content = []
+
+        captured_tools = []
+
+        async def capture_call(messages, tools):
+            captured_tools.extend(tools)
+            return mock_response
+
+        with patch.object(adapter, "_call_anthropic", side_effect=capture_call):
+            await adapter.on_message(
+                msg=mock_msg,
+                tools=mock_tools,
+                history=[],
+                participants_msg=None,
+                is_session_bootstrap=True,
+                room_id="room-123",
+            )
+
+        tool_names = [t["name"] for t in captured_tools]
+        assert "thenvoi_send_message" in tool_names
+        assert "echo" in tool_names
+
+    @pytest.mark.asyncio
+    async def test_routes_to_custom_tool(self):
+        """find_custom_tool match → execute_custom_tool called, not tools.execute_tool_call."""
+        from anthropic.types import ToolUseBlock
+
+        adapter = AnthropicAdapter(
+            additional_tools=[(EchoInput, echo_message)],
+        )
+        await adapter.on_started(agent_name="TestBot", agent_description="A test bot")
+
+        mock_response = MagicMock()
+        mock_response.content = [
+            ToolUseBlock(
+                type="tool_use", id="t1", name="echo", input={"message": "hi"}
+            )
+        ]
+
+        mock_tools = MagicMock()
+        mock_tools.execute_tool_call = AsyncMock()
+
+        results = await adapter._process_tool_calls(mock_response, mock_tools)
+
+        assert len(results) == 1
+        assert results[0]["is_error"] is False
+        assert "Echo: hi" in results[0]["content"]
+        mock_tools.execute_tool_call.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_routes_to_platform_tool(self):
+        """No custom match → tools.execute_tool_call called."""
+        from anthropic.types import ToolUseBlock
+
+        adapter = AnthropicAdapter(
+            additional_tools=[(EchoInput, echo_message)],
+        )
+        await adapter.on_started(agent_name="TestBot", agent_description="A test bot")
+
+        mock_response = MagicMock()
+        mock_response.content = [
+            ToolUseBlock(
+                type="tool_use",
+                id="t1",
+                name="thenvoi_send_message",
+                input={"content": "hello"},
+            )
+        ]
+
+        mock_tools = MagicMock()
+        mock_tools.execute_tool_call = AsyncMock(return_value={"status": "sent"})
+
+        results = await adapter._process_tool_calls(mock_response, mock_tools)
+
+        assert len(results) == 1
+        assert results[0]["is_error"] is False
+        mock_tools.execute_tool_call.assert_awaited_once_with(
+            "thenvoi_send_message", {"content": "hello"}
+        )
+
+    @pytest.mark.asyncio
+    async def test_custom_tool_error_sets_is_error(self):
+        """Exception in custom tool → is_error=True in result."""
+        from anthropic.types import ToolUseBlock
+
+        adapter = AnthropicAdapter(
+            additional_tools=[(EchoInput, failing_tool)],
+        )
+        await adapter.on_started(agent_name="TestBot", agent_description="A test bot")
+
+        mock_response = MagicMock()
+        mock_response.content = [
+            ToolUseBlock(
+                type="tool_use", id="t1", name="echo", input={"message": "hi"}
+            )
+        ]
+
+        mock_tools = MagicMock()
+
+        results = await adapter._process_tool_calls(mock_response, mock_tools)
+
+        assert len(results) == 1
+        assert results[0]["is_error"] is True
+        assert "Tool exploded" in results[0]["content"]
+
+    @pytest.mark.asyncio
+    async def test_preserves_tool_use_id_on_error(self):
+        """tool_use_id should be preserved in result dict when tool fails."""
+        from anthropic.types import ToolUseBlock
+
+        adapter = AnthropicAdapter(
+            additional_tools=[(EchoInput, failing_tool)],
+        )
+        await adapter.on_started(agent_name="TestBot", agent_description="A test bot")
+
+        mock_response = MagicMock()
+        mock_response.content = [
+            ToolUseBlock(
+                type="tool_use", id="toolu_abc123", name="echo", input={"message": "hi"}
+            )
+        ]
+
+        mock_tools = MagicMock()
+
+        results = await adapter._process_tool_calls(mock_response, mock_tools)
+
+        assert results[0]["tool_use_id"] == "toolu_abc123"
+
+    @pytest.mark.asyncio
+    async def test_multiple_custom_tools_execution(self):
+        """Two custom tools should both execute correctly via _process_tool_calls."""
+        from anthropic.types import ToolUseBlock
+
+        adapter = AnthropicAdapter(
+            additional_tools=[
+                (EchoInput, echo_message),
+                (CalculatorInput, calculate),
+            ],
+        )
+        await adapter.on_started(agent_name="TestBot", agent_description="A test bot")
+
+        mock_response = MagicMock()
+        mock_response.content = [
+            ToolUseBlock(
+                type="tool_use", id="t1", name="echo", input={"message": "hello"}
+            ),
+            ToolUseBlock(
+                type="tool_use", id="t2", name="calculator", input={"a": 3, "b": 4}
+            ),
+        ]
+
+        mock_tools = MagicMock()
+
+        results = await adapter._process_tool_calls(mock_response, mock_tools)
+
+        assert len(results) == 2
+        assert results[0]["is_error"] is False
+        assert "Echo: hello" in results[0]["content"]
+        assert results[1]["is_error"] is False
+        assert "7" in results[1]["content"]

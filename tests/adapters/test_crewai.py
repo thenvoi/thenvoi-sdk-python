@@ -5,16 +5,20 @@ Tests for CrewAI adapter-specific behavior that isn't covered by conformance tes
 - role/goal/backstory configuration
 - Platform instructions in backstory
 - Agent name as default role
+- Uninitialized agent guard
 """
 
 from __future__ import annotations
 
 import sys
 import warnings
+from datetime import datetime, timezone
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 from tests.framework_configs.adapters import setup_crewai_mocks
+from thenvoi.core.types import PlatformMessage
 
 
 @pytest.fixture
@@ -228,3 +232,55 @@ class TestCrewAIAgentCreation:
 
         # Check LLM was created with correct model
         crewai_mocks.LLM.assert_called_with(model="gpt-4o-mini")
+
+
+class TestUninitializedAgent:
+    """Tests for uninitialized agent guard."""
+
+    @pytest.fixture
+    def sample_message(self):
+        """Create a sample platform message."""
+        return PlatformMessage(
+            id="msg-123",
+            room_id="room-123",
+            content="Hello, agent!",
+            sender_id="user-456",
+            sender_type="User",
+            sender_name="Alice",
+            message_type="text",
+            metadata={},
+            created_at=datetime.now(timezone.utc),
+        )
+
+    @pytest.fixture
+    def mock_tools(self):
+        """Create mock AgentToolsProtocol."""
+        tools = AsyncMock()
+        tools.get_tool_schemas = MagicMock(return_value=[])
+        tools.get_openai_tool_schemas = MagicMock(return_value=[])
+        tools.send_message = AsyncMock(return_value={"status": "sent"})
+        tools.send_event = AsyncMock(return_value={"status": "sent"})
+        tools.execute_tool_call = AsyncMock(return_value={"status": "success"})
+        return tools
+
+    @pytest.mark.asyncio
+    async def test_raises_error_when_agent_not_initialized(
+        self, crewai_mocks, sample_message, mock_tools
+    ):
+        """on_message before on_started should raise RuntimeError."""
+        import importlib
+
+        CrewAIAdapter = importlib.import_module("thenvoi.adapters.crewai").CrewAIAdapter
+
+        adapter = CrewAIAdapter()
+        # Do NOT call on_started — agent stays uninitialized
+
+        with pytest.raises(RuntimeError, match="not initialized"):
+            await adapter.on_message(
+                msg=sample_message,
+                tools=mock_tools,
+                history=[],
+                participants_msg=None,
+                is_session_bootstrap=True,
+                room_id="room-123",
+            )

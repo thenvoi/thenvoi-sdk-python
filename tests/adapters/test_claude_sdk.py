@@ -239,3 +239,80 @@ class TestCustomTools:
         )
 
         assert len(adapter._custom_tools) == 2
+
+    @pytest.mark.asyncio
+    async def test_custom_tools_added_to_allowed_tools(self):
+        """allowed_tools should contain mcp__thenvoi__<tool_name> for each custom tool."""
+        from pydantic import BaseModel, Field
+
+        class EchoInput(BaseModel):
+            """Echo the message."""
+
+            message: str = Field(description="Message to echo")
+
+        async def echo(args: EchoInput) -> str:
+            return f"Echo: {args.message}"
+
+        adapter = ClaudeSDKAdapter(
+            additional_tools=[(EchoInput, echo)],
+        )
+
+        with patch(
+            "thenvoi.adapters.claude_sdk.ClaudeSessionManager"
+        ) as mock_manager_class:
+            mock_manager = MagicMock()
+            mock_manager_class.return_value = mock_manager
+
+            await adapter.on_started(
+                agent_name="TestBot", agent_description="A test bot"
+            )
+
+            # Check the ClaudeAgentOptions passed to ClaudeSessionManager
+            call_args = mock_manager_class.call_args
+            sdk_options = call_args[0][0]
+            assert "mcp__thenvoi__echo" in sdk_options.allowed_tools
+
+    @pytest.mark.asyncio
+    async def test_custom_tools_registered_in_mcp_server(self):
+        """_create_mcp_server should be called and MCP server should not be None."""
+        from pydantic import BaseModel, Field
+
+        class EchoInput(BaseModel):
+            """Echo the message."""
+
+            message: str = Field(description="Message to echo")
+
+        async def echo(args: EchoInput) -> str:
+            return f"Echo: {args.message}"
+
+        adapter = ClaudeSDKAdapter(
+            additional_tools=[(EchoInput, echo)],
+        )
+
+        with patch(
+            "thenvoi.adapters.claude_sdk.ClaudeSessionManager"
+        ) as mock_manager_class:
+            mock_manager = MagicMock()
+            mock_manager_class.return_value = mock_manager
+
+            await adapter.on_started(
+                agent_name="TestBot", agent_description="A test bot"
+            )
+
+        assert adapter._mcp_server is not None
+
+    def test_tool_name_derived_from_input_model(self):
+        """get_custom_tool_name(EchoInput) → 'echo', get_custom_tool_name(CalculatorInput) → 'calculator'."""
+        from pydantic import BaseModel
+
+        from thenvoi.runtime.custom_tools import get_custom_tool_name
+
+        class EchoInput(BaseModel):
+            message: str
+
+        class CalculatorInput(BaseModel):
+            a: int
+            b: int
+
+        assert get_custom_tool_name(EchoInput) == "echo"
+        assert get_custom_tool_name(CalculatorInput) == "calculator"

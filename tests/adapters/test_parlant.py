@@ -318,6 +318,201 @@ class TestSystemPromptHandling:
         assert adapter._system_prompt == "You are a custom assistant."
 
 
+class TestOnMessage:
+    """Tests for on_message() session management and message sending."""
+
+    @pytest.fixture
+    def initialized_adapter(self, mock_parlant_server, mock_parlant_agent):
+        """Create adapter with _app pre-set."""
+        adapter = ParlantAdapter(
+            server=mock_parlant_server,
+            parlant_agent=mock_parlant_agent,
+        )
+        adapter.agent_name = "TestBot"
+        adapter.agent_description = "A test bot"
+
+        mock_app = MagicMock()
+        mock_app.sessions = AsyncMock()
+        mock_app.sessions.create = AsyncMock(return_value=MagicMock(id="session-123"))
+        mock_app.sessions.create_customer_message = AsyncMock(
+            return_value=MagicMock(offset=1)
+        )
+        mock_app.sessions.wait_for_update = AsyncMock(return_value=True)
+        mock_app.sessions.find_events = AsyncMock(return_value=[])
+
+        adapter._app = mock_app
+        return adapter
+
+    @pytest.mark.asyncio
+    async def test_creates_session_for_room(
+        self, initialized_adapter, sample_message, mock_tools
+    ):
+        """New room → create_customer + sessions.create called, session cached."""
+        adapter = initialized_adapter
+
+        mock_moderation = MagicMock()
+        mock_moderation.NONE = "none"
+        mock_event_source = MagicMock()
+        mock_event_source.CUSTOMER = "customer"
+        mock_event_source.AI_AGENT = "ai_agent"
+        mock_event_kind = MagicMock()
+        mock_event_kind.MESSAGE = "message"
+
+        with patch.dict(
+            sys.modules,
+            {
+                "parlant.core.app_modules.sessions": MagicMock(
+                    Moderation=mock_moderation
+                ),
+                "parlant.core.sessions": MagicMock(
+                    EventSource=mock_event_source, EventKind=mock_event_kind
+                ),
+                "parlant.core.async_utils": MagicMock(Timeout=lambda x: x),
+            },
+        ):
+            await adapter.on_message(
+                msg=sample_message,
+                tools=mock_tools,
+                history=[],
+                participants_msg=None,
+                is_session_bootstrap=True,
+                room_id="room-123",
+            )
+
+        # Verify session was created and cached
+        adapter._app.sessions.create.assert_awaited_once()
+        assert "room-123" in adapter._room_sessions
+
+    @pytest.mark.asyncio
+    async def test_sends_customer_message_to_parlant(
+        self, initialized_adapter, sample_message, mock_tools
+    ):
+        """create_customer_message should be called with correct params."""
+        adapter = initialized_adapter
+
+        mock_moderation = MagicMock()
+        mock_moderation.NONE = "none"
+        mock_event_source = MagicMock()
+        mock_event_source.CUSTOMER = "customer"
+        mock_event_source.AI_AGENT = "ai_agent"
+        mock_event_kind = MagicMock()
+        mock_event_kind.MESSAGE = "message"
+
+        with patch.dict(
+            sys.modules,
+            {
+                "parlant.core.app_modules.sessions": MagicMock(
+                    Moderation=mock_moderation
+                ),
+                "parlant.core.sessions": MagicMock(
+                    EventSource=mock_event_source, EventKind=mock_event_kind
+                ),
+                "parlant.core.async_utils": MagicMock(Timeout=lambda x: x),
+            },
+        ):
+            await adapter.on_message(
+                msg=sample_message,
+                tools=mock_tools,
+                history=[],
+                participants_msg=None,
+                is_session_bootstrap=True,
+                room_id="room-123",
+            )
+
+        adapter._app.sessions.create_customer_message.assert_awaited_once()
+        call_kwargs = adapter._app.sessions.create_customer_message.call_args.kwargs
+        assert call_kwargs["trigger_processing"] is True
+
+    @pytest.mark.asyncio
+    async def test_sets_session_tools_for_tool_execution(
+        self, initialized_adapter, sample_message, mock_tools
+    ):
+        """set_session_tools called with tools, then cleared with None in finally."""
+        adapter = initialized_adapter
+        set_calls = []
+
+        mock_moderation = MagicMock()
+        mock_moderation.NONE = "none"
+        mock_event_source = MagicMock()
+        mock_event_source.CUSTOMER = "customer"
+        mock_event_source.AI_AGENT = "ai_agent"
+        mock_event_kind = MagicMock()
+        mock_event_kind.MESSAGE = "message"
+
+        with (
+            patch.dict(
+                sys.modules,
+                {
+                    "parlant.core.app_modules.sessions": MagicMock(
+                        Moderation=mock_moderation
+                    ),
+                    "parlant.core.sessions": MagicMock(
+                        EventSource=mock_event_source, EventKind=mock_event_kind
+                    ),
+                    "parlant.core.async_utils": MagicMock(Timeout=lambda x: x),
+                },
+            ),
+            patch(
+                "thenvoi.adapters.parlant.set_session_tools",
+                side_effect=lambda sid, t: set_calls.append((sid, t is not None)),
+            ),
+        ):
+            await adapter.on_message(
+                msg=sample_message,
+                tools=mock_tools,
+                history=[],
+                participants_msg=None,
+                is_session_bootstrap=True,
+                room_id="room-123",
+            )
+
+        # First call sets tools (True), last call clears (False)
+        assert len(set_calls) >= 2
+        assert set_calls[0][1] is True  # tools set
+        assert set_calls[-1][1] is False  # tools cleared
+
+    @pytest.mark.asyncio
+    async def test_reuses_existing_session(
+        self, initialized_adapter, sample_message, mock_tools
+    ):
+        """Pre-populated _room_sessions → no session create calls."""
+        adapter = initialized_adapter
+        adapter._room_sessions["room-123"] = "existing-session-id"
+        adapter._room_customers["room-123"] = "existing-customer-id"
+
+        mock_moderation = MagicMock()
+        mock_moderation.NONE = "none"
+        mock_event_source = MagicMock()
+        mock_event_source.CUSTOMER = "customer"
+        mock_event_source.AI_AGENT = "ai_agent"
+        mock_event_kind = MagicMock()
+        mock_event_kind.MESSAGE = "message"
+
+        with patch.dict(
+            sys.modules,
+            {
+                "parlant.core.app_modules.sessions": MagicMock(
+                    Moderation=mock_moderation
+                ),
+                "parlant.core.sessions": MagicMock(
+                    EventSource=mock_event_source, EventKind=mock_event_kind
+                ),
+                "parlant.core.async_utils": MagicMock(Timeout=lambda x: x),
+            },
+        ):
+            await adapter.on_message(
+                msg=sample_message,
+                tools=mock_tools,
+                history=[],
+                participants_msg=None,
+                is_session_bootstrap=False,
+                room_id="room-123",
+            )
+
+        # Session create should NOT have been called
+        adapter._app.sessions.create.assert_not_awaited()
+
+
 class TestErrorHandling:
     """Tests for error handling."""
 
@@ -344,3 +539,113 @@ class TestErrorHandling:
 
         # No calls should be made
         mock_tools.send_message.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_clears_tools_on_error(
+        self, mock_parlant_server, mock_parlant_agent, sample_message, mock_tools
+    ):
+        """When create_customer_message raises, set_session_tools(id, None) still called."""
+        adapter = ParlantAdapter(
+            server=mock_parlant_server,
+            parlant_agent=mock_parlant_agent,
+        )
+        adapter.agent_name = "TestBot"
+
+        mock_app = MagicMock()
+        mock_app.sessions = AsyncMock()
+        mock_app.sessions.create = AsyncMock(return_value=MagicMock(id="session-123"))
+        mock_app.sessions.create_customer_message = AsyncMock(
+            side_effect=Exception("Parlant Error")
+        )
+        adapter._app = mock_app
+
+        set_calls = []
+
+        mock_moderation = MagicMock()
+        mock_moderation.NONE = "none"
+        mock_event_source = MagicMock()
+        mock_event_source.CUSTOMER = "customer"
+
+        with (
+            patch.dict(
+                sys.modules,
+                {
+                    "parlant.core.app_modules.sessions": MagicMock(
+                        Moderation=mock_moderation
+                    ),
+                    "parlant.core.sessions": MagicMock(
+                        EventSource=mock_event_source,
+                    ),
+                },
+            ),
+            patch(
+                "thenvoi.adapters.parlant.set_session_tools",
+                side_effect=lambda sid, t: set_calls.append((sid, t)),
+            ),
+            pytest.raises(Exception, match="Parlant Error"),
+        ):
+            await adapter.on_message(
+                msg=sample_message,
+                tools=mock_tools,
+                history=[],
+                participants_msg=None,
+                is_session_bootstrap=True,
+                room_id="room-123",
+            )
+
+        # Even after error, finally block should clear tools (last call has None)
+        assert any(t is None for _, t in set_calls)
+
+    @pytest.mark.asyncio
+    async def test_reports_error_on_failure(
+        self, mock_parlant_server, mock_parlant_agent, sample_message, mock_tools
+    ):
+        """When processing fails, tools.send_event called with error type, exception re-raised."""
+        adapter = ParlantAdapter(
+            server=mock_parlant_server,
+            parlant_agent=mock_parlant_agent,
+        )
+        adapter.agent_name = "TestBot"
+
+        mock_app = MagicMock()
+        mock_app.sessions = AsyncMock()
+        mock_app.sessions.create = AsyncMock(return_value=MagicMock(id="session-123"))
+        mock_app.sessions.create_customer_message = AsyncMock(
+            side_effect=Exception("Processing failed")
+        )
+        adapter._app = mock_app
+
+        mock_moderation = MagicMock()
+        mock_moderation.NONE = "none"
+        mock_event_source = MagicMock()
+        mock_event_source.CUSTOMER = "customer"
+
+        with (
+            patch.dict(
+                sys.modules,
+                {
+                    "parlant.core.app_modules.sessions": MagicMock(
+                        Moderation=mock_moderation
+                    ),
+                    "parlant.core.sessions": MagicMock(
+                        EventSource=mock_event_source,
+                    ),
+                },
+            ),
+            patch("thenvoi.adapters.parlant.set_session_tools"),
+            pytest.raises(Exception, match="Processing failed"),
+        ):
+            await adapter.on_message(
+                msg=sample_message,
+                tools=mock_tools,
+                history=[],
+                participants_msg=None,
+                is_session_bootstrap=True,
+                room_id="room-123",
+            )
+
+        # Error should have been reported via send_event
+        mock_tools.send_event.assert_awaited()
+        call_kwargs = mock_tools.send_event.call_args.kwargs
+        assert call_kwargs["message_type"] == "error"
+        assert "Processing failed" in call_kwargs["content"]
