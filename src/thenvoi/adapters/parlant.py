@@ -517,7 +517,11 @@ class ParlantAdapter(SimpleAdapter[ParlantMessages]):
                     if isinstance(data, dict):
                         message_content = str(data.get("message", ""))
                         raw_tags = data.get("tags", [])
-                        tags = list(raw_tags) if isinstance(raw_tags, (list, tuple)) else []
+                        tags = (
+                            list(raw_tags)
+                            if isinstance(raw_tags, (list, tuple))
+                            else []
+                        )
                     elif isinstance(data, str):
                         message_content = data
                         tags = []
