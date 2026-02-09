@@ -1,38 +1,13 @@
 """Tests for ParlantHistoryConverter.
 
 Tests for shared converter behavior (user messages, agent filtering, empty
-history, edge cases) live in tests/framework_conformance/test_converter_conformance.py.
+history, edge cases, output shape) live in
+tests/framework_conformance/test_converter_conformance.py.
 This file contains Parlant-specific assistant message formatting and
 guideline-based conversation tests.
 """
 
 from thenvoi.converters.parlant import ParlantHistoryConverter
-
-
-class TestOutputShape:
-    """Smoke test asserting the Parlant converter returns the expected type."""
-
-    def test_returns_list_of_dicts_with_required_keys(self):
-        converter = ParlantHistoryConverter()
-        raw = [
-            {
-                "role": "user",
-                "content": "Hello",
-                "sender_name": "Alice",
-                "sender_type": "User",
-                "message_type": "text",
-            }
-        ]
-
-        result = converter.convert(raw)
-
-        assert isinstance(result, list)
-        assert len(result) == 1
-        assert isinstance(result[0], dict)
-        assert "role" in result[0]
-        assert "content" in result[0]
-        assert "sender" in result[0]
-        assert "sender_type" in result[0]
 
 
 class TestAssistantMessages:

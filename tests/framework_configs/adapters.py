@@ -11,6 +11,16 @@ from dataclasses import dataclass, field
 from typing import Any, Callable
 from unittest.mock import MagicMock
 
+# Default model strings — keep in sync with the adapter __init__ defaults.
+# Centralised here so a model bump requires only one change in the test config.
+# Source: src/thenvoi/adapters/<framework>.py  __init__(model=...)
+_ANTHROPIC_DEFAULT_MODEL = "claude-sonnet-4-5-20250929"
+_CLAUDE_SDK_DEFAULT_MODEL = "claude-sonnet-4-5-20250929"
+_CREWAI_DEFAULT_MODEL = "gpt-4o"
+_PYDANTIC_AI_DEFAULT_MODEL = (
+    "openai:gpt-4o"  # factory-injected (adapter requires model)
+)
+
 
 @dataclass(frozen=True)
 class AdapterConfig:
@@ -71,16 +81,13 @@ _crewai_adapter_cls: type | None = None
 def _get_crewai_adapter_cls() -> type:
     """Import CrewAIAdapter once with mocked crewai dependencies.
 
-    The class is cached after the first import so subsequent calls do not
-    manipulate sys.modules.  This mirrors the monkeypatch-based approach in
-    tests/adapters/test_crewai_adapter.py but uses unittest.mock.patch.dict
-    since we are outside a pytest fixture context.
+    Uses ``importlib.util.spec_from_file_location`` to load the adapter
+    module into an isolated namespace, so *no* mutations to ``sys.modules``
+    are needed.  This makes the helper safe for use with pytest-xdist and
+    avoids races with other tests that import the real module.
 
-    SAFETY: The cached class references a module that is later removed from
-    sys.modules (so real imports in other tests get a fresh module).  This
-    means isinstance() checks between conformance-created instances and
-    instances from the real module will fail.  This is acceptable because
-    conformance tests only inspect primitive attributes (model, role, etc.)
+    The class is cached after the first import so subsequent calls are cheap.
+    Conformance tests only inspect primitive attributes (model, role, etc.)
     and never mix instances across import boundaries.  For runtime tests
     that invoke CrewAI methods or need isinstance compatibility, use the
     ``crewai_mocks`` and ``CrewAIAdapter`` monkeypatch-based fixtures in
@@ -90,10 +97,12 @@ def _get_crewai_adapter_cls() -> type:
     if _crewai_adapter_cls is not None:
         return _crewai_adapter_cls
 
-    import importlib
+    import importlib.util
+    import pathlib
     import sys
-    from unittest.mock import patch
+    import types
 
+    # Build mock crewai modules the adapter imports at module level.
     mock_crewai_module = MagicMock()
     mock_crewai_tools_module = MagicMock()
     mock_nest_asyncio = MagicMock()
@@ -110,21 +119,51 @@ def _get_crewai_adapter_cls() -> type:
 
     mock_crewai_tools_module.BaseTool = MockBaseTool
 
-    mock_modules = {
+    # Load the adapter module in an isolated namespace so sys.modules is
+    # never mutated.  The loader's exec_module will use the module's own
+    # __dict__ for its top-level imports, which we pre-populate with mocks.
+    adapter_path = (
+        pathlib.Path(__file__).resolve().parents[2]
+        / "src"
+        / "thenvoi"
+        / "adapters"
+        / "crewai.py"
+    )
+    spec = importlib.util.spec_from_file_location(
+        "_conformance_crewai_adapter", adapter_path
+    )
+    isolated_module = importlib.util.module_from_spec(spec)
+
+    # Inject mocked dependencies into the isolated module's namespace
+    # *before* exec_module runs its top-level imports.
+    saved = {}
+    mock_entries = {
         "crewai": mock_crewai_module,
         "crewai.tools": mock_crewai_tools_module,
         "nest_asyncio": mock_nest_asyncio,
     }
+    for name, mock in mock_entries.items():
+        saved[name] = sys.modules.get(name)
+        sys.modules[name] = mock
 
-    with patch.dict(sys.modules, mock_modules):
-        sys.modules.pop("thenvoi.adapters.crewai", None)
-        module = importlib.import_module("thenvoi.adapters.crewai")
-        _crewai_adapter_cls = module.CrewAIAdapter
+    # Also ensure the parent package is importable so relative imports work.
+    adapters_pkg_name = "thenvoi.adapters"
+    if adapters_pkg_name not in sys.modules:
+        adapters_pkg = types.ModuleType(adapters_pkg_name)
+        adapters_pkg.__path__ = [str(adapter_path.parent)]
+        sys.modules[adapters_pkg_name] = adapters_pkg
 
-    # patch.dict restores the original crewai/nest_asyncio entries;
-    # also clear the adapter module so later real imports aren't stale.
-    sys.modules.pop("thenvoi.adapters.crewai", None)
+    try:
+        spec.loader.exec_module(isolated_module)
+    finally:
+        # Restore original sys.modules entries (or remove mocks).
+        for name, original in saved.items():
+            if original is None:
+                sys.modules.pop(name, None)
+            else:
+                sys.modules[name] = original
 
+    _crewai_adapter_cls = isolated_module.CrewAIAdapter
     return _crewai_adapter_cls
 
 
@@ -143,7 +182,7 @@ def _pydantic_ai_factory(**kw: Any) -> Any:
     from thenvoi.adapters.pydantic_ai import PydanticAIAdapter
 
     if "model" not in kw:
-        kw["model"] = "openai:gpt-4o"
+        kw["model"] = _PYDANTIC_AI_DEFAULT_MODEL
     return PydanticAIAdapter(**kw)
 
 
@@ -170,7 +209,7 @@ ADAPTER_CONFIGS: list[AdapterConfig] = [
         display_name="Anthropic",
         adapter_factory=_anthropic_factory,
         default_values={
-            "model": "claude-sonnet-4-5-20250929",
+            "model": _ANTHROPIC_DEFAULT_MODEL,
             "max_tokens": 4096,
             "enable_execution_reporting": False,
         },
@@ -209,7 +248,7 @@ ADAPTER_CONFIGS: list[AdapterConfig] = [
         display_name="CrewAI",
         adapter_factory=_crewai_factory,
         default_values={
-            "model": "gpt-4o",
+            "model": _CREWAI_DEFAULT_MODEL,
             "role": None,
             "goal": None,
             "backstory": None,
@@ -248,7 +287,7 @@ ADAPTER_CONFIGS: list[AdapterConfig] = [
         display_name="ClaudeSDK",
         adapter_factory=_claude_sdk_factory,
         default_values={
-            "model": "claude-sonnet-4-5-20250929",
+            "model": _CLAUDE_SDK_DEFAULT_MODEL,
             "custom_section": None,
             "max_thinking_tokens": None,
             "permission_mode": "acceptEdits",
@@ -274,7 +313,7 @@ ADAPTER_CONFIGS: list[AdapterConfig] = [
         display_name="PydanticAI",
         adapter_factory=_pydantic_ai_factory,
         default_values={
-            "model": "openai:gpt-4o",
+            "model": _PYDANTIC_AI_DEFAULT_MODEL,
             "system_prompt": None,
             "custom_section": None,
             "enable_execution_reporting": False,

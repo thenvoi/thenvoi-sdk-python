@@ -9,46 +9,14 @@ from __future__ import annotations
 
 import pytest
 
-# ---------------------------------------------------------------------------
-# Shared tool event payloads
-# ---------------------------------------------------------------------------
-# Payloads include BOTH top-level keys and nested data.* paths because
-# different frameworks read from different locations:
-#   - Anthropic, ClaudeSDK, PydanticAI: read top-level args/output
-#   - LangChain: reads data.input / data.output
-# Always pair tool_call + tool_result so frameworks that require
-# pairing (e.g. LangChain) produce valid output.
-
-_TOOL_CALL_SEARCH = {
-    "role": "assistant",
-    "content": '{"name": "search", "args": {"query": "test"}, "data": {"input": {"query": "test"}}, "tool_call_id": "tc_1"}',
-    "message_type": "tool_call",
-}
-_TOOL_RESULT_SEARCH = {
-    "role": "assistant",
-    "content": '{"name": "search", "output": "result data", "data": {"output": "result data"}, "tool_call_id": "tc_1"}',
-    "message_type": "tool_result",
-}
-_TOOL_CALL_LOOKUP = {
-    "role": "assistant",
-    "content": '{"name": "lookup", "args": {"id": "42"}, "data": {"input": {"id": "42"}}, "tool_call_id": "tc_2"}',
-    "message_type": "tool_call",
-}
-_TOOL_RESULT_LOOKUP = {
-    "role": "assistant",
-    "content": '{"name": "lookup", "output": "found item 42", "data": {"output": "found item 42"}, "tool_call_id": "tc_2"}',
-    "message_type": "tool_result",
-}
-_TOOL_CALL_SEARCH_EMPTY = {
-    "role": "assistant",
-    "content": '{"name": "search", "args": {}, "data": {"input": {}}, "tool_call_id": "tc_1"}',
-    "message_type": "tool_call",
-}
-_TOOL_RESULT_SEARCH_FOUND = {
-    "role": "assistant",
-    "content": '{"name": "search", "output": "found", "data": {"output": "found"}, "tool_call_id": "tc_1"}',
-    "message_type": "tool_result",
-}
+from tests.framework_configs._fixtures import (
+    TOOL_CALL_LOOKUP,
+    TOOL_CALL_SEARCH,
+    TOOL_CALL_SEARCH_EMPTY,
+    TOOL_RESULT_LOOKUP,
+    TOOL_RESULT_SEARCH,
+    TOOL_RESULT_SEARCH_FOUND,
+)
 
 
 class TestUserTextMessages:
@@ -383,7 +351,7 @@ class TestToolEventConversion:
             pytest.skip(f"{converter_config.display_name} skips tool events")
 
         converter = make_converter()
-        raw = [_TOOL_CALL_SEARCH, _TOOL_RESULT_SEARCH]
+        raw = [TOOL_CALL_SEARCH, TOOL_RESULT_SEARCH]
 
         result = converter.convert(raw)
 
@@ -401,7 +369,7 @@ class TestToolEventConversion:
             pytest.skip(f"{converter_config.display_name} skips tool events")
 
         converter = make_converter()
-        raw = [_TOOL_CALL_LOOKUP, _TOOL_RESULT_LOOKUP]
+        raw = [TOOL_CALL_LOOKUP, TOOL_RESULT_LOOKUP]
 
         result = converter.convert(raw)
 
@@ -432,8 +400,8 @@ class TestToolEventConversion:
                 "sender_name": "HelperBot",
                 "message_type": "text",
             },
-            _TOOL_CALL_SEARCH_EMPTY,
-            _TOOL_RESULT_SEARCH_FOUND,
+            TOOL_CALL_SEARCH_EMPTY,
+            TOOL_RESULT_SEARCH_FOUND,
         ]
 
         result = converter.convert(raw)

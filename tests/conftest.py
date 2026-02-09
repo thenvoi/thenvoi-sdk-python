@@ -19,6 +19,7 @@ Run only one framework's tests:
 
 from __future__ import annotations
 
+import functools
 from datetime import datetime, timezone
 from unittest.mock import AsyncMock
 
@@ -47,23 +48,19 @@ from thenvoi_testing.markers import pytest_ignore_collect_in_ci as _ignore_colle
 # Framework name -> (adapter_id, converter_id, adapter_file, converter_file)
 # Use this name with: pytest tests/ --framework <name>
 # Derived from the config registries; add new frameworks there first.
-# Built lazily so that running unrelated tests (e.g. tests/runtime/) does not
-# force-import all framework configs and their transitive dependencies.
-_FRAMEWORK_RUN_MAP: dict[str, tuple[str, str, str, str]] | None = None
+# Built lazily (via @functools.cache) so that running unrelated tests
+# (e.g. tests/runtime/) does not force-import all framework configs and
+# their transitive dependencies.
 
 
+@functools.cache
 def _get_framework_run_map() -> dict[str, tuple[str, str, str, str]]:
-    global _FRAMEWORK_RUN_MAP
-    if _FRAMEWORK_RUN_MAP is not None:
-        return _FRAMEWORK_RUN_MAP
-
+    from tests.framework_configs import CONVERTER_ID_FOR_ADAPTER
     from tests.framework_configs.adapters import ADAPTER_CONFIGS
     from tests.framework_configs.converters import CONVERTER_CONFIGS
 
     converter_by_id = {c.framework_id: c for c in CONVERTER_CONFIGS}
     run_map: dict[str, tuple[str, str, str, str]] = {}
-
-    from tests.framework_configs import CONVERTER_ID_FOR_ADAPTER
 
     for ac in ADAPTER_CONFIGS:
         fid = ac.framework_id
@@ -73,8 +70,7 @@ def _get_framework_run_map() -> dict[str, tuple[str, str, str, str]]:
         converter_file = f"test_{cc.framework_id}.py"
         run_map[fid] = (fid, cid, adapter_file, converter_file)
 
-    _FRAMEWORK_RUN_MAP = run_map
-    return _FRAMEWORK_RUN_MAP
+    return run_map
 
 
 def pytest_addoption(parser):

@@ -1,7 +1,8 @@
 """Tests for ClaudeSDKHistoryConverter.
 
 Tests for shared converter behavior (user messages, agent filtering, empty
-history, edge cases) live in tests/framework_conformance/test_converter_conformance.py.
+history, edge cases, output shape) live in
+tests/framework_conformance/test_converter_conformance.py.
 This file contains ClaudeSDK-specific multi-message joining, tool event
 handling, and mixed history integration tests.
 """
@@ -9,25 +10,6 @@ handling, and mixed history integration tests.
 import json
 
 from thenvoi.converters.claude_sdk import ClaudeSDKHistoryConverter
-
-
-class TestOutputShape:
-    """Smoke test asserting the ClaudeSDK converter returns a string."""
-
-    def test_returns_string(self):
-        converter = ClaudeSDKHistoryConverter()
-        raw = [
-            {
-                "role": "user",
-                "content": "Hello",
-                "sender_name": "Alice",
-                "message_type": "text",
-            }
-        ]
-
-        result = converter.convert(raw)
-
-        assert isinstance(result, str)
 
 
 class TestBasicConversion:

@@ -118,7 +118,11 @@ CONVERTER_CONFIGS: list[ConverterConfig] = [
         return_type="list",
         empty_result=[],
         empty_sender_behavior="brackets_empty",
-        missing_sender_behavior="content_as_is",  # not tested (has_missing_sender_name_test=False)
+        # LangChain uses hist.get("sender_name", ""), so a *missing* key
+        # produces the same "[]: content" as an empty string (brackets_empty).
+        # This is identical to empty_sender_behavior and doesn't map cleanly
+        # to "content_as_is" or "unknown_prefix", so the test is skipped.
+        missing_sender_behavior="brackets_empty",
         has_missing_sender_name_test=False,
         output_adapter=LangChainOutputAdapter(),
     ),
