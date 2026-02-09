@@ -79,7 +79,8 @@ def _get_crewai_adapter_cls() -> type:
     conformance tests only inspect primitive attributes (model, role, etc.)
     and never mix instances across import boundaries.  For runtime tests
     that invoke CrewAI methods or need isinstance compatibility, use the
-    monkeypatch-based fixtures in tests/adapters/test_crewai_adapter.py.
+    ``crewai_mocks`` and ``CrewAIAdapter`` monkeypatch-based fixtures in
+    tests/adapters/test_crewai_adapter.py.
     """
     global _crewai_adapter_cls
     if _crewai_adapter_cls is not None:

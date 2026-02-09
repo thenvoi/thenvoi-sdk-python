@@ -136,7 +136,9 @@ def room_context(crewai_mocks, mock_tools):
     return _room_context
 
 
-class TestInitialization:
+class TestCrewAISpecificInitialization:
+    """CrewAI-specific initialization tests (shared init tests live in conformance)."""
+
     def test_system_prompt_deprecation_warning(self, CrewAIAdapter):
         """system_prompt parameter should emit DeprecationWarning."""
         import warnings

@@ -109,11 +109,13 @@ def pytest_collection_modifyitems(config, items):
 
     def keep(item):
         nodeid = item.nodeid
-        # Conformance: parametrized with [adapter_id] or [converter_id]
+        # Conformance: parametrized ids always appear as the final [...] suffix.
+        # Match on trailing bracket to avoid false-matching test names that
+        # happen to contain a framework id as a substring.
         if "framework_conformance/test_adapter_conformance" in nodeid:
-            return f"[{adapter_id}]" in nodeid
+            return nodeid.endswith(f"[{adapter_id}]")
         if "framework_conformance/test_converter_conformance" in nodeid:
-            return f"[{converter_id}]" in nodeid
+            return nodeid.endswith(f"[{converter_id}]")
         # Framework-specific adapter/converter test files
         if f"adapters/{adapter_file}" in nodeid:
             return True

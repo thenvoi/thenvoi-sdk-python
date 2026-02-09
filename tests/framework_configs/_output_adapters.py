@@ -169,9 +169,10 @@ class StringOutputAdapter:
         return result.split("\n")[index]
 
     def get_role(self, result: str, index: int) -> str:
-        # ClaudeSDK returns a flat string; infer role from prefix convention.
-        # Lines with [Name]: prefix are user/other-agent messages (mapped to "user").
-        # Tool event lines start with "Tool call:" or "Tool result:" (mapped to "assistant").
+        # Best-effort heuristic: ClaudeSDK returns a flat string with no
+        # structured role field.  We infer role from line prefixes.  This is
+        # only used by conformance tests that skip when has_role_concept=False,
+        # so incorrect inference here would not silently pass assertions.
         line = result.split("\n")[index]
         if line.startswith(("Tool call:", "Tool result:")):
             return "assistant"
