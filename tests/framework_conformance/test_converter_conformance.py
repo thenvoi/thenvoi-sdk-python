@@ -9,6 +9,47 @@ from __future__ import annotations
 
 import pytest
 
+# ---------------------------------------------------------------------------
+# Shared tool event payloads
+# ---------------------------------------------------------------------------
+# Payloads include BOTH top-level keys and nested data.* paths because
+# different frameworks read from different locations:
+#   - Anthropic, ClaudeSDK, PydanticAI: read top-level args/output
+#   - LangChain: reads data.input / data.output
+# Always pair tool_call + tool_result so frameworks that require
+# pairing (e.g. LangChain) produce valid output.
+
+_TOOL_CALL_SEARCH = {
+    "role": "assistant",
+    "content": '{"name": "search", "args": {"query": "test"}, "data": {"input": {"query": "test"}}, "tool_call_id": "tc_1"}',
+    "message_type": "tool_call",
+}
+_TOOL_RESULT_SEARCH = {
+    "role": "assistant",
+    "content": '{"name": "search", "output": "result data", "data": {"output": "result data"}, "tool_call_id": "tc_1"}',
+    "message_type": "tool_result",
+}
+_TOOL_CALL_LOOKUP = {
+    "role": "assistant",
+    "content": '{"name": "lookup", "args": {"id": "42"}, "data": {"input": {"id": "42"}}, "tool_call_id": "tc_2"}',
+    "message_type": "tool_call",
+}
+_TOOL_RESULT_LOOKUP = {
+    "role": "assistant",
+    "content": '{"name": "lookup", "output": "found item 42", "data": {"output": "found item 42"}, "tool_call_id": "tc_2"}',
+    "message_type": "tool_result",
+}
+_TOOL_CALL_SEARCH_EMPTY = {
+    "role": "assistant",
+    "content": '{"name": "search", "args": {}, "data": {"input": {}}, "tool_call_id": "tc_1"}',
+    "message_type": "tool_call",
+}
+_TOOL_RESULT_SEARCH_FOUND = {
+    "role": "assistant",
+    "content": '{"name": "search", "output": "found", "data": {"output": "found"}, "tool_call_id": "tc_1"}',
+    "message_type": "tool_result",
+}
+
 
 class TestUserTextMessages:
     """All converters must handle user text messages consistently."""
@@ -342,24 +383,7 @@ class TestToolEventConversion:
             pytest.skip(f"{converter_config.display_name} skips tool events")
 
         converter = make_converter()
-        # Payload includes BOTH top-level keys and nested data.* paths because
-        # different frameworks read from different locations:
-        #   - Anthropic, ClaudeSDK, PydanticAI: read top-level args/output
-        #   - LangChain: reads data.input / data.output
-        # Always pair tool_call + tool_result so frameworks that require
-        # pairing (e.g. LangChain) produce valid output.
-        raw = [
-            {
-                "role": "assistant",
-                "content": '{"name": "search", "args": {"query": "test"}, "data": {"input": {"query": "test"}}, "tool_call_id": "tc_1"}',
-                "message_type": "tool_call",
-            },
-            {
-                "role": "assistant",
-                "content": '{"name": "search", "output": "result data", "data": {"output": "result data"}, "tool_call_id": "tc_1"}',
-                "message_type": "tool_result",
-            },
-        ]
+        raw = [_TOOL_CALL_SEARCH, _TOOL_RESULT_SEARCH]
 
         result = converter.convert(raw)
 
@@ -377,20 +401,7 @@ class TestToolEventConversion:
             pytest.skip(f"{converter_config.display_name} skips tool events")
 
         converter = make_converter()
-        # Both top-level and nested data.* paths included (see comment in
-        # test_converts_tool_call_to_framework_format for rationale).
-        raw = [
-            {
-                "role": "assistant",
-                "content": '{"name": "lookup", "args": {"id": "42"}, "data": {"input": {"id": "42"}}, "tool_call_id": "tc_2"}',
-                "message_type": "tool_call",
-            },
-            {
-                "role": "assistant",
-                "content": '{"name": "lookup", "output": "found item 42", "data": {"output": "found item 42"}, "tool_call_id": "tc_2"}',
-                "message_type": "tool_result",
-            },
-        ]
+        raw = [_TOOL_CALL_LOOKUP, _TOOL_RESULT_LOOKUP]
 
         result = converter.convert(raw)
 
@@ -401,11 +412,13 @@ class TestToolEventConversion:
     def test_mixed_history_includes_user_assistant_tool_messages(
         self, converter_config, make_converter, output
     ):
-        """User + assistant + tool_call + tool_result is converted in order."""
+        """User + other-agent assistant + tool_call + tool_result converted in order."""
         if converter_config.skips_tool_events:
             pytest.skip(f"{converter_config.display_name} skips tool events")
 
-        converter = make_converter()
+        # Use agent_name so own-message filtering is active, and attribute
+        # the assistant text to a *different* agent so it is always included.
+        converter = make_converter(agent_name="MyBot")
         raw = [
             {
                 "role": "user",
@@ -416,19 +429,11 @@ class TestToolEventConversion:
             {
                 "role": "assistant",
                 "content": "Searching...",
-                "sender_name": "Agent",
+                "sender_name": "HelperBot",
                 "message_type": "text",
             },
-            {
-                "role": "assistant",
-                "content": '{"name": "search", "args": {}, "data": {"input": {}}, "tool_call_id": "tc_1"}',
-                "message_type": "tool_call",
-            },
-            {
-                "role": "assistant",
-                "content": '{"name": "search", "output": "found", "data": {"output": "found"}, "tool_call_id": "tc_1"}',
-                "message_type": "tool_result",
-            },
+            _TOOL_CALL_SEARCH_EMPTY,
+            _TOOL_RESULT_SEARCH_FOUND,
         ]
 
         result = converter.convert(raw)

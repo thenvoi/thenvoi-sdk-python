@@ -63,16 +63,11 @@ def _get_framework_run_map() -> dict[str, tuple[str, str, str, str]]:
     converter_by_id = {c.framework_id: c for c in CONVERTER_CONFIGS}
     run_map: dict[str, tuple[str, str, str, str]] = {}
 
-    # Adapter config drives the mapping; converter_id may differ (e.g. langgraph -> langchain).
-    # This is the canonical source of truth for adapter→converter id overrides.
-    # Keep in sync with FRAMEWORK_VERIFICATION.md "Converter framework_ids" note.
-    _CONVERTER_ID_FOR_ADAPTER: dict[str, str] = {
-        "langgraph": "langchain",
-    }
+    from tests.framework_configs import CONVERTER_ID_FOR_ADAPTER
 
     for ac in ADAPTER_CONFIGS:
         fid = ac.framework_id
-        cid = _CONVERTER_ID_FOR_ADAPTER.get(fid, fid)
+        cid = CONVERTER_ID_FOR_ADAPTER.get(fid, fid)
         cc = converter_by_id[cid]
         adapter_file = f"test_{fid}_adapter.py"
         converter_file = f"test_{cc.framework_id}.py"

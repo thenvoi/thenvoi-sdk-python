@@ -8,8 +8,8 @@ Use this list to verify that your **adapter** and **converter** implement the Th
 
 To add a new framework, it **must** pass all applicable tests below. There are two layers:
 
-1. **Parameterized conformance tests** – All mandatory tests that can be expressed generically live in `tests/framework_conformance/`. Same test code runs for every framework; behavior differences (e.g. empty sender, own-message filtering) are expressed via config. You must register your framework in `tests/framework_configs/` with the correct behavior and **pass** these tests (or be explicitly skipped only where the contract allows).
-2. **Framework-specific coverage** – The remaining areas that require per-framework mocks or APIs (bootstrap, invoke/response, error handling, etc.) **must** be implemented in `tests/adapters/test_<framework>_adapter.py` and `tests/converters/test_<framework>.py`. The assertion logic can differ per framework; the coverage is mandatory.
+1. **Parameterized conformance tests** – All mandatory tests that can be expressed generically live in [`tests/framework_conformance/`](framework_conformance/). Same test code runs for every framework; behavior differences (e.g. empty sender, own-message filtering) are expressed via config. You must register your framework in [`tests/framework_configs/`](framework_configs/) with the correct behavior and **pass** these tests (or be explicitly skipped only where the contract allows).
+2. **Framework-specific coverage** – The remaining areas that require per-framework mocks or APIs (bootstrap, invoke/response, error handling, etc.) **must** be implemented in [`tests/adapters/test_<framework>_adapter.py`](adapters/) and [`tests/converters/test_<framework>.py`](converters/). The assertion logic can differ per framework; the coverage is mandatory.
 
 ### Adapter: mandatory parameterized tests (must pass)
 
@@ -115,7 +115,7 @@ uv run pytest tests/framework_conformance/test_converter_conformance.py -k "<fra
 
 **Adapter framework_ids:** `anthropic`, `langgraph`, `crewai`, `claude_sdk`, `pydantic_ai`, `parlant`
 **Converter framework_ids:** `anthropic`, `langchain`, `crewai`, `claude_sdk`, `pydantic_ai`, `parlant`
-*(Note: LangGraph adapter uses converter `langchain`. The canonical mapping lives in `_CONVERTER_ID_FOR_ADAPTER` inside `_get_framework_run_map()` in `tests/conftest.py`.)*
+*(Note: LangGraph adapter uses converter `langchain`. The canonical mapping lives in `CONVERTER_ID_FOR_ADAPTER` in [`tests/framework_configs/__init__.py`](framework_configs/__init__.py).)*
 
 ---
 
@@ -174,7 +174,7 @@ uv run pytest \
 ## 4. Adding a new framework
 
 1. Implement adapter and converter (and register in `src/thenvoi/`).
-2. Add `AdapterConfig` to `tests/framework_configs/adapters.py` and `ConverterConfig` to `tests/framework_configs/converters.py` (including an `OutputAdapter` if the converter returns a custom shape).
+2. Add `AdapterConfig` to [`tests/framework_configs/adapters.py`](framework_configs/adapters.py) and `ConverterConfig` to [`tests/framework_configs/converters.py`](framework_configs/converters.py) (including an `OutputAdapter` if the converter returns a custom shape). If the adapter's converter has a different framework_id, add an entry to `CONVERTER_ID_FOR_ADAPTER` in [`tests/framework_configs/__init__.py`](framework_configs/__init__.py).
 3. The `--framework <name>` run map is derived automatically from the config registries in `tests/conftest.py`. No manual entry needed — just ensure your `AdapterConfig.framework_id` matches the name you want to use.
 4. Run conformance tests for your new `framework_id`; fix behavior or config until they pass.
 5. Add `tests/adapters/test_<your>_adapter.py` and `tests/converters/test_<your>.py` for framework-specific behavior.

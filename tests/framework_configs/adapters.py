@@ -72,10 +72,14 @@ def _get_crewai_adapter_cls() -> type:
     tests/adapters/test_crewai_adapter.py but uses unittest.mock.patch.dict
     since we are outside a pytest fixture context.
 
-    NOTE: Suitable for conformance tests that only inspect primitive
-    attributes (model, role, etc.).  For runtime tests that invoke CrewAI
-    methods, use the monkeypatch-based fixtures in
-    tests/adapters/test_crewai_adapter.py instead.
+    SAFETY: The cached class references a module that is later removed from
+    sys.modules (so real imports in other tests get a fresh module).  This
+    means isinstance() checks between conformance-created instances and
+    instances from the real module will fail.  This is acceptable because
+    conformance tests only inspect primitive attributes (model, role, etc.)
+    and never mix instances across import boundaries.  For runtime tests
+    that invoke CrewAI methods or need isinstance compatibility, use the
+    monkeypatch-based fixtures in tests/adapters/test_crewai_adapter.py.
     """
     global _crewai_adapter_cls
     if _crewai_adapter_cls is not None:
