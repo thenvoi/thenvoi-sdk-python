@@ -7,6 +7,7 @@ Public API:
   - ``CONVERTER_ID_FOR_ADAPTER``: adapter → converter id mapping
   - ``adapters.ADAPTER_CONFIGS``: adapter config registry
   - ``converters.CONVERTER_CONFIGS``: converter config registry
+  - ``converters.SenderBehavior``: enum for sender_name handling
   - ``_fixtures``: shared tool-event payloads for conformance tests
 """
 

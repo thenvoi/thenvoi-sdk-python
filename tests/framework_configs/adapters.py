@@ -7,6 +7,7 @@ run identical logic across all six adapters.
 
 from __future__ import annotations
 
+import functools
 from dataclasses import dataclass, field
 from typing import Any, Callable
 from unittest.mock import MagicMock
@@ -75,27 +76,25 @@ def _langgraph_factory(**kw: Any) -> Any:
 # (e.g. on_message, _invoke_crew).  They are only safe for inspecting primitive
 # attributes (model, role, etc.).  For runtime/method tests, use the
 # monkeypatch-based fixtures in tests/adapters/test_crewai_adapter.py.
-_crewai_adapter_cls: type | None = None
 
 
+@functools.cache
 def _get_crewai_adapter_cls() -> type:
     """Import CrewAIAdapter once with mocked crewai dependencies.
 
     Uses ``importlib.util.spec_from_file_location`` to load the adapter
-    module into an isolated namespace, so *no* mutations to ``sys.modules``
-    are needed.  This makes the helper safe for use with pytest-xdist and
-    avoids races with other tests that import the real module.
+    module into an isolated namespace.  ``sys.modules`` is temporarily
+    mutated to inject mock dependencies during ``exec_module`` and
+    restored in a ``finally`` block immediately after.
 
-    The class is cached after the first import so subsequent calls are cheap.
-    Conformance tests only inspect primitive attributes (model, role, etc.)
-    and never mix instances across import boundaries.  For runtime tests
-    that invoke CrewAI methods or need isinstance compatibility, use the
-    ``crewai_mocks`` and ``CrewAIAdapter`` monkeypatch-based fixtures in
+    The result is cached via ``@functools.cache`` so subsequent calls
+    are cheap and thread-safe.  Conformance tests only inspect primitive
+    attributes (model, role, etc.) and never mix instances across import
+    boundaries.  For runtime tests that invoke CrewAI methods or need
+    isinstance compatibility, use the ``crewai_mocks`` and
+    ``CrewAIAdapter`` monkeypatch-based fixtures in
     tests/adapters/test_crewai_adapter.py.
     """
-    global _crewai_adapter_cls
-    if _crewai_adapter_cls is not None:
-        return _crewai_adapter_cls
 
     import importlib.util
     import pathlib
@@ -163,8 +162,7 @@ def _get_crewai_adapter_cls() -> type:
             else:
                 sys.modules[name] = original
 
-    _crewai_adapter_cls = isolated_module.CrewAIAdapter
-    return _crewai_adapter_cls
+    return isolated_module.CrewAIAdapter
 
 
 def _crewai_factory(**kw: Any) -> Any:

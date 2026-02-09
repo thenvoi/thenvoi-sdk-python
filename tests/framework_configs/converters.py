@@ -8,6 +8,7 @@ across all six converters.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from enum import StrEnum
 from typing import Any, Callable
 
 from tests.framework_configs._output_adapters import (
@@ -18,6 +19,14 @@ from tests.framework_configs._output_adapters import (
     SimpleDictListOutputAdapter,
     StringOutputAdapter,
 )
+
+
+class SenderBehavior(StrEnum):
+    """How a converter handles empty or missing sender_name."""
+
+    CONTENT_AS_IS = "content_as_is"  # content returned without prefix
+    BRACKETS_EMPTY = "brackets_empty"  # "[]: content"
+    UNKNOWN_PREFIX = "unknown_prefix"  # "[Unknown]: content"
 
 
 @dataclass(frozen=True)
@@ -39,12 +48,9 @@ class ConverterConfig:
     filters_own_messages: bool = True
     skips_tool_events: bool = False
 
-    # How empty/missing sender_name is handled:
-    #   "content_as_is"   -> content returned without prefix
-    #   "brackets_empty"  -> "[]: content"
-    #   "unknown_prefix"  -> "[Unknown]: content"
-    empty_sender_behavior: str = "content_as_is"
-    missing_sender_behavior: str = "content_as_is"
+    # How empty/missing sender_name is handled
+    empty_sender_behavior: SenderBehavior = SenderBehavior.CONTENT_AS_IS
+    missing_sender_behavior: SenderBehavior = SenderBehavior.CONTENT_AS_IS
 
     # Edge case flags
     skips_empty_content: bool = False
@@ -107,8 +113,8 @@ CONVERTER_CONFIGS: list[ConverterConfig] = [
         converter_factory=_anthropic_factory,
         return_type="list",
         empty_result=[],
-        empty_sender_behavior="content_as_is",
-        missing_sender_behavior="content_as_is",
+        empty_sender_behavior=SenderBehavior.CONTENT_AS_IS,
+        missing_sender_behavior=SenderBehavior.CONTENT_AS_IS,
         output_adapter=DictListOutputAdapter(),
     ),
     ConverterConfig(
@@ -117,12 +123,12 @@ CONVERTER_CONFIGS: list[ConverterConfig] = [
         converter_factory=_langchain_factory,
         return_type="list",
         empty_result=[],
-        empty_sender_behavior="brackets_empty",
+        empty_sender_behavior=SenderBehavior.BRACKETS_EMPTY,
         # LangChain uses hist.get("sender_name", ""), so a *missing* key
         # produces the same "[]: content" as an empty string (brackets_empty).
         # This is identical to empty_sender_behavior and doesn't map cleanly
         # to "content_as_is" or "unknown_prefix", so the test is skipped.
-        missing_sender_behavior="brackets_empty",
+        missing_sender_behavior=SenderBehavior.BRACKETS_EMPTY,
         has_missing_sender_name_test=False,
         output_adapter=LangChainOutputAdapter(),
     ),
@@ -133,8 +139,8 @@ CONVERTER_CONFIGS: list[ConverterConfig] = [
         return_type="list",
         empty_result=[],
         skips_tool_events=True,
-        empty_sender_behavior="content_as_is",
-        missing_sender_behavior="content_as_is",
+        empty_sender_behavior=SenderBehavior.CONTENT_AS_IS,
+        missing_sender_behavior=SenderBehavior.CONTENT_AS_IS,
         output_adapter=SimpleDictListOutputAdapter(),
     ),
     ConverterConfig(
@@ -143,8 +149,8 @@ CONVERTER_CONFIGS: list[ConverterConfig] = [
         converter_factory=_claude_sdk_factory,
         return_type="string",
         empty_result="",
-        empty_sender_behavior="brackets_empty",
-        missing_sender_behavior="unknown_prefix",
+        empty_sender_behavior=SenderBehavior.BRACKETS_EMPTY,
+        missing_sender_behavior=SenderBehavior.UNKNOWN_PREFIX,
         skips_empty_content=True,
         has_role_concept=False,
         output_adapter=StringOutputAdapter(),
@@ -155,8 +161,8 @@ CONVERTER_CONFIGS: list[ConverterConfig] = [
         converter_factory=_pydantic_ai_factory,
         return_type="list",
         empty_result=[],
-        empty_sender_behavior="content_as_is",
-        missing_sender_behavior="content_as_is",
+        empty_sender_behavior=SenderBehavior.CONTENT_AS_IS,
+        missing_sender_behavior=SenderBehavior.CONTENT_AS_IS,
         output_adapter=PydanticAIOutputAdapter(),
     ),
     ConverterConfig(
@@ -168,8 +174,8 @@ CONVERTER_CONFIGS: list[ConverterConfig] = [
         filters_own_messages=False,
         skips_tool_events=True,
         skips_empty_content=True,
-        empty_sender_behavior="content_as_is",
-        missing_sender_behavior="content_as_is",
+        empty_sender_behavior=SenderBehavior.CONTENT_AS_IS,
+        missing_sender_behavior=SenderBehavior.CONTENT_AS_IS,
         output_adapter=SimpleDictListOutputAdapter(),
     ),
 ]

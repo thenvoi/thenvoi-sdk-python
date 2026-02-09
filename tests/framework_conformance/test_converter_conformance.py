@@ -17,6 +17,7 @@ from tests.framework_configs._fixtures import (
     TOOL_RESULT_SEARCH,
     TOOL_RESULT_SEARCH_FOUND,
 )
+from tests.framework_configs.converters import SenderBehavior
 
 
 class TestUserTextMessages:
@@ -56,14 +57,16 @@ class TestUserTextMessages:
         result = converter.convert(raw)
 
         behavior = converter_config.empty_sender_behavior
-        if behavior == "content_as_is":
+        if behavior is SenderBehavior.CONTENT_AS_IS:
             assert output.content_contains(result, "Hello!")
             # Should NOT have a bracket prefix (empty sender should not produce "[]: ")
             assert not output.content_contains(result, "[]: ")
-        elif behavior == "brackets_empty":
+        elif behavior is SenderBehavior.BRACKETS_EMPTY:
             assert output.content_contains(result, "[]: Hello!")
-        elif behavior == "unknown_prefix":
+        elif behavior is SenderBehavior.UNKNOWN_PREFIX:
             assert output.content_contains(result, "[Unknown]: Hello!")
+        else:
+            raise ValueError(f"Unknown empty_sender_behavior: {behavior!r}")
 
     def test_handles_missing_sender_name(
         self, converter_config, make_converter, output
@@ -86,10 +89,12 @@ class TestUserTextMessages:
         result = converter.convert(raw)
 
         behavior = converter_config.missing_sender_behavior
-        if behavior == "content_as_is":
+        if behavior is SenderBehavior.CONTENT_AS_IS:
             assert output.content_contains(result, "Hello!")
-        elif behavior == "unknown_prefix":
+        elif behavior is SenderBehavior.UNKNOWN_PREFIX:
             assert output.content_contains(result, "[Unknown]: Hello!")
+        else:
+            raise ValueError(f"Unknown missing_sender_behavior: {behavior!r}")
 
 
 class TestEmptyHistory:
