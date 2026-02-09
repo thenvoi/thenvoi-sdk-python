@@ -23,7 +23,10 @@ class OutputTypeAdapter(Protocol):
 
 
 class BaseAdapter:
-    """Base adapter with common functionality."""
+    """Base adapter with common functionality.
+
+    Subclasses must implement get_content() and get_role().
+    """
 
     def _get(self, result: Any, index: int) -> Any:
         """Safely get item at index, returns None if out of bounds."""
@@ -33,6 +36,12 @@ class BaseAdapter:
 
     def get_length(self, result: Any) -> int:
         return len(result) if result else 0
+
+    def get_content(self, result: Any, index: int) -> str:
+        raise NotImplementedError("Subclasses must implement get_content")
+
+    def get_role(self, result: Any, index: int) -> str:
+        raise NotImplementedError("Subclasses must implement get_role")
 
     # Default implementations for tool methods (most adapters don't support these)
     def has_tool_call(

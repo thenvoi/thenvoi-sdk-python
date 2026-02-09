@@ -6,7 +6,7 @@ import sys
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Any, AsyncIterator, Callable, Literal, Protocol
+from typing import Any, AsyncIterator, Literal, Protocol
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from thenvoi.core.types import PlatformMessage
@@ -64,12 +64,10 @@ class AdapterConfig:
 
     # Required fields
     name: str
-    adapter_class: type[Any] | None
     factory: AdapterFactory
 
     # Mock configuration
     requires_mocks: bool = False
-    mock_setup: Callable[[], Any] | None = None
 
     # Feature support flags
     has_history_converter: bool = True
@@ -294,7 +292,6 @@ def make_standard_adapter_config(
     """Create AdapterConfig with standard defaults."""
     return AdapterConfig(
         name=name,
-        adapter_class=None,
         factory=factory,
         requires_mocks=requires_mocks,
         has_history_converter=has_history_converter,
@@ -621,7 +618,16 @@ def _verify_crewai_participants(
     participants_msg: str,
     mocks: dict | None = None,
 ) -> bool:
-    return "room-123" in adapter._message_history
+    if adapter._crewai_agent is None:
+        return False
+    call_args = adapter._crewai_agent.kickoff_async.call_args
+    if call_args is None:
+        return False
+    messages = call_args[0][0] if call_args[0] else []
+    return any(
+        f"[System]: {participants_msg}" in str(m.get("content", ""))
+        for m in messages
+    )
 
 
 # =============================================================================
