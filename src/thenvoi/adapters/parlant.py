@@ -395,7 +395,8 @@ class ParlantAdapter(SimpleAdapter[ParlantMessages]):
             )
 
             try:
-                has_update = await app.sessions.wait_for_update(
+                # SessionModule has wait_for_update at runtime; parlant stubs may be incomplete
+                has_update = await app.sessions.wait_for_update(  # pyrefly: ignore[missing-attribute]
                     session_id=session_id,
                     min_offset=current_offset + 1,
                     kinds=[EventKind.MESSAGE],
