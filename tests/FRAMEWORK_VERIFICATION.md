@@ -115,7 +115,7 @@ uv run pytest tests/framework_conformance/test_converter_conformance.py -k "<fra
 
 **Adapter framework_ids:** `anthropic`, `langgraph`, `crewai`, `claude_sdk`, `pydantic_ai`, `parlant`
 **Converter framework_ids:** `anthropic`, `langchain`, `crewai`, `claude_sdk`, `pydantic_ai`, `parlant`
-*(Note: LangGraph adapter uses converter `langchain`. The canonical mapping lives in `_CONVERTER_ID_FOR_ADAPTER` in `tests/conftest.py`.)*
+*(Note: LangGraph adapter uses converter `langchain`. The canonical mapping lives in `_CONVERTER_ID_FOR_ADAPTER` inside `_get_framework_run_map()` in `tests/conftest.py`.)*
 
 ---
 
@@ -175,7 +175,7 @@ uv run pytest \
 
 1. Implement adapter and converter (and register in `src/thenvoi/`).
 2. Add `AdapterConfig` to `tests/framework_configs/adapters.py` and `ConverterConfig` to `tests/framework_configs/converters.py` (including an `OutputAdapter` if the converter returns a custom shape).
-3. Add your framework to `FRAMEWORK_RUN_MAP` in `tests/conftest.py` so `--framework <name>` works: `"<name>": (adapter_id, converter_id, "test_<your>_adapter.py", "test_<your>.py")`.
+3. The `--framework <name>` run map is derived automatically from the config registries in `tests/conftest.py`. No manual entry needed — just ensure your `AdapterConfig.framework_id` matches the name you want to use.
 4. Run conformance tests for your new `framework_id`; fix behavior or config until they pass.
 5. Add `tests/adapters/test_<your>_adapter.py` and `tests/converters/test_<your>.py` for framework-specific behavior.
 6. Run: `uv run pytest tests/ --framework <name> -v`.

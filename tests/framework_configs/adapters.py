@@ -61,20 +61,26 @@ def _langgraph_factory(**kw: Any) -> Any:
     return LangGraphAdapter(**kw)
 
 
-def _crewai_factory(**kw: Any) -> Any:
-    """Create a CrewAIAdapter with mocked crewai dependencies.
+_crewai_adapter_cls: type | None = None
 
-    Uses patch.dict to temporarily inject mock modules and force-reimport
-    the adapter.  patch.dict restores sys.modules on exit, so the mock
-    crewai/crewai.tools entries do not leak into other tests.
 
-    NOTE: The returned adapter holds references to objects created while
-    the mocked crewai was active.  This is fine for conformance tests
-    (which only inspect primitive attributes like model, role, etc.)
-    but NOT suitable for tests that invoke CrewAI runtime methods.
-    For runtime tests, use the monkeypatch-based fixtures in
+def _get_crewai_adapter_cls() -> type:
+    """Import CrewAIAdapter once with mocked crewai dependencies.
+
+    The class is cached after the first import so subsequent calls do not
+    manipulate sys.modules.  This mirrors the monkeypatch-based approach in
+    tests/adapters/test_crewai_adapter.py but uses unittest.mock.patch.dict
+    since we are outside a pytest fixture context.
+
+    NOTE: Suitable for conformance tests that only inspect primitive
+    attributes (model, role, etc.).  For runtime tests that invoke CrewAI
+    methods, use the monkeypatch-based fixtures in
     tests/adapters/test_crewai_adapter.py instead.
     """
+    global _crewai_adapter_cls
+    if _crewai_adapter_cls is not None:
+        return _crewai_adapter_cls
+
     import importlib
     import sys
     from unittest.mock import patch
@@ -101,25 +107,21 @@ def _crewai_factory(**kw: Any) -> Any:
         "nest_asyncio": mock_nest_asyncio,
     }
 
-    # Save the original adapter module (if any) so we can restore it.
-    _original = sys.modules.get("thenvoi.adapters.crewai")
+    with patch.dict(sys.modules, mock_modules):
+        sys.modules.pop("thenvoi.adapters.crewai", None)
+        module = importlib.import_module("thenvoi.adapters.crewai")
+        _crewai_adapter_cls = module.CrewAIAdapter
 
-    try:
-        with patch.dict(sys.modules, mock_modules):
-            # Force reimport to pick up mocked modules
-            sys.modules.pop("thenvoi.adapters.crewai", None)
-            module = importlib.import_module("thenvoi.adapters.crewai")
-            adapter = module.CrewAIAdapter(**kw)
-    finally:
-        # patch.dict restores crewai/crewai.tools/nest_asyncio.
-        # Explicitly restore the adapter module too, so later imports get
-        # the real (or absent) module — not the mock-backed reimport.
-        if _original is not None:
-            sys.modules["thenvoi.adapters.crewai"] = _original
-        else:
-            sys.modules.pop("thenvoi.adapters.crewai", None)
+    # patch.dict restores the original crewai/nest_asyncio entries;
+    # also clear the adapter module so later real imports aren't stale.
+    sys.modules.pop("thenvoi.adapters.crewai", None)
 
-    return adapter
+    return _crewai_adapter_cls
+
+
+def _crewai_factory(**kw: Any) -> Any:
+    cls = _get_crewai_adapter_cls()
+    return cls(**kw)
 
 
 def _claude_sdk_factory(**kw: Any) -> Any:

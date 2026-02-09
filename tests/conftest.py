@@ -47,7 +47,16 @@ from thenvoi_testing.markers import pytest_ignore_collect_in_ci as _ignore_colle
 # Framework name -> (adapter_id, converter_id, adapter_file, converter_file)
 # Use this name with: pytest tests/ --framework <name>
 # Derived from the config registries; add new frameworks there first.
-def _build_framework_run_map() -> dict[str, tuple[str, str, str, str]]:
+# Built lazily so that running unrelated tests (e.g. tests/runtime/) does not
+# force-import all framework configs and their transitive dependencies.
+_FRAMEWORK_RUN_MAP: dict[str, tuple[str, str, str, str]] | None = None
+
+
+def _get_framework_run_map() -> dict[str, tuple[str, str, str, str]]:
+    global _FRAMEWORK_RUN_MAP
+    if _FRAMEWORK_RUN_MAP is not None:
+        return _FRAMEWORK_RUN_MAP
+
     from tests.framework_configs.adapters import ADAPTER_CONFIGS
     from tests.framework_configs.converters import CONVERTER_CONFIGS
 
@@ -69,10 +78,8 @@ def _build_framework_run_map() -> dict[str, tuple[str, str, str, str]]:
         converter_file = f"test_{cc.framework_id}.py"
         run_map[fid] = (fid, cid, adapter_file, converter_file)
 
-    return run_map
-
-
-FRAMEWORK_RUN_MAP = _build_framework_run_map()
+    _FRAMEWORK_RUN_MAP = run_map
+    return _FRAMEWORK_RUN_MAP
 
 
 def pytest_addoption(parser):
@@ -97,14 +104,13 @@ def pytest_collection_modifyitems(config, items):
     if not framework_name:
         return
     framework_name = framework_name.strip().lower()
-    if framework_name not in FRAMEWORK_RUN_MAP:
+    run_map = _get_framework_run_map()
+    if framework_name not in run_map:
         raise pytest.UsageError(
             f"Unknown --framework={framework_name!r}. "
-            f"Valid: {', '.join(sorted(FRAMEWORK_RUN_MAP))}"
+            f"Valid: {', '.join(sorted(run_map))}"
         )
-    adapter_id, converter_id, adapter_file, converter_file = FRAMEWORK_RUN_MAP[
-        framework_name
-    ]
+    adapter_id, converter_id, adapter_file, converter_file = run_map[framework_name]
 
     def keep(item):
         nodeid = item.nodeid

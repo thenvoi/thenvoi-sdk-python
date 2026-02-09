@@ -342,9 +342,12 @@ class TestToolEventConversion:
             pytest.skip(f"{converter_config.display_name} skips tool events")
 
         converter = make_converter()
-        # Use paired tool_call + tool_result so converters that require pairing (e.g. LangChain) pass.
-        # Include both top-level keys (args/output) and nested data.input/data.output
-        # so this works for LangChain (reads data.*) and all others (read top-level).
+        # Payload includes BOTH top-level keys and nested data.* paths because
+        # different frameworks read from different locations:
+        #   - Anthropic, ClaudeSDK, PydanticAI: read top-level args/output
+        #   - LangChain: reads data.input / data.output
+        # Always pair tool_call + tool_result so frameworks that require
+        # pairing (e.g. LangChain) produce valid output.
         raw = [
             {
                 "role": "assistant",
@@ -374,7 +377,8 @@ class TestToolEventConversion:
             pytest.skip(f"{converter_config.display_name} skips tool events")
 
         converter = make_converter()
-        # Include both top-level keys and nested data.* paths (see test_converts_tool_call comment).
+        # Both top-level and nested data.* paths included (see comment in
+        # test_converts_tool_call_to_framework_format for rationale).
         raw = [
             {
                 "role": "assistant",
