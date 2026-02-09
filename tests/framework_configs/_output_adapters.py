@@ -169,16 +169,12 @@ class StringOutputAdapter:
         return result.split("\n")[index]
 
     def get_role(self, result: str, index: int) -> str:
-        # Best-effort heuristic: ClaudeSDK returns a flat string with no
-        # structured role field.  We infer role from line prefixes.  This is
-        # only used by conformance tests that skip when has_role_concept=False,
-        # so incorrect inference here would not silently pass assertions.
-        line = result.split("\n")[index]
-        if line.startswith(("Tool call:", "Tool result:")):
-            return "assistant"
-        if line.startswith("[") and "]: " in line:
-            return "user"
-        return "unknown"
+        raise NotImplementedError(
+            "StringOutputAdapter.get_role() is not supported. "
+            "ClaudeSDK returns a flat string with no structured role field. "
+            "Conformance tests that need roles should skip when "
+            "has_role_concept=False."
+        )
 
     def is_empty(self, result: str) -> bool:
         return result == ""

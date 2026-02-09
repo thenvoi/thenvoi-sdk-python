@@ -8,6 +8,29 @@ This file contains Anthropic-specific tool event conversion and integration test
 from thenvoi.converters.anthropic import AnthropicHistoryConverter
 
 
+class TestOutputShape:
+    """Smoke test asserting the Anthropic converter returns the expected type."""
+
+    def test_returns_list_of_dicts_with_role_and_content(self):
+        converter = AnthropicHistoryConverter()
+        raw = [
+            {
+                "role": "user",
+                "content": "Hello",
+                "sender_name": "Alice",
+                "message_type": "text",
+            }
+        ]
+
+        result = converter.convert(raw)
+
+        assert isinstance(result, list)
+        assert len(result) == 1
+        assert isinstance(result[0], dict)
+        assert "role" in result[0]
+        assert "content" in result[0]
+
+
 class TestToolEventConversion:
     """Tests for tool_call and tool_result conversion."""
 

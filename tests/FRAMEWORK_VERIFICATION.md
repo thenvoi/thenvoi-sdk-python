@@ -1,5 +1,7 @@
 # Framework verification: tests to run
 
+> **TL;DR** `uv run pytest tests/ --framework <name> -v`
+
 Use this list to verify that your **adapter** and **converter** implement the Thenvoi agent framework contract correctly.
 
 ---

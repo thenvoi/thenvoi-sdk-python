@@ -61,6 +61,10 @@ def _langgraph_factory(**kw: Any) -> Any:
     return LangGraphAdapter(**kw)
 
 
+# WARNING: Conformance-created CrewAI instances must NOT call runtime methods
+# (e.g. on_message, _invoke_crew).  They are only safe for inspecting primitive
+# attributes (model, role, etc.).  For runtime/method tests, use the
+# monkeypatch-based fixtures in tests/adapters/test_crewai_adapter.py.
 _crewai_adapter_cls: type | None = None
 
 

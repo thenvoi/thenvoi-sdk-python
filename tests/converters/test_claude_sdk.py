@@ -11,6 +11,25 @@ import json
 from thenvoi.converters.claude_sdk import ClaudeSDKHistoryConverter
 
 
+class TestOutputShape:
+    """Smoke test asserting the ClaudeSDK converter returns a string."""
+
+    def test_returns_string(self):
+        converter = ClaudeSDKHistoryConverter()
+        raw = [
+            {
+                "role": "user",
+                "content": "Hello",
+                "sender_name": "Alice",
+                "message_type": "text",
+            }
+        ]
+
+        result = converter.convert(raw)
+
+        assert isinstance(result, str)
+
+
 class TestBasicConversion:
     """Tests for ClaudeSDK-specific message conversion to text."""
 

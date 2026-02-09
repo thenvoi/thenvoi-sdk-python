@@ -9,6 +9,32 @@ guideline-based conversation tests.
 from thenvoi.converters.parlant import ParlantHistoryConverter
 
 
+class TestOutputShape:
+    """Smoke test asserting the Parlant converter returns the expected type."""
+
+    def test_returns_list_of_dicts_with_required_keys(self):
+        converter = ParlantHistoryConverter()
+        raw = [
+            {
+                "role": "user",
+                "content": "Hello",
+                "sender_name": "Alice",
+                "sender_type": "User",
+                "message_type": "text",
+            }
+        ]
+
+        result = converter.convert(raw)
+
+        assert isinstance(result, list)
+        assert len(result) == 1
+        assert isinstance(result[0], dict)
+        assert "role" in result[0]
+        assert "content" in result[0]
+        assert "sender" in result[0]
+        assert "sender_type" in result[0]
+
+
 class TestAssistantMessages:
     """Tests for Parlant-specific assistant message handling."""
 
