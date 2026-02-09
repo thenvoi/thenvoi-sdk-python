@@ -82,14 +82,19 @@ def _langgraph_factory(**kw: Any) -> Any:
 def _get_crewai_adapter_cls() -> type:
     """Import CrewAIAdapter once with mocked crewai dependencies.
 
-    Uses ``importlib.util.spec_from_file_location`` to load the adapter
-    module into an isolated namespace.  ``sys.modules`` is temporarily
-    mutated to inject mock dependencies during ``exec_module`` and
-    restored in a ``finally`` block immediately after.
+    Uses ``unittest.mock.patch.dict`` to temporarily inject mock
+    dependencies into ``sys.modules`` during ``exec_module``.
+    ``patch.dict`` guarantees atomic restore of the original state
+    on exit (even on exception), which is safe for parallel test
+    collection and avoids the fragility of manual save/restore.
+
+    The adapter module is loaded into an isolated namespace via
+    ``importlib.util.spec_from_file_location`` so it does not
+    pollute the real ``thenvoi.adapters.crewai`` entry.
 
     The result is cached via ``@functools.cache`` so subsequent calls
-    are cheap and thread-safe.  Conformance tests only inspect primitive
-    attributes (model, role, etc.) and never mix instances across import
+    are cheap.  Conformance tests only inspect primitive attributes
+    (model, role, etc.) and never mix instances across import
     boundaries.  For runtime tests that invoke CrewAI methods or need
     isinstance compatibility, use the ``crewai_mocks`` and
     ``CrewAIAdapter`` monkeypatch-based fixtures in
@@ -100,6 +105,7 @@ def _get_crewai_adapter_cls() -> type:
     import pathlib
     import sys
     import types
+    from unittest.mock import patch
 
     # Build mock crewai modules the adapter imports at module level.
     mock_crewai_module = MagicMock()
@@ -118,9 +124,8 @@ def _get_crewai_adapter_cls() -> type:
 
     mock_crewai_tools_module.BaseTool = MockBaseTool
 
-    # Load the adapter module in an isolated namespace so sys.modules is
-    # never mutated.  The loader's exec_module will use the module's own
-    # __dict__ for its top-level imports, which we pre-populate with mocks.
+    # Load the adapter module in an isolated namespace so the real
+    # thenvoi.adapters.crewai entry is never overwritten.
     adapter_path = (
         pathlib.Path(__file__).resolve().parents[2]
         / "src"
@@ -133,34 +138,23 @@ def _get_crewai_adapter_cls() -> type:
     )
     isolated_module = importlib.util.module_from_spec(spec)
 
-    # Inject mocked dependencies into the isolated module's namespace
-    # *before* exec_module runs its top-level imports.
-    saved = {}
-    mock_entries = {
-        "crewai": mock_crewai_module,
-        "crewai.tools": mock_crewai_tools_module,
-        "nest_asyncio": mock_nest_asyncio,
-    }
-    for name, mock in mock_entries.items():
-        saved[name] = sys.modules.get(name)
-        sys.modules[name] = mock
-
-    # Also ensure the parent package is importable so relative imports work.
+    # Ensure the parent package is importable so relative imports work.
     adapters_pkg_name = "thenvoi.adapters"
     if adapters_pkg_name not in sys.modules:
         adapters_pkg = types.ModuleType(adapters_pkg_name)
         adapters_pkg.__path__ = [str(adapter_path.parent)]
         sys.modules[adapters_pkg_name] = adapters_pkg
 
-    try:
+    # Use patch.dict to inject mock dependencies into sys.modules for the
+    # duration of exec_module.  patch.dict atomically restores the original
+    # state on exit, even if exec_module raises.
+    mock_entries = {
+        "crewai": mock_crewai_module,
+        "crewai.tools": mock_crewai_tools_module,
+        "nest_asyncio": mock_nest_asyncio,
+    }
+    with patch.dict(sys.modules, mock_entries):
         spec.loader.exec_module(isolated_module)
-    finally:
-        # Restore original sys.modules entries (or remove mocks).
-        for name, original in saved.items():
-            if original is None:
-                sys.modules.pop(name, None)
-            else:
-                sys.modules[name] = original
 
     return isolated_module.CrewAIAdapter
 
