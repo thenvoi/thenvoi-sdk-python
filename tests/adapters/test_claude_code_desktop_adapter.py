@@ -225,20 +225,24 @@ class TestClaudeCodeDesktopCLIInvocation:
         # Simulate stream-json NDJSON output (multiple lines)
         lines = [
             json.dumps({"type": "system", "subtype": "init", "session_id": "s-1"}),
-            json.dumps({
-                "type": "assistant",
-                "message": {
-                    "content": [{"type": "text", "text": "I'll help you."}],
-                },
-            }),
-            json.dumps({
-                "type": "result",
-                "subtype": "success",
-                "result": "Hello! I can help you.",
-                "session_id": "new-session-123",
-                "total_cost_usd": 0.024,
-                "usage": {"input_tokens": 100, "output_tokens": 50},
-            }),
+            json.dumps(
+                {
+                    "type": "assistant",
+                    "message": {
+                        "content": [{"type": "text", "text": "I'll help you."}],
+                    },
+                }
+            ),
+            json.dumps(
+                {
+                    "type": "result",
+                    "subtype": "success",
+                    "result": "Hello! I can help you.",
+                    "session_id": "new-session-123",
+                    "total_cost_usd": 0.024,
+                    "usage": {"input_tokens": 100, "output_tokens": 50},
+                }
+            ),
         ]
         ndjson_output = "\n".join(lines)
 
@@ -254,25 +258,29 @@ class TestClaudeCodeDesktopCLIInvocation:
         adapter = ClaudeCodeDesktopAdapter()
 
         lines = [
-            json.dumps({
-                "type": "assistant",
-                "message": {
-                    "content": [
-                        {"type": "text", "text": "Let me read that file."},
-                        {
-                            "type": "tool_use",
-                            "name": "Read",
-                            "input": {"file_path": "/tmp/test.md"},
-                        },
-                    ],
-                },
-            }),
-            json.dumps({
-                "type": "result",
-                "subtype": "success",
-                "result": "File contents here.",
-                "session_id": "s-456",
-            }),
+            json.dumps(
+                {
+                    "type": "assistant",
+                    "message": {
+                        "content": [
+                            {"type": "text", "text": "Let me read that file."},
+                            {
+                                "type": "tool_use",
+                                "name": "Read",
+                                "input": {"file_path": "/tmp/test.md"},
+                            },
+                        ],
+                    },
+                }
+            ),
+            json.dumps(
+                {
+                    "type": "result",
+                    "subtype": "success",
+                    "result": "File contents here.",
+                    "session_id": "s-456",
+                }
+            ),
         ]
         ndjson_output = "\n".join(lines)
 
@@ -286,13 +294,15 @@ class TestClaudeCodeDesktopCLIInvocation:
         """Should fall back to single JSON parsing for backward compat."""
         adapter = ClaudeCodeDesktopAdapter()
 
-        json_output = json.dumps({
-            "type": "result",
-            "subtype": "success",
-            "result": "Hello! I can help you.",
-            "session_id": "new-session-123",
-            "total_cost_usd": 0.024,
-        })
+        json_output = json.dumps(
+            {
+                "type": "result",
+                "subtype": "success",
+                "result": "Hello! I can help you.",
+                "session_id": "new-session-123",
+                "total_cost_usd": 0.024,
+            }
+        )
 
         result = adapter._parse_cli_response(json_output)
 
@@ -337,11 +347,13 @@ class TestClaudeCodeDesktopCLIInvocation:
             "",
             json.dumps({"type": "system", "subtype": "init"}),
             "",
-            json.dumps({
-                "type": "result",
-                "result": "Done.",
-                "session_id": "s-789",
-            }),
+            json.dumps(
+                {
+                    "type": "result",
+                    "result": "Done.",
+                    "session_id": "s-789",
+                }
+            ),
             "",
         ]
         ndjson_output = "\n".join(lines)

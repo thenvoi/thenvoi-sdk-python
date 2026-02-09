@@ -208,10 +208,12 @@ class ClaudeCodeDesktopAdapter(SimpleAdapter[str]):
                 message = data.get("message", {})
                 for block in message.get("content", []):
                     if block.get("type") == "tool_use":
-                        tool_calls.append({
-                            "tool": block.get("name"),
-                            "input": block.get("input"),
-                        })
+                        tool_calls.append(
+                            {
+                                "tool": block.get("name"),
+                                "input": block.get("input"),
+                            }
+                        )
 
         if not result_data:
             # Fallback: try parsing entire output as single JSON (backward compat)
