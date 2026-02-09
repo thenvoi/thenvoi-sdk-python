@@ -60,14 +60,23 @@ async def main() -> None:
     """Run the basic Claude Code Desktop agent."""
     load_dotenv(os.path.join(os.path.dirname(__file__), ".env"))
 
-    # Get credentials from environment
-    agent_id = os.environ.get("THENVOI_AGENT_ID", "")
-    api_key = os.environ.get("THENVOI_API_KEY", "")
-    ws_url = os.environ.get("THENVOI_WS_URL")
-    rest_url = os.environ.get("THENVOI_REST_URL")
+    # Load agent credentials from agent_config.yaml, fall back to env vars
+    try:
+        from thenvoi.config import load_agent_config
+
+        agent_id, api_key = load_agent_config("claude_code_desktop")
+    except Exception:
+        agent_id = os.environ.get("THENVOI_AGENT_ID", "")
+        api_key = os.environ.get("THENVOI_API_KEY", "")
 
     if not agent_id or not api_key:
-        raise ValueError("THENVOI_AGENT_ID and THENVOI_API_KEY must be set")
+        raise ValueError(
+            "Agent credentials not found. Either configure 'claude_code_desktop' "
+            "in agent_config.yaml or set THENVOI_AGENT_ID and THENVOI_API_KEY"
+        )
+
+    ws_url = os.environ.get("THENVOI_WS_URL")
+    rest_url = os.environ.get("THENVOI_REST_URL")
 
     if not ws_url or not rest_url:
         raise ValueError("THENVOI_WS_URL and THENVOI_REST_URL must be set")
