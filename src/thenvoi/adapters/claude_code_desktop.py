@@ -320,8 +320,12 @@ class ClaudeCodeDesktopAdapter(SimpleAdapter[str]):
 
         return "\n".join(prompt_parts)
 
-    def _get_tool_descriptions_text(self, room_id: str) -> str:
-        """Get tool descriptions formatted for the prompt."""
+    def _get_tool_descriptions_text(self, room_id: str) -> str:  # noqa: ARG002
+        """Get tool descriptions formatted for the prompt.
+
+        Descriptions are pulled from the centralized get_tool_description() registry.
+        Examples are adapter-specific (JSON action format unique to this CLI adapter).
+        """
         descriptions = [
             f"- `send_message`: {get_tool_description('send_message')}",
             '  Example: {"action": "send_message", "content": "Hello!", "mentions": []}',
