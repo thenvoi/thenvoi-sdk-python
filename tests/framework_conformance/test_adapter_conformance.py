@@ -84,6 +84,23 @@ class TestAdapterOnStarted:
         assert adapter.agent_description == "A test bot for conformance."
 
 
+class TestAdapterOnMessage:
+    """All adapters expose an on_message method with the expected signature."""
+
+    def test_on_message_is_callable(self, adapter_config):
+        """Adapter has a callable on_message method."""
+        adapter = adapter_config.adapter_factory()
+        assert hasattr(adapter, "on_message")
+        assert callable(adapter.on_message)
+
+    def test_on_message_is_coroutine_function(self, adapter_config):
+        """on_message must be an async method."""
+        import inspect
+
+        adapter = adapter_config.adapter_factory()
+        assert inspect.iscoroutinefunction(adapter.on_message)
+
+
 class TestAdapterCleanup:
     """All adapters handle cleanup safely."""
 

@@ -172,20 +172,27 @@ def _get_crewai_adapter_cls() -> type:
     # Compare __init__ signatures so that changes to the real adapter
     # (new required params, renamed kwargs, removed defaults) are caught
     # immediately rather than producing silent conformance-test drift.
+    # Wrapped in try/except so the guard is skipped when the real crewai
+    # package is not installed (the isolated import above uses mocks, but
+    # the real import below requires the actual package).
     import inspect
 
-    from thenvoi.adapters.crewai import CrewAIAdapter as _RealCrewAIAdapter
-
-    real_sig = inspect.signature(_RealCrewAIAdapter.__init__)
-    isolated_sig = inspect.signature(isolated_cls.__init__)
-    if real_sig != isolated_sig:
-        raise RuntimeError(
-            "CrewAIAdapter __init__ signature drift detected!\n"
-            f"  Real:     {real_sig}\n"
-            f"  Isolated: {isolated_sig}\n"
-            "Update the CrewAI AdapterConfig (default_values, custom_kwargs, "
-            "custom_expected) and re-run conformance tests."
-        )
+    try:
+        from thenvoi.adapters.crewai import CrewAIAdapter as _RealCrewAIAdapter
+    except (ImportError, ModuleNotFoundError):
+        # crewai not installed — skip drift check (isolated import is sufficient)
+        pass
+    else:
+        real_sig = inspect.signature(_RealCrewAIAdapter.__init__)
+        isolated_sig = inspect.signature(isolated_cls.__init__)
+        if real_sig != isolated_sig:
+            raise RuntimeError(
+                "CrewAIAdapter __init__ signature drift detected!\n"
+                f"  Real:     {real_sig}\n"
+                f"  Isolated: {isolated_sig}\n"
+                "Update the CrewAI AdapterConfig (default_values, custom_kwargs, "
+                "custom_expected) and re-run conformance tests."
+            )
 
     return isolated_cls
 

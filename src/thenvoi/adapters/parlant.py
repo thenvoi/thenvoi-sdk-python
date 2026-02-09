@@ -475,7 +475,7 @@ class ParlantAdapter(SimpleAdapter[ParlantMessages]):
                         # Coerce to list; guards against non-iterable values
                         tags = (
                             list(raw_tags)
-                            if isinstance(raw_tags, (list, tuple))
+                            if isinstance(raw_tags, (list, tuple, set))
                             else []
                         )
                     elif isinstance(data, str):

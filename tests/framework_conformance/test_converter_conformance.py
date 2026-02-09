@@ -91,6 +91,8 @@ class TestUserTextMessages:
         behavior = converter_config.missing_sender_behavior
         if behavior is SenderBehavior.CONTENT_AS_IS:
             assert output.content_contains(result, "Hello!")
+        elif behavior is SenderBehavior.BRACKETS_EMPTY:
+            assert output.content_contains(result, "[]: Hello!")
         elif behavior is SenderBehavior.UNKNOWN_PREFIX:
             assert output.content_contains(result, "[Unknown]: Hello!")
         else:

@@ -236,4 +236,4 @@ class SimpleDictListOutputAdapter:
         return len(result) == 0
 
     def content_contains(self, result: list[dict[str, Any]], substring: str) -> bool:
-        return any(substring in msg["content"] for msg in result)
+        return any(substring in msg.get("content", "") for msg in result)
