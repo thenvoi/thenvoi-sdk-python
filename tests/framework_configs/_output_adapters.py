@@ -161,6 +161,10 @@ class StringOutputAdapter:
     """Adapter for ClaudeSDK converter output (newline-joined string)."""
 
     def result_length(self, result: str) -> int:
+        # NOTE: This assumes each logical message occupies exactly one line.
+        # If the ClaudeSDK converter ever produces messages with embedded
+        # newlines, this count will be incorrect.  In that case, consider
+        # switching to a delimiter-aware split or a structured return type.
         if not result:
             return 0
         return len(result.split("\n"))

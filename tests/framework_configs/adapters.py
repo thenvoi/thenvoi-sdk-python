@@ -99,6 +99,16 @@ def _get_crewai_adapter_cls() -> type:
     isinstance compatibility, use the ``crewai_mocks`` and
     ``CrewAIAdapter`` monkeypatch-based fixtures in
     tests/adapters/test_crewai_adapter.py.
+
+    **Divergence risk:** Because this function loads the adapter module
+    into an isolated namespace, the returned class is *not* the same
+    object as ``thenvoi.adapters.crewai.CrewAIAdapter``.  If the real
+    adapter's ``__init__`` signature changes (new required params,
+    renamed kwargs, removed defaults), conformance tests may silently
+    pass or fail with confusing errors.  When modifying
+    ``CrewAIAdapter.__init__``, always update the ``default_values``,
+    ``custom_kwargs``, and ``custom_expected`` in the CrewAI
+    ``AdapterConfig`` entry below and re-run conformance tests.
     """
 
     import importlib.util

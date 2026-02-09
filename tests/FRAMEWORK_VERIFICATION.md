@@ -101,6 +101,8 @@ This runs **only** that framework’s conformance tests (adapter + converter) an
 
 Not included (and not required for framework verification): other frameworks' slices, shared utility tests (`test_a2a_gateway.py`, `test_tool_parsing.py`), smoke/session/platform/runtime tests, integration tests. You do **not** need to run the full suite when adding or changing a framework.
 
+> **Combining with `-k`:** `--framework` filters tests first (via `pytest_collection_modifyitems`), then pytest's built-in `-k` applies on top. This lets you narrow further, e.g. `--framework anthropic -k "tool"` runs only Anthropic tests whose names contain "tool".
+
 ---
 
 ## 1. Run conformance tests for your framework (without --framework)
