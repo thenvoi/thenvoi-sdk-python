@@ -62,6 +62,28 @@ class TestAdapterInitialization:
         assert adapter.history_converter is not None
 
 
+class TestAdapterOnStarted:
+    """All adapters set agent name and description after on_started."""
+
+    @pytest.mark.asyncio
+    async def test_after_on_started_sets_agent_name_and_description(
+        self, adapter_config
+    ):
+        """After on_started(agent_name, agent_description), adapter has them set."""
+        if getattr(adapter_config, "skip_on_started_conformance", False):
+            pytest.skip(
+                f"{adapter_config.display_name} on_started requires live client (tested in framework-specific tests)"
+            )
+        adapter = adapter_config.adapter_factory()
+        await adapter.on_started(
+            agent_name="TestBot",
+            agent_description="A test bot for conformance.",
+        )
+
+        assert adapter.agent_name == "TestBot"
+        assert adapter.agent_description == "A test bot for conformance."
+
+
 class TestAdapterCleanup:
     """All adapters handle cleanup safely."""
 
@@ -72,3 +94,14 @@ class TestAdapterCleanup:
 
         # Should not raise
         await adapter.on_cleanup("nonexistent-room")
+
+    @pytest.mark.asyncio
+    async def test_cleanup_all_safe_when_supported(self, adapter_config):
+        """If adapter has cleanup_all(), calling it should not raise."""
+        adapter = adapter_config.adapter_factory()
+        cleanup_all = getattr(adapter, "cleanup_all", None)
+        if cleanup_all is None or not callable(cleanup_all):
+            pytest.skip(f"{adapter_config.display_name} does not support cleanup_all")
+
+        # Should not raise
+        await adapter.cleanup_all()

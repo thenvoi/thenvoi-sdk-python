@@ -37,6 +37,9 @@ class AdapterConfig:
     # History converter presence
     has_history_converter: bool = True
 
+    # Skip on_started conformance test when adapter needs live client (e.g. PydanticAI)
+    skip_on_started_conformance: bool = False
+
 
 # ---------------------------------------------------------------------------
 # Factory functions
@@ -248,6 +251,7 @@ ADAPTER_CONFIGS: list[AdapterConfig] = [
             "custom_section": "Be concise.",
             "enable_execution_reporting": True,
         },
+        skip_on_started_conformance=True,  # on_started creates real OpenAI client; tested in test_pydantic_ai_adapter
     ),
     AdapterConfig(
         framework_id="parlant",

@@ -78,7 +78,15 @@ class LangChainOutputAdapter:
         return len(result) == 0
 
     def content_contains(self, result: list, substring: str) -> bool:
-        return any(substring in msg.content for msg in result)
+        for msg in result:
+            if substring in msg.content:
+                return True
+            tool_calls = getattr(msg, "tool_calls", None)
+            if tool_calls:
+                for tc in tool_calls:
+                    if substring in tc.get("name", ""):
+                        return True
+        return False
 
 
 class PydanticAIOutputAdapter:
@@ -115,6 +123,8 @@ class PydanticAIOutputAdapter:
             ModelRequest,
             ModelResponse,
             TextPart,
+            ToolCallPart,
+            ToolReturnPart,
             UserPromptPart,
         )
 
@@ -123,9 +133,17 @@ class PydanticAIOutputAdapter:
                 for part in msg.parts:
                     if isinstance(part, UserPromptPart) and substring in part.content:
                         return True
+                    if isinstance(part, ToolReturnPart) and substring in (
+                        part.content or ""
+                    ):
+                        return True
             if isinstance(msg, ModelResponse):
                 for part in msg.parts:
                     if isinstance(part, TextPart) and substring in part.content:
+                        return True
+                    if isinstance(part, ToolCallPart) and substring in (
+                        part.tool_name or ""
+                    ):
                         return True
         return False
 
