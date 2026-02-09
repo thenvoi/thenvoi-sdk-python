@@ -342,16 +342,18 @@ class TestToolEventConversion:
             pytest.skip(f"{converter_config.display_name} skips tool events")
 
         converter = make_converter()
-        # Use paired tool_call + tool_result so converters that require pairing (e.g. LangChain) pass
+        # Use paired tool_call + tool_result so converters that require pairing (e.g. LangChain) pass.
+        # Include both top-level keys (args/output) and nested data.input/data.output
+        # so this works for LangChain (reads data.*) and all others (read top-level).
         raw = [
             {
                 "role": "assistant",
-                "content": '{"name": "search", "args": {"query": "test"}, "tool_call_id": "tc_1"}',
+                "content": '{"name": "search", "args": {"query": "test"}, "data": {"input": {"query": "test"}}, "tool_call_id": "tc_1"}',
                 "message_type": "tool_call",
             },
             {
                 "role": "assistant",
-                "content": '{"name": "search", "output": "result data", "tool_call_id": "tc_1"}',
+                "content": '{"name": "search", "output": "result data", "data": {"output": "result data"}, "tool_call_id": "tc_1"}',
                 "message_type": "tool_result",
             },
         ]
@@ -372,15 +374,16 @@ class TestToolEventConversion:
             pytest.skip(f"{converter_config.display_name} skips tool events")
 
         converter = make_converter()
+        # Include both top-level keys and nested data.* paths (see test_converts_tool_call comment).
         raw = [
             {
                 "role": "assistant",
-                "content": '{"name": "lookup", "args": {"id": "42"}, "tool_call_id": "tc_2"}',
+                "content": '{"name": "lookup", "args": {"id": "42"}, "data": {"input": {"id": "42"}}, "tool_call_id": "tc_2"}',
                 "message_type": "tool_call",
             },
             {
                 "role": "assistant",
-                "content": '{"name": "lookup", "output": "found item 42", "tool_call_id": "tc_2"}',
+                "content": '{"name": "lookup", "output": "found item 42", "data": {"output": "found item 42"}, "tool_call_id": "tc_2"}',
                 "message_type": "tool_result",
             },
         ]
@@ -388,10 +391,7 @@ class TestToolEventConversion:
         result = converter.convert(raw)
 
         assert output.result_length(result) >= 1
-        # Result output content must be present (focus of this test)
-        if not converter_config.tool_result_uses_nested_path:
-            assert output.content_contains(result, "found item 42")
-        # Tool name must also be present
+        assert output.content_contains(result, "found item 42")
         assert output.content_contains(result, "lookup")
 
     def test_mixed_history_includes_user_assistant_tool_messages(
@@ -417,12 +417,12 @@ class TestToolEventConversion:
             },
             {
                 "role": "assistant",
-                "content": '{"name": "search", "args": {}, "tool_call_id": "tc_1"}',
+                "content": '{"name": "search", "args": {}, "data": {"input": {}}, "tool_call_id": "tc_1"}',
                 "message_type": "tool_call",
             },
             {
                 "role": "assistant",
-                "content": '{"name": "search", "output": "found", "tool_call_id": "tc_1"}',
+                "content": '{"name": "search", "output": "found", "data": {"output": "found"}, "tool_call_id": "tc_1"}',
                 "message_type": "tool_result",
             },
         ]
@@ -432,5 +432,4 @@ class TestToolEventConversion:
         assert output.result_length(result) >= 2
         assert output.content_contains(result, "Alice")
         assert output.content_contains(result, "search")
-        if not converter_config.tool_result_uses_nested_path:
-            assert output.content_contains(result, "found")
+        assert output.content_contains(result, "found")

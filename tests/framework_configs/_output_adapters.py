@@ -96,12 +96,21 @@ class PydanticAIOutputAdapter:
         return len(result)
 
     def get_content(self, result: list, index: int) -> str:
-        from pydantic_ai.messages import ModelRequest, UserPromptPart
+        from pydantic_ai.messages import (
+            ModelRequest,
+            ModelResponse,
+            TextPart,
+            UserPromptPart,
+        )
 
         msg = result[index]
         if isinstance(msg, ModelRequest):
             for part in msg.parts:
                 if isinstance(part, UserPromptPart):
+                    return part.content
+        if isinstance(msg, ModelResponse):
+            for part in msg.parts:
+                if isinstance(part, TextPart):
                     return part.content
         return str(msg)
 

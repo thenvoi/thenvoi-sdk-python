@@ -115,7 +115,7 @@ uv run pytest tests/framework_conformance/test_converter_conformance.py -k "<fra
 
 **Adapter framework_ids:** `anthropic`, `langgraph`, `crewai`, `claude_sdk`, `pydantic_ai`, `parlant`
 **Converter framework_ids:** `anthropic`, `langchain`, `crewai`, `claude_sdk`, `pydantic_ai`, `parlant`
-*(Note: LangGraph adapter uses converter `langchain`.)*
+*(Note: LangGraph adapter uses converter `langchain`. The canonical mapping lives in `_CONVERTER_ID_FOR_ADAPTER` in `tests/conftest.py`.)*
 
 ---
 

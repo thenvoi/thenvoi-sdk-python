@@ -472,6 +472,7 @@ class ParlantAdapter(SimpleAdapter[ParlantMessages]):
                     if isinstance(data, dict):
                         message_content = str(data.get("message", ""))
                         raw_tags = data.get("tags", [])
+                        # Coerce to list; guards against non-iterable values
                         tags = (
                             list(raw_tags)
                             if isinstance(raw_tags, (list, tuple))
