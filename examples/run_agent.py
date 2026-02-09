@@ -7,6 +7,7 @@ Usage:
     uv run python examples/run_agent.py --example langgraph
     uv run python examples/run_agent.py --example pydantic_ai
     uv run python examples/run_agent.py --example pydantic_ai --streaming  # With tool_call/tool_result events
+    uv run python examples/run_agent.py --example pydantic_ai_contacts     # Contact management via chat
     uv run python examples/run_agent.py --example pydantic_ai --model anthropic:claude-sonnet-4-5
     uv run python examples/run_agent.py --example anthropic
     uv run python examples/run_agent.py --example anthropic --streaming  # With tool_call/tool_result events
@@ -88,6 +89,47 @@ CREWAI_DEFAULTS = {
     "backstory": "Expert researcher with attention to detail and ability to break down "
     "complex topics into understandable insights.",
 }
+
+CONTACTS_INSTRUCTIONS = """
+## Contact Management Assistant
+
+You help manage contacts and contact requests on the Thenvoi platform.
+
+### Available Actions
+
+When the user asks you to manage contacts, use these tools:
+
+1. **List contacts**: Use `thenvoi_list_contacts` to show current contacts
+2. **Check requests**: Use `thenvoi_list_contact_requests` to see pending requests
+3. **Approve request**: Use `thenvoi_respond_contact_request` with action="approve"
+4. **Reject request**: Use `thenvoi_respond_contact_request` with action="reject"
+5. **Add contact**: Use `thenvoi_add_contact` to send a contact request
+6. **Remove contact**: Use `thenvoi_remove_contact` to remove an existing contact
+
+### Response Format
+
+When listing contacts or requests, format the information clearly:
+- Show names and handles
+- For requests, show who sent them and any message included
+- Confirm actions after completing them
+
+### Examples
+
+User: "check my contact requests"
+→ Call thenvoi_list_contact_requests()
+
+User: "approve alice's request"
+→ Call thenvoi_respond_contact_request(action="approve", handle="alice")
+
+User: "reject the request from bob"
+→ Call thenvoi_respond_contact_request(action="reject", handle="bob")
+
+User: "list my contacts"
+→ Call thenvoi_list_contacts()
+
+User: "add john as a contact"
+→ Call thenvoi_add_contact(handle="john")
+"""
 
 
 async def run_langgraph_agent(
@@ -291,6 +333,44 @@ async def run_crewai_agent(
     await agent.run()
 
 
+async def run_pydantic_ai_contacts_agent(
+    agent_id: str,
+    api_key: str,
+    rest_url: str,
+    ws_url: str,
+    model: str,
+    logger: logging.Logger,
+):
+    """Run Pydantic AI agent with contact management focus.
+
+    This example demonstrates using contact tools via natural language:
+    - "check my contact requests"
+    - "list my contacts"
+    - "approve alice's request"
+    - "reject bob"
+    - "add john as a contact"
+    """
+    from thenvoi.adapters import PydanticAIAdapter
+
+    adapter = PydanticAIAdapter(
+        model=model,
+        custom_section=CONTACTS_INSTRUCTIONS,
+        enable_execution_reporting=True,  # Show tool calls
+    )
+
+    agent = Agent.create(
+        adapter=adapter,
+        agent_id=agent_id,
+        api_key=api_key,
+        ws_url=ws_url,
+        rest_url=rest_url,
+    )
+
+    logger.info("Starting Pydantic AI contacts agent with model: %s", model)
+    logger.info("Try: 'check my contact requests', 'list contacts', 'approve X'")
+    await agent.run()
+
+
 async def run_a2a_agent(
     agent_id: str,
     api_key: str,
@@ -383,6 +463,7 @@ Examples:
   uv run python examples/run_agent.py --example pydantic_ai               # Pydantic AI with OpenAI
   uv run python examples/run_agent.py --example pydantic_ai --streaming   # With tool_call/tool_result events
   uv run python examples/run_agent.py --example pydantic_ai --model anthropic:claude-sonnet-4-5
+  uv run python examples/run_agent.py --example pydantic_ai_contacts      # Contact management via chat
   uv run python examples/run_agent.py --example anthropic                 # Anthropic SDK
   uv run python examples/run_agent.py --example anthropic --streaming     # With tool_call/tool_result events
   uv run python examples/run_agent.py --example claude_sdk                # Claude Agent SDK
@@ -408,6 +489,7 @@ Examples:
         choices=[
             "langgraph",
             "pydantic_ai",
+            "pydantic_ai_contacts",
             "anthropic",
             "claude_sdk",
             "parlant",
@@ -480,6 +562,7 @@ Examples:
     default_agents = {
         "langgraph": "simple_agent",
         "pydantic_ai": "pydantic_agent",
+        "pydantic_ai_contacts": "simple_agent",
         "anthropic": "anthropic_agent",
         "claude_sdk": "anthropic_agent",
         "parlant": "parlant_agent",
@@ -529,6 +612,18 @@ Examples:
                 model=args.model,
                 custom_section=args.custom_section,
                 enable_streaming=args.streaming,
+                logger=logger,
+            )
+        elif args.example == "pydantic_ai_contacts":
+            model = args.model
+            if model == "openai:gpt-4o":
+                model = "anthropic:claude-sonnet-4-5"
+            await run_pydantic_ai_contacts_agent(
+                agent_id=agent_id,
+                api_key=api_key,
+                rest_url=rest_url,
+                ws_url=ws_url,
+                model=model,
                 logger=logger,
             )
         elif args.example == "anthropic":

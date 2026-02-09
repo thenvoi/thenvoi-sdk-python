@@ -214,6 +214,82 @@ class PydanticAIAdapter(SimpleAdapter[PydanticAIMessages]):
         )
         agent.tool(thenvoi_create_chatroom)
 
+        # Contact management tools
+        async def thenvoi_list_contacts(
+            ctx: RunContext[AgentToolsProtocol],
+            page: int = 1,
+            page_size: int = 50,
+        ) -> dict[str, Any] | str:
+            try:
+                return await ctx.deps.list_contacts(page, page_size)
+            except Exception as e:
+                return f"Error listing contacts: {e}"
+
+        thenvoi_list_contacts.__doc__ = get_tool_description("thenvoi_list_contacts")
+        agent.tool(thenvoi_list_contacts)
+
+        async def thenvoi_add_contact(
+            ctx: RunContext[AgentToolsProtocol],
+            handle: str,
+            message: str | None = None,
+        ) -> dict[str, Any] | str:
+            try:
+                return await ctx.deps.add_contact(handle, message)
+            except Exception as e:
+                return f"Error adding contact '{handle}': {e}"
+
+        thenvoi_add_contact.__doc__ = get_tool_description("thenvoi_add_contact")
+        agent.tool(thenvoi_add_contact)
+
+        async def thenvoi_remove_contact(
+            ctx: RunContext[AgentToolsProtocol],
+            handle: str | None = None,
+            contact_id: str | None = None,
+        ) -> dict[str, Any] | str:
+            try:
+                return await ctx.deps.remove_contact(handle, contact_id)
+            except Exception as e:
+                return f"Error removing contact: {e}"
+
+        thenvoi_remove_contact.__doc__ = get_tool_description("thenvoi_remove_contact")
+        agent.tool(thenvoi_remove_contact)
+
+        async def thenvoi_list_contact_requests(
+            ctx: RunContext[AgentToolsProtocol],
+            page: int = 1,
+            page_size: int = 50,
+            sent_status: str = "pending",
+        ) -> dict[str, Any] | str:
+            try:
+                return await ctx.deps.list_contact_requests(
+                    page, page_size, sent_status
+                )
+            except Exception as e:
+                return f"Error listing contact requests: {e}"
+
+        thenvoi_list_contact_requests.__doc__ = get_tool_description(
+            "thenvoi_list_contact_requests"
+        )
+        agent.tool(thenvoi_list_contact_requests)
+
+        async def thenvoi_respond_contact_request(
+            ctx: RunContext[AgentToolsProtocol],
+            action: str,
+            handle: str | None = None,
+            request_id: str | None = None,
+        ) -> dict[str, Any] | str:
+            try:
+                return await ctx.deps.respond_contact_request(
+                    action, handle, request_id
+                )
+            except Exception as e:
+                return f"Error responding to contact request: {e}"
+
+        thenvoi_respond_contact_request.__doc__ = get_tool_description(
+            "thenvoi_respond_contact_request"
+        )
+        agent.tool(thenvoi_respond_contact_request)
+
         # Register custom tools (user-provided PydanticAI-compatible functions)
         for custom_tool in self._custom_tools:
             agent.tool(custom_tool)

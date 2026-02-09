@@ -101,6 +101,41 @@ class AgentToolsProtocol(Protocol):
         """Execute a tool call by name with validated arguments."""
         ...
 
+    # Contact management tools
+    async def list_contacts(self, page: int = 1, page_size: int = 50) -> dict[str, Any]:
+        """List agent's contacts with pagination."""
+        ...
+
+    async def add_contact(
+        self, handle: str, message: str | None = None
+    ) -> dict[str, Any]:
+        """Send a contact request to add someone as a contact."""
+        ...
+
+    async def remove_contact(
+        self, handle: str | None = None, contact_id: str | None = None
+    ) -> dict[str, Any]:
+        """Remove an existing contact by handle or ID."""
+        ...
+
+    async def list_contact_requests(
+        self,
+        page: int = 1,
+        page_size: int = 50,
+        sent_status: str = "pending",
+    ) -> dict[str, Any]:
+        """List received and sent contact requests."""
+        ...
+
+    async def respond_contact_request(
+        self,
+        action: str,
+        handle: str | None = None,
+        request_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Respond to a contact request (approve, reject, or cancel)."""
+        ...
+
 
 @runtime_checkable
 class FrameworkAdapter(Protocol):
