@@ -143,14 +143,12 @@ class ClaudeCodeDesktopAdapter(SimpleAdapter[str]):
 
     def _build_cli_command(
         self,
-        prompt: str,  # noqa: ARG002
         session_id: str | None,
     ) -> list[str]:
         """
         Build CLI command arguments.
 
         Args:
-            prompt: The prompt to send (passed via stdin, not command line)
             session_id: Optional session ID for resume
 
         Returns:
@@ -351,7 +349,7 @@ class ClaudeCodeDesktopAdapter(SimpleAdapter[str]):
         Returns:
             Parsed response dict
         """
-        cmd = self._build_cli_command(prompt, session_id)
+        cmd = self._build_cli_command(session_id)
         timeout_seconds = self.cli_timeout / 1000
 
         logger.debug(f"Executing CLI: {' '.join(cmd[:3])}...")

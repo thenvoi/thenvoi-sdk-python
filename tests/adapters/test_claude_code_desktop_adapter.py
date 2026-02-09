@@ -174,7 +174,7 @@ class TestClaudeCodeDesktopCLIInvocation:
         """Should build correct CLI command with stream-json flags."""
         adapter = ClaudeCodeDesktopAdapter(cli_path="/usr/bin/claude")
 
-        cmd = adapter._build_cli_command("Test prompt", session_id=None)
+        cmd = adapter._build_cli_command(session_id=None)
 
         assert cmd[0] == "/usr/bin/claude"
         assert "--print" in cmd
@@ -189,7 +189,7 @@ class TestClaudeCodeDesktopCLIInvocation:
         """Should build command with session resume when session_id exists."""
         adapter = ClaudeCodeDesktopAdapter(cli_path="/usr/bin/claude")
 
-        cmd = adapter._build_cli_command("Test prompt", session_id="session-123")
+        cmd = adapter._build_cli_command(session_id="session-123")
 
         assert "--resume" in cmd
         assert "session-123" in cmd
@@ -202,7 +202,7 @@ class TestClaudeCodeDesktopCLIInvocation:
             allowed_tools=["Read", "Write", "Edit"],
         )
 
-        cmd = adapter._build_cli_command("Test prompt", session_id=None)
+        cmd = adapter._build_cli_command(session_id=None)
 
         assert "--allowedTools" in cmd
         tools_idx = cmd.index("--allowedTools")
@@ -213,7 +213,7 @@ class TestClaudeCodeDesktopCLIInvocation:
         """Should not include --allowedTools when no tools configured."""
         adapter = ClaudeCodeDesktopAdapter(cli_path="/usr/bin/claude")
 
-        cmd = adapter._build_cli_command("Test prompt", session_id=None)
+        cmd = adapter._build_cli_command(session_id=None)
 
         assert "--allowedTools" not in cmd
 
