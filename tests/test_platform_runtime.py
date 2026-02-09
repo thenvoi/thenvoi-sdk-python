@@ -50,8 +50,8 @@ class TestInitialization:
 
         assert runtime.agent_id == "agent-123"
         assert runtime._api_key == "test-key"
-        assert runtime._ws_url == "wss://api.thenvoi.com/ws"
-        assert runtime._rest_url == "https://api.thenvoi.com"
+        assert runtime._ws_url == "wss://app.thenvoi.com/api/v1/socket/websocket"
+        assert runtime._rest_url == "https://app.thenvoi.com"
         assert isinstance(runtime._config, AgentConfig)
         assert isinstance(runtime._session_config, SessionConfig)
 
@@ -167,8 +167,8 @@ class TestStart:
                 mock_link_class.assert_called_once_with(
                     agent_id="agent-123",
                     api_key="test-key",
-                    ws_url="wss://api.thenvoi.com/ws",
-                    rest_url="https://api.thenvoi.com",
+                    ws_url="wss://app.thenvoi.com/api/v1/socket/websocket",
+                    rest_url="https://app.thenvoi.com",
                 )
 
     @pytest.mark.asyncio

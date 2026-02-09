@@ -27,8 +27,8 @@ This will start:
 Prerequisites:
     1. Set environment variables:
        - THENVOI_API_KEY: Your Thenvoi API key
-       - THENVOI_WS_URL: WebSocket URL (default: wss://api.thenvoi.com/ws)
-       - THENVOI_REST_URL: REST API URL (default: https://api.thenvoi.com)
+       - THENVOI_WS_URL: WebSocket URL (default: wss://app.thenvoi.com/api/v1/socket/websocket)
+       - THENVOI_REST_URL: REST API URL (default: https://app.thenvoi.com)
        - OPENAI_API_KEY: OpenAI API key for the orchestrator
 
     2. Have peers configured on the Thenvoi platform
@@ -97,8 +97,10 @@ ORCHESTRATOR_PORT = int(os.getenv("ORCHESTRATOR_PORT", "10001"))
 
 async def run_gateway() -> None:
     """Run the A2A Gateway that exposes Thenvoi peers."""
-    ws_url = os.getenv("THENVOI_WS_URL", "wss://api.thenvoi.com/ws")
-    rest_url = os.getenv("THENVOI_REST_URL", "https://api.thenvoi.com")
+    ws_url = os.getenv(
+        "THENVOI_WS_URL", "wss://app.thenvoi.com/api/v1/socket/websocket"
+    )
+    rest_url = os.getenv("THENVOI_REST_URL", "https://app.thenvoi.com")
     api_key = os.getenv("THENVOI_API_KEY")
 
     if not api_key:
