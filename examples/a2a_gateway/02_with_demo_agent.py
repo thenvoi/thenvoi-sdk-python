@@ -97,7 +97,9 @@ ORCHESTRATOR_PORT = int(os.getenv("ORCHESTRATOR_PORT", "10001"))
 
 async def run_gateway() -> None:
     """Run the A2A Gateway that exposes Thenvoi peers."""
-    ws_url = os.getenv("THENVOI_WS_URL", "wss://app.thenvoi.com/api/v1/socket/websocket")
+    ws_url = os.getenv(
+        "THENVOI_WS_URL", "wss://app.thenvoi.com/api/v1/socket/websocket"
+    )
     rest_url = os.getenv("THENVOI_REST_URL", "https://app.thenvoi.com")
     api_key = os.getenv("THENVOI_API_KEY")
 

@@ -63,7 +63,9 @@ logger = logging.getLogger(__name__)
 async def main():
     load_dotenv()
 
-    ws_url = os.getenv("THENVOI_WS_URL", "wss://app.thenvoi.com/api/v1/socket/websocket")
+    ws_url = os.getenv(
+        "THENVOI_WS_URL", "wss://app.thenvoi.com/api/v1/socket/websocket"
+    )
     rest_url = os.getenv("THENVOI_REST_URL", "https://app.thenvoi.com")
     api_key = os.getenv("THENVOI_API_KEY")
 
