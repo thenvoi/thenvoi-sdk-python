@@ -234,16 +234,19 @@ ADAPTER_CONFIGS: list[AdapterConfig] = [
             "system_prompt": None,
             "custom_section": None,
             "enable_execution_reporting": False,
+            "_agent": None,
         },
         custom_kwargs={
             "model": "anthropic:claude-sonnet-4-5-20250929",
             "system_prompt": "You are a helpful bot.",
             "custom_section": "Be concise.",
+            "enable_execution_reporting": True,
         },
         custom_expected={
             "model": "anthropic:claude-sonnet-4-5-20250929",
             "system_prompt": "You are a helpful bot.",
             "custom_section": "Be concise.",
+            "enable_execution_reporting": True,
         },
     ),
     AdapterConfig(

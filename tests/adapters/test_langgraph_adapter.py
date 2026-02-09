@@ -64,16 +64,6 @@ class TestInitialization:
         assert adapter.graph_factory is not None
         assert adapter._static_graph is None
 
-    def test_simple_pattern_with_custom_section(self, mock_llm, mock_checkpointer):
-        """Should accept custom_section in simple pattern."""
-        adapter = LangGraphAdapter(
-            llm=mock_llm,
-            checkpointer=mock_checkpointer,
-            custom_section="Be helpful.",
-        )
-
-        assert adapter.custom_section == "Be helpful."
-
     def test_simple_pattern_with_additional_tools(self, mock_llm, mock_checkpointer):
         """Should integrate additional_tools in simple pattern."""
         mock_tool = MagicMock()
@@ -105,17 +95,6 @@ class TestInitialization:
         """Should raise if neither llm nor graph_factory/graph provided."""
         with pytest.raises(ValueError, match="Must provide either llm"):
             LangGraphAdapter()
-
-    def test_default_values(self, mock_llm, mock_checkpointer):
-        """Should use default values for optional params."""
-        adapter = LangGraphAdapter(
-            llm=mock_llm,
-            checkpointer=mock_checkpointer,
-        )
-
-        assert adapter.prompt_template == "default"
-        assert adapter.custom_section == ""
-        assert adapter.history_converter is not None
 
 
 class TestOnStarted:

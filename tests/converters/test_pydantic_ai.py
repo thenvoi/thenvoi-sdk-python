@@ -1,4 +1,11 @@
-"""Tests for PydanticAIHistoryConverter."""
+"""Tests for PydanticAIHistoryConverter.
+
+Tests for shared converter behavior (user messages, agent filtering, empty
+history, edge cases) live in tests/framework_conformance/test_converter_conformance.py.
+This file contains PydanticAI-specific tool event conversion (batching,
+ModelRequest/ModelResponse types, RetryPromptPart for errors) and mixed
+history integration tests.
+"""
 
 from pydantic_ai.messages import (
     ModelRequest,
@@ -10,171 +17,6 @@ from pydantic_ai.messages import (
 )
 
 from thenvoi.converters.pydantic_ai import PydanticAIHistoryConverter
-
-
-class TestUserMessages:
-    """Tests for user message conversion."""
-
-    def test_converts_user_text_to_model_request(self):
-        """User text messages become ModelRequest with UserPromptPart."""
-        converter = PydanticAIHistoryConverter()
-        raw = [
-            {
-                "role": "user",
-                "content": "Hello, agent!",
-                "sender_name": "Alice",
-                "message_type": "text",
-            }
-        ]
-
-        result = converter.convert(raw)
-
-        assert len(result) == 1
-        assert isinstance(result[0], ModelRequest)
-        assert len(result[0].parts) == 1
-        assert isinstance(result[0].parts[0], UserPromptPart)
-        assert result[0].parts[0].content == "[Alice]: Hello, agent!"
-
-    def test_handles_empty_sender_name(self):
-        """User messages without sender_name use content as-is."""
-        converter = PydanticAIHistoryConverter()
-        raw = [
-            {
-                "role": "user",
-                "content": "Hello!",
-                "sender_name": "",
-                "message_type": "text",
-            }
-        ]
-
-        result = converter.convert(raw)
-
-        assert isinstance(result[0], ModelRequest)
-        assert result[0].parts[0].content == "Hello!"
-
-    def test_handles_missing_sender_name(self):
-        """User messages with no sender_name key use content as-is."""
-        converter = PydanticAIHistoryConverter()
-        raw = [
-            {
-                "role": "user",
-                "content": "Hello!",
-                "message_type": "text",
-            }
-        ]
-
-        result = converter.convert(raw)
-
-        assert result[0].parts[0].content == "Hello!"
-
-
-class TestAssistantMessages:
-    """Tests for assistant message handling."""
-
-    def test_skips_own_assistant_text_messages(self):
-        """This agent's text messages are skipped (redundant with tool results)."""
-        converter = PydanticAIHistoryConverter(agent_name="Agent")
-        raw = [
-            {
-                "role": "assistant",
-                "content": "I'll help you with that.",
-                "sender_name": "Agent",
-                "message_type": "text",
-            }
-        ]
-
-        result = converter.convert(raw)
-
-        assert len(result) == 0
-
-
-class TestMultiAgentMessages:
-    """Tests for multi-agent message handling."""
-
-    def test_includes_other_agents_messages(self):
-        """Other agents' messages should be included as ModelRequest."""
-        converter = PydanticAIHistoryConverter(agent_name="Main Agent")
-        raw = [
-            {
-                "role": "assistant",
-                "content": "It's sunny today!",
-                "sender_name": "Weather Agent",
-                "message_type": "text",
-            }
-        ]
-
-        result = converter.convert(raw)
-
-        assert len(result) == 1
-        assert isinstance(result[0], ModelRequest)
-        assert result[0].parts[0].content == "[Weather Agent]: It's sunny today!"
-
-    def test_skips_only_own_messages(self):
-        """Only skip THIS agent's text, include other agents."""
-        converter = PydanticAIHistoryConverter()
-        converter.set_agent_name("Main Agent")
-        raw = [
-            {
-                "role": "assistant",
-                "content": "I'll help",
-                "sender_name": "Main Agent",
-                "message_type": "text",
-            },
-            {
-                "role": "assistant",
-                "content": "It's sunny!",
-                "sender_name": "Weather Agent",
-                "message_type": "text",
-            },
-        ]
-
-        result = converter.convert(raw)
-
-        assert len(result) == 1  # Only Weather Agent's message
-        assert "[Weather Agent]:" in result[0].parts[0].content
-
-    def test_set_agent_name_updates_filtering(self):
-        """set_agent_name should update which messages are skipped."""
-        converter = PydanticAIHistoryConverter()
-        raw = [
-            {
-                "role": "assistant",
-                "content": "Hello",
-                "sender_name": "Agent",
-                "message_type": "text",
-            }
-        ]
-
-        # Before setting name - all assistant messages included
-        assert len(converter.convert(raw)) == 1
-
-        # After setting name - own messages skipped
-        converter.set_agent_name("Agent")
-        assert len(converter.convert(raw)) == 0
-
-    def test_includes_all_assistant_messages_when_no_agent_name(self):
-        """When agent name is not set, include all assistant messages."""
-        converter = PydanticAIHistoryConverter()
-        raw = [
-            {
-                "role": "assistant",
-                "content": "Hello from agent 1",
-                "sender_name": "Agent 1",
-                "message_type": "text",
-            },
-            {
-                "role": "assistant",
-                "content": "Hello from agent 2",
-                "sender_name": "Agent 2",
-                "message_type": "text",
-            },
-        ]
-
-        result = converter.convert(raw)
-
-        assert len(result) == 2
-        assert "[Agent 1]:" in result[0].parts[0].content
-        assert "[Agent 2]:" in result[1].parts[0].content
 
 
 class TestToolEventConversion:
@@ -382,21 +224,6 @@ class TestToolEventConversion:
         assert len(result[3].parts) == 1
         assert isinstance(result[3].parts[0], ToolReturnPart)
         assert result[3].parts[0].tool_call_id == "call_3"
-
-    def test_skips_thought_messages(self):
-        """thought messages are skipped."""
-        converter = PydanticAIHistoryConverter()
-        raw = [
-            {
-                "role": "assistant",
-                "content": "I'm thinking about this...",
-                "message_type": "thought",
-            }
-        ]
-
-        result = converter.convert(raw)
-
-        assert len(result) == 0
 
     def test_handles_malformed_tool_call_json(self, caplog):
         """Malformed tool_call JSON is skipped with warning."""
@@ -612,66 +439,6 @@ class TestToolEventConversion:
         # Second result is error (RetryPromptPart)
         assert isinstance(result[1].parts[1], RetryPromptPart)
         assert result[1].parts[1].content == "Error: failed"
-
-
-class TestEdgeCases:
-    """Tests for edge cases and error handling."""
-
-    def test_empty_history(self):
-        """Empty history returns empty list."""
-        converter = PydanticAIHistoryConverter()
-
-        result = converter.convert([])
-
-        assert result == []
-
-    def test_defaults_to_text_message_type(self):
-        """Messages without message_type default to 'text'."""
-        converter = PydanticAIHistoryConverter()
-        raw = [
-            {
-                "role": "user",
-                "content": "Hello",
-                "sender_name": "Bob",
-            }
-        ]
-
-        result = converter.convert(raw)
-
-        assert len(result) == 1
-        assert isinstance(result[0], ModelRequest)
-
-    def test_defaults_to_user_role(self):
-        """Messages without role default to 'user'."""
-        converter = PydanticAIHistoryConverter()
-        raw = [
-            {
-                "content": "Hello",
-                "sender_name": "Bob",
-                "message_type": "text",
-            }
-        ]
-
-        result = converter.convert(raw)
-
-        assert isinstance(result[0], ModelRequest)
-
-    def test_handles_empty_content(self):
-        """Handles messages with empty content."""
-        converter = PydanticAIHistoryConverter()
-        raw = [
-            {
-                "role": "user",
-                "content": "",
-                "sender_name": "Alice",
-                "message_type": "text",
-            }
-        ]
-
-        result = converter.convert(raw)
-
-        assert len(result) == 1
-        assert result[0].parts[0].content == "[Alice]: "
 
 
 class TestMixedHistory:

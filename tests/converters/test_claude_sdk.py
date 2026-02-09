@@ -1,4 +1,10 @@
-"""Tests for ClaudeSDKHistoryConverter."""
+"""Tests for ClaudeSDKHistoryConverter.
+
+Tests for shared converter behavior (user messages, agent filtering, empty
+history, edge cases) live in tests/framework_conformance/test_converter_conformance.py.
+This file contains ClaudeSDK-specific multi-message joining, tool event
+handling, and mixed history integration tests.
+"""
 
 import json
 
@@ -6,23 +12,7 @@ from thenvoi.converters.claude_sdk import ClaudeSDKHistoryConverter
 
 
 class TestBasicConversion:
-    """Tests for basic message conversion to text."""
-
-    def test_converts_single_user_message(self):
-        """Single user message is formatted as [sender]: content."""
-        converter = ClaudeSDKHistoryConverter()
-        raw = [
-            {
-                "role": "user",
-                "content": "Hello, agent!",
-                "sender_name": "Alice",
-                "message_type": "text",
-            }
-        ]
-
-        result = converter.convert(raw)
-
-        assert result == "[Alice]: Hello, agent!"
+    """Tests for ClaudeSDK-specific message conversion to text."""
 
     def test_converts_multiple_messages(self):
         """Multiple messages are joined with newlines."""
@@ -46,82 +36,6 @@ class TestBasicConversion:
 
         expected = "[Alice]: Hello!\n[Bob]: Hi there!"
         assert result == expected
-
-
-class TestAgentNameHandling:
-    """Tests for agent_name filtering."""
-
-    def test_skips_own_text_messages(self):
-        """Should skip this agent's text messages."""
-        converter = ClaudeSDKHistoryConverter(agent_name="MyAgent")
-        raw = [
-            {
-                "role": "user",
-                "content": "Hello!",
-                "sender_name": "Alice",
-                "message_type": "text",
-            },
-            {
-                "role": "assistant",
-                "content": "Hi there!",
-                "sender_name": "MyAgent",
-                "message_type": "text",
-            },
-        ]
-
-        result = converter.convert(raw)
-
-        assert result == "[Alice]: Hello!"
-        assert "Hi there!" not in result
-
-    def test_includes_other_agents_messages(self):
-        """Should include other agents' messages."""
-        converter = ClaudeSDKHistoryConverter(agent_name="MyAgent")
-        raw = [
-            {
-                "role": "assistant",
-                "content": "I can help too!",
-                "sender_name": "OtherAgent",
-                "message_type": "text",
-            },
-        ]
-
-        result = converter.convert(raw)
-
-        assert result == "[OtherAgent]: I can help too!"
-
-    def test_set_agent_name(self):
-        """set_agent_name should update filtering."""
-        converter = ClaudeSDKHistoryConverter()
-        converter.set_agent_name("MyAgent")
-        raw = [
-            {
-                "role": "assistant",
-                "content": "My message",
-                "sender_name": "MyAgent",
-                "message_type": "text",
-            },
-        ]
-
-        result = converter.convert(raw)
-
-        assert result == ""
-
-    def test_includes_all_when_no_agent_name(self):
-        """Should include all assistant messages when no agent_name set."""
-        converter = ClaudeSDKHistoryConverter()
-        raw = [
-            {
-                "role": "assistant",
-                "content": "Hello!",
-                "sender_name": "Agent",
-                "message_type": "text",
-            },
-        ]
-
-        result = converter.convert(raw)
-
-        assert result == "[Agent]: Hello!"
 
 
 class TestToolEventHandling:
@@ -213,76 +127,6 @@ class TestToolEventHandling:
                 "content": "",
                 "message_type": "tool_result",
             },
-        ]
-
-        result = converter.convert(raw)
-
-        assert result == ""
-
-    def test_skips_thought_messages(self):
-        """thought messages are skipped."""
-        converter = ClaudeSDKHistoryConverter()
-        raw = [
-            {
-                "role": "assistant",
-                "content": "I'm thinking about this...",
-                "message_type": "thought",
-            }
-        ]
-
-        result = converter.convert(raw)
-
-        assert result == ""
-
-
-class TestEdgeCases:
-    """Tests for edge cases and error handling."""
-
-    def test_empty_history(self):
-        """Empty history returns empty string."""
-        converter = ClaudeSDKHistoryConverter()
-
-        result = converter.convert([])
-
-        assert result == ""
-
-    def test_defaults_to_text_message_type(self):
-        """Messages without message_type default to 'text'."""
-        converter = ClaudeSDKHistoryConverter()
-        raw = [
-            {
-                "content": "Hello",
-                "sender_name": "Bob",
-            }
-        ]
-
-        result = converter.convert(raw)
-
-        assert result == "[Bob]: Hello"
-
-    def test_defaults_to_unknown_sender(self):
-        """Messages without sender_name use 'Unknown'."""
-        converter = ClaudeSDKHistoryConverter()
-        raw = [
-            {
-                "content": "Hello",
-                "message_type": "text",
-            }
-        ]
-
-        result = converter.convert(raw)
-
-        assert result == "[Unknown]: Hello"
-
-    def test_skips_empty_content(self):
-        """Messages with empty content are skipped."""
-        converter = ClaudeSDKHistoryConverter()
-        raw = [
-            {
-                "content": "",
-                "sender_name": "Alice",
-                "message_type": "text",
-            }
         ]
 
         result = converter.convert(raw)

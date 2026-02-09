@@ -40,29 +40,6 @@ def mock_tools():
 class TestInitialization:
     """Tests for adapter initialization."""
 
-    def test_default_initialization(self):
-        """Should initialize with default values."""
-        adapter = AnthropicAdapter()
-
-        assert adapter.model == "claude-sonnet-4-5-20250929"
-        assert adapter.max_tokens == 4096
-        assert adapter.enable_execution_reporting is False
-        assert adapter.history_converter is not None
-
-    def test_custom_initialization(self):
-        """Should accept custom parameters."""
-        adapter = AnthropicAdapter(
-            model="claude-opus-4-20250514",
-            max_tokens=8192,
-            custom_section="Be helpful.",
-            enable_execution_reporting=True,
-        )
-
-        assert adapter.model == "claude-opus-4-20250514"
-        assert adapter.max_tokens == 8192
-        assert adapter.custom_section == "Be helpful."
-        assert adapter.enable_execution_reporting is True
-
     def test_system_prompt_override(self):
         """Should use custom system_prompt if provided."""
         adapter = AnthropicAdapter(
@@ -393,12 +370,6 @@ class TestCustomTools:
         )
 
         assert len(adapter._custom_tools) == 2
-
-    def test_defaults_to_empty_custom_tools(self):
-        """Adapter should have empty custom tools by default."""
-        adapter = AnthropicAdapter()
-
-        assert adapter._custom_tools == []
 
     @pytest.mark.asyncio
     async def test_merges_custom_tool_schemas(self, sample_message, mock_tools):

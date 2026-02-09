@@ -117,43 +117,6 @@ class TestInitialization:
         adapter = PydanticAIAdapter(model="openai:gpt-4o")
         assert adapter.model == "openai:gpt-4o"
 
-    def test_default_initialization(self):
-        """Should initialize with default values."""
-        adapter = PydanticAIAdapter(model="openai:gpt-4o")
-
-        assert adapter.model == "openai:gpt-4o"
-        assert adapter.system_prompt is None
-        assert adapter.custom_section is None
-        assert adapter.history_converter is not None
-        assert adapter._agent is None  # Created on on_started
-
-    def test_custom_initialization(self):
-        """Should accept custom parameters."""
-        adapter = PydanticAIAdapter(
-            model="anthropic:claude-sonnet-4-5-20250929",
-            system_prompt="You are a helpful bot.",
-            custom_section="Be concise.",
-        )
-
-        assert adapter.model == "anthropic:claude-sonnet-4-5-20250929"
-        assert adapter.system_prompt == "You are a helpful bot."
-        assert adapter.custom_section == "Be concise."
-
-    def test_enable_execution_reporting_default_false(self):
-        """Should default enable_execution_reporting to False."""
-        adapter = PydanticAIAdapter(model="openai:gpt-4o")
-
-        assert adapter.enable_execution_reporting is False
-
-    def test_enable_execution_reporting_can_be_enabled(self):
-        """Should accept enable_execution_reporting parameter."""
-        adapter = PydanticAIAdapter(
-            model="openai:gpt-4o",
-            enable_execution_reporting=True,
-        )
-
-        assert adapter.enable_execution_reporting is True
-
 
 class TestOnStarted:
     """Tests for on_started() method."""
@@ -357,14 +320,6 @@ class TestOnCleanup:
         await adapter.on_cleanup("room-123")
 
         assert "room-123" not in adapter._message_history
-
-    @pytest.mark.asyncio
-    async def test_cleanup_nonexistent_room_is_safe(self):
-        """Should handle cleanup of non-existent room."""
-        adapter = PydanticAIAdapter(model="openai:gpt-4o")
-
-        # Should not raise
-        await adapter.on_cleanup("nonexistent-room")
 
 
 class TestHistoryManagement:
@@ -642,12 +597,6 @@ class TestCustomTools:
 
         assert len(adapter._custom_tools) == 1
         assert adapter._custom_tools[0] == my_tool
-
-    def test_empty_additional_tools_by_default(self):
-        """Should have empty custom tools list by default."""
-        adapter = PydanticAIAdapter(model="openai:gpt-4o")
-
-        assert adapter._custom_tools == []
 
     def test_multiple_custom_tools(self):
         """Should accept multiple custom tools."""

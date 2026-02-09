@@ -137,44 +137,6 @@ def room_context(crewai_mocks, mock_tools):
 
 
 class TestInitialization:
-    def test_default_initialization(self, CrewAIAdapter):
-        adapter = CrewAIAdapter()
-
-        assert adapter.model == "gpt-4o"
-        assert adapter.role is None
-        assert adapter.goal is None
-        assert adapter.backstory is None
-        assert adapter.enable_execution_reporting is False
-        assert adapter.verbose is False
-        assert adapter.max_iter == 20
-        assert adapter.allow_delegation is False
-        assert adapter.history_converter is not None
-
-    def test_custom_initialization(self, CrewAIAdapter):
-        adapter = CrewAIAdapter(
-            model="gpt-4o-mini",
-            role="Research Analyst",
-            goal="Find and analyze information",
-            backstory="Expert researcher with years of experience",
-            custom_section="Be thorough.",
-            enable_execution_reporting=True,
-            verbose=True,
-            max_iter=30,
-            max_rpm=10,
-            allow_delegation=True,
-        )
-
-        assert adapter.model == "gpt-4o-mini"
-        assert adapter.role == "Research Analyst"
-        assert adapter.goal == "Find and analyze information"
-        assert adapter.backstory == "Expert researcher with years of experience"
-        assert adapter.custom_section == "Be thorough."
-        assert adapter.enable_execution_reporting is True
-        assert adapter.verbose is True
-        assert adapter.max_iter == 30
-        assert adapter.max_rpm == 10
-        assert adapter.allow_delegation is True
-
     def test_system_prompt_deprecation_warning(self, CrewAIAdapter):
         """system_prompt parameter should emit DeprecationWarning."""
         import warnings
@@ -360,12 +322,6 @@ class TestOnCleanup:
         await adapter.on_cleanup("room-123")
 
         assert "room-123" not in adapter._message_history
-
-    @pytest.mark.asyncio
-    async def test_cleanup_nonexistent_room_is_safe(self, CrewAIAdapter):
-        adapter = CrewAIAdapter()
-
-        await adapter.on_cleanup("nonexistent-room")
 
 
 class TestErrorHandling:
@@ -903,12 +859,6 @@ class TestCustomTools:
         )
 
         assert len(adapter._custom_tools) == 2
-
-    def test_defaults_to_empty_custom_tools(self, CrewAIAdapter):
-        """Adapter should have empty custom tools by default."""
-        adapter = CrewAIAdapter()
-
-        assert adapter._custom_tools == []
 
     @pytest.mark.asyncio
     async def test_custom_tools_converted_to_crewai_format(

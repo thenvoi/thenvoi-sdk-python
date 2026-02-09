@@ -38,36 +38,6 @@ def mock_tools():
     return tools
 
 
-class TestInitialization:
-    """Tests for adapter initialization."""
-
-    def test_default_initialization(self):
-        """Should initialize with default values."""
-        adapter = ClaudeSDKAdapter()
-
-        assert adapter.model == "claude-sonnet-4-5-20250929"
-        assert adapter.custom_section is None
-        assert adapter.max_thinking_tokens is None
-        assert adapter.permission_mode == "acceptEdits"
-        assert adapter.enable_execution_reporting is False
-
-    def test_custom_initialization(self):
-        """Should accept custom parameters."""
-        adapter = ClaudeSDKAdapter(
-            model="claude-opus-4-20250514",
-            custom_section="Be helpful.",
-            max_thinking_tokens=10000,
-            permission_mode="bypassPermissions",
-            enable_execution_reporting=True,
-        )
-
-        assert adapter.model == "claude-opus-4-20250514"
-        assert adapter.custom_section == "Be helpful."
-        assert adapter.max_thinking_tokens == 10000
-        assert adapter.permission_mode == "bypassPermissions"
-        assert adapter.enable_execution_reporting is True
-
-
 class TestOnStarted:
     """Tests for on_started() method."""
 
@@ -197,12 +167,6 @@ class TestCustomTools:
 
         assert len(adapter._custom_tools) == 1
         assert adapter._custom_tools[0][0] is EchoInput
-
-    def test_empty_additional_tools_by_default(self):
-        """Should have empty custom tools list by default."""
-        adapter = ClaudeSDKAdapter()
-
-        assert adapter._custom_tools == []
 
     def test_multiple_custom_tools(self):
         """Should accept multiple custom tools."""

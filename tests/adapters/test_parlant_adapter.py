@@ -90,20 +90,6 @@ class TestInitialization:
         assert adapter.custom_section is None
         assert adapter.history_converter is not None
 
-    def test_initialization_with_custom_options(
-        self, mock_parlant_server, mock_parlant_agent
-    ):
-        """Should accept custom parameters."""
-        adapter = ParlantAdapter(
-            server=mock_parlant_server,
-            parlant_agent=mock_parlant_agent,
-            system_prompt="Custom system prompt",
-            custom_section="Be helpful.",
-        )
-
-        assert adapter.system_prompt == "Custom system prompt"
-        assert adapter.custom_section == "Be helpful."
-
     def test_internal_state_initialized(self, mock_parlant_server, mock_parlant_agent):
         """Should initialize internal state correctly."""
         adapter = ParlantAdapter(
@@ -398,19 +384,6 @@ class TestOnCleanup:
 
         assert "room-123" not in adapter._room_sessions
         assert "room-123" not in adapter._room_customers
-
-    @pytest.mark.asyncio
-    async def test_cleanup_nonexistent_room_is_safe(
-        self, mock_parlant_server, mock_parlant_agent
-    ):
-        """Should handle cleanup of non-existent room."""
-        adapter = ParlantAdapter(
-            server=mock_parlant_server,
-            parlant_agent=mock_parlant_agent,
-        )
-
-        # Should not raise
-        await adapter.on_cleanup("nonexistent-room")
 
 
 class TestHistoryInjection:

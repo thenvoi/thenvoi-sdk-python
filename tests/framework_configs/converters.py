@@ -143,7 +143,6 @@ CONVERTER_CONFIGS: list[ConverterConfig] = [
         missing_sender_behavior="unknown_prefix",
         skips_empty_content=True,
         has_role_concept=False,
-        has_missing_sender_name_test=False,
         output_adapter=StringOutputAdapter(),
     ),
     ConverterConfig(
