@@ -516,9 +516,11 @@ class ParlantAdapter(SimpleAdapter[ParlantMessages]):
 
                     if isinstance(data, dict):
                         message_content = str(data.get("message", ""))
-                        tags = data.get("tags", [])
+                        raw_tags = data.get("tags", [])
+                        tags = list(raw_tags) if isinstance(raw_tags, (list, tuple)) else []
                     elif isinstance(data, str):
                         message_content = data
+                        tags = []
 
                     # Check if this is a preamble message
                     is_preamble = PARLANT_PREAMBLE_TAG in tags
