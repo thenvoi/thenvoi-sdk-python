@@ -12,6 +12,7 @@ pairing (e.g. LangChain) produce valid output.
 from __future__ import annotations
 
 import json
+from types import MappingProxyType
 
 
 def _tool_call_content(name: str, args: dict, tool_call_id: str) -> str:
@@ -56,33 +57,45 @@ def _tool_result_content(name: str, output: str, tool_call_id: str) -> str:
 # frameworks read which path.  When adding a new converter, verify that these
 # payloads satisfy its schema — do NOT rely on a path you haven't checked.
 
-TOOL_CALL_SEARCH = {
-    "role": "assistant",
-    "content": _tool_call_content("search", {"query": "test"}, "tc_1"),
-    "message_type": "tool_call",
-}
-TOOL_RESULT_SEARCH = {
-    "role": "assistant",
-    "content": _tool_result_content("search", "result data", "tc_1"),
-    "message_type": "tool_result",
-}
-TOOL_CALL_LOOKUP = {
-    "role": "assistant",
-    "content": _tool_call_content("lookup", {"id": "42"}, "tc_2"),
-    "message_type": "tool_call",
-}
-TOOL_RESULT_LOOKUP = {
-    "role": "assistant",
-    "content": _tool_result_content("lookup", "found item 42", "tc_2"),
-    "message_type": "tool_result",
-}
-TOOL_CALL_SEARCH_EMPTY = {
-    "role": "assistant",
-    "content": _tool_call_content("search", {}, "tc_1"),
-    "message_type": "tool_call",
-}
-TOOL_RESULT_SEARCH_FOUND = {
-    "role": "assistant",
-    "content": _tool_result_content("search", "found", "tc_1"),
-    "message_type": "tool_result",
-}
+TOOL_CALL_SEARCH = MappingProxyType(
+    {
+        "role": "assistant",
+        "content": _tool_call_content("search", {"query": "test"}, "tc_1"),
+        "message_type": "tool_call",
+    }
+)
+TOOL_RESULT_SEARCH = MappingProxyType(
+    {
+        "role": "assistant",
+        "content": _tool_result_content("search", "result data", "tc_1"),
+        "message_type": "tool_result",
+    }
+)
+TOOL_CALL_LOOKUP = MappingProxyType(
+    {
+        "role": "assistant",
+        "content": _tool_call_content("lookup", {"id": "42"}, "tc_2"),
+        "message_type": "tool_call",
+    }
+)
+TOOL_RESULT_LOOKUP = MappingProxyType(
+    {
+        "role": "assistant",
+        "content": _tool_result_content("lookup", "found item 42", "tc_2"),
+        "message_type": "tool_result",
+    }
+)
+TOOL_CALL_SEARCH_EMPTY = MappingProxyType(
+    {
+        "role": "assistant",
+        "content": _tool_call_content("search", {}, "tc_1"),
+        "message_type": "tool_call",
+    }
+)
+TOOL_RESULT_SEARCH_FOUND = MappingProxyType(
+    {
+        "role": "assistant",
+        "content": _tool_result_content("search", "found", "tc_1"),
+        "message_type": "tool_result",
+    }
+)

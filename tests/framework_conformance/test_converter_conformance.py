@@ -24,6 +24,8 @@ from tests.framework_configs.fixtures import (
 from tests.framework_configs.converters import SenderBehavior
 
 # Expected content for each SenderBehavior when the raw content is "Hello!".
+# Coupled to the test payloads below — tests that use _assert_sender_content()
+# MUST pass raw messages with content="Hello!" for the assertion to hold.
 _SENDER_BEHAVIOR_EXPECTED: dict[SenderBehavior, str] = {
     SenderBehavior.CONTENT_AS_IS: "Hello!",
     SenderBehavior.BRACKETS_EMPTY: "[]: Hello!",

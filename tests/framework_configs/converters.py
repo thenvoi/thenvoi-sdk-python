@@ -8,10 +8,12 @@ across all registered converters.
 from __future__ import annotations
 
 import functools
-import os
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import Any, Callable
+from typing import TYPE_CHECKING, Any, Callable
+
+if TYPE_CHECKING:
+    from tests.framework_configs.output_adapters import OutputAdapter
 
 __all__ = ["ConverterConfig", "CONVERTER_CONFIGS", "SenderBehavior"]
 
@@ -42,7 +44,7 @@ class ConverterConfig:
     empty_result: Any  # [] or ""
 
     # Output adapter for uniform assertions (required, no default)
-    output_adapter: Any
+    output_adapter: OutputAdapter
 
     # Behavioral flags
     filters_own_messages: bool = True
@@ -219,9 +221,6 @@ _CONVERTER_CONFIG_BUILDERS: list[Callable[[], ConverterConfig]] = [
 ]
 
 
-_IN_CI = bool(os.environ.get("CI") or os.environ.get("GITHUB_ACTIONS"))
-
-
 @functools.lru_cache(maxsize=1)
 def _build_converter_configs() -> list[ConverterConfig]:
     """Build configs lazily so converter imports happen only when needed.
@@ -232,13 +231,15 @@ def _build_converter_configs() -> list[ConverterConfig]:
     """
     import logging
 
+    from tests.framework_configs._sentinel import IN_CI
+
     logger = logging.getLogger(__name__)
     configs: list[ConverterConfig] = []
     for builder in _CONVERTER_CONFIG_BUILDERS:
         try:
             configs.append(builder())
         except Exception as exc:
-            if _IN_CI:
+            if IN_CI:
                 raise RuntimeError(
                     f"Converter config builder {builder.__name__} failed in CI: {exc}"
                 ) from exc

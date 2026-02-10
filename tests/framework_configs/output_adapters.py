@@ -196,12 +196,10 @@ class PydanticAIOutputAdapter:
             for part in msg.parts:
                 if isinstance(part, TextPart):
                     return part.content
-                if isinstance(part, ToolReturnPart) and part.content:
-                    return part.content
                 if isinstance(part, ToolCallPart) and part.tool_name:
                     return part.tool_name
         raise ValueError(
-            f"No UserPromptPart, TextPart, ToolReturnPart, or ToolCallPart with "
+            f"No UserPromptPart, TextPart, or ToolCallPart with "
             f"content found in message at index {index} (type={type(msg).__name__}). "
             "This may indicate a converter bug."
         )

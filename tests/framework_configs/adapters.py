@@ -9,12 +9,12 @@ from __future__ import annotations
 
 import functools
 import inspect
-import os
+import threading
 from dataclasses import dataclass, field
 from typing import Any, Callable
 from unittest.mock import MagicMock
 
-from tests.framework_configs._sentinel import MISSING, _MissingSentinel
+from tests.framework_configs._sentinel import IN_CI, MISSING, _MissingSentinel
 
 __all__ = ["AdapterConfig", "ADAPTER_CONFIGS"]
 
@@ -117,12 +117,20 @@ class _MockBaseTool:
         pass
 
 
+_crewai_import_lock = threading.Lock()
+
+
+@functools.lru_cache(maxsize=1)
 def _get_crewai_adapter_cls() -> type:
     """Import CrewAIAdapter with mocked crewai dependencies.
 
     Uses ``patch.dict(sys.modules, ...)`` to temporarily inject mock modules,
     imports the adapter, then cleans up.  The returned class retains mock
     references in its module globals — safe for attribute inspection only.
+
+    Cached so the heavy sys.modules teardown/reimport happens at most once.
+    Protected by ``_crewai_import_lock`` so concurrent pytest-xdist workers
+    cannot interleave the ``sys.modules.pop`` / ``patch.dict`` sequence.
     """
     import importlib
     import sys
@@ -130,27 +138,28 @@ def _get_crewai_adapter_cls() -> type:
 
     adapter_module_name = "thenvoi.adapters.crewai"
 
-    # Clear any prior imports to ensure a clean mock-based import.
-    for mod in (adapter_module_name, "crewai", "crewai.tools", "nest_asyncio"):
-        sys.modules.pop(mod, None)
+    with _crewai_import_lock:
+        # Clear any prior imports to ensure a clean mock-based import.
+        for mod in (adapter_module_name, "crewai", "crewai.tools", "nest_asyncio"):
+            sys.modules.pop(mod, None)
 
-    mock_crewai = MagicMock()
-    mock_crewai.Agent = MagicMock()
-    mock_crewai.LLM = MagicMock()
-    mock_crewai_tools = MagicMock()
-    mock_crewai_tools.BaseTool = _MockBaseTool
+        mock_crewai = MagicMock()
+        mock_crewai.Agent = MagicMock()
+        mock_crewai.LLM = MagicMock()
+        mock_crewai_tools = MagicMock()
+        mock_crewai_tools.BaseTool = _MockBaseTool
 
-    mock_entries = {
-        "crewai": mock_crewai,
-        "crewai.tools": mock_crewai_tools,
-        "nest_asyncio": MagicMock(),
-    }
+        mock_entries = {
+            "crewai": mock_crewai,
+            "crewai.tools": mock_crewai_tools,
+            "nest_asyncio": MagicMock(),
+        }
 
-    with patch.dict(sys.modules, mock_entries):
-        cls = importlib.import_module(adapter_module_name).CrewAIAdapter
+        with patch.dict(sys.modules, mock_entries):
+            cls = importlib.import_module(adapter_module_name).CrewAIAdapter
 
-    # Remove adapter module so non-conformance imports aren't polluted.
-    sys.modules.pop(adapter_module_name, None)
+        # Remove adapter module so non-conformance imports aren't polluted.
+        sys.modules.pop(adapter_module_name, None)
 
     # Mark the class as conformance-only so accidental runtime use is detectable.
     cls._CONFORMANCE_ONLY = True
@@ -412,9 +421,6 @@ _ADAPTER_CONFIG_BUILDERS: list[Callable[[], AdapterConfig]] = [
 ]
 
 
-_IN_CI = bool(os.environ.get("CI") or os.environ.get("GITHUB_ACTIONS"))
-
-
 @functools.lru_cache(maxsize=1)
 def _build_adapter_configs() -> list[AdapterConfig]:
     """Build configs lazily so adapter imports happen only when needed.
@@ -431,7 +437,7 @@ def _build_adapter_configs() -> list[AdapterConfig]:
         try:
             configs.append(builder())
         except Exception as exc:
-            if _IN_CI:
+            if IN_CI:
                 raise RuntimeError(
                     f"Adapter config builder {builder.__name__} failed in CI: {exc}"
                 ) from exc

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import os
+
 
 class _MissingSentinel:
     """Sentinel indicating a required field was not provided."""
@@ -13,3 +15,5 @@ class _MissingSentinel:
 
 
 MISSING = _MissingSentinel()
+
+IN_CI = bool(os.environ.get("CI") or os.environ.get("GITHUB_ACTIONS"))
