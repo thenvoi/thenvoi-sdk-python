@@ -101,6 +101,15 @@ class ParticipantRemovedPayload(BaseModel):
     id: str
 
 
+_PAYLOAD_MODELS: dict[str, type[BaseModel]] = {
+    "message_created": MessageCreatedPayload,
+    "room_added": RoomAddedPayload,
+    "room_removed": RoomRemovedPayload,
+    "participant_added": ParticipantAddedPayload,
+    "participant_removed": ParticipantRemovedPayload,
+}
+
+
 class WebSocketClient:
     def __init__(self, ws_url: str, api_key: str, agent_id: Optional[str] = None):
         self.ws_url = ws_url
@@ -139,15 +148,7 @@ class WebSocketClient:
             return
 
         # Validate and parse payload into Pydantic models for known types
-        payload_models = {
-            "message_created": MessageCreatedPayload,
-            "room_added": RoomAddedPayload,
-            "room_removed": RoomRemovedPayload,
-            "participant_added": ParticipantAddedPayload,
-            "participant_removed": ParticipantRemovedPayload,
-        }
-
-        model = payload_models.get(message.event)
+        model = _PAYLOAD_MODELS.get(message.event)
         if model is not None:
             try:
                 validated = model(**message.payload)
@@ -157,9 +158,13 @@ class WebSocketClient:
                     for err in e.errors()
                 )
                 logger.error(
-                    "[WebSocket] Invalid %s payload: %s (raw: %s)",
+                    "[WebSocket] Invalid %s payload: %s",
                     message.event,
                     errors,
+                )
+                logger.debug(
+                    "[WebSocket] Raw payload for invalid %s: %s",
+                    message.event,
                     message.payload,
                 )
                 return
