@@ -62,6 +62,157 @@ class TestOnStarted:
             assert adapter._mcp_server is not None
 
 
+class TestOnMessage:
+    """Tests for on_message() method (bootstrap, history, invoke and response)."""
+
+    @pytest.mark.asyncio
+    async def test_initializes_history_on_bootstrap(
+        self, sample_message, mock_tools
+    ):
+        """First message in a room initializes session context and triggers invoke."""
+        adapter = ClaudeSDKAdapter()
+        mock_client = MagicMock()
+        mock_client.query = AsyncMock()
+        mock_manager = AsyncMock()
+        mock_manager.get_or_create_session = AsyncMock(return_value=mock_client)
+
+        with patch(
+            "thenvoi.adapters.claude_sdk.ClaudeSessionManager",
+            return_value=mock_manager,
+        ), patch.object(
+            adapter, "_process_response", new_callable=AsyncMock
+        ) as mock_process:
+            await adapter.on_started(
+                agent_name="TestBot", agent_description="A test bot"
+            )
+            await adapter.on_message(
+                msg=sample_message,
+                tools=mock_tools,
+                history="",
+                participants_msg=None,
+                is_session_bootstrap=True,
+                room_id="room-123",
+            )
+
+            assert adapter._room_tools["room-123"] is mock_tools
+            assert adapter._session_context["room-123"] == ""
+            mock_manager.get_or_create_session.assert_awaited_once_with(
+                "room-123", resume_session_id=None
+            )
+            mock_client.query.assert_awaited_once()
+            mock_process.assert_awaited_once_with(
+                mock_client, "room-123", mock_tools
+            )
+
+    @pytest.mark.asyncio
+    async def test_loads_existing_history_on_bootstrap(
+        self, sample_message, mock_tools
+    ):
+        """When history is provided on bootstrap, it is loaded and used for the next invoke."""
+        adapter = ClaudeSDKAdapter()
+        mock_client = MagicMock()
+        mock_client.query = AsyncMock()
+        mock_manager = AsyncMock()
+        mock_manager.get_or_create_session = AsyncMock(return_value=mock_client)
+        prior_context = "[Alice]: Hello\n[Bot]: Hi there."
+
+        with patch(
+            "thenvoi.adapters.claude_sdk.ClaudeSessionManager",
+            return_value=mock_manager,
+        ), patch.object(
+            adapter, "_process_response", new_callable=AsyncMock
+        ):
+            await adapter.on_started(
+                agent_name="TestBot", agent_description="A test bot"
+            )
+            await adapter.on_message(
+                msg=sample_message,
+                tools=mock_tools,
+                history=prior_context,
+                participants_msg=None,
+                is_session_bootstrap=True,
+                room_id="room-123",
+            )
+
+            assert adapter._session_context["room-123"] == prior_context
+            call_args = mock_client.query.call_args[0][0]
+            assert "[Previous conversation context:]" in call_args
+            assert prior_context in call_args
+
+    @pytest.mark.asyncio
+    async def test_invoke_and_response(
+        self, sample_message, mock_tools
+    ):
+        """Adapter invokes the SDK client and processes response."""
+        adapter = ClaudeSDKAdapter()
+        mock_client = MagicMock()
+        mock_client.query = AsyncMock()
+        mock_manager = AsyncMock()
+        mock_manager.get_or_create_session = AsyncMock(return_value=mock_client)
+
+        with patch(
+            "thenvoi.adapters.claude_sdk.ClaudeSessionManager",
+            return_value=mock_manager,
+        ), patch.object(
+            adapter, "_process_response", new_callable=AsyncMock
+        ) as mock_process:
+            await adapter.on_started(
+                agent_name="TestBot", agent_description="A test bot"
+            )
+            await adapter.on_message(
+                msg=sample_message,
+                tools=mock_tools,
+                history="",
+                participants_msg=None,
+                is_session_bootstrap=True,
+                room_id="room-123",
+            )
+
+            mock_client.query.assert_awaited_once()
+            full_message = mock_client.query.call_args[0][0]
+            assert "room-123" in full_message
+            assert "Hello, agent!" in full_message
+            mock_process.assert_awaited_once()
+
+
+class TestErrorHandling:
+    """Tests for error handling when SDK or tools raise."""
+
+    @pytest.mark.asyncio
+    async def test_reports_error_on_query_failure(
+        self, sample_message, mock_tools
+    ):
+        """When client.query raises, adapter reports error via send_event and re-raises."""
+        adapter = ClaudeSDKAdapter()
+        mock_client = MagicMock()
+        mock_client.query = AsyncMock(side_effect=Exception("API Error"))
+        mock_manager = AsyncMock()
+        mock_manager.get_or_create_session = AsyncMock(return_value=mock_client)
+
+        with patch(
+            "thenvoi.adapters.claude_sdk.ClaudeSessionManager",
+            return_value=mock_manager,
+        ):
+            await adapter.on_started(
+                agent_name="TestBot", agent_description="A test bot"
+            )
+
+            with pytest.raises(Exception, match="API Error"):
+                await adapter.on_message(
+                    msg=sample_message,
+                    tools=mock_tools,
+                    history="",
+                    participants_msg=None,
+                    is_session_bootstrap=True,
+                    room_id="room-123",
+                )
+
+            mock_tools.send_event.assert_called()
+            call_kwargs = mock_tools.send_event.call_args[1]
+            assert call_kwargs.get("message_type") == "error"
+            assert "API Error" in call_kwargs.get("content", "")
+
+
 class TestRoomToolsStorage:
     """Tests for room tools storage."""
 
