@@ -66,9 +66,7 @@ class TestOnMessage:
     """Tests for on_message() method (bootstrap, history, invoke and response)."""
 
     @pytest.mark.asyncio
-    async def test_initializes_history_on_bootstrap(
-        self, sample_message, mock_tools
-    ):
+    async def test_initializes_history_on_bootstrap(self, sample_message, mock_tools):
         """First message in a room initializes session context and triggers invoke."""
         adapter = ClaudeSDKAdapter()
         mock_client = MagicMock()
@@ -76,12 +74,15 @@ class TestOnMessage:
         mock_manager = AsyncMock()
         mock_manager.get_or_create_session = AsyncMock(return_value=mock_client)
 
-        with patch(
-            "thenvoi.adapters.claude_sdk.ClaudeSessionManager",
-            return_value=mock_manager,
-        ), patch.object(
-            adapter, "_process_response", new_callable=AsyncMock
-        ) as mock_process:
+        with (
+            patch(
+                "thenvoi.adapters.claude_sdk.ClaudeSessionManager",
+                return_value=mock_manager,
+            ),
+            patch.object(
+                adapter, "_process_response", new_callable=AsyncMock
+            ) as mock_process,
+        ):
             await adapter.on_started(
                 agent_name="TestBot", agent_description="A test bot"
             )
@@ -100,9 +101,7 @@ class TestOnMessage:
                 "room-123", resume_session_id=None
             )
             mock_client.query.assert_awaited_once()
-            mock_process.assert_awaited_once_with(
-                mock_client, "room-123", mock_tools
-            )
+            mock_process.assert_awaited_once_with(mock_client, "room-123", mock_tools)
 
     @pytest.mark.asyncio
     async def test_loads_existing_history_on_bootstrap(
@@ -116,11 +115,12 @@ class TestOnMessage:
         mock_manager.get_or_create_session = AsyncMock(return_value=mock_client)
         prior_context = "[Alice]: Hello\n[Bot]: Hi there."
 
-        with patch(
-            "thenvoi.adapters.claude_sdk.ClaudeSessionManager",
-            return_value=mock_manager,
-        ), patch.object(
-            adapter, "_process_response", new_callable=AsyncMock
+        with (
+            patch(
+                "thenvoi.adapters.claude_sdk.ClaudeSessionManager",
+                return_value=mock_manager,
+            ),
+            patch.object(adapter, "_process_response", new_callable=AsyncMock),
         ):
             await adapter.on_started(
                 agent_name="TestBot", agent_description="A test bot"
@@ -140,9 +140,7 @@ class TestOnMessage:
             assert prior_context in call_args
 
     @pytest.mark.asyncio
-    async def test_invoke_and_response(
-        self, sample_message, mock_tools
-    ):
+    async def test_invoke_and_response(self, sample_message, mock_tools):
         """Adapter invokes the SDK client and processes response."""
         adapter = ClaudeSDKAdapter()
         mock_client = MagicMock()
@@ -150,12 +148,15 @@ class TestOnMessage:
         mock_manager = AsyncMock()
         mock_manager.get_or_create_session = AsyncMock(return_value=mock_client)
 
-        with patch(
-            "thenvoi.adapters.claude_sdk.ClaudeSessionManager",
-            return_value=mock_manager,
-        ), patch.object(
-            adapter, "_process_response", new_callable=AsyncMock
-        ) as mock_process:
+        with (
+            patch(
+                "thenvoi.adapters.claude_sdk.ClaudeSessionManager",
+                return_value=mock_manager,
+            ),
+            patch.object(
+                adapter, "_process_response", new_callable=AsyncMock
+            ) as mock_process,
+        ):
             await adapter.on_started(
                 agent_name="TestBot", agent_description="A test bot"
             )
@@ -179,9 +180,7 @@ class TestErrorHandling:
     """Tests for error handling when SDK or tools raise."""
 
     @pytest.mark.asyncio
-    async def test_reports_error_on_query_failure(
-        self, sample_message, mock_tools
-    ):
+    async def test_reports_error_on_query_failure(self, sample_message, mock_tools):
         """When client.query raises, adapter reports error via send_event and re-raises."""
         adapter = ClaudeSDKAdapter()
         mock_client = MagicMock()
