@@ -55,6 +55,28 @@ from thenvoi_testing.markers import pytest_ignore_collect_in_ci as _ignore_colle
 # Built lazily (via @functools.cache) so that running unrelated tests
 # (e.g. tests/runtime/) does not force-import all framework configs and
 # their transitive dependencies.
+#
+# CREWAI MOCK ISOLATION — READ BEFORE CHANGING TEST COLLECTION ORDER
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# The CrewAI conformance config (tests/framework_configs/adapters.py)
+# imports CrewAIAdapter via _get_crewai_adapter_cls(), which injects
+# MagicMock crewai/nest_asyncio modules at import time.  The returned
+# class is @functools.cache'd and retains references to those mocks in
+# its module globals.  It is ONLY safe for primitive attribute inspection.
+#
+# The framework-specific CrewAI tests (tests/adapters/test_crewai_adapter.py)
+# use independent monkeypatch-based mocking and import their own class.
+#
+# These two paths are isolated because _get_crewai_adapter_cls() removes
+# the adapter module from sys.modules after import and verifies no mock
+# modules leaked.  However, if you reorder collection so that the
+# framework-specific tests import the adapter module BEFORE the
+# conformance factory runs, the @functools.cache'd class may see a
+# different (real or differently-mocked) module.  If you change test
+# collection order, always verify both paths:
+#   uv run pytest tests/ --framework crewai -v
+# See _get_crewai_adapter_cls() docstring in
+# tests/framework_configs/adapters.py for the full explanation.
 
 
 @functools.cache
@@ -91,8 +113,9 @@ def pytest_addoption(parser):
         "--framework",
         action="store",
         default=None,
-        help="Run only tests for this framework (e.g. anthropic, langgraph, crewai, claude_sdk, pydantic_ai, parlant). "
-        "Runs conformance + framework-specific adapter and converter tests.",
+        help="Run ONLY that framework's conformance + framework-specific adapter and converter tests. "
+        "All other tests (core, runtime, shared utilities, etc.) are deselected. "
+        "Valid: anthropic, langgraph, crewai, claude_sdk, pydantic_ai, parlant.",
     )
 
 
@@ -102,7 +125,12 @@ def pytest_ignore_collect(collection_path):
 
 
 def pytest_collection_modifyitems(config, items):
-    """When --framework is set, keep only that framework's conformance + framework-specific tests."""
+    """When --framework is set, keep only that framework's conformance + framework-specific tests.
+
+    NOTE: This deselects ALL non-matching tests (core, runtime, shared utilities,
+    other frameworks, etc.).  Use ``--framework`` only for framework verification,
+    not as a substitute for the full test suite.
+    """
     framework_name = config.getoption("--framework", default=None)
     if not framework_name:
         return
@@ -132,7 +160,17 @@ def pytest_collection_modifyitems(config, items):
             return True
         return False
 
-    items[:] = [item for item in items if keep(item)]
+    selected = []
+    deselected = []
+    for item in items:
+        if keep(item):
+            selected.append(item)
+        else:
+            deselected.append(item)
+
+    if deselected:
+        config.hook.pytest_deselected(items=deselected)
+    items[:] = selected
 
 
 # =============================================================================

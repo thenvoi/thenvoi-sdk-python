@@ -60,15 +60,21 @@ class TestUserTextMessages:
 
         result = converter.convert(raw)
 
+        assert output.result_length(result) == 1
+        content = output.get_content(result, 0)
         behavior = converter_config.empty_sender_behavior
         if behavior is SenderBehavior.CONTENT_AS_IS:
-            assert output.content_contains(result, "Hello!")
-            # Should NOT have a bracket prefix (empty sender should not produce "[]: ")
-            assert not output.content_contains(result, "[]: ")
+            assert content == "Hello!", (
+                f"CONTENT_AS_IS: expected exact 'Hello!', got {content!r}"
+            )
         elif behavior is SenderBehavior.BRACKETS_EMPTY:
-            assert output.content_contains(result, "[]: Hello!")
+            assert content == "[]: Hello!", (
+                f"BRACKETS_EMPTY: expected '[]: Hello!', got {content!r}"
+            )
         elif behavior is SenderBehavior.UNKNOWN_PREFIX:
-            assert output.content_contains(result, "[Unknown]: Hello!")
+            assert content == "[Unknown]: Hello!", (
+                f"UNKNOWN_PREFIX: expected '[Unknown]: Hello!', got {content!r}"
+            )
         else:
             raise ValueError(f"Unknown empty_sender_behavior: {behavior!r}")
 
@@ -87,13 +93,21 @@ class TestUserTextMessages:
 
         result = converter.convert(raw)
 
+        assert output.result_length(result) == 1
+        content = output.get_content(result, 0)
         behavior = converter_config.missing_sender_behavior
         if behavior is SenderBehavior.CONTENT_AS_IS:
-            assert output.content_contains(result, "Hello!")
+            assert content == "Hello!", (
+                f"CONTENT_AS_IS: expected exact 'Hello!', got {content!r}"
+            )
         elif behavior is SenderBehavior.BRACKETS_EMPTY:
-            assert output.content_contains(result, "[]: Hello!")
+            assert content == "[]: Hello!", (
+                f"BRACKETS_EMPTY: expected '[]: Hello!', got {content!r}"
+            )
         elif behavior is SenderBehavior.UNKNOWN_PREFIX:
-            assert output.content_contains(result, "[Unknown]: Hello!")
+            assert content == "[Unknown]: Hello!", (
+                f"UNKNOWN_PREFIX: expected '[Unknown]: Hello!', got {content!r}"
+            )
         else:
             raise ValueError(f"Unknown missing_sender_behavior: {behavior!r}")
 
