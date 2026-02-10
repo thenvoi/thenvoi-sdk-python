@@ -11,15 +11,10 @@ Available from thenvoi_testing:
 
 This file contains SDK-specific fixtures and event helpers that must
 return SDK-native types for pattern matching compatibility.
-
-Run only one framework's tests:
-  uv run pytest tests/ --framework anthropic -v
-  uv run pytest tests/ --framework langgraph -v
 """
 
 from __future__ import annotations
 
-import functools
 from datetime import datetime, timezone
 from unittest.mock import AsyncMock
 
@@ -49,42 +44,6 @@ from thenvoi.runtime.types import PlatformMessage
 from thenvoi_testing.markers import pytest_ignore_collect_in_ci as _ignore_collect_in_ci
 
 
-# Framework name -> (adapter_id, converter_id, adapter_file, converter_file)
-# Use this name with: pytest tests/ --framework <name>
-# Derived from the config registries; add new frameworks there first.
-# Built lazily (via @functools.lru_cache) so that running unrelated tests
-# (e.g. tests/runtime/) does not force-import all framework configs and
-# their transitive dependencies.
-#
-# Uses ``lru_cache(maxsize=1)`` for consistency with
-# ``_build_adapter_configs`` / ``_build_converter_configs`` and to
-# expose ``.cache_clear()`` for test teardown if needed.
-#
-# CrewAI mock isolation: see _get_crewai_adapter_cls() docstring in
-# tests/framework_configs/adapters.py for the full explanation.
-# Verify with: uv run pytest tests/ --framework crewai -v
-
-
-@functools.lru_cache(maxsize=1)
-def _get_framework_run_map() -> dict[str, tuple[str, str, str, str]]:
-    from tests.framework_configs import CONVERTER_ID_FOR_ADAPTER
-    from tests.framework_configs.adapters import ADAPTER_CONFIGS
-    from tests.framework_configs.converters import CONVERTER_CONFIGS
-
-    converter_by_id = {c.framework_id: c for c in CONVERTER_CONFIGS}
-    run_map: dict[str, tuple[str, str, str, str]] = {}
-
-    for ac in ADAPTER_CONFIGS:
-        fid = ac.framework_id
-        cid = CONVERTER_ID_FOR_ADAPTER.get(fid, fid)
-        cc = converter_by_id[cid]
-        adapter_file = f"test_{fid}_adapter.py"
-        converter_file = f"test_{cc.framework_id}.py"
-        run_map[fid] = (fid, cid, adapter_file, converter_file)
-
-    return run_map
-
-
 def pytest_configure(config):
     """Register warning filters for known mock + async introspection quirks."""
     config.addinivalue_line(
@@ -93,70 +52,9 @@ def pytest_configure(config):
     )
 
 
-def pytest_addoption(parser):
-    """Add --framework option to run only one framework's tests."""
-    parser.addoption(
-        "--framework",
-        action="store",
-        default=None,
-        help="Run ONLY that framework's conformance + framework-specific adapter and converter tests. "
-        "All other tests (core, runtime, shared utilities, etc.) are deselected. "
-        "Valid: anthropic, langgraph, crewai, claude_sdk, pydantic_ai, parlant.",
-    )
-
-
 def pytest_ignore_collect(collection_path):
     """Skip integration tests in CI environment."""
     return _ignore_collect_in_ci(str(collection_path), "integration")
-
-
-def pytest_collection_modifyitems(config, items):
-    """When --framework is set, keep only that framework's conformance + framework-specific tests.
-
-    NOTE: This deselects ALL non-matching tests (core, runtime, shared utilities,
-    other frameworks, etc.).  Use ``--framework`` only for framework verification,
-    not as a substitute for the full test suite.
-    """
-    framework_name = config.getoption("--framework", default=None)
-    if not framework_name:
-        return
-    framework_name = framework_name.strip().lower()
-    run_map = _get_framework_run_map()
-    if framework_name not in run_map:
-        raise pytest.UsageError(
-            f"Unknown --framework={framework_name!r}. "
-            f"Valid: {', '.join(sorted(run_map))}"
-        )
-    adapter_id, converter_id, adapter_file, converter_file = run_map[framework_name]
-
-    def keep(item):
-        nodeid = item.nodeid
-        # Extract file path (before "::") so we match exact filenames, not
-        # substrings (e.g. test_adapter_conformance_extra.py would not match).
-        file_part = nodeid.split("::", 1)[0].replace("\\", "/")
-        # Conformance: parametrized ids always appear as the final [...] suffix.
-        if file_part.endswith("framework_conformance/test_adapter_conformance.py"):
-            return nodeid.endswith(f"[{adapter_id}]")
-        if file_part.endswith("framework_conformance/test_converter_conformance.py"):
-            return nodeid.endswith(f"[{converter_id}]")
-        # Framework-specific adapter/converter test files
-        if file_part.endswith(f"adapters/{adapter_file}"):
-            return True
-        if file_part.endswith(f"converters/{converter_file}"):
-            return True
-        return False
-
-    selected = []
-    deselected = []
-    for item in items:
-        if keep(item):
-            selected.append(item)
-        else:
-            deselected.append(item)
-
-    if deselected:
-        config.hook.pytest_deselected(items=deselected)
-    items[:] = selected
 
 
 # =============================================================================
