@@ -115,6 +115,7 @@ class WebSocketClient:
         self.ws_url = ws_url
         self.api_key = api_key
         self.agent_id = agent_id
+        # Safe for single-threaded asyncio event loop; needs a lock if used multi-threaded
         self._validation_error_count: int = 0
 
     @property

@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import logging
 
+import pytest
+
 from thenvoi.client.streaming import (
     MessageCreatedPayload,
     ParticipantAddedPayload,
@@ -268,7 +270,70 @@ async def test_accepts_valid_participant_removed_payload():
     assert received_payload.id == "p-123"
 
 
-async def test_allows_extra_fields_in_payload():
+@pytest.mark.parametrize(
+    ("event_name", "base_payload", "expected_type"),
+    [
+        pytest.param(
+            "message_created",
+            {
+                "id": "msg-123",
+                "content": "hi",
+                "message_type": "text",
+                "metadata": {
+                    "mentions": [{"id": "a-1", "username": "Bot"}],
+                    "status": "sent",
+                },
+                "sender_id": "u-1",
+                "sender_type": "User",
+                "chat_room_id": "r-1",
+                "thread_id": None,
+                "inserted_at": "2025-11-17T11:20:10Z",
+                "updated_at": "2025-11-17T11:20:10Z",
+            },
+            MessageCreatedPayload,
+            id="message_created",
+        ),
+        pytest.param(
+            "room_added",
+            {
+                "id": "room-123",
+                "owner": {"id": "u-1", "name": "User", "type": "User"},
+                "status": "active",
+                "type": "direct",
+                "title": "Room",
+                "created_at": "2025-11-17T09:05:35Z",
+                "participant_role": "member",
+            },
+            RoomAddedPayload,
+            id="room_added",
+        ),
+        pytest.param(
+            "room_removed",
+            {
+                "id": "room-123",
+                "status": "active",
+                "type": "direct",
+                "title": "Room",
+                "removed_at": "2025-11-17T11:26:59Z",
+            },
+            RoomRemovedPayload,
+            id="room_removed",
+        ),
+        pytest.param(
+            "participant_added",
+            {"id": "p-123", "name": "Agent", "type": "Agent"},
+            ParticipantAddedPayload,
+            id="participant_added",
+        ),
+        pytest.param(
+            "participant_removed",
+            {"id": "p-123"},
+            ParticipantRemovedPayload,
+            id="participant_removed",
+        ),
+    ],
+)
+async def test_allows_extra_fields_in_payload(event_name, base_payload, expected_type):
     """Should accept payloads with extra fields (forward compatibility)."""
     client = WebSocketClient("ws://localhost", "test-key", "agent-123")
     received_payload = None
@@ -277,21 +342,14 @@ async def test_allows_extra_fields_in_payload():
         nonlocal received_payload
         received_payload = payload
 
-    class MockMessage:
-        event = "room_removed"
-        payload = {
-            "id": "room-123",
-            "status": "active",
-            "type": "direct",
-            "title": "Test Room",
-            "removed_at": "2025-11-17T11:26:59.925707",
-            # Extra fields backend might add in the future
-            "extra_field_1": "some value",
-            "extra_field_2": 42,
-        }
+    extra_fields = {"extra_field_1": "some value", "extra_field_2": 42}
 
-    await client._handle_events(MockMessage(), {"room_removed": test_callback})
-    assert isinstance(received_payload, RoomRemovedPayload)
+    class MockMessage:
+        event = event_name
+        payload = {**base_payload, **extra_fields}
+
+    await client._handle_events(MockMessage(), {event_name: test_callback})
+    assert isinstance(received_payload, expected_type)
 
 
 async def test_skips_unknown_event_without_handler(caplog):
