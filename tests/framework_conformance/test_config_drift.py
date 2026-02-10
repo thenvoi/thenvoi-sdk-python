@@ -10,6 +10,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from tests.framework_configs.adapters import ADAPTER_CONFIGS, ADAPTER_EXCLUDED_MODULES
 from tests.framework_configs.converters import (
     CONVERTER_CONFIGS,
@@ -111,3 +113,40 @@ class TestConverterConfigDrift:
             f"ConverterConfig framework_ids have no matching source module: {stale}. "
             f"Remove or update the config in tests/framework_configs/converters.py."
         )
+
+
+class TestCrewAIConformanceGuards:
+    """Verify that CrewAI conformance instances guard runtime methods.
+
+    If the guard loop in ``_crewai_factory`` is accidentally removed, these
+    tests will fail — preventing silent execution on MagicMock objects.
+    """
+
+    @staticmethod
+    def _get_crewai_config():
+        for cfg in ADAPTER_CONFIGS:
+            if cfg.framework_id == "crewai":
+                return cfg
+        return None
+
+    @pytest.mark.asyncio
+    async def test_on_message_is_guarded(self):
+        """on_message on a conformance instance must raise RuntimeError."""
+        cfg = self._get_crewai_config()
+        if cfg is None:
+            pytest.skip("CrewAI adapter config not available")
+        adapter = cfg.adapter_factory()
+        with pytest.raises(RuntimeError, match="conformance instance"):
+            await adapter.on_message()
+
+    @pytest.mark.asyncio
+    async def test_invoke_crew_is_guarded(self):
+        """_invoke_crew on a conformance instance must raise RuntimeError."""
+        cfg = self._get_crewai_config()
+        if cfg is None:
+            pytest.skip("CrewAI adapter config not available")
+        adapter = cfg.adapter_factory()
+        if not hasattr(adapter, "_invoke_crew"):
+            pytest.skip("CrewAI adapter has no _invoke_crew method")
+        with pytest.raises(RuntimeError, match="conformance instance"):
+            await adapter._invoke_crew()

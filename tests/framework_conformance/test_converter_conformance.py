@@ -298,6 +298,8 @@ class TestEdgeCases:
             assert output.is_empty(result)
         else:
             assert output.result_length(result) == 1
+            # Verify the sender prefix is preserved even with empty content.
+            assert output.content_contains(result, "Alice")
 
     def test_defaults_to_user_role(self, converter_config, make_converter, output):
         """Messages without role default to 'user'."""

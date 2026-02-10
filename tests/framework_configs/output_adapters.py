@@ -7,7 +7,18 @@ regardless of the underlying framework's message format.
 from __future__ import annotations
 
 import re
+import threading
 from typing import Any, Protocol
+
+__all__ = [
+    "OutputAdapter",
+    "BaseDictListOutputAdapter",
+    "DictListOutputAdapter",
+    "LangChainOutputAdapter",
+    "PydanticAIOutputAdapter",
+    "StringOutputAdapter",
+    "SenderDictListAdapter",
+]
 
 
 class OutputAdapter(Protocol):
@@ -170,26 +181,31 @@ class PydanticAIOutputAdapter:
     """Adapter for PydanticAI converter output (list of ModelRequest/ModelResponse)."""
 
     _message_types: Any = None  # Cached pydantic_ai.messages types (lazy)
+    _message_types_lock = threading.Lock()
 
     @classmethod
     def _get_message_types(cls) -> Any:
         if cls._message_types is None:
-            from pydantic_ai.messages import (
-                ModelRequest,
-                ModelResponse,
-                TextPart,
-                ToolCallPart,
-                ToolReturnPart,
-                UserPromptPart,
-            )
-            cls._message_types = (
-                ModelRequest,
-                ModelResponse,
-                TextPart,
-                ToolCallPart,
-                ToolReturnPart,
-                UserPromptPart,
-            )
+            with cls._message_types_lock:
+                # Double-check after acquiring lock.
+                if cls._message_types is None:
+                    from pydantic_ai.messages import (
+                        ModelRequest,
+                        ModelResponse,
+                        TextPart,
+                        ToolCallPart,
+                        ToolReturnPart,
+                        UserPromptPart,
+                    )
+
+                    cls._message_types = (
+                        ModelRequest,
+                        ModelResponse,
+                        TextPart,
+                        ToolCallPart,
+                        ToolReturnPart,
+                        UserPromptPart,
+                    )
         return cls._message_types
 
     def assert_result_type(self, result: list) -> None:

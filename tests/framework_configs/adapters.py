@@ -102,8 +102,10 @@ def _langgraph_factory(**kw: Any) -> Any:
 
 
 # CrewAI conformance instances are ONLY safe for inspecting primitive
-# attributes (model, role, etc.).  Runtime methods (on_message, _invoke_crew)
-# are guarded because the class is imported with mocked crewai dependencies.
+# attributes (model, role, etc.) and calling on_cleanup (which only does
+# dict.pop + logging, no CrewAI interaction).  Runtime methods that interact
+# with CrewAI objects (on_message, _invoke_crew) are guarded because the
+# class is imported with mocked crewai dependencies.
 # For runtime tests, use monkeypatch fixtures in tests/adapters/test_crewai_adapter.py.
 
 
@@ -205,6 +207,8 @@ def _crewai_factory(**kw: Any) -> Any:
     )
     instance = cls(**kw)
     # Guard runtime methods that would silently operate on MagicMock objects.
+    # on_cleanup is intentionally NOT guarded — it only does dict.pop + logging
+    # and does not interact with CrewAI objects.
     for method_name in ("on_message", "_invoke_crew"):
         if hasattr(instance, method_name):
             setattr(instance, method_name, _crewai_conformance_guard)

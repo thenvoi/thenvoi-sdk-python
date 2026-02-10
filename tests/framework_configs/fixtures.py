@@ -14,6 +14,15 @@ from __future__ import annotations
 import json
 from types import MappingProxyType
 
+__all__ = [
+    "TOOL_CALL_SEARCH",
+    "TOOL_RESULT_SEARCH",
+    "TOOL_CALL_LOOKUP",
+    "TOOL_RESULT_LOOKUP",
+    "TOOL_CALL_SEARCH_EMPTY",
+    "TOOL_RESULT_SEARCH_FOUND",
+]
+
 
 def _tool_call_content(name: str, args: dict, tool_call_id: str) -> str:
     """Build a tool_call content JSON string with both top-level and nested paths.
