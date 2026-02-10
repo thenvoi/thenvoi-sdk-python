@@ -16,7 +16,7 @@ from unittest.mock import MagicMock
 
 from tests.framework_configs._sentinel import IN_CI, MISSING, _MissingSentinel
 
-__all__ = ["AdapterConfig", "ADAPTER_CONFIGS"]
+__all__ = ["AdapterConfig", "ADAPTER_CONFIGS", "ADAPTER_EXCLUDED_MODULES"]
 
 # Populated lazily via __getattr__ to avoid top-level adapter imports.
 ADAPTER_CONFIGS: list[AdapterConfig]
@@ -120,6 +120,14 @@ class _MockBaseTool:
 _crewai_import_lock = threading.Lock()
 
 
+_CREWAI_AFFECTED_MODULES = (
+    "thenvoi.adapters.crewai",
+    "crewai",
+    "crewai.tools",
+    "nest_asyncio",
+)
+
+
 @functools.lru_cache(maxsize=1)
 def _get_crewai_adapter_cls() -> type:
     """Import CrewAIAdapter with mocked crewai dependencies.
@@ -130,7 +138,12 @@ def _get_crewai_adapter_cls() -> type:
 
     Cached so the heavy sys.modules teardown/reimport happens at most once.
     Protected by ``_crewai_import_lock`` so concurrent pytest-xdist workers
-    cannot interleave the ``sys.modules.pop`` / ``patch.dict`` sequence.
+    cannot interleave the ``sys.modules`` snapshot / restore sequence.
+
+    **Save/restore semantics**: any modules that were already in
+    ``sys.modules`` before this function runs are restored afterwards,
+    preventing ordering-dependent failures when framework-specific tests
+    (which do their own mocking) import the real adapter module first.
     """
     import importlib
     import sys
@@ -139,8 +152,13 @@ def _get_crewai_adapter_cls() -> type:
     adapter_module_name = "thenvoi.adapters.crewai"
 
     with _crewai_import_lock:
-        # Clear any prior imports to ensure a clean mock-based import.
-        for mod in (adapter_module_name, "crewai", "crewai.tools", "nest_asyncio"):
+        # Snapshot modules that existed before we touch sys.modules.
+        saved: dict[str, Any] = {}
+        _sentinel = object()
+        for mod in _CREWAI_AFFECTED_MODULES:
+            prev = sys.modules.get(mod, _sentinel)
+            if prev is not _sentinel:
+                saved[mod] = prev
             sys.modules.pop(mod, None)
 
         mock_crewai = MagicMock()
@@ -158,10 +176,14 @@ def _get_crewai_adapter_cls() -> type:
         with patch.dict(sys.modules, mock_entries):
             cls = importlib.import_module(adapter_module_name).CrewAIAdapter
 
-        # Remove adapter module so non-conformance imports aren't polluted.
-        # Safe for the broader suite: framework-specific tests (e.g. test_crewai_adapter.py)
-        # do their own mocking via fixtures and never rely on this conformance-only import.
-        sys.modules.pop(adapter_module_name, None)
+        # Restore pre-existing modules so framework-specific tests that
+        # already imported the real adapter/crewai are not disrupted.
+        # Modules that were absent before are removed (clean state).
+        for mod in _CREWAI_AFFECTED_MODULES:
+            if mod in saved:
+                sys.modules[mod] = saved[mod]
+            else:
+                sys.modules.pop(mod, None)
 
     # Mark the class as conformance-only so accidental runtime use is detectable.
     cls._CONFORMANCE_ONLY = True
@@ -416,6 +438,12 @@ def _build_parlant_config() -> AdapterConfig:
         has_custom_tools_attr=False,
     )
 
+
+# Adapter modules intentionally excluded from conformance tests.
+# a2a / a2a_gateway use the A2A protocol (Google Agent-to-Agent) which has a
+# fundamentally different lifecycle than framework adapters (no on_message /
+# on_cleanup contract), so they cannot share the same conformance tests.
+ADAPTER_EXCLUDED_MODULES: frozenset[str] = frozenset({"a2a", "a2a_gateway"})
 
 _ADAPTER_CONFIG_BUILDERS: list[Callable[[], AdapterConfig]] = [
     _build_anthropic_config,

@@ -17,7 +17,12 @@ if TYPE_CHECKING:
 
 from tests.framework_configs._sentinel import IN_CI
 
-__all__ = ["ConverterConfig", "CONVERTER_CONFIGS", "SenderBehavior"]
+__all__ = [
+    "ConverterConfig",
+    "CONVERTER_CONFIGS",
+    "CONVERTER_EXCLUDED_MODULES",
+    "SenderBehavior",
+]
 
 # Populated lazily via __getattr__ to avoid top-level converter imports.
 CONVERTER_CONFIGS: list[ConverterConfig]
@@ -212,6 +217,17 @@ def _build_parlant_config() -> ConverterConfig:
         output_adapter=SenderDictListAdapter(),
     )
 
+
+# Converter modules intentionally excluded from conformance tests.
+# _tool_parsing is an internal utility (shared parsing helpers, not a converter).
+# a2a / a2a_gateway use the A2A protocol which has a different message schema.
+CONVERTER_EXCLUDED_MODULES: frozenset[str] = frozenset(
+    {
+        "_tool_parsing",
+        "a2a",
+        "a2a_gateway",
+    }
+)
 
 _CONVERTER_CONFIG_BUILDERS: list[Callable[[], ConverterConfig]] = [
     _build_anthropic_config,
