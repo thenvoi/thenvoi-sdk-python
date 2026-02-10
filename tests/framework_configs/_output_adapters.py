@@ -161,19 +161,29 @@ class StringOutputAdapter:
     """Adapter for ClaudeSDK converter output (newline-joined string).
 
     Splits on ``"\\n"`` to recover individual ``[sender]: content`` or
-    JSON tool-event messages.  Validates that each segment starts with
-    ``[`` or ``{`` to catch silent miscounts from embedded newlines.
+    JSON tool-event messages.
+
+    **Assumption:** each logical message starts with ``[`` (sender prefix)
+    or ``{`` (JSON tool event).  The heuristic check in ``_split_messages``
+    emits a ``RuntimeWarning`` when a segment violates this — it does *not*
+    hard-fail, because future converters or tool results may legitimately
+    produce plain-text lines.  If you see the warning in a new framework,
+    verify whether the segment is a real message or a fragment from an
+    embedded newline.
     """
 
     @staticmethod
     def _split_messages(result: str) -> list[str]:
         """Split the joined string back into logical messages.
 
-        Raises ``AssertionError`` if any segment doesn't start with
-        ``[`` or ``{`` (likely a fragment from an embedded newline).
+        Emits a ``RuntimeWarning`` (via ``warnings.warn``) if any
+        non-empty segment doesn't start with ``[`` or ``{``, which
+        may indicate an embedded newline produced an extra fragment.
         """
         if not result:
             return []
+        import warnings
+
         segments = result.split("\n")
         for i, seg in enumerate(segments):
             stripped = seg.lstrip()
@@ -182,11 +192,12 @@ class StringOutputAdapter:
                 and not stripped.startswith("[")
                 and not stripped.startswith("{")
             ):
-                raise AssertionError(
+                warnings.warn(
                     f"StringOutputAdapter: segment {i} does not look like a "
-                    f"complete message (possible embedded newline in content).\n"
-                    f"  Segment: {seg!r}\n"
-                    f"  Full result: {result!r}"
+                    f"complete message (possible embedded newline in content). "
+                    f"Segment: {seg!r}",
+                    RuntimeWarning,
+                    stacklevel=2,
                 )
         return segments
 

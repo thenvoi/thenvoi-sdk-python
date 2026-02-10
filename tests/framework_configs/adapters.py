@@ -2,7 +2,7 @@
 
 Each AdapterConfig describes a framework adapter's properties, default values,
 custom initialization kwargs, and factory function so that conformance tests can
-run identical logic across all six adapters.
+run identical logic across all registered adapters.
 """
 
 from __future__ import annotations
@@ -11,6 +11,8 @@ import functools
 from dataclasses import dataclass, field
 from typing import Any, Callable
 from unittest.mock import MagicMock
+
+__all__ = ["AdapterConfig", "ADAPTER_CONFIGS"]
 
 # Default model strings — keep in sync with the adapter __init__ defaults.
 # Centralised here so a model bump requires only one change in the test config.

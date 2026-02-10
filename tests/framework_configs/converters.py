@@ -2,7 +2,7 @@
 
 Each ConverterConfig describes a framework's converter properties, behavioral
 flags, and factory function so that conformance tests can run identical logic
-across all six converters.
+across all registered converters.
 """
 
 from __future__ import annotations
@@ -10,6 +10,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Any, Callable
+
+__all__ = ["ConverterConfig", "CONVERTER_CONFIGS", "SenderBehavior"]
 
 from tests.framework_configs._output_adapters import (
     DictListOutputAdapter,

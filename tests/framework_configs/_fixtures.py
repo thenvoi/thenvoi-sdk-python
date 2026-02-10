@@ -50,6 +50,12 @@ def _tool_result_content(name: str, output: str, tool_call_id: str) -> str:
     )
 
 
+# Each payload below includes BOTH top-level keys (args/output) and nested
+# data.* paths so that every framework's converter sees the fields it expects.
+# See _tool_call_content() / _tool_result_content() docstrings for which
+# frameworks read which path.  When adding a new converter, verify that these
+# payloads satisfy its schema — do NOT rely on a path you haven't checked.
+
 TOOL_CALL_SEARCH = {
     "role": "assistant",
     "content": _tool_call_content("search", {"query": "test"}, "tc_1"),
