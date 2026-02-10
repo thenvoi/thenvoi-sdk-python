@@ -14,6 +14,18 @@ from typing import Any, Callable
 
 __all__ = ["ConverterConfig", "CONVERTER_CONFIGS", "SenderBehavior"]
 
+
+class _MissingSentinel:
+    """Sentinel for required fields that have no real default."""
+
+    __slots__ = ()
+
+    def __repr__(self) -> str:
+        return "<MISSING>"
+
+
+_MISSING = _MissingSentinel()
+
 # Populated lazily via __getattr__ to avoid top-level converter imports.
 CONVERTER_CONFIGS: list[ConverterConfig]
 
@@ -56,16 +68,14 @@ class ConverterConfig:
     has_sender_metadata: bool = False  # output includes sender/sender_type fields
     other_agent_output_role: str = "user"  # role assigned to other agents' messages
 
-    # Output adapter for uniform assertions
-    output_adapter: Any = field(
-        default_factory=lambda: None
-    )  # set in _build_converter_configs
+    # Output adapter for uniform assertions (required — no default)
+    output_adapter: Any = field(default_factory=lambda: _MISSING)
 
     def __post_init__(self) -> None:
-        if self.output_adapter is None:
+        if isinstance(self.output_adapter, _MissingSentinel):
             raise TypeError(
                 f"ConverterConfig({self.framework_id!r}): "
-                "output_adapter must not be None"
+                "output_adapter is required — pass an OutputAdapter instance"
             )
 
 
@@ -229,27 +239,22 @@ _CONVERTER_CONFIG_BUILDERS: list[Callable[[], ConverterConfig]] = [
 
 @functools.lru_cache(maxsize=1)
 def _build_converter_configs() -> list[ConverterConfig]:
-    """Build configs lazily so converter imports happen only when the
-    conformance tests actually need them.
+    """Build configs lazily so converter imports happen only when needed.
 
     Each framework config is built independently so that an import failure
     in one framework does not prevent the remaining frameworks from being
-    tested.
-
-    Uses ``lru_cache(maxsize=1)`` instead of ``cache`` so that
-    ``.cache_clear()`` is available — consistent with
-    ``_build_adapter_configs()`` in adapters.py.
+    tested.  Uses ``lru_cache(maxsize=1)`` so ``.cache_clear()`` is available.
     """
-    import warnings
+    import logging
 
+    logger = logging.getLogger(__name__)
     configs: list[ConverterConfig] = []
     for builder in _CONVERTER_CONFIG_BUILDERS:
         try:
             configs.append(builder())
         except Exception as exc:
-            warnings.warn(
-                f"Skipping converter config from {builder.__name__}: {exc}",
-                stacklevel=2,
+            logger.warning(
+                "Skipping converter config from %s: %s", builder.__name__, exc
             )
     return configs
 

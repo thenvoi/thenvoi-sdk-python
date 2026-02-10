@@ -108,27 +108,14 @@ def _langgraph_factory(**kw: Any) -> Any:
     return LangGraphAdapter(**kw)
 
 
-# WARNING: Conformance-created CrewAI instances must NOT call runtime methods
-# (e.g. on_message, _invoke_crew).  The class is imported with mocked crewai
-# dependencies (CrewAIAgent, LLM, BaseTool, nest_asyncio are all MagicMock
-# objects).  These mock references persist in the module's global scope even
-# after sys.modules is cleaned up, so any runtime method call would silently
-# operate on MagicMock objects and produce meaningless results.
-#
-# Conformance instances are ONLY safe for inspecting primitive attributes
-# (model, role, etc.).  For runtime/method tests, use the monkeypatch-based
-# fixtures in tests/adapters/test_crewai_adapter.py.
+# CrewAI conformance instances are ONLY safe for inspecting primitive
+# attributes (model, role, etc.).  Runtime methods (on_message, _invoke_crew)
+# are guarded because the class is imported with mocked crewai dependencies.
+# For runtime tests, use monkeypatch fixtures in tests/adapters/test_crewai_adapter.py.
 
 
 class _MockBaseTool:
-    """Minimal stand-in for ``crewai.tools.BaseTool`` used only at import time.
-
-    The CrewAI adapter module does ``from crewai.tools import BaseTool`` and
-    later subclasses it.  This class provides just enough for the import to
-    succeed.  It is never instantiated in conformance tests — only the
-    *class object* is referenced as a base class.  Class-level annotations
-    (not instance attrs) are intentional for this reason.
-    """
+    """Minimal stand-in for ``crewai.tools.BaseTool`` at import time."""
 
     name: str = ""
     description: str = ""
@@ -140,55 +127,23 @@ class _MockBaseTool:
 def _get_crewai_adapter_cls() -> type:
     """Import CrewAIAdapter with mocked crewai dependencies.
 
-    Uses ``patch.dict(sys.modules, ...)`` to temporarily inject mock
-    crewai/nest_asyncio modules, then imports the real adapter module
-    via ``importlib.import_module``.  ``patch.dict`` atomically restores
-    ``sys.modules`` on exit (even on exception).  Assumes single-process
-    test execution; concurrent imports from another process could race
-    with the ``sys.modules.pop()`` calls.
-
-    The adapter module entry is removed from ``sys.modules`` after import
-    so subsequent (non-conformance) imports are not polluted by mocks.
-
-    **Mock reference lifetime:** The returned class's module globals still
-    hold references to the mock ``CrewAIAgent``, ``LLM``, ``BaseTool``,
-    and ``nest_asyncio`` objects — those bindings were created at import
-    time and survive ``patch.dict`` cleanup.  This is intentional: the
-    class is only used for **primitive attribute inspection** (model,
-    role, etc.) in conformance tests.  Any call to a runtime method
-    (``on_message``, ``_invoke_crew``, etc.) would hit MagicMock objects
-    and produce nonsense results.
-
-    This function is NOT cached itself — the result is cached in
-    ``_build_adapter_configs()`` (which is ``@functools.cache``'d).
-    This avoids permanently binding to whichever mocked module imports
-    first if test collection order changes.  For runtime tests that
-    invoke CrewAI methods, use the monkeypatch-based fixtures in
-    ``tests/adapters/test_crewai_adapter.py``.
+    Uses ``patch.dict(sys.modules, ...)`` to temporarily inject mock modules,
+    imports the adapter, then cleans up.  The returned class retains mock
+    references in its module globals — safe for attribute inspection only.
     """
     import importlib
     import sys
     from unittest.mock import patch
 
     adapter_module_name = "thenvoi.adapters.crewai"
-    mock_dep_names = ("crewai", "crewai.tools", "nest_asyncio")
 
-    # Pre-flight: clear the adapter module AND dependency modules that may
-    # linger from a prior framework-specific test run.  Both real and mock
-    # entries are removed to ensure a clean import regardless of test
-    # collection order.
-    sys.modules.pop(adapter_module_name, None)
-    for dep in mock_dep_names:
-        sys.modules.pop(dep, None)
+    # Clear any prior imports to ensure a clean mock-based import.
+    for mod in (adapter_module_name, "crewai", "crewai.tools", "nest_asyncio"):
+        sys.modules.pop(mod, None)
 
-    # Build mock crewai modules matching the adapter's top-level imports:
-    #   from crewai import Agent as CrewAIAgent, LLM
-    #   from crewai.tools import BaseTool
-    #   import nest_asyncio
     mock_crewai = MagicMock()
     mock_crewai.Agent = MagicMock()
     mock_crewai.LLM = MagicMock()
-
     mock_crewai_tools = MagicMock()
     mock_crewai_tools.BaseTool = _MockBaseTool
 
@@ -199,45 +154,24 @@ def _get_crewai_adapter_cls() -> type:
     }
 
     with patch.dict(sys.modules, mock_entries):
-        module = importlib.import_module(adapter_module_name)
-        cls = module.CrewAIAdapter
+        cls = importlib.import_module(adapter_module_name).CrewAIAdapter
 
-    # Clean up so non-conformance imports are not polluted.
+    # Remove adapter module so non-conformance imports aren't polluted.
     sys.modules.pop(adapter_module_name, None)
-
-    # Verify mock entries were cleaned from sys.modules by patch.dict.
-    # If any leaked, subsequent real crewai imports would silently get
-    # MagicMock objects instead of the real package.
-    for mock_key in mock_entries:
-        assert mock_key not in sys.modules or not isinstance(
-            sys.modules[mock_key], MagicMock
-        ), (
-            f"Mock module {mock_key!r} leaked into sys.modules after "
-            f"patch.dict cleanup — this would pollute real crewai imports"
-        )
-
     return cls
 
 
 async def _crewai_conformance_guard(*_args: Any, **_kw: Any) -> None:
     raise RuntimeError(
-        "This CrewAI adapter instance was created by the conformance test "
-        "factory with mocked dependencies.  Calling on_message or "
-        "_invoke_crew is not safe because CrewAIAgent, LLM, and BaseTool "
-        "are MagicMock objects.  Use the monkeypatch-based fixtures in "
-        "tests/adapters/test_crewai_adapter.py for runtime tests instead."
+        "CrewAI conformance instance has mocked dependencies — "
+        "use tests/adapters/test_crewai_adapter.py fixtures for runtime tests."
     )
 
 
 def _crewai_factory(**kw: Any) -> Any:
     cls = _get_crewai_adapter_cls()
     instance = cls(**kw)
-    # Guard the runtime methods that use mocked CrewAI dependencies.
-    # on_message and _invoke_crew invoke the model and would silently
-    # operate on MagicMock objects without this guard.
-    # Note: on_started and on_cleanup are safe (they only set attributes
-    # or clean up dicts) so they are NOT guarded — conformance tests
-    # call them directly.
+    # Guard runtime methods that would silently operate on MagicMock objects.
     for method_name in ("on_message", "_invoke_crew"):
         if hasattr(instance, method_name):
             setattr(instance, method_name, _crewai_conformance_guard)
@@ -484,36 +418,22 @@ _ADAPTER_CONFIG_BUILDERS: list[Callable[[], AdapterConfig]] = [
 
 @functools.lru_cache(maxsize=1)
 def _build_adapter_configs() -> list[AdapterConfig]:
-    """Build configs lazily so adapter imports (and _default_from_init) happen
-    only when the conformance tests actually need them.
+    """Build configs lazily so adapter imports happen only when needed.
 
     Each framework config is built independently so that an import failure
-    in one framework (e.g. missing optional dependency) does not prevent
-    the remaining frameworks from being tested.
-
-    Uses ``lru_cache(maxsize=1)`` instead of ``cache`` so that
-    ``.cache_clear()`` is available — useful if a test teardown needs to
-    discard the cached CrewAI adapter class (whose module globals hold
-    references to mocked ``crewai`` dependencies).
+    in one framework does not prevent the remaining frameworks from being
+    tested.  Uses ``lru_cache(maxsize=1)`` so ``.cache_clear()`` is available.
     """
-    import warnings
+    import logging
 
+    logger = logging.getLogger(__name__)
     configs: list[AdapterConfig] = []
     for builder in _ADAPTER_CONFIG_BUILDERS:
         try:
             configs.append(builder())
         except Exception as exc:
-            warnings.warn(
-                f"Skipping adapter config from {builder.__name__}: {exc}",
-                stacklevel=2,
-            )
+            logger.warning("Skipping adapter config from %s: %s", builder.__name__, exc)
     return configs
-
-
-# Public API: consumers import ADAPTER_CONFIGS as a module-level list.
-# The property-on-module trick is not worth the complexity; instead, callers
-# that need the list call _build_adapter_configs().  For backward compat the
-# module attribute is set once on first access.
 
 
 def __getattr__(name: str) -> Any:

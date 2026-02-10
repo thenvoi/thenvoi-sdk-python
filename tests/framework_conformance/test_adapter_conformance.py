@@ -10,6 +10,39 @@ from __future__ import annotations
 import pytest
 
 
+class TestAdapterConfigIntegrity:
+    """Validate that AdapterConfig registries stay in sync with adapter source."""
+
+    def test_expected_initial_values_attrs_exist(self, adapter_config):
+        """Every key in expected_initial_values must exist as an adapter attribute.
+
+        Catches drift when an adapter renames or removes an __init__ parameter
+        (e.g. migration to attrs/Pydantic) but the config is not updated.
+        """
+        adapter = adapter_config.adapter_factory()
+
+        for attr_name in adapter_config.expected_initial_values:
+            assert hasattr(adapter, attr_name), (
+                f"{adapter_config.display_name}: expected_initial_values references "
+                f"{attr_name!r} but the adapter has no such attribute. "
+                f"Update the AdapterConfig or the adapter __init__."
+            )
+
+    def test_custom_expected_attrs_exist(self, adapter_config):
+        """Every key in custom_expected must exist after custom initialization."""
+        if not adapter_config.custom_kwargs:
+            pytest.skip(f"{adapter_config.display_name} has no custom kwargs")
+
+        adapter = adapter_config.adapter_factory(**adapter_config.custom_kwargs)
+
+        for attr_name in adapter_config.custom_expected:
+            assert hasattr(adapter, attr_name), (
+                f"{adapter_config.display_name}: custom_expected references "
+                f"{attr_name!r} but the adapter has no such attribute. "
+                f"Update the AdapterConfig or the adapter __init__."
+            )
+
+
 class TestAdapterInitialization:
     """All adapters share common initialization patterns."""
 
