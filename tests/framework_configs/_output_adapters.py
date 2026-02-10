@@ -118,9 +118,7 @@ class LangChainOutputAdapter:
                         return True
         return False
 
-    def assert_element_type(
-        self, result: list, index: int, expected_role: str
-    ) -> None:
+    def assert_element_type(self, result: list, index: int, expected_role: str) -> None:
         from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
         msg = result[index]
@@ -216,9 +214,7 @@ class PydanticAIOutputAdapter:
                         return True
         return False
 
-    def assert_element_type(
-        self, result: list, index: int, expected_role: str
-    ) -> None:
+    def assert_element_type(self, result: list, index: int, expected_role: str) -> None:
         from pydantic_ai.messages import ModelRequest, ModelResponse, UserPromptPart
 
         msg = result[index]
@@ -315,9 +311,7 @@ class StringOutputAdapter:
     def content_contains(self, result: str, substring: str) -> bool:
         return substring in result
 
-    def assert_element_type(
-        self, result: str, index: int, expected_role: str
-    ) -> None:
+    def assert_element_type(self, result: str, index: int, expected_role: str) -> None:
         assert isinstance(result, str), f"Expected str, got {type(result).__name__}"
 
     def assert_sender_metadata(
