@@ -82,9 +82,15 @@ def _langgraph_factory(**kw: Any) -> Any:
 
 
 # WARNING: Conformance-created CrewAI instances must NOT call runtime methods
-# (e.g. on_message, _invoke_crew).  They are only safe for inspecting primitive
-# attributes (model, role, etc.).  For runtime/method tests, use the
-# monkeypatch-based fixtures in tests/adapters/test_crewai_adapter.py.
+# (e.g. on_message, _invoke_crew).  The class is imported with mocked crewai
+# dependencies (CrewAIAgent, LLM, BaseTool, nest_asyncio are all MagicMock
+# objects).  These mock references persist in the module's global scope even
+# after sys.modules is cleaned up, so any runtime method call would silently
+# operate on MagicMock objects and produce meaningless results.
+#
+# Conformance instances are ONLY safe for inspecting primitive attributes
+# (model, role, etc.).  For runtime/method tests, use the monkeypatch-based
+# fixtures in tests/adapters/test_crewai_adapter.py.
 
 
 class _MockBaseTool:
@@ -107,11 +113,19 @@ def _get_crewai_adapter_cls() -> type:
     The adapter module entry is removed from ``sys.modules`` after import
     so subsequent (non-conformance) imports are not polluted by mocks.
 
-    The result is cached via ``@functools.cache`` so subsequent calls
-    are cheap.  Conformance tests only inspect primitive attributes
-    (model, role, etc.).  For runtime tests that invoke CrewAI methods,
-    use the monkeypatch-based fixtures in
-    tests/adapters/test_crewai_adapter.py.
+    **Mock reference lifetime:** The returned class's module globals still
+    hold references to the mock ``CrewAIAgent``, ``LLM``, ``BaseTool``,
+    and ``nest_asyncio`` objects — those bindings were created at import
+    time and survive ``patch.dict`` cleanup.  This is intentional: the
+    class is only used for **primitive attribute inspection** (model,
+    role, etc.) in conformance tests.  Any call to a runtime method
+    (``on_message``, ``_invoke_crew``, etc.) would hit MagicMock objects
+    and produce nonsense results.
+
+    The result is cached via ``@functools.cache`` so this function
+    executes at most once per process.  For runtime tests that invoke
+    CrewAI methods, use the monkeypatch-based fixtures in
+    ``tests/adapters/test_crewai_adapter.py``.
     """
     import importlib
     import sys
@@ -145,6 +159,17 @@ def _get_crewai_adapter_cls() -> type:
 
     # Clean up so non-conformance imports are not polluted.
     sys.modules.pop(adapter_module_name, None)
+
+    # Verify mock entries were cleaned from sys.modules by patch.dict.
+    # If any leaked, subsequent real crewai imports would silently get
+    # MagicMock objects instead of the real package.
+    for mock_key in mock_entries:
+        assert mock_key not in sys.modules or not isinstance(
+            sys.modules[mock_key], MagicMock
+        ), (
+            f"Mock module {mock_key!r} leaked into sys.modules after "
+            f"patch.dict cleanup — this would pollute real crewai imports"
+        )
 
     return cls
 
