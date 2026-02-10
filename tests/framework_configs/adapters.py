@@ -350,6 +350,9 @@ def _build_adapter_configs() -> list[AdapterConfig]:
             display_name="PydanticAI",
             adapter_factory=_pydantic_ai_factory,
             default_values={
+                # model is a required kwarg (no default); the factory injects
+                # _PYDANTIC_AI_INJECTED_MODEL so the conformance test verifies
+                # that the injected value is stored, not that a default exists.
                 "model": _PYDANTIC_AI_INJECTED_MODEL,
                 "system_prompt": _default_from_init(PydanticAIAdapter, "system_prompt"),
                 "custom_section": _default_from_init(

@@ -6,6 +6,7 @@ regardless of the underlying framework's message format.
 
 from __future__ import annotations
 
+import re
 from typing import Any, Protocol
 
 
@@ -259,7 +260,7 @@ class StringOutputAdapter:
     message is kept as part of that message's content.
     """
 
-    _BOUNDARY_RE = __import__("re").compile(r"\n(?=\[|{)")
+    _BOUNDARY_RE = re.compile(r"\n(?=\[|{)")
 
     @classmethod
     def _split_messages(cls, result: str) -> list[str]:
