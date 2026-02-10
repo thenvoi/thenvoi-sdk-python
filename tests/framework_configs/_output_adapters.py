@@ -76,7 +76,11 @@ class DictListOutputAdapter:
         sender_name: str,
         sender_type: str | None = None,
     ) -> None:
-        pass  # Anthropic format does not include sender metadata
+        raise NotImplementedError(
+            "DictListOutputAdapter.assert_sender_metadata() is not supported. "
+            "Anthropic format does not include sender metadata. "
+            "Ensure has_sender_metadata=False in the ConverterConfig."
+        )
 
 
 class LangChainOutputAdapter:
@@ -138,7 +142,11 @@ class LangChainOutputAdapter:
         sender_name: str,
         sender_type: str | None = None,
     ) -> None:
-        pass  # LangChain messages do not include sender metadata
+        raise NotImplementedError(
+            "LangChainOutputAdapter.assert_sender_metadata() is not supported. "
+            "LangChain messages do not include sender metadata. "
+            "Ensure has_sender_metadata=False in the ConverterConfig."
+        )
 
 
 class PydanticAIOutputAdapter:
@@ -236,7 +244,11 @@ class PydanticAIOutputAdapter:
         sender_name: str,
         sender_type: str | None = None,
     ) -> None:
-        pass  # PydanticAI messages do not include sender metadata
+        raise NotImplementedError(
+            "PydanticAIOutputAdapter.assert_sender_metadata() is not supported. "
+            "PydanticAI messages do not include sender metadata. "
+            "Ensure has_sender_metadata=False in the ConverterConfig."
+        )
 
 
 class StringOutputAdapter:
@@ -315,7 +327,11 @@ class StringOutputAdapter:
         sender_name: str,
         sender_type: str | None = None,
     ) -> None:
-        pass  # ClaudeSDK returns a flat string without sender metadata
+        raise NotImplementedError(
+            "StringOutputAdapter.assert_sender_metadata() is not supported. "
+            "ClaudeSDK returns a flat string without sender metadata. "
+            "Ensure has_sender_metadata=False in the ConverterConfig."
+        )
 
 
 class SimpleDictListOutputAdapter:

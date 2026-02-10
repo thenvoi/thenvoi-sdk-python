@@ -363,7 +363,6 @@ ADAPTER_CONFIGS: list[AdapterConfig] = [
             "system_prompt": None,
             "custom_section": None,
             "enable_execution_reporting": False,
-            "_agent": None,
         },
         custom_kwargs={
             "model": "anthropic:claude-sonnet-4-5-20250929",
