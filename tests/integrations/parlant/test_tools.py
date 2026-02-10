@@ -244,14 +244,17 @@ class TestParlantToolFunctions:
 
     @pytest.fixture
     def mock_context(self):
-        """Create mock ToolContext (plain object to avoid unawaited coroutine warnings).
+        """Create mock ToolContext.
 
-        Uses a plain object instead of MagicMock(spec=ToolContext) because
-        ToolContext requires Parlant server imports that may not be available.
-        Only ``session_id`` is accessed by the tool functions.
+        Uses ``SimpleNamespace`` so that accessing any attribute not
+        explicitly set raises ``AttributeError`` — this catches tests
+        that accidentally depend on attributes beyond ``session_id``.
+        ``MagicMock(spec=ToolContext)`` is not used because ``ToolContext``
+        lives in ``parlant.core.tools`` which may not be installed.
         """
-        context = type("FakeContext", (), {"session_id": "test-session-123"})()
-        return context
+        from types import SimpleNamespace
+
+        return SimpleNamespace(session_id="test-session-123")
 
     @pytest.fixture
     def parlant_tools(self):

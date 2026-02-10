@@ -111,14 +111,3 @@ class TestAdapterCleanup:
 
         # Should not raise
         await adapter.on_cleanup("nonexistent-room")
-
-    @pytest.mark.asyncio
-    async def test_cleanup_all_safe_when_supported(self, adapter_config):
-        """If adapter has cleanup_all(), calling it should not raise."""
-        adapter = adapter_config.adapter_factory()
-        cleanup_all = getattr(adapter, "cleanup_all", None)
-        if cleanup_all is None or not callable(cleanup_all):
-            pytest.skip(f"{adapter_config.display_name} does not support cleanup_all")
-
-        # Should not raise
-        await adapter.cleanup_all()

@@ -14,7 +14,11 @@ Public API:
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from tests.framework_configs.adapters import AdapterConfig  # noqa: F401
+    from tests.framework_configs.converters import ConverterConfig  # noqa: F401
 
 __all__ = [
     "CONVERTER_ID_FOR_ADAPTER",

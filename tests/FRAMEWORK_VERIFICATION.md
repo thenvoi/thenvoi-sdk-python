@@ -25,9 +25,8 @@ Run: `uv run pytest tests/framework_conformance/test_adapter_conformance.py -k "
 | 4 | `TestAdapterInitialization::test_has_history_converter`          | Adapter has non-null `history_converter` (skipped if not exposed).   |
 | 5 | `TestAdapterOnStarted::test_after_on_started_sets_agent_name_and_description` | After `on_started(agent_name, agent_description)`, adapter has them set (skipped if live client required, e.g. PydanticAI). |
 | 6 | `TestAdapterCleanup::test_cleanup_nonexistent_room_is_safe`      | `on_cleanup("nonexistent-room")` does not raise.                     |
-| 7 | `TestAdapterCleanup::test_cleanup_all_safe_when_supported`      | If adapter has `cleanup_all()`, calling it does not raise (skipped if no such method). |
-| 8 | `TestAdapterOnMessage::test_on_message_is_callable`             | Adapter has a callable `on_message` method.                            |
-| 9 | `TestAdapterOnMessage::test_on_message_is_coroutine_function`   | `on_message` is an async method (`inspect.iscoroutinefunction`).       |
+| 7 | `TestAdapterOnMessage::test_on_message_is_callable`             | Adapter has a callable `on_message` method.                            |
+| 8 | `TestAdapterOnMessage::test_on_message_is_coroutine_function`   | `on_message` is an async method (`inspect.iscoroutinefunction`).       |
 
 ### Adapter: mandatory framework-specific coverage (must implement)
 
@@ -100,7 +99,7 @@ This runs **only** that framework’s conformance tests (adapter + converter) an
 
 | What runs | Description |
 |-----------|-------------|
-| Adapter conformance | All parametrized tests in `test_adapter_conformance.py` for your `[adapter_id]` (9 tests). |
+| Adapter conformance | All parametrized tests in `test_adapter_conformance.py` for your `[adapter_id]` (8 tests). |
 | Converter conformance | All parametrized tests in `test_converter_conformance.py` for your `[converter_id]` (21 tests). |
 | Framework-specific adapter | Entire file `tests/adapters/test_<framework>_adapter.py`. |
 | Framework-specific converter | Entire file `tests/converters/test_<framework>.py`. |

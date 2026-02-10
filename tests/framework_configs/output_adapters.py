@@ -6,7 +6,6 @@ regardless of the underlying framework's message format.
 
 from __future__ import annotations
 
-import functools
 import re
 from typing import Any, Protocol
 
@@ -296,10 +295,9 @@ class StringOutputAdapter:
     Lines that do not match either pattern are treated as continuations of
     the previous message (e.g. multi-line text content).
 
-    Note: ``result_length()``, ``get_content()``, and ``content_contains()``
-    each call ``_split_messages`` internally; the result is not cached. For
-    small inputs (e.g. conformance tests) this is fine. For large strings,
-    callers may want to split once and work with the list.
+    ``_split_messages`` is intentionally not cached — test inputs are small
+    and caching across test boundaries would share state between independent
+    tests.
     """
 
     # Matches the sender prefix at the start of a text message.
@@ -317,7 +315,6 @@ class StringOutputAdapter:
         return False
 
     @classmethod
-    @functools.lru_cache(maxsize=8)
     def _split_messages(cls, result: str) -> list[str]:
         """Split the joined string into logical messages.
 
