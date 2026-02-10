@@ -359,9 +359,7 @@ class TestOutputShape:
         result = converter.convert(raw)
 
         assert output.result_length(result) == 1
-        output.assert_element_type(
-            result, 0, converter_config.other_agent_output_role
-        )
+        output.assert_element_type(result, 0, converter_config.other_agent_output_role)
 
     def test_user_text_has_sender_metadata(
         self, converter_config, make_converter, output
@@ -520,6 +518,5 @@ class TestToolEventConversion:
             i for i in range(length) if "found" in output.get_content(result, i)
         )
         assert 0 < found_idx, (
-            f"User message (index 0) must precede tool result "
-            f"(index {found_idx})"
+            f"User message (index 0) must precede tool result (index {found_idx})"
         )

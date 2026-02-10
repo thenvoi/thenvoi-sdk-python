@@ -333,9 +333,7 @@ def _build_adapter_configs() -> list[AdapterConfig]:
                 ),
                 "verbose": _default_from_init(crewai_cls, "verbose"),
                 "max_iter": _default_from_init(crewai_cls, "max_iter"),
-                "allow_delegation": _default_from_init(
-                    crewai_cls, "allow_delegation"
-                ),
+                "allow_delegation": _default_from_init(crewai_cls, "allow_delegation"),
             },
             custom_kwargs={
                 "model": "gpt-4o-mini",
@@ -402,9 +400,7 @@ def _build_adapter_configs() -> list[AdapterConfig]:
             adapter_factory=_pydantic_ai_factory,
             default_values={
                 "model": _PYDANTIC_AI_INJECTED_MODEL,
-                "system_prompt": _default_from_init(
-                    PydanticAIAdapter, "system_prompt"
-                ),
+                "system_prompt": _default_from_init(PydanticAIAdapter, "system_prompt"),
                 "custom_section": _default_from_init(
                     PydanticAIAdapter, "custom_section"
                 ),
@@ -431,12 +427,8 @@ def _build_adapter_configs() -> list[AdapterConfig]:
             display_name="Parlant",
             adapter_factory=_parlant_factory,
             default_values={
-                "system_prompt": _default_from_init(
-                    ParlantAdapter, "system_prompt"
-                ),
-                "custom_section": _default_from_init(
-                    ParlantAdapter, "custom_section"
-                ),
+                "system_prompt": _default_from_init(ParlantAdapter, "system_prompt"),
+                "custom_section": _default_from_init(ParlantAdapter, "custom_section"),
             },
             custom_kwargs={
                 "system_prompt": "Custom system prompt",
@@ -455,6 +447,7 @@ def _build_adapter_configs() -> list[AdapterConfig]:
 # The property-on-module trick is not worth the complexity; instead, callers
 # that need the list call _build_adapter_configs().  For backward compat the
 # module attribute is set once on first access.
+
 
 def __getattr__(name: str) -> Any:
     if name == "ADAPTER_CONFIGS":
