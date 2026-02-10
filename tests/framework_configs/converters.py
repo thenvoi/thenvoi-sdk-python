@@ -108,10 +108,15 @@ def _parlant_factory(**kw: Any) -> Any:
 # ---------------------------------------------------------------------------
 
 
-@functools.cache
+@functools.lru_cache(maxsize=1)
 def _build_converter_configs() -> list[ConverterConfig]:
     """Build configs lazily so converter imports happen only when the
-    conformance tests actually need them."""
+    conformance tests actually need them.
+
+    Uses ``lru_cache(maxsize=1)`` instead of ``cache`` so that
+    ``.cache_clear()`` is available — consistent with
+    ``_build_adapter_configs()`` in adapters.py.
+    """
     from tests.framework_configs.output_adapters import (
         DictListOutputAdapter,
         LangChainOutputAdapter,
