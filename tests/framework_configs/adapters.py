@@ -263,10 +263,16 @@ def _parlant_factory(**kw: Any) -> Any:
 _PYDANTIC_AI_INJECTED_MODEL = "openai:gpt-4o"
 
 
-@functools.cache
+@functools.lru_cache(maxsize=1)
 def _build_adapter_configs() -> list[AdapterConfig]:
     """Build configs lazily so adapter imports (and _default_from_init) happen
-    only when the conformance tests actually need them."""
+    only when the conformance tests actually need them.
+
+    Uses ``lru_cache(maxsize=1)`` instead of ``cache`` so that
+    ``.cache_clear()`` is available — useful if a test teardown needs to
+    discard the cached CrewAI adapter class (whose module globals hold
+    references to mocked ``crewai`` dependencies).
+    """
     from thenvoi.adapters.anthropic import AnthropicAdapter
     from thenvoi.adapters.claude_sdk import ClaudeSDKAdapter
     from thenvoi.adapters.langgraph import LangGraphAdapter
