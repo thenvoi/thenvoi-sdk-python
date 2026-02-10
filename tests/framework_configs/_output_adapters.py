@@ -160,32 +160,17 @@ class PydanticAIOutputAdapter:
 class StringOutputAdapter:
     """Adapter for ClaudeSDK converter output (newline-joined string).
 
-    The ClaudeSDK converter joins logical messages with ``"\\n"``.
-    Each message is either a ``[sender]: content`` text line or a raw
-    JSON object (tool_call / tool_result).  Because tool-event JSON is
-    always emitted as a single compact line by the converter, we split
-    on ``"\\n"`` to recover the individual messages.
-
-    To guard against silent miscounts when content contains embedded
-    newlines, ``_split_messages`` validates that every segment matches
-    one of the two expected formats.  If a segment doesn't match, an
-    ``AssertionError`` is raised so the test fails loudly rather than
-    producing a wrong count.
+    Splits on ``"\\n"`` to recover individual ``[sender]: content`` or
+    JSON tool-event messages.  Validates that each segment starts with
+    ``[`` or ``{`` to catch silent miscounts from embedded newlines.
     """
 
     @staticmethod
     def _split_messages(result: str) -> list[str]:
         """Split the joined string back into logical messages.
 
-        Raises ``AssertionError`` if any segment looks like a fragment
-        caused by an embedded newline (i.e. it doesn't start with ``[``
-        or ``{``).
-
-        **Known limitation:** content that itself starts with ``[`` or
-        ``{`` (e.g. a JSON string or markdown list) would pass
-        validation even if it is actually a fragment from a split.
-        This is acceptable because conformance test payloads are
-        controlled and never contain such content.
+        Raises ``AssertionError`` if any segment doesn't start with
+        ``[`` or ``{`` (likely a fragment from an embedded newline).
         """
         if not result:
             return []

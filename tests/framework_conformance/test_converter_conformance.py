@@ -72,11 +72,6 @@ class TestUserTextMessages:
         self, converter_config, make_converter, output
     ):
         """User messages with no sender_name key are handled per framework."""
-        if not converter_config.has_missing_sender_name_test:
-            pytest.skip(
-                f"{converter_config.display_name} does not have a missing sender name test"
-            )
-
         converter = make_converter()
         raw = [
             {

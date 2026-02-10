@@ -23,7 +23,6 @@ if TYPE_CHECKING:
     from parlant.core.application import Application
     from parlant.core.sessions import SessionId
 
-
 logger = logging.getLogger(__name__)
 
 
@@ -471,16 +470,9 @@ class ParlantAdapter(SimpleAdapter[ParlantMessages]):
 
                     if isinstance(data, dict):
                         message_content = str(data.get("message", ""))
-                        raw_tags = data.get("tags", [])
-                        # Coerce to list; guards against non-iterable values
-                        tags = (
-                            list(raw_tags)
-                            if isinstance(raw_tags, (list, tuple, set))
-                            else []
-                        )
+                        tags = data.get("tags", [])
                     elif isinstance(data, str):
                         message_content = data
-                        tags = []
 
                     # Check if this is a preamble message
                     is_preamble = PARLANT_PREAMBLE_TAG in tags

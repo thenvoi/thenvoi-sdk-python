@@ -26,6 +26,8 @@ Run: `uv run pytest tests/framework_conformance/test_adapter_conformance.py -k "
 | 5 | `TestAdapterOnStarted::test_after_on_started_sets_agent_name_and_description` | After `on_started(agent_name, agent_description)`, adapter has them set (skipped if live client required, e.g. PydanticAI). |
 | 6 | `TestAdapterCleanup::test_cleanup_nonexistent_room_is_safe`      | `on_cleanup("nonexistent-room")` does not raise.                     |
 | 7 | `TestAdapterCleanup::test_cleanup_all_safe_when_supported`      | If adapter has `cleanup_all()`, calling it does not raise (skipped if no such method). |
+| 8 | `TestAdapterOnMessage::test_on_message_is_callable`             | Adapter has a callable `on_message` method.                            |
+| 9 | `TestAdapterOnMessage::test_on_message_is_coroutine_function`   | `on_message` is an async method (`inspect.iscoroutinefunction`).       |
 
 ### Adapter: mandatory framework-specific coverage (must implement)
 
@@ -51,7 +53,7 @@ Run: `uv run pytest tests/framework_conformance/test_converter_conformance.py -k
 | -- | ------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------- |
 | 1  | `TestUserTextMessages::test_converts_user_text_with_sender_name` | User text appears as `[Sender]: content`.                                                             |
 | 2  | `TestUserTextMessages::test_handles_empty_sender_name`           | Empty `sender_name` handled per config (`content_as_is` / `brackets_empty` / `unknown_prefix`). |
-| 3  | `TestUserTextMessages::test_handles_missing_sender_name`         | Missing `sender_name` handled per config (skipped if `has_missing_sender_name_test=False`).         |
+| 3  | `TestUserTextMessages::test_handles_missing_sender_name`         | Missing `sender_name` handled per config (`content_as_is` / `brackets_empty` / `unknown_prefix`). |
 | 4  | `TestEmptyHistory::test_empty_history`                           | `convert([])` returns config `empty_result`.                                                        |
 | 5  | `TestMessageTypeDefaults::test_defaults_to_text_message_type`    | No `message_type` → treated as text.                                                                 |
 | 6  | `TestThoughtMessageSkipping::test_skips_thought_messages`        | `message_type: "thought"` → not in output.                                                           |
@@ -94,7 +96,7 @@ This runs **only** that framework’s conformance tests (adapter + converter) an
 
 | What runs | Description |
 |-----------|-------------|
-| Adapter conformance | All parametrized tests in `test_adapter_conformance.py` for your `[adapter_id]` (7 tests). |
+| Adapter conformance | All parametrized tests in `test_adapter_conformance.py` for your `[adapter_id]` (9 tests). |
 | Converter conformance | All parametrized tests in `test_converter_conformance.py` for your `[converter_id]` (17 tests). |
 | Framework-specific adapter | Entire file `tests/adapters/test_<framework>_adapter.py`. |
 | Framework-specific converter | Entire file `tests/converters/test_<framework>.py`. |

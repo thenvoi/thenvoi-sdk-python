@@ -55,7 +55,6 @@ class ConverterConfig:
     # Edge case flags
     skips_empty_content: bool = False
     has_role_concept: bool = True
-    has_missing_sender_name_test: bool = True
 
     # Output adapter for uniform assertions
     output_adapter: OutputAdapter = field(default_factory=DictListOutputAdapter)
