@@ -118,6 +118,12 @@ def _get_crewai_adapter_cls() -> type:
     from unittest.mock import patch
 
     # Build mock crewai modules the adapter imports at module level.
+    # These correspond to the top-level imports in src/thenvoi/adapters/crewai.py:
+    #   from crewai import Agent as CrewAIAgent   -> crewai.Agent
+    #   from crewai import LLM                    -> crewai.LLM
+    #   from crewai.tools import BaseTool          -> crewai.tools.BaseTool
+    #   import nest_asyncio                        -> nest_asyncio
+    # If crewai.py adds new module-level imports, add matching mocks here.
     mock_crewai_module = MagicMock()
     mock_crewai_tools_module = MagicMock()
     mock_nest_asyncio = MagicMock()
@@ -178,11 +184,15 @@ def _get_crewai_adapter_cls() -> type:
     import inspect
 
     try:
-        from thenvoi.adapters.crewai import CrewAIAdapter as _RealCrewAIAdapter
-    except (ImportError, ModuleNotFoundError):
-        # crewai not installed — skip drift check (isolated import is sufficient)
+        import crewai as _crewai_probe  # noqa: F401 — probe whether crewai is installed
+    except ImportError:
+        # crewai package not installed — skip drift check (isolated import is sufficient)
         pass
     else:
+        # crewai IS installed, so a failure importing the real adapter is a real error
+        # that should propagate (not be silently swallowed).
+        from thenvoi.adapters.crewai import CrewAIAdapter as _RealCrewAIAdapter
+
         real_sig = inspect.signature(_RealCrewAIAdapter.__init__)
         isolated_sig = inspect.signature(isolated_cls.__init__)
         if real_sig != isolated_sig:

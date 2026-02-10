@@ -11,33 +11,74 @@ pairing (e.g. LangChain) produce valid output.
 
 from __future__ import annotations
 
+import json
+
+
+def _tool_call_content(name: str, args: dict, tool_call_id: str) -> str:
+    """Build a tool_call content JSON string with both top-level and nested paths.
+
+    Top-level ``args`` is read by Anthropic, ClaudeSDK, PydanticAI.
+    Nested ``data.input`` is read by LangChain.
+    If you change the tool event schema, this single function is the
+    only place that needs updating.
+    """
+    return json.dumps(
+        {
+            "name": name,
+            "args": args,
+            "data": {"input": args},
+            "tool_call_id": tool_call_id,
+        },
+        separators=(",", ": "),
+    )
+
+
+def _tool_result_content(name: str, output: str, tool_call_id: str) -> str:
+    """Build a tool_result content JSON string with both top-level and nested paths.
+
+    Top-level ``output`` is read by Anthropic, ClaudeSDK, PydanticAI.
+    Nested ``data.output`` is read by LangChain.
+    If you change the tool event schema, this single function is the
+    only place that needs updating.
+    """
+    return json.dumps(
+        {
+            "name": name,
+            "output": output,
+            "data": {"output": output},
+            "tool_call_id": tool_call_id,
+        },
+        separators=(",", ": "),
+    )
+
+
 TOOL_CALL_SEARCH = {
     "role": "assistant",
-    "content": '{"name": "search", "args": {"query": "test"}, "data": {"input": {"query": "test"}}, "tool_call_id": "tc_1"}',
+    "content": _tool_call_content("search", {"query": "test"}, "tc_1"),
     "message_type": "tool_call",
 }
 TOOL_RESULT_SEARCH = {
     "role": "assistant",
-    "content": '{"name": "search", "output": "result data", "data": {"output": "result data"}, "tool_call_id": "tc_1"}',
+    "content": _tool_result_content("search", "result data", "tc_1"),
     "message_type": "tool_result",
 }
 TOOL_CALL_LOOKUP = {
     "role": "assistant",
-    "content": '{"name": "lookup", "args": {"id": "42"}, "data": {"input": {"id": "42"}}, "tool_call_id": "tc_2"}',
+    "content": _tool_call_content("lookup", {"id": "42"}, "tc_2"),
     "message_type": "tool_call",
 }
 TOOL_RESULT_LOOKUP = {
     "role": "assistant",
-    "content": '{"name": "lookup", "output": "found item 42", "data": {"output": "found item 42"}, "tool_call_id": "tc_2"}',
+    "content": _tool_result_content("lookup", "found item 42", "tc_2"),
     "message_type": "tool_result",
 }
 TOOL_CALL_SEARCH_EMPTY = {
     "role": "assistant",
-    "content": '{"name": "search", "args": {}, "data": {"input": {}}, "tool_call_id": "tc_1"}',
+    "content": _tool_call_content("search", {}, "tc_1"),
     "message_type": "tool_call",
 }
 TOOL_RESULT_SEARCH_FOUND = {
     "role": "assistant",
-    "content": '{"name": "search", "output": "found", "data": {"output": "found"}, "tool_call_id": "tc_1"}',
+    "content": _tool_result_content("search", "found", "tc_1"),
     "message_type": "tool_result",
 }

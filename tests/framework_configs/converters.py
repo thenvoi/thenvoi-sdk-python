@@ -127,7 +127,6 @@ CONVERTER_CONFIGS: list[ConverterConfig] = [
         # LangChain uses hist.get("sender_name", ""), so a *missing* key
         # produces the same "[]: content" as an empty string (brackets_empty).
         missing_sender_behavior=SenderBehavior.BRACKETS_EMPTY,
-        has_missing_sender_name_test=True,
         output_adapter=LangChainOutputAdapter(),
     ),
     ConverterConfig(
