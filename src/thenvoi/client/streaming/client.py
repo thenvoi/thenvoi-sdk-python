@@ -115,6 +115,12 @@ class WebSocketClient:
         self.ws_url = ws_url
         self.api_key = api_key
         self.agent_id = agent_id
+        self._validation_error_count: int = 0
+
+    @property
+    def validation_error_count(self) -> int:
+        """Number of events dropped due to payload validation errors."""
+        return self._validation_error_count
 
     async def __aenter__(self):
         """Create and enter the PHXChannelsClient context"""
@@ -167,6 +173,7 @@ class WebSocketClient:
                     message.event,
                     message.payload,
                 )
+                self._validation_error_count += 1
                 return
         else:
             # Unknown event types: pass the raw payload dict

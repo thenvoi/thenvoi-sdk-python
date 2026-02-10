@@ -323,3 +323,59 @@ async def test_passes_raw_dict_for_unknown_event_types():
 
     await client._handle_events(MockMessage(), {"task_created": test_callback})
     assert received_payload == {"task_id": "t-123", "status": "pending"}
+
+
+# --- Validation error counter tests ---
+
+
+async def test_validation_error_count_increments_on_invalid_payload(caplog):
+    """Should increment validation_error_count when a payload fails validation."""
+    client = WebSocketClient("ws://localhost", "test-key", "agent-123")
+    assert client.validation_error_count == 0
+
+    class MockMessage:
+        event = "message_created"
+        payload = {"id": "msg-123"}  # Missing required fields
+
+    async def dummy_callback(payload):
+        pass
+
+    with caplog.at_level(logging.ERROR):
+        await client._handle_events(MockMessage(), {"message_created": dummy_callback})
+
+    assert client.validation_error_count == 1
+
+    # Send another invalid payload to verify it keeps incrementing
+    with caplog.at_level(logging.ERROR):
+        await client._handle_events(MockMessage(), {"message_created": dummy_callback})
+
+    assert client.validation_error_count == 2
+
+
+async def test_validation_error_count_stays_zero_on_valid_payload():
+    """Should not increment validation_error_count for valid payloads."""
+    client = WebSocketClient("ws://localhost", "test-key", "agent-123")
+
+    class MockMessage:
+        event = "message_created"
+        payload = {
+            "id": "msg-123",
+            "content": "@TestBot hi",
+            "message_type": "text",
+            "metadata": {
+                "mentions": [{"id": "agent-123", "username": "TestBot"}],
+                "status": "sent",
+            },
+            "sender_id": "user-456",
+            "sender_type": "User",
+            "chat_room_id": "room-123",
+            "thread_id": None,
+            "inserted_at": "2025-11-17T11:20:10.284136Z",
+            "updated_at": "2025-11-17T11:20:10.284136Z",
+        }
+
+    async def dummy_callback(payload):
+        pass
+
+    await client._handle_events(MockMessage(), {"message_created": dummy_callback})
+    assert client.validation_error_count == 0
