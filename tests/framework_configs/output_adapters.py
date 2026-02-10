@@ -6,6 +6,7 @@ regardless of the underlying framework's message format.
 
 from __future__ import annotations
 
+import functools
 import re
 from typing import Any, Protocol
 
@@ -24,10 +25,14 @@ class OutputAdapter(Protocol):
     def assert_sender_metadata(
         self, result: Any, index: int, sender_name: str, sender_type: str | None = None
     ) -> None: ...
+    def assert_result_type(self, result: Any) -> None: ...
 
 
 class BaseDictListOutputAdapter:
     """Shared logic for adapters whose output is ``list[dict[str, Any]]``."""
+
+    def assert_result_type(self, result: list[dict[str, Any]]) -> None:
+        assert isinstance(result, list), f"Expected list, got {type(result).__name__}"
 
     def result_length(self, result: list[dict[str, Any]]) -> int:
         return len(result)
@@ -96,6 +101,9 @@ class DictListOutputAdapter(BaseDictListOutputAdapter):
 class LangChainOutputAdapter:
     """Adapter for LangChain converter output (list of Message objects)."""
 
+    def assert_result_type(self, result: list) -> None:
+        assert isinstance(result, list), f"Expected list, got {type(result).__name__}"
+
     def result_length(self, result: list) -> int:
         return len(result)
 
@@ -161,6 +169,9 @@ class LangChainOutputAdapter:
 
 class PydanticAIOutputAdapter:
     """Adapter for PydanticAI converter output (list of ModelRequest/ModelResponse)."""
+
+    def assert_result_type(self, result: list) -> None:
+        assert isinstance(result, list), f"Expected list, got {type(result).__name__}"
 
     def result_length(self, result: list) -> int:
         return len(result)
@@ -306,6 +317,7 @@ class StringOutputAdapter:
         return False
 
     @classmethod
+    @functools.lru_cache(maxsize=8)
     def _split_messages(cls, result: str) -> list[str]:
         """Split the joined string into logical messages.
 
@@ -323,6 +335,9 @@ class StringOutputAdapter:
             else:
                 messages[-1] += "\n" + line
         return messages
+
+    def assert_result_type(self, result: str) -> None:
+        assert isinstance(result, str), f"Expected str, got {type(result).__name__}"
 
     def result_length(self, result: str) -> int:
         return len(self._split_messages(result))

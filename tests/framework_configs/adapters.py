@@ -121,9 +121,8 @@ class _MockBaseTool:
         pass
 
 
-@functools.cache
 def _get_crewai_adapter_cls() -> type:
-    """Import CrewAIAdapter once with mocked crewai dependencies.
+    """Import CrewAIAdapter with mocked crewai dependencies.
 
     Uses ``patch.dict(sys.modules, ...)`` to temporarily inject mock
     crewai/nest_asyncio modules, then imports the real adapter module
@@ -142,14 +141,27 @@ def _get_crewai_adapter_cls() -> type:
     (``on_message``, ``_invoke_crew``, etc.) would hit MagicMock objects
     and produce nonsense results.
 
-    The result is cached via ``@functools.cache`` so this function
-    executes at most once per process.  For runtime tests that invoke
-    CrewAI methods, use the monkeypatch-based fixtures in
+    This function is NOT cached itself — the result is cached in
+    ``_build_adapter_configs()`` (which is ``@functools.cache``'d).
+    This avoids permanently binding to whichever mocked module imports
+    first if test collection order changes.  For runtime tests that
+    invoke CrewAI methods, use the monkeypatch-based fixtures in
     ``tests/adapters/test_crewai_adapter.py``.
     """
     import importlib
     import sys
     from unittest.mock import patch
+
+    adapter_module_name = "thenvoi.adapters.crewai"
+    mock_dep_names = ("crewai", "crewai.tools", "nest_asyncio")
+
+    # Pre-flight: clear any stale adapter module AND mock dependency modules
+    # that may linger from a prior framework-specific test run.  This ensures
+    # a clean import regardless of test collection order.
+    sys.modules.pop(adapter_module_name, None)
+    for dep in mock_dep_names:
+        if dep in sys.modules and isinstance(sys.modules[dep], MagicMock):
+            sys.modules.pop(dep)
 
     # Build mock crewai modules matching the adapter's top-level imports:
     #   from crewai import Agent as CrewAIAgent, LLM
@@ -167,11 +179,6 @@ def _get_crewai_adapter_cls() -> type:
         "crewai.tools": mock_crewai_tools,
         "nest_asyncio": MagicMock(),
     }
-
-    # Remove any previously-cached adapter module so importlib re-executes it
-    # with our mocked dependencies.
-    adapter_module_name = "thenvoi.adapters.crewai"
-    sys.modules.pop(adapter_module_name, None)
 
     with patch.dict(sys.modules, mock_entries):
         module = importlib.import_module(adapter_module_name)
@@ -396,9 +403,9 @@ def _build_adapter_configs() -> list[AdapterConfig]:
             display_name="PydanticAI",
             adapter_factory=_pydantic_ai_factory,
             expected_initial_values={
-                # model is a required kwarg (no default); the factory injects
-                # _PYDANTIC_AI_INJECTED_MODEL so the conformance test verifies
-                # that the injected value is stored, not that a default exists.
+                # NOTE: injected, not a default — model is a required kwarg
+                # (no default); the factory injects _PYDANTIC_AI_INJECTED_MODEL
+                # so the conformance test verifies the injected value is stored.
                 "model": _PYDANTIC_AI_INJECTED_MODEL,
                 "system_prompt": _default_from_init(PydanticAIAdapter, "system_prompt"),
                 "custom_section": _default_from_init(

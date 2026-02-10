@@ -14,15 +14,6 @@ from typing import Any, Callable
 
 __all__ = ["ConverterConfig", "CONVERTER_CONFIGS", "SenderBehavior"]
 
-from tests.framework_configs.output_adapters import (
-    DictListOutputAdapter,
-    LangChainOutputAdapter,
-    OutputAdapter,
-    PydanticAIOutputAdapter,
-    SenderMetadataDictListOutputAdapter,
-    StringOutputAdapter,
-)
-
 # Populated lazily via __getattr__ to avoid top-level converter imports.
 CONVERTER_CONFIGS: list[ConverterConfig]
 
@@ -66,7 +57,9 @@ class ConverterConfig:
     other_agent_output_role: str = "user"  # role assigned to other agents' messages
 
     # Output adapter for uniform assertions
-    output_adapter: OutputAdapter = field(default_factory=DictListOutputAdapter)
+    output_adapter: Any = field(
+        default_factory=lambda: None
+    )  # set in _build_converter_configs
 
 
 # ---------------------------------------------------------------------------
@@ -119,6 +112,14 @@ def _parlant_factory(**kw: Any) -> Any:
 def _build_converter_configs() -> list[ConverterConfig]:
     """Build configs lazily so converter imports happen only when the
     conformance tests actually need them."""
+    from tests.framework_configs.output_adapters import (
+        DictListOutputAdapter,
+        LangChainOutputAdapter,
+        PydanticAIOutputAdapter,
+        SenderMetadataDictListOutputAdapter,
+        StringOutputAdapter,
+    )
+
     return [
         ConverterConfig(
             framework_id="anthropic",

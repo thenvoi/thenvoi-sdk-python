@@ -58,6 +58,7 @@ class TestOnStarted:
             )
 
             assert adapter.agent_name == "TestBot"
+            assert adapter.agent_description == "A test bot"
             assert adapter._session_manager is not None
             assert adapter._mcp_server is not None
 

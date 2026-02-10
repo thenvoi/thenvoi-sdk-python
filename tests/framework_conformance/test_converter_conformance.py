@@ -356,6 +356,22 @@ class TestOutputShape:
         assert output.result_length(result) == 1
         output.assert_element_type(result, 0, "user")
 
+    def test_result_container_type(self, converter_config, make_converter, output):
+        """Converter result is the expected container type (list or str)."""
+        converter = make_converter()
+        raw = [
+            {
+                "role": "user",
+                "content": "Hello!",
+                "sender_name": "Alice",
+                "message_type": "text",
+            }
+        ]
+
+        result = converter.convert(raw)
+
+        output.assert_result_type(result)
+
     def test_other_agent_text_produces_correct_type(
         self, converter_config, make_converter, output
     ):
