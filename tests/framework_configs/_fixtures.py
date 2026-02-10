@@ -29,7 +29,6 @@ def _tool_call_content(name: str, args: dict, tool_call_id: str) -> str:
             "data": {"input": args},
             "tool_call_id": tool_call_id,
         },
-        separators=(",", ": "),
     )
 
 
@@ -48,7 +47,6 @@ def _tool_result_content(name: str, output: str, tool_call_id: str) -> str:
             "data": {"output": output},
             "tool_call_id": tool_call_id,
         },
-        separators=(",", ": "),
     )
 
 

@@ -417,3 +417,5 @@ class TestToolEventConversion:
         assert output.content_contains(result, "Alice")
         assert output.content_contains(result, "search")
         assert output.content_contains(result, "found")
+        # Verify ordering: user message must appear before tool messages
+        assert "[Alice]" in output.get_content(result, 0)

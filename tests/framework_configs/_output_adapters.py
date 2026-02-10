@@ -180,6 +180,12 @@ class StringOutputAdapter:
         Raises ``AssertionError`` if any segment looks like a fragment
         caused by an embedded newline (i.e. it doesn't start with ``[``
         or ``{``).
+
+        **Known limitation:** content that itself starts with ``[`` or
+        ``{`` (e.g. a JSON string or markdown list) would pass
+        validation even if it is actually a fragment from a split.
+        This is acceptable because conformance test payloads are
+        controlled and never contain such content.
         """
         if not result:
             return []

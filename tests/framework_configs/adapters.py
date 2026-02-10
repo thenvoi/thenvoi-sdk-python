@@ -154,21 +154,24 @@ def _get_crewai_adapter_cls() -> type:
     )
     isolated_module = importlib.util.module_from_spec(spec)
 
-    # Ensure the parent package is importable so relative imports work.
-    adapters_pkg_name = "thenvoi.adapters"
-    if adapters_pkg_name not in sys.modules:
-        adapters_pkg = types.ModuleType(adapters_pkg_name)
-        adapters_pkg.__path__ = [str(adapter_path.parent)]
-        sys.modules[adapters_pkg_name] = adapters_pkg
-
     # Use patch.dict to inject mock dependencies into sys.modules for the
     # duration of exec_module.  patch.dict atomically restores the original
     # state on exit, even if exec_module raises.
-    mock_entries = {
+    mock_entries: dict[str, types.ModuleType] = {
         "crewai": mock_crewai_module,
         "crewai.tools": mock_crewai_tools_module,
         "nest_asyncio": mock_nest_asyncio,
     }
+
+    # Ensure the parent package is importable so relative imports work.
+    # Include it in patch.dict so it is cleaned up if it was not already
+    # present (avoids permanently injecting a fake module into sys.modules).
+    adapters_pkg_name = "thenvoi.adapters"
+    if adapters_pkg_name not in sys.modules:
+        adapters_pkg = types.ModuleType(adapters_pkg_name)
+        adapters_pkg.__path__ = [str(adapter_path.parent)]
+        mock_entries[adapters_pkg_name] = adapters_pkg
+
     with patch.dict(sys.modules, mock_entries):
         spec.loader.exec_module(isolated_module)
 
@@ -280,7 +283,8 @@ ADAPTER_CONFIGS: list[AdapterConfig] = [
         custom_expected={
             "custom_section": "Be helpful.",
         },
-        has_custom_tools_attr=False,
+        has_custom_tools_attr=True,
+        custom_tools_attr="additional_tools",
         has_history_converter=True,
     ),
     AdapterConfig(
