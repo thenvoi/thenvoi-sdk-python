@@ -8,21 +8,25 @@ run identical logic across all registered adapters.
 from __future__ import annotations
 
 import functools
+import inspect
 from dataclasses import dataclass, field
 from typing import Any, Callable
 from unittest.mock import MagicMock
 
-__all__ = ["AdapterConfig", "ADAPTER_CONFIGS"]
+__all__ = ["AdapterConfig", "ADAPTER_CONFIGS"]  # noqa: F822 — ADAPTER_CONFIGS is lazy via __getattr__
 
-# Default model strings — keep in sync with the adapter __init__ defaults.
-# Centralised here so a model bump requires only one change in the test config.
-# Source: src/thenvoi/adapters/<framework>.py  __init__(model=...)
-_ANTHROPIC_DEFAULT_MODEL = "claude-sonnet-4-5-20250929"
-_CLAUDE_SDK_DEFAULT_MODEL = "claude-sonnet-4-5-20250929"
-_CREWAI_DEFAULT_MODEL = "gpt-4o"
-_PYDANTIC_AI_DEFAULT_MODEL = (
-    "openai:gpt-4o"  # factory-injected (adapter requires model)
-)
+
+def _default_from_init(cls: type, param: str) -> Any:
+    """Extract the default value of *param* from *cls.__init__* signature.
+
+    Keeps test configs in sync with adapter source automatically — no need
+    to hard-code model strings or other defaults here.
+    """
+    sig = inspect.signature(cls.__init__)
+    p = sig.parameters.get(param)
+    if p is None or p.default is inspect.Parameter.empty:
+        raise ValueError(f"{cls.__name__}.__init__ has no default for {param!r}")
+    return p.default
 
 
 @dataclass(frozen=True)
@@ -125,7 +129,8 @@ def _get_crewai_adapter_cls() -> type:
     #   from crewai import LLM                    -> crewai.LLM
     #   from crewai.tools import BaseTool          -> crewai.tools.BaseTool
     #   import nest_asyncio                        -> nest_asyncio
-    # If crewai.py adds new module-level imports, add matching mocks here.
+    # If you add, remove, or rename module-level imports in crewai.py,
+    # update the matching mocks here.
     mock_crewai_module = MagicMock()
     mock_crewai_tools_module = MagicMock()
     mock_nest_asyncio = MagicMock()
@@ -191,8 +196,14 @@ def _get_crewai_adapter_cls() -> type:
     try:
         import crewai as _crewai_probe  # noqa: F401 — probe whether crewai is installed
     except ImportError:
-        # crewai package not installed — skip drift check (isolated import is sufficient)
-        pass
+        import warnings
+
+        warnings.warn(
+            "crewai package not installed — skipping CrewAIAdapter signature "
+            "drift check.  If you changed CrewAIAdapter.__init__, install "
+            "crewai and re-run to verify the conformance config is still valid.",
+            stacklevel=2,
+        )
     else:
         # crewai IS installed, so a failure importing the real adapter is a real error
         # that should propagate (not be silently swallowed).
@@ -227,7 +238,7 @@ def _pydantic_ai_factory(**kw: Any) -> Any:
     from thenvoi.adapters.pydantic_ai import PydanticAIAdapter
 
     if "model" not in kw:
-        kw["model"] = _PYDANTIC_AI_DEFAULT_MODEL
+        kw["model"] = _PYDANTIC_AI_INJECTED_MODEL
     return PydanticAIAdapter(**kw)
 
 
@@ -245,155 +256,209 @@ def _parlant_factory(**kw: Any) -> Any:
 
 
 # ---------------------------------------------------------------------------
-# Registry
+# Registry  (built lazily to avoid top-level adapter imports)
 # ---------------------------------------------------------------------------
 
-ADAPTER_CONFIGS: list[AdapterConfig] = [
-    AdapterConfig(
-        framework_id="anthropic",
-        display_name="Anthropic",
-        adapter_factory=_anthropic_factory,
-        default_values={
-            "model": _ANTHROPIC_DEFAULT_MODEL,
-            "max_tokens": 4096,
-            "enable_execution_reporting": False,
-        },
-        custom_kwargs={
-            "model": "claude-opus-4-20250514",
-            "max_tokens": 8192,
-            "custom_section": "Be helpful.",
-            "enable_execution_reporting": True,
-        },
-        custom_expected={
-            "model": "claude-opus-4-20250514",
-            "max_tokens": 8192,
-            "custom_section": "Be helpful.",
-            "enable_execution_reporting": True,
-        },
-    ),
-    AdapterConfig(
-        framework_id="langgraph",
-        display_name="LangGraph",
-        adapter_factory=_langgraph_factory,
-        default_values={
-            "prompt_template": "default",
-            "custom_section": "",
-        },
-        custom_kwargs={
-            "custom_section": "Be helpful.",
-        },
-        custom_expected={
-            "custom_section": "Be helpful.",
-        },
-        has_custom_tools_attr=True,
-        custom_tools_attr="additional_tools",
-        has_history_converter=True,
-    ),
-    AdapterConfig(
-        framework_id="crewai",
-        display_name="CrewAI",
-        adapter_factory=_crewai_factory,
-        default_values={
-            "model": _CREWAI_DEFAULT_MODEL,
-            "role": None,
-            "goal": None,
-            "backstory": None,
-            "enable_execution_reporting": False,
-            "verbose": False,
-            "max_iter": 20,
-            "allow_delegation": False,
-        },
-        custom_kwargs={
-            "model": "gpt-4o-mini",
-            "role": "Research Analyst",
-            "goal": "Find and analyze information",
-            "backstory": "Expert researcher",
-            "custom_section": "Be thorough.",
-            "enable_execution_reporting": True,
-            "verbose": True,
-            "max_iter": 30,
-            "max_rpm": 10,
-            "allow_delegation": True,
-        },
-        custom_expected={
-            "model": "gpt-4o-mini",
-            "role": "Research Analyst",
-            "goal": "Find and analyze information",
-            "backstory": "Expert researcher",
-            "custom_section": "Be thorough.",
-            "enable_execution_reporting": True,
-            "verbose": True,
-            "max_iter": 30,
-            "max_rpm": 10,
-            "allow_delegation": True,
-        },
-    ),
-    AdapterConfig(
-        framework_id="claude_sdk",
-        display_name="ClaudeSDK",
-        adapter_factory=_claude_sdk_factory,
-        default_values={
-            "model": _CLAUDE_SDK_DEFAULT_MODEL,
-            "custom_section": None,
-            "max_thinking_tokens": None,
-            "permission_mode": "acceptEdits",
-            "enable_execution_reporting": False,
-        },
-        custom_kwargs={
-            "model": "claude-opus-4-20250514",
-            "custom_section": "Be helpful.",
-            "max_thinking_tokens": 10000,
-            "permission_mode": "bypassPermissions",
-            "enable_execution_reporting": True,
-        },
-        custom_expected={
-            "model": "claude-opus-4-20250514",
-            "custom_section": "Be helpful.",
-            "max_thinking_tokens": 10000,
-            "permission_mode": "bypassPermissions",
-            "enable_execution_reporting": True,
-        },
-    ),
-    AdapterConfig(
-        framework_id="pydantic_ai",
-        display_name="PydanticAI",
-        adapter_factory=_pydantic_ai_factory,
-        default_values={
-            "model": _PYDANTIC_AI_DEFAULT_MODEL,
-            "system_prompt": None,
-            "custom_section": None,
-            "enable_execution_reporting": False,
-        },
-        custom_kwargs={
-            "model": "anthropic:claude-sonnet-4-5-20250929",
-            "system_prompt": "You are a helpful bot.",
-            "custom_section": "Be concise.",
-            "enable_execution_reporting": True,
-        },
-        custom_expected={
-            "model": "anthropic:claude-sonnet-4-5-20250929",
-            "system_prompt": "You are a helpful bot.",
-            "custom_section": "Be concise.",
-            "enable_execution_reporting": True,
-        },
-        skip_on_started_conformance=True,  # on_started creates real OpenAI client; tested in test_pydantic_ai_adapter
-    ),
-    AdapterConfig(
-        framework_id="parlant",
-        display_name="Parlant",
-        adapter_factory=_parlant_factory,
-        default_values={
-            "system_prompt": None,
-            "custom_section": None,
-        },
-        custom_kwargs={
-            "system_prompt": "Custom system prompt",
-            "custom_section": "Be helpful.",
-        },
-        custom_expected={
-            "system_prompt": "Custom system prompt",
-            "custom_section": "Be helpful.",
-        },
-        has_custom_tools_attr=False,
-    ),
-]
+# PydanticAI requires model as a mandatory kwarg — the factory injects this
+# value when not provided.  It is NOT extracted via _default_from_init because
+# `model` has no default in the adapter's __init__.
+_PYDANTIC_AI_INJECTED_MODEL = "openai:gpt-4o"
+
+
+@functools.cache
+def _build_adapter_configs() -> list[AdapterConfig]:
+    """Build configs lazily so adapter imports (and _default_from_init) happen
+    only when the conformance tests actually need them."""
+    from thenvoi.adapters.anthropic import AnthropicAdapter
+    from thenvoi.adapters.claude_sdk import ClaudeSDKAdapter
+    from thenvoi.adapters.parlant import ParlantAdapter
+    from thenvoi.adapters.pydantic_ai import PydanticAIAdapter
+
+    crewai_cls = _get_crewai_adapter_cls()
+
+    return [
+        AdapterConfig(
+            framework_id="anthropic",
+            display_name="Anthropic",
+            adapter_factory=_anthropic_factory,
+            default_values={
+                "model": _default_from_init(AnthropicAdapter, "model"),
+                "max_tokens": _default_from_init(AnthropicAdapter, "max_tokens"),
+                "enable_execution_reporting": _default_from_init(
+                    AnthropicAdapter, "enable_execution_reporting"
+                ),
+            },
+            custom_kwargs={
+                "model": "claude-opus-4-20250514",
+                "max_tokens": 8192,
+                "custom_section": "Be helpful.",
+                "enable_execution_reporting": True,
+            },
+            custom_expected={
+                "model": "claude-opus-4-20250514",
+                "max_tokens": 8192,
+                "custom_section": "Be helpful.",
+                "enable_execution_reporting": True,
+            },
+        ),
+        AdapterConfig(
+            framework_id="langgraph",
+            display_name="LangGraph",
+            adapter_factory=_langgraph_factory,
+            default_values={
+                "prompt_template": "default",
+                "custom_section": "",
+            },
+            custom_kwargs={
+                "custom_section": "Be helpful.",
+            },
+            custom_expected={
+                "custom_section": "Be helpful.",
+            },
+            has_custom_tools_attr=True,
+            custom_tools_attr="additional_tools",
+            has_history_converter=True,
+        ),
+        AdapterConfig(
+            framework_id="crewai",
+            display_name="CrewAI",
+            adapter_factory=_crewai_factory,
+            default_values={
+                "model": _default_from_init(crewai_cls, "model"),
+                "role": _default_from_init(crewai_cls, "role"),
+                "goal": _default_from_init(crewai_cls, "goal"),
+                "backstory": _default_from_init(crewai_cls, "backstory"),
+                "enable_execution_reporting": _default_from_init(
+                    crewai_cls, "enable_execution_reporting"
+                ),
+                "verbose": _default_from_init(crewai_cls, "verbose"),
+                "max_iter": _default_from_init(crewai_cls, "max_iter"),
+                "allow_delegation": _default_from_init(
+                    crewai_cls, "allow_delegation"
+                ),
+            },
+            custom_kwargs={
+                "model": "gpt-4o-mini",
+                "role": "Research Analyst",
+                "goal": "Find and analyze information",
+                "backstory": "Expert researcher",
+                "custom_section": "Be thorough.",
+                "enable_execution_reporting": True,
+                "verbose": True,
+                "max_iter": 30,
+                "max_rpm": 10,
+                "allow_delegation": True,
+            },
+            custom_expected={
+                "model": "gpt-4o-mini",
+                "role": "Research Analyst",
+                "goal": "Find and analyze information",
+                "backstory": "Expert researcher",
+                "custom_section": "Be thorough.",
+                "enable_execution_reporting": True,
+                "verbose": True,
+                "max_iter": 30,
+                "max_rpm": 10,
+                "allow_delegation": True,
+            },
+        ),
+        AdapterConfig(
+            framework_id="claude_sdk",
+            display_name="ClaudeSDK",
+            adapter_factory=_claude_sdk_factory,
+            default_values={
+                "model": _default_from_init(ClaudeSDKAdapter, "model"),
+                "custom_section": _default_from_init(
+                    ClaudeSDKAdapter, "custom_section"
+                ),
+                "max_thinking_tokens": _default_from_init(
+                    ClaudeSDKAdapter, "max_thinking_tokens"
+                ),
+                "permission_mode": _default_from_init(
+                    ClaudeSDKAdapter, "permission_mode"
+                ),
+                "enable_execution_reporting": _default_from_init(
+                    ClaudeSDKAdapter, "enable_execution_reporting"
+                ),
+            },
+            custom_kwargs={
+                "model": "claude-opus-4-20250514",
+                "custom_section": "Be helpful.",
+                "max_thinking_tokens": 10000,
+                "permission_mode": "bypassPermissions",
+                "enable_execution_reporting": True,
+            },
+            custom_expected={
+                "model": "claude-opus-4-20250514",
+                "custom_section": "Be helpful.",
+                "max_thinking_tokens": 10000,
+                "permission_mode": "bypassPermissions",
+                "enable_execution_reporting": True,
+            },
+        ),
+        AdapterConfig(
+            framework_id="pydantic_ai",
+            display_name="PydanticAI",
+            adapter_factory=_pydantic_ai_factory,
+            default_values={
+                "model": _PYDANTIC_AI_INJECTED_MODEL,
+                "system_prompt": _default_from_init(
+                    PydanticAIAdapter, "system_prompt"
+                ),
+                "custom_section": _default_from_init(
+                    PydanticAIAdapter, "custom_section"
+                ),
+                "enable_execution_reporting": _default_from_init(
+                    PydanticAIAdapter, "enable_execution_reporting"
+                ),
+            },
+            custom_kwargs={
+                "model": "anthropic:claude-sonnet-4-5-20250929",
+                "system_prompt": "You are a helpful bot.",
+                "custom_section": "Be concise.",
+                "enable_execution_reporting": True,
+            },
+            custom_expected={
+                "model": "anthropic:claude-sonnet-4-5-20250929",
+                "system_prompt": "You are a helpful bot.",
+                "custom_section": "Be concise.",
+                "enable_execution_reporting": True,
+            },
+            skip_on_started_conformance=True,  # on_started creates real OpenAI client; tested in test_pydantic_ai_adapter
+        ),
+        AdapterConfig(
+            framework_id="parlant",
+            display_name="Parlant",
+            adapter_factory=_parlant_factory,
+            default_values={
+                "system_prompt": _default_from_init(
+                    ParlantAdapter, "system_prompt"
+                ),
+                "custom_section": _default_from_init(
+                    ParlantAdapter, "custom_section"
+                ),
+            },
+            custom_kwargs={
+                "system_prompt": "Custom system prompt",
+                "custom_section": "Be helpful.",
+            },
+            custom_expected={
+                "system_prompt": "Custom system prompt",
+                "custom_section": "Be helpful.",
+            },
+            has_custom_tools_attr=False,
+        ),
+    ]
+
+
+# Public API: consumers import ADAPTER_CONFIGS as a module-level list.
+# The property-on-module trick is not worth the complexity; instead, callers
+# that need the list call _build_adapter_configs().  For backward compat the
+# module attribute is set once on first access.
+
+def __getattr__(name: str) -> Any:
+    if name == "ADAPTER_CONFIGS":
+        configs = _build_adapter_configs()
+        globals()["ADAPTER_CONFIGS"] = configs
+        return configs
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

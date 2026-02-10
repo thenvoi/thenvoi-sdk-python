@@ -144,6 +144,9 @@ CONVERTER_CONFIGS: list[ConverterConfig] = [
         empty_sender_behavior=SenderBehavior.CONTENT_AS_IS,
         missing_sender_behavior=SenderBehavior.CONTENT_AS_IS,
         has_sender_metadata=True,
+        # CrewAI treats other agents as peers (assistant role) rather than
+        # remapping them to user, because its crew workflow expects all agent
+        # outputs to carry the "assistant" role.
         other_agent_output_role="assistant",
         output_adapter=SimpleDictListOutputAdapter(),
     ),
@@ -181,6 +184,9 @@ CONVERTER_CONFIGS: list[ConverterConfig] = [
         empty_sender_behavior=SenderBehavior.CONTENT_AS_IS,
         missing_sender_behavior=SenderBehavior.CONTENT_AS_IS,
         has_sender_metadata=True,
+        # Parlant keeps other agents as "assistant" because its server-side
+        # session model treats all bot-originated messages uniformly; remapping
+        # to "user" would break the Parlant conversation contract.
         other_agent_output_role="assistant",
         output_adapter=SimpleDictListOutputAdapter(),
     ),

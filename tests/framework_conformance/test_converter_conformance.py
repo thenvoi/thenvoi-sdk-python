@@ -9,6 +9,10 @@ from __future__ import annotations
 
 import pytest
 
+# Shared tool-event fixture payloads.  These include both top-level and nested
+# ``data.*`` paths so all current frameworks find the fields they need.  If you
+# add a converter with a different tool-event schema, verify the payloads in
+# tests/framework_configs/_fixtures.py still cover it (or extend them).
 from tests.framework_configs._fixtures import (
     TOOL_CALL_LOOKUP,
     TOOL_CALL_SEARCH,
@@ -503,9 +507,19 @@ class TestToolEventConversion:
 
         result = converter.convert(raw)
 
-        assert output.result_length(result) >= 2
+        length = output.result_length(result)
+        assert length >= 2
         assert output.content_contains(result, "Alice")
         assert output.content_contains(result, "search")
         assert output.content_contains(result, "found")
-        # Verify ordering: user message must appear before tool messages
+        # Verify ordering: user message must appear before tool result.
+        # "found" only appears in TOOL_RESULT_SEARCH_FOUND so it won't
+        # false-match the user text.
         assert "[Alice]" in output.get_content(result, 0)
+        found_idx = next(
+            i for i in range(length) if "found" in output.get_content(result, i)
+        )
+        assert 0 < found_idx, (
+            f"User message (index 0) must precede tool result "
+            f"(index {found_idx})"
+        )

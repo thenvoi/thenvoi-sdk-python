@@ -19,9 +19,6 @@ from typing import Any, Coroutine, Literal, Type, TypeVar
 
 from pydantic import BaseModel, Field, field_validator
 
-# NOTE: These module-level imports are mocked in the conformance test config
-# (tests/framework_configs/adapters.py → _get_crewai_adapter_cls).
-# If you add, remove, or rename imports here, update the mock setup there too.
 try:
     from crewai import Agent as CrewAIAgent
     from crewai import LLM
