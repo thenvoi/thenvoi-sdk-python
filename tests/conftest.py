@@ -44,14 +44,6 @@ from thenvoi.runtime.types import PlatformMessage
 from thenvoi_testing.markers import pytest_ignore_collect_in_ci as _ignore_collect_in_ci
 
 
-def pytest_configure(config):
-    """Register warning filters for known mock + async introspection quirks."""
-    config.addinivalue_line(
-        "filterwarnings",
-        "ignore:coroutine 'GracefulShutdown._shutdown' was never awaited:RuntimeWarning",
-    )
-
-
 def pytest_ignore_collect(collection_path):
     """Skip integration tests in CI environment."""
     return _ignore_collect_in_ci(str(collection_path), "integration")

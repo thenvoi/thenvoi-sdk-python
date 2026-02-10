@@ -164,13 +164,13 @@ def _get_crewai_adapter_cls() -> type:
     adapter_module_name = "thenvoi.adapters.crewai"
     mock_dep_names = ("crewai", "crewai.tools", "nest_asyncio")
 
-    # Pre-flight: clear any stale adapter module AND mock dependency modules
-    # that may linger from a prior framework-specific test run.  This ensures
-    # a clean import regardless of test collection order.
+    # Pre-flight: clear the adapter module AND dependency modules that may
+    # linger from a prior framework-specific test run.  Both real and mock
+    # entries are removed to ensure a clean import regardless of test
+    # collection order.
     sys.modules.pop(adapter_module_name, None)
     for dep in mock_dep_names:
-        if dep in sys.modules and isinstance(sys.modules[dep], MagicMock):
-            sys.modules.pop(dep)
+        sys.modules.pop(dep, None)
 
     # Build mock crewai modules matching the adapter's top-level imports:
     #   from crewai import Agent as CrewAIAgent, LLM
@@ -272,197 +272,233 @@ def _parlant_factory(**kw: Any) -> Any:
 _PYDANTIC_AI_INJECTED_MODEL = "openai:gpt-4o"
 
 
+def _build_anthropic_config() -> AdapterConfig:
+    from thenvoi.adapters.anthropic import AnthropicAdapter
+
+    return AdapterConfig(
+        framework_id="anthropic",
+        display_name="Anthropic",
+        adapter_factory=_anthropic_factory,
+        expected_initial_values={
+            "model": _default_from_init(AnthropicAdapter, "model"),
+            "max_tokens": _default_from_init(AnthropicAdapter, "max_tokens"),
+            "enable_execution_reporting": _default_from_init(
+                AnthropicAdapter, "enable_execution_reporting"
+            ),
+        },
+        custom_kwargs={
+            "model": "claude-opus-4-20250514",
+            "max_tokens": 8192,
+            "custom_section": "Be helpful.",
+            "enable_execution_reporting": True,
+        },
+        custom_expected={
+            "model": "claude-opus-4-20250514",
+            "max_tokens": 8192,
+            "custom_section": "Be helpful.",
+            "enable_execution_reporting": True,
+        },
+    )
+
+
+def _build_langgraph_config() -> AdapterConfig:
+    from thenvoi.adapters.langgraph import LangGraphAdapter
+
+    return AdapterConfig(
+        framework_id="langgraph",
+        display_name="LangGraph",
+        adapter_factory=_langgraph_factory,
+        expected_initial_values={
+            "prompt_template": _default_from_init(LangGraphAdapter, "prompt_template"),
+            "custom_section": _default_from_init(LangGraphAdapter, "custom_section"),
+        },
+        custom_kwargs={
+            "custom_section": "Be helpful.",
+        },
+        custom_expected={
+            "custom_section": "Be helpful.",
+        },
+        has_custom_tools_attr=True,
+        custom_tools_attr="additional_tools",
+        has_history_converter=True,
+    )
+
+
+def _build_crewai_config() -> AdapterConfig:
+    crewai_cls = _get_crewai_adapter_cls()
+
+    return AdapterConfig(
+        framework_id="crewai",
+        display_name="CrewAI",
+        adapter_factory=_crewai_factory,
+        expected_initial_values={
+            "model": _default_from_init(crewai_cls, "model"),
+            "role": _default_from_init(crewai_cls, "role"),
+            "goal": _default_from_init(crewai_cls, "goal"),
+            "backstory": _default_from_init(crewai_cls, "backstory"),
+            "enable_execution_reporting": _default_from_init(
+                crewai_cls, "enable_execution_reporting"
+            ),
+            "verbose": _default_from_init(crewai_cls, "verbose"),
+            "max_iter": _default_from_init(crewai_cls, "max_iter"),
+            "allow_delegation": _default_from_init(crewai_cls, "allow_delegation"),
+        },
+        custom_kwargs={
+            "model": "gpt-4o-mini",
+            "role": "Research Analyst",
+            "goal": "Find and analyze information",
+            "backstory": "Expert researcher",
+            "custom_section": "Be thorough.",
+            "enable_execution_reporting": True,
+            "verbose": True,
+            "max_iter": 30,
+            "max_rpm": 10,
+            "allow_delegation": True,
+        },
+        custom_expected={
+            "model": "gpt-4o-mini",
+            "role": "Research Analyst",
+            "goal": "Find and analyze information",
+            "backstory": "Expert researcher",
+            "custom_section": "Be thorough.",
+            "enable_execution_reporting": True,
+            "verbose": True,
+            "max_iter": 30,
+            "max_rpm": 10,
+            "allow_delegation": True,
+        },
+    )
+
+
+def _build_claude_sdk_config() -> AdapterConfig:
+    from thenvoi.adapters.claude_sdk import ClaudeSDKAdapter
+
+    return AdapterConfig(
+        framework_id="claude_sdk",
+        display_name="ClaudeSDK",
+        adapter_factory=_claude_sdk_factory,
+        expected_initial_values={
+            "model": _default_from_init(ClaudeSDKAdapter, "model"),
+            "custom_section": _default_from_init(ClaudeSDKAdapter, "custom_section"),
+            "max_thinking_tokens": _default_from_init(
+                ClaudeSDKAdapter, "max_thinking_tokens"
+            ),
+            "permission_mode": _default_from_init(ClaudeSDKAdapter, "permission_mode"),
+            "enable_execution_reporting": _default_from_init(
+                ClaudeSDKAdapter, "enable_execution_reporting"
+            ),
+        },
+        custom_kwargs={
+            "model": "claude-opus-4-20250514",
+            "custom_section": "Be helpful.",
+            "max_thinking_tokens": 10000,
+            "permission_mode": "bypassPermissions",
+            "enable_execution_reporting": True,
+        },
+        custom_expected={
+            "model": "claude-opus-4-20250514",
+            "custom_section": "Be helpful.",
+            "max_thinking_tokens": 10000,
+            "permission_mode": "bypassPermissions",
+            "enable_execution_reporting": True,
+        },
+        skip_on_started_conformance=True,  # on_started creates real MCP server + ClaudeSessionManager; tested in test_claude_sdk_adapter
+    )
+
+
+def _build_pydantic_ai_config() -> AdapterConfig:
+    from thenvoi.adapters.pydantic_ai import PydanticAIAdapter
+
+    return AdapterConfig(
+        framework_id="pydantic_ai",
+        display_name="PydanticAI",
+        adapter_factory=_pydantic_ai_factory,
+        expected_initial_values={
+            # NOTE: injected, not a default — model is a required kwarg
+            # (no default); the factory injects _PYDANTIC_AI_INJECTED_MODEL
+            # so the conformance test verifies the injected value is stored.
+            "model": _PYDANTIC_AI_INJECTED_MODEL,
+            "system_prompt": _default_from_init(PydanticAIAdapter, "system_prompt"),
+            "custom_section": _default_from_init(PydanticAIAdapter, "custom_section"),
+            "enable_execution_reporting": _default_from_init(
+                PydanticAIAdapter, "enable_execution_reporting"
+            ),
+        },
+        custom_kwargs={
+            "model": "anthropic:claude-sonnet-4-5-20250929",
+            "system_prompt": "You are a helpful bot.",
+            "custom_section": "Be concise.",
+            "enable_execution_reporting": True,
+        },
+        custom_expected={
+            "model": "anthropic:claude-sonnet-4-5-20250929",
+            "system_prompt": "You are a helpful bot.",
+            "custom_section": "Be concise.",
+            "enable_execution_reporting": True,
+        },
+        skip_on_started_conformance=True,  # on_started creates real OpenAI client; tested in test_pydantic_ai_adapter
+    )
+
+
+def _build_parlant_config() -> AdapterConfig:
+    from thenvoi.adapters.parlant import ParlantAdapter
+
+    return AdapterConfig(
+        framework_id="parlant",
+        display_name="Parlant",
+        adapter_factory=_parlant_factory,
+        expected_initial_values={
+            "system_prompt": _default_from_init(ParlantAdapter, "system_prompt"),
+            "custom_section": _default_from_init(ParlantAdapter, "custom_section"),
+        },
+        custom_kwargs={
+            "system_prompt": "Custom system prompt",
+            "custom_section": "Be helpful.",
+        },
+        custom_expected={
+            "system_prompt": "Custom system prompt",
+            "custom_section": "Be helpful.",
+        },
+        has_custom_tools_attr=False,
+    )
+
+
+_ADAPTER_CONFIG_BUILDERS: list[Callable[[], AdapterConfig]] = [
+    _build_anthropic_config,
+    _build_langgraph_config,
+    _build_crewai_config,
+    _build_claude_sdk_config,
+    _build_pydantic_ai_config,
+    _build_parlant_config,
+]
+
+
 @functools.lru_cache(maxsize=1)
 def _build_adapter_configs() -> list[AdapterConfig]:
     """Build configs lazily so adapter imports (and _default_from_init) happen
     only when the conformance tests actually need them.
+
+    Each framework config is built independently so that an import failure
+    in one framework (e.g. missing optional dependency) does not prevent
+    the remaining frameworks from being tested.
 
     Uses ``lru_cache(maxsize=1)`` instead of ``cache`` so that
     ``.cache_clear()`` is available — useful if a test teardown needs to
     discard the cached CrewAI adapter class (whose module globals hold
     references to mocked ``crewai`` dependencies).
     """
-    from thenvoi.adapters.anthropic import AnthropicAdapter
-    from thenvoi.adapters.claude_sdk import ClaudeSDKAdapter
-    from thenvoi.adapters.langgraph import LangGraphAdapter
-    from thenvoi.adapters.parlant import ParlantAdapter
-    from thenvoi.adapters.pydantic_ai import PydanticAIAdapter
+    import warnings
 
-    crewai_cls = _get_crewai_adapter_cls()
-
-    return [
-        AdapterConfig(
-            framework_id="anthropic",
-            display_name="Anthropic",
-            adapter_factory=_anthropic_factory,
-            expected_initial_values={
-                "model": _default_from_init(AnthropicAdapter, "model"),
-                "max_tokens": _default_from_init(AnthropicAdapter, "max_tokens"),
-                "enable_execution_reporting": _default_from_init(
-                    AnthropicAdapter, "enable_execution_reporting"
-                ),
-            },
-            custom_kwargs={
-                "model": "claude-opus-4-20250514",
-                "max_tokens": 8192,
-                "custom_section": "Be helpful.",
-                "enable_execution_reporting": True,
-            },
-            custom_expected={
-                "model": "claude-opus-4-20250514",
-                "max_tokens": 8192,
-                "custom_section": "Be helpful.",
-                "enable_execution_reporting": True,
-            },
-        ),
-        AdapterConfig(
-            framework_id="langgraph",
-            display_name="LangGraph",
-            adapter_factory=_langgraph_factory,
-            expected_initial_values={
-                "prompt_template": _default_from_init(
-                    LangGraphAdapter, "prompt_template"
-                ),
-                "custom_section": _default_from_init(
-                    LangGraphAdapter, "custom_section"
-                ),
-            },
-            custom_kwargs={
-                "custom_section": "Be helpful.",
-            },
-            custom_expected={
-                "custom_section": "Be helpful.",
-            },
-            has_custom_tools_attr=True,
-            custom_tools_attr="additional_tools",
-            has_history_converter=True,
-        ),
-        AdapterConfig(
-            framework_id="crewai",
-            display_name="CrewAI",
-            adapter_factory=_crewai_factory,
-            expected_initial_values={
-                "model": _default_from_init(crewai_cls, "model"),
-                "role": _default_from_init(crewai_cls, "role"),
-                "goal": _default_from_init(crewai_cls, "goal"),
-                "backstory": _default_from_init(crewai_cls, "backstory"),
-                "enable_execution_reporting": _default_from_init(
-                    crewai_cls, "enable_execution_reporting"
-                ),
-                "verbose": _default_from_init(crewai_cls, "verbose"),
-                "max_iter": _default_from_init(crewai_cls, "max_iter"),
-                "allow_delegation": _default_from_init(crewai_cls, "allow_delegation"),
-            },
-            custom_kwargs={
-                "model": "gpt-4o-mini",
-                "role": "Research Analyst",
-                "goal": "Find and analyze information",
-                "backstory": "Expert researcher",
-                "custom_section": "Be thorough.",
-                "enable_execution_reporting": True,
-                "verbose": True,
-                "max_iter": 30,
-                "max_rpm": 10,
-                "allow_delegation": True,
-            },
-            custom_expected={
-                "model": "gpt-4o-mini",
-                "role": "Research Analyst",
-                "goal": "Find and analyze information",
-                "backstory": "Expert researcher",
-                "custom_section": "Be thorough.",
-                "enable_execution_reporting": True,
-                "verbose": True,
-                "max_iter": 30,
-                "max_rpm": 10,
-                "allow_delegation": True,
-            },
-        ),
-        AdapterConfig(
-            framework_id="claude_sdk",
-            display_name="ClaudeSDK",
-            adapter_factory=_claude_sdk_factory,
-            expected_initial_values={
-                "model": _default_from_init(ClaudeSDKAdapter, "model"),
-                "custom_section": _default_from_init(
-                    ClaudeSDKAdapter, "custom_section"
-                ),
-                "max_thinking_tokens": _default_from_init(
-                    ClaudeSDKAdapter, "max_thinking_tokens"
-                ),
-                "permission_mode": _default_from_init(
-                    ClaudeSDKAdapter, "permission_mode"
-                ),
-                "enable_execution_reporting": _default_from_init(
-                    ClaudeSDKAdapter, "enable_execution_reporting"
-                ),
-            },
-            custom_kwargs={
-                "model": "claude-opus-4-20250514",
-                "custom_section": "Be helpful.",
-                "max_thinking_tokens": 10000,
-                "permission_mode": "bypassPermissions",
-                "enable_execution_reporting": True,
-            },
-            custom_expected={
-                "model": "claude-opus-4-20250514",
-                "custom_section": "Be helpful.",
-                "max_thinking_tokens": 10000,
-                "permission_mode": "bypassPermissions",
-                "enable_execution_reporting": True,
-            },
-            skip_on_started_conformance=True,  # on_started creates real MCP server + ClaudeSessionManager; tested in test_claude_sdk_adapter
-        ),
-        AdapterConfig(
-            framework_id="pydantic_ai",
-            display_name="PydanticAI",
-            adapter_factory=_pydantic_ai_factory,
-            expected_initial_values={
-                # NOTE: injected, not a default — model is a required kwarg
-                # (no default); the factory injects _PYDANTIC_AI_INJECTED_MODEL
-                # so the conformance test verifies the injected value is stored.
-                "model": _PYDANTIC_AI_INJECTED_MODEL,
-                "system_prompt": _default_from_init(PydanticAIAdapter, "system_prompt"),
-                "custom_section": _default_from_init(
-                    PydanticAIAdapter, "custom_section"
-                ),
-                "enable_execution_reporting": _default_from_init(
-                    PydanticAIAdapter, "enable_execution_reporting"
-                ),
-            },
-            custom_kwargs={
-                "model": "anthropic:claude-sonnet-4-5-20250929",
-                "system_prompt": "You are a helpful bot.",
-                "custom_section": "Be concise.",
-                "enable_execution_reporting": True,
-            },
-            custom_expected={
-                "model": "anthropic:claude-sonnet-4-5-20250929",
-                "system_prompt": "You are a helpful bot.",
-                "custom_section": "Be concise.",
-                "enable_execution_reporting": True,
-            },
-            skip_on_started_conformance=True,  # on_started creates real OpenAI client; tested in test_pydantic_ai_adapter
-        ),
-        AdapterConfig(
-            framework_id="parlant",
-            display_name="Parlant",
-            adapter_factory=_parlant_factory,
-            expected_initial_values={
-                "system_prompt": _default_from_init(ParlantAdapter, "system_prompt"),
-                "custom_section": _default_from_init(ParlantAdapter, "custom_section"),
-            },
-            custom_kwargs={
-                "system_prompt": "Custom system prompt",
-                "custom_section": "Be helpful.",
-            },
-            custom_expected={
-                "system_prompt": "Custom system prompt",
-                "custom_section": "Be helpful.",
-            },
-            has_custom_tools_attr=False,
-        ),
-    ]
+    configs: list[AdapterConfig] = []
+    for builder in _ADAPTER_CONFIG_BUILDERS:
+        try:
+            configs.append(builder())
+        except Exception as exc:
+            warnings.warn(
+                f"Skipping adapter config from {builder.__name__}: {exc}",
+                stacklevel=2,
+            )
+    return configs
 
 
 # Public API: consumers import ADAPTER_CONFIGS as a module-level list.

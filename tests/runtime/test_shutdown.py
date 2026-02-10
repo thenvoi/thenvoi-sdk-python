@@ -10,6 +10,12 @@ import pytest
 
 from thenvoi.runtime.shutdown import GracefulShutdown, run_with_graceful_shutdown
 
+# Scope the warning filter to this module only — _handle_signal creates a
+# task for _shutdown that may not be awaited during synchronous test teardown.
+pytestmark = pytest.mark.filterwarnings(
+    "ignore:coroutine 'GracefulShutdown._shutdown' was never awaited:RuntimeWarning"
+)
+
 
 @pytest.fixture
 def mock_agent():

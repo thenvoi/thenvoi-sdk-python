@@ -184,14 +184,6 @@ class TestOnCleanup:
 
         assert "room-123" not in adapter._message_history
 
-    @pytest.mark.asyncio
-    async def test_cleanup_nonexistent_room_is_safe(self):
-        """Should handle cleanup of non-existent room."""
-        adapter = AnthropicAdapter()
-
-        # Should not raise
-        await adapter.on_cleanup("nonexistent-room")
-
 
 class TestHelperMethods:
     """Tests for internal helper methods."""

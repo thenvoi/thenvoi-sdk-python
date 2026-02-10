@@ -108,97 +108,147 @@ def _parlant_factory(**kw: Any) -> Any:
 # ---------------------------------------------------------------------------
 
 
+def _build_anthropic_config() -> ConverterConfig:
+    from tests.framework_configs.output_adapters import DictListOutputAdapter
+
+    return ConverterConfig(
+        framework_id="anthropic",
+        display_name="Anthropic",
+        converter_factory=_anthropic_factory,
+        empty_result=[],
+        empty_sender_behavior=SenderBehavior.CONTENT_AS_IS,
+        missing_sender_behavior=SenderBehavior.CONTENT_AS_IS,
+        output_adapter=DictListOutputAdapter(),
+    )
+
+
+def _build_langchain_config() -> ConverterConfig:
+    from tests.framework_configs.output_adapters import LangChainOutputAdapter
+
+    return ConverterConfig(
+        framework_id="langchain",
+        display_name="LangChain",
+        converter_factory=_langchain_factory,
+        empty_result=[],
+        empty_sender_behavior=SenderBehavior.BRACKETS_EMPTY,
+        # LangChain uses hist.get("sender_name", ""), so a *missing* key
+        # produces the same "[]: content" as an empty string (brackets_empty).
+        missing_sender_behavior=SenderBehavior.BRACKETS_EMPTY,
+        output_adapter=LangChainOutputAdapter(),
+    )
+
+
+def _build_crewai_config() -> ConverterConfig:
+    from tests.framework_configs.output_adapters import (
+        SenderMetadataDictListOutputAdapter,
+    )
+
+    return ConverterConfig(
+        framework_id="crewai",
+        display_name="CrewAI",
+        converter_factory=_crewai_factory,
+        empty_result=[],
+        skips_tool_events=True,
+        empty_sender_behavior=SenderBehavior.CONTENT_AS_IS,
+        missing_sender_behavior=SenderBehavior.CONTENT_AS_IS,
+        has_sender_metadata=True,
+        # CrewAI treats other agents as peers (assistant role) rather than
+        # remapping them to user, because its crew workflow expects all agent
+        # outputs to carry the "assistant" role.
+        other_agent_output_role="assistant",
+        output_adapter=SenderMetadataDictListOutputAdapter(),
+    )
+
+
+def _build_claude_sdk_config() -> ConverterConfig:
+    from tests.framework_configs.output_adapters import StringOutputAdapter
+
+    return ConverterConfig(
+        framework_id="claude_sdk",
+        display_name="ClaudeSDK",
+        converter_factory=_claude_sdk_factory,
+        empty_result="",
+        empty_sender_behavior=SenderBehavior.BRACKETS_EMPTY,
+        missing_sender_behavior=SenderBehavior.UNKNOWN_PREFIX,
+        skips_empty_content=True,
+        has_role_concept=False,
+        output_adapter=StringOutputAdapter(),
+    )
+
+
+def _build_pydantic_ai_config() -> ConverterConfig:
+    from tests.framework_configs.output_adapters import PydanticAIOutputAdapter
+
+    return ConverterConfig(
+        framework_id="pydantic_ai",
+        display_name="PydanticAI",
+        converter_factory=_pydantic_ai_factory,
+        empty_result=[],
+        empty_sender_behavior=SenderBehavior.CONTENT_AS_IS,
+        missing_sender_behavior=SenderBehavior.CONTENT_AS_IS,
+        output_adapter=PydanticAIOutputAdapter(),
+    )
+
+
+def _build_parlant_config() -> ConverterConfig:
+    from tests.framework_configs.output_adapters import (
+        SenderMetadataDictListOutputAdapter,
+    )
+
+    return ConverterConfig(
+        framework_id="parlant",
+        display_name="Parlant",
+        converter_factory=_parlant_factory,
+        empty_result=[],
+        filters_own_messages=False,
+        skips_tool_events=True,
+        skips_empty_content=True,
+        empty_sender_behavior=SenderBehavior.CONTENT_AS_IS,
+        missing_sender_behavior=SenderBehavior.CONTENT_AS_IS,
+        has_sender_metadata=True,
+        # Parlant keeps other agents as "assistant" because its server-side
+        # session model treats all bot-originated messages uniformly; remapping
+        # to "user" would break the Parlant conversation contract.
+        other_agent_output_role="assistant",
+        output_adapter=SenderMetadataDictListOutputAdapter(),
+    )
+
+
+_CONVERTER_CONFIG_BUILDERS: list[Callable[[], ConverterConfig]] = [
+    _build_anthropic_config,
+    _build_langchain_config,
+    _build_crewai_config,
+    _build_claude_sdk_config,
+    _build_pydantic_ai_config,
+    _build_parlant_config,
+]
+
+
 @functools.lru_cache(maxsize=1)
 def _build_converter_configs() -> list[ConverterConfig]:
     """Build configs lazily so converter imports happen only when the
     conformance tests actually need them.
 
+    Each framework config is built independently so that an import failure
+    in one framework does not prevent the remaining frameworks from being
+    tested.
+
     Uses ``lru_cache(maxsize=1)`` instead of ``cache`` so that
     ``.cache_clear()`` is available — consistent with
     ``_build_adapter_configs()`` in adapters.py.
     """
-    from tests.framework_configs.output_adapters import (
-        DictListOutputAdapter,
-        LangChainOutputAdapter,
-        PydanticAIOutputAdapter,
-        SenderMetadataDictListOutputAdapter,
-        StringOutputAdapter,
-    )
+    import warnings
 
-    return [
-        ConverterConfig(
-            framework_id="anthropic",
-            display_name="Anthropic",
-            converter_factory=_anthropic_factory,
-            empty_result=[],
-            empty_sender_behavior=SenderBehavior.CONTENT_AS_IS,
-            missing_sender_behavior=SenderBehavior.CONTENT_AS_IS,
-            output_adapter=DictListOutputAdapter(),
-        ),
-        ConverterConfig(
-            framework_id="langchain",
-            display_name="LangChain",
-            converter_factory=_langchain_factory,
-            empty_result=[],
-            empty_sender_behavior=SenderBehavior.BRACKETS_EMPTY,
-            # LangChain uses hist.get("sender_name", ""), so a *missing* key
-            # produces the same "[]: content" as an empty string (brackets_empty).
-            missing_sender_behavior=SenderBehavior.BRACKETS_EMPTY,
-            output_adapter=LangChainOutputAdapter(),
-        ),
-        ConverterConfig(
-            framework_id="crewai",
-            display_name="CrewAI",
-            converter_factory=_crewai_factory,
-            empty_result=[],
-            skips_tool_events=True,
-            empty_sender_behavior=SenderBehavior.CONTENT_AS_IS,
-            missing_sender_behavior=SenderBehavior.CONTENT_AS_IS,
-            has_sender_metadata=True,
-            # CrewAI treats other agents as peers (assistant role) rather than
-            # remapping them to user, because its crew workflow expects all agent
-            # outputs to carry the "assistant" role.
-            other_agent_output_role="assistant",
-            output_adapter=SenderMetadataDictListOutputAdapter(),
-        ),
-        ConverterConfig(
-            framework_id="claude_sdk",
-            display_name="ClaudeSDK",
-            converter_factory=_claude_sdk_factory,
-            empty_result="",
-            empty_sender_behavior=SenderBehavior.BRACKETS_EMPTY,
-            missing_sender_behavior=SenderBehavior.UNKNOWN_PREFIX,
-            skips_empty_content=True,
-            has_role_concept=False,
-            output_adapter=StringOutputAdapter(),
-        ),
-        ConverterConfig(
-            framework_id="pydantic_ai",
-            display_name="PydanticAI",
-            converter_factory=_pydantic_ai_factory,
-            empty_result=[],
-            empty_sender_behavior=SenderBehavior.CONTENT_AS_IS,
-            missing_sender_behavior=SenderBehavior.CONTENT_AS_IS,
-            output_adapter=PydanticAIOutputAdapter(),
-        ),
-        ConverterConfig(
-            framework_id="parlant",
-            display_name="Parlant",
-            converter_factory=_parlant_factory,
-            empty_result=[],
-            filters_own_messages=False,
-            skips_tool_events=True,
-            skips_empty_content=True,
-            empty_sender_behavior=SenderBehavior.CONTENT_AS_IS,
-            missing_sender_behavior=SenderBehavior.CONTENT_AS_IS,
-            has_sender_metadata=True,
-            # Parlant keeps other agents as "assistant" because its server-side
-            # session model treats all bot-originated messages uniformly; remapping
-            # to "user" would break the Parlant conversation contract.
-            other_agent_output_role="assistant",
-            output_adapter=SenderMetadataDictListOutputAdapter(),
-        ),
-    ]
+    configs: list[ConverterConfig] = []
+    for builder in _CONVERTER_CONFIG_BUILDERS:
+        try:
+            configs.append(builder())
+        except Exception as exc:
+            warnings.warn(
+                f"Skipping converter config from {builder.__name__}: {exc}",
+                stacklevel=2,
+            )
+    return configs
 
 
 def __getattr__(name: str) -> Any:
