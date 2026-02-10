@@ -19,7 +19,14 @@ __all__ = ["AdapterConfig", "ADAPTER_CONFIGS"]
 ADAPTER_CONFIGS: list[AdapterConfig]
 
 
-_MISSING = object()
+class _MissingSentinel:
+    __slots__ = ()
+
+    def __repr__(self) -> str:
+        return "<MISSING>"
+
+
+_MISSING = _MissingSentinel()
 
 
 def _default_from_init(cls: type, param: str, fallback: Any = _MISSING) -> Any:
@@ -136,7 +143,9 @@ def _get_crewai_adapter_cls() -> type:
     Uses ``patch.dict(sys.modules, ...)`` to temporarily inject mock
     crewai/nest_asyncio modules, then imports the real adapter module
     via ``importlib.import_module``.  ``patch.dict`` atomically restores
-    ``sys.modules`` on exit (even on exception).
+    ``sys.modules`` on exit (even on exception).  Assumes single-process
+    test execution; concurrent imports from another process could race
+    with the ``sys.modules.pop()`` calls.
 
     The adapter module entry is removed from ``sys.modules`` after import
     so subsequent (non-conformance) imports are not polluted by mocks.
@@ -266,9 +275,10 @@ def _parlant_factory(**kw: Any) -> Any:
 # Registry  (built lazily to avoid top-level adapter imports)
 # ---------------------------------------------------------------------------
 
-# PydanticAI requires model as a mandatory kwarg — the factory injects this
-# value when not provided.  It is NOT extracted via _default_from_init because
-# `model` has no default in the adapter's __init__.
+# PydanticAI requires ``model`` as a mandatory kwarg (no default in __init__).
+# The conformance factory injects this value so the adapter can be instantiated
+# without a real API key.  ``expected_initial_values["model"]`` then verifies
+# the factory injection, NOT a real adapter default.
 _PYDANTIC_AI_INJECTED_MODEL = "openai:gpt-4o"
 
 
@@ -414,9 +424,8 @@ def _build_pydantic_ai_config() -> AdapterConfig:
         display_name="PydanticAI",
         adapter_factory=_pydantic_ai_factory,
         expected_initial_values={
-            # NOTE: injected, not a default — model is a required kwarg
-            # (no default); the factory injects _PYDANTIC_AI_INJECTED_MODEL
-            # so the conformance test verifies the injected value is stored.
+            # Injected by _pydantic_ai_factory, not a real __init__ default.
+            # Verifies that the factory injection is stored correctly.
             "model": _PYDANTIC_AI_INJECTED_MODEL,
             "system_prompt": _default_from_init(PydanticAIAdapter, "system_prompt"),
             "custom_section": _default_from_init(PydanticAIAdapter, "custom_section"),

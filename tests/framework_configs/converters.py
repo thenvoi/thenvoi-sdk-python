@@ -61,6 +61,13 @@ class ConverterConfig:
         default_factory=lambda: None
     )  # set in _build_converter_configs
 
+    def __post_init__(self) -> None:
+        if self.output_adapter is None:
+            raise TypeError(
+                f"ConverterConfig({self.framework_id!r}): "
+                "output_adapter must not be None"
+            )
+
 
 # ---------------------------------------------------------------------------
 # Factory functions
@@ -139,9 +146,7 @@ def _build_langchain_config() -> ConverterConfig:
 
 
 def _build_crewai_config() -> ConverterConfig:
-    from tests.framework_configs.output_adapters import (
-        SenderMetadataDictListOutputAdapter,
-    )
+    from tests.framework_configs.output_adapters import SenderDictListAdapter
 
     return ConverterConfig(
         framework_id="crewai",
@@ -156,7 +161,7 @@ def _build_crewai_config() -> ConverterConfig:
         # remapping them to user, because its crew workflow expects all agent
         # outputs to carry the "assistant" role.
         other_agent_output_role="assistant",
-        output_adapter=SenderMetadataDictListOutputAdapter(),
+        output_adapter=SenderDictListAdapter(),
     )
 
 
@@ -191,9 +196,7 @@ def _build_pydantic_ai_config() -> ConverterConfig:
 
 
 def _build_parlant_config() -> ConverterConfig:
-    from tests.framework_configs.output_adapters import (
-        SenderMetadataDictListOutputAdapter,
-    )
+    from tests.framework_configs.output_adapters import SenderDictListAdapter
 
     return ConverterConfig(
         framework_id="parlant",
@@ -210,7 +213,7 @@ def _build_parlant_config() -> ConverterConfig:
         # session model treats all bot-originated messages uniformly; remapping
         # to "user" would break the Parlant conversation contract.
         other_agent_output_role="assistant",
-        output_adapter=SenderMetadataDictListOutputAdapter(),
+        output_adapter=SenderDictListAdapter(),
     )
 
 

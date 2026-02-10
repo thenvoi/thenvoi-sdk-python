@@ -373,7 +373,7 @@ class StringOutputAdapter:
         )
 
 
-class SenderMetadataDictListOutputAdapter(BaseDictListOutputAdapter):
+class SenderDictListAdapter(BaseDictListOutputAdapter):
     """Adapter for CrewAI/Parlant converter output (list[dict] with sender/sender_type).
 
     Unlike ``DictListOutputAdapter`` (Anthropic), which handles tool_use content

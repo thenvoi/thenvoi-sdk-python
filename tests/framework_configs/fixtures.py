@@ -49,31 +49,6 @@ def _tool_result_content(name: str, output: str, tool_call_id: str) -> str:
         },
     )
 
-
-# ---------------------------------------------------------------------------
-# Required-key registry: documents which JSON paths each converter reads
-# from tool_call / tool_result payloads.
-# ---------------------------------------------------------------------------
-
-REQUIRED_TOOL_EVENT_KEYS: dict[str, dict[str, list[str]]] = {
-    "anthropic": {
-        "tool_call": ["name", "args", "tool_call_id"],
-        "tool_result": ["name", "output", "tool_call_id"],
-    },
-    "langchain": {
-        "tool_call": ["name", "data.input", "tool_call_id"],
-        "tool_result": ["name", "data.output", "tool_call_id"],
-    },
-    "claude_sdk": {
-        "tool_call": ["name", "args", "tool_call_id"],
-        "tool_result": ["name", "output", "tool_call_id"],
-    },
-    "pydantic_ai": {
-        "tool_call": ["name", "args", "tool_call_id"],
-        "tool_result": ["name", "output", "tool_call_id"],
-    },
-}
-
 # Each payload below includes BOTH top-level keys (args/output) and nested
 # data.* paths so that every framework's converter sees the fields it expects.
 # See _tool_call_content() / _tool_result_content() docstrings for which

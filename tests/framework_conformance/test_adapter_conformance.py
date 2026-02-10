@@ -70,7 +70,7 @@ class TestAdapterOnStarted:
         self, adapter_config
     ):
         """After on_started(agent_name, agent_description), adapter has them set."""
-        if getattr(adapter_config, "skip_on_started_conformance", False):
+        if adapter_config.skip_on_started_conformance:
             pytest.skip(
                 f"{adapter_config.display_name} on_started requires live client (tested in framework-specific tests)"
             )
