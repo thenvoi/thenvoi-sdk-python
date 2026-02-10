@@ -13,7 +13,10 @@ from dataclasses import dataclass, field
 from typing import Any, Callable
 from unittest.mock import MagicMock
 
-__all__ = ["AdapterConfig", "ADAPTER_CONFIGS"]  # noqa: F822 — ADAPTER_CONFIGS is lazy via __getattr__
+__all__ = ["AdapterConfig", "ADAPTER_CONFIGS"]
+
+# Populated lazily via __getattr__ to avoid top-level adapter imports.
+ADAPTER_CONFIGS: list[AdapterConfig]
 
 
 def _default_from_init(cls: type, param: str) -> Any:
@@ -84,143 +87,66 @@ def _langgraph_factory(**kw: Any) -> Any:
 # monkeypatch-based fixtures in tests/adapters/test_crewai_adapter.py.
 
 
+class _MockBaseTool:
+    name: str = ""
+    description: str = ""
+
+    def __init__(self):
+        pass
+
+
 @functools.cache
 def _get_crewai_adapter_cls() -> type:
     """Import CrewAIAdapter once with mocked crewai dependencies.
 
-    Uses ``unittest.mock.patch.dict`` to temporarily inject mock
-    dependencies into ``sys.modules`` during ``exec_module``.
-    ``patch.dict`` guarantees atomic restore of the original state
-    on exit (even on exception), which is safe for parallel test
-    collection and avoids the fragility of manual save/restore.
+    Uses ``patch.dict(sys.modules, ...)`` to temporarily inject mock
+    crewai/nest_asyncio modules, then imports the real adapter module
+    via ``importlib.import_module``.  ``patch.dict`` atomically restores
+    ``sys.modules`` on exit (even on exception).
 
-    The adapter module is loaded into an isolated namespace via
-    ``importlib.util.spec_from_file_location`` so it does not
-    pollute the real ``thenvoi.adapters.crewai`` entry.
+    The adapter module entry is removed from ``sys.modules`` after import
+    so subsequent (non-conformance) imports are not polluted by mocks.
 
     The result is cached via ``@functools.cache`` so subsequent calls
     are cheap.  Conformance tests only inspect primitive attributes
-    (model, role, etc.) and never mix instances across import
-    boundaries.  For runtime tests that invoke CrewAI methods or need
-    isinstance compatibility, use the ``crewai_mocks`` and
-    ``CrewAIAdapter`` monkeypatch-based fixtures in
+    (model, role, etc.).  For runtime tests that invoke CrewAI methods,
+    use the monkeypatch-based fixtures in
     tests/adapters/test_crewai_adapter.py.
-
-    **Divergence risk (guarded):** Because this function loads the
-    adapter module into an isolated namespace, the returned class is
-    *not* the same object as ``thenvoi.adapters.crewai.CrewAIAdapter``.
-    A signature-equality check at the end of this function compares the
-    isolated class's ``__init__`` against the real one and raises
-    ``RuntimeError`` on mismatch.  When modifying
-    ``CrewAIAdapter.__init__``, also update the ``default_values``,
-    ``custom_kwargs``, and ``custom_expected`` in the CrewAI
-    ``AdapterConfig`` entry below and re-run conformance tests.
     """
-
-    import importlib.util
-    import pathlib
+    import importlib
     import sys
-    import types
     from unittest.mock import patch
 
-    # Build mock crewai modules the adapter imports at module level.
-    # These correspond to the top-level imports in src/thenvoi/adapters/crewai.py:
-    #   from crewai import Agent as CrewAIAgent   -> crewai.Agent
-    #   from crewai import LLM                    -> crewai.LLM
-    #   from crewai.tools import BaseTool          -> crewai.tools.BaseTool
-    #   import nest_asyncio                        -> nest_asyncio
-    # If you add, remove, or rename module-level imports in crewai.py,
-    # update the matching mocks here.
-    mock_crewai_module = MagicMock()
-    mock_crewai_tools_module = MagicMock()
-    mock_nest_asyncio = MagicMock()
+    # Build mock crewai modules matching the adapter's top-level imports:
+    #   from crewai import Agent as CrewAIAgent, LLM
+    #   from crewai.tools import BaseTool
+    #   import nest_asyncio
+    mock_crewai = MagicMock()
+    mock_crewai.Agent = MagicMock()
+    mock_crewai.LLM = MagicMock()
 
-    mock_crewai_module.Agent = MagicMock()
-    mock_crewai_module.LLM = MagicMock()
+    mock_crewai_tools = MagicMock()
+    mock_crewai_tools.BaseTool = _MockBaseTool
 
-    class MockBaseTool:
-        name: str = ""
-        description: str = ""
-
-        def __init__(self):
-            pass
-
-    mock_crewai_tools_module.BaseTool = MockBaseTool
-
-    # Load the adapter module in an isolated namespace so the real
-    # thenvoi.adapters.crewai entry is never overwritten.
-    adapter_path = (
-        pathlib.Path(__file__).resolve().parents[2]
-        / "src"
-        / "thenvoi"
-        / "adapters"
-        / "crewai.py"
-    )
-    spec = importlib.util.spec_from_file_location(
-        "_conformance_crewai_adapter", adapter_path
-    )
-    isolated_module = importlib.util.module_from_spec(spec)
-
-    # Use patch.dict to inject mock dependencies into sys.modules for the
-    # duration of exec_module.  patch.dict atomically restores the original
-    # state on exit, even if exec_module raises.
-    mock_entries: dict[str, types.ModuleType] = {
-        "crewai": mock_crewai_module,
-        "crewai.tools": mock_crewai_tools_module,
-        "nest_asyncio": mock_nest_asyncio,
+    mock_entries = {
+        "crewai": mock_crewai,
+        "crewai.tools": mock_crewai_tools,
+        "nest_asyncio": MagicMock(),
     }
 
-    # Ensure the parent package is importable so relative imports work.
-    # Include it in patch.dict so it is cleaned up if it was not already
-    # present (avoids permanently injecting a fake module into sys.modules).
-    adapters_pkg_name = "thenvoi.adapters"
-    if adapters_pkg_name not in sys.modules:
-        adapters_pkg = types.ModuleType(adapters_pkg_name)
-        adapters_pkg.__path__ = [str(adapter_path.parent)]
-        mock_entries[adapters_pkg_name] = adapters_pkg
+    # Remove any previously-cached adapter module so importlib re-executes it
+    # with our mocked dependencies.
+    adapter_module_name = "thenvoi.adapters.crewai"
+    sys.modules.pop(adapter_module_name, None)
 
     with patch.dict(sys.modules, mock_entries):
-        spec.loader.exec_module(isolated_module)
+        module = importlib.import_module(adapter_module_name)
+        cls = module.CrewAIAdapter
 
-    isolated_cls = isolated_module.CrewAIAdapter
+    # Clean up so non-conformance imports are not polluted.
+    sys.modules.pop(adapter_module_name, None)
 
-    # --- Signature drift guard ---
-    # Compare __init__ signatures so that changes to the real adapter
-    # (new required params, renamed kwargs, removed defaults) are caught
-    # immediately rather than producing silent conformance-test drift.
-    # Wrapped in try/except so the guard is skipped when the real crewai
-    # package is not installed (the isolated import above uses mocks, but
-    # the real import below requires the actual package).
-    import inspect
-
-    try:
-        import crewai as _crewai_probe  # noqa: F401 — probe whether crewai is installed
-    except ImportError:
-        import warnings
-
-        warnings.warn(
-            "crewai package not installed — skipping CrewAIAdapter signature "
-            "drift check.  If you changed CrewAIAdapter.__init__, install "
-            "crewai and re-run to verify the conformance config is still valid.",
-            stacklevel=2,
-        )
-    else:
-        # crewai IS installed, so a failure importing the real adapter is a real error
-        # that should propagate (not be silently swallowed).
-        from thenvoi.adapters.crewai import CrewAIAdapter as _RealCrewAIAdapter
-
-        real_sig = inspect.signature(_RealCrewAIAdapter.__init__)
-        isolated_sig = inspect.signature(isolated_cls.__init__)
-        if real_sig != isolated_sig:
-            raise RuntimeError(
-                "CrewAIAdapter __init__ signature drift detected!\n"
-                f"  Real:     {real_sig}\n"
-                f"  Isolated: {isolated_sig}\n"
-                "Update the CrewAI AdapterConfig (default_values, custom_kwargs, "
-                "custom_expected) and re-run conformance tests."
-            )
-
-    return isolated_cls
+    return cls
 
 
 def _crewai_factory(**kw: Any) -> Any:

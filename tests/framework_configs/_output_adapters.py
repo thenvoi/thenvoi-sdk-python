@@ -250,46 +250,28 @@ class PydanticAIOutputAdapter:
 class StringOutputAdapter:
     """Adapter for ClaudeSDK converter output (newline-joined string).
 
-    Splits on ``"\\n"`` to recover individual ``[sender]: content`` or
-    JSON tool-event messages.
+    The ClaudeSDK converter joins messages with ``"\\n"``.  Each logical
+    message starts with ``[sender]: ...`` (text) or ``{`` (JSON tool event).
 
-    **Assumption:** each logical message starts with ``[`` (sender prefix)
-    or ``{`` (JSON tool event).  The heuristic check in ``_split_messages``
-    emits a ``RuntimeWarning`` when a segment violates this — it does *not*
-    hard-fail, because future converters or tool results may legitimately
-    produce plain-text lines.  If you see the warning in a new framework,
-    verify whether the segment is a real message or a fragment from an
-    embedded newline.
+    ``_split_messages`` uses a regex to split on message boundaries
+    (``\\n`` followed by ``[`` or ``{``), which correctly handles embedded
+    newlines inside tool-result JSON values.  Plain ``\\n`` *within* a
+    message is kept as part of that message's content.
     """
 
-    @staticmethod
-    def _split_messages(result: str) -> list[str]:
-        """Split the joined string back into logical messages.
+    _BOUNDARY_RE = __import__("re").compile(r"\n(?=\[|{)")
 
-        Emits a ``RuntimeWarning`` (via ``warnings.warn``) if any
-        non-empty segment doesn't start with ``[`` or ``{``, which
-        may indicate an embedded newline produced an extra fragment.
+    @classmethod
+    def _split_messages(cls, result: str) -> list[str]:
+        """Split the joined string into logical messages.
+
+        Splits at ``\\n`` only when the next character is ``[`` or ``{``,
+        which marks the start of a new message.  This is safe because the
+        ClaudeSDK converter produces exactly these two formats.
         """
         if not result:
             return []
-        import warnings
-
-        segments = result.split("\n")
-        for i, seg in enumerate(segments):
-            stripped = seg.lstrip()
-            if (
-                stripped
-                and not stripped.startswith("[")
-                and not stripped.startswith("{")
-            ):
-                warnings.warn(
-                    f"StringOutputAdapter: segment {i} does not look like a "
-                    f"complete message (possible embedded newline in content). "
-                    f"Segment: {seg!r}",
-                    RuntimeWarning,
-                    stacklevel=2,
-                )
-        return segments
+        return cls._BOUNDARY_RE.split(result)
 
     def result_length(self, result: str) -> int:
         return len(self._split_messages(result))
