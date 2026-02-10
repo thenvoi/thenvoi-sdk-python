@@ -14,7 +14,7 @@ from typing import Any, Callable
 
 __all__ = ["ConverterConfig", "CONVERTER_CONFIGS", "SenderBehavior"]
 
-from tests.framework_configs._output_adapters import (
+from tests.framework_configs.output_adapters import (
     DictListOutputAdapter,
     LangChainOutputAdapter,
     OutputAdapter,

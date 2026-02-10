@@ -254,29 +254,47 @@ class StringOutputAdapter:
     The ClaudeSDK converter joins messages with ``"\\n"``.  Each logical
     message starts with ``[sender]: ...`` (text) or ``{`` (JSON tool event).
 
-    ``_split_messages`` uses a regex to split on message boundaries
-    (``\\n`` followed by ``[`` or ``{``), which correctly handles embedded
-    newlines inside tool-result JSON values.  Plain ``\\n`` *within* a
-    message is kept as part of that message's content.
+    ``_split_messages`` splits the joined string into logical messages by
+    checking each line for a valid message-start pattern:
+    - Text message: ``[<name>]: <content>`` (validated by ``_SENDER_RE``)
+    - Tool event: starts with ``{`` (JSON object from ``json.dumps``)
+
+    Lines that do not match either pattern are treated as continuations of
+    the previous message (e.g. multi-line text content).
     """
 
-    # WARNING: This regex incorrectly splits when a JSON *value* contains
-    # the literal sequence ``\n[`` or ``\n{``.  This is a known limitation
-    # documented (and asserted) in test_json_with_embedded_newline_bracket
-    # in tests/framework_configs/test_output_adapters.py.
-    _BOUNDARY_RE = re.compile(r"\n(?=\[|{)")
+    # Matches the sender prefix at the start of a text message.
+    # Requires at least ``[<anything>]: `` (bracket, colon, space).
+    # This avoids false splits on ``[`` inside JSON values.
+    _SENDER_RE = re.compile(r"^\[.*?\]: ")
+
+    @classmethod
+    def _is_message_start(cls, line: str) -> bool:
+        """Return True if *line* looks like the start of a new message."""
+        if cls._SENDER_RE.match(line):
+            return True
+        if line.startswith("{"):
+            return True
+        return False
 
     @classmethod
     def _split_messages(cls, result: str) -> list[str]:
         """Split the joined string into logical messages.
 
-        Splits at ``\\n`` only when the next character is ``[`` or ``{``,
-        which marks the start of a new message.  This is safe because the
-        ClaudeSDK converter produces exactly these two formats.
+        Iterates line-by-line and starts a new message whenever a line
+        matches a valid message-start pattern (sender prefix or JSON
+        object start).  Other lines are appended to the current message.
         """
         if not result:
             return []
-        return cls._BOUNDARY_RE.split(result)
+        lines = result.split("\n")
+        messages: list[str] = []
+        for line in lines:
+            if not messages or cls._is_message_start(line):
+                messages.append(line)
+            else:
+                messages[-1] += "\n" + line
+        return messages
 
     def result_length(self, result: str) -> int:
         return len(self._split_messages(result))

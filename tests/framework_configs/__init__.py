@@ -8,14 +8,21 @@ Public API:
   - ``ADAPTER_CONFIGS``: adapter config registry (lazy)
   - ``CONVERTER_CONFIGS``: converter config registry (lazy)
   - ``converters.SenderBehavior``: enum for sender_name handling
-  - ``_fixtures``: shared tool-event payloads for conformance tests
+  - ``fixtures``: shared tool-event payloads for conformance tests
+  - ``output_adapters``: output adapter classes for uniform assertions
 """
 
 from __future__ import annotations
 
 from typing import Any
 
-__all__ = ["CONVERTER_ID_FOR_ADAPTER", "ADAPTER_CONFIGS", "CONVERTER_CONFIGS"]
+__all__ = [
+    "CONVERTER_ID_FOR_ADAPTER",
+    "ADAPTER_CONFIGS",
+    "CONVERTER_CONFIGS",
+    "fixtures",
+    "output_adapters",
+]
 
 # Canonical mapping of adapter framework_id -> converter framework_id.
 # Most adapters use a converter with the same id; overrides go here.

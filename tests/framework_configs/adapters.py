@@ -19,16 +19,28 @@ __all__ = ["AdapterConfig", "ADAPTER_CONFIGS"]
 ADAPTER_CONFIGS: list[AdapterConfig]
 
 
-def _default_from_init(cls: type, param: str) -> Any:
+_MISSING = object()
+
+
+def _default_from_init(cls: type, param: str, fallback: Any = _MISSING) -> Any:
     """Extract the default value of *param* from *cls.__init__* signature.
 
     Keeps test configs in sync with adapter source automatically — no need
     to hard-code model strings or other defaults here.
+
+    If the parameter is not found (e.g. the adapter accepts ``**kwargs``
+    and forwards it to an underlying client), *fallback* is returned when
+    provided.  Without a fallback, ``ValueError`` is raised.
     """
     sig = inspect.signature(cls.__init__)
     p = sig.parameters.get(param)
     if p is None or p.default is inspect.Parameter.empty:
-        raise ValueError(f"{cls.__name__}.__init__ has no default for {param!r}")
+        if fallback is not _MISSING:
+            return fallback
+        raise ValueError(
+            f"{cls.__name__}.__init__ has no default for {param!r}. "
+            f"If the adapter uses **kwargs, pass an explicit fallback value."
+        )
     return p.default
 
 
@@ -176,9 +188,29 @@ def _get_crewai_adapter_cls() -> type:
     return cls
 
 
+async def _crewai_conformance_guard(*_args: Any, **_kw: Any) -> None:
+    raise RuntimeError(
+        "This CrewAI adapter instance was created by the conformance test "
+        "factory with mocked dependencies.  Calling on_message or "
+        "_invoke_crew is not safe because CrewAIAgent, LLM, and BaseTool "
+        "are MagicMock objects.  Use the monkeypatch-based fixtures in "
+        "tests/adapters/test_crewai_adapter.py for runtime tests instead."
+    )
+
+
 def _crewai_factory(**kw: Any) -> Any:
     cls = _get_crewai_adapter_cls()
-    return cls(**kw)
+    instance = cls(**kw)
+    # Guard the runtime methods that use mocked CrewAI dependencies.
+    # on_message and _invoke_crew invoke the model and would silently
+    # operate on MagicMock objects without this guard.
+    # Note: on_started and on_cleanup are safe (they only set attributes
+    # or clean up dicts) so they are NOT guarded — conformance tests
+    # call them directly.
+    for method_name in ("on_message", "_invoke_crew"):
+        if hasattr(instance, method_name):
+            setattr(instance, method_name, _crewai_conformance_guard)
+    return instance
 
 
 def _claude_sdk_factory(**kw: Any) -> Any:

@@ -12,8 +12,8 @@ import pytest
 # Shared tool-event fixture payloads.  These include both top-level and nested
 # ``data.*`` paths so all current frameworks find the fields they need.  If you
 # add a converter with a different tool-event schema, verify the payloads in
-# tests/framework_configs/_fixtures.py still cover it (or extend them).
-from tests.framework_configs._fixtures import (
+# tests/framework_configs/fixtures.py still cover it (or extend them).
+from tests.framework_configs.fixtures import (
     TOOL_CALL_LOOKUP,
     TOOL_CALL_SEARCH,
     TOOL_CALL_SEARCH_EMPTY,

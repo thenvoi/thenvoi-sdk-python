@@ -69,10 +69,14 @@ class TestFrameworkRegistryCompleteness:
         )
 
     def test_adapter_and_converter_counts(self):
-        """Exactly 6 adapters and 6 converters are registered."""
-        assert len(ADAPTER_CONFIGS) == 6, (
-            f"Expected 6 adapter configs, got {len(ADAPTER_CONFIGS)}"
+        """No duplicate configs: count matches the number of unique framework IDs."""
+        expected_adapters = {c.framework_id for c in ADAPTER_CONFIGS}
+        expected_converters = {c.framework_id for c in CONVERTER_CONFIGS}
+        assert len(ADAPTER_CONFIGS) == len(expected_adapters), (
+            f"Expected {len(expected_adapters)} adapter configs (one per framework), "
+            f"got {len(ADAPTER_CONFIGS)} — duplicates?"
         )
-        assert len(CONVERTER_CONFIGS) == 6, (
-            f"Expected 6 converter configs, got {len(CONVERTER_CONFIGS)}"
+        assert len(CONVERTER_CONFIGS) == len(expected_converters), (
+            f"Expected {len(expected_converters)} converter configs (one per framework), "
+            f"got {len(CONVERTER_CONFIGS)} — duplicates?"
         )

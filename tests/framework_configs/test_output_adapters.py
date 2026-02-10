@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import pytest
 
-from tests.framework_configs._output_adapters import (
+from tests.framework_configs.output_adapters import (
     DictListOutputAdapter,
     SimpleDictListOutputAdapter,
     StringOutputAdapter,
@@ -63,11 +63,12 @@ class TestStringOutputAdapterSplitMessages:
         assert result == [msg]
 
     def test_json_with_embedded_newline_bracket(self):
-        """JSON value containing \\n[ would incorrectly split (known limitation)."""
+        """JSON value containing \\n[ should not split when [ is not a sender prefix."""
         msg = '{"output": "before\n[after"}'
         result = StringOutputAdapter._split_messages(msg)
-        # This is a known limitation: the regex splits on \n[
-        assert len(result) == 2
+        # The sender-prefix check prevents false splits: "[after"}" does
+        # not match the [name]: pattern, so it stays part of the JSON message.
+        assert result == [msg]
 
     def test_multiple_json_events(self):
         result = StringOutputAdapter._split_messages(
@@ -286,7 +287,7 @@ class TestFixturePayloadValidation:
     """Verify that the shared fixture payloads satisfy every non-tool-skipping converter.
 
     This catches the scenario where a new converter is added but the shared
-    tool-event payloads in _fixtures.py don't contain the keys it needs.
+    tool-event payloads in fixtures.py don't contain the keys it needs.
     """
 
     @pytest.fixture(
@@ -297,7 +298,7 @@ class TestFixturePayloadValidation:
 
     def test_shared_fixture_produces_nonempty_output(self, converter_config):
         """converter.convert([TOOL_CALL_SEARCH, TOOL_RESULT_SEARCH]) must produce non-empty output."""
-        from tests.framework_configs._fixtures import (
+        from tests.framework_configs.fixtures import (
             TOOL_CALL_SEARCH,
             TOOL_RESULT_SEARCH,
         )
@@ -308,6 +309,6 @@ class TestFixturePayloadValidation:
         adapter = converter_config.output_adapter
         assert not adapter.is_empty(result), (
             f"{converter_config.display_name} converter produced empty output "
-            f"from shared fixture payloads — check that _fixtures.py includes "
+            f"from shared fixture payloads — check that fixtures.py includes "
             f"the keys this converter reads"
         )
