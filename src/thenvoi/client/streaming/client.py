@@ -5,7 +5,7 @@ from phoenix_channels_python_client.client import (
     PhoenixChannelsProtocolVersion,
 )
 from phoenix_channels_python_client.phx_messages import PHXMessage
-from typing import Callable, Awaitable, Optional
+from collections.abc import Awaitable, Callable
 from pydantic import BaseModel, ConfigDict, ValidationError
 import logging
 
@@ -44,7 +44,7 @@ class MessageCreatedPayload(BaseModel):
     sender_id: str
     sender_type: str
     chat_room_id: str
-    thread_id: Optional[str] = None
+    thread_id: str | None = None
     inserted_at: str
     updated_at: str
 
@@ -111,7 +111,7 @@ _PAYLOAD_MODELS: dict[str, type[BaseModel]] = {
 
 
 class WebSocketClient:
-    def __init__(self, ws_url: str, api_key: str, agent_id: Optional[str] = None):
+    def __init__(self, ws_url: str, api_key: str, agent_id: str | None = None):
         self.ws_url = ws_url
         self.api_key = api_key
         self.agent_id = agent_id
