@@ -1,4 +1,10 @@
-"""Tests for the --framework CLI option and framework registry completeness."""
+"""Tests for the --framework CLI option and framework registry completeness.
+
+NOTE: ``TestFrameworkOption`` imports ``pytest_collection_modifyitems``
+directly from ``tests.conftest`` to unit-test the --framework filtering
+logic without subprocess overhead.  If that hook is renamed or moved,
+these tests will need updating.
+"""
 
 from __future__ import annotations
 
@@ -7,12 +13,21 @@ from unittest.mock import MagicMock
 import pytest
 
 from tests.conftest import pytest_collection_modifyitems
-from tests.framework_configs.adapters import ADAPTER_CONFIGS
-from tests.framework_configs.converters import CONVERTER_CONFIGS
+from tests.framework_configs.adapters import ADAPTER_CONFIGS, _build_adapter_configs
+from tests.framework_configs.converters import (
+    CONVERTER_CONFIGS,
+    _build_converter_configs,
+)
 
 
 class TestFrameworkOption:
-    """Tests for pytest_collection_modifyitems --framework validation."""
+    """Tests for pytest_collection_modifyitems --framework validation.
+
+    These tests import ``pytest_collection_modifyitems`` directly from
+    ``tests.conftest`` rather than going through a subprocess.  This
+    couples them to the internal name — if the hook is refactored,
+    update the import above.
+    """
 
     def test_invalid_framework_raises_usage_error(self):
         """Unknown --framework name raises pytest.UsageError with valid names."""
@@ -80,3 +95,59 @@ class TestFrameworkRegistryCompleteness:
             f"Expected {len(expected_converters)} converter configs (one per framework), "
             f"got {len(CONVERTER_CONFIGS)} — duplicates?"
         )
+
+
+class TestConfigCacheRebuildStability:
+    """Verify that cache_clear + rebuild produces equivalent configs.
+
+    ``_build_adapter_configs`` and ``_build_converter_configs`` are
+    ``@lru_cache(maxsize=1)``-decorated.  If a test teardown calls
+    ``.cache_clear()`` and a subsequent test triggers a rebuild, the
+    new configs must be functionally equivalent to the originals.
+    """
+
+    def test_adapter_configs_stable_after_cache_clear(self):
+        """Clearing and rebuilding adapter configs yields the same framework IDs and values."""
+        original = _build_adapter_configs()
+        original_ids = [c.framework_id for c in original]
+        original_values = {c.framework_id: c.expected_initial_values for c in original}
+
+        _build_adapter_configs.cache_clear()
+        rebuilt = _build_adapter_configs()
+        rebuilt_ids = [c.framework_id for c in rebuilt]
+        rebuilt_values = {c.framework_id: c.expected_initial_values for c in rebuilt}
+
+        assert original_ids == rebuilt_ids, "Framework ID order changed after rebuild"
+        assert original_values == rebuilt_values, (
+            "Expected initial values changed after rebuild"
+        )
+
+    def test_converter_configs_stable_after_cache_clear(self):
+        """Clearing and rebuilding converter configs yields the same framework IDs and flags."""
+        original = _build_converter_configs()
+        original_ids = [c.framework_id for c in original]
+        original_flags = {
+            c.framework_id: (
+                c.filters_own_messages,
+                c.skips_tool_events,
+                c.empty_sender_behavior,
+                c.missing_sender_behavior,
+            )
+            for c in original
+        }
+
+        _build_converter_configs.cache_clear()
+        rebuilt = _build_converter_configs()
+        rebuilt_ids = [c.framework_id for c in rebuilt]
+        rebuilt_flags = {
+            c.framework_id: (
+                c.filters_own_messages,
+                c.skips_tool_events,
+                c.empty_sender_behavior,
+                c.missing_sender_behavior,
+            )
+            for c in rebuilt
+        }
+
+        assert original_ids == rebuilt_ids, "Framework ID order changed after rebuild"
+        assert original_flags == rebuilt_flags, "Behavioral flags changed after rebuild"

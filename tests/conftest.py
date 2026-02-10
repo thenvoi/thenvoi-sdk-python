@@ -52,16 +52,20 @@ from thenvoi_testing.markers import pytest_ignore_collect_in_ci as _ignore_colle
 # Framework name -> (adapter_id, converter_id, adapter_file, converter_file)
 # Use this name with: pytest tests/ --framework <name>
 # Derived from the config registries; add new frameworks there first.
-# Built lazily (via @functools.cache) so that running unrelated tests
+# Built lazily (via @functools.lru_cache) so that running unrelated tests
 # (e.g. tests/runtime/) does not force-import all framework configs and
 # their transitive dependencies.
+#
+# Uses ``lru_cache(maxsize=1)`` for consistency with
+# ``_build_adapter_configs`` / ``_build_converter_configs`` and to
+# expose ``.cache_clear()`` for test teardown if needed.
 #
 # CrewAI mock isolation: see _get_crewai_adapter_cls() docstring in
 # tests/framework_configs/adapters.py for the full explanation.
 # Verify with: uv run pytest tests/ --framework crewai -v
 
 
-@functools.cache
+@functools.lru_cache(maxsize=1)
 def _get_framework_run_map() -> dict[str, tuple[str, str, str, str]]:
     from tests.framework_configs import CONVERTER_ID_FOR_ADAPTER
     from tests.framework_configs.adapters import ADAPTER_CONFIGS

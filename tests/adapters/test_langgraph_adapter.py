@@ -28,7 +28,14 @@ def sample_message():
 
 @pytest.fixture
 def mock_tools():
-    """Create mock AgentToolsProtocol (MagicMock base to avoid unawaited coroutine warnings)."""
+    """Create mock AgentToolsProtocol.
+
+    Uses ``MagicMock()`` as the base (not ``AsyncMock()``) to prevent
+    "coroutine was never awaited" warnings when the object itself is
+    introspected but not awaited.  Individual async methods are still
+    ``AsyncMock`` so ``await tools.send_message(...)`` etc. work normally.
+    The base object is never ``await``ed directly by any adapter.
+    """
     tools = MagicMock()
     tools.send_message = AsyncMock(return_value={"status": "sent"})
     tools.send_event = AsyncMock(return_value={"status": "sent"})
