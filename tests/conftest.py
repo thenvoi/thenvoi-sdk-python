@@ -77,6 +77,14 @@ def _get_framework_run_map() -> dict[str, tuple[str, str, str, str]]:
     return run_map
 
 
+def pytest_configure(config):
+    """Register warning filters for known mock + async introspection quirks."""
+    config.addinivalue_line(
+        "filterwarnings",
+        "ignore:coroutine 'GracefulShutdown._shutdown' was never awaited:RuntimeWarning",
+    )
+
+
 def pytest_addoption(parser):
     """Add --framework option to run only one framework's tests."""
     parser.addoption(

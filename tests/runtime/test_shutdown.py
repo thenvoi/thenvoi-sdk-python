@@ -13,12 +13,17 @@ from thenvoi.runtime.shutdown import GracefulShutdown, run_with_graceful_shutdow
 
 @pytest.fixture
 def mock_agent():
-    """Mock Agent for testing shutdown handlers."""
-    agent = MagicMock()
-    agent.stop = AsyncMock(return_value=True)
-    agent.run = AsyncMock()
-    agent.is_running = True
-    return agent
+    """Mock Agent for testing shutdown handlers (plain object to avoid unawaited coroutine warnings)."""
+
+    class FakeAgent:
+        def __init__(self):
+            self.stop = AsyncMock(return_value=True)
+            self.run = AsyncMock(
+                return_value=None
+            )  # explicit return to avoid MagicMock propagation
+            self.is_running = True
+
+    return FakeAgent()
 
 
 class TestGracefulShutdownInit:

@@ -222,11 +222,11 @@ class TestParlantToolFunctions:
 
     @pytest.fixture
     def mock_tools(self):
-        """Create mock AgentToolsProtocol."""
-        tools = AsyncMock()
+        """Create mock AgentToolsProtocol (MagicMock base to avoid unawaited coroutine warnings)."""
+        tools = MagicMock()
         tools.send_message = AsyncMock()
         tools.send_event = AsyncMock()
-        tools.add_participant = AsyncMock()
+        tools.add_participant = AsyncMock(return_value={"status": "added"})
         tools.remove_participant = AsyncMock()
         tools.lookup_peers = AsyncMock(
             return_value={
@@ -244,11 +244,8 @@ class TestParlantToolFunctions:
 
     @pytest.fixture
     def mock_context(self):
-        """Create mock ToolContext."""
-        from parlant.core.tools import ToolContext
-
-        context = MagicMock(spec=ToolContext)
-        context.session_id = "test-session-123"
+        """Create mock ToolContext (plain object to avoid unawaited coroutine warnings)."""
+        context = type("FakeContext", (), {"session_id": "test-session-123"})()
         return context
 
     @pytest.fixture

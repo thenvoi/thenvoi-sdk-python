@@ -28,8 +28,8 @@ def sample_message():
 
 @pytest.fixture
 def mock_tools():
-    """Create mock AgentToolsProtocol."""
-    tools = AsyncMock()
+    """Create mock AgentToolsProtocol (MagicMock base to avoid unawaited coroutine warnings)."""
+    tools = MagicMock()
     tools.get_tool_schemas = MagicMock(return_value=[])
     tools.send_message = AsyncMock(return_value={"status": "sent"})
     tools.send_event = AsyncMock(return_value={"status": "sent"})
