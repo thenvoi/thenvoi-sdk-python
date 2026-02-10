@@ -9,9 +9,12 @@ from __future__ import annotations
 
 import functools
 import inspect
+import os
 from dataclasses import dataclass, field
 from typing import Any, Callable
 from unittest.mock import MagicMock
+
+from tests.framework_configs._sentinel import MISSING, _MissingSentinel
 
 __all__ = ["AdapterConfig", "ADAPTER_CONFIGS"]
 
@@ -19,17 +22,7 @@ __all__ = ["AdapterConfig", "ADAPTER_CONFIGS"]
 ADAPTER_CONFIGS: list[AdapterConfig]
 
 
-class _MissingSentinel:
-    __slots__ = ()
-
-    def __repr__(self) -> str:
-        return "<MISSING>"
-
-
-_MISSING = _MissingSentinel()
-
-
-def _default_from_init(cls: type, param: str, fallback: Any = _MISSING) -> Any:
+def _default_from_init(cls: type, param: str, fallback: Any = MISSING) -> Any:
     """Extract the default value of *param* from *cls.__init__* signature.
 
     Keeps test configs in sync with adapter source automatically — no need
@@ -48,7 +41,7 @@ def _default_from_init(cls: type, param: str, fallback: Any = _MISSING) -> Any:
     sig = inspect.signature(cls.__init__)
     p = sig.parameters.get(param)
     if p is None or p.default is inspect.Parameter.empty:
-        if fallback is not _MISSING:
+        if not isinstance(fallback, _MissingSentinel):
             return fallback
         raise ValueError(
             f"{cls.__name__}.__init__ has no default for {param!r}. "
@@ -158,6 +151,9 @@ def _get_crewai_adapter_cls() -> type:
 
     # Remove adapter module so non-conformance imports aren't polluted.
     sys.modules.pop(adapter_module_name, None)
+
+    # Mark the class as conformance-only so accidental runtime use is detectable.
+    cls._CONFORMANCE_ONLY = True
     return cls
 
 
@@ -416,13 +412,16 @@ _ADAPTER_CONFIG_BUILDERS: list[Callable[[], AdapterConfig]] = [
 ]
 
 
+_IN_CI = bool(os.environ.get("CI") or os.environ.get("GITHUB_ACTIONS"))
+
+
 @functools.lru_cache(maxsize=1)
 def _build_adapter_configs() -> list[AdapterConfig]:
     """Build configs lazily so adapter imports happen only when needed.
 
     Each framework config is built independently so that an import failure
     in one framework does not prevent the remaining frameworks from being
-    tested.  Uses ``lru_cache(maxsize=1)`` so ``.cache_clear()`` is available.
+    tested.  In CI, failures are raised immediately to surface broken configs.
     """
     import logging
 
@@ -432,13 +431,15 @@ def _build_adapter_configs() -> list[AdapterConfig]:
         try:
             configs.append(builder())
         except Exception as exc:
+            if _IN_CI:
+                raise RuntimeError(
+                    f"Adapter config builder {builder.__name__} failed in CI: {exc}"
+                ) from exc
             logger.warning("Skipping adapter config from %s: %s", builder.__name__, exc)
     return configs
 
 
 def __getattr__(name: str) -> Any:
     if name == "ADAPTER_CONFIGS":
-        configs = _build_adapter_configs()
-        globals()["ADAPTER_CONFIGS"] = configs
-        return configs
+        return _build_adapter_configs()
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

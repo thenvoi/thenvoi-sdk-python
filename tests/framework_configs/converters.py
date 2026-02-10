@@ -8,23 +8,12 @@ across all registered converters.
 from __future__ import annotations
 
 import functools
-from dataclasses import dataclass, field
+import os
+from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any, Callable
 
 __all__ = ["ConverterConfig", "CONVERTER_CONFIGS", "SenderBehavior"]
-
-
-class _MissingSentinel:
-    """Sentinel for required fields that have no real default."""
-
-    __slots__ = ()
-
-    def __repr__(self) -> str:
-        return "<MISSING>"
-
-
-_MISSING = _MissingSentinel()
 
 # Populated lazily via __getattr__ to avoid top-level converter imports.
 CONVERTER_CONFIGS: list[ConverterConfig]
@@ -52,6 +41,9 @@ class ConverterConfig:
     # Output shape
     empty_result: Any  # [] or ""
 
+    # Output adapter for uniform assertions (required, no default)
+    output_adapter: Any
+
     # Behavioral flags
     filters_own_messages: bool = True
     skips_tool_events: bool = False
@@ -67,16 +59,6 @@ class ConverterConfig:
     # Output shape flags
     has_sender_metadata: bool = False  # output includes sender/sender_type fields
     other_agent_output_role: str = "user"  # role assigned to other agents' messages
-
-    # Output adapter for uniform assertions (required — no default)
-    output_adapter: Any = field(default_factory=lambda: _MISSING)
-
-    def __post_init__(self) -> None:
-        if isinstance(self.output_adapter, _MissingSentinel):
-            raise TypeError(
-                f"ConverterConfig({self.framework_id!r}): "
-                "output_adapter is required — pass an OutputAdapter instance"
-            )
 
 
 # ---------------------------------------------------------------------------
@@ -237,13 +219,16 @@ _CONVERTER_CONFIG_BUILDERS: list[Callable[[], ConverterConfig]] = [
 ]
 
 
+_IN_CI = bool(os.environ.get("CI") or os.environ.get("GITHUB_ACTIONS"))
+
+
 @functools.lru_cache(maxsize=1)
 def _build_converter_configs() -> list[ConverterConfig]:
     """Build configs lazily so converter imports happen only when needed.
 
     Each framework config is built independently so that an import failure
     in one framework does not prevent the remaining frameworks from being
-    tested.  Uses ``lru_cache(maxsize=1)`` so ``.cache_clear()`` is available.
+    tested.  In CI, failures are raised immediately to surface broken configs.
     """
     import logging
 
@@ -253,6 +238,10 @@ def _build_converter_configs() -> list[ConverterConfig]:
         try:
             configs.append(builder())
         except Exception as exc:
+            if _IN_CI:
+                raise RuntimeError(
+                    f"Converter config builder {builder.__name__} failed in CI: {exc}"
+                ) from exc
             logger.warning(
                 "Skipping converter config from %s: %s", builder.__name__, exc
             )
@@ -261,7 +250,5 @@ def _build_converter_configs() -> list[ConverterConfig]:
 
 def __getattr__(name: str) -> Any:
     if name == "CONVERTER_CONFIGS":
-        configs = _build_converter_configs()
-        globals()["CONVERTER_CONFIGS"] = configs
-        return configs
+        return _build_converter_configs()
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
