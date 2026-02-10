@@ -311,6 +311,101 @@ class TestEdgeCases:
         assert output.get_role(result, 0) == "user"
 
 
+class TestOutputShape:
+    """Verify framework-specific output types and structure.
+
+    These tests catch regressions where a converter returns the wrong Python
+    type (e.g. dict instead of HumanMessage for LangChain) or drops
+    framework-specific metadata fields (e.g. sender/sender_type for CrewAI).
+    """
+
+    def test_user_text_produces_correct_type(
+        self, converter_config, make_converter, output
+    ):
+        """User text message produces the correct framework-specific type."""
+        converter = make_converter()
+        raw = [
+            {
+                "role": "user",
+                "content": "Hello!",
+                "sender_name": "Alice",
+                "message_type": "text",
+            }
+        ]
+
+        result = converter.convert(raw)
+
+        assert output.result_length(result) == 1
+        output.assert_element_type(result, 0, "user")
+
+    def test_other_agent_text_produces_correct_type(
+        self, converter_config, make_converter, output
+    ):
+        """Other agent's text message produces the correct framework-specific type."""
+        converter = make_converter(agent_name="Main Agent")
+        raw = [
+            {
+                "role": "assistant",
+                "content": "It's sunny today!",
+                "sender_name": "Weather Agent",
+                "message_type": "text",
+            }
+        ]
+
+        result = converter.convert(raw)
+
+        assert output.result_length(result) == 1
+        output.assert_element_type(
+            result, 0, converter_config.other_agent_output_role
+        )
+
+    def test_user_text_has_sender_metadata(
+        self, converter_config, make_converter, output
+    ):
+        """User text message includes sender/sender_type (CrewAI, Parlant)."""
+        if not converter_config.has_sender_metadata:
+            pytest.skip(
+                f"{converter_config.display_name} does not include sender metadata"
+            )
+
+        converter = make_converter()
+        raw = [
+            {
+                "role": "user",
+                "content": "Hello!",
+                "sender_name": "Alice",
+                "message_type": "text",
+            }
+        ]
+
+        result = converter.convert(raw)
+
+        output.assert_sender_metadata(result, 0, "Alice", "User")
+
+    def test_other_agent_has_sender_metadata(
+        self, converter_config, make_converter, output
+    ):
+        """Other agent's message includes sender name (CrewAI, Parlant)."""
+        if not converter_config.has_sender_metadata:
+            pytest.skip(
+                f"{converter_config.display_name} does not include sender metadata"
+            )
+
+        converter = make_converter(agent_name="Main Agent")
+        raw = [
+            {
+                "role": "assistant",
+                "content": "Here's what I found.",
+                "sender_name": "Research Agent",
+                "message_type": "text",
+            }
+        ]
+
+        result = converter.convert(raw)
+
+        output.assert_sender_metadata(result, 0, "Research Agent")
+
+
 class TestToolEventHandling:
     """Converters that skip tool events entirely."""
 

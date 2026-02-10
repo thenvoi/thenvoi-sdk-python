@@ -64,10 +64,14 @@ Run: `uv run pytest tests/framework_conformance/test_converter_conformance.py -k
 | 11 | `TestOwnMessageFiltering::test_includes_all_when_no_agent_name`  | No agent name set → all assistant messages included.                                                   |
 | 12 | `TestEdgeCases::test_handles_empty_content`                      | Empty `content` skipped or kept per config.                                                           |
 | 13 | `TestEdgeCases::test_defaults_to_user_role`                      | No `role` → treated as user (skipped if `has_role_concept=False`).                                 |
-| 14 | `TestToolEventHandling::test_tool_events_skipped_for_simple_converters` | If `skips_tool_events=True`, tool_call/tool_result are omitted (skipped otherwise). |
-| 15 | `TestToolEventConversion::test_converts_tool_call_to_framework_format`   | Tool_call (and paired tool_result) are converted and appear in output (skipped if `skips_tool_events`). |
-| 16 | `TestToolEventConversion::test_converts_tool_result_paired_with_call`    | Tool_result is converted and paired with tool_call (skipped if `skips_tool_events`). |
-| 17 | `TestToolEventConversion::test_mixed_history_includes_user_assistant_tool_messages` | User + assistant + tool_call + tool_result converted in order (skipped if `skips_tool_events`). |
+| 14 | `TestOutputShape::test_user_text_produces_correct_type`          | User text produces correct framework type (e.g. `HumanMessage`, `ModelRequest`, `dict`).           |
+| 15 | `TestOutputShape::test_other_agent_text_produces_correct_type`   | Other agent text produces correct type with expected output role per config.                          |
+| 16 | `TestOutputShape::test_user_text_has_sender_metadata`            | User text includes `sender`/`sender_type` (skipped if `has_sender_metadata=False`).                |
+| 17 | `TestOutputShape::test_other_agent_has_sender_metadata`          | Other agent message includes `sender` (skipped if `has_sender_metadata=False`).                    |
+| 18 | `TestToolEventHandling::test_tool_events_skipped_for_simple_converters` | If `skips_tool_events=True`, tool_call/tool_result are omitted (skipped otherwise). |
+| 19 | `TestToolEventConversion::test_converts_tool_call_to_framework_format`   | Tool_call (and paired tool_result) are converted and appear in output (skipped if `skips_tool_events`). |
+| 20 | `TestToolEventConversion::test_converts_tool_result_paired_with_call`    | Tool_result is converted and paired with tool_call (skipped if `skips_tool_events`). |
+| 21 | `TestToolEventConversion::test_mixed_history_includes_user_assistant_tool_messages` | User + assistant + tool_call + tool_result converted in order (skipped if `skips_tool_events`). |
 
 ### Converter: mandatory framework-specific coverage (must implement)
 
@@ -97,7 +101,7 @@ This runs **only** that framework’s conformance tests (adapter + converter) an
 | What runs | Description |
 |-----------|-------------|
 | Adapter conformance | All parametrized tests in `test_adapter_conformance.py` for your `[adapter_id]` (9 tests). |
-| Converter conformance | All parametrized tests in `test_converter_conformance.py` for your `[converter_id]` (17 tests). |
+| Converter conformance | All parametrized tests in `test_converter_conformance.py` for your `[converter_id]` (21 tests). |
 | Framework-specific adapter | Entire file `tests/adapters/test_<framework>_adapter.py`. |
 | Framework-specific converter | Entire file `tests/converters/test_<framework>.py`. |
 

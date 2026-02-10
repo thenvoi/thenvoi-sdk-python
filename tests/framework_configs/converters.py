@@ -58,6 +58,10 @@ class ConverterConfig:
     skips_empty_content: bool = False
     has_role_concept: bool = True
 
+    # Output shape flags
+    has_sender_metadata: bool = False  # output includes sender/sender_type fields
+    other_agent_output_role: str = "user"  # role assigned to other agents' messages
+
     # Output adapter for uniform assertions
     output_adapter: OutputAdapter = field(default_factory=DictListOutputAdapter)
 
@@ -139,6 +143,8 @@ CONVERTER_CONFIGS: list[ConverterConfig] = [
         skips_tool_events=True,
         empty_sender_behavior=SenderBehavior.CONTENT_AS_IS,
         missing_sender_behavior=SenderBehavior.CONTENT_AS_IS,
+        has_sender_metadata=True,
+        other_agent_output_role="assistant",
         output_adapter=SimpleDictListOutputAdapter(),
     ),
     ConverterConfig(
@@ -174,6 +180,8 @@ CONVERTER_CONFIGS: list[ConverterConfig] = [
         skips_empty_content=True,
         empty_sender_behavior=SenderBehavior.CONTENT_AS_IS,
         missing_sender_behavior=SenderBehavior.CONTENT_AS_IS,
+        has_sender_metadata=True,
+        other_agent_output_role="assistant",
         output_adapter=SimpleDictListOutputAdapter(),
     ),
 ]
