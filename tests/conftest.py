@@ -38,9 +38,9 @@ from thenvoi.platform.event import (
 )
 from thenvoi.runtime.types import PlatformMessage
 
-# E402: module-level import not at top of file. thenvoi_testing is a pytest
-# plugin with side effects on import (e.g. registers markers); it is imported
-# here after SDK imports so the plugin runs in the intended order.
+# E402: module-level import not at top of file. Grouped after first-party SDK
+# imports to keep test-utility imports separate. The original interleaved
+# ordering triggered ruff E402 because a non-import comment sat between imports.
 from thenvoi_testing.markers import pytest_ignore_collect_in_ci as _ignore_collect_in_ci
 
 
