@@ -26,21 +26,14 @@ class OutputAdapter(Protocol):
     ) -> None: ...
 
 
-class DictListOutputAdapter:
-    """Adapter for Anthropic converter output (list[dict] with tool_use blocks)."""
+class BaseDictListOutputAdapter:
+    """Shared logic for adapters whose output is ``list[dict[str, Any]]``."""
 
     def result_length(self, result: list[dict[str, Any]]) -> int:
         return len(result)
 
     def get_content(self, result: list[dict[str, Any]], index: int) -> str:
-        content = result[index]["content"]
-        if isinstance(content, list):
-            # Tool use blocks -- return first text block or repr
-            for block in content:
-                if isinstance(block, dict) and block.get("type") == "text":
-                    return block["text"]
-            return str(content)
-        return content
+        return result[index]["content"]
 
     def get_role(self, result: list[dict[str, Any]], index: int) -> str:
         return result[index]["role"]
@@ -49,15 +42,7 @@ class DictListOutputAdapter:
         return len(result) == 0
 
     def content_contains(self, result: list[dict[str, Any]], substring: str) -> bool:
-        for msg in result:
-            content = msg["content"]
-            if isinstance(content, str) and substring in content:
-                return True
-            if isinstance(content, list):
-                for block in content:
-                    if isinstance(block, dict) and substring in str(block):
-                        return True
-        return False
+        return any(substring in msg.get("content", "") for msg in result)
 
     def assert_element_type(
         self, result: list[dict[str, Any]], index: int, expected_role: str
@@ -78,10 +63,34 @@ class DictListOutputAdapter:
         sender_type: str | None = None,
     ) -> None:
         raise NotImplementedError(
-            "DictListOutputAdapter.assert_sender_metadata() is not supported. "
-            "Anthropic format does not include sender metadata. "
+            f"{type(self).__name__}.assert_sender_metadata() is not supported. "
             "Ensure has_sender_metadata=False in the ConverterConfig."
         )
+
+
+class DictListOutputAdapter(BaseDictListOutputAdapter):
+    """Adapter for Anthropic converter output (list[dict] with tool_use blocks)."""
+
+    def get_content(self, result: list[dict[str, Any]], index: int) -> str:
+        content = result[index]["content"]
+        if isinstance(content, list):
+            # Tool use blocks -- return first text block or repr
+            for block in content:
+                if isinstance(block, dict) and block.get("type") == "text":
+                    return block["text"]
+            return str(content)
+        return content
+
+    def content_contains(self, result: list[dict[str, Any]], substring: str) -> bool:
+        for msg in result:
+            content = msg["content"]
+            if isinstance(content, str) and substring in content:
+                return True
+            if isinstance(content, list):
+                for block in content:
+                    if isinstance(block, dict) and substring in str(block):
+                        return True
+        return False
 
 
 class LangChainOutputAdapter:
@@ -116,6 +125,8 @@ class LangChainOutputAdapter:
             if tool_calls:
                 for tc in tool_calls:
                     if substring in tc.get("name", ""):
+                        return True
+                    if substring in str(tc.get("args", {})):
                         return True
         return False
 
@@ -333,34 +344,8 @@ class StringOutputAdapter:
         )
 
 
-class SimpleDictListOutputAdapter:
+class SimpleDictListOutputAdapter(BaseDictListOutputAdapter):
     """Adapter for CrewAI/Parlant converter output (list[dict] with sender/sender_type)."""
-
-    def result_length(self, result: list[dict[str, Any]]) -> int:
-        return len(result)
-
-    def get_content(self, result: list[dict[str, Any]], index: int) -> str:
-        return result[index]["content"]
-
-    def get_role(self, result: list[dict[str, Any]], index: int) -> str:
-        return result[index]["role"]
-
-    def is_empty(self, result: list[dict[str, Any]]) -> bool:
-        return len(result) == 0
-
-    def content_contains(self, result: list[dict[str, Any]], substring: str) -> bool:
-        return any(substring in msg.get("content", "") for msg in result)
-
-    def assert_element_type(
-        self, result: list[dict[str, Any]], index: int, expected_role: str
-    ) -> None:
-        msg = result[index]
-        assert isinstance(msg, dict), f"Expected dict, got {type(msg).__name__}"
-        assert "role" in msg, "Missing 'role' key"
-        assert "content" in msg, "Missing 'content' key"
-        assert msg["role"] == expected_role, (
-            f"Expected role={expected_role!r}, got {msg['role']!r}"
-        )
 
     def assert_sender_metadata(
         self,

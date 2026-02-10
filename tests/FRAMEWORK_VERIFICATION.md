@@ -181,6 +181,18 @@ uv run pytest \
 
 ---
 
+## CrewAI test isolation note
+
+The CrewAI adapter depends on modules (`crewai`, `crewai.tools`) that are not installed in the test environment. The conformance adapter config in [`tests/framework_configs/adapters.py`](framework_configs/adapters.py) uses `sys.modules` patching with `MagicMock` to import the adapter class, then replaces `on_message` / `_invoke_crew` with a guard (`_crewai_conformance_guard`) that raises `RuntimeError` if accidentally called.
+
+**Why this matters:** the adapter class is cached via `@functools.cache`, so it retains references to the mocked module globals. The framework-specific CrewAI tests (`tests/adapters/test_crewai_adapter.py`) use their own `monkeypatch`-based mocking and must not conflict with this cached class. If you change test collection order or add new CrewAI imports between these two paths, verify that both conformance and framework-specific CrewAI tests still pass:
+
+```bash
+uv run pytest tests/ --framework crewai -v
+```
+
+---
+
 ## 4. Adding a new framework
 
 1. Implement adapter and converter (and register in `src/thenvoi/`).

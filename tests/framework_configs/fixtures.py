@@ -52,9 +52,9 @@ def _tool_result_content(name: str, output: str, tool_call_id: str) -> str:
 
 # ---------------------------------------------------------------------------
 # Required-key registry: documents which JSON paths each converter reads
-# from tool_call / tool_result payloads.  Used by
-# TestFixturePayloadValidation in test_output_adapters.py to ensure the
-# shared payloads satisfy every non-tool-skipping converter.
+# from tool_call / tool_result payloads.  Validated by
+# TestRequiredToolEventKeys in test_output_adapters.py — any mismatch
+# between these paths and the actual fixture payloads fails the build.
 # ---------------------------------------------------------------------------
 
 REQUIRED_TOOL_EVENT_KEYS: dict[str, dict[str, list[str]]] = {

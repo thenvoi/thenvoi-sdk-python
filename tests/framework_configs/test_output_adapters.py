@@ -7,14 +7,33 @@ coverage through the conformance tests.
 
 from __future__ import annotations
 
+import json
+
 import pytest
 
+from tests.framework_configs.converters import CONVERTER_CONFIGS
+from tests.framework_configs.fixtures import (
+    REQUIRED_TOOL_EVENT_KEYS,
+    TOOL_CALL_LOOKUP,
+    TOOL_CALL_SEARCH,
+    TOOL_CALL_SEARCH_EMPTY,
+    TOOL_RESULT_LOOKUP,
+    TOOL_RESULT_SEARCH,
+    TOOL_RESULT_SEARCH_FOUND,
+)
 from tests.framework_configs.output_adapters import (
     DictListOutputAdapter,
     SimpleDictListOutputAdapter,
     StringOutputAdapter,
 )
-from tests.framework_configs.converters import CONVERTER_CONFIGS
+
+# Group fixtures by event type for parameterized key-path validation.
+TOOL_CALL_FIXTURES = [TOOL_CALL_SEARCH, TOOL_CALL_LOOKUP, TOOL_CALL_SEARCH_EMPTY]
+TOOL_RESULT_FIXTURES = [
+    TOOL_RESULT_SEARCH,
+    TOOL_RESULT_LOOKUP,
+    TOOL_RESULT_SEARCH_FOUND,
+]
 
 
 def _converter_configs_that_process_tools():
@@ -293,22 +312,77 @@ class TestFixturePayloadValidation:
     @pytest.fixture(
         params=_converter_configs_that_process_tools(), ids=lambda c: c.framework_id
     )
-    def converter_config(self, request):
+    def payload_converter_config(self, request):
         return request.param
 
-    def test_shared_fixture_produces_nonempty_output(self, converter_config):
+    def test_shared_fixture_produces_nonempty_output(self, payload_converter_config):
         """converter.convert([TOOL_CALL_SEARCH, TOOL_RESULT_SEARCH]) must produce non-empty output."""
-        from tests.framework_configs.fixtures import (
-            TOOL_CALL_SEARCH,
-            TOOL_RESULT_SEARCH,
-        )
-
-        converter = converter_config.converter_factory()
+        converter = payload_converter_config.converter_factory()
         result = converter.convert([TOOL_CALL_SEARCH, TOOL_RESULT_SEARCH])
 
-        adapter = converter_config.output_adapter
+        adapter = payload_converter_config.output_adapter
         assert not adapter.is_empty(result), (
-            f"{converter_config.display_name} converter produced empty output "
+            f"{payload_converter_config.display_name} converter produced empty output "
             f"from shared fixture payloads — check that fixtures.py includes "
             f"the keys this converter reads"
         )
+
+
+# ---------------------------------------------------------------------------
+# REQUIRED_TOOL_EVENT_KEYS validation
+# ---------------------------------------------------------------------------
+
+
+def _resolve_dotted_path(data: dict, path: str) -> object:
+    """Resolve a dot-notation key path (e.g. 'data.input') into a nested dict."""
+    current: object = data
+    for segment in path.split("."):
+        assert isinstance(current, dict), (
+            f"Expected dict at segment {segment!r} of path {path!r}, "
+            f"got {type(current).__name__}"
+        )
+        assert segment in current, (
+            f"Key {segment!r} missing at path {path!r} in payload: "
+            f"{json.dumps(data, indent=2)}"
+        )
+        current = current[segment]
+    return current
+
+
+class TestRequiredToolEventKeys:
+    """Validate that REQUIRED_TOOL_EVENT_KEYS paths exist in every fixture payload.
+
+    This turns the REQUIRED_TOOL_EVENT_KEYS registry from documentation into an
+    enforceable contract: if the fixture schema changes or a key path is wrong,
+    the test fails immediately instead of silently drifting.
+    """
+
+    @pytest.fixture(
+        params=[
+            ("tool_call", TOOL_CALL_FIXTURES),
+            ("tool_result", TOOL_RESULT_FIXTURES),
+        ],
+        ids=["tool_call", "tool_result"],
+    )
+    def event_type_and_fixtures(self, request):
+        return request.param
+
+    @pytest.fixture(
+        params=list(REQUIRED_TOOL_EVENT_KEYS.items()),
+        ids=lambda item: item[0],
+    )
+    def framework_keys(self, request):
+        return request.param
+
+    def test_required_keys_exist_in_fixture_payloads(
+        self, framework_keys, event_type_and_fixtures
+    ):
+        """Every dot-path in REQUIRED_TOOL_EVENT_KEYS resolves in every fixture payload."""
+        _framework_id, key_map = framework_keys
+        event_type, fixtures = event_type_and_fixtures
+
+        required_paths = key_map.get(event_type, [])
+        for fixture in fixtures:
+            parsed = json.loads(fixture["content"])
+            for path in required_paths:
+                _resolve_dotted_path(parsed, path)

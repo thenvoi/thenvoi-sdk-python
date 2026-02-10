@@ -47,7 +47,6 @@ class ConverterConfig:
     converter_factory: Callable[..., Any]
 
     # Output shape
-    return_type: str  # "list" or "string"
     empty_result: Any  # [] or ""
 
     # Behavioral flags
@@ -125,7 +124,6 @@ def _build_converter_configs() -> list[ConverterConfig]:
             framework_id="anthropic",
             display_name="Anthropic",
             converter_factory=_anthropic_factory,
-            return_type="list",
             empty_result=[],
             empty_sender_behavior=SenderBehavior.CONTENT_AS_IS,
             missing_sender_behavior=SenderBehavior.CONTENT_AS_IS,
@@ -135,7 +133,6 @@ def _build_converter_configs() -> list[ConverterConfig]:
             framework_id="langchain",
             display_name="LangChain",
             converter_factory=_langchain_factory,
-            return_type="list",
             empty_result=[],
             empty_sender_behavior=SenderBehavior.BRACKETS_EMPTY,
             # LangChain uses hist.get("sender_name", ""), so a *missing* key
@@ -147,7 +144,6 @@ def _build_converter_configs() -> list[ConverterConfig]:
             framework_id="crewai",
             display_name="CrewAI",
             converter_factory=_crewai_factory,
-            return_type="list",
             empty_result=[],
             skips_tool_events=True,
             empty_sender_behavior=SenderBehavior.CONTENT_AS_IS,
@@ -163,7 +159,6 @@ def _build_converter_configs() -> list[ConverterConfig]:
             framework_id="claude_sdk",
             display_name="ClaudeSDK",
             converter_factory=_claude_sdk_factory,
-            return_type="string",
             empty_result="",
             empty_sender_behavior=SenderBehavior.BRACKETS_EMPTY,
             missing_sender_behavior=SenderBehavior.UNKNOWN_PREFIX,
@@ -175,7 +170,6 @@ def _build_converter_configs() -> list[ConverterConfig]:
             framework_id="pydantic_ai",
             display_name="PydanticAI",
             converter_factory=_pydantic_ai_factory,
-            return_type="list",
             empty_result=[],
             empty_sender_behavior=SenderBehavior.CONTENT_AS_IS,
             missing_sender_behavior=SenderBehavior.CONTENT_AS_IS,
@@ -185,7 +179,6 @@ def _build_converter_configs() -> list[ConverterConfig]:
             framework_id="parlant",
             display_name="Parlant",
             converter_factory=_parlant_factory,
-            return_type="list",
             empty_result=[],
             filters_own_messages=False,
             skips_tool_events=True,
