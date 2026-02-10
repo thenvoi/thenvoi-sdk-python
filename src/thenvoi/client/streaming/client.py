@@ -6,7 +6,7 @@ from phoenix_channels_python_client.client import (
 )
 from phoenix_channels_python_client.phx_messages import PHXMessage
 from typing import Callable, Awaitable, Optional
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, ValidationError
 import logging
 
 logger = logging.getLogger(__name__)
@@ -139,15 +139,32 @@ class WebSocketClient:
             return
 
         # Validate and parse payload into Pydantic models for known types
-        if message.event == "message_created":
-            validated = MessageCreatedPayload(**message.payload)
-        elif message.event == "room_added":
-            validated = RoomAddedPayload(**message.payload)
-        elif message.event == "room_removed":
-            validated = RoomRemovedPayload(**message.payload)
+        payload_models = {
+            "message_created": MessageCreatedPayload,
+            "room_added": RoomAddedPayload,
+            "room_removed": RoomRemovedPayload,
+            "participant_added": ParticipantAddedPayload,
+            "participant_removed": ParticipantRemovedPayload,
+        }
+
+        model = payload_models.get(message.event)
+        if model is not None:
+            try:
+                validated = model(**message.payload)
+            except ValidationError as e:
+                errors = "; ".join(
+                    f"{'.'.join(str(x) for x in err['loc'])}: {err['msg']}"
+                    for err in e.errors()
+                )
+                logger.error(
+                    "[WebSocket] Invalid %s payload: %s (raw: %s)",
+                    message.event,
+                    errors,
+                    message.payload,
+                )
+                return
         else:
-            # For other events (participant_added, participant_removed, etc.)
-            # pass the raw payload dict
+            # Unknown event types: pass the raw payload dict
             validated = message.payload
 
         callback = event_handlers[message.event]
@@ -206,8 +223,8 @@ class WebSocketClient:
     async def join_room_participants_channel(
         self,
         chat_room_id: str,
-        on_participant_added: Callable[[dict], Awaitable[None]],
-        on_participant_removed: Callable[[dict], Awaitable[None]],
+        on_participant_added: Callable[[ParticipantAddedPayload], Awaitable[None]],
+        on_participant_removed: Callable[[ParticipantRemovedPayload], Awaitable[None]],
     ):
         """Subscribe to room participants topic with async callbacks"""
         topic = f"room_participants:{chat_room_id}"

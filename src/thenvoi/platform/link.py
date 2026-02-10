@@ -27,6 +27,8 @@ from .event import (
 if TYPE_CHECKING:
     from thenvoi.client.streaming import (
         MessageCreatedPayload,
+        ParticipantAddedPayload,
+        ParticipantRemovedPayload,
         RoomAddedPayload,
         RoomRemovedPayload,
     )
@@ -260,31 +262,33 @@ class ThenvoiLink:
         )
         self._queue_event(event)
 
-    async def _on_participant_added(self, room_id: str, payload: dict) -> None:
+    async def _on_participant_added(
+        self, room_id: str, payload: "ParticipantAddedPayload"
+    ) -> None:
         """
         Handle participant_added from WebSocket.
 
         From ThenvoiAgent._on_participant_added() lines 771-786.
+        Payload is already validated by WebSocketClient._handle_events().
         """
-        from thenvoi.client.streaming import ParticipantAddedPayload
-
         event = ParticipantAddedEvent(
             room_id=room_id,
-            payload=ParticipantAddedPayload(**payload),
+            payload=payload,
         )
         self._queue_event(event)
 
-    async def _on_participant_removed(self, room_id: str, payload: dict) -> None:
+    async def _on_participant_removed(
+        self, room_id: str, payload: "ParticipantRemovedPayload"
+    ) -> None:
         """
         Handle participant_removed from WebSocket.
 
         From ThenvoiAgent._on_participant_removed() lines 788-805.
+        Payload is already validated by WebSocketClient._handle_events().
         """
-        from thenvoi.client.streaming import ParticipantRemovedPayload
-
         event = ParticipantRemovedEvent(
             room_id=room_id,
-            payload=ParticipantRemovedPayload(**payload),
+            payload=payload,
         )
         self._queue_event(event)
 
