@@ -1,4 +1,11 @@
-"""Tests for AnthropicAdapter."""
+"""Tests for AnthropicAdapter.
+
+Tests for shared adapter behavior (initialization defaults, custom kwargs,
+history_converter, on_started agent_name/description, on_message callable,
+cleanup safety) live in tests/framework_conformance/test_adapter_conformance.py.
+This file contains Anthropic-specific behavior: system prompt rendering,
+message history management, tool execution, custom tools, and error handling.
+"""
 
 from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -59,8 +66,6 @@ class TestOnStarted:
 
         await adapter.on_started(agent_name="TestBot", agent_description="A test bot")
 
-        assert adapter.agent_name == "TestBot"
-        assert adapter.agent_description == "A test bot"
         assert adapter._system_prompt != ""
         assert "TestBot" in adapter._system_prompt
 

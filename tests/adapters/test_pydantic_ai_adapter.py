@@ -1,4 +1,11 @@
-"""Tests for PydanticAIAdapter."""
+"""Tests for PydanticAIAdapter.
+
+Tests for shared adapter behavior (initialization defaults, custom kwargs,
+history_converter, on_message callable, cleanup safety) live in
+tests/framework_conformance/test_adapter_conformance.py.
+This file contains PydanticAI-specific behavior: agent creation, tool registration,
+stream event handling, execution reporting, and custom tools.
+"""
 
 from datetime import datetime, timezone
 from typing import AsyncIterator

@@ -1,4 +1,11 @@
-"""Tests for CrewAIAdapter."""
+"""Tests for CrewAIAdapter.
+
+Tests for shared adapter behavior (initialization defaults, custom kwargs,
+history_converter, on_started agent_name/description, on_message callable,
+cleanup safety) live in tests/framework_conformance/test_adapter_conformance.py.
+This file contains CrewAI-specific behavior: CrewAI agent creation, role/goal/backstory,
+platform tools, tool execution, verbose mode, delegation, and custom tools.
+"""
 
 from __future__ import annotations
 
@@ -177,8 +184,6 @@ class TestOnStarted:
         adapter = CrewAIAdapter()
         await adapter.on_started(agent_name="TestBot", agent_description="A test bot")
 
-        assert adapter.agent_name == "TestBot"
-        assert adapter.agent_description == "A test bot"
         crewai_mocks.Agent.assert_called_once()
 
     @pytest.mark.asyncio

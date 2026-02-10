@@ -1,4 +1,11 @@
-"""Tests for ParlantAdapter with official Parlant SDK."""
+"""Tests for ParlantAdapter with official Parlant SDK.
+
+Tests for shared adapter behavior (initialization defaults, custom kwargs,
+history_converter, on_started agent_name/description, on_message callable,
+cleanup safety) live in tests/framework_conformance/test_adapter_conformance.py.
+This file contains Parlant-specific behavior: server/agent initialization,
+Application container, session management, history injection, and error handling.
+"""
 
 from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -86,9 +93,6 @@ class TestInitialization:
 
         assert adapter._server is mock_parlant_server
         assert adapter._parlant_agent is mock_parlant_agent
-        assert adapter.system_prompt is None
-        assert adapter.custom_section is None
-        assert adapter.history_converter is not None
 
     def test_internal_state_initialized(self, mock_parlant_server, mock_parlant_agent):
         """Should initialize internal state correctly."""
@@ -138,8 +142,6 @@ class TestOnStarted:
                 agent_name="TestBot", agent_description="A test bot"
             )
 
-        assert adapter.agent_name == "TestBot"
-        assert adapter.agent_description == "A test bot"
         assert adapter._system_prompt != ""
         assert "TestBot" in adapter._system_prompt
 

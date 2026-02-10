@@ -1,4 +1,11 @@
-"""Tests for ClaudeSDKAdapter."""
+"""Tests for ClaudeSDKAdapter.
+
+Tests for shared adapter behavior (initialization defaults, custom kwargs,
+history_converter, on_message callable, cleanup safety) live in
+tests/framework_conformance/test_adapter_conformance.py.
+This file contains ClaudeSDK-specific behavior: MCP server/session manager
+creation, room tools storage, SDK query invocation, and custom tools.
+"""
 
 from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
