@@ -109,17 +109,18 @@ def pytest_collection_modifyitems(config, items):
 
     def keep(item):
         nodeid = item.nodeid
+        # Extract file path (before "::") so we match exact filenames, not
+        # substrings (e.g. test_adapter_conformance_extra.py would not match).
+        file_part = nodeid.split("::", 1)[0].replace("\\", "/")
         # Conformance: parametrized ids always appear as the final [...] suffix.
-        # Match on trailing bracket to avoid false-matching test names that
-        # happen to contain a framework id as a substring.
-        if "framework_conformance/test_adapter_conformance" in nodeid:
+        if file_part.endswith("framework_conformance/test_adapter_conformance.py"):
             return nodeid.endswith(f"[{adapter_id}]")
-        if "framework_conformance/test_converter_conformance" in nodeid:
+        if file_part.endswith("framework_conformance/test_converter_conformance.py"):
             return nodeid.endswith(f"[{converter_id}]")
         # Framework-specific adapter/converter test files
-        if f"adapters/{adapter_file}" in nodeid:
+        if file_part.endswith(f"adapters/{adapter_file}"):
             return True
-        if f"converters/{converter_file}" in nodeid:
+        if file_part.endswith(f"converters/{converter_file}"):
             return True
         return False
 

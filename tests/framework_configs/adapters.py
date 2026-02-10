@@ -28,6 +28,12 @@ def _default_from_init(cls: type, param: str, fallback: Any = _MISSING) -> Any:
     Keeps test configs in sync with adapter source automatically — no need
     to hard-code model strings or other defaults here.
 
+    Relies on ``inspect.signature(cls.__init__)``. It does not work for
+    classes that use ``__init_subclass__``, custom metaclasses, or
+    constructor patterns that hide defaults (e.g. attrs, Pydantic). If an
+    adapter switches to such a pattern, expected_initial_values must be
+    updated manually or a fallback passed.
+
     If the parameter is not found (e.g. the adapter accepts ``**kwargs``
     and forwards it to an underlying client), *fallback* is returned when
     provided.  Without a fallback, ``ValueError`` is raised.
@@ -256,6 +262,7 @@ def _build_adapter_configs() -> list[AdapterConfig]:
     only when the conformance tests actually need them."""
     from thenvoi.adapters.anthropic import AnthropicAdapter
     from thenvoi.adapters.claude_sdk import ClaudeSDKAdapter
+    from thenvoi.adapters.langgraph import LangGraphAdapter
     from thenvoi.adapters.parlant import ParlantAdapter
     from thenvoi.adapters.pydantic_ai import PydanticAIAdapter
 
@@ -291,8 +298,12 @@ def _build_adapter_configs() -> list[AdapterConfig]:
             display_name="LangGraph",
             adapter_factory=_langgraph_factory,
             expected_initial_values={
-                "prompt_template": "default",
-                "custom_section": "",
+                "prompt_template": _default_from_init(
+                    LangGraphAdapter, "prompt_template"
+                ),
+                "custom_section": _default_from_init(
+                    LangGraphAdapter, "custom_section"
+                ),
             },
             custom_kwargs={
                 "custom_section": "Be helpful.",

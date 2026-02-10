@@ -170,6 +170,8 @@ class PydanticAIOutputAdapter:
             ModelRequest,
             ModelResponse,
             TextPart,
+            ToolCallPart,
+            ToolReturnPart,
             UserPromptPart,
         )
 
@@ -178,11 +180,21 @@ class PydanticAIOutputAdapter:
             for part in msg.parts:
                 if isinstance(part, UserPromptPart):
                     return part.content
+                if isinstance(part, ToolReturnPart) and part.content:
+                    return part.content
         if isinstance(msg, ModelResponse):
             for part in msg.parts:
                 if isinstance(part, TextPart):
                     return part.content
-        return str(msg)
+                if isinstance(part, ToolReturnPart) and part.content:
+                    return part.content
+                if isinstance(part, ToolCallPart) and part.tool_name:
+                    return part.tool_name
+        raise ValueError(
+            f"No UserPromptPart, TextPart, ToolReturnPart, or ToolCallPart with "
+            f"content found in message at index {index} (type={type(msg).__name__}). "
+            "This may indicate a converter bug."
+        )
 
     def get_role(self, result: list, index: int) -> str:
         from pydantic_ai.messages import ModelRequest, ModelResponse
@@ -272,6 +284,11 @@ class StringOutputAdapter:
 
     Lines that do not match either pattern are treated as continuations of
     the previous message (e.g. multi-line text content).
+
+    Note: ``result_length()``, ``get_content()``, and ``content_contains()``
+    each call ``_split_messages`` internally; the result is not cached. For
+    small inputs (e.g. conformance tests) this is fine. For large strings,
+    callers may want to split once and work with the list.
     """
 
     # Matches the sender prefix at the start of a text message.
