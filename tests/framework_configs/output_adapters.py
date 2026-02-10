@@ -169,6 +169,29 @@ class LangChainOutputAdapter:
 class PydanticAIOutputAdapter:
     """Adapter for PydanticAI converter output (list of ModelRequest/ModelResponse)."""
 
+    _message_types: Any = None  # Cached pydantic_ai.messages types (lazy)
+
+    @classmethod
+    def _get_message_types(cls) -> Any:
+        if cls._message_types is None:
+            from pydantic_ai.messages import (
+                ModelRequest,
+                ModelResponse,
+                TextPart,
+                ToolCallPart,
+                ToolReturnPart,
+                UserPromptPart,
+            )
+            cls._message_types = (
+                ModelRequest,
+                ModelResponse,
+                TextPart,
+                ToolCallPart,
+                ToolReturnPart,
+                UserPromptPart,
+            )
+        return cls._message_types
+
     def assert_result_type(self, result: list) -> None:
         assert isinstance(result, list), f"Expected list, got {type(result).__name__}"
 
@@ -176,14 +199,14 @@ class PydanticAIOutputAdapter:
         return len(result)
 
     def get_content(self, result: list, index: int) -> str:
-        from pydantic_ai.messages import (
+        (
             ModelRequest,
             ModelResponse,
             TextPart,
             ToolCallPart,
             ToolReturnPart,
             UserPromptPart,
-        )
+        ) = self._get_message_types()
 
         msg = result[index]
         if isinstance(msg, ModelRequest):
@@ -205,7 +228,8 @@ class PydanticAIOutputAdapter:
         )
 
     def get_role(self, result: list, index: int) -> str:
-        from pydantic_ai.messages import ModelRequest, ModelResponse
+        types_ = self._get_message_types()
+        ModelRequest, ModelResponse = types_[0], types_[1]
 
         msg = result[index]
         if isinstance(msg, ModelRequest):
@@ -218,14 +242,14 @@ class PydanticAIOutputAdapter:
         return len(result) == 0
 
     def content_contains(self, result: list, substring: str) -> bool:
-        from pydantic_ai.messages import (
+        (
             ModelRequest,
             ModelResponse,
             TextPart,
             ToolCallPart,
             ToolReturnPart,
             UserPromptPart,
-        )
+        ) = self._get_message_types()
 
         for msg in result:
             if isinstance(msg, ModelRequest):
@@ -247,7 +271,9 @@ class PydanticAIOutputAdapter:
         return False
 
     def assert_element_type(self, result: list, index: int, expected_role: str) -> None:
-        from pydantic_ai.messages import ModelRequest, ModelResponse, UserPromptPart
+        types_ = self._get_message_types()
+        ModelRequest, ModelResponse = types_[0], types_[1]
+        UserPromptPart = types_[5]
 
         msg = result[index]
         if expected_role == "user":

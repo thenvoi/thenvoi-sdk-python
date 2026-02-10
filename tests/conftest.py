@@ -38,10 +38,9 @@ from thenvoi.platform.event import (
 )
 from thenvoi.runtime.types import PlatformMessage
 
-# Placed after SDK imports to satisfy ruff E402 (module-level import not at top).
-# thenvoi_testing is an auto-registered pytest plugin that lives outside the
-# SDK package; ruff treats it as a separate import group that must not precede
-# the SDK's own imports.
+# E402: module-level import not at top of file. thenvoi_testing is a pytest
+# plugin with side effects on import (e.g. registers markers); it is imported
+# here after SDK imports so the plugin runs in the intended order.
 from thenvoi_testing.markers import pytest_ignore_collect_in_ci as _ignore_collect_in_ci
 
 

@@ -15,6 +15,8 @@ from typing import TYPE_CHECKING, Any, Callable
 if TYPE_CHECKING:
     from tests.framework_configs.output_adapters import OutputAdapter
 
+from tests.framework_configs._sentinel import IN_CI
+
 __all__ = ["ConverterConfig", "CONVERTER_CONFIGS", "SenderBehavior"]
 
 # Populated lazily via __getattr__ to avoid top-level converter imports.
@@ -230,8 +232,6 @@ def _build_converter_configs() -> list[ConverterConfig]:
     tested.  In CI, failures are raised immediately to surface broken configs.
     """
     import logging
-
-    from tests.framework_configs._sentinel import IN_CI
 
     logger = logging.getLogger(__name__)
     configs: list[ConverterConfig] = []

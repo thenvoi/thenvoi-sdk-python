@@ -159,6 +159,8 @@ def _get_crewai_adapter_cls() -> type:
             cls = importlib.import_module(adapter_module_name).CrewAIAdapter
 
         # Remove adapter module so non-conformance imports aren't polluted.
+        # Safe for the broader suite: framework-specific tests (e.g. test_crewai_adapter.py)
+        # do their own mocking via fixtures and never rely on this conformance-only import.
         sys.modules.pop(adapter_module_name, None)
 
     # Mark the class as conformance-only so accidental runtime use is detectable.
@@ -175,6 +177,10 @@ async def _crewai_conformance_guard(*_args: Any, **_kw: Any) -> None:
 
 def _crewai_factory(**kw: Any) -> Any:
     cls = _get_crewai_adapter_cls()
+    assert getattr(cls, "_CONFORMANCE_ONLY", False), (
+        "CrewAI adapter used here is for conformance config only; "
+        "use tests/adapters/test_crewai_adapter.py fixtures for runtime tests."
+    )
     instance = cls(**kw)
     # Guard runtime methods that would silently operate on MagicMock objects.
     for method_name in ("on_message", "_invoke_crew"):

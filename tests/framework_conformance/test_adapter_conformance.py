@@ -47,7 +47,12 @@ class TestAdapterInitialization:
     """All adapters share common initialization patterns."""
 
     def test_default_initialization(self, adapter_config):
-        """Adapter defaults match expected values."""
+        """Adapter defaults match expected values.
+
+        For PydanticAI, ``expected_initial_values["model"]`` verifies that the
+        conformance factory injects the model kwarg correctly, not a real
+        adapter default (the adapter has no default for model).
+        """
         adapter = adapter_config.adapter_factory()
 
         for attr_name, expected in adapter_config.expected_initial_values.items():

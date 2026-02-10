@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-import os
+from os import environ
 
 
 class _MissingSentinel:
@@ -16,4 +16,4 @@ class _MissingSentinel:
 
 MISSING = _MissingSentinel()
 
-IN_CI = bool(os.environ.get("CI") or os.environ.get("GITHUB_ACTIONS"))
+IN_CI = bool(environ.get("CI") or environ.get("GITHUB_ACTIONS"))

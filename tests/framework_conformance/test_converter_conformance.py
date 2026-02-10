@@ -536,9 +536,14 @@ class TestToolEventConversion:
         # "found" only appears in TOOL_RESULT_SEARCH_FOUND so it won't
         # false-match the user text.
         assert "[Alice]" in output.get_content(result, 0)
-        found_idx = next(
+        found_indices = [
             i for i in range(length) if "found" in output.get_content(result, i)
+        ]
+        assert found_indices, (
+            "Ordering check failed: no message contained 'found'; "
+            "expected tool result content in converter output."
         )
+        found_idx = found_indices[0]
         assert 0 < found_idx, (
             f"User message (index 0) must precede tool result (index {found_idx})"
         )
