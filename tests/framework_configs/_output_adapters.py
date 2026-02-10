@@ -260,6 +260,10 @@ class StringOutputAdapter:
     message is kept as part of that message's content.
     """
 
+    # WARNING: This regex incorrectly splits when a JSON *value* contains
+    # the literal sequence ``\n[`` or ``\n{``.  This is a known limitation
+    # documented (and asserted) in test_json_with_embedded_newline_bracket
+    # in tests/framework_configs/test_output_adapters.py.
     _BOUNDARY_RE = re.compile(r"\n(?=\[|{)")
 
     @classmethod

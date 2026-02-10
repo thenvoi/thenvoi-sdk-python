@@ -14,6 +14,12 @@ from tests.framework_configs._output_adapters import (
     SimpleDictListOutputAdapter,
     StringOutputAdapter,
 )
+from tests.framework_configs.converters import CONVERTER_CONFIGS
+
+
+def _converter_configs_that_process_tools():
+    """Return ConverterConfigs that do NOT skip tool events."""
+    return [c for c in CONVERTER_CONFIGS if not c.skips_tool_events]
 
 
 # ---------------------------------------------------------------------------
@@ -269,3 +275,39 @@ class TestSimpleDictListOutputAdapter:
         result = [{"role": "user", "content": "hi"}]
         with pytest.raises(AssertionError, match="Expected role='assistant'"):
             adapter.assert_element_type(result, 0, "assistant")
+
+
+# ---------------------------------------------------------------------------
+# Fixture payload validation
+# ---------------------------------------------------------------------------
+
+
+class TestFixturePayloadValidation:
+    """Verify that the shared fixture payloads satisfy every non-tool-skipping converter.
+
+    This catches the scenario where a new converter is added but the shared
+    tool-event payloads in _fixtures.py don't contain the keys it needs.
+    """
+
+    @pytest.fixture(
+        params=_converter_configs_that_process_tools(), ids=lambda c: c.framework_id
+    )
+    def converter_config(self, request):
+        return request.param
+
+    def test_shared_fixture_produces_nonempty_output(self, converter_config):
+        """converter.convert([TOOL_CALL_SEARCH, TOOL_RESULT_SEARCH]) must produce non-empty output."""
+        from tests.framework_configs._fixtures import (
+            TOOL_CALL_SEARCH,
+            TOOL_RESULT_SEARCH,
+        )
+
+        converter = converter_config.converter_factory()
+        result = converter.convert([TOOL_CALL_SEARCH, TOOL_RESULT_SEARCH])
+
+        adapter = converter_config.output_adapter
+        assert not adapter.is_empty(result), (
+            f"{converter_config.display_name} converter produced empty output "
+            f"from shared fixture payloads — check that _fixtures.py includes "
+            f"the keys this converter reads"
+        )

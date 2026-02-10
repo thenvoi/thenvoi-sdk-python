@@ -42,6 +42,10 @@ from thenvoi.platform.event import (
     ParticipantRemovedEvent,
 )
 from thenvoi.runtime.types import PlatformMessage
+
+# Imported after SDK imports to satisfy E402 (module-level import not at top).
+# thenvoi_testing is an auto-registered pytest plugin; its markers module must
+# be imported after the SDK types above so that both packages are on sys.path.
 from thenvoi_testing.markers import pytest_ignore_collect_in_ci as _ignore_collect_in_ci
 
 

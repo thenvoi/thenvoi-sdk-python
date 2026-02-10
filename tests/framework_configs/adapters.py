@@ -43,8 +43,10 @@ class AdapterConfig:
     # Factory: (**kwargs) -> adapter instance (handles mocking internally)
     adapter_factory: Callable[..., Any]
 
-    # {attr_name: expected_default} for test_default_initialization
-    default_values: dict[str, Any] = field(default_factory=dict)
+    # {attr_name: expected_value} verified by test_default_initialization.
+    # For most adapters these are true defaults from __init__; for PydanticAI
+    # ``model`` is a required kwarg injected by the factory (not a real default).
+    expected_initial_values: dict[str, Any] = field(default_factory=dict)
 
     # For test_custom_initialization
     custom_kwargs: dict[str, Any] = field(default_factory=dict)
@@ -232,7 +234,7 @@ def _build_adapter_configs() -> list[AdapterConfig]:
             framework_id="anthropic",
             display_name="Anthropic",
             adapter_factory=_anthropic_factory,
-            default_values={
+            expected_initial_values={
                 "model": _default_from_init(AnthropicAdapter, "model"),
                 "max_tokens": _default_from_init(AnthropicAdapter, "max_tokens"),
                 "enable_execution_reporting": _default_from_init(
@@ -256,7 +258,7 @@ def _build_adapter_configs() -> list[AdapterConfig]:
             framework_id="langgraph",
             display_name="LangGraph",
             adapter_factory=_langgraph_factory,
-            default_values={
+            expected_initial_values={
                 "prompt_template": "default",
                 "custom_section": "",
             },
@@ -274,7 +276,7 @@ def _build_adapter_configs() -> list[AdapterConfig]:
             framework_id="crewai",
             display_name="CrewAI",
             adapter_factory=_crewai_factory,
-            default_values={
+            expected_initial_values={
                 "model": _default_from_init(crewai_cls, "model"),
                 "role": _default_from_init(crewai_cls, "role"),
                 "goal": _default_from_init(crewai_cls, "goal"),
@@ -315,7 +317,7 @@ def _build_adapter_configs() -> list[AdapterConfig]:
             framework_id="claude_sdk",
             display_name="ClaudeSDK",
             adapter_factory=_claude_sdk_factory,
-            default_values={
+            expected_initial_values={
                 "model": _default_from_init(ClaudeSDKAdapter, "model"),
                 "custom_section": _default_from_init(
                     ClaudeSDKAdapter, "custom_section"
@@ -349,7 +351,7 @@ def _build_adapter_configs() -> list[AdapterConfig]:
             framework_id="pydantic_ai",
             display_name="PydanticAI",
             adapter_factory=_pydantic_ai_factory,
-            default_values={
+            expected_initial_values={
                 # model is a required kwarg (no default); the factory injects
                 # _PYDANTIC_AI_INJECTED_MODEL so the conformance test verifies
                 # that the injected value is stored, not that a default exists.
@@ -380,7 +382,7 @@ def _build_adapter_configs() -> list[AdapterConfig]:
             framework_id="parlant",
             display_name="Parlant",
             adapter_factory=_parlant_factory,
-            default_values={
+            expected_initial_values={
                 "system_prompt": _default_from_init(ParlantAdapter, "system_prompt"),
                 "custom_section": _default_from_init(ParlantAdapter, "custom_section"),
             },

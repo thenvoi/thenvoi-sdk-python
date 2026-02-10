@@ -17,7 +17,7 @@ class TestAdapterInitialization:
         """Adapter defaults match expected values."""
         adapter = adapter_config.adapter_factory()
 
-        for attr_name, expected in adapter_config.default_values.items():
+        for attr_name, expected in adapter_config.expected_initial_values.items():
             actual = getattr(adapter, attr_name)
             assert actual == expected, (
                 f"{adapter_config.display_name}.{attr_name}: "
