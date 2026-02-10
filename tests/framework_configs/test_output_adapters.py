@@ -46,9 +46,7 @@ class TestStringOutputAdapterSplitMessages:
 
     def test_preserves_newline_inside_plain_text(self):
         """Newlines not followed by [ or { stay within the message."""
-        result = StringOutputAdapter._split_messages(
-            "[Alice]: Line one\nLine two"
-        )
+        result = StringOutputAdapter._split_messages("[Alice]: Line one\nLine two")
         assert result == ["[Alice]: Line one\nLine two"]
 
     def test_json_with_embedded_newline(self):
@@ -213,7 +211,9 @@ class TestSimpleDictListOutputAdapter:
 
     def test_result_length(self):
         adapter = SimpleDictListOutputAdapter()
-        result = [{"role": "user", "content": "hi", "sender": "A", "sender_type": "User"}]
+        result = [
+            {"role": "user", "content": "hi", "sender": "A", "sender_type": "User"}
+        ]
         assert adapter.result_length(result) == 1
 
     def test_get_content(self):
