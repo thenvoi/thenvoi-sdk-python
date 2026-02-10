@@ -389,6 +389,7 @@ def _build_adapter_configs() -> list[AdapterConfig]:
                 "permission_mode": "bypassPermissions",
                 "enable_execution_reporting": True,
             },
+            skip_on_started_conformance=True,  # on_started creates real MCP server + ClaudeSessionManager; tested in test_claude_sdk_adapter
         ),
         AdapterConfig(
             framework_id="pydantic_ai",

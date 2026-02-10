@@ -413,13 +413,14 @@ class TestOutputShape:
                 "role": "assistant",
                 "content": "Here's what I found.",
                 "sender_name": "Research Agent",
+                "sender_type": "Agent",
                 "message_type": "text",
             }
         ]
 
         result = converter.convert(raw)
 
-        output.assert_sender_metadata(result, 0, "Research Agent")
+        output.assert_sender_metadata(result, 0, "Research Agent", "Agent")
 
 
 class TestToolEventHandling:
