@@ -19,7 +19,7 @@ from tests.framework_configs.output_adapters import (
     LangChainOutputAdapter,
     OutputAdapter,
     PydanticAIOutputAdapter,
-    SimpleDictListOutputAdapter,
+    SenderMetadataDictListOutputAdapter,
     StringOutputAdapter,
 )
 
@@ -153,7 +153,7 @@ def _build_converter_configs() -> list[ConverterConfig]:
             # remapping them to user, because its crew workflow expects all agent
             # outputs to carry the "assistant" role.
             other_agent_output_role="assistant",
-            output_adapter=SimpleDictListOutputAdapter(),
+            output_adapter=SenderMetadataDictListOutputAdapter(),
         ),
         ConverterConfig(
             framework_id="claude_sdk",
@@ -190,7 +190,7 @@ def _build_converter_configs() -> list[ConverterConfig]:
             # session model treats all bot-originated messages uniformly; remapping
             # to "user" would break the Parlant conversation contract.
             other_agent_output_role="assistant",
-            output_adapter=SimpleDictListOutputAdapter(),
+            output_adapter=SenderMetadataDictListOutputAdapter(),
         ),
     ]
 

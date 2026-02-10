@@ -361,8 +361,13 @@ class StringOutputAdapter:
         )
 
 
-class SimpleDictListOutputAdapter(BaseDictListOutputAdapter):
-    """Adapter for CrewAI/Parlant converter output (list[dict] with sender/sender_type)."""
+class SenderMetadataDictListOutputAdapter(BaseDictListOutputAdapter):
+    """Adapter for CrewAI/Parlant converter output (list[dict] with sender/sender_type).
+
+    Unlike ``DictListOutputAdapter`` (Anthropic), which handles tool_use content
+    blocks but has no sender metadata, this adapter supports ``sender`` and
+    ``sender_type`` fields on each message dict.
+    """
 
     def assert_sender_metadata(
         self,

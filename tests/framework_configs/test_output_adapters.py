@@ -23,7 +23,7 @@ from tests.framework_configs.fixtures import (
 )
 from tests.framework_configs.output_adapters import (
     DictListOutputAdapter,
-    SimpleDictListOutputAdapter,
+    SenderMetadataDictListOutputAdapter,
     StringOutputAdapter,
 )
 
@@ -228,51 +228,51 @@ class TestDictListOutputAdapter:
 
 
 # ---------------------------------------------------------------------------
-# SimpleDictListOutputAdapter
+# SenderMetadataDictListOutputAdapter
 # ---------------------------------------------------------------------------
 
 
-class TestSimpleDictListOutputAdapter:
+class TestSenderMetadataDictListOutputAdapter:
     """Tests for CrewAI/Parlant-style dict list adapter."""
 
     def test_result_length(self):
-        adapter = SimpleDictListOutputAdapter()
+        adapter = SenderMetadataDictListOutputAdapter()
         result = [
             {"role": "user", "content": "hi", "sender": "A", "sender_type": "User"}
         ]
         assert adapter.result_length(result) == 1
 
     def test_get_content(self):
-        adapter = SimpleDictListOutputAdapter()
+        adapter = SenderMetadataDictListOutputAdapter()
         result = [{"role": "user", "content": "Hello", "sender": "A"}]
         assert adapter.get_content(result, 0) == "Hello"
 
     def test_get_role(self):
-        adapter = SimpleDictListOutputAdapter()
+        adapter = SenderMetadataDictListOutputAdapter()
         result = [{"role": "assistant", "content": "hi"}]
         assert adapter.get_role(result, 0) == "assistant"
 
     def test_content_contains(self):
-        adapter = SimpleDictListOutputAdapter()
+        adapter = SenderMetadataDictListOutputAdapter()
         result = [{"role": "user", "content": "Hello world"}]
         assert adapter.content_contains(result, "Hello") is True
         assert adapter.content_contains(result, "missing") is False
 
     def test_assert_sender_metadata_passes(self):
-        adapter = SimpleDictListOutputAdapter()
+        adapter = SenderMetadataDictListOutputAdapter()
         result = [
             {"role": "user", "content": "hi", "sender": "Alice", "sender_type": "User"}
         ]
         adapter.assert_sender_metadata(result, 0, "Alice", "User")
 
     def test_assert_sender_metadata_wrong_sender(self):
-        adapter = SimpleDictListOutputAdapter()
+        adapter = SenderMetadataDictListOutputAdapter()
         result = [{"role": "user", "content": "hi", "sender": "Alice"}]
         with pytest.raises(AssertionError, match="Expected sender='Bob'"):
             adapter.assert_sender_metadata(result, 0, "Bob")
 
     def test_assert_sender_metadata_wrong_sender_type(self):
-        adapter = SimpleDictListOutputAdapter()
+        adapter = SenderMetadataDictListOutputAdapter()
         result = [
             {"role": "user", "content": "hi", "sender": "Alice", "sender_type": "User"}
         ]
@@ -280,18 +280,18 @@ class TestSimpleDictListOutputAdapter:
             adapter.assert_sender_metadata(result, 0, "Alice", "Agent")
 
     def test_assert_sender_metadata_skips_type_when_none(self):
-        adapter = SimpleDictListOutputAdapter()
+        adapter = SenderMetadataDictListOutputAdapter()
         result = [{"role": "user", "content": "hi", "sender": "Alice"}]
         # Should not raise -- sender_type check is skipped when None
         adapter.assert_sender_metadata(result, 0, "Alice")
 
     def test_assert_element_type_passes(self):
-        adapter = SimpleDictListOutputAdapter()
+        adapter = SenderMetadataDictListOutputAdapter()
         result = [{"role": "user", "content": "hi"}]
         adapter.assert_element_type(result, 0, "user")
 
     def test_assert_element_type_wrong_role(self):
-        adapter = SimpleDictListOutputAdapter()
+        adapter = SenderMetadataDictListOutputAdapter()
         result = [{"role": "user", "content": "hi"}]
         with pytest.raises(AssertionError, match="Expected role='assistant'"):
             adapter.assert_element_type(result, 0, "assistant")
