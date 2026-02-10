@@ -23,6 +23,21 @@ from tests.framework_configs.fixtures import (
 )
 from tests.framework_configs.converters import SenderBehavior
 
+# Expected content for each SenderBehavior when the raw content is "Hello!".
+_SENDER_BEHAVIOR_EXPECTED: dict[SenderBehavior, str] = {
+    SenderBehavior.CONTENT_AS_IS: "Hello!",
+    SenderBehavior.BRACKETS_EMPTY: "[]: Hello!",
+    SenderBehavior.UNKNOWN_PREFIX: "[Unknown]: Hello!",
+}
+
+
+def _assert_sender_content(content: str, behavior: SenderBehavior) -> None:
+    """Assert *content* matches the expected value for *behavior*."""
+    expected = _SENDER_BEHAVIOR_EXPECTED[behavior]
+    assert content == expected, (
+        f"{behavior.name}: expected {expected!r}, got {content!r}"
+    )
+
 
 class TestUserTextMessages:
     """All converters must handle user text messages consistently."""
@@ -61,22 +76,9 @@ class TestUserTextMessages:
         result = converter.convert(raw)
 
         assert output.result_length(result) == 1
-        content = output.get_content(result, 0)
-        behavior = converter_config.empty_sender_behavior
-        if behavior is SenderBehavior.CONTENT_AS_IS:
-            assert content == "Hello!", (
-                f"CONTENT_AS_IS: expected exact 'Hello!', got {content!r}"
-            )
-        elif behavior is SenderBehavior.BRACKETS_EMPTY:
-            assert content == "[]: Hello!", (
-                f"BRACKETS_EMPTY: expected '[]: Hello!', got {content!r}"
-            )
-        elif behavior is SenderBehavior.UNKNOWN_PREFIX:
-            assert content == "[Unknown]: Hello!", (
-                f"UNKNOWN_PREFIX: expected '[Unknown]: Hello!', got {content!r}"
-            )
-        else:
-            raise ValueError(f"Unknown empty_sender_behavior: {behavior!r}")
+        _assert_sender_content(
+            output.get_content(result, 0), converter_config.empty_sender_behavior
+        )
 
     def test_handles_missing_sender_name(
         self, converter_config, make_converter, output
@@ -94,22 +96,9 @@ class TestUserTextMessages:
         result = converter.convert(raw)
 
         assert output.result_length(result) == 1
-        content = output.get_content(result, 0)
-        behavior = converter_config.missing_sender_behavior
-        if behavior is SenderBehavior.CONTENT_AS_IS:
-            assert content == "Hello!", (
-                f"CONTENT_AS_IS: expected exact 'Hello!', got {content!r}"
-            )
-        elif behavior is SenderBehavior.BRACKETS_EMPTY:
-            assert content == "[]: Hello!", (
-                f"BRACKETS_EMPTY: expected '[]: Hello!', got {content!r}"
-            )
-        elif behavior is SenderBehavior.UNKNOWN_PREFIX:
-            assert content == "[Unknown]: Hello!", (
-                f"UNKNOWN_PREFIX: expected '[Unknown]: Hello!', got {content!r}"
-            )
-        else:
-            raise ValueError(f"Unknown missing_sender_behavior: {behavior!r}")
+        _assert_sender_content(
+            output.get_content(result, 0), converter_config.missing_sender_behavior
+        )
 
 
 class TestEmptyHistory:

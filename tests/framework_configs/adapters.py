@@ -114,6 +114,15 @@ def _langgraph_factory(**kw: Any) -> Any:
 
 
 class _MockBaseTool:
+    """Minimal stand-in for ``crewai.tools.BaseTool`` used only at import time.
+
+    The CrewAI adapter module does ``from crewai.tools import BaseTool`` and
+    later subclasses it.  This class provides just enough for the import to
+    succeed.  It is never instantiated in conformance tests — only the
+    *class object* is referenced as a base class.  Class-level annotations
+    (not instance attrs) are intentional for this reason.
+    """
+
     name: str = ""
     description: str = ""
 
