@@ -188,7 +188,7 @@ class WebSocketClient:
         if callback:
             try:
                 await callback(validated)
-            except Exception:
+            except Exception:  # noqa: BLE001 – intentionally broad; CancelledError (BaseException) still propagates
                 logger.exception(
                     "[WebSocket] Callback error for %s event", message.event
                 )
