@@ -10,7 +10,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from datetime import datetime, timezone
-from typing import TYPE_CHECKING, Set
+from typing import TYPE_CHECKING
 
 from thenvoi.client.rest import AsyncRestClient, DEFAULT_REQUEST_OPTIONS
 from thenvoi.client.streaming import WebSocketClient
@@ -80,7 +80,7 @@ class ThenvoiLink:
         self._is_connected = False
 
         # Subscription tracking (from ThenvoiAgent._subscribed_rooms)
-        self._subscribed_rooms: Set[str] = set()
+        self._subscribed_rooms: set[str] = set()
 
         # Event queue for async iteration
         self._event_queue: asyncio.Queue[PlatformEvent] = asyncio.Queue(maxsize=1000)
