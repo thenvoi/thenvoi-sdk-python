@@ -127,7 +127,7 @@ class WebSocketClient:
     def reset_validation_error_count(self) -> int:
         """Reset the validation error counter and return the previous value.
 
-        Useful for periodic metric flushes (atomic read-and-reset).
+        Useful for periodic metric flushes (non-atomic, safe for single event loop).
         """
         count = self._validation_error_count
         self._validation_error_count = 0
