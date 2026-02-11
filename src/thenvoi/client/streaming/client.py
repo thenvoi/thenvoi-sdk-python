@@ -123,6 +123,10 @@ class WebSocketClient:
         """Number of events dropped due to payload validation errors."""
         return self._validation_error_count
 
+    def reset_validation_error_count(self) -> None:
+        """Reset the validation error counter (e.g. after periodic metric flush)."""
+        self._validation_error_count = 0
+
     async def __aenter__(self):
         """Create and enter the PHXChannelsClient context"""
         self.client = PHXChannelsClient(
@@ -182,7 +186,12 @@ class WebSocketClient:
 
         callback = event_handlers[message.event]
         if callback:
-            await callback(validated)
+            try:
+                await callback(validated)
+            except Exception:
+                logger.exception(
+                    "[WebSocket] Callback error for %s event", message.event
+                )
 
     async def join_agent_rooms_channel(
         self,

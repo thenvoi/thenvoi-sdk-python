@@ -102,7 +102,7 @@ async def test_skips_invalid_participant_added_payload(caplog):
         event = "participant_added"
         payload = {
             "id": "p-123",
-            # Missing: name, type
+            # Missing required fields: name, type (only id is provided)
         }
 
     async def dummy_callback(payload):
@@ -436,4 +436,57 @@ async def test_validation_error_count_stays_zero_on_valid_payload():
         pass
 
     await client._handle_events(MockMessage(), {"message_created": dummy_callback})
+    assert client.validation_error_count == 0
+
+
+async def test_reset_validation_error_count():
+    """Should reset validation_error_count back to zero."""
+    client = WebSocketClient("ws://localhost", "test-key", "agent-123")
+
+    class MockMessage:
+        event = "message_created"
+        payload = {"id": "msg-123"}  # Missing required fields
+
+    async def dummy_callback(payload):
+        pass
+
+    # Drive the counter up
+    await client._handle_events(MockMessage(), {"message_created": dummy_callback})
+    assert client.validation_error_count == 1
+
+    client.reset_validation_error_count()
+    assert client.validation_error_count == 0
+
+
+async def test_callback_exception_does_not_crash_handler(caplog):
+    """Should log exception and not propagate when callback raises."""
+    client = WebSocketClient("ws://localhost", "test-key", "agent-123")
+
+    class MockMessage:
+        event = "message_created"
+        payload = {
+            "id": "msg-123",
+            "content": "@TestBot hi",
+            "message_type": "text",
+            "metadata": {
+                "mentions": [{"id": "agent-123", "username": "TestBot"}],
+                "status": "sent",
+            },
+            "sender_id": "user-456",
+            "sender_type": "User",
+            "chat_room_id": "room-123",
+            "thread_id": None,
+            "inserted_at": "2025-11-17T11:20:10.284136Z",
+            "updated_at": "2025-11-17T11:20:10.284136Z",
+        }
+
+    async def failing_callback(payload):
+        raise RuntimeError("callback boom")
+
+    with caplog.at_level(logging.ERROR):
+        await client._handle_events(
+            MockMessage(), {"message_created": failing_callback}
+        )
+
+    assert "Callback error for message_created event" in caplog.text
     assert client.validation_error_count == 0
