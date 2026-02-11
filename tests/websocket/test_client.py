@@ -7,6 +7,7 @@ errors and skipping malformed events, rather than crashing the connection.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 
 import pytest
@@ -19,6 +20,23 @@ from thenvoi.client.streaming import (
     RoomRemovedPayload,
     WebSocketClient,
 )
+
+# Shared valid payload used by multiple tests
+VALID_MESSAGE_CREATED_PAYLOAD: dict = {
+    "id": "msg-123",
+    "content": "@TestBot hi",
+    "message_type": "text",
+    "metadata": {
+        "mentions": [{"id": "agent-123", "username": "TestBot"}],
+        "status": "sent",
+    },
+    "sender_id": "user-456",
+    "sender_type": "User",
+    "chat_room_id": "room-123",
+    "thread_id": None,
+    "inserted_at": "2025-11-17T11:20:10.284136Z",
+    "updated_at": "2025-11-17T11:20:10.284136Z",
+}
 
 
 # --- Invalid payload tests: verify graceful handling (log + skip) ---
@@ -156,21 +174,7 @@ async def test_accepts_valid_message_created_payload():
 
     class MockMessage:
         event = "message_created"
-        payload = {
-            "id": "msg-123",
-            "content": "@TestBot hi",
-            "message_type": "text",
-            "metadata": {
-                "mentions": [{"id": "agent-123", "username": "TestBot"}],
-                "status": "sent",
-            },
-            "sender_id": "user-456",
-            "sender_type": "User",
-            "chat_room_id": "room-123",
-            "thread_id": None,
-            "inserted_at": "2025-11-17T11:20:10.284136Z",
-            "updated_at": "2025-11-17T11:20:10.284136Z",
-        }
+        payload = VALID_MESSAGE_CREATED_PAYLOAD
 
     await client._handle_events(MockMessage(), {"message_created": test_callback})
     assert isinstance(received_payload, MessageCreatedPayload)
@@ -416,21 +420,7 @@ async def test_validation_error_count_stays_zero_on_valid_payload():
 
     class MockMessage:
         event = "message_created"
-        payload = {
-            "id": "msg-123",
-            "content": "@TestBot hi",
-            "message_type": "text",
-            "metadata": {
-                "mentions": [{"id": "agent-123", "username": "TestBot"}],
-                "status": "sent",
-            },
-            "sender_id": "user-456",
-            "sender_type": "User",
-            "chat_room_id": "room-123",
-            "thread_id": None,
-            "inserted_at": "2025-11-17T11:20:10.284136Z",
-            "updated_at": "2025-11-17T11:20:10.284136Z",
-        }
+        payload = VALID_MESSAGE_CREATED_PAYLOAD
 
     async def dummy_callback(payload):
         pass
@@ -439,8 +429,8 @@ async def test_validation_error_count_stays_zero_on_valid_payload():
     assert client.validation_error_count == 0
 
 
-async def test_reset_validation_error_count():
-    """Should reset validation_error_count back to zero."""
+async def test_reset_validation_error_count_returns_previous_value():
+    """Should reset validation_error_count back to zero and return old value."""
     client = WebSocketClient("ws://localhost", "test-key", "agent-123")
 
     class MockMessage:
@@ -454,7 +444,8 @@ async def test_reset_validation_error_count():
     await client._handle_events(MockMessage(), {"message_created": dummy_callback})
     assert client.validation_error_count == 1
 
-    client.reset_validation_error_count()
+    old_count = client.reset_validation_error_count()
+    assert old_count == 1
     assert client.validation_error_count == 0
 
 
@@ -464,21 +455,7 @@ async def test_callback_exception_does_not_crash_handler(caplog):
 
     class MockMessage:
         event = "message_created"
-        payload = {
-            "id": "msg-123",
-            "content": "@TestBot hi",
-            "message_type": "text",
-            "metadata": {
-                "mentions": [{"id": "agent-123", "username": "TestBot"}],
-                "status": "sent",
-            },
-            "sender_id": "user-456",
-            "sender_type": "User",
-            "chat_room_id": "room-123",
-            "thread_id": None,
-            "inserted_at": "2025-11-17T11:20:10.284136Z",
-            "updated_at": "2025-11-17T11:20:10.284136Z",
-        }
+        payload = VALID_MESSAGE_CREATED_PAYLOAD
 
     async def failing_callback(payload):
         raise RuntimeError("callback boom")
@@ -490,3 +467,20 @@ async def test_callback_exception_does_not_crash_handler(caplog):
 
     assert "Callback error for message_created event" in caplog.text
     assert client.validation_error_count == 0
+
+
+async def test_cancelled_error_propagates_through_callback():
+    """CancelledError raised in callback must propagate (not be swallowed)."""
+    client = WebSocketClient("ws://localhost", "test-key", "agent-123")
+
+    class MockMessage:
+        event = "message_created"
+        payload = VALID_MESSAGE_CREATED_PAYLOAD
+
+    async def cancelling_callback(payload):
+        raise asyncio.CancelledError()
+
+    with pytest.raises(asyncio.CancelledError):
+        await client._handle_events(
+            MockMessage(), {"message_created": cancelling_callback}
+        )

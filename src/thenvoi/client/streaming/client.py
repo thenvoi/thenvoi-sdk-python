@@ -1,13 +1,15 @@
 from __future__ import annotations
 
+import asyncio
+from collections.abc import Awaitable, Callable
+import logging
+
 from phoenix_channels_python_client.client import (
     PHXChannelsClient,
     PhoenixChannelsProtocolVersion,
 )
 from phoenix_channels_python_client.phx_messages import PHXMessage
-from collections.abc import Awaitable, Callable
 from pydantic import BaseModel, ConfigDict, ValidationError
-import logging
 
 logger = logging.getLogger(__name__)
 
@@ -115,7 +117,6 @@ class WebSocketClient:
         self.ws_url = ws_url
         self.api_key = api_key
         self.agent_id = agent_id
-        # Safe for single-threaded asyncio event loop; needs a lock if used multi-threaded
         self._validation_error_count: int = 0
 
     @property
@@ -123,9 +124,14 @@ class WebSocketClient:
         """Number of events dropped due to payload validation errors."""
         return self._validation_error_count
 
-    def reset_validation_error_count(self) -> None:
-        """Reset the validation error counter (e.g. after periodic metric flush)."""
+    def reset_validation_error_count(self) -> int:
+        """Reset the validation error counter and return the previous value.
+
+        Useful for periodic metric flushes (atomic read-and-reset).
+        """
+        count = self._validation_error_count
         self._validation_error_count = 0
+        return count
 
     async def __aenter__(self):
         """Create and enter the PHXChannelsClient context"""
@@ -188,7 +194,9 @@ class WebSocketClient:
         if callback:
             try:
                 await callback(validated)
-            except Exception:  # noqa: BLE001 – intentionally broad; CancelledError (BaseException) still propagates
+            except asyncio.CancelledError:
+                raise
+            except Exception:  # noqa: BLE001 – intentionally broad to protect event loop
                 logger.exception(
                     "[WebSocket] Callback error for %s event", message.event
                 )
