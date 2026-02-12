@@ -120,7 +120,7 @@ class MentionRouter:
 
         # Resolve which mentions map to registered handlers (deduplicate by username
         # so that repeated @mentions in one message don't dispatch the same handler twice)
-        dispatch_list: list[tuple[str, BaseHandler]] = []
+        dispatch_list: list[tuple[str, str, BaseHandler]] = []
         seen_usernames: set[str] = set()
         for mention in mentions:
             username = mention.username
@@ -141,7 +141,7 @@ class MentionRouter:
                 )
                 continue
 
-            dispatch_list.append((username, handler))
+            dispatch_list.append((username, handler_name, handler))
 
         if not dispatch_list:
             logger.debug("No mapped handlers for mentions in message %s", payload.id)
@@ -165,9 +165,8 @@ class MentionRouter:
 
         # Dispatch to all matched handlers concurrently, collect failures
         async def _dispatch(
-            username: str, handler: BaseHandler
+            username: str, handler_name: str, handler: BaseHandler
         ) -> tuple[str, str, Exception] | None:
-            handler_name = self._agent_mapping[username]
             logger.info(
                 "Routing message to handler '%s' for @%s in room %s",
                 handler_name,
@@ -195,7 +194,9 @@ class MentionRouter:
                 return (handler_name, username, e)
             return None
 
-        results = await asyncio.gather(*[_dispatch(u, h) for u, h in dispatch_list])
+        results = await asyncio.gather(
+            *[_dispatch(u, n, h) for u, n, h in dispatch_list]
+        )
         errors = [r for r in results if r is not None]
 
         # Mark processed/failed once for the whole message.
