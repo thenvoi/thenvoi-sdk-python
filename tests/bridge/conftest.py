@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-# Add thenvoi-bridge directory to sys.path so we can import core.* and handlers.*
+# Add thenvoi-bridge directory to sys.path so we can import bridge_core.* and handlers.*
 # Use os.path.abspath for the check and insertion to avoid duplicates from
 # different relative representations of the same path.
 _bridge_dir = os.path.abspath(
@@ -17,7 +17,7 @@ _bridge_dir = os.path.abspath(
 if _bridge_dir not in sys.path:
     sys.path.insert(0, _bridge_dir)
 
-from core.bridge import BridgeConfig, ThenvoiBridge  # noqa: E402
+from bridge_core.bridge import BridgeConfig, ThenvoiBridge  # noqa: E402
 
 
 @pytest.fixture

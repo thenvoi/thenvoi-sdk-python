@@ -7,8 +7,8 @@ from unittest.mock import MagicMock, PropertyMock
 import pytest
 from aiohttp.test_utils import TestClient, TestServer
 
-from core.health import HealthServer
-from core.session import InMemorySessionStore
+from bridge_core.health import HealthServer
+from bridge_core.session import InMemorySessionStore
 
 
 @pytest.fixture

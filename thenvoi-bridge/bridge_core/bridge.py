@@ -23,7 +23,7 @@ from .session import InMemorySessionStore
 if TYPE_CHECKING:
     from thenvoi.client.streaming import MessageCreatedPayload
 
-    # handlers/ is a sibling package to core/ under thenvoi-bridge/.
+    # handlers/ is a sibling package to bridge_core/ under thenvoi-bridge/.
     # This import resolves when thenvoi-bridge/ is on sys.path.
     from handlers.base import BaseHandler
 
@@ -479,7 +479,7 @@ async def main(handlers: dict[str, BaseHandler]) -> None:
     Users should call this from their own script with registered handlers::
 
         import asyncio
-        from core.bridge import main
+        from bridge_core.bridge import main
         from my_handlers import MyHandler
 
         asyncio.run(main(handlers={"my_handler": MyHandler()}))

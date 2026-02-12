@@ -12,8 +12,8 @@ from thenvoi.client.streaming import (
     MessageMetadata,
 )
 
-from core.router import MentionRouter
-from core.session import InMemorySessionStore
+from bridge_core.router import MentionRouter
+from bridge_core.session import InMemorySessionStore
 
 
 class TestParseAgentMapping:

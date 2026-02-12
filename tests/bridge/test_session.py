@@ -6,7 +6,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from core.session import InMemorySessionStore, SessionData
+from bridge_core.session import InMemorySessionStore, SessionData
 
 
 class TestSessionData:

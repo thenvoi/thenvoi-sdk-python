@@ -21,7 +21,7 @@ from thenvoi.platform.event import (
     RoomRemovedEvent,
 )
 
-from core.bridge import BridgeConfig, ReconnectConfig, ThenvoiBridge
+from bridge_core.bridge import BridgeConfig, ReconnectConfig, ThenvoiBridge
 
 
 class TestBridgeConfig:
@@ -509,7 +509,7 @@ class TestThenvoiBridgeReconnect:
 
         bridge._connect_and_consume = AsyncMock(side_effect=fail_then_shutdown)
 
-        with patch("core.bridge.asyncio.sleep", new_callable=AsyncMock):
+        with patch("bridge_core.bridge.asyncio.sleep", new_callable=AsyncMock):
             await bridge._run_with_reconnect()
 
         assert call_count == 2
@@ -531,7 +531,7 @@ class TestThenvoiBridgeReconnect:
             side_effect=ConnectionError("always fails")
         )
 
-        with patch("core.bridge.asyncio.sleep", new_callable=AsyncMock):
+        with patch("bridge_core.bridge.asyncio.sleep", new_callable=AsyncMock):
             await bridge._run_with_reconnect()
 
         assert bridge._connect_and_consume.call_count == 3
@@ -645,7 +645,7 @@ class TestConnectAndConsume:
 
         bridge._handle_event = tracking_handle  # type: ignore[assignment]
 
-        with patch("core.bridge.anext", side_effect=fake_anext):
+        with patch("bridge_core.bridge.anext", side_effect=fake_anext):
             await bridge._connect_and_consume()
 
         assert len(events_delivered) == 2
@@ -666,7 +666,7 @@ class TestConnectAndConsume:
             await never_resolving()
             return MagicMock()
 
-        with patch("core.bridge.anext", side_effect=fake_anext):
+        with patch("bridge_core.bridge.anext", side_effect=fake_anext):
             await bridge._connect_and_consume()
 
         # Should exit cleanly without processing any events
@@ -680,7 +680,7 @@ class TestConnectAndConsume:
         async def fake_anext(_iter: object) -> object:
             raise StopAsyncIteration
 
-        with patch("core.bridge.anext", side_effect=fake_anext):
+        with patch("bridge_core.bridge.anext", side_effect=fake_anext):
             await bridge._connect_and_consume()
 
         bridge._link.connect.assert_called_once()
@@ -696,7 +696,7 @@ class TestConnectAndConsume:
             err.__context__ = StopAsyncIteration()
             raise err
 
-        with patch("core.bridge.anext", side_effect=fake_anext):
+        with patch("bridge_core.bridge.anext", side_effect=fake_anext):
             await bridge._connect_and_consume()
 
         bridge._link.connect.assert_called_once()
@@ -712,7 +712,7 @@ class TestConnectAndConsume:
             err.__cause__ = StopAsyncIteration()
             raise err
 
-        with patch("core.bridge.anext", side_effect=fake_anext):
+        with patch("bridge_core.bridge.anext", side_effect=fake_anext):
             await bridge._connect_and_consume()
 
         bridge._link.connect.assert_called_once()
@@ -725,7 +725,7 @@ class TestConnectAndConsume:
         async def fake_anext(_iter: object) -> object:
             raise RuntimeError("unrelated error")
 
-        with patch("core.bridge.anext", side_effect=fake_anext):
+        with patch("bridge_core.bridge.anext", side_effect=fake_anext):
             with pytest.raises(RuntimeError, match="unrelated error"):
                 await bridge._connect_and_consume()
 
@@ -743,10 +743,10 @@ class TestThenvoiBridgeMain:
         mock_run = AsyncMock()
 
         with (
-            patch("core.bridge.ThenvoiBridge.run", mock_run),
+            patch("bridge_core.bridge.ThenvoiBridge.run", mock_run),
             patch("dotenv.load_dotenv") as mock_dotenv,
         ):
-            from core.bridge import main
+            from bridge_core.bridge import main
 
             handler = AsyncMock()
             await main(handlers={"handler_a": handler})
@@ -756,10 +756,10 @@ class TestThenvoiBridgeMain:
 
 
 class TestModuleMain:
-    """Tests for python -m core entry point."""
+    """Tests for python -m bridge_core entry point."""
 
     def test_module_main_exits_with_error(self) -> None:
-        from core.__main__ import _main
+        from bridge_core.__main__ import _main
 
         with pytest.raises(SystemExit, match="requires handlers to be registered"):
             _main()
