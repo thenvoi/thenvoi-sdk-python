@@ -11,11 +11,8 @@ if TYPE_CHECKING:
     from thenvoi.platform.link import ThenvoiLink
     from thenvoi.runtime.tools import AgentTools
 
+    from .handler import BaseHandler
     from .session import SessionStore
-
-    # handlers/ is a sibling package to bridge_core/ under thenvoi-bridge/.
-    # This import resolves when thenvoi-bridge/ is on sys.path.
-    from handlers.base import BaseHandler
 
 logger = logging.getLogger(__name__)
 

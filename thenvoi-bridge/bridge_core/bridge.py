@@ -23,9 +23,7 @@ from .session import InMemorySessionStore
 if TYPE_CHECKING:
     from thenvoi.client.streaming import MessageCreatedPayload
 
-    # handlers/ is a sibling package to bridge_core/ under thenvoi-bridge/.
-    # This import resolves when thenvoi-bridge/ is on sys.path.
-    from handlers.base import BaseHandler
+    from .handler import BaseHandler
 
 logger = logging.getLogger(__name__)
 
@@ -303,12 +301,20 @@ class ThenvoiBridge:
         attempts = 0
 
         while not self._shutting_down:
+            self._connected = False
             try:
                 await self._connect_and_consume()
                 break  # Clean exit
             except Exception:
                 if self._shutting_down:
                     break
+
+                # If the connection was established before the failure, this
+                # is a runtime disconnect (not a connection failure) — reset
+                # backoff so the next reconnect attempt starts fresh.
+                if self._connected:
+                    delay = self._reconnect.initial_delay
+                    attempts = 0
 
                 attempts += 1
                 if (
@@ -343,6 +349,7 @@ class ThenvoiBridge:
     async def _connect_and_consume(self) -> None:
         """Connect to platform and consume events."""
         await self._link.connect()
+        self._connected = True
 
         # Subscribe to agent room events (room added/removed)
         await self._link.subscribe_agent_rooms(self._config.agent_id)
