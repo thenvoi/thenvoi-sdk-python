@@ -70,9 +70,7 @@ class TestInMemorySessionStore:
         sessions = await store.list_sessions()
         assert sessions == []
 
-    async def test_concurrent_get_or_create(
-        self, store: InMemorySessionStore
-    ) -> None:
+    async def test_concurrent_get_or_create(self, store: InMemorySessionStore) -> None:
         """Concurrent get_or_create calls should not lose sessions."""
         room_ids = [f"room-{i}" for i in range(100)]
         await asyncio.gather(*[store.get_or_create(rid) for rid in room_ids])
