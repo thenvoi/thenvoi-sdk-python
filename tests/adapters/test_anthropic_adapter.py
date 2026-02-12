@@ -1,4 +1,11 @@
-"""Tests for AnthropicAdapter."""
+"""Tests for AnthropicAdapter.
+
+Tests for shared adapter behavior (initialization defaults, custom kwargs,
+history_converter, on_started agent_name/description, on_message callable,
+cleanup safety) live in tests/framework_conformance/test_adapter_conformance.py.
+This file contains Anthropic-specific behavior: system prompt rendering,
+message history management, tool execution, custom tools, and error handling.
+"""
 
 from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -28,8 +35,8 @@ def sample_message():
 
 @pytest.fixture
 def mock_tools():
-    """Create mock AgentToolsProtocol."""
-    tools = AsyncMock()
+    """Create mock AgentToolsProtocol (MagicMock base, AsyncMock methods)."""
+    tools = MagicMock()
     tools.get_tool_schemas = MagicMock(return_value=[])
     tools.send_message = AsyncMock(return_value={"status": "sent"})
     tools.send_event = AsyncMock(return_value={"status": "sent"})
@@ -39,29 +46,6 @@ def mock_tools():
 
 class TestInitialization:
     """Tests for adapter initialization."""
-
-    def test_default_initialization(self):
-        """Should initialize with default values."""
-        adapter = AnthropicAdapter()
-
-        assert adapter.model == "claude-sonnet-4-5-20250929"
-        assert adapter.max_tokens == 4096
-        assert adapter.enable_execution_reporting is False
-        assert adapter.history_converter is not None
-
-    def test_custom_initialization(self):
-        """Should accept custom parameters."""
-        adapter = AnthropicAdapter(
-            model="claude-opus-4-20250514",
-            max_tokens=8192,
-            custom_section="Be helpful.",
-            enable_execution_reporting=True,
-        )
-
-        assert adapter.model == "claude-opus-4-20250514"
-        assert adapter.max_tokens == 8192
-        assert adapter.custom_section == "Be helpful."
-        assert adapter.enable_execution_reporting is True
 
     def test_system_prompt_override(self):
         """Should use custom system_prompt if provided."""
@@ -82,8 +66,6 @@ class TestOnStarted:
 
         await adapter.on_started(agent_name="TestBot", agent_description="A test bot")
 
-        assert adapter.agent_name == "TestBot"
-        assert adapter.agent_description == "A test bot"
         assert adapter._system_prompt != ""
         assert "TestBot" in adapter._system_prompt
 
@@ -199,14 +181,6 @@ class TestOnCleanup:
         await adapter.on_cleanup("room-123")
 
         assert "room-123" not in adapter._message_history
-
-    @pytest.mark.asyncio
-    async def test_cleanup_nonexistent_room_is_safe(self):
-        """Should handle cleanup of non-existent room."""
-        adapter = AnthropicAdapter()
-
-        # Should not raise
-        await adapter.on_cleanup("nonexistent-room")
 
 
 class TestHelperMethods:
@@ -393,12 +367,6 @@ class TestCustomTools:
         )
 
         assert len(adapter._custom_tools) == 2
-
-    def test_defaults_to_empty_custom_tools(self):
-        """Adapter should have empty custom tools by default."""
-        adapter = AnthropicAdapter()
-
-        assert adapter._custom_tools == []
 
     @pytest.mark.asyncio
     async def test_merges_custom_tool_schemas(self, sample_message, mock_tools):

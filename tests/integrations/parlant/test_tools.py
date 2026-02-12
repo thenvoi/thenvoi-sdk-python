@@ -222,11 +222,11 @@ class TestParlantToolFunctions:
 
     @pytest.fixture
     def mock_tools(self):
-        """Create mock AgentToolsProtocol."""
-        tools = AsyncMock()
+        """Create mock AgentToolsProtocol (MagicMock base, AsyncMock methods)."""
+        tools = MagicMock()
         tools.send_message = AsyncMock()
         tools.send_event = AsyncMock()
-        tools.add_participant = AsyncMock()
+        tools.add_participant = AsyncMock(return_value={"status": "added"})
         tools.remove_participant = AsyncMock()
         tools.lookup_peers = AsyncMock(
             return_value={
@@ -244,12 +244,17 @@ class TestParlantToolFunctions:
 
     @pytest.fixture
     def mock_context(self):
-        """Create mock ToolContext."""
-        from parlant.core.tools import ToolContext
+        """Create mock ToolContext.
 
-        context = MagicMock(spec=ToolContext)
-        context.session_id = "test-session-123"
-        return context
+        Uses ``SimpleNamespace`` so that accessing any attribute not
+        explicitly set raises ``AttributeError`` — this catches tests
+        that accidentally depend on attributes beyond ``session_id``.
+        ``MagicMock(spec=ToolContext)`` is not used because ``ToolContext``
+        lives in ``parlant.core.tools`` which may not be installed.
+        """
+        from types import SimpleNamespace
+
+        return SimpleNamespace(session_id="test-session-123")
 
     @pytest.fixture
     def parlant_tools(self):

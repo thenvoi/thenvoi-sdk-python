@@ -1,4 +1,11 @@
-"""Tests for ParlantAdapter with official Parlant SDK."""
+"""Tests for ParlantAdapter with official Parlant SDK.
+
+Tests for shared adapter behavior (initialization defaults, custom kwargs,
+history_converter, on_started agent_name/description, on_message callable,
+cleanup safety) live in tests/framework_conformance/test_adapter_conformance.py.
+This file contains Parlant-specific behavior: server/agent initialization,
+Application container, session management, history injection, and error handling.
+"""
 
 from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -28,8 +35,8 @@ def sample_message():
 
 @pytest.fixture
 def mock_tools():
-    """Create mock AgentToolsProtocol."""
-    tools = AsyncMock()
+    """Create mock AgentToolsProtocol (MagicMock base, AsyncMock methods)."""
+    tools = MagicMock()
     tools.get_tool_schemas = MagicMock(return_value=[])
     tools.get_openai_tool_schemas = MagicMock(return_value=[])
     tools.send_message = AsyncMock(return_value={"status": "sent"})
@@ -86,23 +93,6 @@ class TestInitialization:
 
         assert adapter._server is mock_parlant_server
         assert adapter._parlant_agent is mock_parlant_agent
-        assert adapter.system_prompt is None
-        assert adapter.custom_section is None
-        assert adapter.history_converter is not None
-
-    def test_initialization_with_custom_options(
-        self, mock_parlant_server, mock_parlant_agent
-    ):
-        """Should accept custom parameters."""
-        adapter = ParlantAdapter(
-            server=mock_parlant_server,
-            parlant_agent=mock_parlant_agent,
-            system_prompt="Custom system prompt",
-            custom_section="Be helpful.",
-        )
-
-        assert adapter.system_prompt == "Custom system prompt"
-        assert adapter.custom_section == "Be helpful."
 
     def test_internal_state_initialized(self, mock_parlant_server, mock_parlant_agent):
         """Should initialize internal state correctly."""
@@ -152,8 +142,6 @@ class TestOnStarted:
                 agent_name="TestBot", agent_description="A test bot"
             )
 
-        assert adapter.agent_name == "TestBot"
-        assert adapter.agent_description == "A test bot"
         assert adapter._system_prompt != ""
         assert "TestBot" in adapter._system_prompt
 
@@ -398,19 +386,6 @@ class TestOnCleanup:
 
         assert "room-123" not in adapter._room_sessions
         assert "room-123" not in adapter._room_customers
-
-    @pytest.mark.asyncio
-    async def test_cleanup_nonexistent_room_is_safe(
-        self, mock_parlant_server, mock_parlant_agent
-    ):
-        """Should handle cleanup of non-existent room."""
-        adapter = ParlantAdapter(
-            server=mock_parlant_server,
-            parlant_agent=mock_parlant_agent,
-        )
-
-        # Should not raise
-        await adapter.on_cleanup("nonexistent-room")
 
 
 class TestHistoryInjection:
