@@ -391,7 +391,13 @@ class ThenvoiBridge:
                         break
                     raise
                 next_fut = None
-                await self._handle_event(event)
+                try:
+                    await self._handle_event(event)
+                except Exception:
+                    logger.exception(
+                        "Unexpected error handling event %s",
+                        type(event).__name__,
+                    )
         finally:
             if not shutdown_fut.done():
                 shutdown_fut.cancel()

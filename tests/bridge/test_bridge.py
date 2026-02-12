@@ -729,6 +729,69 @@ class TestConnectAndConsume:
             with pytest.raises(RuntimeError, match="unrelated error"):
                 await bridge._connect_and_consume()
 
+    async def test_handle_event_exception_does_not_break_loop(
+        self, bridge_config: BridgeConfig
+    ) -> None:
+        """An exception in _handle_event should be logged, not trigger reconnect."""
+        bridge = self._make_bridge(bridge_config)
+        events_delivered: list[object] = []
+
+        event1 = RoomAddedEvent(
+            room_id="room-1",
+            payload=RoomAddedPayload(
+                id="room-1",
+                title="Room",
+                owner=RoomOwner(id="u1", name="User", type="User"),
+                status="active",
+                type="direct",
+                created_at="2024-01-01T00:00:00Z",
+                participant_role="member",
+            ),
+        )
+        event2 = RoomAddedEvent(
+            room_id="room-2",
+            payload=RoomAddedPayload(
+                id="room-2",
+                title="Room 2",
+                owner=RoomOwner(id="u1", name="User", type="User"),
+                status="active",
+                type="direct",
+                created_at="2024-01-01T00:00:00Z",
+                participant_role="member",
+            ),
+        )
+
+        call_count = 0
+
+        async def fake_anext(_iter: object) -> object:
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return event1
+            if call_count == 2:
+                return event2
+            bridge._request_shutdown()
+            await AsyncMock(side_effect=lambda: None)()
+            return MagicMock()
+
+        handle_call_count = 0
+
+        async def failing_then_ok_handle(event: object) -> None:
+            nonlocal handle_call_count
+            handle_call_count += 1
+            events_delivered.append(event)
+            if handle_call_count == 1:
+                raise RuntimeError("handler blew up")
+
+        bridge._handle_event = failing_then_ok_handle  # type: ignore[assignment]
+
+        with patch("bridge_core.bridge.anext", side_effect=fake_anext):
+            # Should NOT raise — the exception is caught and logged
+            await bridge._connect_and_consume()
+
+        # Both events should have been delivered despite the first one raising
+        assert len(events_delivered) == 2
+
 
 class TestThenvoiBridgeMain:
     """Tests for the main() entry point."""
