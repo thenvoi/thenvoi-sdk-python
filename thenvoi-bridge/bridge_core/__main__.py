@@ -1,10 +1,10 @@
-"""Entry point for ``python -m core``.
+"""Entry point for ``python -m bridge_core``.
 
 The bridge requires handlers to be registered before it can run.
 Create your own entry point that registers handlers, for example::
 
     import asyncio
-    from core.bridge import main
+    from bridge_core.bridge import main
     from my_handlers import MyHandler
 
     asyncio.run(main(handlers={"my_handler": MyHandler()}))
@@ -20,7 +20,7 @@ def _main() -> None:
         "Create your own entry point that registers handlers, for example:\n"
         "\n"
         "    import asyncio\n"
-        "    from core.bridge import main\n"
+        "    from bridge_core.bridge import main\n"
         "    from my_handlers import MyHandler\n"
         "\n"
         "    asyncio.run(main(handlers={'my_handler': MyHandler()}))"

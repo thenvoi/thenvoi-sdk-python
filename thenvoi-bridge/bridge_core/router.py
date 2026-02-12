@@ -13,7 +13,7 @@ if TYPE_CHECKING:
 
     from .session import SessionStore
 
-    # handlers/ is a sibling package to core/ under thenvoi-bridge/.
+    # handlers/ is a sibling package to bridge_core/ under thenvoi-bridge/.
     # This import resolves when thenvoi-bridge/ is on sys.path.
     from handlers.base import BaseHandler
 
