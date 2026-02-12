@@ -536,6 +536,52 @@ class TestThenvoiBridgeReconnect:
 
         assert bridge._connect_and_consume.call_count == 3
 
+    async def test_reconnect_resets_delay_after_successful_connection(
+        self, bridge_config: BridgeConfig
+    ) -> None:
+        """After a successful connection that later drops, backoff should reset."""
+        reconnect = ReconnectConfig(initial_delay=1.0, multiplier=2.0, jitter=0)
+        bridge = ThenvoiBridge(
+            config=bridge_config,
+            handlers={"handler_a": AsyncMock()},
+            reconnect_config=reconnect,
+        )
+        bridge._link = MagicMock()
+        bridge._link.disconnect = AsyncMock()
+
+        call_count = 0
+        sleep_delays: list[float] = []
+
+        async def connect_then_fail() -> None:
+            nonlocal call_count
+            call_count += 1
+            if call_count <= 2:
+                # First two attempts: fail without connecting (backoff should escalate)
+                raise ConnectionError("connect failed")
+            if call_count == 3:
+                # Third attempt: connect successfully, then drop later
+                bridge._connected = True
+                raise ConnectionError("runtime disconnect")
+            # Fourth attempt: fail without connecting — delay should be reset
+            bridge._request_shutdown()
+            raise ConnectionError("connect failed again")
+
+        bridge._connect_and_consume = AsyncMock(side_effect=connect_then_fail)
+
+        async def capture_sleep(delay: float) -> None:
+            sleep_delays.append(delay)
+
+        with patch("bridge_core.bridge.asyncio.sleep", side_effect=capture_sleep):
+            await bridge._run_with_reconnect()
+
+        assert call_count == 4
+        # sleep_delays[0]: after 1st failure (no connection), delay=1.0
+        # sleep_delays[1]: after 2nd failure (no connection), delay escalated to 2.0
+        # sleep_delays[2]: after 3rd failure (was connected), delay reset to 1.0
+        assert sleep_delays[0] == 1.0
+        assert sleep_delays[1] == 2.0
+        assert sleep_delays[2] == 1.0
+
 
 class TestThenvoiBridgeShutdown:
     def test_request_shutdown_sets_flag(self, bridge_config: BridgeConfig) -> None:
