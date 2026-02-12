@@ -202,12 +202,17 @@ class MentionRouter:
         # Mark processed/failed once for the whole message.
         # Wrap in try-except so API failures don't crash the router.
         if errors:
-            error_summaries = [
+            # Full details for platform operators (mark_failed) and logs
+            internal_summaries = [
                 f"'{name}' (@{user}): {err}" for name, user, err in errors
             ]
-            combined_message = "; ".join(error_summaries)
+            internal_message = "; ".join(internal_summaries)
+            # Sanitized message for chat users (send_event) — avoids
+            # leaking internal handler names
+            user_summaries = [f"@{user}: processing failed" for _, user, _ in errors]
+            user_message = "; ".join(user_summaries)
             try:
-                await self._link.mark_failed(room_id, payload.id, combined_message)
+                await self._link.mark_failed(room_id, payload.id, internal_message)
             except Exception:
                 logger.warning(
                     "Failed to mark message %s as failed",
@@ -216,7 +221,7 @@ class MentionRouter:
                 )
             try:
                 await tools.send_event(
-                    content=f"Handler failures: {combined_message}",
+                    content=f"Handler failures: {user_message}",
                     message_type="error",
                 )
             except Exception:

@@ -211,8 +211,15 @@ class ThenvoiBridge:
         """
         loop = asyncio.get_running_loop()
 
+        # add_signal_handler is only available on Unix (Linux/macOS).
+        # On Windows this raises NotImplementedError; fall back to no-op.
         for sig in (signal.SIGINT, signal.SIGTERM):
-            loop.add_signal_handler(sig, self._request_shutdown)
+            try:
+                loop.add_signal_handler(sig, self._request_shutdown)
+            except NotImplementedError:
+                logger.debug(
+                    "Signal handler for %s not supported on this platform", sig.name
+                )
 
         if not self._handlers:
             logger.warning("Bridge starting with no handlers registered")

@@ -71,8 +71,15 @@ class InMemorySessionStore:
     """In-memory session store implementation.
 
     Eviction is lazy: expired sessions are removed only when accessed via
-    ``get``, ``get_or_create``, or ``list_sessions``. The health endpoint
-    calls ``list_sessions`` periodically, which triggers eviction.
+    ``get``, ``get_or_create``, or ``list_sessions``.
+
+    .. important::
+
+        Lazy eviction depends on periodic reads to prevent session
+        accumulation.  In production, the Docker healthcheck (configured in
+        ``docker-compose.yml``) polls ``GET /health`` every 30 s, which calls
+        ``list_sessions`` and triggers eviction.  If you run the bridge
+        without a healthcheck, consider adding a background eviction task.
 
     Args:
         session_ttl: Optional TTL in seconds. Sessions inactive longer than

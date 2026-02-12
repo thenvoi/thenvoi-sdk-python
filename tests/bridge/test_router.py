@@ -308,8 +308,26 @@ class TestMentionRouterRoute:
         await router.route(payload, "room-1", tools)
 
         mock_link.mark_failed.assert_called_with(
-            "room-1", "msg-1", "'alice_handler' (@alice): handler exploded"
+            "room-1",
+            "msg-1",
+            "'alice_handler' (@alice): handler exploded",
         )
+
+    async def test_sends_sanitized_error_event_on_handler_failure(
+        self, router: MentionRouter, mock_handler: AsyncMock, mock_link: AsyncMock
+    ) -> None:
+        """User-facing error event should not expose internal handler names."""
+        mock_handler.handle.side_effect = RuntimeError("handler exploded")
+
+        payload = _make_payload(mentions=[Mention(id="alice-id", username="alice")])
+        tools = MagicMock()
+        tools.send_event = AsyncMock()
+
+        await router.route(payload, "room-1", tools)
+
+        event_content = tools.send_event.call_args.kwargs["content"]
+        assert "alice_handler" not in event_content
+        assert "@alice" in event_content
 
     async def test_sends_error_event_on_handler_failure(
         self, router: MentionRouter, mock_handler: AsyncMock, mock_link: AsyncMock
@@ -323,7 +341,7 @@ class TestMentionRouterRoute:
         await router.route(payload, "room-1", tools)
 
         tools.send_event.assert_called_once_with(
-            content="Handler failures: 'alice_handler' (@alice): handler exploded",
+            content="Handler failures: @alice: processing failed",
             message_type="error",
         )
 
@@ -404,15 +422,17 @@ class TestMentionRouterRoute:
 
         await router.route(payload, "room-1", tools)
 
-        # mark_failed should contain both errors
+        # mark_failed should contain both errors with full internal details
         mark_failed_msg = mock_link.mark_failed.call_args[0][2]
         assert "'handler_a' (@alice): error A" in mark_failed_msg
         assert "'handler_b' (@bob): error B" in mark_failed_msg
 
-        # Error event should also contain both
+        # User-facing error event should contain @usernames but not handler names
         event_content = tools.send_event.call_args.kwargs["content"]
-        assert "handler_a" in event_content
-        assert "handler_b" in event_content
+        assert "@alice" in event_content
+        assert "@bob" in event_content
+        assert "handler_a" not in event_content
+        assert "handler_b" not in event_content
 
     async def test_passes_sender_type(
         self, router: MentionRouter, mock_handler: AsyncMock
