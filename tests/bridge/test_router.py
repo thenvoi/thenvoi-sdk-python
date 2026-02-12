@@ -438,10 +438,10 @@ class TestMentionRouterRoute:
         assert "handler_a" not in event_content
         assert "handler_b" not in event_content
 
-    async def test_partial_success_marks_failed_with_prefix(
+    async def test_partial_success_marks_processed_and_sends_error_event(
         self, session_store: InMemorySessionStore, mock_link: AsyncMock
     ) -> None:
-        """When some handlers succeed and some fail, mark_failed includes 'partial:' prefix."""
+        """When some handlers succeed and some fail, mark_processed is called (not mark_failed)."""
         handler_a = AsyncMock()  # succeeds
         handler_b = AsyncMock()
         handler_b.handle.side_effect = RuntimeError("error B")
@@ -467,12 +467,13 @@ class TestMentionRouterRoute:
 
         # handler_a should have succeeded
         handler_a.handle.assert_called_once()
-        # mark_failed should include "partial:" prefix for partial failure
-        mark_failed_msg = mock_link.mark_failed.call_args[0][2]
-        assert mark_failed_msg.startswith("partial:")
-        assert "'handler_b' (@bob): error B" in mark_failed_msg
+        # Partial success: mark_processed (not mark_failed)
+        mock_link.mark_processed.assert_called_once_with("room-1", "msg-1")
+        mock_link.mark_failed.assert_not_called()
         # User-facing error event should still report the failure
         tools.send_event.assert_called_once()
+        event_content = tools.send_event.call_args.kwargs["content"]
+        assert "@bob" in event_content
 
     async def test_long_error_message_truncated_in_mark_failed(
         self, session_store: InMemorySessionStore, mock_link: AsyncMock

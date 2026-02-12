@@ -567,7 +567,7 @@ class TestThenvoiBridgeReconnect:
                 raise ConnectionError("connect failed")
             if call_count == 3:
                 # Third attempt: connect successfully, then drop later
-                bridge._connected = True
+                bridge._connected_event.set()
                 raise ConnectionError("runtime disconnect")
             # Fourth attempt: fail without connecting — delay should be reset
             bridge._request_shutdown()

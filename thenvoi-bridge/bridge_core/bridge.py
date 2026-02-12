@@ -199,7 +199,7 @@ class ThenvoiBridge:
         self._handlers = handlers
         self._reconnect = reconnect_config or ReconnectConfig()
         self._shutdown_event = asyncio.Event()
-        self._connected = False
+        self._connected_event = asyncio.Event()
 
         # Parse and validate agent mapping
         self._agent_mapping = MentionRouter.parse_agent_mapping(config.agent_mapping)
@@ -305,7 +305,7 @@ class ThenvoiBridge:
         attempts = 0
 
         while not self._shutting_down:
-            self._connected = False
+            self._connected_event.clear()
             try:
                 await self._connect_and_consume()
                 break  # Clean exit
@@ -316,7 +316,7 @@ class ThenvoiBridge:
                 # If the connection was established before the failure, this
                 # is a runtime disconnect (not a connection failure) — reset
                 # backoff so the next reconnect attempt starts fresh.
-                if self._connected:
+                if self._connected_event.is_set():
                     delay = self._reconnect.initial_delay
                     attempts = 0
 
@@ -353,7 +353,7 @@ class ThenvoiBridge:
     async def _connect_and_consume(self) -> None:
         """Connect to platform and consume events."""
         await self._link.connect()
-        self._connected = True
+        self._connected_event.set()
 
         # Subscribe to agent room events (room added/removed)
         await self._link.subscribe_agent_rooms(self._config.agent_id)

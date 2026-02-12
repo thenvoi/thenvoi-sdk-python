@@ -229,19 +229,17 @@ class MentionRouter:
                     )
             else:
                 # Partial success: some handlers succeeded, some failed.
-                # Mark as processed (the message was handled) but still
-                # report the failures via send_event and mark_failed so
-                # operators can investigate.
+                # Mark as processed (the message was handled) and report
+                # failures via send_event so users see them. Full details
+                # are logged for operators.
                 logger.warning(
                     "Partial failure for message %s: %s", payload.id, internal_message
                 )
                 try:
-                    await self._link.mark_failed(
-                        room_id, payload.id, f"partial: {internal_message}"
-                    )
+                    await self._link.mark_processed(room_id, payload.id)
                 except Exception:
                     logger.warning(
-                        "Failed to mark message %s as failed",
+                        "Failed to mark message %s as processed",
                         payload.id,
                         exc_info=True,
                     )
