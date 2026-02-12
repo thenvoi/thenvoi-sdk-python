@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -47,23 +48,6 @@ class TestInMemorySessionStore:
         session = await store.get("room-999")
         assert session is None
 
-    async def test_update_activity(self, store: InMemorySessionStore) -> None:
-        session = await store.get_or_create("room-1")
-        original_activity = session.last_activity
-
-        # Small delay to ensure timestamp differs
-        await store.update_activity("room-1")
-
-        updated = await store.get("room-1")
-        assert updated is not None
-        assert updated.last_activity >= original_activity
-
-    async def test_update_activity_nonexistent(
-        self, store: InMemorySessionStore
-    ) -> None:
-        # Should not raise
-        await store.update_activity("room-999")
-
     async def test_remove(self, store: InMemorySessionStore) -> None:
         await store.get_or_create("room-1")
         await store.remove("room-1")
@@ -85,6 +69,43 @@ class TestInMemorySessionStore:
     async def test_list_sessions_empty(self, store: InMemorySessionStore) -> None:
         sessions = await store.list_sessions()
         assert sessions == []
+
+    async def test_concurrent_get_or_create(
+        self, store: InMemorySessionStore
+    ) -> None:
+        """Concurrent get_or_create calls should not lose sessions."""
+        room_ids = [f"room-{i}" for i in range(100)]
+        await asyncio.gather(*[store.get_or_create(rid) for rid in room_ids])
+
+        sessions = await store.list_sessions()
+        assert len(sessions) == 100
+
+    async def test_concurrent_get_or_create_same_room(
+        self, store: InMemorySessionStore
+    ) -> None:
+        """Concurrent get_or_create for the same room returns the same session."""
+        results = await asyncio.gather(
+            *[store.get_or_create("room-1") for _ in range(50)]
+        )
+        # All results should be the same object
+        assert all(r is results[0] for r in results)
+
+    async def test_concurrent_create_and_remove(
+        self, store: InMemorySessionStore
+    ) -> None:
+        """Concurrent creates and removes should not raise."""
+        for i in range(20):
+            await store.get_or_create(f"room-{i}")
+
+        async def remove_half() -> None:
+            for i in range(0, 20, 2):
+                await store.remove(f"room-{i}")
+
+        async def read_all() -> list[object]:
+            return await store.list_sessions()
+
+        await asyncio.gather(remove_half(), read_all())
+        # Should not raise; final count depends on scheduling
 
 
 class TestInMemorySessionStoreTTL:

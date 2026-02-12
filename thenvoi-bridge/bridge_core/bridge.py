@@ -292,7 +292,10 @@ class ThenvoiBridge:
     async def _shutdown(self) -> None:
         """Perform graceful shutdown."""
         logger.info("Shutting down bridge...")
-        await self._link.disconnect()
+        try:
+            await self._link.disconnect()
+        except Exception:
+            logger.warning("Error during link disconnect", exc_info=True)
         await self._health.stop()
         logger.info("Bridge shutdown complete")
 

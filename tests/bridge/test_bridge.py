@@ -625,6 +625,22 @@ class TestThenvoiBridgeShutdown:
         bridge._link.disconnect.assert_called_once()
         bridge._health.stop.assert_called_once()
 
+    async def test_shutdown_stops_health_even_if_disconnect_raises(
+        self, bridge_config: BridgeConfig
+    ) -> None:
+        bridge = ThenvoiBridge(
+            config=bridge_config, handlers={"handler_a": AsyncMock()}
+        )
+        bridge._link = MagicMock()
+        bridge._link.disconnect = AsyncMock(side_effect=RuntimeError("disconnect boom"))
+        bridge._health = MagicMock()
+        bridge._health.stop = AsyncMock()
+
+        await bridge._shutdown()
+
+        bridge._link.disconnect.assert_called_once()
+        bridge._health.stop.assert_called_once()
+
 
 class TestConnectAndConsume:
     """Tests for _connect_and_consume event loop logic."""

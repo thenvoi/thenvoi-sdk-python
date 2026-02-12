@@ -474,6 +474,36 @@ class TestMentionRouterRoute:
         # User-facing error event should still report the failure
         tools.send_event.assert_called_once()
 
+    async def test_long_error_message_truncated_in_mark_failed(
+        self, session_store: InMemorySessionStore, mock_link: AsyncMock
+    ) -> None:
+        """Error messages longer than 500 chars should be truncated in mark_failed."""
+        long_error = "x" * 1000
+        handler = AsyncMock()
+        handler.handle.side_effect = RuntimeError(long_error)
+
+        router = MentionRouter(
+            agent_mapping={"alice": "handler_a"},
+            handlers={"handler_a": handler},
+            session_store=session_store,
+            agent_id="bridge-agent-id",
+            link=mock_link,
+        )
+
+        payload = _make_payload(
+            mentions=[Mention(id="alice-id", username="alice")]
+        )
+        tools = MagicMock()
+        tools.send_event = AsyncMock()
+
+        await router.route(payload, "room-1", tools)
+
+        mark_failed_msg = mock_link.mark_failed.call_args[0][2]
+        # The error portion should be truncated to 500 chars
+        assert len(mark_failed_msg) < 600
+        assert "x" * 500 in mark_failed_msg
+        assert "x" * 501 not in mark_failed_msg
+
     async def test_passes_sender_type(
         self, router: MentionRouter, mock_handler: AsyncMock
     ) -> None:
