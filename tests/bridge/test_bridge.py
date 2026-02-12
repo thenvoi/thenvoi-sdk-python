@@ -176,6 +176,47 @@ class TestBridgeConfig:
             BridgeConfig.from_env()
 
 
+class TestReconnectConfig:
+    def test_defaults_are_valid(self) -> None:
+        config = ReconnectConfig()
+        assert config.initial_delay == 1.0
+        assert config.max_delay == 60.0
+        assert config.multiplier == 2.0
+        assert config.jitter == 0.5
+        assert config.max_retries == 0
+
+    @pytest.mark.parametrize("value", [0, -1, -0.5])
+    def test_invalid_initial_delay(self, value: float) -> None:
+        with pytest.raises(ValueError, match="initial_delay must be positive"):
+            ReconnectConfig(initial_delay=value)
+
+    @pytest.mark.parametrize("value", [0, -1])
+    def test_invalid_max_delay(self, value: float) -> None:
+        with pytest.raises(ValueError, match="max_delay must be positive"):
+            ReconnectConfig(max_delay=value)
+
+    @pytest.mark.parametrize("value", [0.5, 0, -1])
+    def test_invalid_multiplier(self, value: float) -> None:
+        with pytest.raises(ValueError, match="multiplier must be >= 1"):
+            ReconnectConfig(multiplier=value)
+
+    def test_invalid_jitter(self) -> None:
+        with pytest.raises(ValueError, match="jitter must be non-negative"):
+            ReconnectConfig(jitter=-0.1)
+
+    def test_invalid_max_retries(self) -> None:
+        with pytest.raises(ValueError, match="max_retries must be non-negative"):
+            ReconnectConfig(max_retries=-1)
+
+    def test_jitter_zero_is_valid(self) -> None:
+        config = ReconnectConfig(jitter=0)
+        assert config.jitter == 0
+
+    def test_multiplier_one_is_valid(self) -> None:
+        config = ReconnectConfig(multiplier=1.0)
+        assert config.multiplier == 1.0
+
+
 class TestThenvoiBridgeInit:
     def _make_config(self, mapping: str = "alice:handler_a") -> BridgeConfig:
         return BridgeConfig(

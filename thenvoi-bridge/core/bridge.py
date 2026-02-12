@@ -125,6 +125,41 @@ class ReconnectConfig(BaseModel):
     jitter: float = 0.5
     max_retries: int = 0  # 0 = unlimited
 
+    @field_validator("initial_delay")
+    @classmethod
+    def validate_initial_delay(cls, v: float) -> float:
+        if v <= 0:
+            raise ValueError(f"initial_delay must be positive, got: {v}")
+        return v
+
+    @field_validator("max_delay")
+    @classmethod
+    def validate_max_delay(cls, v: float) -> float:
+        if v <= 0:
+            raise ValueError(f"max_delay must be positive, got: {v}")
+        return v
+
+    @field_validator("multiplier")
+    @classmethod
+    def validate_multiplier(cls, v: float) -> float:
+        if v < 1:
+            raise ValueError(f"multiplier must be >= 1, got: {v}")
+        return v
+
+    @field_validator("jitter")
+    @classmethod
+    def validate_jitter(cls, v: float) -> float:
+        if v < 0:
+            raise ValueError(f"jitter must be non-negative, got: {v}")
+        return v
+
+    @field_validator("max_retries")
+    @classmethod
+    def validate_max_retries(cls, v: int) -> int:
+        if v < 0:
+            raise ValueError(f"max_retries must be non-negative, got: {v}")
+        return v
+
 
 class ThenvoiBridge:
     """Main bridge orchestrator.
