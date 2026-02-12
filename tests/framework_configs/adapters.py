@@ -447,7 +447,11 @@ def _build_parlant_config() -> AdapterConfig:
 # a2a / a2a_gateway use the A2A protocol (Google Agent-to-Agent) which has a
 # fundamentally different lifecycle than framework adapters (no on_message /
 # on_cleanup contract), so they cannot share the same conformance tests.
-ADAPTER_EXCLUDED_MODULES: frozenset[str] = frozenset({"a2a", "a2a_gateway"})
+# claude_code_desktop wraps a subprocess-based MCP server with a different
+# lifecycle (no on_message / on_cleanup), so it is also excluded.
+ADAPTER_EXCLUDED_MODULES: frozenset[str] = frozenset(
+    {"a2a", "a2a_gateway", "claude_code_desktop"}
+)
 
 _ADAPTER_CONFIG_BUILDERS: list[Callable[[], AdapterConfig]] = [
     _build_anthropic_config,
