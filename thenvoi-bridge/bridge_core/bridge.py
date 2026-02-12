@@ -9,7 +9,7 @@ import random
 import signal
 from typing import TYPE_CHECKING, Any
 
-from pydantic import BaseModel, field_validator, model_validator
+from pydantic import BaseModel, field_validator
 
 from thenvoi.client.rest import DEFAULT_REQUEST_OPTIONS
 from thenvoi.platform.event import MessageEvent, RoomAddedEvent, RoomRemovedEvent
@@ -42,6 +42,30 @@ class BridgeConfig(BaseModel):
     health_host: str = "0.0.0.0"
     session_ttl: float = 86400.0  # 24 hours; 0 disables eviction
 
+    @field_validator("agent_id")
+    @classmethod
+    def validate_agent_id(cls, v: str) -> str:
+        """Validate agent_id is non-empty."""
+        if not v.strip():
+            raise ValueError("THENVOI_AGENT_ID is required and cannot be empty")
+        return v
+
+    @field_validator("api_key")
+    @classmethod
+    def validate_api_key(cls, v: str) -> str:
+        """Validate api_key is non-empty."""
+        if not v.strip():
+            raise ValueError("THENVOI_API_KEY is required and cannot be empty")
+        return v
+
+    @field_validator("agent_mapping")
+    @classmethod
+    def validate_agent_mapping(cls, v: str) -> str:
+        """Validate agent_mapping is non-empty."""
+        if not v.strip():
+            raise ValueError("AGENT_MAPPING is required and cannot be empty")
+        return v
+
     @field_validator("health_port")
     @classmethod
     def validate_health_port(cls, v: int) -> int:
@@ -57,17 +81,6 @@ class BridgeConfig(BaseModel):
         if v < 0:
             raise ValueError(f"SESSION_TTL must be non-negative, got: {v}")
         return v
-
-    @model_validator(mode="after")
-    def validate_required_fields(self) -> BridgeConfig:
-        """Validate that all required fields are non-empty."""
-        if not self.agent_id:
-            raise ValueError("THENVOI_AGENT_ID environment variable is required")
-        if not self.api_key:
-            raise ValueError("THENVOI_API_KEY environment variable is required")
-        if not self.agent_mapping:
-            raise ValueError("AGENT_MAPPING environment variable is required")
-        return self
 
     @classmethod
     def from_env(cls) -> BridgeConfig:
@@ -346,6 +359,9 @@ class ThenvoiBridge:
 
         # Race each event against the shutdown signal so the loop exits
         # immediately when shutdown is requested, without polling.
+        # Note: when shutdown wins the race, next_fut is cancelled mid-flight.
+        # This is safe because _link.disconnect() follows immediately after,
+        # and ThenvoiLink does not hold partial state across __anext__ calls.
         shutdown_fut = asyncio.ensure_future(self._shutdown_event.wait())
         next_fut: asyncio.Future[object] | None = None
         try:

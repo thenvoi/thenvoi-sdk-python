@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from datetime import datetime, timezone
 from typing import Protocol
 
 from pydantic import BaseModel, Field
+
+logger = logging.getLogger(__name__)
 
 
 class SessionData(BaseModel):
@@ -91,6 +94,8 @@ class InMemorySessionStore:
         self._lock = asyncio.Lock()
         self._session_ttl = session_ttl
 
+    _HIGH_SESSION_THRESHOLD = 10_000
+
     def _evict_expired(self) -> None:
         """Remove sessions that have exceeded the TTL. Must be called under lock.
 
@@ -108,6 +113,14 @@ class InMemorySessionStore:
         ]
         for room_id in expired:
             del self._sessions[room_id]
+
+        count = len(self._sessions)
+        if count >= self._HIGH_SESSION_THRESHOLD:
+            logger.warning(
+                "Session count (%d) exceeds %d — consider a background eviction task",
+                count,
+                self._HIGH_SESSION_THRESHOLD,
+            )
 
     async def get_or_create(self, room_id: str) -> SessionData:
         async with self._lock:
