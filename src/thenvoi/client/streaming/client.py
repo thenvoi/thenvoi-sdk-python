@@ -1,13 +1,15 @@
 from __future__ import annotations
 
+import asyncio
+from collections.abc import Awaitable, Callable
+import logging
+
 from phoenix_channels_python_client.client import (
     PHXChannelsClient,
     PhoenixChannelsProtocolVersion,
 )
 from phoenix_channels_python_client.phx_messages import PHXMessage
-from typing import Callable, Awaitable, Optional
-from pydantic import BaseModel, ConfigDict
-import logging
+from pydantic import BaseModel, ConfigDict, ValidationError
 
 logger = logging.getLogger(__name__)
 
@@ -44,7 +46,7 @@ class MessageCreatedPayload(BaseModel):
     sender_id: str
     sender_type: str
     chat_room_id: str
-    thread_id: Optional[str] = None
+    thread_id: str | None = None
     inserted_at: str
     updated_at: str
 
@@ -101,11 +103,35 @@ class ParticipantRemovedPayload(BaseModel):
     id: str
 
 
+_PAYLOAD_MODELS: dict[str, type[BaseModel]] = {
+    "message_created": MessageCreatedPayload,
+    "room_added": RoomAddedPayload,
+    "room_removed": RoomRemovedPayload,
+    "participant_added": ParticipantAddedPayload,
+    "participant_removed": ParticipantRemovedPayload,
+}
+
+
 class WebSocketClient:
-    def __init__(self, ws_url: str, api_key: str, agent_id: Optional[str] = None):
+    def __init__(self, ws_url: str, api_key: str, agent_id: str | None = None):
         self.ws_url = ws_url
         self.api_key = api_key
         self.agent_id = agent_id
+        self._validation_error_count: int = 0
+
+    @property
+    def validation_error_count(self) -> int:
+        """Number of events dropped due to payload validation errors."""
+        return self._validation_error_count
+
+    def reset_validation_error_count(self) -> int:
+        """Reset the validation error counter and return the previous value.
+
+        Useful for periodic metric flushes (non-atomic, safe for single event loop).
+        """
+        count = self._validation_error_count
+        self._validation_error_count = 0
+        return count
 
     async def __aenter__(self):
         """Create and enter the PHXChannelsClient context"""
@@ -139,20 +165,41 @@ class WebSocketClient:
             return
 
         # Validate and parse payload into Pydantic models for known types
-        if message.event == "message_created":
-            validated = MessageCreatedPayload(**message.payload)
-        elif message.event == "room_added":
-            validated = RoomAddedPayload(**message.payload)
-        elif message.event == "room_removed":
-            validated = RoomRemovedPayload(**message.payload)
+        model = _PAYLOAD_MODELS.get(message.event)
+        if model is not None:
+            try:
+                validated = model(**message.payload)
+            except ValidationError as e:
+                errors = "; ".join(
+                    f"{'.'.join(str(x) for x in err['loc'])}: {err['msg']}"
+                    for err in e.errors()
+                )
+                logger.error(
+                    "[WebSocket] Invalid %s payload: %s",
+                    message.event,
+                    errors,
+                )
+                logger.debug(
+                    "[WebSocket] Raw payload for invalid %s: %s",
+                    message.event,
+                    message.payload,
+                )
+                self._validation_error_count += 1
+                return
         else:
-            # For other events (participant_added, participant_removed, etc.)
-            # pass the raw payload dict
+            # Unknown event types: pass the raw payload dict
             validated = message.payload
 
         callback = event_handlers[message.event]
         if callback:
-            await callback(validated)
+            try:
+                await callback(validated)
+            except asyncio.CancelledError:
+                raise
+            except Exception:  # noqa: BLE001 – intentionally broad to protect event loop
+                logger.exception(
+                    "[WebSocket] Callback error for %s event", message.event
+                )
 
     async def join_agent_rooms_channel(
         self,
@@ -206,8 +253,8 @@ class WebSocketClient:
     async def join_room_participants_channel(
         self,
         chat_room_id: str,
-        on_participant_added: Callable[[dict], Awaitable[None]],
-        on_participant_removed: Callable[[dict], Awaitable[None]],
+        on_participant_added: Callable[[ParticipantAddedPayload], Awaitable[None]],
+        on_participant_removed: Callable[[ParticipantRemovedPayload], Awaitable[None]],
     ):
         """Subscribe to room participants topic with async callbacks"""
         topic = f"room_participants:{chat_room_id}"
