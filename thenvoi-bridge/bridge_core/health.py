@@ -58,7 +58,10 @@ class HealthServer:
     async def stop(self) -> None:
         """Stop the health server."""
         if self._runner:
-            await self._runner.cleanup()
+            try:
+                await self._runner.cleanup()
+            except Exception:
+                logger.warning("Error during health server cleanup", exc_info=True)
             self._runner = None
             logger.info("Health server stopped")
 

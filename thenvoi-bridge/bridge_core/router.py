@@ -207,8 +207,10 @@ class MentionRouter:
         if errors:
             all_failed = len(errors) == len(dispatch_list)
             # Full details for platform operators (mark_failed) and logs
+            _MAX_ERR_LEN = 500
             internal_summaries = [
-                f"'{name}' (@{user}): {err}" for name, user, err in errors
+                f"'{name}' (@{user}): {str(err)[:_MAX_ERR_LEN]}"
+                for name, user, err in errors
             ]
             internal_message = "; ".join(internal_summaries)
             # Sanitized message for chat users (send_event) — avoids

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock, PropertyMock
+from unittest.mock import AsyncMock, MagicMock, PropertyMock
 
 import pytest
 from aiohttp.test_utils import TestClient, TestServer
@@ -92,3 +92,14 @@ async def test_health_without_session_store(mock_link: MagicMock) -> None:
         data = await resp.json()
         assert "active_sessions" not in data
         assert data["handlers_registered"] == 1
+
+
+async def test_stop_handles_cleanup_error(mock_link: MagicMock) -> None:
+    """stop() should not raise even if runner.cleanup() fails."""
+    server = HealthServer(link=mock_link, port=0)
+    server._runner = MagicMock()
+    server._runner.cleanup = AsyncMock(side_effect=OSError("cleanup boom"))
+
+    await server.stop()  # Should not raise
+
+    assert server._runner is None

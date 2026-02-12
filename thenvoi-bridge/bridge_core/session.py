@@ -45,14 +45,6 @@ class SessionStore(Protocol):
         """
         ...
 
-    async def update_activity(self, room_id: str) -> None:
-        """Update the last_activity timestamp for a session.
-
-        Args:
-            room_id: The chat room ID.
-        """
-        ...
-
     async def remove(self, room_id: str) -> None:
         """Remove a session.
 
@@ -137,12 +129,6 @@ class InMemorySessionStore:
         async with self._lock:
             self._evict_expired()
             return self._sessions.get(room_id)
-
-    async def update_activity(self, room_id: str) -> None:
-        async with self._lock:
-            session = self._sessions.get(room_id)
-            if session:
-                session.last_activity = datetime.now(timezone.utc)
 
     async def remove(self, room_id: str) -> None:
         async with self._lock:
