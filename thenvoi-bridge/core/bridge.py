@@ -37,9 +37,10 @@ class BridgeConfig(BaseModel):
     api_key: str
     ws_url: str = "wss://app.thenvoi.com/api/v1/socket/websocket"
     rest_url: str = "https://app.thenvoi.com"
-    agent_mapping: str = ""
+    agent_mapping: str
     health_port: int = 8080
-    session_ttl: float = 86400.0  # 24 hours
+    health_host: str = "0.0.0.0"
+    session_ttl: float = 86400.0  # 24 hours; 0 disables eviction
 
     @field_validator("health_port")
     @classmethod
@@ -52,9 +53,9 @@ class BridgeConfig(BaseModel):
     @field_validator("session_ttl")
     @classmethod
     def validate_session_ttl(cls, v: float) -> float:
-        """Validate session_ttl is positive."""
-        if v <= 0:
-            raise ValueError(f"SESSION_TTL must be positive, got: {v}")
+        """Validate session_ttl is non-negative (0 disables eviction)."""
+        if v < 0:
+            raise ValueError(f"SESSION_TTL must be non-negative, got: {v}")
         return v
 
     @model_validator(mode="after")
@@ -72,44 +73,47 @@ class BridgeConfig(BaseModel):
     def from_env(cls) -> BridgeConfig:
         """Load configuration from environment variables.
 
+        Only env vars that are explicitly set are passed to the constructor;
+        unset vars fall through to model field defaults.
+
         Returns:
             BridgeConfig instance.
 
         Raises:
-            ValueError: If required environment variables are missing.
+            ValueError: If required environment variables are missing or invalid.
         """
-        agent_id = os.environ.get("THENVOI_AGENT_ID", "")
-        api_key = os.environ.get("THENVOI_API_KEY", "")
-        ws_url = os.environ.get(
-            "THENVOI_WS_URL", "wss://app.thenvoi.com/api/v1/socket/websocket"
-        )
-        rest_url = os.environ.get("THENVOI_REST_URL", "https://app.thenvoi.com")
-        agent_mapping = os.environ.get("AGENT_MAPPING", "")
-        health_port_str = os.environ.get("HEALTH_PORT", "8080")
-        try:
-            health_port = int(health_port_str)
-        except ValueError:
-            raise ValueError(
-                f"HEALTH_PORT must be a valid integer, got: '{health_port_str}'"
-            ) from None
+        kwargs: dict[str, Any] = {
+            "agent_id": os.environ.get("THENVOI_AGENT_ID", ""),
+            "api_key": os.environ.get("THENVOI_API_KEY", ""),
+            "agent_mapping": os.environ.get("AGENT_MAPPING", ""),
+        }
 
-        session_ttl_str = os.environ.get("SESSION_TTL", "86400")
-        try:
-            session_ttl = float(session_ttl_str)
-        except ValueError:
-            raise ValueError(
-                f"SESSION_TTL must be a valid number, got: '{session_ttl_str}'"
-            ) from None
+        if "THENVOI_WS_URL" in os.environ:
+            kwargs["ws_url"] = os.environ["THENVOI_WS_URL"]
+        if "THENVOI_REST_URL" in os.environ:
+            kwargs["rest_url"] = os.environ["THENVOI_REST_URL"]
+        if "HEALTH_HOST" in os.environ:
+            kwargs["health_host"] = os.environ["HEALTH_HOST"]
 
-        return cls(
-            agent_id=agent_id,
-            api_key=api_key,
-            ws_url=ws_url,
-            rest_url=rest_url,
-            agent_mapping=agent_mapping,
-            health_port=health_port,
-            session_ttl=session_ttl,
-        )
+        if "HEALTH_PORT" in os.environ:
+            health_port_str = os.environ["HEALTH_PORT"]
+            try:
+                kwargs["health_port"] = int(health_port_str)
+            except ValueError:
+                raise ValueError(
+                    f"HEALTH_PORT must be a valid integer, got: '{health_port_str}'"
+                ) from None
+
+        if "SESSION_TTL" in os.environ:
+            session_ttl_str = os.environ["SESSION_TTL"]
+            try:
+                kwargs["session_ttl"] = float(session_ttl_str)
+            except ValueError:
+                raise ValueError(
+                    f"SESSION_TTL must be a valid number, got: '{session_ttl_str}'"
+                ) from None
+
+        return cls(**kwargs)
 
 
 class ReconnectConfig(BaseModel):
@@ -163,8 +167,9 @@ class ThenvoiBridge:
         )
 
         # Session store — default 24h TTL prevents leaks if room-removed events
-        # are missed during network interruptions.
-        self._session_store = InMemorySessionStore(session_ttl=config.session_ttl)
+        # are missed during network interruptions. TTL of 0 disables eviction.
+        effective_ttl = config.session_ttl if config.session_ttl > 0 else None
+        self._session_store = InMemorySessionStore(session_ttl=effective_ttl)
 
         # Router
         self._router = MentionRouter(
@@ -179,6 +184,7 @@ class ThenvoiBridge:
         self._health = HealthServer(
             self._link,
             port=config.health_port,
+            host=config.health_host,
             session_store=self._session_store,
             handler_count=len(self._handlers),
         )

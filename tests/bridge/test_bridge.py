@@ -37,14 +37,25 @@ class TestBridgeConfig:
         with pytest.raises(ValueError, match="AGENT_MAPPING"):
             BridgeConfig(agent_id="id", api_key="key", agent_mapping="")
 
+    def test_validate_missing_agent_mapping_required(self) -> None:
+        """agent_mapping is a required field (no default)."""
+        with pytest.raises(Exception):
+            BridgeConfig(agent_id="id", api_key="key")  # type: ignore[call-arg]
+
     def test_validate_success(self) -> None:
         # Should not raise — valid config
         config = BridgeConfig(agent_id="id", api_key="key", agent_mapping="a:b")
         assert config.agent_id == "id"
 
-    @pytest.mark.parametrize("ttl", [0, -1, -100.5])
+    def test_session_ttl_zero_disables_eviction(self) -> None:
+        config = BridgeConfig(
+            agent_id="id", api_key="key", agent_mapping="a:b", session_ttl=0
+        )
+        assert config.session_ttl == 0
+
+    @pytest.mark.parametrize("ttl", [-1, -100.5])
     def test_invalid_session_ttl(self, ttl: float) -> None:
-        with pytest.raises(ValueError, match="SESSION_TTL must be positive"):
+        with pytest.raises(ValueError, match="SESSION_TTL must be non-negative"):
             BridgeConfig(
                 agent_id="id", api_key="key", agent_mapping="a:b", session_ttl=ttl
             )
@@ -60,12 +71,14 @@ class TestBridgeConfig:
         monkeypatch.setenv("THENVOI_API_KEY", "test-key")
         monkeypatch.setenv("AGENT_MAPPING", "alice:handler_a")
         monkeypatch.setenv("HEALTH_PORT", "9090")
+        monkeypatch.setenv("HEALTH_HOST", "127.0.0.1")
 
         config = BridgeConfig.from_env()
         assert config.agent_id == "test-agent"
         assert config.api_key == "test-key"
         assert config.agent_mapping == "alice:handler_a"
         assert config.health_port == 9090
+        assert config.health_host == "127.0.0.1"
 
     def test_from_env_with_session_ttl(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("THENVOI_AGENT_ID", "test-agent")
@@ -87,8 +100,19 @@ class TestBridgeConfig:
         with pytest.raises(ValueError, match="SESSION_TTL must be a valid number"):
             BridgeConfig.from_env()
 
-    @pytest.mark.parametrize("ttl", ["0", "-1", "-100.5"])
-    def test_from_env_invalid_session_ttl_non_positive(
+    def test_from_env_session_ttl_zero_disables_eviction(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("THENVOI_AGENT_ID", "test-agent")
+        monkeypatch.setenv("THENVOI_API_KEY", "test-key")
+        monkeypatch.setenv("AGENT_MAPPING", "alice:handler_a")
+        monkeypatch.setenv("SESSION_TTL", "0")
+
+        config = BridgeConfig.from_env()
+        assert config.session_ttl == 0
+
+    @pytest.mark.parametrize("ttl", ["-1", "-100.5"])
+    def test_from_env_invalid_session_ttl_negative(
         self, monkeypatch: pytest.MonkeyPatch, ttl: str
     ) -> None:
         monkeypatch.setenv("THENVOI_AGENT_ID", "test-agent")
@@ -96,18 +120,28 @@ class TestBridgeConfig:
         monkeypatch.setenv("AGENT_MAPPING", "alice:handler_a")
         monkeypatch.setenv("SESSION_TTL", ttl)
 
-        with pytest.raises(ValueError, match="SESSION_TTL must be positive"):
+        with pytest.raises(ValueError, match="SESSION_TTL must be non-negative"):
             BridgeConfig.from_env()
 
     def test_from_env_defaults(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("THENVOI_AGENT_ID", "test-agent")
         monkeypatch.setenv("THENVOI_API_KEY", "test-key")
         monkeypatch.setenv("AGENT_MAPPING", "alice:handler_a")
+        # Ensure optional vars are not set so model defaults are used
+        for var in (
+            "THENVOI_WS_URL",
+            "THENVOI_REST_URL",
+            "HEALTH_PORT",
+            "HEALTH_HOST",
+            "SESSION_TTL",
+        ):
+            monkeypatch.delenv(var, raising=False)
 
         config = BridgeConfig.from_env()
         assert config.ws_url == "wss://app.thenvoi.com/api/v1/socket/websocket"
         assert config.rest_url == "https://app.thenvoi.com"
         assert config.health_port == 8080
+        assert config.health_host == "0.0.0.0"
         assert config.session_ttl == 86400.0
 
     def test_from_env_invalid_health_port(
