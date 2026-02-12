@@ -49,6 +49,14 @@ class BridgeConfig(BaseModel):
             raise ValueError(f"HEALTH_PORT must be between 1 and 65535, got: {v}")
         return v
 
+    @field_validator("session_ttl")
+    @classmethod
+    def validate_session_ttl(cls, v: float) -> float:
+        """Validate session_ttl is positive."""
+        if v <= 0:
+            raise ValueError(f"SESSION_TTL must be positive, got: {v}")
+        return v
+
     @model_validator(mode="after")
     def validate_required_fields(self) -> BridgeConfig:
         """Validate that all required fields are non-empty."""

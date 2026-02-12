@@ -42,6 +42,13 @@ class TestBridgeConfig:
         config = BridgeConfig(agent_id="id", api_key="key", agent_mapping="a:b")
         assert config.agent_id == "id"
 
+    @pytest.mark.parametrize("ttl", [0, -1, -100.5])
+    def test_invalid_session_ttl(self, ttl: float) -> None:
+        with pytest.raises(ValueError, match="SESSION_TTL must be positive"):
+            BridgeConfig(
+                agent_id="id", api_key="key", agent_mapping="a:b", session_ttl=ttl
+            )
+
     def test_invalid_health_port_out_of_range(self) -> None:
         with pytest.raises(ValueError, match="HEALTH_PORT must be between 1 and 65535"):
             BridgeConfig(
@@ -78,6 +85,18 @@ class TestBridgeConfig:
         monkeypatch.setenv("SESSION_TTL", "not-a-number")
 
         with pytest.raises(ValueError, match="SESSION_TTL must be a valid number"):
+            BridgeConfig.from_env()
+
+    @pytest.mark.parametrize("ttl", ["0", "-1", "-100.5"])
+    def test_from_env_invalid_session_ttl_non_positive(
+        self, monkeypatch: pytest.MonkeyPatch, ttl: str
+    ) -> None:
+        monkeypatch.setenv("THENVOI_AGENT_ID", "test-agent")
+        monkeypatch.setenv("THENVOI_API_KEY", "test-key")
+        monkeypatch.setenv("AGENT_MAPPING", "alice:handler_a")
+        monkeypatch.setenv("SESSION_TTL", ttl)
+
+        with pytest.raises(ValueError, match="SESSION_TTL must be positive"):
             BridgeConfig.from_env()
 
     def test_from_env_defaults(self, monkeypatch: pytest.MonkeyPatch) -> None:
