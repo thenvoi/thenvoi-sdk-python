@@ -491,9 +491,7 @@ class TestMentionRouterRoute:
             link=mock_link,
         )
 
-        payload = _make_payload(
-            mentions=[Mention(id="alice-id", username="alice")]
-        )
+        payload = _make_payload(mentions=[Mention(id="alice-id", username="alice")])
         tools = MagicMock()
         tools.send_event = AsyncMock()
 
