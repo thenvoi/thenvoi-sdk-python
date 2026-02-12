@@ -9,7 +9,7 @@ import random
 import signal
 from typing import TYPE_CHECKING, Any
 
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, Field, field_validator
 
 from thenvoi.client.rest import DEFAULT_REQUEST_OPTIONS
 from thenvoi.platform.event import MessageEvent, RoomAddedEvent, RoomRemovedEvent
@@ -32,7 +32,7 @@ class BridgeConfig(BaseModel):
     """Bridge configuration loaded from environment variables."""
 
     agent_id: str
-    api_key: str
+    api_key: str = Field(repr=False)
     ws_url: str = "wss://app.thenvoi.com/api/v1/socket/websocket"
     rest_url: str = "https://app.thenvoi.com"
     agent_mapping: str
@@ -199,6 +199,7 @@ class ThenvoiBridge:
         self._handlers = handlers
         self._reconnect = reconnect_config or ReconnectConfig()
         self._shutdown_event = asyncio.Event()
+        self._connected = False
 
         # Parse and validate agent mapping
         self._agent_mapping = MentionRouter.parse_agent_mapping(config.agent_mapping)

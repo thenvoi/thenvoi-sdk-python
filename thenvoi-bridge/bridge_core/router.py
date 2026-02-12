@@ -79,7 +79,13 @@ class MentionRouter:
                     f"Invalid AGENT_MAPPING entry: '{entry}'. "
                     "Expected format: 'agent_name:handler_name'"
                 )
-            result[parts[0].strip()] = parts[1].strip()
+            username = parts[0].strip()
+            if username in result:
+                raise ValueError(
+                    f"Duplicate username '{username}' in AGENT_MAPPING. "
+                    "Each username must map to exactly one handler."
+                )
+            result[username] = parts[1].strip()
 
         if not result:
             raise ValueError("AGENT_MAPPING produced no valid entries")
@@ -199,6 +205,7 @@ class MentionRouter:
         # Mark processed/failed once for the whole message.
         # Wrap in try-except so API failures don't crash the router.
         if errors:
+            all_failed = len(errors) == len(dispatch_list)
             # Full details for platform operators (mark_failed) and logs
             internal_summaries = [
                 f"'{name}' (@{user}): {err}" for name, user, err in errors
@@ -208,14 +215,35 @@ class MentionRouter:
             # leaking internal handler names
             user_summaries = [f"@{user}: processing failed" for _, user, _ in errors]
             user_message = "; ".join(user_summaries)
-            try:
-                await self._link.mark_failed(room_id, payload.id, internal_message)
-            except Exception:
+
+            if all_failed:
+                try:
+                    await self._link.mark_failed(room_id, payload.id, internal_message)
+                except Exception:
+                    logger.warning(
+                        "Failed to mark message %s as failed",
+                        payload.id,
+                        exc_info=True,
+                    )
+            else:
+                # Partial success: some handlers succeeded, some failed.
+                # Mark as processed (the message was handled) but still
+                # report the failures via send_event and mark_failed so
+                # operators can investigate.
                 logger.warning(
-                    "Failed to mark message %s as failed",
-                    payload.id,
-                    exc_info=True,
+                    "Partial failure for message %s: %s", payload.id, internal_message
                 )
+                try:
+                    await self._link.mark_failed(
+                        room_id, payload.id, f"partial: {internal_message}"
+                    )
+                except Exception:
+                    logger.warning(
+                        "Failed to mark message %s as failed",
+                        payload.id,
+                        exc_info=True,
+                    )
+
             try:
                 await tools.send_event(
                     content=f"Handler failures: {user_message}",
