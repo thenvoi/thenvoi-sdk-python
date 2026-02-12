@@ -59,6 +59,10 @@ class TestParseAgentMapping:
         result = MentionRouter.parse_agent_mapping("alice:handler_a,,bob:handler_b,")
         assert result == {"alice": "handler_a", "bob": "handler_b"}
 
+    def test_duplicate_username_raises(self) -> None:
+        with pytest.raises(ValueError, match="Duplicate username 'alice'"):
+            MentionRouter.parse_agent_mapping("alice:handler_a,alice:handler_b")
+
 
 def _make_payload(
     sender_id: str = "user-1",
@@ -433,6 +437,42 @@ class TestMentionRouterRoute:
         assert "@bob" in event_content
         assert "handler_a" not in event_content
         assert "handler_b" not in event_content
+
+    async def test_partial_success_marks_failed_with_prefix(
+        self, session_store: InMemorySessionStore, mock_link: AsyncMock
+    ) -> None:
+        """When some handlers succeed and some fail, mark_failed includes 'partial:' prefix."""
+        handler_a = AsyncMock()  # succeeds
+        handler_b = AsyncMock()
+        handler_b.handle.side_effect = RuntimeError("error B")
+
+        router = MentionRouter(
+            agent_mapping={"alice": "handler_a", "bob": "handler_b"},
+            handlers={"handler_a": handler_a, "handler_b": handler_b},
+            session_store=session_store,
+            agent_id="bridge-agent-id",
+            link=mock_link,
+        )
+
+        payload = _make_payload(
+            mentions=[
+                Mention(id="alice-id", username="alice"),
+                Mention(id="bob-id", username="bob"),
+            ]
+        )
+        tools = MagicMock()
+        tools.send_event = AsyncMock()
+
+        await router.route(payload, "room-1", tools)
+
+        # handler_a should have succeeded
+        handler_a.handle.assert_called_once()
+        # mark_failed should include "partial:" prefix for partial failure
+        mark_failed_msg = mock_link.mark_failed.call_args[0][2]
+        assert mark_failed_msg.startswith("partial:")
+        assert "'handler_b' (@bob): error B" in mark_failed_msg
+        # User-facing error event should still report the failure
+        tools.send_event.assert_called_once()
 
     async def test_passes_sender_type(
         self, router: MentionRouter, mock_handler: AsyncMock

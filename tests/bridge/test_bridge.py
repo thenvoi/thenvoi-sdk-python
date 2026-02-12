@@ -47,6 +47,13 @@ class TestBridgeConfig:
         config = BridgeConfig(agent_id="id", api_key="key", agent_mapping="a:b")
         assert config.agent_id == "id"
 
+    def test_api_key_hidden_in_repr(self) -> None:
+        config = BridgeConfig(
+            agent_id="id", api_key="secret-key-123", agent_mapping="a:b"
+        )
+        config_repr = repr(config)
+        assert "secret-key-123" not in config_repr
+
     def test_session_ttl_zero_disables_eviction(self) -> None:
         config = BridgeConfig(
             agent_id="id", api_key="key", agent_mapping="a:b", session_ttl=0
