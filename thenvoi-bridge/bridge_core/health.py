@@ -51,10 +51,11 @@ class HealthServer:
         """Start the health server."""
         if self._runner is not None:
             return
-        self._runner = web.AppRunner(self._app)
-        await self._runner.setup()
-        site = web.TCPSite(self._runner, self._host, self._port)
+        runner = web.AppRunner(self._app)
+        await runner.setup()
+        site = web.TCPSite(runner, self._host, self._port)
         await site.start()
+        self._runner = runner
         logger.info("Health server listening on port %s", self._port)
 
     async def stop(self) -> None:
