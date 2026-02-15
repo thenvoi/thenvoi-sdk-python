@@ -1,14 +1,14 @@
-"""E2E tests for the Parlant adapter.
+"""E2E tests for the CrewAI adapter.
 
-Verifies that the Parlant adapter can:
+Verifies that the CrewAI adapter can:
 - Start, process a message, and stop against a real platform
 - Execute platform tools (send_message)
 
-Note: Parlant requires a running Parlant server. These tests create
-a server + agent in-process using the Parlant SDK.
+Note: CrewAI uses nest_asyncio for sync-to-async bridging, which is
+irreversible and affects the entire Python process.
 
 Run with:
-    E2E_TESTS_ENABLED=true uv run pytest tests/e2e/adapters/test_parlant.py -v -s --no-cov
+    E2E_TESTS_ENABLED=true uv run pytest tests/e2e/adapters/test_crewai.py -v -s --no-cov
 """
 
 from __future__ import annotations
@@ -16,7 +16,6 @@ from __future__ import annotations
 import asyncio
 import logging
 
-import pytest
 
 from thenvoi.agent import Agent
 from thenvoi.client.streaming import MessageCreatedPayload
@@ -29,57 +28,25 @@ from tests.e2e.helpers import (
 
 logger = logging.getLogger(__name__)
 
-try:
-    import parlant.sdk as p
-
-    HAS_PARLANT = True
-except ImportError:
-    HAS_PARLANT = False
-
-requires_parlant = pytest.mark.skipif(not HAS_PARLANT, reason="parlant not installed")
-
 
 @requires_e2e
-@requires_parlant
-class TestParlantE2E:
-    """E2E tests specific to the Parlant adapter.
-
-    These tests require Parlant to be installed and create an in-process
-    Parlant server for each test.
-    """
-
-    @pytest.fixture
-    async def parlant_adapter(self, e2e_config: E2ESettings):
-        """Create a Parlant adapter with an in-process server."""
-        from thenvoi.adapters.parlant import ParlantAdapter
-
-        async with p.Server() as server:
-            parlant_agent = await server.create_agent(
-                name="E2E Test Agent",
-                description="A test agent for E2E validation. Keep responses short.",
-            )
-
-            adapter = ParlantAdapter(
-                server=server,
-                parlant_agent=parlant_agent,
-                custom_section="Keep responses short and concise.",
-            )
-
-            yield adapter
+class TestCrewAIE2E:
+    """E2E tests specific to the CrewAI adapter."""
 
     async def test_smoke_responds_to_message(
         self,
         e2e_config: E2ESettings,
         e2e_chat_room_with_user: tuple[str, str, str],
         ws_client,
-        parlant_adapter,
+        crewai_adapter_factory,
         api_client,
     ):
         """Smoke test: agent starts, receives a message, and responds."""
         chat_id, user_id, user_name = e2e_chat_room_with_user
+        adapter = crewai_adapter_factory(e2e_config)
 
         agent = Agent.create(
-            adapter=parlant_adapter,
+            adapter=adapter,
             agent_id=e2e_config.test_agent_id,
             api_key=e2e_config.thenvoi_api_key,
             ws_url=e2e_config.thenvoi_ws_url,
@@ -113,21 +80,22 @@ class TestParlantE2E:
                 pass
 
         assert len(received) > 0, "Agent should have responded to the message"
-        logger.info("Parlant smoke test passed: received %d response(s)", len(received))
+        logger.info("CrewAI smoke test passed: received %d response(s)", len(received))
 
     async def test_tool_execution_send_message(
         self,
         e2e_config: E2ESettings,
         e2e_chat_room_with_user: tuple[str, str, str],
         ws_client,
-        parlant_adapter,
+        crewai_adapter_factory,
         api_client,
     ):
         """Verify the agent uses thenvoi_send_message tool to respond."""
         chat_id, user_id, user_name = e2e_chat_room_with_user
+        adapter = crewai_adapter_factory(e2e_config)
 
         agent = Agent.create(
-            adapter=parlant_adapter,
+            adapter=adapter,
             agent_id=e2e_config.test_agent_id,
             api_key=e2e_config.thenvoi_api_key,
             ws_url=e2e_config.thenvoi_ws_url,
@@ -166,4 +134,4 @@ class TestParlantE2E:
 
         assert len(received) > 0, "Agent should have sent a message via tool"
         assert_content_contains(received, "PINEAPPLE")
-        logger.info("Parlant tool execution test passed")
+        logger.info("CrewAI tool execution test passed")

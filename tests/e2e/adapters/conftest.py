@@ -14,6 +14,8 @@ import logging
 from collections.abc import Callable
 from typing import Any
 
+import pytest
+
 from thenvoi.core.simple_adapter import SimpleAdapter
 
 from tests.e2e.conftest import E2ESettings
@@ -103,5 +105,52 @@ ADAPTER_FACTORIES: dict[str, AdapterFactory] = {
 # It has its own dedicated test file.
 
 
-# Note: The parametrized `adapter_entry` fixture lives in tests/e2e/conftest.py
-# so it is shared between adapters/ and scenarios/ tests.
+# =============================================================================
+# Fixtures
+# =============================================================================
+
+
+@pytest.fixture(params=list(ADAPTER_FACTORIES.keys()))
+def adapter_name(request: pytest.FixtureRequest) -> str:
+    """Parametrized fixture that yields each adapter name."""
+    return request.param
+
+
+@pytest.fixture
+def adapter_factory(
+    adapter_name: str,
+    e2e_config: E2ESettings,
+) -> tuple[str, AdapterFactory]:
+    """Parametrized fixture that yields (adapter_name, factory) for all adapters."""
+    factory = ADAPTER_FACTORIES[adapter_name]
+    return adapter_name, factory
+
+
+@pytest.fixture
+def langgraph_adapter_factory() -> AdapterFactory:
+    """Factory for LangGraph adapter only."""
+    return create_langgraph_adapter
+
+
+@pytest.fixture
+def anthropic_adapter_factory() -> AdapterFactory:
+    """Factory for Anthropic adapter only."""
+    return create_anthropic_adapter
+
+
+@pytest.fixture
+def pydantic_ai_adapter_factory() -> AdapterFactory:
+    """Factory for Pydantic AI adapter only."""
+    return create_pydantic_ai_adapter
+
+
+@pytest.fixture
+def claude_sdk_adapter_factory() -> AdapterFactory:
+    """Factory for Claude SDK adapter only."""
+    return create_claude_sdk_adapter
+
+
+@pytest.fixture
+def crewai_adapter_factory() -> AdapterFactory:
+    """Factory for CrewAI adapter only."""
+    return create_crewai_adapter

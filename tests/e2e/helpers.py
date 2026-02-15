@@ -8,66 +8,13 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import AsyncGenerator, Awaitable, Callable
-from contextlib import asynccontextmanager
 
-import pytest
-from thenvoi_rest import AsyncRestClient, ChatMessageRequest, ChatRoomRequest
-from thenvoi_rest.types import (
-    ChatMessageRequestMentionsItem as Mention,
-    ParticipantRequest,
-)
+from thenvoi_rest import AsyncRestClient, ChatMessageRequest
+from thenvoi_rest.types import ChatMessageRequestMentionsItem as Mention
 
 from thenvoi.client.streaming import MessageCreatedPayload, WebSocketClient
 
 logger = logging.getLogger(__name__)
-
-# Tracks room IDs created during the test session for summary logging.
-# Populated by create_room_with_user(), logged by the e2e_room_summary
-# session fixture in conftest.py.
-created_room_ids: list[str] = []
-
-
-class TrackingWebSocketClient:
-    """Wrapper around WebSocketClient that tracks joined rooms for cleanup.
-
-    Uses a set to avoid duplicate leave calls when tests manually leave
-    and rejoin the same room. Only the methods used in E2E tests are
-    explicitly delegated — no ``__getattr__`` proxy — so typos are caught
-    by the type checker instead of failing silently at runtime.
-    """
-
-    def __init__(self, ws: WebSocketClient) -> None:
-        self._ws = ws
-        self._joined_rooms: set[str] = set()
-
-    @property
-    def ws(self) -> WebSocketClient:
-        """Access the underlying WebSocketClient for methods not wrapped here."""
-        return self._ws
-
-    async def join_chat_room_channel(
-        self,
-        chat_room_id: str,
-        on_message_created: Callable[[MessageCreatedPayload], Awaitable[None]],
-    ):
-        result = await self._ws.join_chat_room_channel(chat_room_id, on_message_created)
-        self._joined_rooms.add(chat_room_id)
-        return result
-
-    async def leave_chat_room_channel(self, chat_room_id: str):
-        result = await self._ws.leave_chat_room_channel(chat_room_id)
-        self._joined_rooms.discard(chat_room_id)
-        return result
-
-    async def cleanup_channels(self) -> None:
-        """Leave all tracked channels. Best-effort, errors are logged."""
-        for room_id in list(self._joined_rooms):
-            try:
-                await self._ws.leave_chat_room_channel(room_id)
-            except Exception:
-                logger.debug("Failed to leave room %s during cleanup", room_id)
-        self._joined_rooms.clear()
 
 
 async def send_user_message(
@@ -79,10 +26,8 @@ async def send_user_message(
 ) -> str:
     """Send a message mentioning an agent, return message_id.
 
-    Uses the agent API to send a message with a self-mention. The platform
-    treats self-mentions as triggering events, so this simulates an incoming
-    user message that causes the agent to process and respond. This approach
-    avoids needing separate user credentials for E2E tests.
+    The message is sent as the agent (via agent API) mentioning itself
+    to simulate an incoming user message that triggers the agent.
 
     Args:
         client: REST API client for sending messages.
@@ -95,7 +40,7 @@ async def send_user_message(
         The message ID of the sent message.
     """
     message_content = f"@{agent_name} {content}"
-    response = await client.agent_api_messages.create_agent_chat_message(
+    response = await client.agent_api.create_agent_chat_message(
         room_id,
         message=ChatMessageRequest(
             content=message_content,
@@ -107,72 +52,26 @@ async def send_user_message(
     return message_id
 
 
-async def create_room_with_user(
-    api_client: AsyncRestClient,
-) -> tuple[str, str, str]:
-    """Create a chat room and add a User peer.
-
-    Returns (chat_id, user_id, user_name). Rooms created here will persist
-    (no delete API for agents).
-    """
-    response = await api_client.agent_api_chats.create_agent_chat(
-        chat=ChatRoomRequest()
-    )
-    chat_id = response.data.id
-
-    peers_response = await api_client.agent_api_peers.list_agent_peers()
-    user_peer = next((p for p in peers_response.data if p.type == "User"), None)
-    if user_peer is None:
-        pytest.skip("No User peer available for E2E tests")
-
-    await api_client.agent_api_participants.add_agent_chat_participant(
-        chat_id,
-        participant=ParticipantRequest(participant_id=user_peer.id, role="member"),
-    )
-
-    created_room_ids.append(chat_id)
-    logger.info(
-        "Created chat room %s with user %s (%s) (will persist, no delete API) "
-        "[%d room(s) created this session]",
-        chat_id,
-        user_peer.name,
-        user_peer.id,
-        len(created_room_ids),
-    )
-    return chat_id, user_peer.id, user_peer.name
-
-
-@asynccontextmanager
-async def listening_for_agent_responses(
-    ws_client: WebSocketClient | TrackingWebSocketClient,
+async def wait_for_agent_response_ws(
+    ws_client: WebSocketClient,
     room_id: str,
     timeout: float = 30.0,
     min_messages: int = 1,
-    raise_on_timeout: bool = False,
-) -> AsyncGenerator[Callable[[], Awaitable[list[MessageCreatedPayload]]], None]:
-    """Context manager that subscribes to a room before any messages are sent.
+) -> list[MessageCreatedPayload]:
+    """Wait for agent response(s) via WebSocket.
 
-    Subscribes to the chat room channel on entry, yields an async ``wait``
-    function, and leaves the channel on exit.  Call ``wait()`` after sending
-    a message to collect agent responses without a race condition.
-
-    Usage::
-
-        async with listening_for_agent_responses(ws, room_id) as wait:
-            await send_user_message(client, room_id, "Hello", ...)
-            received = await wait()
+    Subscribes to the chat room channel and waits for messages from
+    agents (sender_type == "Agent"). Returns once at least min_messages
+    are received or timeout is reached.
 
     Args:
-        ws_client: Connected WebSocket client (or TrackingWebSocketClient).
+        ws_client: Connected WebSocket client.
         room_id: Chat room to listen on.
-        timeout: Maximum seconds ``wait()`` will block.
-        min_messages: Minimum agent messages to collect before returning.
-        raise_on_timeout: If True, ``wait()`` raises ``TimeoutError`` instead
-            of returning partial results.
+        timeout: Maximum seconds to wait.
+        min_messages: Minimum number of agent messages to wait for.
 
-    Yields:
-        An async callable that blocks until *min_messages* agent messages
-        arrive (or *timeout* elapses) and returns the collected messages.
+    Returns:
+        List of received agent messages.
     """
     received: list[MessageCreatedPayload] = []
     event = asyncio.Event()
@@ -189,27 +88,75 @@ async def listening_for_agent_responses(
                 event.set()
 
     await ws_client.join_chat_room_channel(room_id, handler)
+
     try:
+        await asyncio.wait_for(event.wait(), timeout=timeout)
+    except TimeoutError:
+        logger.warning(
+            "Timeout waiting for agent response in room %s "
+            "(received %d/%d messages after %.1fs)",
+            room_id,
+            len(received),
+            min_messages,
+            timeout,
+        )
 
-        async def wait() -> list[MessageCreatedPayload]:
-            try:
-                await asyncio.wait_for(event.wait(), timeout=timeout)
-            except TimeoutError:
-                logger.warning(
-                    "Timeout waiting for agent response in room %s "
-                    "(received %d/%d messages after %.1fs)",
-                    room_id,
-                    len(received),
-                    min_messages,
-                    timeout,
-                )
-                if raise_on_timeout:
-                    raise
-            return received
+    return received
 
-        yield wait
-    finally:
-        await ws_client.leave_chat_room_channel(room_id)
+
+async def wait_for_agent_response_polling(
+    client: AsyncRestClient,
+    room_id: str,
+    after_message_id: str,
+    timeout: float = 30.0,
+    poll_interval: float = 1.0,
+) -> list[dict]:
+    """Wait for agent response by polling /context endpoint.
+
+    Fallback method when WebSocket is not available. Polls the context
+    API and looks for new messages after the given message ID.
+
+    Args:
+        client: REST API client.
+        room_id: Chat room to poll.
+        after_message_id: Only return messages sent after this ID.
+        timeout: Maximum seconds to wait.
+        poll_interval: Seconds between polls.
+
+    Returns:
+        List of new context items (messages/events) from the agent.
+    """
+    deadline = asyncio.get_event_loop().time() + timeout
+    seen_ids = {after_message_id}
+
+    while asyncio.get_event_loop().time() < deadline:
+        response = await client.agent_api.get_agent_chat_context(room_id)
+        context = response.data or []
+
+        new_items = []
+        for item in context:
+            if hasattr(item, "id") and item.id not in seen_ids:
+                # Check if this is an agent message (not our own)
+                if hasattr(item, "sender_type") and item.sender_type == "Agent":
+                    new_items.append(item)
+                    seen_ids.add(item.id)
+
+        if new_items:
+            logger.info(
+                "Found %d new agent messages in room %s via polling",
+                len(new_items),
+                room_id,
+            )
+            return new_items
+
+        await asyncio.sleep(poll_interval)
+
+    logger.warning(
+        "Timeout polling for agent response in room %s after %.1fs",
+        room_id,
+        timeout,
+    )
+    return []
 
 
 def assert_content_contains(
@@ -252,74 +199,3 @@ def assert_no_content_contains(
         f"Expected no message to contain '{unexpected_substring}', "
         f"but found it in: {contents}"
     )
-
-
-# =============================================================================
-# Shared Test Workflows
-# =============================================================================
-
-
-async def run_smoke_test(
-    ws_client: TrackingWebSocketClient,
-    api_client: AsyncRestClient,
-    chat_id: str,
-    agent_name: str,
-    e2e_agent_id: str,
-    timeout: float,
-    adapter_name: str,
-) -> list[MessageCreatedPayload]:
-    """Run a smoke test: send a message and verify the agent responds.
-
-    Returns the list of received agent messages for further inspection.
-    """
-    async with listening_for_agent_responses(
-        ws_client, chat_id, timeout=timeout
-    ) as wait:
-        await send_user_message(
-            api_client, chat_id, "Say hello", agent_name, e2e_agent_id
-        )
-        received = await wait()
-
-    assert len(received) > 0, (
-        f"[{adapter_name}] Agent should have responded to the message"
-    )
-    logger.info(
-        "[%s] Smoke test passed: received %d response(s)",
-        adapter_name,
-        len(received),
-    )
-    return received
-
-
-async def run_tool_execution_test(
-    ws_client: TrackingWebSocketClient,
-    api_client: AsyncRestClient,
-    chat_id: str,
-    agent_name: str,
-    e2e_agent_id: str,
-    timeout: float,
-    adapter_name: str,
-) -> list[MessageCreatedPayload]:
-    """Run a tool execution test: verify agent uses thenvoi_send_message.
-
-    Asks the agent to reply with a specific keyword (PINEAPPLE) and asserts
-    it appears in the response. Returns the received messages.
-    """
-    async with listening_for_agent_responses(
-        ws_client, chat_id, timeout=timeout
-    ) as wait:
-        await send_user_message(
-            api_client,
-            chat_id,
-            "Reply with the word PINEAPPLE",
-            agent_name,
-            e2e_agent_id,
-        )
-        received = await wait()
-
-    assert len(received) > 0, (
-        f"[{adapter_name}] Agent should have sent a message via tool"
-    )
-    assert_content_contains(received, "PINEAPPLE")
-    logger.info("[%s] Tool execution test passed", adapter_name)
-    return received
