@@ -334,6 +334,7 @@ class ThenvoiLink:
 
         Records the error and may trigger retry logic on the server side.
         """
+        error = error.strip() or "Unknown error"
         logger.warning("Marking message %s as failed: %s", message_id, error)
         try:
             await self.rest.agent_api.mark_agent_message_failed(
