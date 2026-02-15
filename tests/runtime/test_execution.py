@@ -979,6 +979,3 @@ class TestErrorLabel:
 
     def test_strips_surrounding_whitespace(self):
         assert _error_label(ValueError("  trimmed  ")) == "trimmed"
-
-    def test_with_message(self):
-        assert _error_label(ValueError("oops")) == "oops"
