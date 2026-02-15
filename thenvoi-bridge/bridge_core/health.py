@@ -49,6 +49,8 @@ class HealthServer:
 
     async def start(self) -> None:
         """Start the health server."""
+        if self._runner is not None:
+            return
         self._runner = web.AppRunner(self._app)
         await self._runner.setup()
         site = web.TCPSite(self._runner, self._host, self._port)
