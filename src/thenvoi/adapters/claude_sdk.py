@@ -405,7 +405,10 @@ class ClaudeSDKAdapter(SimpleAdapter[str]):
 
             except Exception as e:
                 logger.error(
-                    f"create_chatroom failed (task_id={task_id}): {e}", exc_info=True
+                    "create_chatroom failed (task_id=%s): %s",
+                    task_id,
+                    e,
+                    exc_info=True,
                 )
                 return _make_error(str(e))
 
@@ -535,7 +538,9 @@ class ClaudeSDKAdapter(SimpleAdapter[str]):
             if history:  # Already converted to text by SimpleAdapter
                 self._session_context[room_id] = history
                 logger.info(
-                    f"Room {room_id}: Loaded historical context ({len(history)} chars)"
+                    "Room %s: Loaded historical context (%s chars)",
+                    room_id,
+                    len(history),
                 )
             else:
                 self._session_context[room_id] = ""
@@ -565,8 +570,10 @@ class ClaudeSDKAdapter(SimpleAdapter[str]):
         full_message = "\n\n".join(messages_to_send)
 
         logger.info(
-            f"Room {room_id}: Sending query to Claude SDK "
-            f"(first_msg={is_session_bootstrap}, parts={len(messages_to_send)})"
+            "Room %s: Sending query to Claude SDK (first_msg=%s, parts=%s)",
+            room_id,
+            is_session_bootstrap,
+            len(messages_to_send),
         )
 
         try:
@@ -604,7 +611,9 @@ class ClaudeSDKAdapter(SimpleAdapter[str]):
                     elif isinstance(block, ThinkingBlock):
                         if block.thinking:
                             logger.debug(
-                                f"Room {room_id}: Thinking: {block.thinking[:100]}..."
+                                "Room %s: Thinking: %s...",
+                                room_id,
+                                block.thinking[:100],
                             )
                             # Report thinking as event if enabled
                             if self.enable_execution_reporting:
@@ -615,13 +624,15 @@ class ClaudeSDKAdapter(SimpleAdapter[str]):
                                     )
                                 except Exception as e:
                                     logger.warning(
-                                        f"Failed to send thinking event: {e}"
+                                        "Failed to send thinking event: %s", e
                                     )
 
                     elif isinstance(block, ToolUseBlock):
                         logger.info(
-                            f"Room {room_id}: Tool call: {block.name} "
-                            f"with {str(block.input)[:100]}..."
+                            "Room %s: Tool call: %s with %s...",
+                            room_id,
+                            block.name,
+                            str(block.input)[:100],
                         )
                         if self.enable_execution_reporting:
                             try:
@@ -640,8 +651,10 @@ class ClaudeSDKAdapter(SimpleAdapter[str]):
 
                     elif isinstance(block, ToolResultBlock):
                         logger.debug(
-                            f"Room {room_id}: Tool result: "
-                            f"{block.tool_use_id[:20]}... error={block.is_error}"
+                            "Room %s: Tool result: %s... error=%s",
+                            room_id,
+                            block.tool_use_id[:20],
+                            block.is_error,
                         )
                         if self.enable_execution_reporting:
                             try:
@@ -661,15 +674,18 @@ class ClaudeSDKAdapter(SimpleAdapter[str]):
 
             elif isinstance(sdk_message, ResultMessage):
                 logger.info(
-                    f"Room {room_id}: Complete - "
-                    f"{sdk_message.duration_ms}ms, "
-                    f"${sdk_message.total_cost_usd or 0:.4f}"
+                    "Room %s: Complete - %sms, $%.4f",
+                    room_id,
+                    sdk_message.duration_ms,
+                    sdk_message.total_cost_usd or 0,
                 )
                 # Capture session_id for potential resume
                 if sdk_message.session_id:
                     self._session_ids[room_id] = sdk_message.session_id
                     logger.debug(
-                        f"Room {room_id}: Captured session_id {sdk_message.session_id}"
+                        "Room %s: Captured session_id %s",
+                        room_id,
+                        sdk_message.session_id,
                     )
                 break
 

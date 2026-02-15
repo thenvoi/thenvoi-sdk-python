@@ -114,7 +114,9 @@ class AnthropicAdapter(SimpleAdapter[AnthropicMessages]):
             if history:
                 self._message_history[room_id] = list(history)
                 logger.info(
-                    f"Room {room_id}: Loaded {len(history)} historical messages"
+                    "Room %s: Loaded %s historical messages",
+                    room_id,
+                    len(history),
                 )
             else:
                 self._message_history[room_id] = []
@@ -145,8 +147,10 @@ class AnthropicAdapter(SimpleAdapter[AnthropicMessages]):
         # Log message count
         total_messages = len(self._message_history[room_id])
         logger.info(
-            f"Room {room_id}: Calling Anthropic with {total_messages} messages "
-            f"(first_msg={is_session_bootstrap})"
+            "Room %s: Calling Anthropic with %s messages (first_msg=%s)",
+            room_id,
+            total_messages,
+            is_session_bootstrap,
         )
 
         # Get tool schemas in Anthropic format (typed helper)
@@ -181,7 +185,9 @@ class AnthropicAdapter(SimpleAdapter[AnthropicMessages]):
                         }
                     )
                 logger.debug(
-                    f"Room {room_id}: Completed with stop_reason={response.stop_reason}"
+                    "Room %s: Completed with stop_reason=%s",
+                    room_id,
+                    response.stop_reason,
                 )
                 break
 
@@ -206,8 +212,9 @@ class AnthropicAdapter(SimpleAdapter[AnthropicMessages]):
             )
 
         logger.debug(
-            f"Message {msg.id} processed successfully "
-            f"(history now has {len(self._message_history[room_id])} messages)"
+            "Message %s processed successfully (history now has %s messages)",
+            msg.id,
+            len(self._message_history[room_id]),
         )
 
     # --- Copied from ThenvoiAnthropicAgent._cleanup_session ---

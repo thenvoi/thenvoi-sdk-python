@@ -44,8 +44,9 @@ class MessageRetryTracker:
         if exceeded:
             self._failed.add(msg_id)
             logger.error(
-                f"Message {msg_id} exceeded max retries ({self._max_retries}), "
-                "marking as permanently failed"
+                "Message %s exceeded max retries (%s), marking as permanently failed",
+                msg_id,
+                self._max_retries,
             )
 
         return attempts, exceeded

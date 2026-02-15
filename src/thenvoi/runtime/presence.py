@@ -285,7 +285,10 @@ class RoomPresence:
                         await self.on_room_joined(room_id, payload)
                     except Exception as e:
                         logger.error(
-                            f"on_room_joined error for {room_id}: {e}", exc_info=True
+                            "on_room_joined error for %s: %s",
+                            room_id,
+                            e,
+                            exc_info=True,
                         )
 
             logger.info("Subscribed to %s existing rooms", len(self.rooms))
