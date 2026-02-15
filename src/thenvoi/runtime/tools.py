@@ -324,7 +324,10 @@ class AgentTools(AgentToolsProtocol):
         from thenvoi.client.rest import ParticipantRequest
 
         logger.debug(
-            f"Adding participant '{name}' with role '{role}' to room {self.room_id}"
+            "Adding participant '%s' with role '%s' to room %s",
+            name,
+            role,
+            self.room_id,
         )
 
         # First check if participant is already in the room
@@ -365,7 +368,9 @@ class AgentTools(AgentToolsProtocol):
         }
         self._participants.append(new_participant)
         logger.debug(
-            f"Updated participant cache: added {name}, total={len(self._participants)}"
+            "Updated participant cache: added %s, total=%s",
+            name,
+            len(self._participants),
         )
 
         return {
@@ -417,7 +422,9 @@ class AgentTools(AgentToolsProtocol):
             p for p in self._participants if p.get("id") != participant_id
         ]
         logger.debug(
-            f"Updated participant cache: removed {name}, total={len(self._participants)}"
+            "Updated participant cache: removed %s, total=%s",
+            name,
+            len(self._participants),
         )
 
         return {

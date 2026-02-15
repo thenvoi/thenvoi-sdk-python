@@ -243,7 +243,7 @@ class PydanticAIAdapter(SimpleAdapter[PydanticAIMessages]):
             if history:
                 self._message_history[room_id] = list(history)
                 logger.debug(
-                    f"Room {room_id}: Loaded {len(history)} Pydantic AI messages"
+                    "Room %s: Loaded %s Pydantic AI messages", room_id, len(history)
                 )
             else:
                 self._message_history[room_id] = []
@@ -264,9 +264,10 @@ class PydanticAIAdapter(SimpleAdapter[PydanticAIMessages]):
         user_message = msg.format_for_llm()
 
         logger.debug(
-            f"Room {room_id}: Running Pydantic AI agent "
-            f"(history: {len(self._message_history[room_id])} msgs, "
-            f"prompt: {user_message[:80]}...)"
+            "Room %s: Running Pydantic AI agent (history: %s msgs, prompt: %s...)",
+            room_id,
+            len(self._message_history[room_id]),
+            user_message[:80],
         )
 
         # Run agent with streaming to capture tool events
@@ -310,8 +311,9 @@ class PydanticAIAdapter(SimpleAdapter[PydanticAIMessages]):
                 self._message_history[room_id] = list(event.result.all_messages())
 
         logger.debug(
-            f"Room {room_id}: Pydantic AI agent completed "
-            f"(history now has {len(self._message_history[room_id])} messages)"
+            "Room %s: Pydantic AI agent completed (history now has %s messages)",
+            room_id,
+            len(self._message_history[room_id]),
         )
 
     # --- Copied from ThenvoiPydanticAgent._cleanup_session ---

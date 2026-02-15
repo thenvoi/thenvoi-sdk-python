@@ -219,7 +219,9 @@ class ThenvoiLink:
             self._event_queue.put_nowait(event)
         except asyncio.QueueFull:
             logger.warning(
-                f"Event queue full, dropping {event.type} event for room {event.room_id}"
+                "Event queue full, dropping %s event for room %s",
+                event.type,
+                event.room_id,
             )
 
     async def _on_room_added(self, payload: "RoomAddedPayload") -> None:

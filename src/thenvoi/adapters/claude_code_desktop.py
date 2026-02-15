@@ -167,8 +167,9 @@ class ClaudeCodeDesktopAdapter(SimpleAdapter[str]):
         await super().on_started(agent_name, agent_description)
 
         logger.info(
-            f"Claude Code Desktop adapter started for agent: {agent_name} "
-            f"(cli_timeout={self.cli_timeout}ms)"
+            "Claude Code Desktop adapter started for agent: %s (cli_timeout=%sms)",
+            agent_name,
+            self.cli_timeout,
         )
 
     def _build_cli_command(
@@ -256,7 +257,7 @@ class ClaudeCodeDesktopAdapter(SimpleAdapter[str]):
 
         # Log tool calls for visibility
         if tool_calls:
-            logger.info(f"Tools used: {[tc['tool'] for tc in tool_calls]}")
+            logger.info("Tools used: %s", [tc["tool"] for tc in tool_calls])
 
         return result_data
 
@@ -397,7 +398,7 @@ class ClaudeCodeDesktopAdapter(SimpleAdapter[str]):
         cmd = self._build_cli_command(session_id)
         timeout_seconds = self.cli_timeout / 1000
 
-        logger.debug(f"Executing CLI: {' '.join(cmd[:3])}...")
+        logger.debug("Executing CLI: %s...", " ".join(cmd[:3]))
 
         process = None
         try:
@@ -415,7 +416,9 @@ class ClaudeCodeDesktopAdapter(SimpleAdapter[str]):
 
             if process.returncode != 0:
                 error_msg = stderr.decode() if stderr else "Unknown error"
-                logger.error(f"CLI failed with code {process.returncode}: {error_msg}")
+                logger.error(
+                    "CLI failed with code %s: %s", process.returncode, error_msg
+                )
                 return {
                     "result": f"CLI error: {error_msg}",
                     "is_error": True,
@@ -424,7 +427,7 @@ class ClaudeCodeDesktopAdapter(SimpleAdapter[str]):
             return self._parse_cli_response(stdout.decode())
 
         except asyncio.TimeoutError:
-            logger.error(f"CLI timed out after {timeout_seconds}s")
+            logger.error("CLI timed out after %ss", timeout_seconds)
             # Kill the orphaned process
             if process:
                 try:
@@ -432,13 +435,13 @@ class ClaudeCodeDesktopAdapter(SimpleAdapter[str]):
                     await process.wait()
                     logger.debug("Killed timed-out CLI process")
                 except Exception as kill_error:
-                    logger.warning(f"Failed to kill timed-out process: {kill_error}")
+                    logger.warning("Failed to kill timed-out process: %s", kill_error)
             return {
                 "result": f"CLI timed out after {timeout_seconds} seconds",
                 "is_error": True,
             }
         except Exception as e:
-            logger.error(f"CLI execution failed: {e}", exc_info=True)
+            logger.error("CLI execution failed: %s", e, exc_info=True)
             return {
                 "result": f"CLI execution failed: {e}",
                 "is_error": True,
@@ -461,7 +464,7 @@ class ClaudeCodeDesktopAdapter(SimpleAdapter[str]):
         result = response.get("result", "")
 
         if response.get("is_error"):
-            logger.error(f"Room {room_id}: CLI returned error: {result}")
+            logger.error("Room %s: CLI returned error: %s", room_id, result)
             await tools.send_event(
                 content=f"Error: {self._sanitize_error(result)}",
                 message_type="error",
@@ -475,13 +478,13 @@ class ClaudeCodeDesktopAdapter(SimpleAdapter[str]):
             for action_data in actions:
                 await self._execute_action(action_data, tools)
                 logger.debug(
-                    f"Room {room_id}: Executed action '{action_data.get('action')}'"
+                    "Room %s: Executed action '%s'", room_id, action_data.get("action")
                 )
         else:
             # No structured action, send as message
             if result.strip():
                 await tools.send_message(result.strip(), [])
-                logger.debug(f"Room {room_id}: Sent plain text response")
+                logger.debug("Room %s: Sent plain text response", room_id)
 
     def _extract_actions(self, result: str) -> list[dict[str, Any]]:
         """
@@ -513,8 +516,9 @@ class ClaudeCodeDesktopAdapter(SimpleAdapter[str]):
                     )
             except json.JSONDecodeError as e:
                 logger.warning(
-                    f"Failed to parse JSON from code block: {e}. "
-                    f"Content: {match.group(1)[:100]}..."
+                    "Failed to parse JSON from code block: %s. Content: %s...",
+                    e,
+                    match.group(1)[:100],
                 )
 
         if actions:
@@ -553,7 +557,9 @@ class ClaudeCodeDesktopAdapter(SimpleAdapter[str]):
                 mentions = action_data.get("mentions", [])
                 await tools.send_message(content, mentions)
                 logger.info(
-                    f"Sent message: {content[:50]}{'...' if len(content) > 50 else ''}"
+                    "Sent message: %s%s",
+                    content[:50],
+                    "..." if len(content) > 50 else "",
                 )
 
             elif action == "send_event":
@@ -561,23 +567,25 @@ class ClaudeCodeDesktopAdapter(SimpleAdapter[str]):
                 message_type = action_data.get("message_type", "thought")
                 await tools.send_event(content, message_type)
                 logger.debug(
-                    f"Sent event ({message_type}): {content[:50]}{'...' if len(content) > 50 else ''}"
+                    "Sent event (%s): %s",
+                    message_type,
+                    content[:50] + ("..." if len(content) > 50 else ""),
                 )
 
             elif action == "add_participant":
                 name = action_data.get("name", "")
                 role = action_data.get("role", "member")
                 await tools.add_participant(name, role)
-                logger.info(f"Added participant: {name} as {role}")
+                logger.info("Added participant: %s as %s", name, role)
 
             elif action == "remove_participant":
                 name = action_data.get("name", "")
                 await tools.remove_participant(name)
-                logger.info(f"Removed participant: {name}")
+                logger.info("Removed participant: %s", name)
 
             elif action == "get_participants":
                 participants = await tools.get_participants()
-                logger.debug(f"Got participants: {len(participants)}")
+                logger.debug("Got participants: %s", len(participants))
 
             elif action == "lookup_peers":
                 page = action_data.get("page", 1)
@@ -588,10 +596,10 @@ class ClaudeCodeDesktopAdapter(SimpleAdapter[str]):
             elif action == "create_chatroom":
                 task_id = action_data.get("task_id") or None
                 new_room_id = await tools.create_chatroom(task_id)
-                logger.info(f"Created chatroom: {new_room_id}")
+                logger.info("Created chatroom: %s", new_room_id)
 
             else:
-                logger.warning(f"Unknown action: {action}")
+                logger.warning("Unknown action: %s", action)
                 await tools.send_event(
                     content=f"Unknown action type: {action}. "
                     "Available actions: send_message, send_event, add_participant, "
@@ -601,7 +609,7 @@ class ClaudeCodeDesktopAdapter(SimpleAdapter[str]):
                 )
 
         except Exception as e:
-            logger.error(f"Action execution failed: {e}", exc_info=True)
+            logger.error("Action execution failed: %s", e, exc_info=True)
             await tools.send_event(
                 content=f"Action failed: {self._sanitize_error(str(e))}",
                 message_type="error",
@@ -628,7 +636,7 @@ class ClaudeCodeDesktopAdapter(SimpleAdapter[str]):
             is_session_bootstrap: True if first message from this room
             room_id: The room identifier
         """
-        logger.debug(f"Handling message {msg.id} in room {room_id}")
+        logger.debug("Handling message %s in room %s", msg.id, room_id)
 
         # Get stored session_id for potential resume (only on subsequent messages)
         session_id = None
@@ -644,8 +652,10 @@ class ClaudeCodeDesktopAdapter(SimpleAdapter[str]):
         )
 
         logger.info(
-            f"Room {room_id}: Sending query to Claude Code CLI "
-            f"(first_msg={is_session_bootstrap}, session_id={session_id})"
+            "Room %s: Sending query to Claude Code CLI (first_msg=%s, session_id=%s)",
+            room_id,
+            is_session_bootstrap,
+            session_id,
         )
 
         try:
@@ -656,31 +666,31 @@ class ClaudeCodeDesktopAdapter(SimpleAdapter[str]):
             new_session_id = response.get("session_id")
             if new_session_id:
                 self._session_ids[room_id] = new_session_id
-                logger.debug(f"Room {room_id}: Captured session_id {new_session_id}")
+                logger.debug("Room %s: Captured session_id %s", room_id, new_session_id)
 
             # Log cost if available
             cost = response.get("total_cost_usd")
             if cost:
-                logger.info(f"Room {room_id}: Cost ${cost:.4f}")
+                logger.info("Room %s: Cost $%.4f", room_id, cost)
 
             # Process response (execute actions)
             await self._process_response(response, tools, room_id)
 
         except Exception as e:
-            logger.error(f"Error processing message: {e}", exc_info=True)
+            logger.error("Error processing message: %s", e, exc_info=True)
             await tools.send_event(
                 content=f"Error: {self._sanitize_error(str(e))}",
                 message_type="error",
             )
             raise
 
-        logger.debug(f"Message {msg.id} processed successfully")
+        logger.debug("Message %s processed successfully", msg.id)
 
     async def on_cleanup(self, room_id: str) -> None:
         """Clean up session ID when agent leaves a room."""
         if room_id in self._session_ids:
             del self._session_ids[room_id]
-        logger.debug(f"Room {room_id}: Cleaned up Claude Code Desktop session")
+        logger.debug("Room %s: Cleaned up Claude Code Desktop session", room_id)
 
     async def cleanup_all(self) -> None:
         """Cleanup all sessions (call on stop)."""
