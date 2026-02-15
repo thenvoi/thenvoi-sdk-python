@@ -45,6 +45,11 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+def _error_label(e: Exception) -> str:
+    """Return a non-empty label for an exception, falling back to the class name."""
+    return str(e).strip() or type(e).__name__
+
+
 @runtime_checkable
 class Execution(Protocol):
     """
@@ -781,7 +786,7 @@ class ExecutionContext:
             logger.error(
                 f"Error processing backlog message {msg_id}: {e}", exc_info=True
             )
-            await self.link.mark_failed(self.room_id, msg_id, str(e))
+            await self.link.mark_failed(self.room_id, msg_id, _error_label(e))
 
         finally:
             self._set_state("idle")
@@ -893,7 +898,7 @@ class ExecutionContext:
             logger.error("Error processing %s: %s", event.type, e, exc_info=True)
             # For messages: mark as failed on server
             if isinstance(event, MessageEvent) and msg_id:
-                await self.link.mark_failed(self.room_id, msg_id, str(e))
+                await self.link.mark_failed(self.room_id, msg_id, _error_label(e))
 
         finally:
             self._set_state("idle")
