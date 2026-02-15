@@ -97,6 +97,7 @@ class MentionRouter:
         payload: MessageCreatedPayload,
         room_id: str,
         tools: AgentTools,
+        sender_name: str | None = None,
     ) -> None:
         """Route a message to handlers based on @mentions.
 
@@ -109,6 +110,7 @@ class MentionRouter:
             payload: The message payload from the platform.
             room_id: The room where the message was received.
             tools: AgentTools instance for the handler to send responses.
+            sender_name: Display name of the sender, or None if unresolvable.
         """
         # Filter self-messages
         if payload.sender_id == self._agent_id:
@@ -183,6 +185,7 @@ class MentionRouter:
                     thread_id=thread_id,
                     message_id=payload.id,
                     sender_id=payload.sender_id,
+                    sender_name=sender_name,
                     sender_type=payload.sender_type,
                     mentioned_agent=username,
                     tools=tools,

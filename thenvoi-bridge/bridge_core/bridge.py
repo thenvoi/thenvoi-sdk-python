@@ -7,12 +7,19 @@ import logging
 import os
 import random
 import signal
+from collections import OrderedDict
 from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, Field, field_validator
 
 from thenvoi.client.rest import DEFAULT_REQUEST_OPTIONS
-from thenvoi.platform.event import MessageEvent, RoomAddedEvent, RoomRemovedEvent
+from thenvoi.platform.event import (
+    MessageEvent,
+    ParticipantAddedEvent,
+    ParticipantRemovedEvent,
+    RoomAddedEvent,
+    RoomRemovedEvent,
+)
 from thenvoi.platform.link import ThenvoiLink
 from thenvoi.runtime.tools import AgentTools
 
@@ -179,6 +186,8 @@ class ThenvoiBridge:
     messages, and routes them to the appropriate handler.
     """
 
+    _DEDUP_MAX_SIZE = 10_000
+
     def __init__(
         self,
         config: BridgeConfig,
@@ -200,6 +209,8 @@ class ThenvoiBridge:
         self._reconnect = reconnect_config or ReconnectConfig()
         self._shutdown_event = asyncio.Event()
         self._connected_event = asyncio.Event()
+        self._participant_cache: dict[str, list[dict[str, Any]]] = {}
+        self._processed_message_ids: OrderedDict[str, None] = OrderedDict()
 
         # Parse and validate agent mapping
         self._agent_mapping = MentionRouter.parse_agent_mapping(config.agent_mapping)
@@ -352,6 +363,7 @@ class ThenvoiBridge:
 
     async def _connect_and_consume(self) -> None:
         """Connect to platform and consume events."""
+        self._participant_cache.clear()
         await self._link.connect()
         self._connected_event.set()
 
@@ -363,6 +375,10 @@ class ThenvoiBridge:
         if existing_rooms:
             await asyncio.gather(
                 *[self._link.subscribe_room(rid) for rid in existing_rooms]
+            )
+            # Pre-populate participant cache to avoid per-message REST calls
+            await asyncio.gather(
+                *[self._cache_room_participants(rid) for rid in existing_rooms]
             )
             logger.info("Subscribed to %d existing rooms", len(existing_rooms))
 
@@ -449,6 +465,7 @@ class ThenvoiBridge:
                     logger.warning(
                         "Failed to subscribe to room %s", room_id, exc_info=True
                     )
+                await self._cache_room_participants(room_id)
 
             case RoomRemovedEvent(room_id=room_id) if room_id:
                 logger.info("Room removed: %s", room_id)
@@ -458,7 +475,28 @@ class ThenvoiBridge:
                     logger.warning(
                         "Failed to unsubscribe from room %s", room_id, exc_info=True
                     )
+                self._participant_cache.pop(room_id, None)
                 await self._session_store.remove(room_id)
+
+            case ParticipantAddedEvent(room_id=room_id, payload=payload) if (
+                room_id and payload
+            ):
+                cached = self._participant_cache.get(room_id)
+                if cached is not None and not any(
+                    p["id"] == payload.id for p in cached
+                ):
+                    cached.append(
+                        {"id": payload.id, "name": payload.name, "type": payload.type}
+                    )
+
+            case ParticipantRemovedEvent(room_id=room_id, payload=payload) if (
+                room_id and payload
+            ):
+                cached = self._participant_cache.get(room_id)
+                if cached is not None:
+                    self._participant_cache[room_id] = [
+                        p for p in cached if p["id"] != payload.id
+                    ]
 
             case _:
                 logger.debug("Unhandled event: %s", type(event).__name__)
@@ -470,14 +508,30 @@ class ThenvoiBridge:
             room_id: The room the message was received in.
             payload: MessageCreatedPayload from the platform.
         """
-        # Build AgentTools for this room
-        try:
-            participants = await self._get_room_participants(room_id)
-        except Exception:
-            logger.warning(
-                "Failed to fetch participants for room %s", room_id, exc_info=True
-            )
-            participants = []
+        # Deduplicate messages (reconnect may redeliver the same event)
+        if self._is_duplicate(payload.id):
+            logger.debug("Skipping duplicate message %s", payload.id)
+            return
+
+        # Use cached participants, fall back to REST on cache miss
+        participants = self._participant_cache.get(room_id)
+        if participants is None:
+            try:
+                participants = await self._get_room_participants(room_id)
+                self._participant_cache[room_id] = participants
+            except Exception:
+                logger.warning(
+                    "Failed to fetch participants for room %s",
+                    room_id,
+                    exc_info=True,
+                )
+                participants = []
+
+        # Resolve sender name from participants
+        sender_name = next(
+            (p["name"] for p in participants if p["id"] == payload.sender_id),
+            None,
+        )
 
         tools = AgentTools(
             room_id=room_id,
@@ -485,7 +539,35 @@ class ThenvoiBridge:
             participants=participants,
         )
 
-        await self._router.route(payload, room_id, tools)
+        await self._router.route(payload, room_id, tools, sender_name=sender_name)
+
+    def _is_duplicate(self, message_id: str) -> bool:
+        """Check if a message has already been processed (reconnect dedup).
+
+        Uses a bounded OrderedDict so memory stays capped even under
+        sustained high throughput.
+        """
+        if message_id in self._processed_message_ids:
+            return True
+        self._processed_message_ids[message_id] = None
+        if len(self._processed_message_ids) > self._DEDUP_MAX_SIZE:
+            self._processed_message_ids.popitem(last=False)
+        return False
+
+    async def _cache_room_participants(self, room_id: str) -> None:
+        """Fetch and cache participants for a room.
+
+        Errors are logged but do not propagate — the cache miss path in
+        ``_on_message`` will fall back to a REST call per message.
+        """
+        try:
+            self._participant_cache[room_id] = await self._get_room_participants(
+                room_id
+            )
+        except Exception:
+            logger.warning(
+                "Failed to cache participants for room %s", room_id, exc_info=True
+            )
 
     async def _get_room_participants(self, room_id: str) -> list[dict[str, Any]]:
         """Fetch participants for a room.

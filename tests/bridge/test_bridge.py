@@ -10,6 +10,8 @@ from thenvoi.client.streaming import (
     Mention,
     MessageCreatedPayload,
     MessageMetadata,
+    ParticipantAddedPayload,
+    ParticipantRemovedPayload,
     RoomAddedPayload,
     RoomOwner,
     RoomRemovedPayload,
@@ -17,6 +19,7 @@ from thenvoi.client.streaming import (
 from thenvoi.platform.event import (
     MessageEvent,
     ParticipantAddedEvent,
+    ParticipantRemovedEvent,
     RoomAddedEvent,
     RoomRemovedEvent,
 )
@@ -416,6 +419,298 @@ class TestThenvoiBridgeHandleEvent:
 
         # Should not raise or route
         await bridge._handle_event(event)
+
+    async def test_participant_added_updates_cache(
+        self, bridge_with_mock_link: ThenvoiBridge
+    ) -> None:
+        bridge = bridge_with_mock_link
+        # Pre-populate cache
+        bridge._participant_cache["room-1"] = [
+            {"id": "user-1", "name": "Alice", "type": "User"}
+        ]
+        event = ParticipantAddedEvent(
+            room_id="room-1",
+            payload=ParticipantAddedPayload(id="user-2", name="Bob", type="User"),
+        )
+
+        await bridge._handle_event(event)
+
+        assert len(bridge._participant_cache["room-1"]) == 2
+        assert any(p["id"] == "user-2" for p in bridge._participant_cache["room-1"])
+
+    async def test_participant_added_deduplicates(
+        self, bridge_with_mock_link: ThenvoiBridge
+    ) -> None:
+        bridge = bridge_with_mock_link
+        bridge._participant_cache["room-1"] = [
+            {"id": "user-1", "name": "Alice", "type": "User"}
+        ]
+        event = ParticipantAddedEvent(
+            room_id="room-1",
+            payload=ParticipantAddedPayload(id="user-1", name="Alice", type="User"),
+        )
+
+        await bridge._handle_event(event)
+
+        assert len(bridge._participant_cache["room-1"]) == 1
+
+    async def test_participant_added_ignored_without_cache(
+        self, bridge_with_mock_link: ThenvoiBridge
+    ) -> None:
+        bridge = bridge_with_mock_link
+        event = ParticipantAddedEvent(
+            room_id="room-1",
+            payload=ParticipantAddedPayload(id="user-1", name="Alice", type="User"),
+        )
+
+        await bridge._handle_event(event)
+
+        assert "room-1" not in bridge._participant_cache
+
+    async def test_participant_removed_updates_cache(
+        self, bridge_with_mock_link: ThenvoiBridge
+    ) -> None:
+        bridge = bridge_with_mock_link
+        bridge._participant_cache["room-1"] = [
+            {"id": "user-1", "name": "Alice", "type": "User"},
+            {"id": "user-2", "name": "Bob", "type": "User"},
+        ]
+        event = ParticipantRemovedEvent(
+            room_id="room-1",
+            payload=ParticipantRemovedPayload(id="user-1"),
+        )
+
+        await bridge._handle_event(event)
+
+        assert len(bridge._participant_cache["room-1"]) == 1
+        assert bridge._participant_cache["room-1"][0]["id"] == "user-2"
+
+    async def test_room_added_caches_participants(
+        self, bridge_with_mock_link: ThenvoiBridge
+    ) -> None:
+        bridge = bridge_with_mock_link
+        mock_participant = MagicMock()
+        mock_participant.id = "user-1"
+        mock_participant.name = "Alice"
+        mock_participant.type = "User"
+        mock_response = MagicMock()
+        mock_response.data = [mock_participant]
+        bridge._link.rest.agent_api.list_agent_chat_participants = AsyncMock(
+            return_value=mock_response
+        )
+
+        event = RoomAddedEvent(
+            room_id="room-new",
+            payload=RoomAddedPayload(
+                id="room-new",
+                title="New Room",
+                owner=RoomOwner(id="user-1", name="User", type="User"),
+                status="active",
+                type="direct",
+                created_at="2024-01-01T00:00:00Z",
+                participant_role="member",
+            ),
+        )
+
+        await bridge._handle_event(event)
+
+        assert "room-new" in bridge._participant_cache
+        assert bridge._participant_cache["room-new"][0]["name"] == "Alice"
+
+    async def test_room_removed_clears_participant_cache(
+        self, bridge_with_mock_link: ThenvoiBridge
+    ) -> None:
+        bridge = bridge_with_mock_link
+        bridge._participant_cache["room-old"] = [
+            {"id": "user-1", "name": "Alice", "type": "User"}
+        ]
+        await bridge._session_store.get_or_create("room-old")
+
+        event = RoomRemovedEvent(
+            room_id="room-old",
+            payload=RoomRemovedPayload(
+                id="room-old",
+                status="removed",
+                type="direct",
+                title="Old Room",
+                removed_at="2024-01-01T00:00:00Z",
+            ),
+        )
+
+        await bridge._handle_event(event)
+
+        assert "room-old" not in bridge._participant_cache
+
+
+class TestThenvoiBridgeMessageDedup:
+    """Tests for message deduplication on reconnect."""
+
+    def _make_bridge(self, bridge_config: BridgeConfig) -> ThenvoiBridge:
+        handler = AsyncMock()
+        b = ThenvoiBridge(config=bridge_config, handlers={"handler_a": handler})
+        mock_link = MagicMock()
+        mock_link.subscribe_room = AsyncMock()
+        mock_link.unsubscribe_room = AsyncMock()
+        mock_link.mark_processing = AsyncMock()
+        mock_link.mark_processed = AsyncMock()
+        mock_link.rest = MagicMock()
+        b._link = mock_link
+        b._router._link = mock_link
+        return b
+
+    async def test_duplicate_message_skipped(self, bridge_config: BridgeConfig) -> None:
+        bridge = self._make_bridge(bridge_config)
+        payload = MessageCreatedPayload(
+            id="msg-1",
+            content="@alice hello",
+            message_type="text",
+            sender_id="user-1",
+            sender_type="User",
+            chat_room_id="room-1",
+            inserted_at="2024-01-01T00:00:00Z",
+            updated_at="2024-01-01T00:00:00Z",
+            metadata=MessageMetadata(
+                mentions=[Mention(id="alice-id", username="alice")], status="sent"
+            ),
+        )
+
+        # First call processes normally
+        await bridge._on_message("room-1", payload)
+        assert bridge._handlers["handler_a"].handle.call_count == 1
+
+        # Second call with same message ID is skipped
+        await bridge._on_message("room-1", payload)
+        assert bridge._handlers["handler_a"].handle.call_count == 1
+
+    def test_is_duplicate_returns_false_for_new(
+        self, bridge_config: BridgeConfig
+    ) -> None:
+        bridge = self._make_bridge(bridge_config)
+        assert bridge._is_duplicate("msg-1") is False
+
+    def test_is_duplicate_returns_true_for_seen(
+        self, bridge_config: BridgeConfig
+    ) -> None:
+        bridge = self._make_bridge(bridge_config)
+        bridge._is_duplicate("msg-1")
+        assert bridge._is_duplicate("msg-1") is True
+
+    def test_dedup_bounded_at_max_size(self, bridge_config: BridgeConfig) -> None:
+        bridge = self._make_bridge(bridge_config)
+        # Fill beyond max size
+        for i in range(ThenvoiBridge._DEDUP_MAX_SIZE + 100):
+            bridge._is_duplicate(f"msg-{i}")
+        assert len(bridge._processed_message_ids) <= ThenvoiBridge._DEDUP_MAX_SIZE
+
+
+class TestThenvoiBridgeParticipantCache:
+    """Tests for participant cache usage in _on_message."""
+
+    def _make_bridge(self, bridge_config: BridgeConfig) -> ThenvoiBridge:
+        handler = AsyncMock()
+        b = ThenvoiBridge(config=bridge_config, handlers={"handler_a": handler})
+        mock_link = MagicMock()
+        mock_link.subscribe_room = AsyncMock()
+        mock_link.unsubscribe_room = AsyncMock()
+        mock_link.mark_processing = AsyncMock()
+        mock_link.mark_processed = AsyncMock()
+        mock_link.rest = MagicMock()
+        b._link = mock_link
+        b._router._link = mock_link
+        return b
+
+    async def test_cached_participants_used(self, bridge_config: BridgeConfig) -> None:
+        bridge = self._make_bridge(bridge_config)
+        bridge._participant_cache["room-1"] = [
+            {"id": "user-1", "name": "Jane", "type": "User"}
+        ]
+
+        payload = MessageCreatedPayload(
+            id="msg-1",
+            content="@alice hello",
+            message_type="text",
+            sender_id="user-1",
+            sender_type="User",
+            chat_room_id="room-1",
+            inserted_at="2024-01-01T00:00:00Z",
+            updated_at="2024-01-01T00:00:00Z",
+            metadata=MessageMetadata(
+                mentions=[Mention(id="alice-id", username="alice")], status="sent"
+            ),
+        )
+
+        await bridge._on_message("room-1", payload)
+
+        # REST API should NOT be called since cache was used
+        bridge._link.rest.agent_api.list_agent_chat_participants.assert_not_called()
+        # Handler should receive resolved sender_name
+        call_kwargs = bridge._handlers["handler_a"].handle.call_args.kwargs
+        assert call_kwargs["sender_name"] == "Jane"
+
+    async def test_cache_miss_falls_back_to_rest(
+        self, bridge_config: BridgeConfig
+    ) -> None:
+        bridge = self._make_bridge(bridge_config)
+        mock_participant = MagicMock()
+        mock_participant.id = "user-1"
+        mock_participant.name = "Jane"
+        mock_participant.type = "User"
+        mock_response = MagicMock()
+        mock_response.data = [mock_participant]
+        bridge._link.rest.agent_api.list_agent_chat_participants = AsyncMock(
+            return_value=mock_response
+        )
+
+        payload = MessageCreatedPayload(
+            id="msg-1",
+            content="@alice hello",
+            message_type="text",
+            sender_id="user-1",
+            sender_type="User",
+            chat_room_id="room-1",
+            inserted_at="2024-01-01T00:00:00Z",
+            updated_at="2024-01-01T00:00:00Z",
+            metadata=MessageMetadata(
+                mentions=[Mention(id="alice-id", username="alice")], status="sent"
+            ),
+        )
+
+        await bridge._on_message("room-1", payload)
+
+        # REST API should be called due to cache miss
+        bridge._link.rest.agent_api.list_agent_chat_participants.assert_called_once()
+        # Cache should now be populated
+        assert "room-1" in bridge._participant_cache
+        # Handler should receive resolved sender_name
+        call_kwargs = bridge._handlers["handler_a"].handle.call_args.kwargs
+        assert call_kwargs["sender_name"] == "Jane"
+
+    async def test_sender_name_none_when_not_found(
+        self, bridge_config: BridgeConfig
+    ) -> None:
+        bridge = self._make_bridge(bridge_config)
+        bridge._participant_cache["room-1"] = [
+            {"id": "other-user", "name": "Bob", "type": "User"}
+        ]
+
+        payload = MessageCreatedPayload(
+            id="msg-1",
+            content="@alice hello",
+            message_type="text",
+            sender_id="user-1",
+            sender_type="User",
+            chat_room_id="room-1",
+            inserted_at="2024-01-01T00:00:00Z",
+            updated_at="2024-01-01T00:00:00Z",
+            metadata=MessageMetadata(
+                mentions=[Mention(id="alice-id", username="alice")], status="sent"
+            ),
+        )
+
+        await bridge._on_message("room-1", payload)
+
+        call_kwargs = bridge._handlers["handler_a"].handle.call_args.kwargs
+        assert call_kwargs["sender_name"] is None
 
 
 class TestThenvoiBridgeFetchExistingRooms:

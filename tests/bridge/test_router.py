@@ -133,6 +133,7 @@ class TestMentionRouterRoute:
             thread_id="room-1",
             message_id="msg-1",
             sender_id="user-1",
+            sender_name=None,
             sender_type="User",
             mentioned_agent="alice",
             tools=tools,
@@ -530,3 +531,29 @@ class TestMentionRouterRoute:
 
         call_kwargs = mock_handler.handle.call_args.kwargs
         assert call_kwargs["message_id"] == "custom-msg-id"
+
+    async def test_passes_sender_name(
+        self, router: MentionRouter, mock_handler: AsyncMock
+    ) -> None:
+        payload = _make_payload(
+            mentions=[Mention(id="alice-id", username="alice")],
+        )
+        tools = MagicMock()
+
+        await router.route(payload, "room-1", tools, sender_name="Jane Doe")
+
+        call_kwargs = mock_handler.handle.call_args.kwargs
+        assert call_kwargs["sender_name"] == "Jane Doe"
+
+    async def test_sender_name_defaults_to_none(
+        self, router: MentionRouter, mock_handler: AsyncMock
+    ) -> None:
+        payload = _make_payload(
+            mentions=[Mention(id="alice-id", username="alice")],
+        )
+        tools = MagicMock()
+
+        await router.route(payload, "room-1", tools)
+
+        call_kwargs = mock_handler.handle.call_args.kwargs
+        assert call_kwargs["sender_name"] is None
