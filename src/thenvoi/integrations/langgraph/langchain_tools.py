@@ -29,7 +29,7 @@ def agent_tools_to_langchain(tools: AgentToolsProtocol) -> list[Any]:
     async def send_message_wrapper(
         content: str, mentions: list[str]
     ) -> dict[str, Any] | str:
-        """Send a message to the chat room. Provide participant names in mentions."""
+        """Send a message to the chat room. Provide participant handles in mentions (e.g., '@john', '@john/weather-agent')."""
         try:
             return await tools.send_message(content, mentions)
         except Exception as e:

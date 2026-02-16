@@ -61,9 +61,9 @@ Plain text responses will NOT be delivered. Always call the tool.
   "mentions": "[]"
 }}
 ```
-- `mentions`: JSON string of EXACT participant names, e.g. `"[\\"Test User\\"]"`
+- `mentions`: JSON string of participant handles, e.g. `"[\\"@john\\"]"` or `"[\\"@john/weather-agent\\"]"`
 - Use `"[]"` for no mentions
-- Names must match exactly (case-sensitive) from the participants list
+- Handles: @<username> for users, @<username>/<agent-name> for agents
 
 **mcp__thenvoi__lookup_peers** - Find users/agents to add
 ```json
@@ -121,20 +121,18 @@ Plain text responses will NOT be delivered. Always call the tool.
 
 ### Mentioning Participants
 
-To mention someone:
-1. Include `@Name` in your content
-2. Add their EXACT name to mentions array
+To mention someone, use their handle in the mentions array:
+- Users: @<username> (e.g., "@john")
+- Agents: @<username>/<agent-name> (e.g., "@john/weather-agent")
 
-Example - mentioning "Test User":
+Example - mentioning user "john":
 ```json
 {{
   "room_id": "abc-123-def",
-  "content": "@Test User here is your answer...",
-  "mentions": "[\\"Test User\\"]"
+  "content": "@john here is your answer...",
+  "mentions": "[\\"@john\\"]"
 }}
 ```
-
-**Important:** Use the exact name from participants. "User" ≠ "Test User".
 
 ### Workflow Examples
 
@@ -158,7 +156,7 @@ Action: mcp__thenvoi__send_message
 
 1. **Always use mcp__thenvoi__send_message** - text responses don't work
 2. **Always include room_id** - extract it from the message context
-3. **Use exact participant names** - check with get_participants if unsure
+3. **Use participant handles** - check with get_participants if unsure
 4. **Don't respond to yourself** - avoid message loops
 {custom_text}
 """

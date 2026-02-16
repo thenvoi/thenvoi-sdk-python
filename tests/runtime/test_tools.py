@@ -87,8 +87,8 @@ def mock_rest_client():
 def participants():
     """Sample participants list."""
     return [
-        {"id": "user-1", "name": "User One", "type": "User"},
-        {"id": "user-2", "name": "User Two", "type": "User"},
+        {"id": "user-1", "name": "User One", "type": "User", "handle": "@user-one"},
+        {"id": "user-2", "name": "User Two", "type": "User", "handle": "@user-two"},
     ]
 
 
@@ -505,6 +505,68 @@ class TestMentionResolution:
 
         with pytest.raises(ValueError, match="Unknown participant"):
             tools._resolve_mentions(["Unknown Person"])
+
+
+class TestHandleMentionResolution:
+    """Test handle-based mention resolution."""
+
+    def test_resolve_by_handle(self, mock_rest_client, participants):
+        """Should resolve mentions by handle."""
+        tools = AgentTools("room-123", mock_rest_client, participants)
+
+        resolved = tools._resolve_mentions(["@user-one"])
+
+        assert len(resolved) == 1
+        assert resolved[0] == {"id": "user-1", "name": "User One"}
+
+    def test_resolve_handle_takes_priority(self, mock_rest_client):
+        """Should try handle lookup before name lookup."""
+        # Participant with handle different from name
+        participants = [
+            {
+                "id": "agent-1",
+                "name": "Weather Agent",
+                "type": "Agent",
+                "handle": "@john/weather",
+            },
+        ]
+        tools = AgentTools("room-123", mock_rest_client, participants)
+
+        # Resolve by handle
+        resolved = tools._resolve_mentions(["@john/weather"])
+        assert resolved[0] == {"id": "agent-1", "name": "Weather Agent"}
+
+        # Resolve by name still works
+        resolved = tools._resolve_mentions(["Weather Agent"])
+        assert resolved[0] == {"id": "agent-1", "name": "Weather Agent"}
+
+    def test_resolve_mixed_handles_and_names(self, mock_rest_client, participants):
+        """Should resolve a mix of handles and names."""
+        tools = AgentTools("room-123", mock_rest_client, participants)
+
+        resolved = tools._resolve_mentions(["@user-one", "User Two"])
+
+        assert len(resolved) == 2
+        assert resolved[0] == {"id": "user-1", "name": "User One"}
+        assert resolved[1] == {"id": "user-2", "name": "User Two"}
+
+    def test_resolve_unknown_handle_raises(self, mock_rest_client, participants):
+        """Should raise for unknown handle."""
+        tools = AgentTools("room-123", mock_rest_client, participants)
+
+        with pytest.raises(ValueError, match="Unknown participant '@unknown'"):
+            tools._resolve_mentions(["@unknown"])
+
+    def test_resolve_participant_without_handle(self, mock_rest_client):
+        """Should resolve by name when participant has no handle."""
+        participants = [
+            {"id": "user-1", "name": "User One", "type": "User", "handle": None},
+        ]
+        tools = AgentTools("room-123", mock_rest_client, participants)
+
+        resolved = tools._resolve_mentions(["User One"])
+
+        assert resolved[0] == {"id": "user-1", "name": "User One"}
 
 
 class TestToolInputModels:

@@ -40,7 +40,11 @@ class SendMessageInput(BaseModel):
     mentions: list[str] = Field(
         ...,
         min_length=1,
-        description="List of participant names to @mention. At least one required.",
+        description=(
+            "List of participant handles to @mention. At least one required. "
+            "For users: @<username> (e.g., '@john'). "
+            "For agents: @<username>/<agent-name> (e.g., '@john/weather-agent')."
+        ),
     )
 
 
@@ -331,7 +335,7 @@ class AgentTools(AgentToolsProtocol):
 
     Example (from ExecutionContext):
         tools = AgentTools.from_context(ctx)
-        await tools.send_message("Hello!", mentions=["User"])
+        await tools.send_message("Hello!", mentions=["@john"])
 
     Example (manual construction):
         tools = AgentTools(room_id, rest_client, participants=[...])
@@ -381,13 +385,14 @@ class AgentTools(AgentToolsProtocol):
 
         Args:
             content: Message content to send
-            mentions: List of participant names (strings). SDK resolves names to IDs.
+            mentions: List of participant handles (strings). SDK resolves handles to IDs.
+                      Format: @<username> for users, @<username>/<agent-name> for agents.
 
         Returns:
             Full API response dict with message details (id, content, sender, etc.)
 
         Raises:
-            ValueError: If a mentioned name is not found in participants
+            ValueError: If a mentioned handle is not found in participants
         """
         from thenvoi.client.rest import (
             ChatMessageRequest,
@@ -520,6 +525,7 @@ class AgentTools(AgentToolsProtocol):
             "id": participant_id,
             "name": name,
             "type": participant.get("type", "Agent"),
+            "handle": participant.get("handle"),
         }
         self._participants.append(new_participant)
         logger.debug(
@@ -650,6 +656,7 @@ class AgentTools(AgentToolsProtocol):
                 "id": p.id,
                 "name": p.name,
                 "type": p.type,
+                "handle": getattr(p, "handle", None),
             }
             for p in response.data
         ]
@@ -1094,38 +1101,53 @@ class AgentTools(AgentToolsProtocol):
         self, mentions: list[str] | list[dict[str, str]]
     ) -> list[dict[str, str]]:
         """
-        Resolve mention names to {id, name} dicts using cached participants.
+        Resolve mention handles or names to {id, name} dicts using cached participants.
+
+        Lookup priority:
+        1. Handle (unique identifier like @john or @john/agent-name)
+        2. Name (display name, may not be unique)
 
         Args:
-            mentions: List of names (strings) or already-resolved dicts
+            mentions: List of handles/names (strings) or already-resolved dicts
 
         Returns:
             List of {id, name} dicts
 
         Raises:
-            ValueError: If a name is not found in participants
+            ValueError: If handle/name is not found in participants
         """
-        # Build name -> id lookup from cached participants
-        name_to_id = {p.get("name"): p.get("id") for p in self._participants}
+        # Build lookup tables from cached participants
+        handle_to_participant = {p.get("handle"): p for p in self._participants}
+        name_to_participant = {p.get("name"): p for p in self._participants}
 
         resolved = []
         for mention in mentions:
             if isinstance(mention, str):
-                name = mention
+                identifier = mention
             else:
-                name = mention.get("name", "")
+                # Already-resolved dict with ID
                 if mention.get("id"):
-                    resolved.append({"id": mention["id"], "name": name})
+                    resolved.append(
+                        {"id": mention["id"], "name": mention.get("name", "")}
+                    )
                     continue
+                identifier = mention.get("handle") or mention.get("name", "")
 
-            participant_id = name_to_id.get(name)
-            if not participant_id:
-                available = list(name_to_id.keys())
+            # Try handle lookup first (handles are unique), then name
+            participant = handle_to_participant.get(identifier)
+            if not participant:
+                participant = name_to_participant.get(identifier)
+
+            if not participant:
+                available_handles = list(handle_to_participant.keys())
                 raise ValueError(
-                    f"Unknown participant '{name}'. Available: {available}"
+                    f"Unknown participant '{identifier}'. "
+                    f"Available handles: {available_handles}"
                 )
 
-            resolved.append({"id": participant_id, "name": name})
+            resolved.append(
+                {"id": participant["id"], "name": participant.get("name", "")}
+            )
 
         return resolved
 

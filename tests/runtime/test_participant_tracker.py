@@ -80,7 +80,7 @@ class TestParticipantTracker:
         )
         participant = tracker.participants[0]
         assert "extra_field" not in participant
-        assert set(participant.keys()) == {"id", "name", "type"}
+        assert set(participant.keys()) == {"id", "name", "type", "handle"}
 
     def test_room_id_in_constructor(self):
         tracker = ParticipantTracker(room_id="room-123")

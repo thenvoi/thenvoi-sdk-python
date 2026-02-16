@@ -23,7 +23,7 @@ Example (SDK-heavy pattern):
     async def handle_event(ctx: ExecutionContext, event: PlatformEvent):
         tools = AgentTools.from_context(ctx)
         # Your LLM logic here
-        await tools.send_message("Hello!", mentions=["User"])
+        await tools.send_message("Hello!", mentions=["@john"])
 
     link = ThenvoiLink(agent_id="...", api_key="...", ws_url="...", rest_url="...")
     runtime = AgentRuntime(link, agent_id="...", on_execute=handle_event)

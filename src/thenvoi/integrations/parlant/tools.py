@@ -115,7 +115,7 @@ def create_parlant_tools() -> list[Any]:
         Args:
             context: Parlant tool context (automatically provided)
             content: The message content to send
-            mentions: Comma-separated list of participant names to @mention (e.g., "Alice, Bob")
+            mentions: Comma-separated list of participant handles to @mention (e.g., "@alice, @bob/agent")
 
         Returns:
             Confirmation of message sent or error

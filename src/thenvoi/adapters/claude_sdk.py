@@ -218,10 +218,10 @@ class ClaudeSDKAdapter(SimpleAdapter[str]):
                 content = args.get("content", "")
                 mentions_str = args.get("mentions", "[]")
 
-                mention_names: list[str] = []
+                mention_handles: list[str] = []
                 if mentions_str:
                     try:
-                        mention_names = (
+                        mention_handles = (
                             json.loads(mentions_str)
                             if isinstance(mentions_str, str)
                             else mentions_str
@@ -235,7 +235,7 @@ class ClaudeSDKAdapter(SimpleAdapter[str]):
                 if not tools:
                     return _make_error(f"No tools available for room {room_id}")
 
-                await tools.send_message(content, mention_names)
+                await tools.send_message(content, mention_handles)
 
                 return _make_result({"status": "success", "message": "Message sent"})
 

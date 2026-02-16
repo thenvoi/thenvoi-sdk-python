@@ -66,8 +66,8 @@ You have NO internet access and NO real-time data. When asked about weather, new
 or any current information you cannot answer directly:
 
 1. Call `thenvoi_lookup_peers` to find available specialized agents
-2. If a relevant agent exists (e.g., Weather Agent), call `thenvoi_add_participant` to add them
-3. Ask that agent using `thenvoi_send_message` with their name in mentions
+2. If a relevant agent exists, call `thenvoi_add_participant` to add them
+3. Ask that agent using `thenvoi_send_message` with their handle in mentions
 4. Wait for their response and relay it back to the user
 
 NEVER say "I can't do that" without first checking if another agent can help via `thenvoi_lookup_peers`.
@@ -445,7 +445,7 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
             content: str = Field(..., description="The message content to send")
             mentions: str = Field(
                 default="[]",
-                description="JSON array of participant names to @mention",
+                description='JSON array of participant handles to @mention (e.g., \'["@john", "@john/weather-agent"]\')',
             )
 
             @field_validator("mentions", mode="before")

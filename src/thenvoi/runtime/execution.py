@@ -352,6 +352,7 @@ class ExecutionContext:
                 "id": participant.get("id"),
                 "name": participant.get("name"),
                 "type": participant.get("type"),
+                "handle": participant.get("handle"),
             }
         )
         logger.debug(
@@ -425,7 +426,13 @@ class ExecutionContext:
             )
             if response.data:
                 self._participants = [
-                    {"id": p.id, "name": p.name, "type": p.type} for p in response.data
+                    {
+                        "id": p.id,
+                        "name": p.name,
+                        "type": p.type,
+                        "handle": getattr(p, "handle", None),
+                    }
+                    for p in response.data
                 ]
             self._participants_loaded = True
         except Exception as e:
