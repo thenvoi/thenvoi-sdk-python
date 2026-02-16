@@ -153,3 +153,4 @@ examples/claude_sdk_docker/agent*.yaml
 parlant-data/
 
 uv.toml
+.obsidian/
