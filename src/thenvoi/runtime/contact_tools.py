@@ -18,10 +18,16 @@ logger = logging.getLogger(__name__)
 
 class ContactTools:
     """
-    Standalone contact tools for CALLBACK strategy.
+    Agent-level contact tools for programmatic contact handling.
 
-    Used by ContactEventHandler to execute contact operations in callbacks.
-    Not tied to a specific room, operates at agent level.
+    Used by ContactEventHandler to execute contact operations in CALLBACK
+    strategy. Operates at agent level (not room-bound).
+
+    Note: ContactTools vs AgentTools
+        - ContactTools: Agent-level. Used for programmatic contact handling
+          in CALLBACK strategy. Contains only contact management methods.
+        - AgentTools: Room-bound. Used by LLM agents in chat rooms.
+          Has full tool suite including contacts, but tied to a room.
 
     Example:
         async def auto_approve(event: ContactEvent, tools: ContactTools) -> None:

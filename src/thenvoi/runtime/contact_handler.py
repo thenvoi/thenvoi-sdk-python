@@ -33,7 +33,14 @@ from thenvoi.platform.event import (
     MessageEvent,
 )
 from thenvoi.runtime.contact_tools import ContactTools
-from thenvoi.runtime.types import ContactEventConfig, ContactEventStrategy
+from thenvoi.runtime.types import (
+    ContactEventConfig,
+    ContactEventStrategy,
+    SYNTHETIC_SENDER_TYPE,
+    SYNTHETIC_CONTACT_EVENTS_SENDER_ID,
+    SYNTHETIC_CONTACT_EVENTS_SENDER_NAME,
+    normalize_handle,
+)
 
 if TYPE_CHECKING:
     from thenvoi.platform.link import ThenvoiLink
@@ -306,9 +313,9 @@ class ContactEventHandler:
                     id=str(uuid.uuid4()),
                     content=content,
                     message_type="text",
-                    sender_type="System",
-                    sender_id="contact-events",
-                    sender_name="Contact Events",
+                    sender_type=SYNTHETIC_SENDER_TYPE,
+                    sender_id=SYNTHETIC_CONTACT_EVENTS_SENDER_ID,
+                    sender_name=SYNTHETIC_CONTACT_EVENTS_SENDER_NAME,
                     metadata=MessageMetadata(),
                     chat_room_id=hub_id,
                     inserted_at=now,
@@ -377,12 +384,7 @@ class ContactEventHandler:
             case ContactRequestReceivedEvent(payload=payload):
                 if payload is None:
                     return "[Contact Request] Unknown sender"
-                # Handle may or may not include @ prefix
-                from_handle = (
-                    payload.from_handle
-                    if payload.from_handle.startswith("@")
-                    else f"@{payload.from_handle}"
-                )
+                from_handle = normalize_handle(payload.from_handle)
                 msg_part = f'\nMessage: "{payload.message}"' if payload.message else ""
                 return (
                     f"[Contact Request] {payload.from_name} ({from_handle}) "
@@ -398,9 +400,8 @@ class ContactEventHandler:
                 if info:
                     # Could be from received (from_*) or sent (to_*) request
                     name = info.get("from_name") or info.get("to_name")
-                    handle = info.get("from_handle") or info.get("to_handle") or ""
-                    if handle and not handle.startswith("@"):
-                        handle = f"@{handle}"
+                    raw_handle = info.get("from_handle") or info.get("to_handle") or ""
+                    handle = normalize_handle(raw_handle) or ""
                     if name:
                         direction = "from" if info.get("from_name") else "to"
                         return (
@@ -416,12 +417,7 @@ class ContactEventHandler:
             case ContactAddedEvent(payload=payload):
                 if payload is None:
                     return "[Contact Added] Unknown contact"
-                # Handle may or may not include @ prefix
-                handle = (
-                    payload.handle
-                    if payload.handle.startswith("@")
-                    else f"@{payload.handle}"
-                )
+                handle = normalize_handle(payload.handle)
                 return (
                     f"[Contact Added] {payload.name} ({handle}) "
                     f"is now a contact.\n"
@@ -470,12 +466,7 @@ class ContactEventHandler:
         match event:
             case ContactAddedEvent(payload=payload):
                 if payload is not None:
-                    # Handle may or may not include @ prefix
-                    handle = (
-                        payload.handle
-                        if payload.handle.startswith("@")
-                        else f"@{payload.handle}"
-                    )
+                    handle = normalize_handle(payload.handle)
                     msg = f"{handle} ({payload.name}) is now a contact"
                     self._on_broadcast(msg)
                     logger.debug("Queued broadcast: %s", msg)

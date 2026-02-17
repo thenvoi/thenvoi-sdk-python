@@ -332,15 +332,22 @@ def get_tool_description(name: str) -> str:
 
 class AgentTools(AgentToolsProtocol):
     """
-    Tools for LLM platform interaction.
+    Room-bound tools for LLM platform interaction.
 
     Uses AsyncRestClient directly for API calls.
     Bound to a specific room_id. Passed to execution handlers.
 
     This class provides:
     - Tool methods (send_message, add_participant, etc.)
+    - Contact management methods (list_contacts, add_contact, etc.)
     - Schema converters for different LLM frameworks
     - execute_tool_call() for programmatic dispatch
+
+    Note: AgentTools vs ContactTools
+        - AgentTools: Room-bound. Used by LLM agents in chat rooms.
+          Has full tool suite including messaging, participants, AND contacts.
+        - ContactTools: Agent-level. Used by ContactEventHandler for
+          programmatic contact handling in CALLBACK strategy. Contact-only.
 
     Example (from ExecutionContext):
         tools = AgentTools.from_context(ctx)
@@ -756,11 +763,24 @@ class AgentTools(AgentToolsProtocol):
 
         Returns:
             Dict with status ('removed')
+
+        Raises:
+            ValueError: If neither handle nor contact_id is provided
         """
+        if handle is None and contact_id is None:
+            raise ValueError("Either handle or contact_id must be provided")
+
         logger.debug("Removing contact: handle=%s, contact_id=%s", handle, contact_id)
-        response = await self.rest.agent_api_contacts.remove_agent_contact(
-            handle=handle, contact_id=contact_id
-        )
+
+        # Build kwargs dynamically to avoid sending null values
+        # The REST client uses OMIT for optional params, but passing None sends null
+        kwargs: dict[str, Any] = {}
+        if handle is not None:
+            kwargs["handle"] = handle
+        if contact_id is not None:
+            kwargs["contact_id"] = contact_id
+
+        response = await self.rest.agent_api_contacts.remove_agent_contact(**kwargs)
         if not response.data:
             raise RuntimeError("Failed to remove contact - no response data")
         return {"status": response.data.status}

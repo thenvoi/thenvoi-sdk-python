@@ -36,7 +36,13 @@ from thenvoi.platform.event import (
     PlatformEvent,
 )
 
-from .types import ConversationContext, PlatformMessage, SessionConfig
+from .types import (
+    ConversationContext,
+    PlatformMessage,
+    SessionConfig,
+    SYNTHETIC_SENDER_TYPE,
+    SYNTHETIC_CONTACT_EVENTS_SENDER_ID,
+)
 from .retry_tracker import MessageRetryTracker
 
 if TYPE_CHECKING:
@@ -907,8 +913,8 @@ class ExecutionContext:
             # Detect synthetic messages (e.g., contact events injected into hub room)
             # These don't exist in the database, so skip all tracking and marking
             is_synthetic = (
-                payload.sender_type == "System"
-                and payload.sender_id == "contact-events"
+                payload.sender_type == SYNTHETIC_SENDER_TYPE
+                and payload.sender_id == SYNTHETIC_CONTACT_EVENTS_SENDER_ID
             )
             if is_synthetic:
                 logger.debug("Processing synthetic contact event message")

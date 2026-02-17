@@ -293,8 +293,13 @@ class PlatformRuntime:
         # Inject into all active execution contexts
         for room_id, execution in self._runtime.active_sessions.items():
             for msg in messages:
-                execution.inject_system_message(f"[Contacts]: {msg}")
-                logger.debug("Broadcast injected into room %s: %s", room_id, msg)
+                try:
+                    execution.inject_system_message(f"[Contacts]: {msg}")
+                    logger.debug("Broadcast injected into room %s: %s", room_id, msg)
+                except Exception as e:
+                    logger.warning(
+                        "Failed to inject broadcast into room %s: %s", room_id, e
+                    )
 
     async def _inject_hub_event(self, hub_room_id: str, event: MessageEvent) -> None:
         """

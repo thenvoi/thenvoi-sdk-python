@@ -11,6 +11,36 @@ from datetime import datetime
 from enum import Enum
 from typing import TYPE_CHECKING, Any, Awaitable, Callable
 
+# --- Constants for synthetic messages (injected by SDK, not from platform) ---
+
+# Sender type for synthetic messages (contact events injected into hub room)
+SYNTHETIC_SENDER_TYPE = "System"
+
+# Sender ID for synthetic contact event messages
+SYNTHETIC_CONTACT_EVENTS_SENDER_ID = "contact-events"
+
+# Sender name for synthetic contact event messages
+SYNTHETIC_CONTACT_EVENTS_SENDER_NAME = "Contact Events"
+
+
+def normalize_handle(handle: str | None) -> str | None:
+    """
+    Normalize a handle to always include the @ prefix.
+
+    Handles may or may not include the @ prefix depending on the source.
+    This function ensures consistent formatting.
+
+    Args:
+        handle: The handle to normalize (may or may not have @ prefix)
+
+    Returns:
+        Handle with @ prefix, or None if input is None/empty
+    """
+    if not handle:
+        return None
+    return handle if handle.startswith("@") else f"@{handle}"
+
+
 if TYPE_CHECKING:
     from thenvoi.platform.event import ContactEvent
 

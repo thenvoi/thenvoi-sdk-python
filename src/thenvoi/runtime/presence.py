@@ -24,6 +24,9 @@ from thenvoi.platform.event import (
 )
 from thenvoi.platform.link import ThenvoiLink
 
+# Type alias for contact event callback (agent-level, no tools)
+ContactEventHandler = Callable[[ContactEvent], Awaitable[None]]
+
 logger = logging.getLogger(__name__)
 
 
@@ -88,7 +91,7 @@ class RoomPresence:
         self.on_room_event: Callable[[str, PlatformEvent], Awaitable[None]] | None = (
             None
         )
-        self.on_contact_event: Callable[[ContactEvent], Awaitable[None]] | None = None
+        self.on_contact_event: ContactEventHandler | None = None
 
         # Internal task for consuming events from link
         self._event_task: asyncio.Task | None = None
