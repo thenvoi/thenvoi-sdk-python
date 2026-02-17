@@ -80,6 +80,7 @@ def sample_message_event():
             sender_type="User",
             sender_id="user-123",
             sender_name="Alice",
+            chat_room_id="room-123",
             inserted_at="2024-01-01T00:00:00Z",
             updated_at="2024-01-01T00:00:00Z",
         ),

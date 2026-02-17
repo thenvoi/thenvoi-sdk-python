@@ -40,6 +40,7 @@ def sample_message_event():
             sender_type="User",
             sender_id="user-456",
             sender_name="Alice",
+            chat_room_id="room-123",
             metadata=MessageMetadata(mentions=[], status="sent"),
             inserted_at=datetime.now(timezone.utc).isoformat(),
             updated_at=datetime.now(timezone.utc).isoformat(),

@@ -47,7 +47,7 @@ class MessageCreatedPayload(BaseModel):
     id: str
     content: str
     message_type: str
-    metadata: MessageMetadata
+    metadata: Optional[MessageMetadata] = None
     sender_id: str
     sender_type: str
     sender_name: Optional[str] = None

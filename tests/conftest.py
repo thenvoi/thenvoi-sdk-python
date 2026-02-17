@@ -76,6 +76,7 @@ def make_message_event(
         message_type=kwargs.get("message_type", "text"),
         sender_id=sender_id,
         sender_type=sender_type,
+        chat_room_id=room_id,
         inserted_at=kwargs.get("inserted_at", "2024-01-01T00:00:00Z"),
         updated_at=kwargs.get("updated_at", "2024-01-01T00:00:00Z"),
         metadata=kwargs.get("metadata", MessageMetadata(mentions=[])),

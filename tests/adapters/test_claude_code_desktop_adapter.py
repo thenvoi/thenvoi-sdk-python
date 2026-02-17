@@ -801,6 +801,7 @@ class TestClaudeCodeDesktopOnMessage:
                 tools=mock_tools,
                 history="previous context",
                 participants_msg=None,
+                contacts_msg=None,
                 is_session_bootstrap=True,
                 room_id="room-123",
             )
@@ -839,6 +840,7 @@ class TestClaudeCodeDesktopOnMessage:
                 tools=mock_tools,
                 history="",
                 participants_msg=None,
+                contacts_msg=None,
                 is_session_bootstrap=False,
                 room_id="room-123",
             )
@@ -868,6 +870,7 @@ class TestClaudeCodeDesktopOnMessage:
                 tools=mock_tools,
                 history="",
                 participants_msg=None,
+                contacts_msg=None,
                 is_session_bootstrap=True,
                 room_id="room-123",
             )
