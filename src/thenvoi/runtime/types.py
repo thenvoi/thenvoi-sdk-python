@@ -30,7 +30,9 @@ class SessionConfig:
     max_context_messages: int = 100
     max_message_retries: int = 1  # Max attempts per message before permanently failing
     enable_context_hydration: bool = True  # Whether to fetch history from platform API
-    auto_populate_mentions: bool = False  # Auto-mention all other room participants when LLM omits mentions
+    auto_populate_mentions: bool = (
+        False  # Auto-mention all other room participants when LLM omits mentions
+    )
 
 
 @dataclass

@@ -487,7 +487,8 @@ class TestAutoPopulateMentions:
         assert message.mentions[1].id == "user-2"
 
     async def test_excludes_self_from_auto_populated_mentions(
-        self, mock_rest_client,
+        self,
+        mock_rest_client,
     ):
         """Should exclude the agent's own ID from auto-populated mentions."""
         participants = [
@@ -509,9 +510,7 @@ class TestAutoPopulateMentions:
         assert len(message.mentions) == 1
         assert message.mentions[0].id == "user-1"
 
-    async def test_no_auto_populate_when_disabled(
-        self, mock_rest_client, participants
-    ):
+    async def test_no_auto_populate_when_disabled(self, mock_rest_client, participants):
         """Should NOT auto-populate when feature is disabled (default)."""
         tools = AgentTools(
             "room-123",
@@ -546,9 +545,7 @@ class TestAutoPopulateMentions:
         assert len(message.mentions) == 1
         assert message.mentions[0].id == "user-1"
 
-    async def test_warns_when_only_participant_is_self(
-        self, mock_rest_client, caplog
-    ):
+    async def test_warns_when_only_participant_is_self(self, mock_rest_client, caplog):
         """Should log warning when auto-populate yields empty list (only self in room)."""
         participants = [
             {"id": "agent-1", "name": "Self Agent", "type": "Agent"},
@@ -567,7 +564,8 @@ class TestAutoPopulateMentions:
         assert "no other participants" in caplog.text
 
     async def test_no_auto_populate_when_no_participants(
-        self, mock_rest_client,
+        self,
+        mock_rest_client,
     ):
         """Should NOT auto-populate when participants list is empty."""
         tools = AgentTools(
