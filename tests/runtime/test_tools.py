@@ -371,12 +371,13 @@ class TestAgentToolsSchemas:
         assert tools.tool_models is TOOL_MODELS
 
     def test_get_tool_schemas_openai(self, mock_rest_client):
-        """get_tool_schemas('openai') should return OpenAI format."""
+        """get_tool_schemas('openai') should return OpenAI format (memory tools excluded by default)."""
         tools = AgentTools("room-123", mock_rest_client)
 
         schemas = tools.get_tool_schemas("openai")
 
-        assert len(schemas) == 17
+        # 12 base tools (7 basic + 5 contact), memory tools excluded by default
+        assert len(schemas) == 12
         send_msg = next(
             s for s in schemas if s["function"]["name"] == "thenvoi_send_message"
         )
@@ -384,16 +385,43 @@ class TestAgentToolsSchemas:
         assert "parameters" in send_msg["function"]
         assert "description" in send_msg["function"]
 
+    def test_get_tool_schemas_openai_with_memory(self, mock_rest_client):
+        """get_tool_schemas('openai', include_memory=True) should include memory tools."""
+        tools = AgentTools("room-123", mock_rest_client)
+
+        schemas = tools.get_tool_schemas("openai", include_memory=True)
+
+        # 17 tools (12 base + 5 memory)
+        assert len(schemas) == 17
+        # Verify memory tools are included
+        tool_names = [s["function"]["name"] for s in schemas]
+        assert "thenvoi_list_memories" in tool_names
+        assert "thenvoi_store_memory" in tool_names
+
     def test_get_tool_schemas_anthropic(self, mock_rest_client):
-        """get_tool_schemas('anthropic') should return Anthropic format."""
+        """get_tool_schemas('anthropic') should return Anthropic format (memory tools excluded by default)."""
         tools = AgentTools("room-123", mock_rest_client)
 
         schemas = tools.get_tool_schemas("anthropic")
 
-        assert len(schemas) == 17
+        # 12 base tools (7 basic + 5 contact), memory tools excluded by default
+        assert len(schemas) == 12
         send_msg = next(s for s in schemas if s["name"] == "thenvoi_send_message")
         assert "input_schema" in send_msg
         assert "description" in send_msg
+
+    def test_get_tool_schemas_anthropic_with_memory(self, mock_rest_client):
+        """get_tool_schemas('anthropic', include_memory=True) should include memory tools."""
+        tools = AgentTools("room-123", mock_rest_client)
+
+        schemas = tools.get_tool_schemas("anthropic", include_memory=True)
+
+        # 17 tools (12 base + 5 memory)
+        assert len(schemas) == 17
+        # Verify memory tools are included
+        tool_names = [s["name"] for s in schemas]
+        assert "thenvoi_list_memories" in tool_names
+        assert "thenvoi_store_memory" in tool_names
 
 
 class TestAgentToolsExecuteToolCall:

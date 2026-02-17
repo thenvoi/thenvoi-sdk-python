@@ -52,6 +52,7 @@ class AnthropicAdapter(SimpleAdapter[AnthropicMessages]):
         custom_section: str | None = None,
         max_tokens: int = 4096,
         enable_execution_reporting: bool = False,
+        enable_memory_tools: bool = False,
         history_converter: AnthropicHistoryConverter | None = None,
         additional_tools: list[CustomToolDef] | None = None,
     ):
@@ -64,6 +65,7 @@ class AnthropicAdapter(SimpleAdapter[AnthropicMessages]):
         self.custom_section = custom_section
         self.max_tokens = max_tokens
         self.enable_execution_reporting = enable_execution_reporting
+        self.enable_memory_tools = enable_memory_tools
 
         # Anthropic client (uses ANTHROPIC_API_KEY env var if not provided)
         self.client = AsyncAnthropic(api_key=anthropic_api_key)
@@ -162,7 +164,9 @@ class AnthropicAdapter(SimpleAdapter[AnthropicMessages]):
         )
 
         # Get tool schemas in Anthropic format (typed helper)
-        tool_schemas = tools.get_anthropic_tool_schemas()
+        tool_schemas = tools.get_anthropic_tool_schemas(
+            include_memory=self.enable_memory_tools
+        )
         # Merge custom tool schemas
         if self._custom_tools:
             tool_schemas = list(tool_schemas)  # Make mutable copy

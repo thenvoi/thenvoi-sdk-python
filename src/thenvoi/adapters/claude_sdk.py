@@ -51,7 +51,8 @@ logger = logging.getLogger(__name__)
 
 
 # Tool names as constants (MCP naming convention: mcp__{server}__{tool})
-THENVOI_TOOLS = [
+# Base platform tools (always included)
+THENVOI_BASE_TOOLS = [
     "mcp__thenvoi__send_message",
     "mcp__thenvoi__send_event",
     "mcp__thenvoi__add_participant",
@@ -59,7 +60,25 @@ THENVOI_TOOLS = [
     "mcp__thenvoi__get_participants",
     "mcp__thenvoi__lookup_peers",
     "mcp__thenvoi__create_chatroom",
+    # Contact management tools
+    "mcp__thenvoi__list_contacts",
+    "mcp__thenvoi__add_contact",
+    "mcp__thenvoi__remove_contact",
+    "mcp__thenvoi__list_contact_requests",
+    "mcp__thenvoi__respond_contact_request",
 ]
+
+# Memory management tools (enterprise only - opt-in)
+THENVOI_MEMORY_TOOLS = [
+    "mcp__thenvoi__list_memories",
+    "mcp__thenvoi__store_memory",
+    "mcp__thenvoi__get_memory",
+    "mcp__thenvoi__supersede_memory",
+    "mcp__thenvoi__archive_memory",
+]
+
+# All tools combined (for backwards compatibility)
+THENVOI_TOOLS = THENVOI_BASE_TOOLS + THENVOI_MEMORY_TOOLS
 
 
 class ClaudeSDKAdapter(SimpleAdapter[str]):
@@ -89,6 +108,7 @@ class ClaudeSDKAdapter(SimpleAdapter[str]):
         max_thinking_tokens: int | None = None,
         permission_mode: PermissionMode = "acceptEdits",
         enable_execution_reporting: bool = False,
+        enable_memory_tools: bool = False,
         history_converter: ClaudeSDKHistoryConverter | None = None,
         additional_tools: list[CustomToolDef] | None = None,
     ):
@@ -101,6 +121,8 @@ class ClaudeSDKAdapter(SimpleAdapter[str]):
             max_thinking_tokens: Max tokens for extended thinking (optional)
             permission_mode: SDK permission mode
             enable_execution_reporting: If True, emit tool_call/tool_result events
+            enable_memory_tools: If True, includes memory management tools (enterprise only).
+                Defaults to False.
             history_converter: Optional custom history converter
             additional_tools: Optional list of custom tools as (PydanticModel, callable)
                 tuples. These are converted to MCP tools internally.
@@ -114,6 +136,7 @@ class ClaudeSDKAdapter(SimpleAdapter[str]):
         self.max_thinking_tokens = max_thinking_tokens
         self.permission_mode: ClaudeSDKAdapter.PermissionMode = permission_mode
         self.enable_execution_reporting = enable_execution_reporting
+        self.enable_memory_tools = enable_memory_tools
 
         # Session manager and MCP server (created after start)
         self._session_manager: ClaudeSessionManager | None = None
@@ -147,7 +170,9 @@ class ClaudeSDKAdapter(SimpleAdapter[str]):
         )
 
         # Build allowed tools list (platform + custom)
-        allowed_tools = list(THENVOI_TOOLS)
+        allowed_tools = list(THENVOI_BASE_TOOLS)
+        if self.enable_memory_tools:
+            allowed_tools.extend(THENVOI_MEMORY_TOOLS)
         for custom_tool_def in self._custom_tools:
             input_model, _ = custom_tool_def
             tool_name = get_custom_tool_name(input_model)
@@ -409,6 +434,284 @@ class ClaudeSDKAdapter(SimpleAdapter[str]):
                 )
                 return _make_error(str(e))
 
+        # Contact management tools
+        @tool(
+            "thenvoi_list_contacts",
+            get_tool_description("thenvoi_list_contacts"),
+            {"room_id": str, "page": int, "page_size": int},
+        )
+        async def list_contacts(args: dict[str, Any]) -> dict[str, Any]:
+            """List agent's contacts."""
+            try:
+                room_id = args.get("room_id", "")
+                page = args.get("page", 1)
+                page_size = args.get("page_size", 50)
+
+                tools = _get_tools(room_id)
+                if not tools:
+                    return _make_error(f"No tools available for room {room_id}")
+
+                result = await tools.list_contacts(page, page_size)
+                return _make_result({"status": "success", **result})
+
+            except Exception as e:
+                logger.error("list_contacts failed: %s", e, exc_info=True)
+                return _make_error(str(e))
+
+        @tool(
+            "thenvoi_add_contact",
+            get_tool_description("thenvoi_add_contact"),
+            {"room_id": str, "handle": str, "message": str},
+        )
+        async def add_contact(args: dict[str, Any]) -> dict[str, Any]:
+            """Send a contact request."""
+            try:
+                room_id = args.get("room_id", "")
+                handle = args.get("handle", "")
+                message = args.get("message") or None
+
+                tools = _get_tools(room_id)
+                if not tools:
+                    return _make_error(f"No tools available for room {room_id}")
+
+                result = await tools.add_contact(handle, message)
+                return _make_result({"status": "success", **result})
+
+            except Exception as e:
+                logger.error("add_contact failed: %s", e, exc_info=True)
+                return _make_error(str(e))
+
+        @tool(
+            "thenvoi_remove_contact",
+            get_tool_description("thenvoi_remove_contact"),
+            {"room_id": str, "handle": str, "contact_id": str},
+        )
+        async def remove_contact(args: dict[str, Any]) -> dict[str, Any]:
+            """Remove a contact."""
+            try:
+                room_id = args.get("room_id", "")
+                handle = args.get("handle") or None
+                contact_id = args.get("contact_id") or None
+
+                tools = _get_tools(room_id)
+                if not tools:
+                    return _make_error(f"No tools available for room {room_id}")
+
+                result = await tools.remove_contact(handle, contact_id)
+                return _make_result({"status": "success", **result})
+
+            except Exception as e:
+                logger.error("remove_contact failed: %s", e, exc_info=True)
+                return _make_error(str(e))
+
+        @tool(
+            "thenvoi_list_contact_requests",
+            get_tool_description("thenvoi_list_contact_requests"),
+            {"room_id": str, "page": int, "page_size": int, "sent_status": str},
+        )
+        async def list_contact_requests(args: dict[str, Any]) -> dict[str, Any]:
+            """List contact requests."""
+            try:
+                room_id = args.get("room_id", "")
+                page = args.get("page", 1)
+                page_size = args.get("page_size", 50)
+                sent_status = args.get("sent_status", "pending")
+
+                tools = _get_tools(room_id)
+                if not tools:
+                    return _make_error(f"No tools available for room {room_id}")
+
+                result = await tools.list_contact_requests(page, page_size, sent_status)
+                return _make_result({"status": "success", **result})
+
+            except Exception as e:
+                logger.error("list_contact_requests failed: %s", e, exc_info=True)
+                return _make_error(str(e))
+
+        @tool(
+            "thenvoi_respond_contact_request",
+            get_tool_description("thenvoi_respond_contact_request"),
+            {"room_id": str, "action": str, "handle": str, "request_id": str},
+        )
+        async def respond_contact_request(args: dict[str, Any]) -> dict[str, Any]:
+            """Respond to a contact request."""
+            try:
+                room_id = args.get("room_id", "")
+                action = args.get("action", "")
+                handle = args.get("handle") or None
+                request_id = args.get("request_id") or None
+
+                tools = _get_tools(room_id)
+                if not tools:
+                    return _make_error(f"No tools available for room {room_id}")
+
+                result = await tools.respond_contact_request(action, handle, request_id)
+                return _make_result({"status": "success", **result})
+
+            except Exception as e:
+                logger.error("respond_contact_request failed: %s", e, exc_info=True)
+                return _make_error(str(e))
+
+        # Memory management tools
+        @tool(
+            "thenvoi_list_memories",
+            get_tool_description("thenvoi_list_memories"),
+            {
+                "room_id": str,
+                "subject_id": str,
+                "scope": str,
+                "system": str,
+                "type": str,
+                "segment": str,
+                "content_query": str,
+                "page_size": int,
+                "status": str,
+            },
+        )
+        async def list_memories(args: dict[str, Any]) -> dict[str, Any]:
+            """List memories."""
+            try:
+                room_id = args.get("room_id", "")
+                subject_id = args.get("subject_id") or None
+                scope = args.get("scope") or None
+                system = args.get("system") or None
+                memory_type = args.get("type") or None
+                segment = args.get("segment") or None
+                content_query = args.get("content_query") or None
+                page_size = args.get("page_size", 50)
+                status = args.get("status") or None
+
+                tools = _get_tools(room_id)
+                if not tools:
+                    return _make_error(f"No tools available for room {room_id}")
+
+                result = await tools.list_memories(
+                    subject_id=subject_id,
+                    scope=scope,
+                    system=system,
+                    type=memory_type,
+                    segment=segment,
+                    content_query=content_query,
+                    page_size=page_size,
+                    status=status,
+                )
+                return _make_result({"status": "success", **result})
+
+            except Exception as e:
+                logger.error("list_memories failed: %s", e, exc_info=True)
+                return _make_error(str(e))
+
+        @tool(
+            "thenvoi_store_memory",
+            get_tool_description("thenvoi_store_memory"),
+            {
+                "room_id": str,
+                "content": str,
+                "system": str,
+                "type": str,
+                "segment": str,
+                "thought": str,
+                "scope": str,
+                "subject_id": str,
+            },
+        )
+        async def store_memory(args: dict[str, Any]) -> dict[str, Any]:
+            """Store a new memory."""
+            try:
+                room_id = args.get("room_id", "")
+                content = args.get("content", "")
+                system = args.get("system", "")
+                memory_type = args.get("type", "")
+                segment = args.get("segment", "")
+                thought = args.get("thought", "")
+                scope = args.get("scope", "subject")
+                subject_id = args.get("subject_id") or None
+
+                tools = _get_tools(room_id)
+                if not tools:
+                    return _make_error(f"No tools available for room {room_id}")
+
+                result = await tools.store_memory(
+                    content=content,
+                    system=system,
+                    type=memory_type,
+                    segment=segment,
+                    thought=thought,
+                    scope=scope,
+                    subject_id=subject_id,
+                )
+                return _make_result({"status": "success", **result})
+
+            except Exception as e:
+                logger.error("store_memory failed: %s", e, exc_info=True)
+                return _make_error(str(e))
+
+        @tool(
+            "thenvoi_get_memory",
+            get_tool_description("thenvoi_get_memory"),
+            {"room_id": str, "memory_id": str},
+        )
+        async def get_memory(args: dict[str, Any]) -> dict[str, Any]:
+            """Get a specific memory."""
+            try:
+                room_id = args.get("room_id", "")
+                memory_id = args.get("memory_id", "")
+
+                tools = _get_tools(room_id)
+                if not tools:
+                    return _make_error(f"No tools available for room {room_id}")
+
+                result = await tools.get_memory(memory_id)
+                return _make_result({"status": "success", **result})
+
+            except Exception as e:
+                logger.error("get_memory failed: %s", e, exc_info=True)
+                return _make_error(str(e))
+
+        @tool(
+            "thenvoi_supersede_memory",
+            get_tool_description("thenvoi_supersede_memory"),
+            {"room_id": str, "memory_id": str},
+        )
+        async def supersede_memory(args: dict[str, Any]) -> dict[str, Any]:
+            """Supersede a memory."""
+            try:
+                room_id = args.get("room_id", "")
+                memory_id = args.get("memory_id", "")
+
+                tools = _get_tools(room_id)
+                if not tools:
+                    return _make_error(f"No tools available for room {room_id}")
+
+                result = await tools.supersede_memory(memory_id)
+                return _make_result({"status": "success", **result})
+
+            except Exception as e:
+                logger.error("supersede_memory failed: %s", e, exc_info=True)
+                return _make_error(str(e))
+
+        @tool(
+            "thenvoi_archive_memory",
+            get_tool_description("thenvoi_archive_memory"),
+            {"room_id": str, "memory_id": str},
+        )
+        async def archive_memory(args: dict[str, Any]) -> dict[str, Any]:
+            """Archive a memory."""
+            try:
+                room_id = args.get("room_id", "")
+                memory_id = args.get("memory_id", "")
+
+                tools = _get_tools(room_id)
+                if not tools:
+                    return _make_error(f"No tools available for room {room_id}")
+
+                result = await tools.archive_memory(memory_id)
+                return _make_result({"status": "success", **result})
+
+            except Exception as e:
+                logger.error("archive_memory failed: %s", e, exc_info=True)
+                return _make_error(str(e))
+
         # Start with platform tools
         all_tools = [
             send_message,
@@ -418,7 +721,25 @@ class ClaudeSDKAdapter(SimpleAdapter[str]):
             get_participants,
             lookup_peers,
             create_chatroom,
+            # Contact management tools
+            list_contacts,
+            add_contact,
+            remove_contact,
+            list_contact_requests,
+            respond_contact_request,
         ]
+
+        # Memory management tools (enterprise only - opt-in)
+        if adapter.enable_memory_tools:
+            all_tools.extend(
+                [
+                    list_memories,
+                    store_memory,
+                    get_memory,
+                    supersede_memory,
+                    archive_memory,
+                ]
+            )
 
         # Add custom tools wrapped as MCP tools
         for custom_tool_def in adapter._custom_tools:

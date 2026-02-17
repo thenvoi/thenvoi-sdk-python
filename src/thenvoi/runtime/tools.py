@@ -286,6 +286,15 @@ TOOL_MODELS: dict[str, type[BaseModel]] = {
     "thenvoi_archive_memory": ArchiveMemoryInput,
 }
 
+# Memory tools - optional, only available for enterprise customers
+MEMORY_TOOL_NAMES: set[str] = {
+    "thenvoi_list_memories",
+    "thenvoi_store_memory",
+    "thenvoi_get_memory",
+    "thenvoi_supersede_memory",
+    "thenvoi_archive_memory",
+}
+
 
 def get_tool_description(name: str) -> str:
     """
@@ -1183,12 +1192,15 @@ class AgentTools(AgentToolsProtocol):
         """Get Pydantic models for all tools."""
         return TOOL_MODELS
 
-    def get_tool_schemas(self, format: str) -> list[dict[str, Any]] | list["ToolParam"]:
+    def get_tool_schemas(
+        self, format: str, *, include_memory: bool = False
+    ) -> list[dict[str, Any]] | list["ToolParam"]:
         """
         Get tool schemas in provider-specific format.
 
         Args:
             format: Target format - "openai" or "anthropic"
+            include_memory: If True, include memory tools (enterprise only)
 
         Returns:
             List of tool definitions in the requested format
@@ -1203,6 +1215,10 @@ class AgentTools(AgentToolsProtocol):
 
         tools: list[Any] = []
         for name, model in TOOL_MODELS.items():
+            # Skip memory tools if not enabled
+            if not include_memory and name in MEMORY_TOOL_NAMES:
+                continue
+
             schema = model.model_json_schema()
             # Remove Pydantic-specific keys
             schema.pop("title", None)
@@ -1228,13 +1244,23 @@ class AgentTools(AgentToolsProtocol):
                 )
         return tools
 
-    def get_anthropic_tool_schemas(self) -> list["ToolParam"]:
+    def get_anthropic_tool_schemas(
+        self, *, include_memory: bool = False
+    ) -> list["ToolParam"]:
         """Get tool schemas in Anthropic format (strongly typed)."""
-        return cast(list["ToolParam"], self.get_tool_schemas("anthropic"))
+        return cast(
+            list["ToolParam"],
+            self.get_tool_schemas("anthropic", include_memory=include_memory),
+        )
 
-    def get_openai_tool_schemas(self) -> list[dict[str, Any]]:
+    def get_openai_tool_schemas(
+        self, *, include_memory: bool = False
+    ) -> list[dict[str, Any]]:
         """Get tool schemas in OpenAI format (strongly typed)."""
-        return cast(list[dict[str, Any]], self.get_tool_schemas("openai"))
+        return cast(
+            list[dict[str, Any]],
+            self.get_tool_schemas("openai", include_memory=include_memory),
+        )
 
     async def execute_tool_call(self, tool_name: str, arguments: dict[str, Any]) -> Any:
         """

@@ -57,6 +57,7 @@ class PydanticAIAdapter(SimpleAdapter[PydanticAIMessages]):
         system_prompt: str | None = None,
         custom_section: str | None = None,
         enable_execution_reporting: bool = False,
+        enable_memory_tools: bool = False,
         history_converter: PydanticAIHistoryConverter | None = None,
         additional_tools: list[Callable[..., Any]] | None = None,
     ):
@@ -70,6 +71,8 @@ class PydanticAIAdapter(SimpleAdapter[PydanticAIMessages]):
             enable_execution_reporting: If True, emit tool_call and tool_result events
                 to the platform for real-time visibility into agent activity.
                 Defaults to False for backwards compatibility.
+            enable_memory_tools: If True, includes memory management tools (enterprise only).
+                Defaults to False.
             history_converter: Optional custom history converter
             additional_tools: Optional list of PydanticAI-compatible tool functions.
                 Each function should follow PydanticAI's tool signature:
@@ -84,6 +87,7 @@ class PydanticAIAdapter(SimpleAdapter[PydanticAIMessages]):
         self.system_prompt = system_prompt
         self.custom_section = custom_section
         self.enable_execution_reporting = enable_execution_reporting
+        self.enable_memory_tools = enable_memory_tools
 
         self._agent: Agent[AgentToolsProtocol, None] | None = None
         # Conversation history per room (Pydantic AI is stateless, we maintain state)
@@ -304,6 +308,107 @@ class PydanticAIAdapter(SimpleAdapter[PydanticAIMessages]):
             "thenvoi_respond_contact_request"
         )
         agent.tool(thenvoi_respond_contact_request)
+
+        # Memory management tools (enterprise only - opt-in)
+        if self.enable_memory_tools:
+
+            async def thenvoi_list_memories(
+                ctx: RunContext[AgentToolsProtocol],
+                subject_id: str | None = None,
+                scope: str | None = None,
+                system: str | None = None,
+                type: str | None = None,
+                segment: str | None = None,
+                content_query: str | None = None,
+                page_size: int = 50,
+                status: str | None = None,
+            ) -> dict[str, Any] | str:
+                try:
+                    return await ctx.deps.list_memories(
+                        subject_id=subject_id,
+                        scope=scope,
+                        system=system,
+                        type=type,
+                        segment=segment,
+                        content_query=content_query,
+                        page_size=page_size,
+                        status=status,
+                    )
+                except Exception as e:
+                    return f"Error listing memories: {e}"
+
+            thenvoi_list_memories.__doc__ = get_tool_description(
+                "thenvoi_list_memories"
+            )
+            agent.tool(thenvoi_list_memories)
+
+            async def thenvoi_store_memory(
+                ctx: RunContext[AgentToolsProtocol],
+                content: str,
+                system: str,
+                type: str,
+                segment: str,
+                thought: str,
+                scope: str = "subject",
+                subject_id: str | None = None,
+                metadata: dict[str, Any] | None = None,
+            ) -> dict[str, Any] | str:
+                try:
+                    return await ctx.deps.store_memory(
+                        content=content,
+                        system=system,
+                        type=type,
+                        segment=segment,
+                        thought=thought,
+                        scope=scope,
+                        subject_id=subject_id,
+                        metadata=metadata,
+                    )
+                except Exception as e:
+                    return f"Error storing memory: {e}"
+
+            thenvoi_store_memory.__doc__ = get_tool_description("thenvoi_store_memory")
+            agent.tool(thenvoi_store_memory)
+
+            async def thenvoi_get_memory(
+                ctx: RunContext[AgentToolsProtocol],
+                memory_id: str,
+            ) -> dict[str, Any] | str:
+                try:
+                    return await ctx.deps.get_memory(memory_id)
+                except Exception as e:
+                    return f"Error getting memory: {e}"
+
+            thenvoi_get_memory.__doc__ = get_tool_description("thenvoi_get_memory")
+            agent.tool(thenvoi_get_memory)
+
+            async def thenvoi_supersede_memory(
+                ctx: RunContext[AgentToolsProtocol],
+                memory_id: str,
+            ) -> dict[str, Any] | str:
+                try:
+                    return await ctx.deps.supersede_memory(memory_id)
+                except Exception as e:
+                    return f"Error superseding memory: {e}"
+
+            thenvoi_supersede_memory.__doc__ = get_tool_description(
+                "thenvoi_supersede_memory"
+            )
+            agent.tool(thenvoi_supersede_memory)
+
+            async def thenvoi_archive_memory(
+                ctx: RunContext[AgentToolsProtocol],
+                memory_id: str,
+            ) -> dict[str, Any] | str:
+                try:
+                    return await ctx.deps.archive_memory(memory_id)
+                except Exception as e:
+                    return f"Error archiving memory: {e}"
+
+            thenvoi_archive_memory.__doc__ = get_tool_description(
+                "thenvoi_archive_memory"
+            )
+            agent.tool(thenvoi_archive_memory)
 
         # Register custom tools (user-provided PydanticAI-compatible functions)
         for custom_tool in self._custom_tools:

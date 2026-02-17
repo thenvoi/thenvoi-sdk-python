@@ -188,13 +188,19 @@ class FakeAgentTools:
     async def archive_memory(self, memory_id: str) -> dict[str, Any]:
         return {"id": memory_id, "status": "archived"}
 
-    def get_tool_schemas(self, format: str) -> list[dict[str, Any]]:
+    def get_tool_schemas(
+        self, format: str, *, include_memory: bool = False
+    ) -> list[dict[str, Any]]:
         return []
 
-    def get_anthropic_tool_schemas(self) -> list[dict[str, Any]]:
+    def get_anthropic_tool_schemas(
+        self, *, include_memory: bool = False
+    ) -> list[dict[str, Any]]:
         return []
 
-    def get_openai_tool_schemas(self) -> list[dict[str, Any]]:
+    def get_openai_tool_schemas(
+        self, *, include_memory: bool = False
+    ) -> list[dict[str, Any]]:
         return []
 
     async def execute_tool_call(self, tool_name: str, arguments: dict[str, Any]) -> Any:

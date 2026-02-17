@@ -5,7 +5,12 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from thenvoi.adapters.claude_sdk import ClaudeSDKAdapter, THENVOI_TOOLS
+from thenvoi.adapters.claude_sdk import (
+    ClaudeSDKAdapter,
+    THENVOI_TOOLS,
+    THENVOI_BASE_TOOLS,
+    THENVOI_MEMORY_TOOLS,
+)
 from thenvoi.core.types import PlatformMessage
 
 
@@ -50,6 +55,7 @@ class TestInitialization:
         assert adapter.max_thinking_tokens is None
         assert adapter.permission_mode == "acceptEdits"
         assert adapter.enable_execution_reporting is False
+        assert adapter.enable_memory_tools is False
 
     def test_custom_initialization(self):
         """Should accept custom parameters."""
@@ -59,6 +65,7 @@ class TestInitialization:
             max_thinking_tokens=10000,
             permission_mode="bypassPermissions",
             enable_execution_reporting=True,
+            enable_memory_tools=True,
         )
 
         assert adapter.model == "claude-opus-4-20250514"
@@ -66,6 +73,7 @@ class TestInitialization:
         assert adapter.max_thinking_tokens == 10000
         assert adapter.permission_mode == "bypassPermissions"
         assert adapter.enable_execution_reporting is True
+        assert adapter.enable_memory_tools is True
 
 
 class TestOnStarted:
@@ -159,10 +167,10 @@ class TestCleanupAll:
 
 
 class TestThenvoiTools:
-    """Tests for Thenvoi tool names constant."""
+    """Tests for Thenvoi tool names constants."""
 
-    def test_thenvoi_tools_list(self):
-        """Should define all expected MCP tool names."""
+    def test_thenvoi_base_tools_list(self):
+        """Should define base platform tools (always included)."""
         expected = [
             "mcp__thenvoi__send_message",
             "mcp__thenvoi__send_event",
@@ -171,9 +179,32 @@ class TestThenvoiTools:
             "mcp__thenvoi__get_participants",
             "mcp__thenvoi__lookup_peers",
             "mcp__thenvoi__create_chatroom",
+            # Contact management tools
+            "mcp__thenvoi__list_contacts",
+            "mcp__thenvoi__add_contact",
+            "mcp__thenvoi__remove_contact",
+            "mcp__thenvoi__list_contact_requests",
+            "mcp__thenvoi__respond_contact_request",
         ]
 
-        assert THENVOI_TOOLS == expected
+        assert THENVOI_BASE_TOOLS == expected
+
+    def test_thenvoi_memory_tools_list(self):
+        """Should define memory tools (enterprise only - opt-in)."""
+        expected = [
+            "mcp__thenvoi__list_memories",
+            "mcp__thenvoi__store_memory",
+            "mcp__thenvoi__get_memory",
+            "mcp__thenvoi__supersede_memory",
+            "mcp__thenvoi__archive_memory",
+        ]
+
+        assert THENVOI_MEMORY_TOOLS == expected
+
+    def test_thenvoi_tools_combines_base_and_memory(self):
+        """THENVOI_TOOLS should combine base and memory tools."""
+        assert THENVOI_TOOLS == THENVOI_BASE_TOOLS + THENVOI_MEMORY_TOOLS
+        assert len(THENVOI_TOOLS) == 17  # 12 base + 5 memory
 
 
 class TestCustomTools:
@@ -271,7 +302,7 @@ class TestCustomTools:
 
     @pytest.mark.asyncio
     async def test_custom_tools_registered_in_mcp_server(self):
-        """Custom tools should be registered in MCP server."""
+        """Custom tools should be registered in MCP server (memory tools disabled)."""
         from pydantic import BaseModel
 
         class EchoInput(BaseModel):
@@ -298,8 +329,43 @@ class TestCustomTools:
             call_args = mock_create_server.call_args
             tools_list = call_args[1]["tools"]
 
-            # Should have 7 platform tools + 1 custom tool
-            assert len(tools_list) == 8
+            # Should have 12 base platform tools + 1 custom tool = 13
+            # (7 basic + 5 contact + 1 custom = 13, memory tools disabled by default)
+            assert len(tools_list) == 13
+
+    @pytest.mark.asyncio
+    async def test_custom_tools_registered_with_memory_tools_enabled(self):
+        """Custom tools should be registered in MCP server (memory tools enabled)."""
+        from pydantic import BaseModel
+
+        class EchoInput(BaseModel):
+            """Echo tool."""
+
+            message: str
+
+        async def echo(args: EchoInput) -> str:
+            return f"Echo: {args.message}"
+
+        adapter = ClaudeSDKAdapter(
+            additional_tools=[(EchoInput, echo)],
+            enable_memory_tools=True,
+        )
+
+        # Create the MCP server
+        with patch(
+            "thenvoi.adapters.claude_sdk.create_sdk_mcp_server"
+        ) as mock_create_server:
+            mock_create_server.return_value = MagicMock()
+
+            adapter._create_mcp_server()
+
+            # Verify create_sdk_mcp_server was called with extra tools
+            call_args = mock_create_server.call_args
+            tools_list = call_args[1]["tools"]
+
+            # Should have 17 platform tools + 1 custom tool = 18
+            # (7 basic + 5 contact + 5 memory + 1 custom = 18)
+            assert len(tools_list) == 18
 
     def test_tool_name_derived_from_input_model(self):
         """Tool name should be derived from Pydantic model class name."""

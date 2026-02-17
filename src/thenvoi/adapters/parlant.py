@@ -399,6 +399,7 @@ class ParlantAdapter(SimpleAdapter[ParlantMessages]):
             )
 
             try:
+                # type: ignore[attr-defined] - Parlant SDK method exists but not in type stubs
                 has_update = await app.sessions.wait_for_update(
                     session_id=session_id,
                     min_offset=current_offset + 1,

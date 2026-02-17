@@ -85,15 +85,21 @@ class AgentToolsProtocol(Protocol):
         """Create a new chat room."""
         ...
 
-    def get_tool_schemas(self, format: str) -> list[dict[str, Any]] | list["ToolParam"]:
+    def get_tool_schemas(
+        self, format: str, *, include_memory: bool = False
+    ) -> list[dict[str, Any]] | list["ToolParam"]:
         """Get tool schemas in provider-specific format (openai/anthropic)."""
         ...
 
-    def get_anthropic_tool_schemas(self) -> list["ToolParam"]:
+    def get_anthropic_tool_schemas(
+        self, *, include_memory: bool = False
+    ) -> list["ToolParam"]:
         """Get tool schemas in Anthropic format (strongly typed)."""
         ...
 
-    def get_openai_tool_schemas(self) -> list[dict[str, Any]]:
+    def get_openai_tool_schemas(
+        self, *, include_memory: bool = False
+    ) -> list[dict[str, Any]]:
         """Get tool schemas in OpenAI format (strongly typed)."""
         ...
 
@@ -134,6 +140,47 @@ class AgentToolsProtocol(Protocol):
         request_id: str | None = None,
     ) -> dict[str, Any]:
         """Respond to a contact request (approve, reject, or cancel)."""
+        ...
+
+    # Memory management tools (enterprise only)
+    async def list_memories(
+        self,
+        subject_id: str | None = None,
+        scope: str | None = None,
+        system: str | None = None,
+        type: str | None = None,
+        segment: str | None = None,
+        content_query: str | None = None,
+        page_size: int = 50,
+        status: str | None = None,
+    ) -> dict[str, Any]:
+        """List memories accessible to the agent."""
+        ...
+
+    async def store_memory(
+        self,
+        content: str,
+        system: str,
+        type: str,
+        segment: str,
+        thought: str,
+        scope: str = "subject",
+        subject_id: str | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Store a new memory entry."""
+        ...
+
+    async def get_memory(self, memory_id: str) -> dict[str, Any]:
+        """Retrieve a specific memory by ID."""
+        ...
+
+    async def supersede_memory(self, memory_id: str) -> dict[str, Any]:
+        """Mark a memory as superseded (soft delete)."""
+        ...
+
+    async def archive_memory(self, memory_id: str) -> dict[str, Any]:
+        """Archive a memory (hide but preserve)."""
         ...
 
 
