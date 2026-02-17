@@ -68,7 +68,6 @@ class ClaudeCodeDesktopAdapter(SimpleAdapter[str]):
         cli_timeout: int = 120000,
         history_converter: ClaudeSDKHistoryConverter | None = None,
         allowed_tools: list[str] | None = None,
-        verbose: bool = False,
     ):
         """
         Initialize adapter.
@@ -82,7 +81,6 @@ class ClaudeCodeDesktopAdapter(SimpleAdapter[str]):
             allowed_tools: Optional list of Claude Code tools to enable (e.g.
                           ["Read", "Write", "Edit"]). When set, these tools are
                           auto-approved via --allowedTools. Default: None (no tools).
-            verbose: Pass --verbose to the CLI for detailed output (default: False).
         """
         super().__init__(
             history_converter=history_converter or ClaudeSDKHistoryConverter()
@@ -92,7 +90,6 @@ class ClaudeCodeDesktopAdapter(SimpleAdapter[str]):
         self.cli_path = cli_path
         self.cli_timeout = cli_timeout
         self.allowed_tools = allowed_tools or []
-        self.verbose = verbose
 
         # Per-room session IDs (for CLI session resume)
         self._session_ids: dict[str, str] = {}

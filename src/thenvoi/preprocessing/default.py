@@ -63,7 +63,7 @@ class DefaultPreprocessor(Preprocessor):
         # Convert to PlatformMessage (typed attribute access, no dict lookups)
         msg = PlatformMessage(
             id=msg_data.id,
-            room_id=msg_data.chat_room_id,
+            room_id=msg_data.chat_room_id or room_id,
             content=msg_data.content,
             sender_id=msg_data.sender_id,
             sender_type=msg_data.sender_type,

@@ -214,17 +214,9 @@ class TestClaudeCodeDesktopCLIInvocation:
 
         assert "--allowedTools" not in cmd
 
-    def test_builds_command_without_verbose_by_default(self):
-        """Should not include --verbose flag by default."""
+    def test_builds_command_always_includes_verbose(self):
+        """--verbose is always included (required by --output-format stream-json)."""
         adapter = ClaudeCodeDesktopAdapter(cli_path="/usr/bin/claude")
-
-        cmd = adapter._build_cli_command(session_id=None)
-
-        assert "--verbose" not in cmd
-
-    def test_builds_command_with_verbose_when_enabled(self):
-        """Should include --verbose flag when verbose=True."""
-        adapter = ClaudeCodeDesktopAdapter(cli_path="/usr/bin/claude", verbose=True)
 
         cmd = adapter._build_cli_command(session_id=None)
 
