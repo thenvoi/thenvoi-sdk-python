@@ -1,5 +1,6 @@
 """Tests for AgentTools."""
 
+import logging
 from unittest.mock import AsyncMock, MagicMock, Mock
 
 import pytest
@@ -460,6 +461,128 @@ class TestAgentToolsExecuteToolCall:
         )
 
         assert "Error executing" in result
+
+
+class TestAutoPopulateMentions:
+    """Test auto-populate mentions logic."""
+
+    async def test_auto_populates_when_enabled_and_mentions_empty(
+        self, mock_rest_client, participants
+    ):
+        """Should auto-populate mentions from participants when enabled and mentions empty."""
+        tools = AgentTools(
+            "room-123",
+            mock_rest_client,
+            participants,
+            agent_id="agent-1",
+            auto_populate_mentions=True,
+        )
+
+        await tools.send_message("Hello!", mentions=[])
+
+        call_args = mock_rest_client.agent_api.create_agent_chat_message.call_args
+        message = call_args.kwargs["message"]
+        assert len(message.mentions) == 2
+        assert message.mentions[0].id == "user-1"
+        assert message.mentions[1].id == "user-2"
+
+    async def test_excludes_self_from_auto_populated_mentions(
+        self, mock_rest_client,
+    ):
+        """Should exclude the agent's own ID from auto-populated mentions."""
+        participants = [
+            {"id": "agent-1", "name": "Self Agent", "type": "Agent"},
+            {"id": "user-1", "name": "User One", "type": "User"},
+        ]
+        tools = AgentTools(
+            "room-123",
+            mock_rest_client,
+            participants,
+            agent_id="agent-1",
+            auto_populate_mentions=True,
+        )
+
+        await tools.send_message("Hello!", mentions=[])
+
+        call_args = mock_rest_client.agent_api.create_agent_chat_message.call_args
+        message = call_args.kwargs["message"]
+        assert len(message.mentions) == 1
+        assert message.mentions[0].id == "user-1"
+
+    async def test_no_auto_populate_when_disabled(
+        self, mock_rest_client, participants
+    ):
+        """Should NOT auto-populate when feature is disabled (default)."""
+        tools = AgentTools(
+            "room-123",
+            mock_rest_client,
+            participants,
+            agent_id="agent-1",
+            auto_populate_mentions=False,
+        )
+
+        await tools.send_message("Hello!", mentions=[])
+
+        call_args = mock_rest_client.agent_api.create_agent_chat_message.call_args
+        message = call_args.kwargs["message"]
+        assert len(message.mentions) == 0
+
+    async def test_no_auto_populate_when_mentions_provided(
+        self, mock_rest_client, participants
+    ):
+        """Should NOT auto-populate when LLM already provided mentions."""
+        tools = AgentTools(
+            "room-123",
+            mock_rest_client,
+            participants,
+            agent_id="agent-1",
+            auto_populate_mentions=True,
+        )
+
+        await tools.send_message("Hello @User One!", mentions=["User One"])
+
+        call_args = mock_rest_client.agent_api.create_agent_chat_message.call_args
+        message = call_args.kwargs["message"]
+        assert len(message.mentions) == 1
+        assert message.mentions[0].id == "user-1"
+
+    async def test_warns_when_only_participant_is_self(
+        self, mock_rest_client, caplog
+    ):
+        """Should log warning when auto-populate yields empty list (only self in room)."""
+        participants = [
+            {"id": "agent-1", "name": "Self Agent", "type": "Agent"},
+        ]
+        tools = AgentTools(
+            "room-123",
+            mock_rest_client,
+            participants,
+            agent_id="agent-1",
+            auto_populate_mentions=True,
+        )
+
+        with caplog.at_level(logging.WARNING, logger="thenvoi.runtime.tools"):
+            await tools.send_message("Hello!", mentions=[])
+
+        assert "no other participants" in caplog.text
+
+    async def test_no_auto_populate_when_no_participants(
+        self, mock_rest_client,
+    ):
+        """Should NOT auto-populate when participants list is empty."""
+        tools = AgentTools(
+            "room-123",
+            mock_rest_client,
+            participants=None,
+            agent_id="agent-1",
+            auto_populate_mentions=True,
+        )
+
+        await tools.send_message("Hello!", mentions=[])
+
+        call_args = mock_rest_client.agent_api.create_agent_chat_message.call_args
+        message = call_args.kwargs["message"]
+        assert len(message.mentions) == 0
 
 
 class TestMentionResolution:

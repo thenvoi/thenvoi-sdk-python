@@ -263,10 +263,17 @@ class AgentTools(AgentToolsProtocol):
                 for p in self._participants
                 if p.get("id") != self._agent_id  # exclude self
             ]
-            logger.debug(
-                "Auto-populated %d mention(s) from room participants",
-                len(resolved_mentions),
-            )
+            if not resolved_mentions:
+                logger.warning(
+                    "Auto-populate mentions found no other participants in room %s "
+                    "(agent is the only participant); message may be rejected by API",
+                    self.room_id,
+                )
+            else:
+                logger.debug(
+                    "Auto-populated %d mention(s) from room participants",
+                    len(resolved_mentions),
+                )
 
         logger.debug("Sending message to room %s", self.room_id)
 
