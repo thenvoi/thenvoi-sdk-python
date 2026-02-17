@@ -40,8 +40,8 @@ agent = Agent.create(
     adapter=adapter,
     agent_id="your-agent-id",
     api_key="your-api-key",
-    ws_url="wss://api.thenvoi.com/ws",
-    rest_url="https://api.thenvoi.com",
+    ws_url="wss://app.thenvoi.com/api/v1/socket/websocket",
+    rest_url="https://app.thenvoi.com",
 )
 await agent.run()
 ```

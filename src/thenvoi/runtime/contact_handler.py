@@ -23,7 +23,7 @@ from thenvoi.client.rest import (
     ChatEventRequest,
     ChatRoomRequest,
 )
-from thenvoi.client.streaming import MessageCreatedPayload
+from thenvoi.client.streaming import MessageCreatedPayload, MessageMetadata
 from thenvoi.platform.event import (
     ContactEvent,
     ContactRequestReceivedEvent,
@@ -309,7 +309,8 @@ class ContactEventHandler:
                     sender_type="System",
                     sender_id="contact-events",
                     sender_name="Contact Events",
-                    metadata=None,
+                    metadata=MessageMetadata(),
+                    chat_room_id=hub_id,
                     inserted_at=now,
                     updated_at=now,
                 ),

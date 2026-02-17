@@ -1,4 +1,11 @@
-"""Tests for LangGraphAdapter."""
+"""Tests for LangGraphAdapter.
+
+Tests for shared adapter behavior (initialization defaults, custom kwargs,
+history_converter, on_started agent_name/description, on_message callable,
+cleanup safety) live in tests/framework_conformance/test_adapter_conformance.py.
+This file contains LangGraph-specific behavior: graph factory/static graph
+patterns, system prompt rendering, stream event handling, and error handling.
+"""
 
 from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -28,8 +35,8 @@ def sample_message():
 
 @pytest.fixture
 def mock_tools():
-    """Create mock AgentToolsProtocol."""
-    tools = AsyncMock()
+    """Create mock AgentToolsProtocol (MagicMock base, AsyncMock methods)."""
+    tools = MagicMock()
     tools.send_message = AsyncMock(return_value={"status": "sent"})
     tools.send_event = AsyncMock(return_value={"status": "sent"})
     tools.add_participant = AsyncMock(return_value={"id": "user-1"})
@@ -64,16 +71,6 @@ class TestInitialization:
         assert adapter.graph_factory is not None
         assert adapter._static_graph is None
 
-    def test_simple_pattern_with_custom_section(self, mock_llm, mock_checkpointer):
-        """Should accept custom_section in simple pattern."""
-        adapter = LangGraphAdapter(
-            llm=mock_llm,
-            checkpointer=mock_checkpointer,
-            custom_section="Be helpful.",
-        )
-
-        assert adapter.custom_section == "Be helpful."
-
     def test_simple_pattern_with_additional_tools(self, mock_llm, mock_checkpointer):
         """Should integrate additional_tools in simple pattern."""
         mock_tool = MagicMock()
@@ -106,17 +103,6 @@ class TestInitialization:
         with pytest.raises(ValueError, match="Must provide either llm"):
             LangGraphAdapter()
 
-    def test_default_values(self, mock_llm, mock_checkpointer):
-        """Should use default values for optional params."""
-        adapter = LangGraphAdapter(
-            llm=mock_llm,
-            checkpointer=mock_checkpointer,
-        )
-
-        assert adapter.prompt_template == "default"
-        assert adapter.custom_section == ""
-        assert adapter.history_converter is not None
-
 
 class TestOnStarted:
     """Tests for on_started() method."""
@@ -131,8 +117,6 @@ class TestOnStarted:
 
         await adapter.on_started(agent_name="TestBot", agent_description="A test bot")
 
-        assert adapter.agent_name == "TestBot"
-        assert adapter.agent_description == "A test bot"
         assert adapter._system_prompt != ""
         assert "TestBot" in adapter._system_prompt
 

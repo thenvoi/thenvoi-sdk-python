@@ -132,7 +132,9 @@ class DefaultPreprocessor(Preprocessor):
             context = await ctx.get_context()
             history = format_history_for_llm(context.messages, exclude_id=msg.id)
             logger.info(
-                f"Room {ctx.room_id}: Got {len(history) if history else 0} messages"
+                "Room %s: Got %s messages",
+                ctx.room_id,
+                len(history) if history else 0,
             )
             return history or []
         except Exception as e:

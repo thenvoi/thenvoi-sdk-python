@@ -38,7 +38,7 @@ class ParticipantTracker:
         self._participants = participants
         self._loaded = True
         logger.debug(
-            f"Session {self._room_id}: Loaded {len(participants)} participants"
+            "Session %s: Loaded %s participants", self._room_id, len(participants)
         )
 
     def add(self, participant: dict[str, Any]) -> bool:
@@ -60,7 +60,9 @@ class ParticipantTracker:
             }
         )
         logger.debug(
-            f"Session {self._room_id}: Added participant {participant.get('name')}"
+            "Session %s: Added participant %s",
+            self._room_id,
+            participant.get("name"),
         )
         return True
 
@@ -78,7 +80,7 @@ class ParticipantTracker:
         removed = len(self._participants) < before
         if removed:
             logger.debug(
-                f"Session {self._room_id}: Removed participant {participant_id}"
+                "Session %s: Removed participant %s", self._room_id, participant_id
             )
         return removed
 

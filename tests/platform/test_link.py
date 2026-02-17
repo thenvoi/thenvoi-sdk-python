@@ -419,11 +419,12 @@ class TestThenvoiLinkEventHandlers:
 
     async def test_on_participant_added_queues_participant_added_event(self):
         """_on_participant_added() should queue ParticipantAddedEvent."""
+        from thenvoi.client.streaming import ParticipantAddedPayload
         from thenvoi.platform.event import ParticipantAddedEvent
 
         link = ThenvoiLink(agent_id="agent-123", api_key="test-key")
 
-        payload = {"id": "user-123", "name": "Test User", "type": "User"}
+        payload = ParticipantAddedPayload(id="user-123", name="Test User", type="User")
 
         await link._on_participant_added("room-123", payload)
 
@@ -435,11 +436,12 @@ class TestThenvoiLinkEventHandlers:
 
     async def test_on_participant_removed_queues_participant_removed_event(self):
         """_on_participant_removed() should queue ParticipantRemovedEvent."""
+        from thenvoi.client.streaming import ParticipantRemovedPayload
         from thenvoi.platform.event import ParticipantRemovedEvent
 
         link = ThenvoiLink(agent_id="agent-123", api_key="test-key")
 
-        payload = {"id": "user-123", "name": "Test User", "type": "User"}
+        payload = ParticipantRemovedPayload(id="user-123")
 
         await link._on_participant_removed("room-123", payload)
 
@@ -447,3 +449,44 @@ class TestThenvoiLinkEventHandlers:
         event = await link._event_queue.get()
         assert isinstance(event, ParticipantRemovedEvent)
         assert event.room_id == "room-123"
+
+
+class TestMarkFailed:
+    """Tests for mark_failed error normalization."""
+
+    @pytest.mark.asyncio
+    async def test_replaces_empty_error_with_unknown(self):
+        """mark_failed should replace empty error string with 'Unknown error'."""
+        link = ThenvoiLink(agent_id="agent-123", api_key="test-key")
+        link.rest = MagicMock()
+        link.rest.agent_api.mark_agent_message_failed = AsyncMock()
+
+        await link.mark_failed("room-1", "msg-1", "")
+
+        link.rest.agent_api.mark_agent_message_failed.assert_called_once()
+        call_kwargs = link.rest.agent_api.mark_agent_message_failed.call_args
+        assert call_kwargs.kwargs["error"] == "Unknown error"
+
+    @pytest.mark.asyncio
+    async def test_replaces_whitespace_error_with_unknown(self):
+        """mark_failed should replace whitespace-only error with 'Unknown error'."""
+        link = ThenvoiLink(agent_id="agent-123", api_key="test-key")
+        link.rest = MagicMock()
+        link.rest.agent_api.mark_agent_message_failed = AsyncMock()
+
+        await link.mark_failed("room-1", "msg-1", "   ")
+
+        call_kwargs = link.rest.agent_api.mark_agent_message_failed.call_args
+        assert call_kwargs.kwargs["error"] == "Unknown error"
+
+    @pytest.mark.asyncio
+    async def test_passes_through_non_empty_error(self):
+        """mark_failed should pass through a valid error string as-is."""
+        link = ThenvoiLink(agent_id="agent-123", api_key="test-key")
+        link.rest = MagicMock()
+        link.rest.agent_api.mark_agent_message_failed = AsyncMock()
+
+        await link.mark_failed("room-1", "msg-1", "connection reset")
+
+        call_kwargs = link.rest.agent_api.mark_agent_message_failed.call_args
+        assert call_kwargs.kwargs["error"] == "connection reset"

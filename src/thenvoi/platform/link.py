@@ -10,7 +10,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from datetime import datetime, timezone
-from typing import TYPE_CHECKING, Set
+from typing import TYPE_CHECKING
 
 from thenvoi.client.rest import AsyncRestClient, DEFAULT_REQUEST_OPTIONS
 from thenvoi.client.streaming import WebSocketClient
@@ -31,6 +31,8 @@ from .event import (
 if TYPE_CHECKING:
     from thenvoi.client.streaming import (
         MessageCreatedPayload,
+        ParticipantAddedPayload,
+        ParticipantRemovedPayload,
         RoomAddedPayload,
         RoomRemovedPayload,
         ContactRequestReceivedPayload,
@@ -70,8 +72,8 @@ class ThenvoiLink:
         self,
         agent_id: str,
         api_key: str,
-        ws_url: str = "wss://api.thenvoi.com/ws",
-        rest_url: str = "https://api.thenvoi.com",
+        ws_url: str = "wss://app.thenvoi.com/api/v1/socket/websocket",
+        rest_url: str = "https://app.thenvoi.com",
     ):
         self.agent_id = agent_id
         self.api_key = api_key
@@ -86,7 +88,7 @@ class ThenvoiLink:
         self._is_connected = False
 
         # Subscription tracking (from ThenvoiAgent._subscribed_rooms)
-        self._subscribed_rooms: Set[str] = set()
+        self._subscribed_rooms: set[str] = set()
 
         # Event queue for async iteration
         self._event_queue: asyncio.Queue[PlatformEvent] = asyncio.Queue(maxsize=1000)
@@ -252,7 +254,9 @@ class ThenvoiLink:
             self._event_queue.put_nowait(event)
         except asyncio.QueueFull:
             logger.warning(
-                f"Event queue full, dropping {event.type} event for room {event.room_id}"
+                "Event queue full, dropping %s event for room %s",
+                event.type,
+                event.room_id,
             )
 
     def queue_event(self, event: PlatformEvent) -> None:
@@ -299,31 +303,33 @@ class ThenvoiLink:
         )
         self._queue_event(event)
 
-    async def _on_participant_added(self, room_id: str, payload: dict) -> None:
+    async def _on_participant_added(
+        self, room_id: str, payload: "ParticipantAddedPayload"
+    ) -> None:
         """
         Handle participant_added from WebSocket.
 
         From ThenvoiAgent._on_participant_added() lines 771-786.
+        Payload is already validated by WebSocketClient._handle_events().
         """
-        from thenvoi.client.streaming import ParticipantAddedPayload
-
         event = ParticipantAddedEvent(
             room_id=room_id,
-            payload=ParticipantAddedPayload(**payload),
+            payload=payload,
         )
         self._queue_event(event)
 
-    async def _on_participant_removed(self, room_id: str, payload: dict) -> None:
+    async def _on_participant_removed(
+        self, room_id: str, payload: "ParticipantRemovedPayload"
+    ) -> None:
         """
         Handle participant_removed from WebSocket.
 
         From ThenvoiAgent._on_participant_removed() lines 788-805.
+        Payload is already validated by WebSocketClient._handle_events().
         """
-        from thenvoi.client.streaming import ParticipantRemovedPayload
-
         event = ParticipantRemovedEvent(
             room_id=room_id,
-            payload=ParticipantRemovedPayload(**payload),
+            payload=payload,
         )
         self._queue_event(event)
 
@@ -421,6 +427,7 @@ class ThenvoiLink:
 
         Records the error and may trigger retry logic on the server side.
         """
+        error = error.strip() or "Unknown error"
         logger.warning("Marking message %s as failed: %s", message_id, error)
         try:
             await self.rest.agent_api_messages.mark_agent_message_failed(

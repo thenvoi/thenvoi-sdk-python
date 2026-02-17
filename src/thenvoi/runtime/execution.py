@@ -45,6 +45,11 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+def _error_label(e: Exception) -> str:
+    """Return a non-empty label for an exception, falling back to the class name."""
+    return str(e).strip() or type(e).__name__
+
+
 @runtime_checkable
 class Execution(Protocol):
     """
@@ -283,8 +288,9 @@ class ExecutionContext:
             graceful = await self._wait_for_idle(timeout)
             if not graceful:
                 logger.warning(
-                    f"ExecutionContext {self.room_id}: Timeout waiting for processing, "
-                    f"cancelling mid-execution"
+                    "ExecutionContext %s: Timeout waiting for processing, "
+                    "cancelling mid-execution",
+                    self.room_id,
                 )
 
         # Signal stop and cancel the task
@@ -356,7 +362,9 @@ class ExecutionContext:
             }
         )
         logger.debug(
-            f"ExecutionContext {self.room_id}: Added participant {participant.get('name')}"
+            "ExecutionContext %s: Added participant %s",
+            self.room_id,
+            participant.get("name"),
         )
         return True
 
@@ -512,8 +520,9 @@ class ExecutionContext:
             self._context_hydrated = True
 
             logger.debug(
-                f"Context hydrated: {len(messages)} messages, "
-                f"{len(self._participants)} participants"
+                "Context hydrated: %s messages, %s participants",
+                len(messages),
+                len(self._participants),
             )
 
         except Exception as e:
@@ -612,7 +621,8 @@ class ExecutionContext:
             await self._synchronize_with_next()
             self._set_state("idle")
             logger.info(
-                f"ExecutionContext {self.room_id}: Synchronized, switching to WebSocket"
+                "ExecutionContext %s: Synchronized, switching to WebSocket",
+                self.room_id,
             )
 
             # Phase 2: Process from WebSocket queue only
@@ -650,19 +660,24 @@ class ExecutionContext:
 
                 if next_msg is None:
                     logger.debug(
-                        f"ExecutionContext {self.room_id}: /next returned None, synced"
+                        "ExecutionContext %s: /next returned None, synced",
+                        self.room_id,
                     )
                     break
 
                 if self._retry_tracker.is_permanently_failed(next_msg.id):
                     logger.warning(
-                        f"ExecutionContext {self.room_id}: Skipping permanently failed message {next_msg.id}"
+                        "ExecutionContext %s: Skipping permanently failed message %s",
+                        self.room_id,
+                        next_msg.id,
                     )
                     break
 
                 if next_msg.id == self._first_ws_msg_id:
                     logger.info(
-                        f"ExecutionContext {self.room_id}: Sync point reached at message {next_msg.id}"
+                        "ExecutionContext %s: Sync point reached at message %s",
+                        self.room_id,
+                        next_msg.id,
                     )
                     await self._process_backlog_message(next_msg)
 
@@ -685,19 +700,23 @@ class ExecutionContext:
                     break
 
                 logger.debug(
-                    f"ExecutionContext {self.room_id}: Processing backlog message {next_msg.id}"
+                    "ExecutionContext %s: Processing backlog message %s",
+                    self.room_id,
+                    next_msg.id,
                 )
                 await self._process_backlog_message(next_msg)
 
                 if self._retry_tracker.is_permanently_failed(next_msg.id):
                     logger.warning(
-                        f"ExecutionContext {self.room_id}: Message {next_msg.id} permanently failed"
+                        "ExecutionContext %s: Message %s permanently failed",
+                        self.room_id,
+                        next_msg.id,
                     )
                     break
 
         except Exception as e:
             logger.error(
-                f"ExecutionContext {self.room_id}: Sync error: {e}", exc_info=True
+                "ExecutionContext %s: Sync error: %s", self.room_id, e, exc_info=True
             )
 
         logger.debug("ExecutionContext %s: Synchronization complete", self.room_id)
@@ -749,7 +768,7 @@ class ExecutionContext:
         attempts, exceeded = self._retry_tracker.record_attempt(msg_id)
         if exceeded:
             logger.warning(
-                f"Message {msg_id} exceeded max retries ({attempts} attempts)"
+                "Message %s exceeded max retries (%s attempts)", msg_id, attempts
             )
             return
 
@@ -827,9 +846,9 @@ class ExecutionContext:
         except Exception as e:
             # FAILURE: Mark as failed on server
             logger.error(
-                f"Error processing backlog message {msg_id}: {e}", exc_info=True
+                "Error processing backlog message %s: %s", msg_id, e, exc_info=True
             )
-            await self.link.mark_failed(self.room_id, msg_id, str(e))
+            await self.link.mark_failed(self.room_id, msg_id, _error_label(e))
 
         finally:
             self._set_state("idle")
@@ -912,7 +931,9 @@ class ExecutionContext:
                 attempts, exceeded = self._retry_tracker.record_attempt(msg_id)
                 if exceeded:
                     logger.warning(
-                        f"Message {msg_id} exceeded max retries ({attempts} attempts)"
+                        "Message %s exceeded max retries (%s attempts)",
+                        msg_id,
+                        attempts,
                     )
                     return
 
@@ -953,7 +974,7 @@ class ExecutionContext:
             logger.error("Error processing %s: %s", event.type, e, exc_info=True)
             # For messages: mark as failed on server
             if isinstance(event, MessageEvent) and msg_id:
-                await self.link.mark_failed(self.room_id, msg_id, str(e))
+                await self.link.mark_failed(self.room_id, msg_id, _error_label(e))
 
         finally:
             self._set_state("idle")

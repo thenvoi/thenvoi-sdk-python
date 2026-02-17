@@ -264,8 +264,10 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
         )
 
         logger.info(
-            f"CrewAI adapter started for agent: {agent_name} "
-            f"(model={self.model}, role={role})"
+            "CrewAI adapter started for agent: %s (model=%s, role=%s)",
+            agent_name,
+            self.model,
+            role,
         )
 
     def _get_current_room_context(self) -> tuple[str, AgentToolsProtocol] | None:
@@ -415,7 +417,9 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
                             except Exception as e:
                                 error_msg = str(e)
                                 logger.error(
-                                    f"Custom tool {_tool_name} failed: {error_msg}"
+                                    "Custom tool %s failed: %s",
+                                    _tool_name,
+                                    error_msg,
                                 )
                                 await adapter._report_tool_result(
                                     _tools, _tool_name, error_msg, is_error=True
@@ -1053,8 +1057,9 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
         custom_tools = self._convert_custom_tools_to_crewai()
         if custom_tools:
             logger.debug(
-                f"Added {len(custom_tools)} custom tools: "
-                f"{[t.name for t in custom_tools]}"
+                "Added %s custom tools: %s",
+                len(custom_tools),
+                [t.name for t in custom_tools],
             )
 
         return platform_tools + custom_tools
@@ -1115,7 +1120,9 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
                     {"role": h["role"], "content": h["content"]} for h in history
                 ]
                 logger.info(
-                    f"Room {room_id}: Loaded {len(history)} historical messages"
+                    "Room %s: Loaded %s historical messages",
+                    room_id,
+                    len(history),
                 )
             else:
                 self._message_history[room_id] = []
@@ -1166,8 +1173,10 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
 
         total_messages = len(self._message_history[room_id])
         logger.info(
-            f"Room {room_id}: Processing with {total_messages} messages "
-            f"(first_msg={is_session_bootstrap})"
+            "Room %s: Processing with %s messages (first_msg=%s)",
+            room_id,
+            total_messages,
+            is_session_bootstrap,
         )
 
         try:
@@ -1187,8 +1196,9 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
                 )
 
             logger.info(
-                f"Room {room_id}: CrewAI agent completed "
-                f"(output_length={len(result.raw) if result and result.raw else 0})"
+                "Room %s: CrewAI agent completed (output_length=%s)",
+                room_id,
+                len(result.raw) if result and result.raw else 0,
             )
 
         except Exception as e:
@@ -1197,8 +1207,9 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
             raise
 
         logger.debug(
-            f"Message {msg.id} processed successfully "
-            f"(history now has {len(self._message_history[room_id])} messages)"
+            "Message %s processed successfully (history now has %s messages)",
+            msg.id,
+            len(self._message_history[room_id]),
         )
 
     async def on_cleanup(self, room_id: str) -> None:

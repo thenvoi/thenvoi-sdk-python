@@ -13,14 +13,13 @@ This file contains SDK-specific fixtures and event helpers that must
 return SDK-native types for pattern matching compatibility.
 """
 
+from __future__ import annotations
+
 from datetime import datetime, timezone
 from unittest.mock import AsyncMock
 
 import pytest
 
-from thenvoi_testing.markers import pytest_ignore_collect_in_ci as _ignore_collect_in_ci
-
-# SDK-native types required for pattern matching in runtime code
 from thenvoi.client.streaming import (
     MessageCreatedPayload,
     MessageMetadata,
@@ -45,6 +44,11 @@ from thenvoi.platform.event import (
     ContactRemovedEvent,
 )
 from thenvoi.runtime.types import PlatformMessage
+
+# E402: module-level import not at top of file. Grouped after first-party SDK
+# imports to keep test-utility imports separate. The original interleaved
+# ordering triggered ruff E402 because a non-import comment sat between imports.
+from thenvoi_testing.markers import pytest_ignore_collect_in_ci as _ignore_collect_in_ci
 
 
 def pytest_ignore_collect(collection_path):

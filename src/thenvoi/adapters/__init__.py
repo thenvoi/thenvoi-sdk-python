@@ -20,6 +20,9 @@ if TYPE_CHECKING:
     from thenvoi.adapters.anthropic import AnthropicAdapter as AnthropicAdapter
     from thenvoi.adapters.pydantic_ai import PydanticAIAdapter as PydanticAIAdapter
     from thenvoi.adapters.claude_sdk import ClaudeSDKAdapter as ClaudeSDKAdapter
+    from thenvoi.adapters.claude_code_desktop import (
+        ClaudeCodeDesktopAdapter as ClaudeCodeDesktopAdapter,
+    )
     from thenvoi.adapters.parlant import ParlantAdapter as ParlantAdapter
     from thenvoi.adapters.crewai import CrewAIAdapter as CrewAIAdapter
     from thenvoi.adapters.a2a import A2AAdapter as A2AAdapter
@@ -30,6 +33,7 @@ __all__ = [
     "AnthropicAdapter",
     "PydanticAIAdapter",
     "ClaudeSDKAdapter",
+    "ClaudeCodeDesktopAdapter",
     "ParlantAdapter",
     "CrewAIAdapter",
     "A2AAdapter",
@@ -71,4 +75,8 @@ def __getattr__(name: str):
         from thenvoi.adapters.a2a_gateway import A2AGatewayAdapter
 
         return A2AGatewayAdapter
+    elif name == "ClaudeCodeDesktopAdapter":
+        from thenvoi.adapters.claude_code_desktop import ClaudeCodeDesktopAdapter
+
+        return ClaudeCodeDesktopAdapter
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

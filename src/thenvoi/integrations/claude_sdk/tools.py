@@ -230,7 +230,11 @@ def create_thenvoi_mcp_server(agent: Any):
             executions = agent.runtime.executions if agent.runtime else {}
             execution = executions.get(room_id)
             logger.debug(
-                f"[{room_id}] add_participant: runtime={agent.runtime}, executions={list(executions.keys())}, execution={execution}"
+                "[%s] add_participant: runtime=%s, executions=%s, execution=%s",
+                room_id,
+                agent.runtime,
+                list(executions.keys()),
+                execution,
             )
             if execution:
                 new_participant = {
@@ -240,7 +244,10 @@ def create_thenvoi_mcp_server(agent: Any):
                 }
                 execution.add_participant(new_participant)
                 logger.info(
-                    f"[{room_id}] Updated participants cache: added {result['name']}, total={len(execution.participants)}"
+                    "[%s] Updated participants cache: added %s, total=%s",
+                    room_id,
+                    result["name"],
+                    len(execution.participants),
                 )
 
             return _make_result(
@@ -339,7 +346,7 @@ def create_thenvoi_mcp_server(agent: Any):
             page_size = args.get("page_size", 50)
 
             logger.debug(
-                f"[{room_id}] lookup_peers: page={page}, page_size={page_size}"
+                "[%s] lookup_peers: page=%s, page_size=%s", room_id, page, page_size
             )
 
             tools = _get_tools(room_id)

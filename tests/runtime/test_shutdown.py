@@ -10,15 +10,28 @@ import pytest
 
 from thenvoi.runtime.shutdown import GracefulShutdown, run_with_graceful_shutdown
 
+# Scope the warning filter to this module only — _handle_signal creates a
+# task for _shutdown that may not be awaited during synchronous test teardown.
+pytestmark = pytest.mark.filterwarnings(
+    "ignore:coroutine 'GracefulShutdown._shutdown' was never awaited:RuntimeWarning"
+)
+
+
+class FakeAgent:
+    """Minimal agent stand-in (plain object to avoid unawaited coroutine warnings)."""
+
+    def __init__(self):
+        self.stop = AsyncMock(return_value=True)
+        self.run = AsyncMock(
+            return_value=None
+        )  # explicit return to avoid MagicMock propagation
+        self.is_running = True
+
 
 @pytest.fixture
 def mock_agent():
-    """Mock Agent for testing shutdown handlers."""
-    agent = MagicMock()
-    agent.stop = AsyncMock(return_value=True)
-    agent.run = AsyncMock()
-    agent.is_running = True
-    return agent
+    """Create a FakeAgent for testing shutdown handlers."""
+    return FakeAgent()
 
 
 class TestGracefulShutdownInit:

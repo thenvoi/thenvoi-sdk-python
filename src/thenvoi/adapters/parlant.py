@@ -119,8 +119,9 @@ class ParlantAdapter(SimpleAdapter[ParlantMessages]):
 
             self._app = self._server.container[Application]
             logger.info(
-                f"Parlant SDK adapter started for agent: {agent_name} "
-                f"(parlant_agent_id={self._parlant_agent.id})"
+                "Parlant SDK adapter started for agent: %s (parlant_agent_id=%s)",
+                agent_name,
+                self._parlant_agent.id,
             )
         except Exception as e:
             logger.error("Failed to get Parlant Application: %s", e, exc_info=True)
@@ -178,7 +179,9 @@ class ParlantAdapter(SimpleAdapter[ParlantMessages]):
             user_message = f"[System Update]: {contacts_msg}\n\n{user_message}"
             logger.info("Room %s: Included contacts broadcast in message", room_id)
         logger.info(
-            f"Room {room_id}: Sending message to Parlant: {user_message[:100]}..."
+            "Room %s: Sending message to Parlant: %s...",
+            room_id,
+            user_message[:100],
         )
 
         try:
@@ -196,7 +199,9 @@ class ParlantAdapter(SimpleAdapter[ParlantMessages]):
                 metadata=None,
             )
             logger.info(
-                f"Room {room_id}: Customer message created, offset={event.offset}"
+                "Room %s: Customer message created, offset=%s",
+                room_id,
+                event.offset,
             )
 
             # Wait for and process agent response
@@ -216,7 +221,9 @@ class ParlantAdapter(SimpleAdapter[ParlantMessages]):
             # Clear tools after message processing
             set_session_tools(session_id_str, None)
             logger.info(
-                f"Room {room_id}: Cleared tools for session_id={session_id_str}"
+                "Room %s: Cleared tools for session_id=%s",
+                room_id,
+                session_id_str,
             )
 
         logger.debug("Message %s processed successfully", msg.id)
@@ -395,12 +402,14 @@ class ParlantAdapter(SimpleAdapter[ParlantMessages]):
 
             # Wait for agent response
             logger.info(
-                f"Room {room_id}: Waiting for agent response (min_offset={current_offset + 1}, iteration={iteration})..."
+                "Room %s: Waiting for agent response (min_offset=%s, iteration=%s)...",
+                room_id,
+                current_offset + 1,
+                iteration,
             )
 
             try:
-                # type: ignore[attr-defined] - Parlant SDK method exists but not in type stubs
-                has_update = await app.sessions.wait_for_update(
+                has_update = await app.sessions.wait_for_update(  # pyrefly: ignore[missing-attribute]
                     session_id=session_id,
                     min_offset=current_offset + 1,
                     kinds=[EventKind.MESSAGE],
@@ -412,12 +421,16 @@ class ParlantAdapter(SimpleAdapter[ParlantMessages]):
                 )
             except Exception as e:
                 logger.error(
-                    f"Room {room_id}: Error waiting for update: {e}", exc_info=True
+                    "Room %s: Error waiting for update: %s",
+                    room_id,
+                    e,
+                    exc_info=True,
                 )
                 # Check if message was sent via tool before giving up
                 if was_message_sent(session_id_str):
                     logger.info(
-                        f"Room {room_id}: Message was sent via tool, error is acceptable"
+                        "Room %s: Message was sent via tool, error is acceptable",
+                        room_id,
                     )
                 return
 
@@ -425,7 +438,8 @@ class ParlantAdapter(SimpleAdapter[ParlantMessages]):
                 # Timeout - but check if message was already sent via tool
                 if was_message_sent(session_id_str):
                     logger.info(
-                        f"Room {room_id}: Timeout but message was sent via tool, OK"
+                        "Room %s: Timeout but message was sent via tool, OK",
+                        room_id,
                     )
                     return
                 logger.warning("Room %s: Timeout waiting for agent response", room_id)
@@ -443,7 +457,10 @@ class ParlantAdapter(SimpleAdapter[ParlantMessages]):
                 logger.info("Room %s: Found %s agent events", room_id, len(events))
             except Exception as e:
                 logger.error(
-                    f"Room {room_id}: Error finding events: {e}", exc_info=True
+                    "Room %s: Error finding events: %s",
+                    room_id,
+                    e,
+                    exc_info=True,
                 )
                 return
 
@@ -458,7 +475,11 @@ class ParlantAdapter(SimpleAdapter[ParlantMessages]):
 
             for event in events:
                 logger.debug(
-                    f"Room {room_id}: Event kind={event.kind}, source={event.source}, data={event.data}"
+                    "Room %s: Event kind=%s, source=%s, data=%s",
+                    room_id,
+                    event.kind,
+                    event.source,
+                    event.data,
                 )
 
                 # Update offset for next iteration
@@ -484,7 +505,9 @@ class ParlantAdapter(SimpleAdapter[ParlantMessages]):
 
                     if is_preamble:
                         logger.info(
-                            f"Room {room_id}: Skipping preamble message: {message_content[:50]}..."
+                            "Room %s: Skipping preamble message: %s...",
+                            room_id,
+                            message_content[:50],
                         )
                         continue
 
@@ -495,13 +518,17 @@ class ParlantAdapter(SimpleAdapter[ParlantMessages]):
                     # If so, don't send Parlant's response (would be duplicate/empty)
                     if was_message_sent(session_id_str):
                         logger.info(
-                            f"Room {room_id}: Message already sent via tool, skipping Parlant response: {message_content[:50]}..."
+                            "Room %s: Message already sent via tool, skipping Parlant response: %s...",
+                            room_id,
+                            message_content[:50],
                         )
                         continue
 
                     if message_content:
                         logger.info(
-                            f"Room {room_id}: Sending agent response to platform: {message_content[:100]}..."
+                            "Room %s: Sending agent response to platform: %s...",
+                            room_id,
+                            message_content[:100],
                         )
                         try:
                             await tools.send_message(
@@ -510,12 +537,15 @@ class ParlantAdapter(SimpleAdapter[ParlantMessages]):
                             logger.info("Room %s: Message sent successfully", room_id)
                         except Exception as e:
                             logger.error(
-                                f"Room {room_id}: Error sending message: {e}",
+                                "Room %s: Error sending message: %s",
+                                room_id,
+                                e,
                                 exc_info=True,
                             )
                     else:
                         logger.warning(
-                            f"Room {room_id}: Empty message content in event"
+                            "Room %s: Empty message content in event",
+                            room_id,
                         )
 
             # If we got a final (non-preamble) message, we're done
@@ -526,23 +556,28 @@ class ParlantAdapter(SimpleAdapter[ParlantMessages]):
             # Check if message was sent via tool (tool execution may happen without final message)
             if was_message_sent(session_id_str):
                 logger.info(
-                    f"Room {room_id}: Message sent via tool, no need to wait for final message"
+                    "Room %s: Message sent via tool, no need to wait for final message",
+                    room_id,
                 )
                 return
 
             # Otherwise, continue waiting for the final message after tool execution
             logger.info(
-                f"Room {room_id}: Only got preamble, continuing to wait for final message..."
+                "Room %s: Only got preamble, continuing to wait for final message...",
+                room_id,
             )
 
         # Reached max iterations - check if message was sent
         if was_message_sent(session_id_str):
             logger.info(
-                f"Room {room_id}: Max iterations but message was sent via tool, OK"
+                "Room %s: Max iterations but message was sent via tool, OK",
+                room_id,
             )
         else:
             logger.warning(
-                f"Room {room_id}: Reached max iterations ({max_iterations}) waiting for response"
+                "Room %s: Reached max iterations (%s) waiting for response",
+                room_id,
+                max_iterations,
             )
 
     async def on_cleanup(self, room_id: str) -> None:

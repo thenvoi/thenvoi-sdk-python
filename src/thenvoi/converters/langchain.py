@@ -121,7 +121,8 @@ class LangChainHistoryConverter(HistoryConverter[LangChainMessages]):
         # Warn about unmatched tool calls
         if pending_tool_calls:
             logger.warning(
-                f"Found {len(pending_tool_calls)} tool_calls without matching tool_results"
+                "Found %s tool_calls without matching tool_results",
+                len(pending_tool_calls),
             )
 
         return messages
