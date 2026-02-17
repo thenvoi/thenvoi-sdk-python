@@ -3,7 +3,6 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Awaitable, Callable
 import logging
-from typing import Optional
 
 from phoenix_channels_python_client.client import (
     PHXChannelsClient,
@@ -34,7 +33,7 @@ class MessageMetadata(BaseModel):
 
     model_config = ConfigDict(extra="allow")
 
-    mentions: Optional[list[Mention]] = None
+    mentions: list[Mention] | None = None
 
 
 class MessageCreatedPayload(BaseModel):
@@ -47,10 +46,10 @@ class MessageCreatedPayload(BaseModel):
     id: str
     content: str
     message_type: str
-    metadata: Optional[MessageMetadata] = None
+    metadata: MessageMetadata | None = None
     sender_id: str
     sender_type: str
-    sender_name: Optional[str] = None
+    sender_name: str | None = None
     chat_room_id: str
     thread_id: str | None = None
     inserted_at: str
@@ -72,7 +71,7 @@ class RoomAddedPayload(BaseModel):
 
     id: str
     title: str
-    task_id: Optional[str] = None
+    task_id: str | None = None
     inserted_at: str
     updated_at: str
 
@@ -118,7 +117,7 @@ class ContactRequestReceivedPayload(BaseModel):
     id: str
     from_handle: str
     from_name: str
-    message: Optional[str] = None
+    message: str | None = None
     status: str
     inserted_at: str
 
@@ -141,8 +140,8 @@ class ContactAddedPayload(BaseModel):
     handle: str
     name: str
     type: str
-    description: Optional[str] = None
-    is_external: Optional[bool] = None
+    description: str | None = None
+    is_external: bool | None = None
     inserted_at: str
 
 

@@ -141,7 +141,7 @@ class TestRemoveContact:
     """Tests for remove_contact method."""
 
     async def test_remove_contact_by_handle(self, contact_tools, mock_rest_client):
-        """Verify remove by handle."""
+        """Verify remove by handle only passes handle (no contact_id=None)."""
         response = MagicMock()
         response.data = MagicMock()
         response.data.status = "removed"
@@ -152,12 +152,13 @@ class TestRemoveContact:
         result = await contact_tools.remove_contact(handle="@alice")
 
         assert result["status"] == "removed"
+        # Only handle should be passed (contact_id omitted, not sent as null)
         mock_rest_client.agent_api_contacts.remove_agent_contact.assert_called_once_with(
-            handle="@alice", contact_id=None
+            handle="@alice"
         )
 
     async def test_remove_contact_by_id(self, contact_tools, mock_rest_client):
-        """Verify remove by contact_id."""
+        """Verify remove by contact_id only passes contact_id (no handle=None)."""
         response = MagicMock()
         response.data = MagicMock()
         response.data.status = "removed"
@@ -168,8 +169,9 @@ class TestRemoveContact:
         result = await contact_tools.remove_contact(contact_id="uuid-123")
 
         assert result["status"] == "removed"
+        # Only contact_id should be passed (handle omitted, not sent as null)
         mock_rest_client.agent_api_contacts.remove_agent_contact.assert_called_once_with(
-            handle=None, contact_id="uuid-123"
+            contact_id="uuid-123"
         )
 
     async def test_remove_contact_requires_handle_or_id(self, contact_tools):
@@ -366,3 +368,8 @@ class TestRespondContactRequest:
         mock_rest_client.agent_api_contacts.respond_to_agent_contact_request.assert_called_once_with(
             action="approve", request_id="req-789"
         )
+
+    async def test_respond_contact_request_requires_handle_or_id(self, contact_tools):
+        """Verify validation - requires at least one identifier."""
+        with pytest.raises(ValueError, match="Either handle or request_id"):
+            await contact_tools.respond_contact_request("approve")
