@@ -186,10 +186,7 @@ class ClaudeCodeDesktopAdapter(SimpleAdapter[str]):
             List of command arguments
         """
         cli_path = self._get_cli_path()
-        cmd = [cli_path, "--print", "--output-format", "stream-json"]
-
-        if self.verbose:
-            cmd.append("--verbose")
+        cmd = [cli_path, "--print", "--output-format", "stream-json", "--verbose"]
 
         if self.allowed_tools:
             cmd.extend(["--allowedTools", ",".join(self.allowed_tools)])
@@ -368,7 +365,7 @@ class ClaudeCodeDesktopAdapter(SimpleAdapter[str]):
         """
         descriptions = [
             f"- `send_message`: {get_tool_description('send_message')}",
-            '  Example: {"action": "send_message", "content": "Hello!", "mentions": []}',
+            '  Example: {"action": "send_message", "content": "Hello @Alice!", "mentions": ["Alice"]}',
             f"- `send_event`: {get_tool_description('send_event')}",
             '  Example: {"action": "send_event", "content": "Thinking...", "message_type": "thought"}',
             f"- `add_participant`: {get_tool_description('add_participant')}",

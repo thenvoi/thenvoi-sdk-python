@@ -185,6 +185,7 @@ class AgentTools(AgentToolsProtocol):
         room_id: str,
         rest: "AsyncRestClient",
         participants: list[dict[str, Any]] | None = None,
+        agent_id: str | None = None,
     ):
         """
         Initialize AgentTools for a specific room.
@@ -193,10 +194,12 @@ class AgentTools(AgentToolsProtocol):
             room_id: The room this tools instance is bound to
             rest: AsyncRestClient for API calls
             participants: Optional list of participants for mention resolution
+            agent_id: Optional agent ID to exclude self from auto-populated mentions
         """
         self.room_id = room_id
         self.rest = rest
         self._participants = participants or []
+        self._agent_id = agent_id
 
     @classmethod
     def from_context(cls, ctx: "ExecutionContext") -> "AgentTools":
@@ -211,7 +214,7 @@ class AgentTools(AgentToolsProtocol):
         Returns:
             AgentTools instance bound to the context's room
         """
-        return cls(ctx.room_id, ctx.link.rest, ctx.participants)
+        return cls(ctx.room_id, ctx.link.rest, ctx.participants, ctx._agent_id)
 
     # --- Tool methods ---
 
@@ -237,6 +240,19 @@ class AgentTools(AgentToolsProtocol):
         )
 
         resolved_mentions = self._resolve_mentions(mentions or [])
+
+        # Auto-populate mentions from participants when empty (API requires ≥1)
+        if not resolved_mentions and self._participants:
+            resolved_mentions = [
+                {"id": p["id"], "name": p["name"]}
+                for p in self._participants
+                if p.get("id") != self._agent_id  # exclude self
+            ]
+            logger.debug(
+                "Auto-populated %d mention(s) from room participants",
+                len(resolved_mentions),
+            )
+
         logger.debug("Sending message to room %s", self.room_id)
 
         # Convert to API format

@@ -22,7 +22,7 @@ class Mention(BaseModel):
     """Mention object within message metadata."""
 
     id: str
-    username: str
+    username: str | None = None
 
 
 class MessageMetadata(BaseModel):
@@ -45,7 +45,7 @@ class MessageCreatedPayload(BaseModel):
     metadata: MessageMetadata
     sender_id: str
     sender_type: str
-    chat_room_id: str
+    chat_room_id: str | None = None
     thread_id: str | None = None
     inserted_at: str
     updated_at: str
