@@ -875,39 +875,31 @@ class AgentTools(AgentToolsProtocol):
 
         Returns:
             Dict with id and status
+
+        Raises:
+            ValueError: If neither handle nor request_id is provided
         """
+        if handle is None and request_id is None:
+            raise ValueError("Either handle or request_id must be provided")
+
         logger.debug(
             "Responding to contact request: action=%s, handle=%s, request_id=%s",
             action,
             handle,
             request_id,
         )
-        # Only pass non-None values to avoid sending null (which fails validation)
+
+        # Build kwargs dynamically to avoid sending null values
         # The REST client uses OMIT for optional params, but passing None sends null
-        if handle is not None and request_id is not None:
-            response = (
-                await self.rest.agent_api_contacts.respond_to_agent_contact_request(
-                    action=action, handle=handle, request_id=request_id
-                )
-            )
-        elif handle is not None:
-            response = (
-                await self.rest.agent_api_contacts.respond_to_agent_contact_request(
-                    action=action, handle=handle
-                )
-            )
-        elif request_id is not None:
-            response = (
-                await self.rest.agent_api_contacts.respond_to_agent_contact_request(
-                    action=action, request_id=request_id
-                )
-            )
-        else:
-            response = (
-                await self.rest.agent_api_contacts.respond_to_agent_contact_request(
-                    action=action
-                )
-            )
+        kwargs: dict[str, Any] = {"action": action}
+        if handle is not None:
+            kwargs["handle"] = handle
+        if request_id is not None:
+            kwargs["request_id"] = request_id
+
+        response = await self.rest.agent_api_contacts.respond_to_agent_contact_request(
+            **kwargs
+        )
         if not response.data:
             raise RuntimeError(
                 "Failed to respond to contact request - no response data"
