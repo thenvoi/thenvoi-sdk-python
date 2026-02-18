@@ -274,12 +274,13 @@ class ContactEventHandler:
         Returns:
             True if event was routed successfully
         """
+        # Auto-initialize hub room if not already done
+        if self._hub_room_id is None:
+            logger.info("Hub room not initialized, initializing now")
+            await self.initialize_hub_room()
+
         if self._on_hub_event is None:
             logger.warning("HUB_ROOM strategy but no on_hub_event callback configured")
-            return False
-
-        if self._hub_room_id is None:
-            logger.error("Hub room not initialized - call initialize_hub_room() first")
             return False
 
         try:
@@ -293,6 +294,9 @@ class ContactEventHandler:
                 )
 
             hub_id = self._hub_room_id
+            if hub_id is None:
+                logger.error("Hub room initialization failed")
+                return False
 
             # Inject system prompt on first use
             if not self._hub_room_initialized and self._on_hub_init:

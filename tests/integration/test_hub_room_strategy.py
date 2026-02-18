@@ -110,7 +110,6 @@ class TestHubRoomReceivesEvents:
 
         config = ContactEventConfig(
             strategy=ContactEventStrategy.HUB_ROOM,
-            hub_task_id="test-hub-room",
         )
         handler = ContactEventHandler(config, mock_link)
 
@@ -133,10 +132,11 @@ class TestHubRoomReceivesEvents:
         hub_room_id = handler._hub_room_id
         logger.info("Hub room created: %s", hub_room_id)
 
-        # Verify we can read the room
-        response = await api_client.agent_api_chats.get_agent_chat(chat_id=hub_room_id)
-        assert response.data is not None
-        logger.info("Hub room verified: %s", response.data.id)
+        # Verify room exists by checking it appears in the chat list
+        response = await api_client.agent_api_chats.list_agent_chats()
+        chat_ids = [chat.id for chat in (response.data or [])]
+        assert hub_room_id in chat_ids, f"Hub room {hub_room_id} not found in chat list"
+        logger.info("Hub room verified in chat list")
 
         # Clean up - delete the room
         try:
@@ -181,7 +181,6 @@ class TestHubRoomAgentActions:
 
         config = ContactEventConfig(
             strategy=ContactEventStrategy.HUB_ROOM,
-            hub_task_id="approve-test-hub",
         )
         handler = ContactEventHandler(config, mock_link)
 
@@ -277,7 +276,6 @@ class TestHubRoomAgentActions:
 
         config = ContactEventConfig(
             strategy=ContactEventStrategy.HUB_ROOM,
-            hub_task_id="reject-test-hub",
         )
         handler = ContactEventHandler(config, mock_link)
 
@@ -365,12 +363,9 @@ class TestHubRoomPersistence:
         mock_link = MagicMock()
         mock_link.rest = api_client
 
-        custom_task_id = "persistent-hub-test"
-
         # First handler creates the room
         config1 = ContactEventConfig(
             strategy=ContactEventStrategy.HUB_ROOM,
-            hub_task_id=custom_task_id,
         )
         handler1 = ContactEventHandler(config1, mock_link)
 
@@ -389,10 +384,9 @@ class TestHubRoomPersistence:
         first_room_id = handler1._hub_room_id
         logger.info("First handler created room: %s", first_room_id)
 
-        # Second handler (simulating reconnect) - creates new room but same task_id
+        # Second handler (simulating reconnect) - creates new room
         config2 = ContactEventConfig(
             strategy=ContactEventStrategy.HUB_ROOM,
-            hub_task_id=custom_task_id,
         )
         handler2 = ContactEventHandler(config2, mock_link)
 
@@ -439,11 +433,11 @@ class TestHubRoomIsolation:
         mock_link = MagicMock()
         mock_link.rest = api_client
 
-        # Create a regular room first
+        # Create a regular room first (no task_id)
         from thenvoi.client.rest import ChatRoomRequest, DEFAULT_REQUEST_OPTIONS
 
         regular_room_response = await api_client.agent_api_chats.create_agent_chat(
-            chat=ChatRoomRequest(task_id="regular-room-test"),
+            chat=ChatRoomRequest(),
             request_options=DEFAULT_REQUEST_OPTIONS,
         )
         regular_room_id = regular_room_response.data.id
@@ -452,7 +446,6 @@ class TestHubRoomIsolation:
         # Create handler for hub room
         config = ContactEventConfig(
             strategy=ContactEventStrategy.HUB_ROOM,
-            hub_task_id="isolated-hub-test",
         )
         handler = ContactEventHandler(config, mock_link)
 

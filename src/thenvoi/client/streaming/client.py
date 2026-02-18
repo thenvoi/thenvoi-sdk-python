@@ -50,7 +50,7 @@ class MessageCreatedPayload(BaseModel):
     sender_id: str
     sender_type: str
     sender_name: str | None = None
-    chat_room_id: str
+    chat_room_id: str | None = None
     thread_id: str | None = None
     inserted_at: str
     updated_at: str
