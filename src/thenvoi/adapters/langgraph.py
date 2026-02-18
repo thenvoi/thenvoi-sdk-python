@@ -64,6 +64,7 @@ class LangGraphAdapter(SimpleAdapter[LangChainMessages]):
         prompt_template: str = "default",
         custom_section: str = "",
         additional_tools: List[Any] | None = None,
+        enable_memory_tools: bool = False,
         history_converter: LangChainHistoryConverter | None = None,
     ):
         # Use default LangChain converter if not provided
@@ -100,6 +101,7 @@ class LangGraphAdapter(SimpleAdapter[LangChainMessages]):
         self.prompt_template = prompt_template
         self.custom_section = custom_section
         self.additional_tools = additional_tools or []
+        self.enable_memory_tools = enable_memory_tools
         self._system_prompt: str = ""
 
     async def on_started(self, agent_name: str, agent_description: str) -> None:
@@ -119,6 +121,7 @@ class LangGraphAdapter(SimpleAdapter[LangChainMessages]):
         tools: AgentToolsProtocol,
         history: LangChainMessages,  # Fully typed!
         participants_msg: str | None,
+        contacts_msg: str | None,
         *,
         is_session_bootstrap: bool,
         room_id: str,
@@ -131,7 +134,12 @@ class LangGraphAdapter(SimpleAdapter[LangChainMessages]):
         logger.info("[HANDLE] Message %s in room %s", msg.id, room_id)
 
         # Get LangChain tools
-        langchain_tools = agent_tools_to_langchain(tools) + self.additional_tools
+        langchain_tools = (
+            agent_tools_to_langchain(
+                tools, include_memory_tools=self.enable_memory_tools
+            )
+            + self.additional_tools
+        )
 
         # Build or get graph
         if self.graph_factory:
@@ -154,6 +162,9 @@ class LangGraphAdapter(SimpleAdapter[LangChainMessages]):
 
         if participants_msg:
             messages.append(("system", participants_msg))
+
+        if contacts_msg:
+            messages.append(("system", contacts_msg))
 
         messages.append(("user", msg.format_for_llm()))
 

@@ -205,6 +205,7 @@ class TestOnMessage:
             tools=mock_tools,
             history=[],
             participants_msg=None,
+            contacts_msg=None,
             is_session_bootstrap=True,
             room_id="room-123",
         )
@@ -238,6 +239,7 @@ class TestOnMessage:
             tools=mock_tools,
             history=existing_history,
             participants_msg=None,
+            contacts_msg=None,
             is_session_bootstrap=True,
             room_id="room-123",
         )
@@ -266,6 +268,7 @@ class TestOnMessage:
             tools=mock_tools,
             history=[],
             participants_msg="Alice joined the room",
+            contacts_msg=None,
             is_session_bootstrap=True,
             room_id="room-123",
         )
@@ -303,6 +306,7 @@ class TestOnMessage:
                 tools=mock_tools,
                 history=[],
                 participants_msg=None,
+                contacts_msg=None,
                 is_session_bootstrap=True,
                 room_id="room-123",
             )
@@ -356,6 +360,7 @@ class TestHistoryManagement:
             tools=mock_tools,
             history=[],
             participants_msg=None,
+            contacts_msg=None,
             is_session_bootstrap=True,
             room_id="room-123",
         )
@@ -381,6 +386,7 @@ class TestHistoryManagement:
             tools=mock_tools,
             history=[],
             participants_msg=None,
+            contacts_msg=None,
             is_session_bootstrap=False,  # Not bootstrap
             room_id="new-room",
         )
@@ -417,6 +423,7 @@ class TestExecutionReporting:
             tools=mock_tools,
             history=[],
             participants_msg=None,
+            contacts_msg=None,
             is_session_bootstrap=True,
             room_id="room-123",
         )
@@ -454,6 +461,7 @@ class TestExecutionReporting:
             tools=mock_tools,
             history=[],
             participants_msg=None,
+            contacts_msg=None,
             is_session_bootstrap=True,
             room_id="room-123",
         )
@@ -487,6 +495,7 @@ class TestExecutionReporting:
             tools=mock_tools,
             history=[],
             participants_msg=None,
+            contacts_msg=None,
             is_session_bootstrap=True,
             room_id="room-123",
         )
@@ -530,6 +539,7 @@ class TestExecutionReporting:
             tools=mock_tools,
             history=[],
             participants_msg=None,
+            contacts_msg=None,
             is_session_bootstrap=True,
             room_id="room-123",
         )
@@ -579,6 +589,7 @@ class TestExecutionReporting:
             tools=failing_tools,
             history=[],
             participants_msg=None,
+            contacts_msg=None,
             is_session_bootstrap=True,
             room_id="room-123",
         )
@@ -715,6 +726,7 @@ class TestCustomTools:
             tools=mock_tools,
             history=[],
             participants_msg=None,
+            contacts_msg=None,
             is_session_bootstrap=True,
             room_id="room-123",
         )

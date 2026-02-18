@@ -621,6 +621,7 @@ class ClaudeCodeDesktopAdapter(SimpleAdapter[str]):
         tools: AgentToolsProtocol,
         history: str,
         participants_msg: str | None,
+        contacts_msg: str | None,
         *,
         is_session_bootstrap: bool,
         room_id: str,
@@ -633,6 +634,7 @@ class ClaudeCodeDesktopAdapter(SimpleAdapter[str]):
             tools: Agent tools (send_message, send_event, etc.)
             history: Converted history as text
             participants_msg: Participants update message, or None
+            contacts_msg: Contact changes broadcast message, or None
             is_session_bootstrap: True if first message from this room
             room_id: The room identifier
         """

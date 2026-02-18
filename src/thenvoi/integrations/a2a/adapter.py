@@ -119,6 +119,7 @@ class A2AAdapter(SimpleAdapter[A2ASessionState]):
         tools: AgentToolsProtocol,
         history: A2ASessionState,
         participants_msg: str | None,
+        contacts_msg: str | None,
         *,
         is_session_bootstrap: bool,
         room_id: str,

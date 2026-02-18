@@ -165,6 +165,7 @@ class TestAgentInput:
             tools=tools,
             history=history,
             participants_msg="Alice joined",
+            contacts_msg=None,
             is_session_bootstrap=True,
             room_id="room-1",
         )
@@ -195,6 +196,7 @@ class TestAgentInput:
             tools=FakeAgentTools(),
             history=HistoryProvider(raw=[]),
             participants_msg=None,
+            contacts_msg=None,
             is_session_bootstrap=False,
             room_id="room-1",
         )
@@ -220,6 +222,7 @@ class TestAgentInput:
             tools=FakeAgentTools(),
             history=HistoryProvider(raw=[]),
             participants_msg=None,
+            contacts_msg=None,
             is_session_bootstrap=True,
             room_id="room-1",
         )

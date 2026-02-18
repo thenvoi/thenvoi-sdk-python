@@ -1,0 +1,5 @@
+# Configuration for thenvoi-sdk development scripts
+# Copy this file to config.yaml and adjust paths for your environment
+
+# Path to the directory containing thenvoi-client-rest wheel files
+wheel_dir: "/path/to/fern/generated_sdk/dist"

@@ -268,6 +268,7 @@ class TestOnMessage:
             tools=mock_tools,
             history=[],
             participants_msg=None,
+            contacts_msg=None,
             is_session_bootstrap=True,
             room_id="room-123",
         )
@@ -292,6 +293,7 @@ class TestOnMessage:
             tools=mock_tools,
             history=existing_history,
             participants_msg=None,
+            contacts_msg=None,
             is_session_bootstrap=True,
             room_id="room-123",
         )
@@ -311,6 +313,7 @@ class TestOnMessage:
             tools=mock_tools,
             history=[],
             participants_msg=None,
+            contacts_msg=None,
             is_session_bootstrap=True,
             room_id="room-123",
         )
@@ -349,6 +352,7 @@ class TestErrorHandling:
                 tools=mock_tools,
                 history=[],
                 participants_msg=None,
+                contacts_msg=None,
                 is_session_bootstrap=True,
                 room_id="room-123",
             )
@@ -369,6 +373,7 @@ class TestErrorHandling:
                 tools=mock_tools,
                 history=[],
                 participants_msg=None,
+                contacts_msg=None,
                 is_session_bootstrap=True,
                 room_id="room-123",
             )
@@ -460,6 +465,7 @@ class TestParticipantsUpdate:
             tools=mock_tools,
             history=[],
             participants_msg="Alice joined the room",
+            contacts_msg=None,
             is_session_bootstrap=True,
             room_id="room-123",
         )

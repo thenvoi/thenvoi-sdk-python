@@ -162,8 +162,9 @@ class TestBuildParticipantsMessage:
         participants = [{"id": "1", "name": "Test", "type": "User"}]
         result = build_participants_message(participants)
         assert "thenvoi_send_message" in result
-        # Instruction now says to use EXACT name, not ID
-        assert "EXACT name" in result
+        # Instruction explains handle format for users and agents
+        assert "handle" in result
+        assert "@<username>" in result
 
     def test_handles_missing_fields(self):
         participants = [{"id": "1"}]  # Missing name and type

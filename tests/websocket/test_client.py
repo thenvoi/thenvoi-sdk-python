@@ -27,7 +27,7 @@ VALID_MESSAGE_CREATED_PAYLOAD: dict = {
     "content": "@TestBot hi",
     "message_type": "text",
     "metadata": {
-        "mentions": [{"id": "agent-123", "username": "TestBot"}],
+        "mentions": [{"id": "agent-123", "handle": "testbot", "name": "TestBot"}],
         "status": "sent",
     },
     "sender_id": "user-456",
@@ -73,8 +73,8 @@ async def test_skips_invalid_room_added_payload(caplog):
     class MockMessage:
         event = "room_added"
         payload = {
-            "id": "room-123",
-            # Missing: owner, status, type, title, etc.
+            # Missing: id (the only required field)
+            "title": "Test Room",
         }
 
     async def dummy_callback(payload):
@@ -194,12 +194,10 @@ async def test_accepts_valid_room_added_payload():
         event = "room_added"
         payload = {
             "id": "room-123",
-            "owner": {"id": "user-456", "name": "Test User", "type": "User"},
-            "status": "active",
-            "type": "direct",
             "title": "Test Room",
-            "created_at": "2025-11-17T09:05:35.642172Z",
-            "participant_role": "member",
+            "task_id": None,
+            "inserted_at": "2025-11-17T09:05:35.642172Z",
+            "updated_at": "2025-11-17T09:05:35.642172Z",
         }
 
     await client._handle_events(MockMessage(), {"room_added": test_callback})
@@ -284,7 +282,7 @@ async def test_accepts_valid_participant_removed_payload():
                 "content": "hi",
                 "message_type": "text",
                 "metadata": {
-                    "mentions": [{"id": "a-1", "username": "Bot"}],
+                    "mentions": [{"id": "a-1", "handle": "bot", "name": "Bot"}],
                     "status": "sent",
                 },
                 "sender_id": "u-1",
@@ -305,7 +303,8 @@ async def test_accepts_valid_participant_removed_payload():
                 "status": "active",
                 "type": "direct",
                 "title": "Room",
-                "created_at": "2025-11-17T09:05:35Z",
+                "inserted_at": "2025-11-17T09:05:35Z",
+                "updated_at": "2025-11-17T09:05:35Z",
                 "participant_role": "member",
             },
             RoomAddedPayload,

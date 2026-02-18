@@ -75,5 +75,6 @@ class AgentInput:
     tools: "AgentToolsProtocol"  # Protocol for testability (FakeAgentTools)
     history: HistoryProvider
     participants_msg: str | None
+    contacts_msg: str | None  # Contact changes broadcast message
     is_session_bootstrap: bool
     room_id: str

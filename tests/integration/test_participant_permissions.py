@@ -2,7 +2,7 @@
 Comprehensive participant permission tests using dynamically created agents.
 
 ALL agents used in these tests are:
-1. Created dynamically via user_api_client.human_api.register_my_agent()
+1. Created dynamically via user_api_client.human_api_agents.register_my_agent()
 2. Deleted after tests complete
 
 NO agents from .env.test are used or modified.
@@ -65,7 +65,7 @@ class DynamicAgentManager:
         unique_suffix = uuid.uuid4().hex[:8]
         agent_name = f"{name_prefix} {unique_suffix}"
 
-        response = await self.user_client.human_api.register_my_agent(
+        response = await self.user_client.human_api_agents.register_my_agent(
             agent=AgentRegisterRequest(
                 name=agent_name,
                 description="Created by SDK permission tests - will be deleted",
@@ -90,7 +90,7 @@ class DynamicAgentManager:
         """Delete all agents created by this manager."""
         for agent in self.created_agents:
             try:
-                await self.user_client.human_api.delete_my_agent(
+                await self.user_client.human_api_agents.delete_my_agent(
                     id=agent.agent_id,
                     force=True,
                 )
@@ -131,7 +131,7 @@ async def agent_manager(module_user_api_client, request):
         pytest.skip("THENVOI_API_KEY_USER not set")
 
     # Check if delete_my_agent exists
-    if not hasattr(module_user_api_client.human_api, "delete_my_agent"):
+    if not hasattr(module_user_api_client.human_api_agents, "delete_my_agent"):
         pytest.skip(
             "thenvoi-rest SDK does not have delete_my_agent() method yet. "
             "Please update the SDK."
@@ -219,13 +219,13 @@ class TestParticipantRemovalPermissions:
         owner_client = get_agent_client(owner)
 
         # Get agent's owner_uuid to identify which User is the agent's owner
-        agent_me = await owner_client.agent_api.get_agent_me()
+        agent_me = await owner_client.agent_api_identity.get_agent_me()
         agent_owner_uuid = (
             str(agent_me.data.owner_uuid) if agent_me.data.owner_uuid else None
         )
 
         # Find User peers - separate owner from non-owner
-        response = await owner_client.agent_api.list_agent_peers()
+        response = await owner_client.agent_api_peers.list_agent_peers()
         user_peers = [p for p in response.data if p.type == "User"]
 
         # Identify agent's owner (for P4 protection rule test)
@@ -236,21 +236,21 @@ class TestParticipantRemovalPermissions:
         non_owner_user = next((p for p in user_peers if p.id != agent_owner_uuid), None)
 
         # Create chat (owner agent becomes owner)
-        response = await owner_client.agent_api.create_agent_chat(
+        response = await owner_client.agent_api_chats.create_agent_chat(
             chat=ChatRoomRequest()
         )
         chat_id = response.data.id
         logger.info("\n  Created test chat: %s", chat_id)
 
         # Add admin agent
-        await owner_client.agent_api.add_agent_chat_participant(
+        await owner_client.agent_api_participants.add_agent_chat_participant(
             chat_id,
             participant=ParticipantRequest(participant_id=admin.agent_id, role="admin"),
         )
         logger.info("  Added admin: %s", admin.agent_name)
 
         # Add descriptive message (triggers auto-title)
-        await owner_client.agent_api.create_agent_chat_message(
+        await owner_client.agent_api_messages.create_agent_chat_message(
             chat_id,
             message=ChatMessageRequest(
                 content=f"Participant removal permission test: @{admin.agent_name} testing removal permissions for owner/admin/member roles",
@@ -259,7 +259,7 @@ class TestParticipantRemovalPermissions:
         )
 
         # Add member agent
-        await owner_client.agent_api.add_agent_chat_participant(
+        await owner_client.agent_api_participants.add_agent_chat_participant(
             chat_id,
             participant=ParticipantRequest(
                 participant_id=member.agent_id, role="member"
@@ -270,7 +270,7 @@ class TestParticipantRemovalPermissions:
         # Add agent's owner as member (for P4 protection rule test)
         agent_owner_member = None
         if agent_owner_user:
-            await owner_client.agent_api.add_agent_chat_participant(
+            await owner_client.agent_api_participants.add_agent_chat_participant(
                 chat_id,
                 participant=ParticipantRequest(
                     participant_id=agent_owner_user.id, role="member"
@@ -288,7 +288,7 @@ class TestParticipantRemovalPermissions:
         # Add non-owner User as member (for generic removal test)
         non_owner_member = None
         if non_owner_user:
-            await owner_client.agent_api.add_agent_chat_participant(
+            await owner_client.agent_api_participants.add_agent_chat_participant(
                 chat_id,
                 participant=ParticipantRequest(
                     participant_id=non_owner_user.id, role="member"
@@ -325,7 +325,9 @@ class TestParticipantRemovalPermissions:
         - "error:<message>" for other errors
         """
         try:
-            await client.agent_api.remove_agent_chat_participant(chat_id, target_id)
+            await client.agent_api_participants.remove_agent_chat_participant(
+                chat_id, target_id
+            )
             return "success"
         except Exception as e:
             error_str = str(e).lower()
@@ -447,7 +449,7 @@ class TestParticipantRemovalPermissions:
         # Add extra agent as another admin
         owner_client = get_agent_client(chat["owner"])
         extra_agent = permission_agents["extra"]
-        await owner_client.agent_api.add_agent_chat_participant(
+        await owner_client.agent_api_participants.add_agent_chat_participant(
             chat["chat_id"],
             participant=ParticipantRequest(
                 participant_id=extra_agent.agent_id, role="admin"
@@ -485,7 +487,7 @@ class TestParticipantRemovalPermissions:
         # Add the extra agent as another member so we can test member removing member
         owner_client = get_agent_client(chat["owner"])
         extra_agent = permission_agents["extra"]
-        await owner_client.agent_api.add_agent_chat_participant(
+        await owner_client.agent_api_participants.add_agent_chat_participant(
             chat["chat_id"],
             participant=ParticipantRequest(
                 participant_id=extra_agent.agent_id, role="member"
@@ -552,7 +554,7 @@ class TestParticipantAddPermissions:
         owner_client = get_agent_client(owner)
 
         # Find User peers (need for testing User targets)
-        response = await owner_client.agent_api.list_agent_peers()
+        response = await owner_client.agent_api_peers.list_agent_peers()
         user_peers = [p for p in response.data if p.type == "User"]
 
         # Find additional Agent peers not in our test set
@@ -567,20 +569,20 @@ class TestParticipantAddPermissions:
         ]
 
         # Create chat (owner agent becomes owner)
-        response = await owner_client.agent_api.create_agent_chat(
+        response = await owner_client.agent_api_chats.create_agent_chat(
             chat=ChatRoomRequest()
         )
         chat_id = response.data.id
         logger.info("\n  Created test chat: %s", chat_id)
 
         # Add admin agent
-        await owner_client.agent_api.add_agent_chat_participant(
+        await owner_client.agent_api_participants.add_agent_chat_participant(
             chat_id,
             participant=ParticipantRequest(participant_id=admin.agent_id, role="admin"),
         )
 
         # Add descriptive message (triggers auto-title)
-        await owner_client.agent_api.create_agent_chat_message(
+        await owner_client.agent_api_messages.create_agent_chat_message(
             chat_id,
             message=ChatMessageRequest(
                 content=f"Participant add permission test: @{admin.agent_name} testing add permissions for owner/admin/member roles",
@@ -589,7 +591,7 @@ class TestParticipantAddPermissions:
         )
 
         # Add member agent
-        await owner_client.agent_api.add_agent_chat_participant(
+        await owner_client.agent_api_participants.add_agent_chat_participant(
             chat_id,
             participant=ParticipantRequest(
                 participant_id=member.agent_id, role="member"
@@ -612,7 +614,7 @@ class TestParticipantAddPermissions:
     ) -> str:
         """Try to add a participant and return result."""
         try:
-            await client.agent_api.add_agent_chat_participant(
+            await client.agent_api_participants.add_agent_chat_participant(
                 chat_id,
                 participant=ParticipantRequest(participant_id=target_id, role=role),
             )
@@ -809,7 +811,7 @@ class TestPermissionMatrix:
         owner_client = get_agent_client(owner)
 
         # Find a User peer
-        response = await owner_client.agent_api.list_agent_peers()
+        response = await owner_client.agent_api_peers.list_agent_peers()
         user_peer = next((p for p in response.data if p.type == "User"), None)
 
         agents = {
@@ -844,7 +846,7 @@ class TestPermissionMatrix:
 
         for actor_role, target_role, target_type in scenarios:
             # Create fresh chat for each scenario
-            response = await owner_client.agent_api.create_agent_chat(
+            response = await owner_client.agent_api_chats.create_agent_chat(
                 chat=ChatRoomRequest()
             )
             chat_id = response.data.id
@@ -857,7 +859,7 @@ class TestPermissionMatrix:
                     else "member"
                 )
 
-                await owner_client.agent_api.add_agent_chat_participant(
+                await owner_client.agent_api_participants.add_agent_chat_participant(
                     chat_id,
                     participant=ParticipantRequest(
                         participant_id=admin.agent_id, role="admin"
@@ -865,7 +867,7 @@ class TestPermissionMatrix:
                 )
 
                 # Add descriptive message (triggers auto-title)
-                await owner_client.agent_api.create_agent_chat_message(
+                await owner_client.agent_api_messages.create_agent_chat_message(
                     chat_id,
                     message=ChatMessageRequest(
                         content=f"Removal matrix: @{admin.agent_name} {actor_role} removing {target_role}({target_type})",
@@ -873,13 +875,13 @@ class TestPermissionMatrix:
                     ),
                 )
 
-                await owner_client.agent_api.add_agent_chat_participant(
+                await owner_client.agent_api_participants.add_agent_chat_participant(
                     chat_id,
                     participant=ParticipantRequest(
                         participant_id=member.agent_id, role="member"
                     ),
                 )
-                await owner_client.agent_api.add_agent_chat_participant(
+                await owner_client.agent_api_participants.add_agent_chat_participant(
                     chat_id,
                     participant=ParticipantRequest(
                         participant_id=extra.agent_id, role=extra_role
@@ -887,11 +889,13 @@ class TestPermissionMatrix:
                 )
 
                 if user_peer and target_type == "User":
-                    await owner_client.agent_api.add_agent_chat_participant(
-                        chat_id,
-                        participant=ParticipantRequest(
-                            participant_id=user_peer.id, role="member"
-                        ),
+                    await (
+                        owner_client.agent_api_participants.add_agent_chat_participant(
+                            chat_id,
+                            participant=ParticipantRequest(
+                                participant_id=user_peer.id, role="member"
+                            ),
+                        )
                     )
 
                 # Determine target ID
@@ -921,7 +925,7 @@ class TestPermissionMatrix:
                 else:
                     actor_client = get_agent_client(agents[actor_role])
                     try:
-                        await actor_client.agent_api.remove_agent_chat_participant(
+                        await actor_client.agent_api_participants.remove_agent_chat_participant(
                             chat_id, target_id
                         )
                         result = "SUCCESS"
@@ -965,7 +969,7 @@ class TestPermissionMatrix:
         owner_client = get_agent_client(owner)
 
         # Find User peers
-        response = await owner_client.agent_api.list_agent_peers()
+        response = await owner_client.agent_api_peers.list_agent_peers()
         user_peers = [p for p in response.data if p.type == "User"]
         user_peer = user_peers[0] if user_peers else None
 
@@ -1007,14 +1011,14 @@ class TestPermissionMatrix:
 
         for actor_role, target_type, add_as_role in scenarios:
             # Create fresh chat for each scenario
-            response = await owner_client.agent_api.create_agent_chat(
+            response = await owner_client.agent_api_chats.create_agent_chat(
                 chat=ChatRoomRequest()
             )
             chat_id = response.data.id
 
             try:
                 # Setup: add admin and member to chat
-                await owner_client.agent_api.add_agent_chat_participant(
+                await owner_client.agent_api_participants.add_agent_chat_participant(
                     chat_id,
                     participant=ParticipantRequest(
                         participant_id=admin.agent_id, role="admin"
@@ -1022,7 +1026,7 @@ class TestPermissionMatrix:
                 )
 
                 # Add descriptive message (triggers auto-title)
-                await owner_client.agent_api.create_agent_chat_message(
+                await owner_client.agent_api_messages.create_agent_chat_message(
                     chat_id,
                     message=ChatMessageRequest(
                         content=f"Add matrix: @{admin.agent_name} {actor_role} adding {target_type} as {add_as_role}",
@@ -1030,7 +1034,7 @@ class TestPermissionMatrix:
                     ),
                 )
 
-                await owner_client.agent_api.add_agent_chat_participant(
+                await owner_client.agent_api_participants.add_agent_chat_participant(
                     chat_id,
                     participant=ParticipantRequest(
                         participant_id=member.agent_id, role="member"
@@ -1048,7 +1052,7 @@ class TestPermissionMatrix:
                 else:
                     actor_client = get_agent_client(agents[actor_role])
                     try:
-                        await actor_client.agent_api.add_agent_chat_participant(
+                        await actor_client.agent_api_participants.add_agent_chat_participant(
                             chat_id,
                             participant=ParticipantRequest(
                                 participant_id=target_id, role=add_as_role

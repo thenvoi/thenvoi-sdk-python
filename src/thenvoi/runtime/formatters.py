@@ -47,10 +47,10 @@ def build_participants_message(participants: list[dict]) -> str:
     """
     Build participant list message for LLM context.
 
-    Includes instruction to use thenvoi_send_message with exact participant names.
+    Includes instruction to use thenvoi_send_message with handles or names.
 
     Args:
-        participants: List of participant dicts with id, name, type
+        participants: List of participant dicts with id, name, type, handle
 
     Returns:
         Formatted string for LLM system message
@@ -62,11 +62,14 @@ def build_participants_message(participants: list[dict]) -> str:
     for p in participants:
         p_type = p.get("type", "Unknown")
         p_name = p.get("name", "Unknown")
-        lines.append(f"- {p_name} ({p_type})")
+        p_handle = p.get("handle", "Unknown")
+        lines.append(f"- {p_name} ({p_type}) - handle: {p_handle}")
 
     lines.append("")
     lines.append(
-        "To mention a participant in thenvoi_send_message, use their EXACT name (e.g., 'Weather Agent', not an ID)."
+        "To mention a participant in thenvoi_send_message, use their handle: "
+        "@<username> for users (e.g., '@john'), "
+        "@<username>/<agent-name> for agents (e.g., '@john/weather-agent')."
     )
 
     return "\n".join(lines)

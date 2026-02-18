@@ -52,7 +52,7 @@ def default_messages_state_formatter(
         {
             "messages": [{
                 "role": "user",
-                "content": "Message from John Doe (User, ID: abc-123) in room room-456: Hello!"
+                "content": "Message from John Doe (User, ID: abc-123): Hello!"
             }]
         }
 
@@ -61,12 +61,11 @@ def default_messages_state_formatter(
         ...     return {
         ...         "content": message.content,
         ...         "sender_name": sender_name,
-        ...         "room_id": message.chat_room_id
         ...     }
     """
     formatted_content = (
-        f"Message from {sender_name} ({message.sender_type}, ID: {message.sender_id}) "
-        f"in room {message.chat_room_id}: {message.content}"
+        f"Message from {sender_name} ({message.sender_type}, ID: {message.sender_id}): "
+        f"{message.content}"
     )
 
     return {"messages": [{"role": "user", "content": formatted_content}]}

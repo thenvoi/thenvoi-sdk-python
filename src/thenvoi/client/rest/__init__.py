@@ -21,6 +21,7 @@ from thenvoi_rest import (
     ChatEventRequest,
     ChatRoomRequest,
     ParticipantRequest,
+    MemoryCreateRequest,
     NotFoundError,
     UnauthorizedError,
 )
@@ -41,6 +42,7 @@ __all__ = [
     "ChatEventRequest",
     "ChatRoomRequest",
     "ParticipantRequest",
+    "MemoryCreateRequest",
     "NotFoundError",
     "UnauthorizedError",
     "RequestOptions",

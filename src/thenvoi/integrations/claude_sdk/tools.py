@@ -108,12 +108,12 @@ def create_thenvoi_mcp_server(agent: Any):
         participants = execution.participants if execution else []
         return AgentTools(room_id, agent.link.rest, participants)
 
-    def _get_participant_names(room_id: str) -> list[str]:
-        """Get list of participant names in room."""
+    def _get_participant_handles(room_id: str) -> list[str]:
+        """Get list of participant handles in room."""
         executions = agent.runtime.executions if agent.runtime else {}
         execution = executions.get(room_id)
         participants = execution.participants if execution else []
-        return [p.get("name", "") for p in participants if p.get("name")]
+        return [p.get("handle", "") for p in participants if p.get("handle")]
 
     @tool(
         "thenvoi_send_message",
@@ -121,7 +121,7 @@ def create_thenvoi_mcp_server(agent: Any):
         {
             "room_id": str,
             "content": str,
-            "mentions": str,  # JSON array of participant names, e.g. '["Alice", "Bob"]' or '[]'
+            "mentions": str,  # JSON array of participant handles, e.g. '["@alice", "@bob/agent"]' or '[]'
         },
     )
     async def send_message(args: dict[str, Any]) -> dict[str, Any]:
@@ -131,11 +131,11 @@ def create_thenvoi_mcp_server(agent: Any):
             content = args.get("content", "")
             mentions_str = args.get("mentions", "[]")
 
-            # Parse mentions JSON (names like ["Alice", "Bob"])
-            mention_names: list[str] = []
+            # Parse mentions JSON (handles like ["@alice", "@bob/agent"])
+            mention_handles: list[str] = []
             if mentions_str:
                 try:
-                    mention_names = (
+                    mention_handles = (
                         json.loads(mentions_str)
                         if isinstance(mentions_str, str)
                         else mentions_str
@@ -148,13 +148,13 @@ def create_thenvoi_mcp_server(agent: Any):
             # Get AgentTools for this room and send message
             tools = _get_tools(room_id)
             try:
-                await tools.send_message(content, mention_names)
+                await tools.send_message(content, mention_handles)
             except ValueError as e:
                 # Mention resolution failed
-                available = _get_participant_names(room_id)
+                available = _get_participant_handles(room_id)
                 return _make_error(
-                    f"{e}. Available participants: {available}. "
-                    f"Use exact participant names from the list."
+                    f"{e}. Available handles: {available}. "
+                    f"Use participant handles from the list."
                 )
 
             return _make_result(
