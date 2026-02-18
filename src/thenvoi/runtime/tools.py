@@ -418,9 +418,9 @@ class AgentTools(AgentToolsProtocol):
         resolved_mentions = self._resolve_mentions(mentions or [])
         logger.debug("Sending message to room %s", self.room_id)
 
-        # Convert to API format
+        # Convert to API format - use handle (not name) for mentions
         mention_items = [
-            ChatMessageRequestMentionsItem(id=m["id"], name=m["name"])
+            ChatMessageRequestMentionsItem(id=m["id"], handle=m["handle"])
             for m in resolved_mentions
         ]
 
@@ -1129,42 +1129,46 @@ class AgentTools(AgentToolsProtocol):
         self, mentions: list[str] | list[dict[str, str]]
     ) -> list[dict[str, str]]:
         """
-        Resolve mention handles or names to {id, name} dicts using cached participants.
+        Resolve mention handles, names, or IDs to {id, handle} dicts using cached participants.
 
         Lookup priority:
         1. Handle (unique identifier like @john or @john/agent-name)
         2. Name (display name, may not be unique)
+        3. ID (UUID - for robustness when LLM passes IDs directly)
 
         Args:
-            mentions: List of handles/names (strings) or already-resolved dicts
+            mentions: List of handles/names/IDs (strings) or already-resolved dicts
 
         Returns:
-            List of {id, name} dicts
+            List of {id, handle} dicts
 
         Raises:
-            ValueError: If handle/name is not found in participants
+            ValueError: If handle/name/ID is not found in participants
         """
         # Build lookup tables from cached participants
         handle_to_participant = {p.get("handle"): p for p in self._participants}
         name_to_participant = {p.get("name"): p for p in self._participants}
+        id_to_participant = {p.get("id"): p for p in self._participants}
 
         resolved = []
         for mention in mentions:
             if isinstance(mention, str):
                 identifier = mention
             else:
-                # Already-resolved dict with ID
+                # Already-resolved dict with ID and handle
                 if mention.get("id"):
                     resolved.append(
-                        {"id": mention["id"], "name": mention.get("name", "")}
+                        {"id": mention["id"], "handle": mention.get("handle", "")}
                     )
                     continue
                 identifier = mention.get("handle") or mention.get("name", "")
 
-            # Try handle lookup first (handles are unique), then name
+            # Try handle lookup first (handles are unique), then name, then ID
             participant = handle_to_participant.get(identifier)
             if not participant:
                 participant = name_to_participant.get(identifier)
+            if not participant:
+                participant = id_to_participant.get(identifier)
 
             if not participant:
                 available_handles = list(handle_to_participant.keys())
@@ -1174,7 +1178,7 @@ class AgentTools(AgentToolsProtocol):
                 )
 
             resolved.append(
-                {"id": participant["id"], "name": participant.get("name", "")}
+                {"id": participant["id"], "handle": participant.get("handle", "")}
             )
 
         return resolved
