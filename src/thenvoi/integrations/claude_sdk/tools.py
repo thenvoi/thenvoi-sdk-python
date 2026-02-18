@@ -384,10 +384,10 @@ def create_thenvoi_mcp_server(agent: Any):
 
 # Tool names as constants (MCP naming convention: mcp__{server}__{tool})
 THENVOI_TOOLS = [
-    "mcp__thenvoi__send_message",
-    "mcp__thenvoi__send_event",
-    "mcp__thenvoi__add_participant",
-    "mcp__thenvoi__remove_participant",
-    "mcp__thenvoi__get_participants",
-    "mcp__thenvoi__lookup_peers",
+    "mcp__thenvoi__thenvoi_send_message",
+    "mcp__thenvoi__thenvoi_send_event",
+    "mcp__thenvoi__thenvoi_add_participant",
+    "mcp__thenvoi__thenvoi_remove_participant",
+    "mcp__thenvoi__thenvoi_get_participants",
+    "mcp__thenvoi__thenvoi_lookup_peers",
 ]
