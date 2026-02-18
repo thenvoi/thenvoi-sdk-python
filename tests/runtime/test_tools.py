@@ -152,7 +152,7 @@ class TestAgentToolsSendMessage:
         mock_rest_client.agent_api_messages.create_agent_chat_message.assert_called_once()
 
     async def test_send_message_resolves_mentions(self, mock_rest_client, participants):
-        """send_message() should resolve mention names to IDs."""
+        """send_message() should resolve mention names to IDs and handles."""
         tools = AgentTools("room-123", mock_rest_client, participants)
 
         await tools.send_message("Hello @User One!", mentions=["User One"])
@@ -163,7 +163,7 @@ class TestAgentToolsSendMessage:
         message = call_args.kwargs["message"]
         assert len(message.mentions) == 1
         assert message.mentions[0].id == "user-1"
-        assert message.mentions[0].name == "User One"
+        assert message.mentions[0].handle == "@user-one"
 
     async def test_send_message_unknown_mention_raises(
         self, mock_rest_client, participants
@@ -502,30 +502,30 @@ class TestMentionResolution:
     """Test mention resolution logic."""
 
     def test_resolve_string_mentions(self, mock_rest_client, participants):
-        """Should resolve string mentions to dicts."""
+        """Should resolve string mentions to dicts with id and handle."""
         tools = AgentTools("room-123", mock_rest_client, participants)
 
         resolved = tools._resolve_mentions(["User One", "User Two"])
 
         assert len(resolved) == 2
-        assert resolved[0] == {"id": "user-1", "name": "User One"}
-        assert resolved[1] == {"id": "user-2", "name": "User Two"}
+        assert resolved[0] == {"id": "user-1", "handle": "@user-one"}
+        assert resolved[1] == {"id": "user-2", "handle": "@user-two"}
 
     def test_resolve_dict_mentions_with_id(self, mock_rest_client, participants):
-        """Should pass through dict mentions with ID."""
+        """Should pass through dict mentions with ID and handle."""
         tools = AgentTools("room-123", mock_rest_client, participants)
 
-        resolved = tools._resolve_mentions([{"id": "custom-id", "name": "Custom"}])
+        resolved = tools._resolve_mentions([{"id": "custom-id", "handle": "@custom"}])
 
-        assert resolved[0] == {"id": "custom-id", "name": "Custom"}
+        assert resolved[0] == {"id": "custom-id", "handle": "@custom"}
 
     def test_resolve_dict_mentions_without_id(self, mock_rest_client, participants):
-        """Should resolve dict mentions without ID."""
+        """Should resolve dict mentions without ID by name lookup."""
         tools = AgentTools("room-123", mock_rest_client, participants)
 
         resolved = tools._resolve_mentions([{"name": "User One"}])
 
-        assert resolved[0] == {"id": "user-1", "name": "User One"}
+        assert resolved[0] == {"id": "user-1", "handle": "@user-one"}
 
     def test_resolve_unknown_raises(self, mock_rest_client, participants):
         """Should raise for unknown mention."""
@@ -545,7 +545,7 @@ class TestHandleMentionResolution:
         resolved = tools._resolve_mentions(["@user-one"])
 
         assert len(resolved) == 1
-        assert resolved[0] == {"id": "user-1", "name": "User One"}
+        assert resolved[0] == {"id": "user-1", "handle": "@user-one"}
 
     def test_resolve_handle_takes_priority(self, mock_rest_client):
         """Should try handle lookup before name lookup."""
@@ -562,11 +562,11 @@ class TestHandleMentionResolution:
 
         # Resolve by handle
         resolved = tools._resolve_mentions(["@john/weather"])
-        assert resolved[0] == {"id": "agent-1", "name": "Weather Agent"}
+        assert resolved[0] == {"id": "agent-1", "handle": "@john/weather"}
 
         # Resolve by name still works
         resolved = tools._resolve_mentions(["Weather Agent"])
-        assert resolved[0] == {"id": "agent-1", "name": "Weather Agent"}
+        assert resolved[0] == {"id": "agent-1", "handle": "@john/weather"}
 
     def test_resolve_mixed_handles_and_names(self, mock_rest_client, participants):
         """Should resolve a mix of handles and names."""
@@ -575,8 +575,8 @@ class TestHandleMentionResolution:
         resolved = tools._resolve_mentions(["@user-one", "User Two"])
 
         assert len(resolved) == 2
-        assert resolved[0] == {"id": "user-1", "name": "User One"}
-        assert resolved[1] == {"id": "user-2", "name": "User Two"}
+        assert resolved[0] == {"id": "user-1", "handle": "@user-one"}
+        assert resolved[1] == {"id": "user-2", "handle": "@user-two"}
 
     def test_resolve_unknown_handle_raises(self, mock_rest_client, participants):
         """Should raise for unknown handle."""
@@ -594,7 +594,7 @@ class TestHandleMentionResolution:
 
         resolved = tools._resolve_mentions(["User One"])
 
-        assert resolved[0] == {"id": "user-1", "name": "User One"}
+        assert resolved[0] == {"id": "user-1", "handle": None}
 
 
 class TestToolInputModels:

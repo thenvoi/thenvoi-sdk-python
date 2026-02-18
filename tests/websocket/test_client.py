@@ -73,8 +73,8 @@ async def test_skips_invalid_room_added_payload(caplog):
     class MockMessage:
         event = "room_added"
         payload = {
-            "id": "room-123",
-            # Missing: title, inserted_at, updated_at
+            # Missing: id (the only required field)
+            "title": "Test Room",
         }
 
     async def dummy_callback(payload):
