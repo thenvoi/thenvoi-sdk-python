@@ -582,7 +582,8 @@ class TestHandleMentionResolution:
         """Should raise for unknown handle."""
         tools = AgentTools("room-123", mock_rest_client, participants)
 
-        with pytest.raises(ValueError, match="Unknown participant '@unknown'"):
+        # @ prefix is stripped during normalization
+        with pytest.raises(ValueError, match="Unknown participant 'unknown'"):
             tools._resolve_mentions(["@unknown"])
 
     def test_resolve_participant_without_handle(self, mock_rest_client):

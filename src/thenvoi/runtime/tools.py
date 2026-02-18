@@ -1147,14 +1147,18 @@ class AgentTools(AgentToolsProtocol):
             ValueError: If handle/name/ID is not found in participants
         """
         # Build lookup tables from cached participants
-        handle_to_participant = {p.get("handle"): p for p in self._participants}
+        # Strip @ prefix from handles for consistent matching (backend may or may not include @)
+        handle_to_participant = {
+            (p.get("handle") or "").lstrip("@"): p for p in self._participants
+        }
         name_to_participant = {p.get("name"): p for p in self._participants}
         id_to_participant = {p.get("id"): p for p in self._participants}
 
         resolved = []
         for mention in mentions:
             if isinstance(mention, str):
-                identifier = mention
+                # Strip @ prefix if present (LLMs often include it)
+                identifier = mention.lstrip("@")
             else:
                 # Already-resolved dict with ID and handle
                 if mention.get("id"):
@@ -1162,7 +1166,8 @@ class AgentTools(AgentToolsProtocol):
                         {"id": mention["id"], "handle": mention.get("handle", "")}
                     )
                     continue
-                identifier = mention.get("handle") or mention.get("name", "")
+                raw_identifier = mention.get("handle") or mention.get("name", "")
+                identifier = raw_identifier.lstrip("@")
 
             # Try handle lookup first (handles are unique), then name, then ID
             participant = handle_to_participant.get(identifier)
