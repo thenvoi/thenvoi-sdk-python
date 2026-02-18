@@ -12,7 +12,12 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from thenvoi.adapters.claude_sdk import ClaudeSDKAdapter, THENVOI_TOOLS
+from thenvoi.adapters.claude_sdk import (
+    ClaudeSDKAdapter,
+    THENVOI_TOOLS,
+    THENVOI_BASE_TOOLS,
+    THENVOI_MEMORY_TOOLS,
+)
 from thenvoi.core.types import PlatformMessage
 
 
@@ -43,6 +48,22 @@ def mock_tools():
     tools.lookup_peers = AsyncMock(return_value={"peers": []})
     tools.get_participants = AsyncMock(return_value=[])
     return tools
+
+
+class TestInitialization:
+    """Tests for adapter initialization (memory tools specific)."""
+
+    def test_default_initialization(self):
+        """Should initialize with enable_memory_tools=False by default."""
+        adapter = ClaudeSDKAdapter()
+
+        assert adapter.enable_memory_tools is False
+
+    def test_enable_memory_tools(self):
+        """Should accept enable_memory_tools parameter."""
+        adapter = ClaudeSDKAdapter(enable_memory_tools=True)
+
+        assert adapter.enable_memory_tools is True
 
 
 class TestOnStarted:
@@ -99,6 +120,7 @@ class TestOnMessage:
                 tools=mock_tools,
                 history="",
                 participants_msg=None,
+                contacts_msg=None,
                 is_session_bootstrap=True,
                 room_id="room-123",
             )
@@ -138,6 +160,7 @@ class TestOnMessage:
                 tools=mock_tools,
                 history=prior_context,
                 participants_msg=None,
+                contacts_msg=None,
                 is_session_bootstrap=True,
                 room_id="room-123",
             )
@@ -173,6 +196,7 @@ class TestOnMessage:
                 tools=mock_tools,
                 history="",
                 participants_msg=None,
+                contacts_msg=None,
                 is_session_bootstrap=True,
                 room_id="room-123",
             )
@@ -210,6 +234,7 @@ class TestErrorHandling:
                     tools=mock_tools,
                     history="",
                     participants_msg=None,
+                    contacts_msg=None,
                     is_session_bootstrap=True,
                     room_id="room-123",
                 )
@@ -287,21 +312,44 @@ class TestCleanupAll:
 
 
 class TestThenvoiTools:
-    """Tests for Thenvoi tool names constant."""
+    """Tests for Thenvoi tool names constants."""
 
-    def test_thenvoi_tools_list(self):
-        """Should define all expected MCP tool names."""
+    def test_thenvoi_base_tools_list(self):
+        """Should define base platform tools (always included)."""
         expected = [
-            "mcp__thenvoi__send_message",
-            "mcp__thenvoi__send_event",
-            "mcp__thenvoi__add_participant",
-            "mcp__thenvoi__remove_participant",
-            "mcp__thenvoi__get_participants",
-            "mcp__thenvoi__lookup_peers",
-            "mcp__thenvoi__create_chatroom",
+            "mcp__thenvoi__thenvoi_send_message",
+            "mcp__thenvoi__thenvoi_send_event",
+            "mcp__thenvoi__thenvoi_add_participant",
+            "mcp__thenvoi__thenvoi_remove_participant",
+            "mcp__thenvoi__thenvoi_get_participants",
+            "mcp__thenvoi__thenvoi_lookup_peers",
+            "mcp__thenvoi__thenvoi_create_chatroom",
+            # Contact management tools
+            "mcp__thenvoi__thenvoi_list_contacts",
+            "mcp__thenvoi__thenvoi_add_contact",
+            "mcp__thenvoi__thenvoi_remove_contact",
+            "mcp__thenvoi__thenvoi_list_contact_requests",
+            "mcp__thenvoi__thenvoi_respond_contact_request",
         ]
 
-        assert THENVOI_TOOLS == expected
+        assert THENVOI_BASE_TOOLS == expected
+
+    def test_thenvoi_memory_tools_list(self):
+        """Should define memory tools (enterprise only - opt-in)."""
+        expected = [
+            "mcp__thenvoi__thenvoi_list_memories",
+            "mcp__thenvoi__thenvoi_store_memory",
+            "mcp__thenvoi__thenvoi_get_memory",
+            "mcp__thenvoi__thenvoi_supersede_memory",
+            "mcp__thenvoi__thenvoi_archive_memory",
+        ]
+
+        assert THENVOI_MEMORY_TOOLS == expected
+
+    def test_thenvoi_tools_combines_base_and_memory(self):
+        """THENVOI_TOOLS should combine base and memory tools."""
+        assert THENVOI_TOOLS == THENVOI_BASE_TOOLS + THENVOI_MEMORY_TOOLS
+        assert len(THENVOI_TOOLS) == 17  # 12 base + 5 memory
 
 
 class TestCustomTools:
@@ -389,11 +437,11 @@ class TestCustomTools:
             # Verify custom tool is in allowed_tools
             assert "mcp__thenvoi__calculator" in sdk_options.allowed_tools
             # Platform tools should still be there
-            assert "mcp__thenvoi__send_message" in sdk_options.allowed_tools
+            assert "mcp__thenvoi__thenvoi_send_message" in sdk_options.allowed_tools
 
     @pytest.mark.asyncio
     async def test_custom_tools_registered_in_mcp_server(self):
-        """Custom tools should be registered in MCP server."""
+        """Custom tools should be registered in MCP server (memory tools disabled)."""
         from pydantic import BaseModel
 
         class EchoInput(BaseModel):
@@ -420,8 +468,43 @@ class TestCustomTools:
             call_args = mock_create_server.call_args
             tools_list = call_args[1]["tools"]
 
-            # Should have 7 platform tools + 1 custom tool
-            assert len(tools_list) == 8
+            # Should have 12 base platform tools + 1 custom tool = 13
+            # (7 basic + 5 contact + 1 custom = 13, memory tools disabled by default)
+            assert len(tools_list) == 13
+
+    @pytest.mark.asyncio
+    async def test_custom_tools_registered_with_memory_tools_enabled(self):
+        """Custom tools should be registered in MCP server (memory tools enabled)."""
+        from pydantic import BaseModel
+
+        class EchoInput(BaseModel):
+            """Echo tool."""
+
+            message: str
+
+        async def echo(args: EchoInput) -> str:
+            return f"Echo: {args.message}"
+
+        adapter = ClaudeSDKAdapter(
+            additional_tools=[(EchoInput, echo)],
+            enable_memory_tools=True,
+        )
+
+        # Create the MCP server
+        with patch(
+            "thenvoi.adapters.claude_sdk.create_sdk_mcp_server"
+        ) as mock_create_server:
+            mock_create_server.return_value = MagicMock()
+
+            adapter._create_mcp_server()
+
+            # Verify create_sdk_mcp_server was called with extra tools
+            call_args = mock_create_server.call_args
+            tools_list = call_args[1]["tools"]
+
+            # Should have 17 platform tools + 1 custom tool = 18
+            # (7 basic + 5 contact + 5 memory + 1 custom = 18)
+            assert len(tools_list) == 18
 
     def test_tool_name_derived_from_input_model(self):
         """Tool name should be derived from Pydantic model class name."""

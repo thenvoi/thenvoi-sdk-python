@@ -154,3 +154,6 @@ parlant-data/
 
 uv.toml
 .obsidian/
+
+# Scripts config (contains local paths)
+scripts/config.yaml

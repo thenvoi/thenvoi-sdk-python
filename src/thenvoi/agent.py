@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, cast
 from thenvoi.core.protocols import FrameworkAdapter, Preprocessor
 from thenvoi.core.simple_adapter import SimpleAdapter
 from thenvoi.runtime.platform_runtime import PlatformRuntime
-from thenvoi.runtime.types import AgentConfig, SessionConfig
+from thenvoi.runtime.types import AgentConfig, ContactEventConfig, SessionConfig
 from thenvoi.preprocessing.default import DefaultPreprocessor
 
 if TYPE_CHECKING:
@@ -88,12 +88,26 @@ class Agent:
         rest_url: str = "https://app.thenvoi.com",
         config: AgentConfig | None = None,
         session_config: SessionConfig | None = None,
+        contact_config: ContactEventConfig | None = None,
         preprocessor: Preprocessor | None = None,
     ) -> "Agent":
         """
         Create agent with default runtime.
 
         Convenience factory for most users.
+
+        Args:
+            adapter: Framework adapter (e.g., PydanticAIAdapter)
+            agent_id: UUID of the agent
+            api_key: API key for authentication
+            ws_url: WebSocket URL (default: wss://api.thenvoi.com/ws)
+            rest_url: REST API URL (default: https://api.thenvoi.com)
+            config: Agent configuration options
+            session_config: Session lifecycle configuration
+            contact_config: Contact event handling configuration.
+                            Controls how contact requests and updates are processed.
+                            See ContactEventConfig for strategies (DISABLED, CALLBACK, HUB_ROOM).
+            preprocessor: Custom event preprocessor (default: DefaultPreprocessor)
         """
         runtime = PlatformRuntime(
             agent_id=agent_id,
@@ -102,6 +116,7 @@ class Agent:
             rest_url=rest_url,
             config=config,
             session_config=session_config,
+            contact_config=contact_config,
         )
         return cls(
             runtime=runtime,
@@ -125,6 +140,16 @@ class Agent:
     def is_running(self) -> bool:
         """Check if agent is currently running."""
         return self._started
+
+    @property
+    def contact_config(self) -> ContactEventConfig:
+        """Get the contact event configuration."""
+        return self._runtime.contact_config
+
+    @property
+    def is_contacts_subscribed(self) -> bool:
+        """Check if agent is subscribed to contact events."""
+        return self._runtime.is_contacts_subscribed
 
     async def start(self) -> None:
         """Start agent."""

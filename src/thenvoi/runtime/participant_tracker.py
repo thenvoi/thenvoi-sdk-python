@@ -56,6 +56,7 @@ class ParticipantTracker:
                 "id": participant.get("id"),
                 "name": participant.get("name"),
                 "type": participant.get("type"),
+                "handle": participant.get("handle"),
             }
         )
         logger.debug(

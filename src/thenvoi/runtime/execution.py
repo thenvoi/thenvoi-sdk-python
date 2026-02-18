@@ -36,7 +36,13 @@ from thenvoi.platform.event import (
     PlatformEvent,
 )
 
-from .types import ConversationContext, PlatformMessage, SessionConfig
+from .types import (
+    ConversationContext,
+    PlatformMessage,
+    SessionConfig,
+    SYNTHETIC_SENDER_TYPE,
+    SYNTHETIC_CONTACT_EVENTS_SENDER_ID,
+)
 from .retry_tracker import MessageRetryTracker
 
 if TYPE_CHECKING:
@@ -95,6 +101,14 @@ class Execution(Protocol):
 
         Returns:
             True if stopped gracefully, False if cancelled mid-processing.
+        """
+        ...
+
+    def inject_system_message(self, message: str) -> None:
+        """
+        Queue a system message for injection on next processing.
+
+        Used by ContactEventHandler to broadcast contact changes.
         """
         ...
 
@@ -184,6 +198,9 @@ class ExecutionContext:
         # Graceful shutdown: event signaled when state becomes idle
         self._idle_event: asyncio.Event = asyncio.Event()
         self._idle_event.set()  # Start as idle
+
+        # Pending system messages to inject (e.g., contact broadcasts)
+        self._pending_system_messages: list[str] = []
 
     @property
     def thread_id(self) -> str:
@@ -347,6 +364,7 @@ class ExecutionContext:
                 "id": participant.get("id"),
                 "name": participant.get("name"),
                 "type": participant.get("type"),
+                "handle": participant.get("handle"),
             }
         )
         logger.debug(
@@ -382,19 +400,53 @@ class ExecutionContext:
         """Mark current participants as sent to LLM."""
         self._last_participants_sent = self._participants.copy()
 
+    def inject_system_message(self, message: str) -> None:
+        """
+        Queue a system message for injection on next processing.
+
+        Used by ContactEventHandler to broadcast contact changes
+        into all active sessions.
+
+        Args:
+            message: System message to inject
+        """
+        self._pending_system_messages.append(message)
+        logger.debug(
+            "ExecutionContext %s: Queued system message: %s",
+            self.room_id,
+            message[:50],
+        )
+
+    def get_pending_system_messages(self) -> list[str]:
+        """
+        Get and clear pending system messages.
+
+        Returns:
+            List of pending messages (cleared after call)
+        """
+        messages = self._pending_system_messages.copy()
+        self._pending_system_messages.clear()
+        return messages
+
     async def load_participants(self) -> list[dict[str, Any]]:
         """Load participants from API."""
         if self._participants_loaded:
             return self._participants
 
         try:
-            response = await self.link.rest.agent_api.list_agent_chat_participants(
+            response = await self.link.rest.agent_api_participants.list_agent_chat_participants(
                 chat_id=self.room_id,
                 request_options=DEFAULT_REQUEST_OPTIONS,
             )
             if response.data:
                 self._participants = [
-                    {"id": p.id, "name": p.name, "type": p.type} for p in response.data
+                    {
+                        "id": p.id,
+                        "name": p.name,
+                        "type": p.type,
+                        "handle": getattr(p, "handle", None),
+                    }
+                    for p in response.data
                 ]
             self._participants_loaded = True
         except Exception as e:
@@ -439,9 +491,11 @@ class ExecutionContext:
             await self.load_participants()
 
             # Load context from API
-            context_response = await self.link.rest.agent_api.get_agent_chat_context(
-                chat_id=self.room_id,
-                request_options=DEFAULT_REQUEST_OPTIONS,
+            context_response = (
+                await self.link.rest.agent_api_context.get_agent_chat_context(
+                    chat_id=self.room_id,
+                    request_options=DEFAULT_REQUEST_OPTIONS,
+                )
             )
 
             messages = []
@@ -545,6 +599,7 @@ class ExecutionContext:
         return format_history_for_llm(
             self._context_cache.messages,
             exclude_id=exclude_message_id,
+            participants=self._participants,
         )
 
     def build_participants_message(self) -> str:
@@ -637,7 +692,7 @@ class ExecutionContext:
                     try:
                         head = self.queue.get_nowait()
                         head_id = (
-                            head.payload.id
+                            getattr(head.payload, "id", None)
                             if hasattr(head, "payload") and head.payload
                             else None
                         )
@@ -856,24 +911,38 @@ class ExecutionContext:
                 logger.debug("Skipping self-message %s", msg_id)
                 return
 
-            # Skip permanently failed messages
-            if self._retry_tracker.is_permanently_failed(msg_id):
-                logger.debug("Skipping permanently failed message %s", msg_id)
-                return
+            # Detect synthetic messages (e.g., contact events injected into hub room)
+            # These don't exist in the database, so skip all tracking and marking
+            is_synthetic = (
+                payload.sender_type == SYNTHETIC_SENDER_TYPE
+                and payload.sender_id == SYNTHETIC_CONTACT_EVENTS_SENDER_ID
+            )
+            if is_synthetic:
+                logger.debug("Processing synthetic contact event message")
+                msg_id = None  # Clear to skip message marking later
+                # Skip all tracking for synthetic messages - go directly to processing
+            else:
+                # Only track retries and duplicates for real messages
+                # Skip permanently failed messages
+                if self._retry_tracker.is_permanently_failed(msg_id):
+                    logger.debug("Skipping permanently failed message %s", msg_id)
+                    return
 
-            # Skip duplicates
-            if msg_id in self._processed_ids:
-                self._processed_ids.move_to_end(msg_id)
-                logger.debug("Skipping duplicate message %s", msg_id)
-                return
+                # Skip duplicates
+                if msg_id in self._processed_ids:
+                    self._processed_ids.move_to_end(msg_id)
+                    logger.debug("Skipping duplicate message %s", msg_id)
+                    return
 
-            # Track attempts
-            attempts, exceeded = self._retry_tracker.record_attempt(msg_id)
-            if exceeded:
-                logger.warning(
-                    "Message %s exceeded max retries (%s attempts)", msg_id, attempts
-                )
-                return
+                # Track attempts
+                attempts, exceeded = self._retry_tracker.record_attempt(msg_id)
+                if exceeded:
+                    logger.warning(
+                        "Message %s exceeded max retries (%s attempts)",
+                        msg_id,
+                        attempts,
+                    )
+                    return
 
         self._set_state("processing")
         logger.debug("Processing %s in room %s", event.type, self.room_id)

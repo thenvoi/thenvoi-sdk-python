@@ -90,6 +90,7 @@ class TestCreateFactory:
                 rest_url="https://app.thenvoi.com",
                 config=None,
                 session_config=None,
+                contact_config=None,
             )
 
     def test_creates_with_custom_urls(self, mock_adapter):
@@ -356,7 +357,7 @@ class TestDefaultPreprocessorIntegration:
 
         # Create a non-MessageEvent (e.g., RoomAddedEvent)
         from thenvoi.platform.event import RoomAddedEvent
-        from thenvoi.client.streaming import RoomAddedPayload, RoomOwner
+        from thenvoi.client.streaming import RoomAddedPayload
 
         mock_ctx = MagicMock()
         mock_event = RoomAddedEvent(
@@ -364,11 +365,8 @@ class TestDefaultPreprocessorIntegration:
             payload=RoomAddedPayload(
                 id="room-123",
                 title="Test Room",
-                owner=RoomOwner(id="user-1", name="Owner", type="User"),
-                status="active",
-                type="direct",
-                created_at="2024-01-01T00:00:00Z",
-                participant_role="member",
+                inserted_at="2024-01-01T00:00:00Z",
+                updated_at="2024-01-01T00:00:00Z",
             ),
         )
 
@@ -411,6 +409,7 @@ class TestStartupRaceCondition:
                 tools,
                 history,
                 participants_msg,
+                contacts_msg,
                 *,
                 is_session_bootstrap: bool,
                 room_id: str,

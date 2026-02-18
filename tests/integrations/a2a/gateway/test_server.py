@@ -23,8 +23,11 @@ def make_peer(peer_id: str, name: str, description: str = "") -> Peer:
     return Peer(
         id=peer_id,
         name=name,
-        type="agent",
+        type="Agent",
         description=description,
+        handle=name.lower().replace(" ", "-"),
+        is_contact=False,
+        source="registry",
     )
 
 

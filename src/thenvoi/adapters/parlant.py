@@ -133,6 +133,7 @@ class ParlantAdapter(SimpleAdapter[ParlantMessages]):
         tools: AgentToolsProtocol,
         history: ParlantMessages,
         participants_msg: str | None,
+        contacts_msg: str | None,
         *,
         is_session_bootstrap: bool,
         room_id: str,
@@ -169,11 +170,14 @@ class ParlantAdapter(SimpleAdapter[ParlantMessages]):
             injected = await self._inject_history(session_id, history)
             logger.info("Room %s: Injected %s messages from history", room_id, injected)
 
-        # Build user message, prepending participants update if changed
+        # Build user message, prepending updates if present
         user_message = msg.format_for_llm()
         if participants_msg:
             user_message = f"[System Update]: {participants_msg}\n\n{user_message}"
             logger.info("Room %s: Included participants update in message", room_id)
+        if contacts_msg:
+            user_message = f"[System Update]: {contacts_msg}\n\n{user_message}"
+            logger.info("Room %s: Included contacts broadcast in message", room_id)
         logger.info(
             "Room %s: Sending message to Parlant: %s...",
             room_id,
@@ -405,7 +409,7 @@ class ParlantAdapter(SimpleAdapter[ParlantMessages]):
             )
 
             try:
-                has_update = await app.sessions.wait_for_update(  # pyrefly: ignore[missing-attribute]
+                has_update = await app.sessions.wait_for_more_events(  # pyrefly: ignore[missing-attribute]
                     session_id=session_id,
                     min_offset=current_offset + 1,
                     kinds=[EventKind.MESSAGE],
@@ -413,7 +417,7 @@ class ParlantAdapter(SimpleAdapter[ParlantMessages]):
                     timeout=Timeout(120),  # Increased timeout for tool execution
                 )
                 logger.info(
-                    "Room %s: wait_for_update returned: %s", room_id, has_update
+                    "Room %s: wait_for_more_events returned: %s", room_id, has_update
                 )
             except Exception as e:
                 logger.error(
@@ -507,11 +511,9 @@ class ParlantAdapter(SimpleAdapter[ParlantMessages]):
                         )
                         continue
 
-                    # This is a final message (after tool execution)
-                    got_final_message = True
-
                     # Check if message was already sent via the send_message tool
                     # If so, don't send Parlant's response (would be duplicate/empty)
+                    # Also don't mark as final - Parlant may still have more tool calls
                     if was_message_sent(session_id_str):
                         logger.info(
                             "Room %s: Message already sent via tool, skipping Parlant response: %s...",
@@ -519,6 +521,9 @@ class ParlantAdapter(SimpleAdapter[ParlantMessages]):
                             message_content[:50],
                         )
                         continue
+
+                    # This is a final message (Parlant generated a response, not via tool)
+                    got_final_message = True
 
                     if message_content:
                         logger.info(

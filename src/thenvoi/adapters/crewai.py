@@ -66,8 +66,8 @@ You have NO internet access and NO real-time data. When asked about weather, new
 or any current information you cannot answer directly:
 
 1. Call `thenvoi_lookup_peers` to find available specialized agents
-2. If a relevant agent exists (e.g., Weather Agent), call `thenvoi_add_participant` to add them
-3. Ask that agent using `thenvoi_send_message` with their name in mentions
+2. If a relevant agent exists, call `thenvoi_add_participant` to add them
+3. Ask that agent using `thenvoi_send_message` with their handle in mentions
 4. Wait for their response and relay it back to the user
 
 NEVER say "I can't do that" without first checking if another agent can help via `thenvoi_lookup_peers`.
@@ -167,6 +167,7 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
         backstory: str | None = None,
         custom_section: str | None = None,
         enable_execution_reporting: bool = False,
+        enable_memory_tools: bool = False,
         verbose: bool = False,
         max_iter: int = 20,
         max_rpm: int | None = None,
@@ -217,6 +218,7 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
         self.backstory = backstory
         self.custom_section = custom_section
         self.enable_execution_reporting = enable_execution_reporting
+        self.enable_memory_tools = enable_memory_tools
         self.verbose = verbose
         self.max_iter = max_iter
         self.max_rpm = max_rpm
@@ -449,7 +451,7 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
             content: str = Field(..., description="The message content to send")
             mentions: str = Field(
                 default="[]",
-                description="JSON array of participant names to @mention",
+                description='JSON array of participant handles to @mention (e.g., \'["@john", "@john/weather-agent"]\')',
             )
 
             @field_validator("mentions", mode="before")
@@ -494,6 +496,93 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
             task_id: str | None = Field(
                 default=None, description="Associated task ID (optional)"
             )
+
+        # Contact management input models
+        class ListContactsInput(BaseModel):
+            page: int = Field(default=1, description="Page number")
+            page_size: int = Field(default=50, description="Items per page (max 100)")
+
+        class AddContactInput(BaseModel):
+            handle: str = Field(
+                ...,
+                description="Handle of user/agent to add (e.g., '@john' or '@john/agent-name')",
+            )
+            message: str | None = Field(
+                default=None, description="Optional message with the request"
+            )
+
+        class RemoveContactInput(BaseModel):
+            handle: str | None = Field(default=None, description="Contact's handle")
+            contact_id: str | None = Field(
+                default=None, description="Or contact record ID (UUID)"
+            )
+
+        class ListContactRequestsInput(BaseModel):
+            page: int = Field(default=1, description="Page number")
+            page_size: int = Field(default=50, description="Items per page (max 100)")
+            sent_status: str = Field(
+                default="pending", description="Filter sent requests by status"
+            )
+
+        class RespondContactRequestInput(BaseModel):
+            action: str = Field(
+                ..., description="Action to take ('approve', 'reject', 'cancel')"
+            )
+            handle: str | None = Field(default=None, description="Other party's handle")
+            request_id: str | None = Field(
+                default=None, description="Or request ID (UUID)"
+            )
+
+        # Memory management input models
+        class ListMemoriesInput(BaseModel):
+            subject_id: str | None = Field(
+                default=None, description="Filter by subject UUID"
+            )
+            scope: str | None = Field(
+                default=None, description="Filter by scope (subject, organization, all)"
+            )
+            system: str | None = Field(
+                default=None,
+                description="Filter by memory system (sensory, working, long_term)",
+            )
+            memory_type: str | None = Field(
+                default=None, description="Filter by memory type"
+            )
+            segment: str | None = Field(
+                default=None,
+                description="Filter by segment (user, agent, tool, guideline)",
+            )
+            content_query: str | None = Field(
+                default=None, description="Full-text search query"
+            )
+            page_size: int = Field(default=50, description="Number of results per page")
+            status: str | None = Field(
+                default=None,
+                description="Filter by status (active, superseded, archived, all)",
+            )
+
+        class StoreMemoryInput(BaseModel):
+            content: str = Field(..., description="The memory content")
+            system: str = Field(..., description="Memory system tier")
+            memory_type: str = Field(..., description="Memory type")
+            segment: str = Field(..., description="Logical segment")
+            thought: str = Field(
+                ..., description="Agent's reasoning for storing this memory"
+            )
+            scope: str = Field(default="subject", description="Visibility scope")
+            subject_id: str | None = Field(
+                default=None,
+                description="UUID of the subject (required for subject scope)",
+            )
+
+        class GetMemoryInput(BaseModel):
+            memory_id: str = Field(..., description="Memory ID (UUID)")
+
+        class SupersedeMemoryInput(BaseModel):
+            memory_id: str = Field(..., description="Memory ID (UUID)")
+
+        class ArchiveMemoryInput(BaseModel):
+            memory_id: str = Field(..., description="Memory ID (UUID)")
 
         class SendMessageTool(BaseTool):
             name: str = "thenvoi_send_message"
@@ -658,6 +747,284 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
 
                 return adapter._execute_tool("thenvoi_create_chatroom", execute)
 
+        # Contact management tools
+        class ListContactsTool(BaseTool):
+            name: str = "thenvoi_list_contacts"
+            description: str = get_tool_description("thenvoi_list_contacts")
+            args_schema: Type[BaseModel] = ListContactsInput
+
+            def _run(self, *_args: Any, **kwargs: Any) -> Any:
+                page: int = kwargs.get("page", 1)
+                page_size: int = kwargs.get("page_size", 50)
+
+                async def execute(tools: AgentToolsProtocol) -> str:
+                    await adapter._report_tool_call(
+                        tools,
+                        "thenvoi_list_contacts",
+                        {"page": page, "page_size": page_size},
+                    )
+                    result = await tools.list_contacts(page, page_size)
+                    await adapter._report_tool_result(
+                        tools, "thenvoi_list_contacts", result
+                    )
+                    return json.dumps({"status": "success", **result})
+
+                return adapter._execute_tool("thenvoi_list_contacts", execute)
+
+        class AddContactTool(BaseTool):
+            name: str = "thenvoi_add_contact"
+            description: str = get_tool_description("thenvoi_add_contact")
+            args_schema: Type[BaseModel] = AddContactInput
+
+            def _run(self, *_args: Any, **kwargs: Any) -> Any:
+                handle: str = kwargs.get("handle", "")
+                message: str | None = kwargs.get("message")
+
+                async def execute(tools: AgentToolsProtocol) -> str:
+                    await adapter._report_tool_call(
+                        tools,
+                        "thenvoi_add_contact",
+                        {"handle": handle, "message": message},
+                    )
+                    result = await tools.add_contact(handle, message)
+                    await adapter._report_tool_result(
+                        tools, "thenvoi_add_contact", result
+                    )
+                    return json.dumps({"status": "success", **result})
+
+                return adapter._execute_tool("thenvoi_add_contact", execute)
+
+        class RemoveContactTool(BaseTool):
+            name: str = "thenvoi_remove_contact"
+            description: str = get_tool_description("thenvoi_remove_contact")
+            args_schema: Type[BaseModel] = RemoveContactInput
+
+            def _run(self, *_args: Any, **kwargs: Any) -> Any:
+                handle: str | None = kwargs.get("handle")
+                contact_id: str | None = kwargs.get("contact_id")
+
+                async def execute(tools: AgentToolsProtocol) -> str:
+                    await adapter._report_tool_call(
+                        tools,
+                        "thenvoi_remove_contact",
+                        {"handle": handle, "contact_id": contact_id},
+                    )
+                    result = await tools.remove_contact(handle, contact_id)
+                    await adapter._report_tool_result(
+                        tools, "thenvoi_remove_contact", result
+                    )
+                    return json.dumps({"status": "success", **result})
+
+                return adapter._execute_tool("thenvoi_remove_contact", execute)
+
+        class ListContactRequestsTool(BaseTool):
+            name: str = "thenvoi_list_contact_requests"
+            description: str = get_tool_description("thenvoi_list_contact_requests")
+            args_schema: Type[BaseModel] = ListContactRequestsInput
+
+            def _run(self, *_args: Any, **kwargs: Any) -> Any:
+                page: int = kwargs.get("page", 1)
+                page_size: int = kwargs.get("page_size", 50)
+                sent_status: str = kwargs.get("sent_status", "pending")
+
+                async def execute(tools: AgentToolsProtocol) -> str:
+                    await adapter._report_tool_call(
+                        tools,
+                        "thenvoi_list_contact_requests",
+                        {
+                            "page": page,
+                            "page_size": page_size,
+                            "sent_status": sent_status,
+                        },
+                    )
+                    result = await tools.list_contact_requests(
+                        page, page_size, sent_status
+                    )
+                    await adapter._report_tool_result(
+                        tools, "thenvoi_list_contact_requests", result
+                    )
+                    return json.dumps({"status": "success", **result})
+
+                return adapter._execute_tool("thenvoi_list_contact_requests", execute)
+
+        class RespondContactRequestTool(BaseTool):
+            name: str = "thenvoi_respond_contact_request"
+            description: str = get_tool_description("thenvoi_respond_contact_request")
+            args_schema: Type[BaseModel] = RespondContactRequestInput
+
+            def _run(self, *_args: Any, **kwargs: Any) -> Any:
+                action: str = kwargs.get("action", "")
+                handle: str | None = kwargs.get("handle")
+                request_id: str | None = kwargs.get("request_id")
+
+                async def execute(tools: AgentToolsProtocol) -> str:
+                    await adapter._report_tool_call(
+                        tools,
+                        "thenvoi_respond_contact_request",
+                        {"action": action, "handle": handle, "request_id": request_id},
+                    )
+                    result = await tools.respond_contact_request(
+                        action, handle, request_id
+                    )
+                    await adapter._report_tool_result(
+                        tools, "thenvoi_respond_contact_request", result
+                    )
+                    return json.dumps({"status": "success", **result})
+
+                return adapter._execute_tool("thenvoi_respond_contact_request", execute)
+
+        # Memory management tools
+        class ListMemoriesTool(BaseTool):
+            name: str = "thenvoi_list_memories"
+            description: str = get_tool_description("thenvoi_list_memories")
+            args_schema: Type[BaseModel] = ListMemoriesInput
+
+            def _run(self, *_args: Any, **kwargs: Any) -> Any:
+                subject_id = kwargs.get("subject_id")
+                scope = kwargs.get("scope")
+                system = kwargs.get("system")
+                memory_type = kwargs.get("memory_type")
+                segment = kwargs.get("segment")
+                content_query = kwargs.get("content_query")
+                page_size = kwargs.get("page_size", 50)
+                status = kwargs.get("status")
+
+                async def execute(tools: AgentToolsProtocol) -> str:
+                    await adapter._report_tool_call(
+                        tools,
+                        "thenvoi_list_memories",
+                        {
+                            "subject_id": subject_id,
+                            "scope": scope,
+                            "system": system,
+                            "type": memory_type,
+                            "segment": segment,
+                            "content_query": content_query,
+                            "page_size": page_size,
+                            "status": status,
+                        },
+                    )
+                    result = await tools.list_memories(
+                        subject_id=subject_id,
+                        scope=scope,
+                        system=system,
+                        type=memory_type,
+                        segment=segment,
+                        content_query=content_query,
+                        page_size=page_size,
+                        status=status,
+                    )
+                    await adapter._report_tool_result(
+                        tools, "thenvoi_list_memories", result
+                    )
+                    return json.dumps({"status": "success", **result})
+
+                return adapter._execute_tool("thenvoi_list_memories", execute)
+
+        class StoreMemoryTool(BaseTool):
+            name: str = "thenvoi_store_memory"
+            description: str = get_tool_description("thenvoi_store_memory")
+            args_schema: Type[BaseModel] = StoreMemoryInput
+
+            def _run(self, *_args: Any, **kwargs: Any) -> Any:
+                content = kwargs.get("content", "")
+                system = kwargs.get("system", "")
+                memory_type = kwargs.get("memory_type", "")
+                segment = kwargs.get("segment", "")
+                thought = kwargs.get("thought", "")
+                scope = kwargs.get("scope", "subject")
+                subject_id = kwargs.get("subject_id")
+
+                async def execute(tools: AgentToolsProtocol) -> str:
+                    await adapter._report_tool_call(
+                        tools,
+                        "thenvoi_store_memory",
+                        {
+                            "content": content,
+                            "system": system,
+                            "type": memory_type,
+                            "segment": segment,
+                            "thought": thought,
+                            "scope": scope,
+                            "subject_id": subject_id,
+                        },
+                    )
+                    result = await tools.store_memory(
+                        content=content,
+                        system=system,
+                        type=memory_type,
+                        segment=segment,
+                        thought=thought,
+                        scope=scope,
+                        subject_id=subject_id,
+                    )
+                    await adapter._report_tool_result(
+                        tools, "thenvoi_store_memory", result
+                    )
+                    return json.dumps({"status": "success", **result})
+
+                return adapter._execute_tool("thenvoi_store_memory", execute)
+
+        class GetMemoryTool(BaseTool):
+            name: str = "thenvoi_get_memory"
+            description: str = get_tool_description("thenvoi_get_memory")
+            args_schema: Type[BaseModel] = GetMemoryInput
+
+            def _run(self, *_args: Any, **kwargs: Any) -> Any:
+                memory_id = kwargs.get("memory_id", "")
+
+                async def execute(tools: AgentToolsProtocol) -> str:
+                    await adapter._report_tool_call(
+                        tools, "thenvoi_get_memory", {"memory_id": memory_id}
+                    )
+                    result = await tools.get_memory(memory_id)
+                    await adapter._report_tool_result(
+                        tools, "thenvoi_get_memory", result
+                    )
+                    return json.dumps({"status": "success", **result})
+
+                return adapter._execute_tool("thenvoi_get_memory", execute)
+
+        class SupersedeMemoryTool(BaseTool):
+            name: str = "thenvoi_supersede_memory"
+            description: str = get_tool_description("thenvoi_supersede_memory")
+            args_schema: Type[BaseModel] = SupersedeMemoryInput
+
+            def _run(self, *_args: Any, **kwargs: Any) -> Any:
+                memory_id = kwargs.get("memory_id", "")
+
+                async def execute(tools: AgentToolsProtocol) -> str:
+                    await adapter._report_tool_call(
+                        tools, "thenvoi_supersede_memory", {"memory_id": memory_id}
+                    )
+                    result = await tools.supersede_memory(memory_id)
+                    await adapter._report_tool_result(
+                        tools, "thenvoi_supersede_memory", result
+                    )
+                    return json.dumps({"status": "success", **result})
+
+                return adapter._execute_tool("thenvoi_supersede_memory", execute)
+
+        class ArchiveMemoryTool(BaseTool):
+            name: str = "thenvoi_archive_memory"
+            description: str = get_tool_description("thenvoi_archive_memory")
+            args_schema: Type[BaseModel] = ArchiveMemoryInput
+
+            def _run(self, *_args: Any, **kwargs: Any) -> Any:
+                memory_id = kwargs.get("memory_id", "")
+
+                async def execute(tools: AgentToolsProtocol) -> str:
+                    await adapter._report_tool_call(
+                        tools, "thenvoi_archive_memory", {"memory_id": memory_id}
+                    )
+                    result = await tools.archive_memory(memory_id)
+                    await adapter._report_tool_result(
+                        tools, "thenvoi_archive_memory", result
+                    )
+                    return json.dumps({"status": "success", **result})
+
+                return adapter._execute_tool("thenvoi_archive_memory", execute)
+
         platform_tools: list[BaseTool] = [
             SendMessageTool(),
             SendEventTool(),
@@ -666,7 +1033,25 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
             GetParticipantsTool(),
             LookupPeersTool(),
             CreateChatroomTool(),
+            # Contact management tools
+            ListContactsTool(),
+            AddContactTool(),
+            RemoveContactTool(),
+            ListContactRequestsTool(),
+            RespondContactRequestTool(),
         ]
+
+        # Memory management tools (enterprise only - opt-in)
+        if self.enable_memory_tools:
+            platform_tools.extend(
+                [
+                    ListMemoriesTool(),
+                    StoreMemoryTool(),
+                    GetMemoryTool(),
+                    SupersedeMemoryTool(),
+                    ArchiveMemoryTool(),
+                ]
+            )
 
         # Add custom tools converted to CrewAI format
         custom_tools = self._convert_custom_tools_to_crewai()
@@ -685,6 +1070,7 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
         tools: AgentToolsProtocol,
         history: CrewAIMessages,
         participants_msg: str | None,
+        contacts_msg: str | None,
         *,
         is_session_bootstrap: bool,
         room_id: str,
@@ -707,6 +1093,7 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
                 tools=tools,
                 history=history,
                 participants_msg=participants_msg,
+                contacts_msg=contacts_msg,
                 is_session_bootstrap=is_session_bootstrap,
                 room_id=room_id,
             )
@@ -721,6 +1108,7 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
         tools: AgentToolsProtocol,
         history: CrewAIMessages,
         participants_msg: str | None,
+        contacts_msg: str | None,
         *,
         is_session_bootstrap: bool,
         room_id: str,
@@ -763,6 +1151,15 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
                 }
             )
             logger.info("Room %s: Participants updated", room_id)
+
+        if contacts_msg:
+            messages.append(
+                {
+                    "role": "user",
+                    "content": f"[System]: {contacts_msg}",
+                }
+            )
+            logger.info("Room %s: Contacts broadcast received", room_id)
 
         user_message = msg.format_for_llm()
         messages.append({"role": "user", "content": user_message})

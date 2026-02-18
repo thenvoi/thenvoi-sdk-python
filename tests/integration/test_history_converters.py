@@ -65,12 +65,14 @@ async def create_test_chat(api_client: AsyncRestClient, skip_cleanup: bool = Fal
         skip_cleanup: If True, skip cleanup (for debugging with --no-clean flag)
     """
     # Create chat
-    response = await api_client.agent_api.create_agent_chat(chat=ChatRoomRequest())
+    response = await api_client.agent_api_chats.create_agent_chat(
+        chat=ChatRoomRequest()
+    )
     chat_id = response.data.id
     logger.info("Created test chat: %s", chat_id)
 
     # Get agent ID for cleanup
-    agent_me = await api_client.agent_api.get_agent_me()
+    agent_me = await api_client.agent_api_identity.get_agent_me()
     agent_id = agent_me.data.id
 
     try:
@@ -82,7 +84,9 @@ async def create_test_chat(api_client: AsyncRestClient, skip_cleanup: bool = Fal
 
         # Cleanup: agent leaves the chat
         try:
-            await api_client.agent_api.remove_agent_chat_participant(chat_id, agent_id)
+            await api_client.agent_api_participants.remove_agent_chat_participant(
+                chat_id, agent_id
+            )
             logger.info("Cleanup: left chat %s", chat_id)
         except Exception as e:
             logger.warning("Cleanup failed for chat %s: %s", chat_id, e)
@@ -147,17 +151,17 @@ class TestAnthropicConverterIntegration:
             agent_name = agent_me.name
 
             # Add a peer to the chat
-            peers = await api_client.agent_api.list_agent_peers()
+            peers = await api_client.agent_api_peers.list_agent_peers()
             assert peers.data and len(peers.data) > 0, "Need at least one peer"
             peer = peers.data[0]
-            await api_client.agent_api.add_agent_chat_participant(
+            await api_client.agent_api_participants.add_agent_chat_participant(
                 chat_id,
                 participant=ParticipantRequest(participant_id=peer.id, role="member"),
             )
             logger.info("Added peer: %s", peer.name)
 
             # === STEP 1: Send a user message (with mention to trigger it) ===
-            await api_client.agent_api.create_agent_chat_message(
+            await api_client.agent_api_messages.create_agent_chat_message(
                 chat_id,
                 message=ChatMessageRequest(
                     content=f"@{peer.name} What's the weather in Tokyo?",
@@ -172,7 +176,7 @@ class TestAnthropicConverterIntegration:
                 args={"location": "Tokyo", "unit": "celsius"},
                 tool_call_id="toolu_test_123",
             )
-            await api_client.agent_api.create_agent_chat_event(
+            await api_client.agent_api_events.create_agent_chat_event(
                 chat_id,
                 event=ChatEventRequest(
                     content=tool_call_content,
@@ -187,7 +191,7 @@ class TestAnthropicConverterIntegration:
                 output="Tokyo is 22°C and sunny",
                 tool_call_id="toolu_test_123",
             )
-            await api_client.agent_api.create_agent_chat_event(
+            await api_client.agent_api_events.create_agent_chat_event(
                 chat_id,
                 event=ChatEventRequest(
                     content=tool_result_content,
@@ -197,8 +201,8 @@ class TestAnthropicConverterIntegration:
             logger.info("Created tool_result event")
 
             # === STEP 4: Fetch history from platform ===
-            context_response = await api_client.agent_api.get_agent_chat_context(
-                chat_id
+            context_response = (
+                await api_client.agent_api_context.get_agent_chat_context(chat_id)
             )
             raw_history = [msg.model_dump() for msg in context_response.data]
             logger.info("Fetched %d messages from platform", len(raw_history))
@@ -259,7 +263,7 @@ class TestAnthropicConverterIntegration:
             agent_name = agent_me.name
 
             # === Create multiple tool_call events (simulating parallel tool use) ===
-            await api_client.agent_api.create_agent_chat_event(
+            await api_client.agent_api_events.create_agent_chat_event(
                 chat_id,
                 event=ChatEventRequest(
                     content=_create_tool_call_content(
@@ -268,7 +272,7 @@ class TestAnthropicConverterIntegration:
                     message_type="tool_call",
                 ),
             )
-            await api_client.agent_api.create_agent_chat_event(
+            await api_client.agent_api_events.create_agent_chat_event(
                 chat_id,
                 event=ChatEventRequest(
                     content=_create_tool_call_content(
@@ -279,7 +283,7 @@ class TestAnthropicConverterIntegration:
             )
 
             # === Create corresponding tool_result events ===
-            await api_client.agent_api.create_agent_chat_event(
+            await api_client.agent_api_events.create_agent_chat_event(
                 chat_id,
                 event=ChatEventRequest(
                     content=_create_tool_result_content(
@@ -288,7 +292,7 @@ class TestAnthropicConverterIntegration:
                     message_type="tool_result",
                 ),
             )
-            await api_client.agent_api.create_agent_chat_event(
+            await api_client.agent_api_events.create_agent_chat_event(
                 chat_id,
                 event=ChatEventRequest(
                     content=_create_tool_result_content(
@@ -299,8 +303,8 @@ class TestAnthropicConverterIntegration:
             )
 
             # === Fetch and convert ===
-            context_response = await api_client.agent_api.get_agent_chat_context(
-                chat_id
+            context_response = (
+                await api_client.agent_api_context.get_agent_chat_context(chat_id)
             )
             raw_history = [msg.model_dump() for msg in context_response.data]
 
@@ -361,16 +365,16 @@ class TestPydanticAIConverterIntegration:
         ):
             agent_name = agent_me.name
 
-            peers = await api_client.agent_api.list_agent_peers()
+            peers = await api_client.agent_api_peers.list_agent_peers()
             assert peers.data and len(peers.data) > 0, "Need at least one peer"
             peer = peers.data[0]
-            await api_client.agent_api.add_agent_chat_participant(
+            await api_client.agent_api_participants.add_agent_chat_participant(
                 chat_id,
                 participant=ParticipantRequest(participant_id=peer.id, role="member"),
             )
 
             # === Create tool events ===
-            await api_client.agent_api.create_agent_chat_message(
+            await api_client.agent_api_messages.create_agent_chat_message(
                 chat_id,
                 message=ChatMessageRequest(
                     content=f"@{peer.name} Search for Python tutorials",
@@ -378,7 +382,7 @@ class TestPydanticAIConverterIntegration:
                 ),
             )
 
-            await api_client.agent_api.create_agent_chat_event(
+            await api_client.agent_api_events.create_agent_chat_event(
                 chat_id,
                 event=ChatEventRequest(
                     content=_create_tool_call_content(
@@ -388,7 +392,7 @@ class TestPydanticAIConverterIntegration:
                 ),
             )
 
-            await api_client.agent_api.create_agent_chat_event(
+            await api_client.agent_api_events.create_agent_chat_event(
                 chat_id,
                 event=ChatEventRequest(
                     content=_create_tool_result_content(
@@ -399,8 +403,8 @@ class TestPydanticAIConverterIntegration:
             )
 
             # === Fetch and convert ===
-            context_response = await api_client.agent_api.get_agent_chat_context(
-                chat_id
+            context_response = (
+                await api_client.agent_api_context.get_agent_chat_context(chat_id)
             )
             raw_history = [msg.model_dump() for msg in context_response.data]
 
@@ -465,17 +469,17 @@ class TestMixedConversationIntegration:
         ):
             agent_name = agent_me.name
 
-            peers = await api_client.agent_api.list_agent_peers()
+            peers = await api_client.agent_api_peers.list_agent_peers()
             assert peers.data and len(peers.data) > 0
             peer = peers.data[0]
-            await api_client.agent_api.add_agent_chat_participant(
+            await api_client.agent_api_participants.add_agent_chat_participant(
                 chat_id,
                 participant=ParticipantRequest(participant_id=peer.id, role="member"),
             )
 
             # === Simulate multi-turn conversation ===
             # Turn 1: User asks question
-            await api_client.agent_api.create_agent_chat_message(
+            await api_client.agent_api_messages.create_agent_chat_message(
                 chat_id,
                 message=ChatMessageRequest(
                     content=f"@{peer.name} What's the weather in NYC?",
@@ -484,7 +488,7 @@ class TestMixedConversationIntegration:
             )
 
             # Turn 1: Agent uses tool
-            await api_client.agent_api.create_agent_chat_event(
+            await api_client.agent_api_events.create_agent_chat_event(
                 chat_id,
                 event=ChatEventRequest(
                     content=_create_tool_call_content(
@@ -494,7 +498,7 @@ class TestMixedConversationIntegration:
                 ),
             )
 
-            await api_client.agent_api.create_agent_chat_event(
+            await api_client.agent_api_events.create_agent_chat_event(
                 chat_id,
                 event=ChatEventRequest(
                     content=_create_tool_result_content(
@@ -505,7 +509,7 @@ class TestMixedConversationIntegration:
             )
 
             # Turn 2: User asks follow-up
-            await api_client.agent_api.create_agent_chat_message(
+            await api_client.agent_api_messages.create_agent_chat_message(
                 chat_id,
                 message=ChatMessageRequest(
                     content=f"@{peer.name} What about San Francisco?",
@@ -514,7 +518,7 @@ class TestMixedConversationIntegration:
             )
 
             # Turn 2: Agent uses tool again
-            await api_client.agent_api.create_agent_chat_event(
+            await api_client.agent_api_events.create_agent_chat_event(
                 chat_id,
                 event=ChatEventRequest(
                     content=_create_tool_call_content(
@@ -524,7 +528,7 @@ class TestMixedConversationIntegration:
                 ),
             )
 
-            await api_client.agent_api.create_agent_chat_event(
+            await api_client.agent_api_events.create_agent_chat_event(
                 chat_id,
                 event=ChatEventRequest(
                     content=_create_tool_result_content(
@@ -535,8 +539,8 @@ class TestMixedConversationIntegration:
             )
 
             # === Fetch and convert ===
-            context_response = await api_client.agent_api.get_agent_chat_context(
-                chat_id
+            context_response = (
+                await api_client.agent_api_context.get_agent_chat_context(chat_id)
             )
             raw_history = [msg.model_dump() for msg in context_response.data]
 
@@ -590,7 +594,7 @@ class TestEdgeCasesIntegration:
             _agent_me,
         ):
             # Create thought event
-            await api_client.agent_api.create_agent_chat_event(
+            await api_client.agent_api_events.create_agent_chat_event(
                 chat_id,
                 event=ChatEventRequest(
                     content="Let me think about this request...",
@@ -599,7 +603,7 @@ class TestEdgeCasesIntegration:
             )
 
             # Create tool_call event
-            await api_client.agent_api.create_agent_chat_event(
+            await api_client.agent_api_events.create_agent_chat_event(
                 chat_id,
                 event=ChatEventRequest(
                     content=_create_tool_call_content(
@@ -610,8 +614,8 @@ class TestEdgeCasesIntegration:
             )
 
             # Fetch and convert
-            context_response = await api_client.agent_api.get_agent_chat_context(
-                chat_id
+            context_response = (
+                await api_client.agent_api_context.get_agent_chat_context(chat_id)
             )
             raw_history = [msg.model_dump() for msg in context_response.data]
 
@@ -646,7 +650,7 @@ class TestEdgeCasesIntegration:
             _agent_me,
         ):
             # Create error event
-            await api_client.agent_api.create_agent_chat_event(
+            await api_client.agent_api_events.create_agent_chat_event(
                 chat_id,
                 event=ChatEventRequest(
                     content="Error: API rate limit exceeded",
@@ -655,8 +659,8 @@ class TestEdgeCasesIntegration:
             )
 
             # Fetch and convert
-            context_response = await api_client.agent_api.get_agent_chat_context(
-                chat_id
+            context_response = (
+                await api_client.agent_api_context.get_agent_chat_context(chat_id)
             )
             raw_history = [msg.model_dump() for msg in context_response.data]
 
@@ -671,3 +675,121 @@ class TestEdgeCasesIntegration:
                     )
 
             logger.info("SUCCESS: Error events are properly skipped")
+
+
+@requires_api
+class TestMentionReplacementIntegration:
+    """Integration tests for UUID mention replacement in message history."""
+
+    async def test_replaces_uuid_mentions_with_handles(self, api_client, no_clean):
+        """Verify platform stores mentions as UUIDs and SDK converts back to handles.
+
+        Flow:
+        1. Send message with @handle mention
+        2. Platform prepends @[[uuid]] to the content (keeps original handle too)
+        3. SDK's format_history_for_llm converts @[[uuid]] to @handle
+        """
+        from thenvoi.runtime.formatters import format_history_for_llm
+
+        async with create_test_chat(api_client, skip_cleanup=no_clean) as (
+            chat_id,
+            _agent_me,
+        ):
+            # Get a peer to add as participant
+            peers = await api_client.agent_api_peers.list_agent_peers()
+            assert peers.data and len(peers.data) > 0, "Need at least one peer"
+            peer = peers.data[0]
+
+            # Get participants to find peer's handle
+            await api_client.agent_api_participants.add_agent_chat_participant(
+                chat_id,
+                participant=ParticipantRequest(participant_id=peer.id, role="member"),
+            )
+
+            participants_response = (
+                await api_client.agent_api_participants.list_agent_chat_participants(
+                    chat_id
+                )
+            )
+            participants = [
+                {
+                    "id": p.id,
+                    "name": p.name,
+                    "type": p.type,
+                    "handle": getattr(p, "handle", None),
+                }
+                for p in participants_response.data
+            ]
+
+            peer_participant = next(
+                (p for p in participants if p["id"] == peer.id), None
+            )
+            assert peer_participant is not None, "Peer should be in participants"
+            peer_handle = peer_participant.get("handle")
+            assert peer_handle, "Peer must have a handle for this test"
+            logger.info(
+                "Added peer: %s (id: %s, handle: %s)", peer.name, peer.id, peer_handle
+            )
+
+            # === STEP 1: Send message with mention in array (not in content) ===
+            # The platform will prepend @[[uuid]] to the content based on mentions array
+            message_content = "Hey, can you help me?"
+            await api_client.agent_api_messages.create_agent_chat_message(
+                chat_id,
+                message=ChatMessageRequest(
+                    content=message_content,
+                    mentions=[Mention(id=peer.id, name=peer.name)],
+                ),
+            )
+            logger.info("Sent message: %s (with mention in array)", message_content)
+
+            # === STEP 2: Verify raw history contains UUID format ===
+            context_response = (
+                await api_client.agent_api_context.get_agent_chat_context(chat_id)
+            )
+            raw_history = [msg.model_dump() for msg in context_response.data]
+            logger.info("Fetched %d messages from platform", len(raw_history))
+
+            raw_message = next(
+                (m for m in raw_history if "can you help me" in m.get("content", "")),
+                None,
+            )
+            assert raw_message is not None, "Should find the message in raw history"
+            raw_content = raw_message["content"]
+            logger.info("Raw content from platform: %s", raw_content)
+
+            # Platform prepends @[[uuid]] to content
+            assert f"@[[{peer.id}]]" in raw_content, (
+                f"Raw content should contain UUID mention @[[{peer.id}]], "
+                f"got: {raw_content}"
+            )
+
+            # === STEP 3: Verify formatted history converts UUID to handle ===
+            formatted_history = format_history_for_llm(
+                raw_history, participants=participants
+            )
+
+            formatted_message = next(
+                (m for m in formatted_history if "can you help me" in m["content"]),
+                None,
+            )
+            assert formatted_message is not None, "Should find formatted message"
+            formatted_content = formatted_message["content"]
+
+            # UUID should be replaced with @handle
+            assert f"@[[{peer.id}]]" not in formatted_content, (
+                f"Formatted content should NOT contain UUID @[[{peer.id}]], "
+                f"got: {formatted_content}"
+            )
+            assert f"@{peer_handle}" in formatted_content, (
+                f"Formatted content should contain @{peer_handle}, "
+                f"got: {formatted_content}"
+            )
+
+            logger.info(
+                "SUCCESS: Platform stored @[[%s]], SDK converted to @%s",
+                peer.id,
+                peer_handle,
+            )
+            logger.info("  Raw:       %s", raw_content)
+            logger.info("  Formatted: %s", formatted_content)

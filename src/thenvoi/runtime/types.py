@@ -8,9 +8,58 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
+from enum import Enum
 from typing import TYPE_CHECKING, Any, Awaitable, Callable
 
+# --- Constants for synthetic messages (injected by SDK, not from platform) ---
+#
+# These constants define the sender identity for SDK-generated messages that are
+# injected into the event queue but don't originate from the platform WebSocket.
+#
+# Primary use case: ContactEventHandler's HUB_ROOM strategy creates synthetic
+# MessageEvents to route contact events to the hub room for LLM processing.
+# These messages need a consistent sender identity that:
+#   1. Clearly indicates they're system-generated (not from a real user/agent)
+#   2. Can be filtered by preprocessing if needed
+#   3. Are recognizable in UI/logs for debugging
+#
+
+# Sender type for synthetic messages. Matches the platform's "System" type used
+# for other system-generated content.
+SYNTHETIC_SENDER_TYPE = "System"
+
+# Sender ID for synthetic contact event messages. This is a logical identifier
+# (not a UUID) that allows filtering/identification of contact-related synthetic
+# messages. Used in MessageEvent.payload.sender_id for hub room injections.
+SYNTHETIC_CONTACT_EVENTS_SENDER_ID = "contact-events"
+
+# Human-readable sender name displayed in UI/logs for synthetic contact event
+# messages. Used in MessageEvent.payload.sender_name.
+SYNTHETIC_CONTACT_EVENTS_SENDER_NAME = "Contact Events"
+
+
+def normalize_handle(handle: str | None) -> str | None:
+    """
+    Normalize a handle to always include the @ prefix.
+
+    Handles may or may not include the @ prefix depending on the source.
+    This function ensures consistent formatting.
+
+    Args:
+        handle: The handle to normalize (may or may not have @ prefix)
+
+    Returns:
+        Handle with @ prefix, or None if input is None/empty
+    """
+    if not handle:
+        return None
+    return handle if handle.startswith("@") else f"@{handle}"
+
+
 if TYPE_CHECKING:
+    from thenvoi.platform.event import ContactEvent
+
+    from .contact_tools import ContactTools
     from .tools import AgentTools
 
 
@@ -77,3 +126,74 @@ class ConversationContext:
 
 # Callback type - receives AgentTools, NOT ThenvoiAgent
 MessageHandler = Callable[["PlatformMessage", "AgentTools"], Awaitable[None]]
+
+
+# --- Contact Event Configuration ---
+
+
+class ContactEventStrategy(Enum):
+    """How to handle contact WebSocket events.
+
+    - DISABLED: Ignore contact events (default). Use manual "check contacts" workflow.
+    - CALLBACK: Programmatic handling via on_event callback. No LLM involvement.
+    - HUB_ROOM: LLM reasoning in a dedicated hub room.
+    """
+
+    DISABLED = "disabled"
+    CALLBACK = "callback"
+    HUB_ROOM = "hub_room"
+
+
+# Type alias for contact event callback
+ContactEventCallback = Callable[["ContactEvent", "ContactTools"], Awaitable[None]]
+
+
+@dataclass
+class ContactEventConfig:
+    """Configuration for contact event handling.
+
+    Composable modes:
+    - CALLBACK + broadcast_changes=True: Auto-handle + awareness everywhere
+    - HUB_ROOM + broadcast_changes=True: LLM decides + awareness everywhere
+    - DISABLED + broadcast_changes=True: Just awareness, manual handling
+
+    Example (auto-approve all requests):
+        async def auto_approve(event: ContactEvent, tools: ContactTools) -> None:
+            if isinstance(event, ContactRequestReceivedEvent):
+                await tools.respond_contact_request("approve", request_id=event.payload.id)
+
+        config = ContactEventConfig(
+            strategy=ContactEventStrategy.CALLBACK,
+            on_event=auto_approve,
+            broadcast_changes=True,
+        )
+
+    Example (LLM decides in hub room):
+        config = ContactEventConfig(
+            strategy=ContactEventStrategy.HUB_ROOM,
+            broadcast_changes=True,
+        )
+    """
+
+    strategy: ContactEventStrategy = ContactEventStrategy.DISABLED
+    """Strategy for handling contact events."""
+
+    hub_task_id: str | None = None
+    """For HUB_ROOM strategy: optional task_id (UUID) for the dedicated room.
+    If None, creates a room without an associated task."""
+
+    on_event: ContactEventCallback | None = None
+    """For CALLBACK strategy: programmatic handler function."""
+
+    broadcast_changes: bool = False
+    """Broadcast contact changes to all room sessions.
+
+    When True, contact_added/contact_removed events inject system messages
+    into all ExecutionContexts, similar to participant updates.
+    Works with any strategy (DISABLED, CALLBACK, HUB_ROOM).
+    """
+
+    def __post_init__(self) -> None:
+        """Validate configuration after initialization."""
+        if self.strategy == ContactEventStrategy.CALLBACK and self.on_event is None:
+            raise ValueError("CALLBACK strategy requires on_event callback")

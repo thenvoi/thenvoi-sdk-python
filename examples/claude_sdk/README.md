@@ -128,9 +128,9 @@ Tools are defined as MCP stubs in the SDK. The actual execution happens via `Age
 
 ```python
 # MCP tool name -> AgentTools method
-"mcp__thenvoi__send_message" -> tools.send_message()
-"mcp__thenvoi__send_event" -> tools.send_event()
-"mcp__thenvoi__add_participant" -> tools.add_participant()
+"mcp__thenvoi__thenvoi_send_message" -> tools.send_message()
+"mcp__thenvoi__thenvoi_send_event" -> tools.send_event()
+"mcp__thenvoi__thenvoi_add_participant" -> tools.add_participant()
 # etc.
 ```
 

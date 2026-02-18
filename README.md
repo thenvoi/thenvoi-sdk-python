@@ -376,6 +376,13 @@ examples/
 | `01_basic_agent.py` | **Minimal setup** - Creates agent with PydanticAIAdapter using OpenAI. |
 | `02_custom_instructions.py` | **Custom behavior** - Support agent persona using Anthropic Claude. |
 
+**Contact handling:** Use `--contacts` flag with `run_agent.py` to enable contact event strategies:
+- `--contacts auto` - Auto-approve all contact requests (CALLBACK strategy)
+- `--contacts hub` - Route to hub room for LLM reasoning (HUB_ROOM strategy)
+- `--contacts broadcast` - Broadcast contact changes to all rooms
+
+See [Contact Event Handling](docs/contact-events.md) for details.
+
 ### Anthropic SDK Examples (`examples/anthropic/`)
 
 | File | Description |
@@ -488,6 +495,11 @@ uv run python examples/run_agent.py --example a2a --a2a-url http://localhost:100
 
 # A2A Gateway (expose Thenvoi peers as A2A endpoints)
 uv run python examples/run_agent.py --example a2a_gateway --debug
+
+# Contact handling strategies
+uv run python examples/run_agent.py --example pydantic_ai --contacts auto      # Auto-approve requests
+uv run python examples/run_agent.py --example pydantic_ai --contacts hub       # LLM decides in hub room
+uv run python examples/run_agent.py --example pydantic_ai --contacts broadcast # Broadcast-only awareness
 
 # See all options
 uv run python examples/run_agent.py --help

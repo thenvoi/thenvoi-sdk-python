@@ -29,8 +29,10 @@ def mock_link():
 
     # REST client mock
     link.rest = MagicMock()
-    link.rest.agent_api = MagicMock()
-    link.rest.agent_api.list_agent_chats = AsyncMock(return_value=MagicMock(data=[]))
+    link.rest.agent_api_chats = MagicMock()
+    link.rest.agent_api_chats.list_agent_chats = AsyncMock(
+        return_value=MagicMock(data=[])
+    )
 
     # Make link iterable for async for (returns empty iterator by default)
     async def empty_aiter():
@@ -119,7 +121,7 @@ class TestRoomPresenceStart:
         room2 = MagicMock()
         room2.id = "room-2"
         room2.model_dump.return_value = {"id": "room-2"}
-        mock_link.rest.agent_api.list_agent_chats.return_value = MagicMock(
+        mock_link.rest.agent_api_chats.list_agent_chats.return_value = MagicMock(
             data=[room1, room2]
         )
 

@@ -197,6 +197,7 @@ class TestA2AAdapterOnMessage:
                 tools,
                 A2ASessionState(),
                 None,
+                None,
                 is_session_bootstrap=True,
                 room_id="room-123",
             )
@@ -221,6 +222,7 @@ class TestA2AAdapterOnMessage:
             msg,
             tools,
             A2ASessionState(),
+            None,
             None,
             is_session_bootstrap=True,
             room_id="room-123",
@@ -263,6 +265,7 @@ class TestA2AAdapterOnMessage:
             tools,
             A2ASessionState(),
             None,
+            None,
             is_session_bootstrap=True,
             room_id="room-123",
         )
@@ -292,6 +295,7 @@ class TestA2AAdapterOnMessage:
             msg,
             tools,
             A2ASessionState(),
+            None,
             None,
             is_session_bootstrap=True,
             room_id="room-123",
@@ -328,6 +332,7 @@ class TestA2AAdapterOnMessage:
             tools,
             A2ASessionState(),
             None,
+            None,
             is_session_bootstrap=True,
             room_id="room-123",
         )
@@ -359,6 +364,7 @@ class TestA2AAdapterOnMessage:
             tools,
             A2ASessionState(),
             None,
+            None,
             is_session_bootstrap=True,
             room_id="room-123",
         )
@@ -389,6 +395,7 @@ class TestA2AAdapterOnMessage:
             msg,
             tools,
             A2ASessionState(),
+            None,
             None,
             is_session_bootstrap=True,
             room_id="room-123",
@@ -631,6 +638,7 @@ class TestA2AAdapterTaskEventEmission:
             tools,
             A2ASessionState(),
             None,
+            None,
             is_session_bootstrap=True,
             room_id="room-123",
         )
@@ -662,6 +670,7 @@ class TestA2AAdapterTaskEventEmission:
             msg,
             tools,
             A2ASessionState(),
+            None,
             None,
             is_session_bootstrap=True,
             room_id="room-123",
@@ -704,7 +713,13 @@ class TestA2AAdapterSessionRehydration:
         adapter_with_client._client.send_message = mock_send_message
 
         await adapter_with_client.on_message(
-            msg, tools, history, None, is_session_bootstrap=True, room_id="room-123"
+            msg,
+            tools,
+            history,
+            None,
+            None,
+            is_session_bootstrap=True,
+            room_id="room-123",
         )
 
         # Context should be restored before the message was processed
@@ -733,7 +748,13 @@ class TestA2AAdapterSessionRehydration:
         adapter_with_client._client.resubscribe = MagicMock()
 
         await adapter_with_client.on_message(
-            msg, tools, history, None, is_session_bootstrap=False, room_id="room-123"
+            msg,
+            tools,
+            history,
+            None,
+            None,
+            is_session_bootstrap=False,
+            room_id="room-123",
         )
 
         # Resubscribe should not be called on non-bootstrap
@@ -772,7 +793,13 @@ class TestA2AAdapterSessionRehydration:
         adapter_with_client._client.send_message = mock_send_message
 
         await adapter_with_client.on_message(
-            msg, tools, history, None, is_session_bootstrap=True, room_id="room-123"
+            msg,
+            tools,
+            history,
+            None,
+            None,
+            is_session_bootstrap=True,
+            room_id="room-123",
         )
 
         # Task should have been restored
@@ -806,7 +833,13 @@ class TestA2AAdapterSessionRehydration:
 
         # Should not raise
         await adapter_with_client.on_message(
-            msg, tools, history, None, is_session_bootstrap=True, room_id="room-123"
+            msg,
+            tools,
+            history,
+            None,
+            None,
+            is_session_bootstrap=True,
+            room_id="room-123",
         )
 
         # Context should still be restored

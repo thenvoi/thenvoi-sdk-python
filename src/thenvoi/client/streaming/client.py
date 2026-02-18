@@ -21,15 +21,20 @@ logger = logging.getLogger(__name__)
 class Mention(BaseModel):
     """Mention object within message metadata."""
 
+    model_config = ConfigDict(extra="allow")
+
     id: str
-    username: str
+    handle: str | None = None
+    name: str | None = None
+    username: str | None = None
 
 
 class MessageMetadata(BaseModel):
     """Metadata within message_created payload."""
 
-    mentions: list[Mention]
-    status: str | None = None
+    model_config = ConfigDict(extra="allow")
+
+    mentions: list[Mention] | None = None
 
 
 class MessageCreatedPayload(BaseModel):
@@ -42,10 +47,11 @@ class MessageCreatedPayload(BaseModel):
     id: str
     content: str
     message_type: str
-    metadata: MessageMetadata
+    metadata: MessageMetadata | None = None
     sender_id: str
     sender_type: str
-    chat_room_id: str
+    sender_name: str | None = None
+    chat_room_id: str | None = None
     thread_id: str | None = None
     inserted_at: str
     updated_at: str
@@ -65,12 +71,15 @@ class RoomAddedPayload(BaseModel):
     model_config = ConfigDict(extra="allow")
 
     id: str
-    owner: RoomOwner
-    status: str
-    type: str
-    title: str
-    created_at: str
-    participant_role: str
+    title: str | None = None
+    task_id: str | None = None
+    inserted_at: str | None = None
+    updated_at: str | None = None
+    owner: RoomOwner | None = None
+    status: str | None = None
+    type: str | None = None
+    created_at: str | None = None
+    participant_role: str | None = None
 
 
 class RoomRemovedPayload(BaseModel):
@@ -103,12 +112,63 @@ class ParticipantRemovedPayload(BaseModel):
     id: str
 
 
+# Contact event payloads
+
+
+class ContactRequestReceivedPayload(BaseModel):
+    """Payload for contact_request_received events."""
+
+    model_config = ConfigDict(extra="allow")
+
+    id: str
+    from_handle: str
+    from_name: str
+    message: str | None = None
+    status: str
+    inserted_at: str
+
+
+class ContactRequestUpdatedPayload(BaseModel):
+    """Payload for contact_request_updated events."""
+
+    model_config = ConfigDict(extra="allow")
+
+    id: str
+    status: str
+
+
+class ContactAddedPayload(BaseModel):
+    """Payload for contact_added events."""
+
+    model_config = ConfigDict(extra="allow")
+
+    id: str
+    handle: str
+    name: str
+    type: str
+    description: str | None = None
+    is_external: bool | None = None
+    inserted_at: str
+
+
+class ContactRemovedPayload(BaseModel):
+    """Payload for contact_removed events."""
+
+    model_config = ConfigDict(extra="allow")
+
+    id: str
+
+
 _PAYLOAD_MODELS: dict[str, type[BaseModel]] = {
     "message_created": MessageCreatedPayload,
     "room_added": RoomAddedPayload,
     "room_removed": RoomRemovedPayload,
     "participant_added": ParticipantAddedPayload,
     "participant_removed": ParticipantRemovedPayload,
+    "contact_request_received": ContactRequestReceivedPayload,
+    "contact_request_updated": ContactRequestUpdatedPayload,
+    "contact_added": ContactAddedPayload,
+    "contact_removed": ContactRemovedPayload,
 }
 
 
@@ -314,6 +374,43 @@ class WebSocketClient:
     async def leave_tasks_channel(self, user_id: str):
         """Unsubscribe from tasks topic"""
         topic = f"tasks:{user_id}"
+        return await self.client.unsubscribe_from_topic(topic)
+
+    async def join_agent_contacts_channel(
+        self,
+        agent_id: str,
+        on_contact_request_received: Callable[
+            [ContactRequestReceivedPayload], Awaitable[None]
+        ],
+        on_contact_request_updated: Callable[
+            [ContactRequestUpdatedPayload], Awaitable[None]
+        ],
+        on_contact_added: Callable[[ContactAddedPayload], Awaitable[None]],
+        on_contact_removed: Callable[[ContactRemovedPayload], Awaitable[None]],
+    ):
+        """Subscribe to agent contacts topic with async callbacks."""
+        topic = f"agent_contacts:{agent_id}"
+        logger.info("[WebSocket] Subscribing to topic: %s", topic)
+
+        async def message_handler(message):
+            await self._handle_events(
+                message,
+                {
+                    "contact_request_received": on_contact_request_received,
+                    "contact_request_updated": on_contact_request_updated,
+                    "contact_added": on_contact_added,
+                    "contact_removed": on_contact_removed,
+                },
+            )
+
+        result = await self.client.subscribe_to_topic(topic, message_handler)
+        logger.info("[WebSocket] Subscribed to topic: %s", topic)
+        return result
+
+    async def leave_agent_contacts_channel(self, agent_id: str):
+        """Unsubscribe from agent contacts topic."""
+        topic = f"agent_contacts:{agent_id}"
+        logger.info("[WebSocket] Unsubscribing from topic: %s", topic)
         return await self.client.unsubscribe_from_topic(topic)
 
     async def run_forever(self):

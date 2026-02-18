@@ -74,7 +74,7 @@ def is_no_clean_mode(request: pytest.FixtureRequest | None = None) -> bool:
             agent = await create_agent(...)
             yield agent
             if not is_no_clean_mode(request):
-                await user_api_client.human_api.delete_my_agent(id=agent.id, force=True)
+                await user_api_client.human_api_agents.delete_my_agent(id=agent.id, force=True)
     """
     # Check environment variable first
     if os.environ.get("THENVOI_TEST_NO_CLEAN", "").lower() in ("1", "true", "yes"):
@@ -231,20 +231,22 @@ async def test_chat(api_client: AsyncRestClient | None):
     )
 
     # Create a test chat
-    response = await api_client.agent_api.create_agent_chat(chat=ChatRoomRequest())
+    response = await api_client.agent_api_chats.create_agent_chat(
+        chat=ChatRoomRequest()
+    )
     chat_id = response.data.id
 
     # Get a peer to add to the room so we can send a descriptive message
-    peers_response = await api_client.agent_api.list_agent_peers()
+    peers_response = await api_client.agent_api_peers.list_agent_peers()
     if peers_response.data:
         peer = peers_response.data[0]
-        await api_client.agent_api.add_agent_chat_participant(
+        await api_client.agent_api_participants.add_agent_chat_participant(
             chat_id,
             participant=ParticipantRequest(participant_id=peer.id, role="member"),
         )
 
         # Add descriptive message (triggers auto-title)
-        await api_client.agent_api.create_agent_chat_message(
+        await api_client.agent_api_messages.create_agent_chat_message(
             chat_id,
             message=ChatMessageRequest(
                 content=f"Integration test fixture: @{peer.name} temporary chat for testing participant operations",
@@ -269,12 +271,12 @@ async def test_peer_id(api_client: AsyncRestClient | None) -> str | None:
         pytest.skip("THENVOI_API_KEY not set")
 
     # Get agent's owner_uuid to exclude from peer selection
-    agent_me = await api_client.agent_api.get_agent_me()
+    agent_me = await api_client.agent_api_identity.get_agent_me()
     agent_owner_uuid = (
         str(agent_me.data.owner_uuid) if agent_me.data.owner_uuid else None
     )
 
-    response = await api_client.agent_api.list_agent_peers()
+    response = await api_client.agent_api_peers.list_agent_peers()
     if response.data:
         # Prefer a peer that is NOT the agent's owner (to avoid P4 protection rule)
         for peer in response.data:

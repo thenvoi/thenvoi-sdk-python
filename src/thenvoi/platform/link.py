@@ -21,6 +21,10 @@ from .event import (
     RoomRemovedEvent,
     ParticipantAddedEvent,
     ParticipantRemovedEvent,
+    ContactRequestReceivedEvent,
+    ContactRequestUpdatedEvent,
+    ContactAddedEvent,
+    ContactRemovedEvent,
     PlatformEvent,
 )
 
@@ -31,6 +35,10 @@ if TYPE_CHECKING:
         ParticipantRemovedPayload,
         RoomAddedPayload,
         RoomRemovedPayload,
+        ContactRequestReceivedPayload,
+        ContactRequestUpdatedPayload,
+        ContactAddedPayload,
+        ContactRemovedPayload,
     )
     from thenvoi.runtime.types import PlatformMessage
 
@@ -186,6 +194,24 @@ class ThenvoiLink:
         self._subscribed_rooms.add(room_id)
         logger.debug("Subscribed to room %s", room_id)
 
+    async def subscribe_agent_contacts(self, agent_id: str) -> None:
+        """
+        Subscribe to agent contact events.
+
+        Events: contact_request_received, contact_request_updated,
+                contact_added, contact_removed
+        """
+        if not self._ws:
+            raise RuntimeError("Not connected")
+
+        await self._ws.join_agent_contacts_channel(
+            agent_id,
+            on_contact_request_received=self._on_contact_request_received,
+            on_contact_request_updated=self._on_contact_request_updated,
+            on_contact_added=self._on_contact_added,
+            on_contact_removed=self._on_contact_removed,
+        )
+
     async def unsubscribe_room(self, room_id: str) -> None:
         """
         Unsubscribe from room.
@@ -211,6 +237,15 @@ class ThenvoiLink:
 
         logger.debug("Unsubscribed from room %s", room_id)
 
+    async def unsubscribe_agent_contacts(self) -> None:
+        """Unsubscribe from agent contacts channel."""
+        if not self._ws:
+            return
+        try:
+            await self._ws.leave_agent_contacts_channel(self.agent_id)
+        except Exception as e:
+            logger.warning("Error unsubscribing from agent_contacts: %s", e)
+
     # --- Event handlers (from ThenvoiAgent, unified into PlatformEvent) ---
 
     def _queue_event(self, event: PlatformEvent) -> None:
@@ -223,6 +258,10 @@ class ThenvoiLink:
                 event.type,
                 event.room_id,
             )
+
+    def queue_event(self, event: PlatformEvent) -> None:
+        """Queue a synthetic event for processing (public API)."""
+        self._queue_event(event)
 
     async def _on_room_added(self, payload: "RoomAddedPayload") -> None:
         """
@@ -294,6 +333,60 @@ class ThenvoiLink:
         )
         self._queue_event(event)
 
+    async def _on_contact_request_received(
+        self, payload: "ContactRequestReceivedPayload"
+    ) -> None:
+        """Handle contact_request_received from WebSocket."""
+        logger.debug(
+            "WebSocket: contact_request_received from %s (%s), request_id=%s",
+            payload.from_name,
+            payload.from_handle,
+            payload.id,
+        )
+        event = ContactRequestReceivedEvent(
+            room_id=None,  # Contact events have no room context
+            payload=payload,
+        )
+        self._queue_event(event)
+
+    async def _on_contact_request_updated(
+        self, payload: "ContactRequestUpdatedPayload"
+    ) -> None:
+        """Handle contact_request_updated from WebSocket."""
+        logger.debug(
+            "WebSocket: contact_request_updated request_id=%s, status=%s",
+            payload.id,
+            payload.status,
+        )
+        event = ContactRequestUpdatedEvent(
+            room_id=None,
+            payload=payload,
+        )
+        self._queue_event(event)
+
+    async def _on_contact_added(self, payload: "ContactAddedPayload") -> None:
+        """Handle contact_added from WebSocket."""
+        logger.debug(
+            "WebSocket: contact_added %s (%s), contact_id=%s",
+            payload.name,
+            payload.handle,
+            payload.id,
+        )
+        event = ContactAddedEvent(
+            room_id=None,
+            payload=payload,
+        )
+        self._queue_event(event)
+
+    async def _on_contact_removed(self, payload: "ContactRemovedPayload") -> None:
+        """Handle contact_removed from WebSocket."""
+        logger.debug("WebSocket: contact_removed contact_id=%s", payload.id)
+        event = ContactRemovedEvent(
+            room_id=None,
+            payload=payload,
+        )
+        self._queue_event(event)
+
     # --- Message lifecycle (SDK internal operations) ---
 
     async def mark_processing(self, room_id: str, message_id: str) -> None:
@@ -304,7 +397,7 @@ class ThenvoiLink:
         """
         logger.debug("Marking message %s as processing", message_id)
         try:
-            await self.rest.agent_api.mark_agent_message_processing(
+            await self.rest.agent_api_messages.mark_agent_message_processing(
                 chat_id=room_id,
                 id=message_id,
                 request_options=DEFAULT_REQUEST_OPTIONS,
@@ -320,7 +413,7 @@ class ThenvoiLink:
         """
         logger.debug("Marking message %s as processed", message_id)
         try:
-            await self.rest.agent_api.mark_agent_message_processed(
+            await self.rest.agent_api_messages.mark_agent_message_processed(
                 chat_id=room_id,
                 id=message_id,
                 request_options=DEFAULT_REQUEST_OPTIONS,
@@ -337,7 +430,7 @@ class ThenvoiLink:
         error = error.strip() or "Unknown error"
         logger.warning("Marking message %s as failed: %s", message_id, error)
         try:
-            await self.rest.agent_api.mark_agent_message_failed(
+            await self.rest.agent_api_messages.mark_agent_message_failed(
                 chat_id=room_id,
                 id=message_id,
                 error=error,
@@ -361,7 +454,7 @@ class ThenvoiLink:
 
         logger.debug("Getting next message for room %s", room_id)
         try:
-            response = await self.rest.agent_api.get_agent_next_message(
+            response = await self.rest.agent_api_messages.get_agent_next_message(
                 chat_id=room_id,
                 request_options=DEFAULT_REQUEST_OPTIONS,
             )

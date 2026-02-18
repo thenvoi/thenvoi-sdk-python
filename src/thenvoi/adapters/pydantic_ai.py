@@ -57,6 +57,7 @@ class PydanticAIAdapter(SimpleAdapter[PydanticAIMessages]):
         system_prompt: str | None = None,
         custom_section: str | None = None,
         enable_execution_reporting: bool = False,
+        enable_memory_tools: bool = False,
         history_converter: PydanticAIHistoryConverter | None = None,
         additional_tools: list[Callable[..., Any]] | None = None,
     ):
@@ -70,6 +71,8 @@ class PydanticAIAdapter(SimpleAdapter[PydanticAIMessages]):
             enable_execution_reporting: If True, emit tool_call and tool_result events
                 to the platform for real-time visibility into agent activity.
                 Defaults to False for backwards compatibility.
+            enable_memory_tools: If True, includes memory management tools (enterprise only).
+                Defaults to False.
             history_converter: Optional custom history converter
             additional_tools: Optional list of PydanticAI-compatible tool functions.
                 Each function should follow PydanticAI's tool signature:
@@ -84,6 +87,7 @@ class PydanticAIAdapter(SimpleAdapter[PydanticAIMessages]):
         self.system_prompt = system_prompt
         self.custom_section = custom_section
         self.enable_execution_reporting = enable_execution_reporting
+        self.enable_memory_tools = enable_memory_tools
 
         self._agent: Agent[AgentToolsProtocol, None] | None = None
         # Conversation history per room (Pydantic AI is stateless, we maintain state)
@@ -214,6 +218,198 @@ class PydanticAIAdapter(SimpleAdapter[PydanticAIMessages]):
         )
         agent.tool(thenvoi_create_chatroom)
 
+        # Contact management tools
+        async def thenvoi_list_contacts(
+            ctx: RunContext[AgentToolsProtocol],
+            page: int = 1,
+            page_size: int = 50,
+        ) -> dict[str, Any] | str:
+            try:
+                return await ctx.deps.list_contacts(page, page_size)
+            except Exception as e:
+                return f"Error listing contacts: {e}"
+
+        thenvoi_list_contacts.__doc__ = get_tool_description("thenvoi_list_contacts")
+        agent.tool(thenvoi_list_contacts)
+
+        async def thenvoi_add_contact(
+            ctx: RunContext[AgentToolsProtocol],
+            handle: str,
+            message: str | None = None,
+        ) -> dict[str, Any] | str:
+            try:
+                return await ctx.deps.add_contact(handle, message)
+            except Exception as e:
+                return f"Error adding contact '{handle}': {e}"
+
+        thenvoi_add_contact.__doc__ = get_tool_description("thenvoi_add_contact")
+        agent.tool(thenvoi_add_contact)
+
+        async def thenvoi_remove_contact(
+            ctx: RunContext[AgentToolsProtocol],
+            handle: str | None = None,
+            contact_id: str | None = None,
+        ) -> dict[str, Any] | str:
+            try:
+                return await ctx.deps.remove_contact(handle, contact_id)
+            except Exception as e:
+                return f"Error removing contact: {e}"
+
+        thenvoi_remove_contact.__doc__ = get_tool_description("thenvoi_remove_contact")
+        agent.tool(thenvoi_remove_contact)
+
+        async def thenvoi_list_contact_requests(
+            ctx: RunContext[AgentToolsProtocol],
+            page: int = 1,
+            page_size: int = 50,
+            sent_status: str = "pending",
+        ) -> dict[str, Any] | str:
+            try:
+                return await ctx.deps.list_contact_requests(
+                    page, page_size, sent_status
+                )
+            except Exception as e:
+                return f"Error listing contact requests: {e}"
+
+        thenvoi_list_contact_requests.__doc__ = get_tool_description(
+            "thenvoi_list_contact_requests"
+        )
+        agent.tool(thenvoi_list_contact_requests)
+
+        async def thenvoi_respond_contact_request(
+            ctx: RunContext[AgentToolsProtocol],
+            action: str,
+            handle: str | None = None,
+            request_id: str | None = None,
+        ) -> dict[str, Any] | str:
+            logger.info(
+                "thenvoi_respond_contact_request called: action=%s, handle=%s, request_id=%s",
+                action,
+                handle,
+                request_id,
+            )
+            try:
+                result = await ctx.deps.respond_contact_request(
+                    action, handle, request_id
+                )
+                logger.info("thenvoi_respond_contact_request result: %s", result)
+                return result
+            except Exception as e:
+                logger.error("thenvoi_respond_contact_request error: %s", e)
+                error_msg = f"Error responding to contact request: {e}"
+                # Auto-send error event so it's visible in the room
+                try:
+                    await ctx.deps.send_event(error_msg, "error")
+                except Exception:
+                    pass  # Don't fail if error reporting fails
+                return error_msg
+
+        thenvoi_respond_contact_request.__doc__ = get_tool_description(
+            "thenvoi_respond_contact_request"
+        )
+        agent.tool(thenvoi_respond_contact_request)
+
+        # Memory management tools (enterprise only - opt-in)
+        if self.enable_memory_tools:
+
+            async def thenvoi_list_memories(
+                ctx: RunContext[AgentToolsProtocol],
+                subject_id: str | None = None,
+                scope: str | None = None,
+                system: str | None = None,
+                type: str | None = None,
+                segment: str | None = None,
+                content_query: str | None = None,
+                page_size: int = 50,
+                status: str | None = None,
+            ) -> dict[str, Any] | str:
+                try:
+                    return await ctx.deps.list_memories(
+                        subject_id=subject_id,
+                        scope=scope,
+                        system=system,
+                        type=type,
+                        segment=segment,
+                        content_query=content_query,
+                        page_size=page_size,
+                        status=status,
+                    )
+                except Exception as e:
+                    return f"Error listing memories: {e}"
+
+            thenvoi_list_memories.__doc__ = get_tool_description(
+                "thenvoi_list_memories"
+            )
+            agent.tool(thenvoi_list_memories)
+
+            async def thenvoi_store_memory(
+                ctx: RunContext[AgentToolsProtocol],
+                content: str,
+                system: str,
+                type: str,
+                segment: str,
+                thought: str,
+                scope: str = "subject",
+                subject_id: str | None = None,
+                metadata: dict[str, Any] | None = None,
+            ) -> dict[str, Any] | str:
+                try:
+                    return await ctx.deps.store_memory(
+                        content=content,
+                        system=system,
+                        type=type,
+                        segment=segment,
+                        thought=thought,
+                        scope=scope,
+                        subject_id=subject_id,
+                        metadata=metadata,
+                    )
+                except Exception as e:
+                    return f"Error storing memory: {e}"
+
+            thenvoi_store_memory.__doc__ = get_tool_description("thenvoi_store_memory")
+            agent.tool(thenvoi_store_memory)
+
+            async def thenvoi_get_memory(
+                ctx: RunContext[AgentToolsProtocol],
+                memory_id: str,
+            ) -> dict[str, Any] | str:
+                try:
+                    return await ctx.deps.get_memory(memory_id)
+                except Exception as e:
+                    return f"Error getting memory: {e}"
+
+            thenvoi_get_memory.__doc__ = get_tool_description("thenvoi_get_memory")
+            agent.tool(thenvoi_get_memory)
+
+            async def thenvoi_supersede_memory(
+                ctx: RunContext[AgentToolsProtocol],
+                memory_id: str,
+            ) -> dict[str, Any] | str:
+                try:
+                    return await ctx.deps.supersede_memory(memory_id)
+                except Exception as e:
+                    return f"Error superseding memory: {e}"
+
+            thenvoi_supersede_memory.__doc__ = get_tool_description(
+                "thenvoi_supersede_memory"
+            )
+            agent.tool(thenvoi_supersede_memory)
+
+            async def thenvoi_archive_memory(
+                ctx: RunContext[AgentToolsProtocol],
+                memory_id: str,
+            ) -> dict[str, Any] | str:
+                try:
+                    return await ctx.deps.archive_memory(memory_id)
+                except Exception as e:
+                    return f"Error archiving memory: {e}"
+
+            thenvoi_archive_memory.__doc__ = get_tool_description(
+                "thenvoi_archive_memory"
+            )
+            agent.tool(thenvoi_archive_memory)
+
         # Register custom tools (user-provided PydanticAI-compatible functions)
         for custom_tool in self._custom_tools:
             agent.tool(custom_tool)
@@ -228,6 +424,7 @@ class PydanticAIAdapter(SimpleAdapter[PydanticAIMessages]):
         tools: AgentToolsProtocol,
         history: PydanticAIMessages,  # Already converted by SimpleAdapter
         participants_msg: str | None,
+        contacts_msg: str | None,
         *,
         is_session_bootstrap: bool,
         room_id: str,
@@ -259,6 +456,15 @@ class PydanticAIAdapter(SimpleAdapter[PydanticAIMessages]):
                 )
             )
             logger.debug("Room %s: Injected participant update into history", room_id)
+
+        # Inject contacts message if present
+        if contacts_msg:
+            self._message_history[room_id].append(
+                ModelRequest(
+                    parts=[UserPromptPart(content=f"[System]: {contacts_msg}")]
+                )
+            )
+            logger.debug("Room %s: Injected contacts broadcast into history", room_id)
 
         # Build user message with sender prefix
         user_message = msg.format_for_llm()

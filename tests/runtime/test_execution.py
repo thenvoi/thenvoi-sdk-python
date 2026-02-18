@@ -24,14 +24,15 @@ def mock_link():
 
     # REST client mock
     link.rest = MagicMock()
-    link.rest.agent_api = MagicMock()
+    link.rest.agent_api_participants = MagicMock()
+    link.rest.agent_api_context = MagicMock()
 
     # Mock list_agent_chat_participants
     participant1 = MagicMock()
     participant1.id = "user-1"
     participant1.name = "User One"
     participant1.type = "User"
-    link.rest.agent_api.list_agent_chat_participants = AsyncMock(
+    link.rest.agent_api_participants.list_agent_chat_participants = AsyncMock(
         return_value=MagicMock(data=[participant1])
     )
 
@@ -44,7 +45,7 @@ def mock_link():
     msg1.sender_name = "User One"
     msg1.message_type = "text"
     msg1.inserted_at = "2024-01-01T00:00:00Z"
-    link.rest.agent_api.get_agent_chat_context = AsyncMock(
+    link.rest.agent_api_context.get_agent_chat_context = AsyncMock(
         return_value=MagicMock(data=[msg1])
     )
 
@@ -305,7 +306,10 @@ class TestExecutionContextHydration:
         await ctx.hydrate()  # Second call
 
         # Should only call API once
-        assert mock_link.rest.agent_api.list_agent_chat_participants.call_count == 1
+        assert (
+            mock_link.rest.agent_api_participants.list_agent_chat_participants.call_count
+            == 1
+        )
 
     async def test_get_context_hydrates_lazily(self, mock_link, mock_handler):
         """get_context() should hydrate lazily."""
@@ -324,9 +328,12 @@ class TestExecutionContextHydration:
         await ctx.get_context(force_refresh=True)
 
         # Context API should be called twice
-        assert mock_link.rest.agent_api.get_agent_chat_context.call_count == 2
+        assert mock_link.rest.agent_api_context.get_agent_chat_context.call_count == 2
         # Participants only loaded once (tracked via WebSocket, not re-fetched)
-        assert mock_link.rest.agent_api.list_agent_chat_participants.call_count == 1
+        assert (
+            mock_link.rest.agent_api_participants.list_agent_chat_participants.call_count
+            == 1
+        )
 
 
 class TestExecutionContextLLMState:
@@ -393,13 +400,14 @@ class TestCrashRecoverySync:
         link = MagicMock()
         link.agent_id = "agent-123"
         link.rest = MagicMock()
-        link.rest.agent_api = MagicMock()
+        link.rest.agent_api_participants = MagicMock()
+        link.rest.agent_api_context = MagicMock()
 
         # Default: no messages
-        link.rest.agent_api.list_agent_chat_participants = AsyncMock(
+        link.rest.agent_api_participants.list_agent_chat_participants = AsyncMock(
             return_value=MagicMock(data=[])
         )
-        link.rest.agent_api.get_agent_chat_context = AsyncMock(
+        link.rest.agent_api_context.get_agent_chat_context = AsyncMock(
             return_value=MagicMock(data=[])
         )
 
@@ -778,7 +786,7 @@ class TestContextHydrationConfig:
         # Should return empty context without calling API
         assert context.messages == []
         assert context.participants == []
-        mock_link.rest.agent_api.get_agent_chat_context.assert_not_called()
+        mock_link.rest.agent_api_context.get_agent_chat_context.assert_not_called()
 
     async def test_get_context_calls_api_when_hydration_enabled(
         self, mock_link, mock_handler
@@ -794,7 +802,7 @@ class TestContextHydrationConfig:
         context = await ctx.get_context()
 
         # Should have called API
-        mock_link.rest.agent_api.get_agent_chat_context.assert_called_once()
+        mock_link.rest.agent_api_context.get_agent_chat_context.assert_called_once()
         assert len(context.messages) > 0
 
     async def test_get_history_for_llm_empty_when_hydration_disabled(
