@@ -641,6 +641,7 @@ class AgentTools(AgentToolsProtocol):
                     "id": peer.id,
                     "name": peer.name,
                     "type": getattr(peer, "type", "Agent"),
+                    "handle": getattr(peer, "handle", None),
                     "description": peer.description,
                 }
                 for peer in response.data
