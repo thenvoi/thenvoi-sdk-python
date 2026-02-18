@@ -53,28 +53,28 @@ logger = logging.getLogger(__name__)
 # Tool names as constants (MCP naming convention: mcp__{server}__{tool})
 # Base platform tools (always included)
 THENVOI_BASE_TOOLS = [
-    "mcp__thenvoi__send_message",
-    "mcp__thenvoi__send_event",
-    "mcp__thenvoi__add_participant",
-    "mcp__thenvoi__remove_participant",
-    "mcp__thenvoi__get_participants",
-    "mcp__thenvoi__lookup_peers",
-    "mcp__thenvoi__create_chatroom",
+    "mcp__thenvoi__thenvoi_send_message",
+    "mcp__thenvoi__thenvoi_send_event",
+    "mcp__thenvoi__thenvoi_add_participant",
+    "mcp__thenvoi__thenvoi_remove_participant",
+    "mcp__thenvoi__thenvoi_get_participants",
+    "mcp__thenvoi__thenvoi_lookup_peers",
+    "mcp__thenvoi__thenvoi_create_chatroom",
     # Contact management tools
-    "mcp__thenvoi__list_contacts",
-    "mcp__thenvoi__add_contact",
-    "mcp__thenvoi__remove_contact",
-    "mcp__thenvoi__list_contact_requests",
-    "mcp__thenvoi__respond_contact_request",
+    "mcp__thenvoi__thenvoi_list_contacts",
+    "mcp__thenvoi__thenvoi_add_contact",
+    "mcp__thenvoi__thenvoi_remove_contact",
+    "mcp__thenvoi__thenvoi_list_contact_requests",
+    "mcp__thenvoi__thenvoi_respond_contact_request",
 ]
 
 # Memory management tools (enterprise only - opt-in)
 THENVOI_MEMORY_TOOLS = [
-    "mcp__thenvoi__list_memories",
-    "mcp__thenvoi__store_memory",
-    "mcp__thenvoi__get_memory",
-    "mcp__thenvoi__supersede_memory",
-    "mcp__thenvoi__archive_memory",
+    "mcp__thenvoi__thenvoi_list_memories",
+    "mcp__thenvoi__thenvoi_store_memory",
+    "mcp__thenvoi__thenvoi_get_memory",
+    "mcp__thenvoi__thenvoi_supersede_memory",
+    "mcp__thenvoi__thenvoi_archive_memory",
 ]
 
 # All tools combined (for backwards compatibility)
@@ -746,7 +746,7 @@ class ClaudeSDKAdapter(SimpleAdapter[str]):
 
         # Add custom tools wrapped as MCP tools
         for custom_tool_def in adapter._custom_tools:
-            input_model, func = custom_tool_def
+            input_model, _ = custom_tool_def  # func used via execute_custom_tool
             tool_name = get_custom_tool_name(input_model)
             tool_description = input_model.__doc__ or f"Custom tool: {tool_name}"
 

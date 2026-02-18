@@ -130,7 +130,9 @@ class DefaultPreprocessor(Preprocessor):
         try:
             logger.info("Room %s: Loading history...", ctx.room_id)
             context = await ctx.get_context()
-            history = format_history_for_llm(context.messages, exclude_id=msg.id)
+            history = format_history_for_llm(
+                context.messages, exclude_id=msg.id, participants=ctx.participants
+            )
             logger.info(
                 "Room %s: Got %s messages",
                 ctx.room_id,

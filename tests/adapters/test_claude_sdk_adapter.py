@@ -317,19 +317,19 @@ class TestThenvoiTools:
     def test_thenvoi_base_tools_list(self):
         """Should define base platform tools (always included)."""
         expected = [
-            "mcp__thenvoi__send_message",
-            "mcp__thenvoi__send_event",
-            "mcp__thenvoi__add_participant",
-            "mcp__thenvoi__remove_participant",
-            "mcp__thenvoi__get_participants",
-            "mcp__thenvoi__lookup_peers",
-            "mcp__thenvoi__create_chatroom",
+            "mcp__thenvoi__thenvoi_send_message",
+            "mcp__thenvoi__thenvoi_send_event",
+            "mcp__thenvoi__thenvoi_add_participant",
+            "mcp__thenvoi__thenvoi_remove_participant",
+            "mcp__thenvoi__thenvoi_get_participants",
+            "mcp__thenvoi__thenvoi_lookup_peers",
+            "mcp__thenvoi__thenvoi_create_chatroom",
             # Contact management tools
-            "mcp__thenvoi__list_contacts",
-            "mcp__thenvoi__add_contact",
-            "mcp__thenvoi__remove_contact",
-            "mcp__thenvoi__list_contact_requests",
-            "mcp__thenvoi__respond_contact_request",
+            "mcp__thenvoi__thenvoi_list_contacts",
+            "mcp__thenvoi__thenvoi_add_contact",
+            "mcp__thenvoi__thenvoi_remove_contact",
+            "mcp__thenvoi__thenvoi_list_contact_requests",
+            "mcp__thenvoi__thenvoi_respond_contact_request",
         ]
 
         assert THENVOI_BASE_TOOLS == expected
@@ -337,11 +337,11 @@ class TestThenvoiTools:
     def test_thenvoi_memory_tools_list(self):
         """Should define memory tools (enterprise only - opt-in)."""
         expected = [
-            "mcp__thenvoi__list_memories",
-            "mcp__thenvoi__store_memory",
-            "mcp__thenvoi__get_memory",
-            "mcp__thenvoi__supersede_memory",
-            "mcp__thenvoi__archive_memory",
+            "mcp__thenvoi__thenvoi_list_memories",
+            "mcp__thenvoi__thenvoi_store_memory",
+            "mcp__thenvoi__thenvoi_get_memory",
+            "mcp__thenvoi__thenvoi_supersede_memory",
+            "mcp__thenvoi__thenvoi_archive_memory",
         ]
 
         assert THENVOI_MEMORY_TOOLS == expected
@@ -437,7 +437,7 @@ class TestCustomTools:
             # Verify custom tool is in allowed_tools
             assert "mcp__thenvoi__calculator" in sdk_options.allowed_tools
             # Platform tools should still be there
-            assert "mcp__thenvoi__send_message" in sdk_options.allowed_tools
+            assert "mcp__thenvoi__thenvoi_send_message" in sdk_options.allowed_tools
 
     @pytest.mark.asyncio
     async def test_custom_tools_registered_in_mcp_server(self):

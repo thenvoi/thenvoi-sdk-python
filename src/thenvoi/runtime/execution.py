@@ -599,6 +599,7 @@ class ExecutionContext:
         return format_history_for_llm(
             self._context_cache.messages,
             exclude_id=exclude_message_id,
+            participants=self._participants,
         )
 
     def build_participants_message(self) -> str:

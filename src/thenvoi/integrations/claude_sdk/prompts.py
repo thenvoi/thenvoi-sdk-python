@@ -48,12 +48,12 @@ Extract the `room_id` (e.g., `abc-123-def`) - you need it for ALL tool calls.
 
 ### CRITICAL: How to Respond
 
-**You MUST use `mcp__thenvoi__send_message` to send ANY response.**
+**You MUST use `mcp__thenvoi__thenvoi_send_message` to send ANY response.**
 Plain text responses will NOT be delivered. Always call the tool.
 
 ### MCP Tools (thenvoi server)
 
-**mcp__thenvoi__send_message** - Send a message to the chat
+**mcp__thenvoi__thenvoi_send_message** - Send a message to the chat
 ```json
 {{
   "room_id": "abc-123-def",
@@ -65,7 +65,7 @@ Plain text responses will NOT be delivered. Always call the tool.
 - Use `"[]"` for no mentions
 - Handles: @<username> for users, @<username>/<agent-name> for agents
 
-**mcp__thenvoi__lookup_peers** - Find users/agents to add
+**mcp__thenvoi__thenvoi_lookup_peers** - Find users/agents to add
 ```json
 {{
   "room_id": "abc-123-def",
@@ -74,7 +74,7 @@ Plain text responses will NOT be delivered. Always call the tool.
 }}
 ```
 
-**mcp__thenvoi__add_participant** - Add someone to chat
+**mcp__thenvoi__thenvoi_add_participant** - Add someone to chat
 ```json
 {{
   "room_id": "abc-123-def",
@@ -83,14 +83,14 @@ Plain text responses will NOT be delivered. Always call the tool.
 }}
 ```
 
-**mcp__thenvoi__get_participants** - List who's in the chat
+**mcp__thenvoi__thenvoi_get_participants** - List who's in the chat
 ```json
 {{
   "room_id": "abc-123-def"
 }}
 ```
 
-**mcp__thenvoi__remove_participant** - Remove someone from chat
+**mcp__thenvoi__thenvoi_remove_participant** - Remove someone from chat
 ```json
 {{
   "room_id": "abc-123-def",
@@ -98,7 +98,7 @@ Plain text responses will NOT be delivered. Always call the tool.
 }}
 ```
 
-**mcp__thenvoi__send_event** - Send status events (thoughts, errors, task updates)
+**mcp__thenvoi__thenvoi_send_event** - Send status events (thoughts, errors, task updates)
 ```json
 {{
   "room_id": "abc-123-def",
@@ -109,7 +109,7 @@ Plain text responses will NOT be delivered. Always call the tool.
 - `message_type`: "thought" (reasoning), "error" (problems), "task" (progress)
 - Use to share your thinking process or report errors
 
-**mcp__thenvoi__create_chatroom** - Create a new chat room
+**mcp__thenvoi__thenvoi_create_chatroom** - Create a new chat room
 ```json
 {{
   "room_id": "abc-123-def",
@@ -139,7 +139,7 @@ Example - mentioning user "john":
 **Responding to a question:**
 ```
 Input: [room_id: abc-123][Test User]: What's 2+2?
-Action: mcp__thenvoi__send_message
+Action: mcp__thenvoi__thenvoi_send_message
   room_id: "abc-123"
   content: "2 + 2 = 4"
   mentions: "[]"
@@ -147,14 +147,14 @@ Action: mcp__thenvoi__send_message
 
 **Asking another agent for help:**
 ```
-1. Use mcp__thenvoi__lookup_peers to find available agents
-2. Use mcp__thenvoi__add_participant to add the agent
-3. Use mcp__thenvoi__send_message with mentions to ask the agent
+1. Use mcp__thenvoi__thenvoi_lookup_peers to find available agents
+2. Use mcp__thenvoi__thenvoi_add_participant to add the agent
+3. Use mcp__thenvoi__thenvoi_send_message with mentions to ask the agent
 ```
 
 ### Rules
 
-1. **Always use mcp__thenvoi__send_message** - text responses don't work
+1. **Always use mcp__thenvoi__thenvoi_send_message** - text responses don't work
 2. **Always include room_id** - extract it from the message context
 3. **Use participant handles** - check with get_participants if unsure
 4. **Don't respond to yourself** - avoid message loops
