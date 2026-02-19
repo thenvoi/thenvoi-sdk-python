@@ -85,9 +85,9 @@ class InMemorySessionStore:
         self._sessions: dict[str, SessionData] = {}
         self._lock = asyncio.Lock()
         self._session_ttl = session_ttl
+        self._high_session_warned = False
 
     _HIGH_SESSION_THRESHOLD = 10_000
-    _high_session_warned: bool = False
 
     def _evict_expired(self) -> None:
         """Remove sessions that have exceeded the TTL. Must be called under lock.
