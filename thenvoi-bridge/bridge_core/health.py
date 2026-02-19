@@ -71,7 +71,7 @@ class HealthServer:
     async def _health_handler(self, request: web.Request) -> web.Response:
         """Handle GET /health requests.
 
-        Note: ``list_sessions()`` triggers lazy eviction of expired sessions,
+        Note: ``count()`` triggers lazy eviction of expired sessions,
         so the Docker healthcheck (default: every 30 s) doubles as the
         eviction driver.  See ``InMemorySessionStore`` for details.
         """
@@ -85,7 +85,6 @@ class HealthServer:
         }
 
         if self._session_store is not None:
-            sessions = await self._session_store.list_sessions()
-            body["active_sessions"] = len(sessions)
+            body["active_sessions"] = await self._session_store.count()
 
         return web.json_response(body, status=200 if connected else 503)

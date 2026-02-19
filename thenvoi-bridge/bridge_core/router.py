@@ -33,6 +33,7 @@ class MentionRouter:
         session_store: SessionStore,
         agent_id: str,
         link: ThenvoiLink,
+        handler_timeout: float | None = None,
     ) -> None:
         """Initialize the mention router.
 
@@ -42,12 +43,15 @@ class MentionRouter:
             session_store: Session store for tracking conversations.
             agent_id: The bridge agent's own ID (for self-message filtering).
             link: ThenvoiLink for message lifecycle marking.
+            handler_timeout: Optional timeout in seconds for handler execution.
+                None means no timeout (handlers can run indefinitely).
         """
         self._agent_mapping = agent_mapping
         self._handlers = handlers
         self._session_store = session_store
         self._agent_id = agent_id
         self._link = link
+        self._handler_timeout = handler_timeout
 
     @staticmethod
     def parse_agent_mapping(mapping_str: str) -> dict[str, str]:
@@ -180,7 +184,7 @@ class MentionRouter:
                 room_id,
             )
             try:
-                await handler.handle(
+                coro = handler.handle(
                     content=payload.content,
                     room_id=room_id,
                     thread_id=thread_id,
@@ -190,6 +194,23 @@ class MentionRouter:
                     sender_type=payload.sender_type,
                     mentioned_agent=username,
                     tools=tools,
+                )
+                if self._handler_timeout is not None:
+                    await asyncio.wait_for(coro, timeout=self._handler_timeout)
+                else:
+                    await coro
+            except asyncio.TimeoutError:
+                logger.error(
+                    "Handler '%s' timed out after %.1fs for @%s in room %s",
+                    handler_name,
+                    self._handler_timeout,
+                    username,
+                    room_id,
+                )
+                return (
+                    handler_name,
+                    username,
+                    TimeoutError(f"timed out after {self._handler_timeout}s"),
                 )
             except Exception as e:
                 logger.exception(

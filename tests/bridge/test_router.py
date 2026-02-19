@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -557,3 +558,120 @@ class TestMentionRouterRoute:
 
         call_kwargs = mock_handler.handle.call_args.kwargs
         assert call_kwargs["sender_name"] is None
+
+
+class TestMentionRouterTimeout:
+    """Tests for handler execution timeout."""
+
+    @pytest.fixture
+    def session_store(self) -> InMemorySessionStore:
+        return InMemorySessionStore()
+
+    @pytest.fixture
+    def mock_link(self) -> AsyncMock:
+        link = AsyncMock()
+        link.mark_processing = AsyncMock()
+        link.mark_processed = AsyncMock()
+        link.mark_failed = AsyncMock()
+        return link
+
+    async def test_handler_timeout_fires(
+        self, session_store: InMemorySessionStore, mock_link: AsyncMock
+    ) -> None:
+        """A handler that exceeds the timeout should be reported as failed."""
+        handler = AsyncMock()
+
+        async def slow_handler(**kwargs: object) -> None:
+            await asyncio.sleep(10)
+
+        handler.handle = slow_handler
+
+        router = MentionRouter(
+            agent_mapping={"alice": "handler_a"},
+            handlers={"handler_a": handler},
+            session_store=session_store,
+            agent_id="bridge-agent-id",
+            link=mock_link,
+            handler_timeout=0.01,
+        )
+
+        payload = _make_payload(mentions=[Mention(id="alice-id", username="alice")])
+        tools = MagicMock()
+        tools.send_event = AsyncMock()
+
+        await router.route(payload, "room-1", tools)
+
+        # Should be marked as failed due to timeout
+        mock_link.mark_failed.assert_called_once()
+        mark_failed_msg = mock_link.mark_failed.call_args[0][2]
+        assert "timed out" in mark_failed_msg
+
+        # Error event should be sent to chat
+        tools.send_event.assert_called_once()
+        event_content = tools.send_event.call_args.kwargs["content"]
+        assert "@alice" in event_content
+
+    async def test_no_timeout_when_disabled(
+        self, session_store: InMemorySessionStore, mock_link: AsyncMock
+    ) -> None:
+        """With handler_timeout=None, handlers run without timeout."""
+        handler = AsyncMock()
+
+        router = MentionRouter(
+            agent_mapping={"alice": "handler_a"},
+            handlers={"handler_a": handler},
+            session_store=session_store,
+            agent_id="bridge-agent-id",
+            link=mock_link,
+            handler_timeout=None,
+        )
+
+        payload = _make_payload(mentions=[Mention(id="alice-id", username="alice")])
+        tools = MagicMock()
+
+        await router.route(payload, "room-1", tools)
+
+        handler.handle.assert_called_once()
+        mock_link.mark_processed.assert_called_once()
+
+    async def test_timeout_partial_success(
+        self, session_store: InMemorySessionStore, mock_link: AsyncMock
+    ) -> None:
+        """When one handler times out but another succeeds, partial success applies."""
+        fast_handler = AsyncMock()
+
+        slow_handler = AsyncMock()
+
+        async def slow_handle(**kwargs: object) -> None:
+            await asyncio.sleep(10)
+
+        slow_handler.handle = slow_handle
+
+        router = MentionRouter(
+            agent_mapping={"alice": "handler_a", "bob": "handler_b"},
+            handlers={"handler_a": fast_handler, "handler_b": slow_handler},
+            session_store=session_store,
+            agent_id="bridge-agent-id",
+            link=mock_link,
+            handler_timeout=0.01,
+        )
+
+        payload = _make_payload(
+            mentions=[
+                Mention(id="alice-id", username="alice"),
+                Mention(id="bob-id", username="bob"),
+            ]
+        )
+        tools = MagicMock()
+        tools.send_event = AsyncMock()
+
+        await router.route(payload, "room-1", tools)
+
+        # Partial success: mark_processed (not mark_failed)
+        fast_handler.handle.assert_called_once()
+        mock_link.mark_processed.assert_called_once_with("room-1", "msg-1")
+        mock_link.mark_failed.assert_not_called()
+        # Error event should report the timeout
+        tools.send_event.assert_called_once()
+        event_content = tools.send_event.call_args.kwargs["content"]
+        assert "@bob" in event_content

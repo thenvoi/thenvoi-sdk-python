@@ -61,12 +61,20 @@ class SessionStore(Protocol):
         """
         ...
 
+    async def count(self) -> int:
+        """Return the number of active sessions.
+
+        Returns:
+            Count of active (non-expired) sessions.
+        """
+        ...
+
 
 class InMemorySessionStore:
     """In-memory session store implementation.
 
-    Eviction is lazy: expired sessions are removed only when accessed via
-    ``get``, ``get_or_create``, or ``list_sessions``.
+    Eviction is lazy: expired sessions are removed only when
+    ``list_sessions`` or ``count`` is called.
 
     .. important::
 
@@ -92,9 +100,10 @@ class InMemorySessionStore:
     def _evict_expired(self) -> None:
         """Remove sessions that have exceeded the TTL. Must be called under lock.
 
-        This is O(n) over all sessions and runs on every read operation (get,
-        get_or_create, list_sessions). Acceptable for expected session counts
-        (hundreds); consider a background eviction task if this becomes a bottleneck.
+        This is O(n) over all sessions and runs on ``list_sessions`` and
+        ``count`` (not on the hot-path ``get``/``get_or_create``).
+        Acceptable for expected session counts (hundreds); consider a
+        background eviction task if this becomes a bottleneck.
         """
         if self._session_ttl is None:
             return
@@ -121,7 +130,6 @@ class InMemorySessionStore:
 
     async def get_or_create(self, room_id: str) -> SessionData:
         async with self._lock:
-            self._evict_expired()
             if room_id in self._sessions:
                 self._sessions[room_id].last_activity = datetime.now(timezone.utc)
                 return self._sessions[room_id]
@@ -132,7 +140,6 @@ class InMemorySessionStore:
 
     async def get(self, room_id: str) -> SessionData | None:
         async with self._lock:
-            self._evict_expired()
             return self._sessions.get(room_id)
 
     async def remove(self, room_id: str) -> None:
@@ -143,3 +150,8 @@ class InMemorySessionStore:
         async with self._lock:
             self._evict_expired()
             return list(self._sessions.values())
+
+    async def count(self) -> int:
+        async with self._lock:
+            self._evict_expired()
+            return len(self._sessions)

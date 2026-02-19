@@ -8,7 +8,7 @@ import os
 import random
 import signal
 from collections import OrderedDict
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, TypedDict
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -35,6 +35,14 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+class ParticipantRecord(TypedDict):
+    """Typed dict for participant cache entries."""
+
+    id: str
+    name: str
+    type: str
+
+
 class BridgeConfig(BaseModel):
     """Bridge configuration loaded from environment variables."""
 
@@ -46,6 +54,7 @@ class BridgeConfig(BaseModel):
     health_port: int = 8080
     health_host: str = "0.0.0.0"
     session_ttl: float = 86400.0  # 24 hours; 0 disables eviction
+    handler_timeout: float = 300.0  # 5 minutes; 0 disables timeout
 
     @field_validator("agent_id")
     @classmethod
@@ -85,6 +94,14 @@ class BridgeConfig(BaseModel):
         """Validate session_ttl is non-negative (0 disables eviction)."""
         if v < 0:
             raise ValueError(f"SESSION_TTL must be non-negative, got: {v}")
+        return v
+
+    @field_validator("handler_timeout")
+    @classmethod
+    def validate_handler_timeout(cls, v: float) -> float:
+        """Validate handler_timeout is non-negative (0 disables timeout)."""
+        if v < 0:
+            raise ValueError(f"HANDLER_TIMEOUT must be non-negative, got: {v}")
         return v
 
     @classmethod
@@ -140,6 +157,15 @@ class BridgeConfig(BaseModel):
             except ValueError:
                 raise ValueError(
                     f"SESSION_TTL must be a valid number, got: '{session_ttl_str}'"
+                ) from None
+
+        if "HANDLER_TIMEOUT" in os.environ:
+            handler_timeout_str = os.environ["HANDLER_TIMEOUT"]
+            try:
+                kwargs["handler_timeout"] = float(handler_timeout_str)
+            except ValueError:
+                raise ValueError(
+                    f"HANDLER_TIMEOUT must be a valid number, got: '{handler_timeout_str}'"
                 ) from None
 
         return cls(**kwargs)
@@ -220,7 +246,7 @@ class ThenvoiBridge:
         self._reconnect = reconnect_config or ReconnectConfig()
         self._shutdown_event = asyncio.Event()
         self._connected_event = asyncio.Event()
-        self._participant_cache: dict[str, list[dict[str, Any]]] = {}
+        self._participant_cache: dict[str, list[ParticipantRecord]] = {}
         self._processed_message_ids: OrderedDict[str, None] = OrderedDict()
 
         # Parse and validate agent mapping
@@ -241,12 +267,16 @@ class ThenvoiBridge:
         self._session_store = InMemorySessionStore(session_ttl=effective_ttl)
 
         # Router
+        effective_timeout = (
+            config.handler_timeout if config.handler_timeout > 0 else None
+        )
         self._router = MentionRouter(
             agent_mapping=self._agent_mapping,
             handlers=self._handlers,
             session_store=self._session_store,
             agent_id=config.agent_id,
             link=self._link,
+            handler_timeout=effective_timeout,
         )
 
         # Health server
@@ -507,7 +537,9 @@ class ThenvoiBridge:
                     p["id"] == payload.id for p in cached
                 ):
                     cached.append(
-                        {"id": payload.id, "name": payload.name, "type": payload.type}
+                        ParticipantRecord(
+                            id=payload.id, name=payload.name, type=payload.type
+                        )
                     )
 
             case ParticipantRemovedEvent(room_id=room_id, payload=payload) if (
@@ -545,8 +577,10 @@ class ThenvoiBridge:
             return
 
         # Use cached participants, fall back to REST on cache miss
-        participants = self._participant_cache.get(room_id)
-        if participants is None:
+        participants: list[ParticipantRecord] = (
+            self._participant_cache.get(room_id) or []
+        )
+        if room_id not in self._participant_cache:
             try:
                 participants = await self._get_room_participants(room_id)
                 self._participant_cache[room_id] = participants
@@ -556,7 +590,6 @@ class ThenvoiBridge:
                     room_id,
                     exc_info=True,
                 )
-                participants = []
 
         # Resolve sender name from participants
         sender_name = next(
@@ -600,14 +633,14 @@ class ThenvoiBridge:
                 "Failed to cache participants for room %s", room_id, exc_info=True
             )
 
-    async def _get_room_participants(self, room_id: str) -> list[dict[str, Any]]:
+    async def _get_room_participants(self, room_id: str) -> list[ParticipantRecord]:
         """Fetch participants for a room.
 
         Args:
             room_id: The room ID.
 
         Returns:
-            List of participant dicts with id, name, type.
+            List of ParticipantRecord dicts with id, name, type.
         """
         response = (
             await self._link.rest.agent_api_participants.list_agent_chat_participants(
@@ -618,7 +651,9 @@ class ThenvoiBridge:
         if not response.data:
             return []
 
-        return [{"id": p.id, "name": p.name, "type": p.type} for p in response.data]
+        return [
+            ParticipantRecord(id=p.id, name=p.name, type=p.type) for p in response.data
+        ]
 
 
 async def main(handlers: dict[str, BaseHandler]) -> None:

@@ -111,15 +111,15 @@ class TestInMemorySessionStoreTTL:
     def store(self) -> InMemorySessionStore:
         return InMemorySessionStore(session_ttl=60.0)
 
-    async def test_expired_session_evicted_on_get(
+    async def test_get_returns_expired_session(
         self, store: InMemorySessionStore
     ) -> None:
+        """get() does not evict — expired sessions are still returned."""
         session = await store.get_or_create("room-1")
-        # Backdate last_activity to exceed TTL
         session.last_activity = datetime.now(timezone.utc) - timedelta(seconds=120)
 
         result = await store.get("room-1")
-        assert result is None
+        assert result is not None
 
     async def test_active_session_not_evicted(
         self, store: InMemorySessionStore
@@ -140,16 +140,29 @@ class TestInMemorySessionStoreTTL:
         assert len(sessions) == 1
         assert sessions[0].room_id == "room-2"
 
-    async def test_expired_evicted_from_get_or_create(
+    async def test_expired_evicted_from_count(
         self, store: InMemorySessionStore
     ) -> None:
         s1 = await store.get_or_create("room-1")
+        await store.get_or_create("room-2")
+
+        # Expire room-1 only
         s1.last_activity = datetime.now(timezone.utc) - timedelta(seconds=120)
 
-        # get_or_create should evict the expired one and create fresh
+        assert await store.count() == 1
+
+    async def test_get_or_create_does_not_evict(
+        self, store: InMemorySessionStore
+    ) -> None:
+        """get_or_create() does not run eviction; it updates last_activity instead."""
+        s1 = await store.get_or_create("room-1")
+        s1.last_activity = datetime.now(timezone.utc) - timedelta(seconds=120)
+
+        # get_or_create updates last_activity, does not evict
         s2 = await store.get_or_create("room-1")
-        assert s2 is not s1
-        assert s2.room_id == "room-1"
+        assert s2 is s1
+        # last_activity should be refreshed
+        assert (datetime.now(timezone.utc) - s2.last_activity).total_seconds() < 5
 
     async def test_no_ttl_means_no_eviction(self) -> None:
         store = InMemorySessionStore(session_ttl=None)
@@ -158,3 +171,16 @@ class TestInMemorySessionStoreTTL:
 
         result = await store.get("room-1")
         assert result is not None
+
+    async def test_count_empty(self) -> None:
+        store = InMemorySessionStore()
+        assert await store.count() == 0
+
+    async def test_count_matches_list(self) -> None:
+        store = InMemorySessionStore()
+        await store.get_or_create("room-1")
+        await store.get_or_create("room-2")
+        await store.get_or_create("room-3")
+
+        assert await store.count() == 3
+        assert await store.count() == len(await store.list_sessions())

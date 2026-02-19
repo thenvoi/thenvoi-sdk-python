@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from .bridge import BridgeConfig, ReconnectConfig, ThenvoiBridge
+from .bridge import BridgeConfig, ParticipantRecord, ReconnectConfig, ThenvoiBridge
 from .handler import BaseHandler
 from .health import HealthServer
 from .router import MentionRouter
@@ -12,6 +12,7 @@ __all__ = [
     "HealthServer",
     "InMemorySessionStore",
     "MentionRouter",
+    "ParticipantRecord",
     "ReconnectConfig",
     "SessionData",
     "SessionStore",

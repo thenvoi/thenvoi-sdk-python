@@ -144,6 +144,7 @@ class TestBridgeConfig:
             "HEALTH_PORT",
             "HEALTH_HOST",
             "SESSION_TTL",
+            "HANDLER_TIMEOUT",
         ):
             monkeypatch.delenv(var, raising=False)
 
@@ -153,6 +154,7 @@ class TestBridgeConfig:
         assert config.health_port == 8080
         assert config.health_host == "0.0.0.0"
         assert config.session_ttl == 86400.0
+        assert config.handler_timeout == 300.0
 
     def test_from_env_invalid_health_port(
         self, monkeypatch: pytest.MonkeyPatch
@@ -175,6 +177,77 @@ class TestBridgeConfig:
         monkeypatch.setenv("HEALTH_PORT", port)
 
         with pytest.raises(ValueError, match="HEALTH_PORT must be between 1 and 65535"):
+            BridgeConfig.from_env()
+
+    def test_handler_timeout_default(self) -> None:
+        config = BridgeConfig(agent_id="id", api_key="key", agent_mapping="a:b")
+        assert config.handler_timeout == 300.0
+
+    def test_handler_timeout_zero_disables(self) -> None:
+        config = BridgeConfig(
+            agent_id="id", api_key="key", agent_mapping="a:b", handler_timeout=0
+        )
+        assert config.handler_timeout == 0
+
+    def test_handler_timeout_custom(self) -> None:
+        config = BridgeConfig(
+            agent_id="id", api_key="key", agent_mapping="a:b", handler_timeout=60.0
+        )
+        assert config.handler_timeout == 60.0
+
+    @pytest.mark.parametrize("timeout", [-1, -0.5])
+    def test_invalid_handler_timeout(self, timeout: float) -> None:
+        with pytest.raises(ValueError, match="HANDLER_TIMEOUT must be non-negative"):
+            BridgeConfig(
+                agent_id="id",
+                api_key="key",
+                agent_mapping="a:b",
+                handler_timeout=timeout,
+            )
+
+    def test_from_env_with_handler_timeout(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("THENVOI_AGENT_ID", "test-agent")
+        monkeypatch.setenv("THENVOI_API_KEY", "test-key")
+        monkeypatch.setenv("AGENT_MAPPING", "alice:handler_a")
+        monkeypatch.setenv("HANDLER_TIMEOUT", "60")
+
+        config = BridgeConfig.from_env()
+        assert config.handler_timeout == 60.0
+
+    def test_from_env_handler_timeout_zero(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("THENVOI_AGENT_ID", "test-agent")
+        monkeypatch.setenv("THENVOI_API_KEY", "test-key")
+        monkeypatch.setenv("AGENT_MAPPING", "alice:handler_a")
+        monkeypatch.setenv("HANDLER_TIMEOUT", "0")
+
+        config = BridgeConfig.from_env()
+        assert config.handler_timeout == 0
+
+    def test_from_env_invalid_handler_timeout(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("THENVOI_AGENT_ID", "test-agent")
+        monkeypatch.setenv("THENVOI_API_KEY", "test-key")
+        monkeypatch.setenv("AGENT_MAPPING", "alice:handler_a")
+        monkeypatch.setenv("HANDLER_TIMEOUT", "not-a-number")
+
+        with pytest.raises(ValueError, match="HANDLER_TIMEOUT must be a valid number"):
+            BridgeConfig.from_env()
+
+    @pytest.mark.parametrize("timeout", ["-1", "-0.5"])
+    def test_from_env_invalid_handler_timeout_negative(
+        self, monkeypatch: pytest.MonkeyPatch, timeout: str
+    ) -> None:
+        monkeypatch.setenv("THENVOI_AGENT_ID", "test-agent")
+        monkeypatch.setenv("THENVOI_API_KEY", "test-key")
+        monkeypatch.setenv("AGENT_MAPPING", "alice:handler_a")
+        monkeypatch.setenv("HANDLER_TIMEOUT", timeout)
+
+        with pytest.raises(ValueError, match="HANDLER_TIMEOUT must be non-negative"):
             BridgeConfig.from_env()
 
     def test_from_env_missing_required(self, monkeypatch: pytest.MonkeyPatch) -> None:
