@@ -118,10 +118,10 @@ class MentionRouter:
             return
 
         # Extract mentions from metadata
-        mentions = payload.metadata.mentions
-        if not mentions:
+        if not payload.metadata or not payload.metadata.mentions:
             logger.debug("No mentions in message %s, skipping", payload.id)
             return
+        mentions = payload.metadata.mentions
 
         # Resolve which mentions map to registered handlers (deduplicate by username
         # so that repeated @mentions in one message don't dispatch the same handler twice)
@@ -129,6 +129,8 @@ class MentionRouter:
         seen_usernames: set[str] = set()
         for mention in mentions:
             username = mention.username
+            if username is None:
+                continue
             if username in seen_usernames:
                 continue
             seen_usernames.add(username)
