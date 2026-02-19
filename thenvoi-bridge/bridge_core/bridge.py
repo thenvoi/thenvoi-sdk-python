@@ -404,14 +404,14 @@ class ThenvoiBridge:
                 try:
                     event = next_fut.result()
                 except StopAsyncIteration:
-                    # Defensive: in practice asyncio wraps StopAsyncIteration
-                    # in RuntimeError when raised inside a Future, but we
-                    # catch it directly as well for safety.
+                    # Defensive: ThenvoiLink.__anext__ currently blocks
+                    # forever on Queue.get() and never raises this, but we
+                    # handle it in case the implementation changes.
                     break
                 except RuntimeError as e:
-                    # CPython uses __context__ (implicit chain) when wrapping
-                    # StopAsyncIteration in RuntimeError inside a Future.
-                    # Check both for safety.
+                    # Defensive: CPython wraps StopAsyncIteration in
+                    # RuntimeError inside a Future.  Currently unreachable
+                    # for the same reason as above, kept for robustness.
                     if isinstance(e.__cause__, StopAsyncIteration) or isinstance(
                         e.__context__, StopAsyncIteration
                     ):
@@ -421,9 +421,10 @@ class ThenvoiBridge:
                 try:
                     await self._handle_event(event)
                 except Exception:
-                    logger.exception(
+                    logger.warning(
                         "Unexpected error handling event %s",
                         type(event).__name__,
+                        exc_info=True,
                     )
         finally:
             if not shutdown_fut.done():
@@ -438,7 +439,7 @@ class ThenvoiBridge:
             List of room IDs.
         """
         try:
-            response = await self._link.rest.agent_api.list_agent_chats(
+            response = await self._link.rest.agent_api_chats.list_agent_chats(
                 request_options=DEFAULT_REQUEST_OPTIONS,
             )
             if response.data:
@@ -481,6 +482,8 @@ class ThenvoiBridge:
             case ParticipantAddedEvent(room_id=room_id, payload=payload) if (
                 room_id and payload
             ):
+                # No await between read and mutate -- safe under asyncio's
+                # single-threaded model.  Do not add awaits in this block.
                 cached = self._participant_cache.get(room_id)
                 if cached is not None and not any(
                     p["id"] == payload.id for p in cached
@@ -492,6 +495,8 @@ class ThenvoiBridge:
             case ParticipantRemovedEvent(room_id=room_id, payload=payload) if (
                 room_id and payload
             ):
+                # No await between read and mutate -- safe under asyncio's
+                # single-threaded model.  Do not add awaits in this block.
                 cached = self._participant_cache.get(room_id)
                 if cached is not None:
                     self._participant_cache[room_id] = [
@@ -578,9 +583,11 @@ class ThenvoiBridge:
         Returns:
             List of participant dicts with id, name, type.
         """
-        response = await self._link.rest.agent_api.list_agent_chat_participants(
-            chat_id=room_id,
-            request_options=DEFAULT_REQUEST_OPTIONS,
+        response = (
+            await self._link.rest.agent_api_participants.list_agent_chat_participants(
+                chat_id=room_id,
+                request_options=DEFAULT_REQUEST_OPTIONS,
+            )
         )
         if not response.data:
             return []

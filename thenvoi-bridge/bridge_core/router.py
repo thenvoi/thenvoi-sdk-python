@@ -152,7 +152,9 @@ class MentionRouter:
             logger.debug("No mapped handlers for mentions in message %s", payload.id)
             return
 
-        # Mark processing once for the whole message
+        # Mark processing once for the whole message.
+        # Note: ThenvoiLink.mark_processing swallows exceptions internally,
+        # so this try/except is defensive against future changes to the link.
         try:
             await self._link.mark_processing(room_id, payload.id)
         except Exception:
@@ -222,6 +224,8 @@ class MentionRouter:
             user_message = "; ".join(user_summaries)
 
             if all_failed:
+                # Defensive try/except: ThenvoiLink swallows exceptions
+                # internally, kept for robustness against future changes.
                 try:
                     await self._link.mark_failed(room_id, payload.id, internal_message)
                 except Exception:
@@ -238,6 +242,7 @@ class MentionRouter:
                 logger.warning(
                     "Partial failure for message %s: %s", payload.id, internal_message
                 )
+                # Defensive try/except: see comment on mark_processing above.
                 try:
                     await self._link.mark_processed(room_id, payload.id)
                 except Exception:
@@ -259,6 +264,7 @@ class MentionRouter:
                     exc_info=True,
                 )
         else:
+            # Defensive try/except: see comment on mark_processing above.
             try:
                 await self._link.mark_processed(room_id, payload.id)
             except Exception:

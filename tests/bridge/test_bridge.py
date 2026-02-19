@@ -397,8 +397,8 @@ class TestThenvoiBridgeHandleEvent:
         # Mock participant fetch
         mock_response = MagicMock()
         mock_response.data = []
-        bridge._link.rest.agent_api.list_agent_chat_participants = AsyncMock(
-            return_value=mock_response
+        bridge._link.rest.agent_api_participants.list_agent_chat_participants = (
+            AsyncMock(return_value=mock_response)
         )
         bridge._link.mark_processing = AsyncMock()
         bridge._link.mark_processed = AsyncMock()
@@ -495,8 +495,8 @@ class TestThenvoiBridgeHandleEvent:
         mock_participant.type = "User"
         mock_response = MagicMock()
         mock_response.data = [mock_participant]
-        bridge._link.rest.agent_api.list_agent_chat_participants = AsyncMock(
-            return_value=mock_response
+        bridge._link.rest.agent_api_participants.list_agent_chat_participants = (
+            AsyncMock(return_value=mock_response)
         )
 
         event = RoomAddedEvent(
@@ -642,7 +642,7 @@ class TestThenvoiBridgeParticipantCache:
         await bridge._on_message("room-1", payload)
 
         # REST API should NOT be called since cache was used
-        bridge._link.rest.agent_api.list_agent_chat_participants.assert_not_called()
+        bridge._link.rest.agent_api_participants.list_agent_chat_participants.assert_not_called()
         # Handler should receive resolved sender_name
         call_kwargs = bridge._handlers["handler_a"].handle.call_args.kwargs
         assert call_kwargs["sender_name"] == "Jane"
@@ -657,8 +657,8 @@ class TestThenvoiBridgeParticipantCache:
         mock_participant.type = "User"
         mock_response = MagicMock()
         mock_response.data = [mock_participant]
-        bridge._link.rest.agent_api.list_agent_chat_participants = AsyncMock(
-            return_value=mock_response
+        bridge._link.rest.agent_api_participants.list_agent_chat_participants = (
+            AsyncMock(return_value=mock_response)
         )
 
         payload = MessageCreatedPayload(
@@ -678,7 +678,7 @@ class TestThenvoiBridgeParticipantCache:
         await bridge._on_message("room-1", payload)
 
         # REST API should be called due to cache miss
-        bridge._link.rest.agent_api.list_agent_chat_participants.assert_called_once()
+        bridge._link.rest.agent_api_participants.list_agent_chat_participants.assert_called_once()
         # Cache should now be populated
         assert "room-1" in bridge._participant_cache
         # Handler should receive resolved sender_name
@@ -726,7 +726,7 @@ class TestThenvoiBridgeFetchExistingRooms:
 
         mock_response = MagicMock()
         mock_response.data = [mock_room_1, mock_room_2]
-        bridge._link.rest.agent_api.list_agent_chats = AsyncMock(
+        bridge._link.rest.agent_api_chats.list_agent_chats = AsyncMock(
             return_value=mock_response
         )
 
@@ -738,7 +738,7 @@ class TestThenvoiBridgeFetchExistingRooms:
             config=bridge_config, handlers={"handler_a": AsyncMock()}
         )
 
-        bridge._link.rest.agent_api.list_agent_chats = AsyncMock(
+        bridge._link.rest.agent_api_chats.list_agent_chats = AsyncMock(
             side_effect=RuntimeError("connection failed")
         )
 
@@ -752,7 +752,7 @@ class TestThenvoiBridgeFetchExistingRooms:
 
         mock_response = MagicMock()
         mock_response.data = None
-        bridge._link.rest.agent_api.list_agent_chats = AsyncMock(
+        bridge._link.rest.agent_api_chats.list_agent_chats = AsyncMock(
             return_value=mock_response
         )
 
@@ -948,7 +948,7 @@ class TestConnectAndConsume:
         mock_link.subscribe_agent_rooms = AsyncMock()
         mock_link.subscribe_room = AsyncMock()
         mock_link.rest = MagicMock()
-        mock_link.rest.agent_api.list_agent_chats = AsyncMock(
+        mock_link.rest.agent_api_chats.list_agent_chats = AsyncMock(
             return_value=MagicMock(data=None)
         )
         b._link = mock_link

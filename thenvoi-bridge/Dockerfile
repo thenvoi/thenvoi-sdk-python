@@ -1,4 +1,4 @@
-FROM python:3.11-slim
+FROM python:3.11-slim AS builder
 
 RUN apt-get update && apt-get install -y --no-install-recommends git curl \
     && rm -rf /var/lib/apt/lists/*
@@ -15,6 +15,14 @@ WORKDIR /app
 COPY pyproject.toml uv.lock ./
 COPY src/ src/
 RUN uv pip install --system --no-cache ".[bridge]"
+
+# --- Final stage ---
+FROM python:3.11-slim
+
+# Copy installed packages from builder
+COPY --from=builder /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages
+
+WORKDIR /app
 
 # Copy bridge application
 COPY thenvoi-bridge/ thenvoi-bridge/
