@@ -100,10 +100,21 @@ class BridgeConfig(BaseModel):
         Raises:
             ValueError: If required environment variables are missing or invalid.
         """
+        required_vars = {
+            "agent_id": "THENVOI_AGENT_ID",
+            "api_key": "THENVOI_API_KEY",
+            "agent_mapping": "AGENT_MAPPING",
+        }
+        missing = [
+            env_var for env_var in required_vars.values() if env_var not in os.environ
+        ]
+        if missing:
+            raise ValueError(
+                f"Required environment variable(s) not set: {', '.join(missing)}"
+            )
+
         kwargs: dict[str, Any] = {
-            "agent_id": os.environ.get("THENVOI_AGENT_ID", ""),
-            "api_key": os.environ.get("THENVOI_API_KEY", ""),
-            "agent_mapping": os.environ.get("AGENT_MAPPING", ""),
+            field: os.environ[env_var] for field, env_var in required_vars.items()
         }
 
         if "THENVOI_WS_URL" in os.environ:
@@ -365,6 +376,9 @@ class ThenvoiBridge:
 
     async def _connect_and_consume(self) -> None:
         """Connect to platform and consume events."""
+        # Clear stale participant data from the previous connection.
+        # The cache is re-populated below via _cache_room_participants
+        # after re-subscribing to existing rooms.
         self._participant_cache.clear()
         await self._link.connect()
         self._connected_event.set()
@@ -518,6 +532,14 @@ class ThenvoiBridge:
         # Deduplicate messages (reconnect may redeliver the same event)
         if self._is_duplicate(payload.id):
             logger.debug("Skipping duplicate message %s", payload.id)
+            return
+
+        # Quick pre-checks to avoid unnecessary AgentTools creation when
+        # no handlers will be dispatched.  The router repeats these checks
+        # authoritatively; these are just an optimisation.
+        if payload.sender_id == self._config.agent_id:
+            return
+        if not payload.metadata or not payload.metadata.mentions:
             return
 
         # Use cached participants, fall back to REST on cache miss
