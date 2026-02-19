@@ -141,12 +141,9 @@ class MentionRouter:
                 logger.debug("No handler mapped for @%s", username)
                 continue
 
-            handler = self._handlers.get(handler_name)
-            if handler is None:
-                logger.warning(
-                    "Handler '%s' for @%s not registered", handler_name, username
-                )
-                continue
+            # handler must exist: _validate_handlers() at init guarantees
+            # every mapped handler_name is present in self._handlers.
+            handler = self._handlers[handler_name]
 
             dispatch_list.append((username, handler_name, handler))
 

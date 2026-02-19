@@ -87,6 +87,7 @@ class InMemorySessionStore:
         self._session_ttl = session_ttl
 
     _HIGH_SESSION_THRESHOLD = 10_000
+    _high_session_warned: bool = False
 
     def _evict_expired(self) -> None:
         """Remove sessions that have exceeded the TTL. Must be called under lock.
@@ -108,11 +109,15 @@ class InMemorySessionStore:
 
         count = len(self._sessions)
         if count >= self._HIGH_SESSION_THRESHOLD:
-            logger.warning(
-                "Session count (%d) exceeds %d — consider a background eviction task",
-                count,
-                self._HIGH_SESSION_THRESHOLD,
-            )
+            if not self._high_session_warned:
+                logger.warning(
+                    "Session count (%d) exceeds %d — consider a background eviction task",
+                    count,
+                    self._HIGH_SESSION_THRESHOLD,
+                )
+                self._high_session_warned = True
+        else:
+            self._high_session_warned = False
 
     async def get_or_create(self, room_id: str) -> SessionData:
         async with self._lock:

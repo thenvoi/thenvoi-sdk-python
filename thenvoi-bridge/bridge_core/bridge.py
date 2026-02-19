@@ -350,12 +350,14 @@ class ThenvoiBridge:
                 except Exception:
                     logger.debug("Error during disconnect cleanup", exc_info=True)
 
-                await asyncio.sleep(delay)
-
-                # Exponential backoff with jitter
+                # Jitter is added to the current sleep so the very first
+                # retry also has randomised timing.
                 jitter = random.uniform(0, self._reconnect.jitter)  # noqa: S311
+                await asyncio.sleep(delay + jitter)
+
+                # Exponential backoff (jitter applied above, not accumulated)
                 delay = min(
-                    delay * self._reconnect.multiplier + jitter,
+                    delay * self._reconnect.multiplier,
                     self._reconnect.max_delay,
                 )
 

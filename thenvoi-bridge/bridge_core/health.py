@@ -69,7 +69,12 @@ class HealthServer:
             logger.info("Health server stopped")
 
     async def _health_handler(self, request: web.Request) -> web.Response:
-        """Handle GET /health requests."""
+        """Handle GET /health requests.
+
+        Note: ``list_sessions()`` triggers lazy eviction of expired sessions,
+        so the Docker healthcheck (default: every 30 s) doubles as the
+        eviction driver.  See ``InMemorySessionStore`` for details.
+        """
         connected = self._link.is_connected
         status = "healthy" if connected else "unhealthy"
 
