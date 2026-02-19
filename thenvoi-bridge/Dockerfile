@@ -14,13 +14,14 @@ WORKDIR /app
 # Install SDK with bridge extras from the repo root using lockfile
 COPY pyproject.toml uv.lock ./
 COPY src/ src/
-RUN uv pip install --system --no-cache ".[bridge]"
+RUN uv sync --frozen --extra bridge --no-dev --no-install-project
 
 # --- Final stage ---
 FROM python:3.11-slim
 
-# Copy installed packages from builder
-COPY --from=builder /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages
+# Copy virtual environment from builder
+COPY --from=builder /app/.venv /app/.venv
+ENV PATH="/app/.venv/bin:$PATH"
 
 WORKDIR /app
 
