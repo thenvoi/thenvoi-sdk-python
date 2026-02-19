@@ -353,7 +353,9 @@ class ThenvoiBridge:
                     )
                     break
 
-                logger.exception("Connection lost, reconnecting in %.1fs", delay)
+                logger.warning(
+                    "Connection lost, reconnecting in %.1fs", delay, exc_info=True
+                )
 
                 # Ensure disconnected state before retry
                 try:
