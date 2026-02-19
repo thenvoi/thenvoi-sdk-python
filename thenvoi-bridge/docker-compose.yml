@@ -4,8 +4,10 @@ services:
       context: ..
       dockerfile: thenvoi-bridge/Dockerfile
     env_file: .env
-    # Override CMD to point to your entry point that registers handlers.
-    # Example: command: ["python", "run.py"]
+    # REQUIRED: set `command` to your entry point that registers handlers.
+    # Without this, the container exits immediately with a usage message.
+    # Example:
+    #   command: ["python", "run.py"]
     ports:
       - "8080:8080"
     healthcheck:
@@ -14,4 +16,5 @@ services:
       timeout: 5s
       retries: 3
       start_period: 10s
-    restart: unless-stopped
+    # Enable restart once you have set `command` above:
+    #   restart: unless-stopped
