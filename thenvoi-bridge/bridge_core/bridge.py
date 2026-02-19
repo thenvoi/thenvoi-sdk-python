@@ -578,10 +578,9 @@ class ThenvoiBridge:
             return
 
         # Use cached participants, fall back to REST on cache miss
-        participants: list[ParticipantRecord] = (
-            self._participant_cache.get(room_id) or []
-        )
-        if room_id not in self._participant_cache:
+        if room_id in self._participant_cache:
+            participants = self._participant_cache[room_id]
+        else:
             try:
                 participants = await self._get_room_participants(room_id)
                 self._participant_cache[room_id] = participants
@@ -591,6 +590,7 @@ class ThenvoiBridge:
                     room_id,
                     exc_info=True,
                 )
+                participants = []
 
         # Resolve sender name from participants
         sender_name = next(
@@ -675,8 +675,9 @@ async def main(handlers: dict[str, BaseHandler]) -> None:
 
     load_dotenv()
 
+    log_level = os.environ.get("LOG_LEVEL", "INFO").upper()
     logging.basicConfig(
-        level=logging.INFO,
+        level=getattr(logging, log_level, logging.INFO),
         format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
     )
 

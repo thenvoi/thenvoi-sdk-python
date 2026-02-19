@@ -212,6 +212,18 @@ class MentionRouter:
                     username,
                     TimeoutError(f"timed out after {self._handler_timeout}s"),
                 )
+            except asyncio.CancelledError:
+                logger.warning(
+                    "Handler '%s' cancelled for @%s in room %s",
+                    handler_name,
+                    username,
+                    room_id,
+                )
+                return (
+                    handler_name,
+                    username,
+                    asyncio.CancelledError(),
+                )
             except Exception as e:
                 logger.exception(
                     "Handler '%s' failed for @%s in room %s",

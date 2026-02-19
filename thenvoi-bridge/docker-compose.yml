@@ -16,5 +16,10 @@ services:
       timeout: 5s
       retries: 3
       start_period: 10s
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: "1.0"
     # Enable restart once you have set `command` above:
     #   restart: unless-stopped
