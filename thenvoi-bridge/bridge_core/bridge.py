@@ -456,11 +456,14 @@ class ThenvoiBridge:
                     # Defensive: ThenvoiLink.__anext__ currently blocks
                     # forever on Queue.get() and never raises this, but we
                     # handle it in case the implementation changes.
+                    # The RuntimeError branch below covers the same case
+                    # wrapped by CPython (PEP 479: StopAsyncIteration raised
+                    # inside an async generator is wrapped in RuntimeError).
                     break
                 except RuntimeError as e:
-                    # Defensive: CPython wraps StopAsyncIteration in
-                    # RuntimeError inside a Future.  Currently unreachable
-                    # for the same reason as above, kept for robustness.
+                    # CPython wraps StopAsyncIteration in RuntimeError when
+                    # it escapes an async generator (PEP 479).  Same guard
+                    # as the StopAsyncIteration branch above.
                     if isinstance(e.__cause__, StopAsyncIteration) or isinstance(
                         e.__context__, StopAsyncIteration
                     ):
@@ -480,6 +483,10 @@ class ThenvoiBridge:
                     try:
                         await handle_fut
                     except (asyncio.CancelledError, Exception):
+                        # Both CancelledError and Exception are caught
+                        # separately: in Python 3.9+ CancelledError inherits
+                        # from BaseException, so `except Exception` alone
+                        # would not catch it.
                         pass
                     handle_fut = None
                     break

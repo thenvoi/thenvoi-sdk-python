@@ -16,6 +16,9 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+# Maximum length for individual handler error messages sent to the platform.
+_MAX_ERR_LEN = 500
+
 
 class MentionRouter:
     """Routes @mention messages to registered handlers.
@@ -227,6 +230,9 @@ class MentionRouter:
                 return (handler_name, username, e)
             return None
 
+        # Note: return_exceptions is intentionally omitted.  _dispatch()
+        # catches all exceptions internally except CancelledError, which must
+        # propagate so asyncio.gather cancels sibling handlers on shutdown.
         results = await asyncio.gather(
             *[_dispatch(u, n, h) for u, n, h in dispatch_list]
         )
@@ -237,7 +243,6 @@ class MentionRouter:
         if errors:
             all_failed = len(errors) == len(dispatch_list)
             # Full details for platform operators (mark_failed) and logs
-            _MAX_ERR_LEN = 500
             internal_summaries = [
                 f"'{name}' (@{user}): {str(err)[:_MAX_ERR_LEN]}"
                 for name, user, err in errors

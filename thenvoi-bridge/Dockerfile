@@ -11,10 +11,10 @@ COPY --from=ghcr.io/astral-sh/uv:0.8.22 /uv /usr/local/bin/uv
 
 WORKDIR /app
 
-# Install SDK with bridge extras from the repo root using lockfile
+# Install dependencies first (cached layer), then install the SDK
 COPY pyproject.toml uv.lock ./
 COPY src/ src/
-RUN uv sync --frozen --extra bridge --no-dev --no-install-project
+RUN uv sync --frozen --extra bridge --no-dev
 
 # --- Final stage ---
 FROM python:3.11-slim
