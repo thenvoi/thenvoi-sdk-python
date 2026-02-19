@@ -545,21 +545,10 @@ class TestThenvoiBridgeHandleEvent:
 class TestThenvoiBridgeMessageDedup:
     """Tests for message deduplication on reconnect."""
 
-    def _make_bridge(self, bridge_config: BridgeConfig) -> ThenvoiBridge:
-        handler = AsyncMock()
-        b = ThenvoiBridge(config=bridge_config, handlers={"handler_a": handler})
-        mock_link = MagicMock()
-        mock_link.subscribe_room = AsyncMock()
-        mock_link.unsubscribe_room = AsyncMock()
-        mock_link.mark_processing = AsyncMock()
-        mock_link.mark_processed = AsyncMock()
-        mock_link.rest = MagicMock()
-        b._link = mock_link
-        b._router._link = mock_link
-        return b
-
-    async def test_duplicate_message_skipped(self, bridge_config: BridgeConfig) -> None:
-        bridge = self._make_bridge(bridge_config)
+    async def test_duplicate_message_skipped(
+        self, bridge_with_full_mock: ThenvoiBridge
+    ) -> None:
+        bridge = bridge_with_full_mock
         payload = MessageCreatedPayload(
             id="msg-1",
             content="@alice hello",
@@ -583,20 +572,22 @@ class TestThenvoiBridgeMessageDedup:
         assert bridge._handlers["handler_a"].handle.call_count == 1
 
     def test_is_duplicate_returns_false_for_new(
-        self, bridge_config: BridgeConfig
+        self, bridge_with_full_mock: ThenvoiBridge
     ) -> None:
-        bridge = self._make_bridge(bridge_config)
+        bridge = bridge_with_full_mock
         assert bridge._is_duplicate("msg-1") is False
 
     def test_is_duplicate_returns_true_for_seen(
-        self, bridge_config: BridgeConfig
+        self, bridge_with_full_mock: ThenvoiBridge
     ) -> None:
-        bridge = self._make_bridge(bridge_config)
+        bridge = bridge_with_full_mock
         bridge._is_duplicate("msg-1")
         assert bridge._is_duplicate("msg-1") is True
 
-    def test_dedup_bounded_at_max_size(self, bridge_config: BridgeConfig) -> None:
-        bridge = self._make_bridge(bridge_config)
+    def test_dedup_bounded_at_max_size(
+        self, bridge_with_full_mock: ThenvoiBridge
+    ) -> None:
+        bridge = bridge_with_full_mock
         # Fill beyond max size
         for i in range(ThenvoiBridge._DEDUP_MAX_SIZE + 100):
             bridge._is_duplicate(f"msg-{i}")
@@ -606,21 +597,10 @@ class TestThenvoiBridgeMessageDedup:
 class TestThenvoiBridgeParticipantCache:
     """Tests for participant cache usage in _on_message."""
 
-    def _make_bridge(self, bridge_config: BridgeConfig) -> ThenvoiBridge:
-        handler = AsyncMock()
-        b = ThenvoiBridge(config=bridge_config, handlers={"handler_a": handler})
-        mock_link = MagicMock()
-        mock_link.subscribe_room = AsyncMock()
-        mock_link.unsubscribe_room = AsyncMock()
-        mock_link.mark_processing = AsyncMock()
-        mock_link.mark_processed = AsyncMock()
-        mock_link.rest = MagicMock()
-        b._link = mock_link
-        b._router._link = mock_link
-        return b
-
-    async def test_cached_participants_used(self, bridge_config: BridgeConfig) -> None:
-        bridge = self._make_bridge(bridge_config)
+    async def test_cached_participants_used(
+        self, bridge_with_full_mock: ThenvoiBridge
+    ) -> None:
+        bridge = bridge_with_full_mock
         bridge._participant_cache["room-1"] = [
             {"id": "user-1", "name": "Jane", "type": "User"}
         ]
@@ -648,9 +628,9 @@ class TestThenvoiBridgeParticipantCache:
         assert call_kwargs["sender_name"] == "Jane"
 
     async def test_cache_miss_falls_back_to_rest(
-        self, bridge_config: BridgeConfig
+        self, bridge_with_full_mock: ThenvoiBridge
     ) -> None:
-        bridge = self._make_bridge(bridge_config)
+        bridge = bridge_with_full_mock
         mock_participant = MagicMock()
         mock_participant.id = "user-1"
         mock_participant.name = "Jane"
@@ -686,9 +666,9 @@ class TestThenvoiBridgeParticipantCache:
         assert call_kwargs["sender_name"] == "Jane"
 
     async def test_sender_name_none_when_not_found(
-        self, bridge_config: BridgeConfig
+        self, bridge_with_full_mock: ThenvoiBridge
     ) -> None:
-        bridge = self._make_bridge(bridge_config)
+        bridge = bridge_with_full_mock
         bridge._participant_cache["room-1"] = [
             {"id": "other-user", "name": "Bob", "type": "User"}
         ]
@@ -940,25 +920,10 @@ class TestThenvoiBridgeShutdown:
 class TestConnectAndConsume:
     """Tests for _connect_and_consume event loop logic."""
 
-    def _make_bridge(self, bridge_config: BridgeConfig) -> ThenvoiBridge:
-        handler = AsyncMock()
-        b = ThenvoiBridge(config=bridge_config, handlers={"handler_a": handler})
-        mock_link = MagicMock()
-        mock_link.connect = AsyncMock()
-        mock_link.subscribe_agent_rooms = AsyncMock()
-        mock_link.subscribe_room = AsyncMock()
-        mock_link.rest = MagicMock()
-        mock_link.rest.agent_api_chats.list_agent_chats = AsyncMock(
-            return_value=MagicMock(data=None)
-        )
-        b._link = mock_link
-        b._router._link = mock_link
-        return b
-
     async def test_consumes_events_until_shutdown(
-        self, bridge_config: BridgeConfig
+        self, bridge_with_full_mock: ThenvoiBridge
     ) -> None:
-        bridge = self._make_bridge(bridge_config)
+        bridge = bridge_with_full_mock
         events_delivered: list[object] = []
 
         event1 = RoomAddedEvent(
@@ -1017,9 +982,9 @@ class TestConnectAndConsume:
         bridge._link.subscribe_agent_rooms.assert_called_once()
 
     async def test_shutdown_cancels_pending_next_fut(
-        self, bridge_config: BridgeConfig
+        self, bridge_with_full_mock: ThenvoiBridge
     ) -> None:
-        bridge = self._make_bridge(bridge_config)
+        bridge = bridge_with_full_mock
 
         # Trigger shutdown immediately so shutdown_fut wins the race
         bridge._request_shutdown()
@@ -1037,9 +1002,9 @@ class TestConnectAndConsume:
         bridge._link.connect.assert_called_once()
 
     async def test_stop_async_iteration_exits_cleanly(
-        self, bridge_config: BridgeConfig
+        self, bridge_with_full_mock: ThenvoiBridge
     ) -> None:
-        bridge = self._make_bridge(bridge_config)
+        bridge = bridge_with_full_mock
 
         async def fake_anext(_iter: object) -> object:
             raise StopAsyncIteration
@@ -1050,10 +1015,10 @@ class TestConnectAndConsume:
         bridge._link.connect.assert_called_once()
 
     async def test_runtime_error_wrapping_stop_async_iteration_via_context(
-        self, bridge_config: BridgeConfig
+        self, bridge_with_full_mock: ThenvoiBridge
     ) -> None:
         """CPython wraps StopAsyncIteration in RuntimeError via __context__."""
-        bridge = self._make_bridge(bridge_config)
+        bridge = bridge_with_full_mock
 
         async def fake_anext(_iter: object) -> object:
             err = RuntimeError("coroutine raised StopAsyncIteration")
@@ -1066,10 +1031,10 @@ class TestConnectAndConsume:
         bridge._link.connect.assert_called_once()
 
     async def test_runtime_error_wrapping_stop_async_iteration_via_cause(
-        self, bridge_config: BridgeConfig
+        self, bridge_with_full_mock: ThenvoiBridge
     ) -> None:
         """Explicit chaining: raise RuntimeError from StopAsyncIteration."""
-        bridge = self._make_bridge(bridge_config)
+        bridge = bridge_with_full_mock
 
         async def fake_anext(_iter: object) -> object:
             err = RuntimeError("iterator stopped")
@@ -1082,9 +1047,9 @@ class TestConnectAndConsume:
         bridge._link.connect.assert_called_once()
 
     async def test_unrelated_runtime_error_propagates(
-        self, bridge_config: BridgeConfig
+        self, bridge_with_full_mock: ThenvoiBridge
     ) -> None:
-        bridge = self._make_bridge(bridge_config)
+        bridge = bridge_with_full_mock
 
         async def fake_anext(_iter: object) -> object:
             raise RuntimeError("unrelated error")
@@ -1094,10 +1059,10 @@ class TestConnectAndConsume:
                 await bridge._connect_and_consume()
 
     async def test_handle_event_exception_does_not_break_loop(
-        self, bridge_config: BridgeConfig
+        self, bridge_with_full_mock: ThenvoiBridge
     ) -> None:
         """An exception in _handle_event should be logged, not trigger reconnect."""
-        bridge = self._make_bridge(bridge_config)
+        bridge = bridge_with_full_mock
         events_delivered: list[object] = []
 
         event1 = RoomAddedEvent(
