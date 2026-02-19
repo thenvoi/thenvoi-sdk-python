@@ -434,11 +434,12 @@ class ThenvoiBridge:
 
         # Race each event against the shutdown signal so the loop exits
         # immediately when shutdown is requested, without polling.
-        # Note: when shutdown wins the race, next_fut is cancelled mid-flight.
-        # This is safe because _link.disconnect() follows immediately after,
-        # and ThenvoiLink does not hold partial state across __anext__ calls.
+        # Both next_fut and handle_fut are raced against shutdown so that
+        # in-flight handlers are cancelled promptly on shutdown, rather than
+        # blocking for up to handler_timeout seconds.
         shutdown_fut = asyncio.ensure_future(self._shutdown_event.wait())
         next_fut: asyncio.Future[object] | None = None
+        handle_fut: asyncio.Future[None] | None = None
         try:
             while True:
                 next_fut = asyncio.ensure_future(anext(self._link))
@@ -466,19 +467,39 @@ class ThenvoiBridge:
                         break
                     raise
                 next_fut = None
+
+                # Race event handling against shutdown so in-flight handlers
+                # are cancelled promptly when shutdown is requested.
+                handle_fut = asyncio.ensure_future(self._handle_event(event))
+                done, _ = await asyncio.wait(
+                    {shutdown_fut, handle_fut},
+                    return_when=asyncio.FIRST_COMPLETED,
+                )
+                if shutdown_fut in done:
+                    handle_fut.cancel()
+                    try:
+                        await handle_fut
+                    except (asyncio.CancelledError, Exception):
+                        pass
+                    handle_fut = None
+                    break
+                # handle_fut completed — check for exceptions
                 try:
-                    await self._handle_event(event)
+                    handle_fut.result()
                 except Exception:
                     logger.warning(
                         "Unexpected error handling event %s",
                         type(event).__name__,
                         exc_info=True,
                     )
+                handle_fut = None
         finally:
             if not shutdown_fut.done():
                 shutdown_fut.cancel()
             if next_fut is not None and not next_fut.done():
                 next_fut.cancel()
+            if handle_fut is not None and not handle_fut.done():
+                handle_fut.cancel()
 
     async def _fetch_existing_rooms(self) -> list[str]:
         """Fetch the list of rooms the agent is already in.

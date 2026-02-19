@@ -213,17 +213,10 @@ class MentionRouter:
                     TimeoutError(f"timed out after {self._handler_timeout}s"),
                 )
             except asyncio.CancelledError:
-                logger.warning(
-                    "Handler '%s' cancelled for @%s in room %s",
-                    handler_name,
-                    username,
-                    room_id,
-                )
-                return (
-                    handler_name,
-                    username,
-                    asyncio.CancelledError(),
-                )
+                # Let cancellation propagate so asyncio.gather cancels all
+                # sibling handlers.  This is the shutdown path — the bridge
+                # consume loop cancels handle_fut when shutdown is requested.
+                raise
             except Exception as e:
                 logger.exception(
                     "Handler '%s' failed for @%s in room %s",

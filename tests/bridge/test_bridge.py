@@ -1198,6 +1198,119 @@ class TestConnectAndConsume:
         assert len(events_delivered) == 2
 
 
+class TestConnectAndConsumeShutdownCancelsHandler:
+    """Tests that in-flight handlers are cancelled on shutdown."""
+
+    async def test_shutdown_cancels_in_flight_handler(
+        self, bridge_with_full_mock: ThenvoiBridge
+    ) -> None:
+        """When shutdown fires during handler execution, the handler is cancelled."""
+        import asyncio
+
+        bridge = bridge_with_full_mock
+        handler_started = asyncio.Event()
+        handler_cancelled = False
+
+        async def slow_handle_event(event: object) -> None:
+            nonlocal handler_cancelled
+            handler_started.set()
+            try:
+                await asyncio.sleep(300)  # Simulate long-running handler
+            except asyncio.CancelledError:
+                handler_cancelled = True
+                raise
+
+        bridge._handle_event = slow_handle_event  # type: ignore[assignment]
+
+        call_count = 0
+
+        async def fake_anext(_iter: object) -> object:
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return RoomAddedEvent(
+                    room_id="room-1",
+                    payload=RoomAddedPayload(
+                        id="room-1",
+                        title="Room",
+                        owner=RoomOwner(id="u1", name="User", type="User"),
+                        status="active",
+                        type="direct",
+                        created_at="2024-01-01T00:00:00Z",
+                        participant_role="member",
+                    ),
+                )
+            # Should not be reached — shutdown fires during handler
+            await asyncio.sleep(300)
+            return MagicMock()
+
+        async def trigger_shutdown_after_handler_starts() -> None:
+            await handler_started.wait()
+            bridge._request_shutdown()
+
+        with patch("bridge_core.bridge.anext", side_effect=fake_anext):
+            # Run consume and shutdown trigger concurrently
+            await asyncio.gather(
+                bridge._connect_and_consume(),
+                trigger_shutdown_after_handler_starts(),
+            )
+
+        assert handler_cancelled, "Handler should have been cancelled on shutdown"
+
+    async def test_shutdown_during_handler_exits_loop(
+        self, bridge_with_full_mock: ThenvoiBridge
+    ) -> None:
+        """The consume loop exits after cancelling an in-flight handler."""
+        import asyncio
+
+        bridge = bridge_with_full_mock
+        handler_started = asyncio.Event()
+        events_handled: list[object] = []
+
+        async def slow_handle_event(event: object) -> None:
+            events_handled.append(event)
+            handler_started.set()
+            await asyncio.sleep(300)
+
+        bridge._handle_event = slow_handle_event  # type: ignore[assignment]
+
+        event1 = RoomAddedEvent(
+            room_id="room-1",
+            payload=RoomAddedPayload(
+                id="room-1",
+                title="Room",
+                owner=RoomOwner(id="u1", name="User", type="User"),
+                status="active",
+                type="direct",
+                created_at="2024-01-01T00:00:00Z",
+                participant_role="member",
+            ),
+        )
+
+        call_count = 0
+
+        async def fake_anext(_iter: object) -> object:
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return event1
+            await asyncio.sleep(300)
+            return MagicMock()
+
+        async def trigger_shutdown() -> None:
+            await handler_started.wait()
+            bridge._request_shutdown()
+
+        with patch("bridge_core.bridge.anext", side_effect=fake_anext):
+            await asyncio.gather(
+                bridge._connect_and_consume(),
+                trigger_shutdown(),
+            )
+
+        # Only one event should have been dispatched before shutdown
+        assert len(events_handled) == 1
+
+
 class TestThenvoiBridgeMain:
     """Tests for the main() entry point."""
 

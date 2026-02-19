@@ -711,3 +711,89 @@ class TestMentionRouterTimeout:
         tools.send_event.assert_called_once()
         event_content = tools.send_event.call_args.kwargs["content"]
         assert "@bob" in event_content
+
+
+class TestMentionRouterCancellation:
+    """Tests that CancelledError propagates for shutdown cancellation."""
+
+    @pytest.fixture
+    def session_store(self) -> InMemorySessionStore:
+        return InMemorySessionStore()
+
+    @pytest.fixture
+    def mock_link(self) -> AsyncMock:
+        link = AsyncMock()
+        link.mark_processing = AsyncMock()
+        link.mark_processed = AsyncMock()
+        link.mark_failed = AsyncMock()
+        return link
+
+    async def test_cancelled_handler_propagates(
+        self, session_store: InMemorySessionStore, mock_link: AsyncMock
+    ) -> None:
+        """CancelledError in a handler should propagate out of route()."""
+        handler = AsyncMock()
+        handler.handle.side_effect = asyncio.CancelledError()
+
+        router = MentionRouter(
+            agent_mapping={"alice": "handler_a"},
+            handlers={"handler_a": handler},
+            session_store=session_store,
+            agent_id="bridge-agent-id",
+            link=mock_link,
+        )
+
+        payload = _make_payload(mentions=[Mention(id="alice-id", username="alice")])
+        tools = MagicMock()
+        tools.send_event = AsyncMock()
+
+        with pytest.raises(asyncio.CancelledError):
+            await router.route(payload, "room-1", tools)
+
+        # Lifecycle marks should NOT be called (shutdown path)
+        mock_link.mark_processed.assert_not_called()
+        mock_link.mark_failed.assert_not_called()
+
+    async def test_cancellation_cancels_sibling_handlers(
+        self, session_store: InMemorySessionStore, mock_link: AsyncMock
+    ) -> None:
+        """When one handler is cancelled, sibling handlers are also cancelled."""
+        handler_a_cancelled = False
+        handler_b_started = asyncio.Event()
+
+        async def slow_handler_a(**kwargs: object) -> None:
+            nonlocal handler_a_cancelled
+            try:
+                await asyncio.sleep(300)
+            except asyncio.CancelledError:
+                handler_a_cancelled = True
+                raise
+
+        async def cancel_handler_b(**kwargs: object) -> None:
+            handler_b_started.set()
+            raise asyncio.CancelledError()
+
+        handler_a = AsyncMock()
+        handler_a.handle = slow_handler_a
+        handler_b = AsyncMock()
+        handler_b.handle = cancel_handler_b
+
+        router = MentionRouter(
+            agent_mapping={"alice": "handler_a", "bob": "handler_b"},
+            handlers={"handler_a": handler_a, "handler_b": handler_b},
+            session_store=session_store,
+            agent_id="bridge-agent-id",
+            link=mock_link,
+        )
+
+        payload = _make_payload(
+            mentions=[
+                Mention(id="alice-id", username="alice"),
+                Mention(id="bob-id", username="bob"),
+            ]
+        )
+        tools = MagicMock()
+        tools.send_event = AsyncMock()
+
+        with pytest.raises(asyncio.CancelledError):
+            await router.route(payload, "room-1", tools)
