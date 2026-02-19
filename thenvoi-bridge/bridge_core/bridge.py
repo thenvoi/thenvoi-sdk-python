@@ -514,6 +514,7 @@ class ThenvoiBridge:
                     logger.warning(
                         "Failed to subscribe to room %s", room_id, exc_info=True
                     )
+                    return
                 await self._cache_room_participants(room_id)
 
             case RoomRemovedEvent(room_id=room_id) if room_id:

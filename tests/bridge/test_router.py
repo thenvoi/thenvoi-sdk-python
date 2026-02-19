@@ -271,6 +271,42 @@ class TestMentionRouterRoute:
         assert calls[0].kwargs["thread_id"] == "thread-1"
         assert calls[1].kwargs["thread_id"] == "thread-2"
 
+    async def test_skips_mentions_with_none_username(
+        self, router: MentionRouter, mock_handler: AsyncMock, mock_link: AsyncMock
+    ) -> None:
+        """Mentions with username=None should be silently skipped."""
+        payload = _make_payload(
+            mentions=[
+                Mention(id="null-id", username=None),
+                Mention(id="alice-id", username="alice"),
+            ]
+        )
+        tools = MagicMock()
+
+        await router.route(payload, "room-1", tools)
+
+        # Only alice should be dispatched; the None-username mention is skipped
+        mock_handler.handle.assert_called_once()
+        call_kwargs = mock_handler.handle.call_args.kwargs
+        assert call_kwargs["mentioned_agent"] == "alice"
+
+    async def test_all_mentions_none_username_does_nothing(
+        self, router: MentionRouter, mock_handler: AsyncMock, mock_link: AsyncMock
+    ) -> None:
+        """If all mentions have username=None, no handler should be dispatched."""
+        payload = _make_payload(
+            mentions=[
+                Mention(id="null-id-1", username=None),
+                Mention(id="null-id-2", username=None),
+            ]
+        )
+        tools = MagicMock()
+
+        await router.route(payload, "room-1", tools)
+
+        mock_handler.handle.assert_not_called()
+        mock_link.mark_processing.assert_not_called()
+
     async def test_no_mentions_does_nothing(
         self, router: MentionRouter, mock_handler: AsyncMock
     ) -> None:

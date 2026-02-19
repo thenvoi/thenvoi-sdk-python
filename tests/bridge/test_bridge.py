@@ -409,6 +409,9 @@ class TestThenvoiBridgeHandleEvent:
         # Should not raise
         await bridge._handle_event(event)
 
+        # Participant cache should NOT be populated when subscribe fails
+        assert "room-new" not in bridge._participant_cache
+
     async def test_room_removed_unsubscribe_failure_still_cleans_session(
         self, bridge_with_mock_link: ThenvoiBridge
     ) -> None:
