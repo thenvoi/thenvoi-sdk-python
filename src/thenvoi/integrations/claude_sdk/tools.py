@@ -363,6 +363,188 @@ def create_thenvoi_mcp_server(agent: Any):
             logger.error("lookup_peers failed: %s", e, exc_info=True)
             return _make_error(str(e))
 
+    @tool(
+        "thenvoi_list_contacts",
+        "List agent's contacts with pagination. Returns contacts list and metadata.",
+        {
+            "room_id": str,
+            "page": int,
+            "page_size": int,
+        },
+    )
+    async def list_contacts(args: dict[str, Any]) -> dict[str, Any]:
+        """List agent's contacts via API."""
+        try:
+            room_id = args.get("room_id", "")
+            page = args.get("page", 1)
+            page_size = args.get("page_size", 50)
+
+            logger.debug(
+                "[%s] list_contacts: page=%s, page_size=%s", room_id, page, page_size
+            )
+
+            tools = _get_tools(room_id)
+            result = await tools.list_contacts(page, page_size)
+
+            return _make_result(
+                {
+                    "status": "success",
+                    **result,
+                }
+            )
+
+        except Exception as e:
+            logger.error("list_contacts failed: %s", e, exc_info=True)
+            return _make_error(str(e))
+
+    @tool(
+        "thenvoi_add_contact",
+        "Send a contact request to add someone as a contact. Returns 'pending' when request is created, 'approved' when inverse request existed.",
+        {
+            "room_id": str,
+            "handle": str,
+            "message": str,
+        },
+    )
+    async def add_contact(args: dict[str, Any]) -> dict[str, Any]:
+        """Send contact request via API."""
+        try:
+            room_id = args.get("room_id", "")
+            handle = args.get("handle", "")
+            message = args.get("message") or None
+
+            logger.info("[%s] add_contact: handle=%s", room_id, handle)
+
+            tools = _get_tools(room_id)
+            result = await tools.add_contact(handle, message)
+
+            return _make_result(
+                {
+                    "status": "success",
+                    **result,
+                }
+            )
+
+        except Exception as e:
+            logger.error("add_contact failed: %s", e, exc_info=True)
+            return _make_error(str(e))
+
+    @tool(
+        "thenvoi_remove_contact",
+        "Remove an existing contact by handle or contact ID. Provide either handle or contact_id.",
+        {
+            "room_id": str,
+            "handle": str,
+            "contact_id": str,
+        },
+    )
+    async def remove_contact(args: dict[str, Any]) -> dict[str, Any]:
+        """Remove contact via API."""
+        try:
+            room_id = args.get("room_id", "")
+            handle = args.get("handle") or None
+            contact_id = args.get("contact_id") or None
+
+            logger.info(
+                "[%s] remove_contact: handle=%s, contact_id=%s",
+                room_id,
+                handle,
+                contact_id,
+            )
+
+            tools = _get_tools(room_id)
+            result = await tools.remove_contact(handle, contact_id)
+
+            return _make_result(
+                {
+                    "status": "success",
+                    **result,
+                }
+            )
+
+        except Exception as e:
+            logger.error("remove_contact failed: %s", e, exc_info=True)
+            return _make_error(str(e))
+
+    @tool(
+        "thenvoi_list_contact_requests",
+        "List both received and sent contact requests. Received are always pending. Sent can be filtered by status.",
+        {
+            "room_id": str,
+            "page": int,
+            "page_size": int,
+            "sent_status": str,
+        },
+    )
+    async def list_contact_requests(args: dict[str, Any]) -> dict[str, Any]:
+        """List contact requests via API."""
+        try:
+            room_id = args.get("room_id", "")
+            page = args.get("page", 1)
+            page_size = args.get("page_size", 50)
+            sent_status = args.get("sent_status", "pending")
+
+            logger.debug(
+                "[%s] list_contact_requests: page=%s, sent_status=%s",
+                room_id,
+                page,
+                sent_status,
+            )
+
+            tools = _get_tools(room_id)
+            result = await tools.list_contact_requests(page, page_size, sent_status)
+
+            return _make_result(
+                {
+                    "status": "success",
+                    **result,
+                }
+            )
+
+        except Exception as e:
+            logger.error("list_contact_requests failed: %s", e, exc_info=True)
+            return _make_error(str(e))
+
+    @tool(
+        "thenvoi_respond_contact_request",
+        "Respond to a contact request. Actions: 'approve'/'reject' for received requests, 'cancel' for sent requests. Provide either handle or request_id.",
+        {
+            "room_id": str,
+            "action": str,
+            "handle": str,
+            "request_id": str,
+        },
+    )
+    async def respond_contact_request(args: dict[str, Any]) -> dict[str, Any]:
+        """Respond to contact request via API."""
+        try:
+            room_id = args.get("room_id", "")
+            action = args.get("action", "")
+            handle = args.get("handle") or None
+            request_id = args.get("request_id") or None
+
+            logger.info(
+                "[%s] respond_contact_request: action=%s, handle=%s, request_id=%s",
+                room_id,
+                action,
+                handle,
+                request_id,
+            )
+
+            tools = _get_tools(room_id)
+            result = await tools.respond_contact_request(action, handle, request_id)
+
+            return _make_result(
+                {
+                    "status": "success",
+                    **result,
+                }
+            )
+
+        except Exception as e:
+            logger.error("respond_contact_request failed: %s", e, exc_info=True)
+            return _make_error(str(e))
+
     # Create MCP SDK server with all tools
     server = create_sdk_mcp_server(
         name="thenvoi",
@@ -374,10 +556,15 @@ def create_thenvoi_mcp_server(agent: Any):
             remove_participant,
             get_participants,
             lookup_peers,
+            list_contacts,
+            add_contact,
+            remove_contact,
+            list_contact_requests,
+            respond_contact_request,
         ],
     )
 
-    logger.info("Thenvoi MCP SDK server created with 6 real tools")
+    logger.info("Thenvoi MCP SDK server created with 11 real tools")
 
     return server
 
@@ -390,4 +577,9 @@ THENVOI_TOOLS = [
     "mcp__thenvoi__thenvoi_remove_participant",
     "mcp__thenvoi__thenvoi_get_participants",
     "mcp__thenvoi__thenvoi_lookup_peers",
+    "mcp__thenvoi__thenvoi_list_contacts",
+    "mcp__thenvoi__thenvoi_add_contact",
+    "mcp__thenvoi__thenvoi_remove_contact",
+    "mcp__thenvoi__thenvoi_list_contact_requests",
+    "mcp__thenvoi__thenvoi_respond_contact_request",
 ]

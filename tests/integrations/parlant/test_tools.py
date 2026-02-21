@@ -141,7 +141,7 @@ class TestCreateParlantTools:
         tools = create_parlant_tools()
 
         assert isinstance(tools, list)
-        assert len(tools) == 7
+        assert len(tools) == 12
 
     def test_returns_expected_tool_names(self):
         """Should return tools with expected names."""
@@ -156,6 +156,11 @@ class TestCreateParlantTools:
         assert "thenvoi_lookup_peers" in tool_names
         assert "thenvoi_get_participants" in tool_names
         assert "thenvoi_create_chatroom" in tool_names
+        assert "thenvoi_list_contacts" in tool_names
+        assert "thenvoi_add_contact" in tool_names
+        assert "thenvoi_remove_contact" in tool_names
+        assert "thenvoi_list_contact_requests" in tool_names
+        assert "thenvoi_respond_contact_request" in tool_names
 
     def test_tools_have_descriptions(self):
         """Should have descriptions for all tools."""
