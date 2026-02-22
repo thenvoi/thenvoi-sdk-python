@@ -126,10 +126,11 @@ async def wait_for_agent_response_polling(
     Returns:
         List of new context items (messages/events) from the agent.
     """
-    deadline = asyncio.get_event_loop().time() + timeout
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + timeout
     seen_ids = {after_message_id}
 
-    while asyncio.get_event_loop().time() < deadline:
+    while loop.time() < deadline:
         response = await client.agent_api.get_agent_chat_context(room_id)
         context = response.data or []
 

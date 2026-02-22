@@ -119,7 +119,6 @@ def adapter_name(request: pytest.FixtureRequest) -> str:
 @pytest.fixture
 def adapter_factory(
     adapter_name: str,
-    e2e_config: E2ESettings,
 ) -> tuple[str, AdapterFactory]:
     """Parametrized fixture that yields (adapter_name, factory) for all adapters."""
     factory = ADAPTER_FACTORIES[adapter_name]

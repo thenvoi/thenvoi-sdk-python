@@ -101,11 +101,10 @@ class TestContextPersistence:
             try:
                 await asyncio.wait_for(phase1_event.wait(), timeout=timeout)
             except TimeoutError:
-                pass
+                pytest.fail(
+                    f"[{adapter_name}] Phase 1: Agent did not respond within {timeout}s"
+                )
 
-        assert len(phase1_received) > 0, (
-            f"[{adapter_name}] Phase 1: Agent should have acknowledged the code"
-        )
         logger.info(
             "[%s] Phase 1 complete: agent acknowledged with %d message(s)",
             adapter_name,
@@ -151,11 +150,10 @@ class TestContextPersistence:
             try:
                 await asyncio.wait_for(phase2_event.wait(), timeout=timeout)
             except TimeoutError:
-                pass
+                pytest.fail(
+                    f"[{adapter_name}] Phase 2: Agent did not respond within {timeout}s"
+                )
 
-        assert len(phase2_received) > 0, (
-            f"[{adapter_name}] Phase 2: Agent should have responded about the code"
-        )
         assert_content_contains(phase2_received, "ABC123")
         logger.info(
             "[%s] Context persistence test PASSED: agent remembered ABC123",

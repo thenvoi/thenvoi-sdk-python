@@ -1,46 +1,51 @@
-"""E2E tests for the Anthropic adapter.
+"""E2E tests for all standard adapters.
 
-Verifies that the Anthropic adapter can:
+Verifies that each adapter can:
 - Start, process a message, and stop against a real platform
 - Execute platform tools (send_message)
 
+Adapters tested: langgraph, anthropic, pydantic_ai, claude_sdk, crewai.
+Parlant is excluded (requires separate server setup, see test_parlant.py).
+
 Run with:
-    E2E_TESTS_ENABLED=true uv run pytest tests/e2e/adapters/test_anthropic.py -v -s --no-cov
+    E2E_TESTS_ENABLED=true uv run pytest tests/e2e/adapters/ -v -s --no-cov
+
+Run a specific adapter:
+    E2E_TESTS_ENABLED=true uv run pytest tests/e2e/adapters/ -k langgraph -v -s --no-cov
 """
 
 from __future__ import annotations
 
-import asyncio
 import logging
 
-
 from thenvoi.agent import Agent
-from thenvoi.client.streaming import MessageCreatedPayload
 
 from tests.e2e.conftest import E2ESettings, requires_e2e
 from tests.e2e.helpers import (
     assert_content_contains,
     send_user_message,
+    wait_for_agent_response_ws,
 )
 
 logger = logging.getLogger(__name__)
 
 
 @requires_e2e
-class TestAnthropicE2E:
-    """E2E tests specific to the Anthropic adapter."""
+class TestAdapterE2E:
+    """E2E tests parametrized across all standard adapters."""
 
     async def test_smoke_responds_to_message(
         self,
         e2e_config: E2ESettings,
         e2e_chat_room_with_user: tuple[str, str, str],
         ws_client,
-        anthropic_adapter_factory,
+        adapter_factory,
         api_client,
     ):
         """Smoke test: agent starts, receives a message, and responds."""
+        adapter_name, factory = adapter_factory
         chat_id, user_id, user_name = e2e_chat_room_with_user
-        adapter = anthropic_adapter_factory(e2e_config)
+        adapter = factory(e2e_config)
 
         agent = Agent.create(
             adapter=adapter,
@@ -49,16 +54,6 @@ class TestAnthropicE2E:
             ws_url=e2e_config.thenvoi_ws_url,
             rest_url=e2e_config.thenvoi_base_url,
         )
-
-        received: list[MessageCreatedPayload] = []
-        response_event = asyncio.Event()
-
-        async def on_message(payload: MessageCreatedPayload) -> None:
-            if payload.sender_type == "Agent" and payload.message_type == "text":
-                received.append(payload)
-                response_event.set()
-
-        await ws_client.join_chat_room_channel(chat_id, on_message)
 
         async with agent:
             agent_name = agent.agent_name
@@ -69,16 +64,17 @@ class TestAnthropicE2E:
                 api_client, chat_id, "Say hello", agent_name, agent_id
             )
 
-            try:
-                await asyncio.wait_for(
-                    response_event.wait(), timeout=e2e_config.e2e_timeout
-                )
-            except TimeoutError:
-                pass
+            received = await wait_for_agent_response_ws(
+                ws_client, chat_id, timeout=e2e_config.e2e_timeout
+            )
 
-        assert len(received) > 0, "Agent should have responded to the message"
+        assert len(received) > 0, (
+            f"[{adapter_name}] Agent should have responded to the message"
+        )
         logger.info(
-            "Anthropic smoke test passed: received %d response(s)", len(received)
+            "[%s] Smoke test passed: received %d response(s)",
+            adapter_name,
+            len(received),
         )
 
     async def test_tool_execution_send_message(
@@ -86,12 +82,13 @@ class TestAnthropicE2E:
         e2e_config: E2ESettings,
         e2e_chat_room_with_user: tuple[str, str, str],
         ws_client,
-        anthropic_adapter_factory,
+        adapter_factory,
         api_client,
     ):
         """Verify the agent uses thenvoi_send_message tool to respond."""
+        adapter_name, factory = adapter_factory
         chat_id, user_id, user_name = e2e_chat_room_with_user
-        adapter = anthropic_adapter_factory(e2e_config)
+        adapter = factory(e2e_config)
 
         agent = Agent.create(
             adapter=adapter,
@@ -100,16 +97,6 @@ class TestAnthropicE2E:
             ws_url=e2e_config.thenvoi_ws_url,
             rest_url=e2e_config.thenvoi_base_url,
         )
-
-        received: list[MessageCreatedPayload] = []
-        response_event = asyncio.Event()
-
-        async def on_message(payload: MessageCreatedPayload) -> None:
-            if payload.sender_type == "Agent" and payload.message_type == "text":
-                received.append(payload)
-                response_event.set()
-
-        await ws_client.join_chat_room_channel(chat_id, on_message)
 
         async with agent:
             agent_name = agent.agent_name
@@ -124,13 +111,12 @@ class TestAnthropicE2E:
                 agent_id,
             )
 
-            try:
-                await asyncio.wait_for(
-                    response_event.wait(), timeout=e2e_config.e2e_timeout
-                )
-            except TimeoutError:
-                pass
+            received = await wait_for_agent_response_ws(
+                ws_client, chat_id, timeout=e2e_config.e2e_timeout
+            )
 
-        assert len(received) > 0, "Agent should have sent a message via tool"
+        assert len(received) > 0, (
+            f"[{adapter_name}] Agent should have sent a message via tool"
+        )
         assert_content_contains(received, "PINEAPPLE")
-        logger.info("Anthropic tool execution test passed")
+        logger.info("[%s] Tool execution test passed", adapter_name)

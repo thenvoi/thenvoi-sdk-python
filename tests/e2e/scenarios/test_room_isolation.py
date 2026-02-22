@@ -52,6 +52,7 @@ async def _create_room_with_user(
         participant=ParticipantRequest(participant_id=user_peer.id, role="member"),
     )
 
+    logger.info("Created isolation test room %s with user %s", chat_id, user_peer.name)
     return chat_id, user_peer.id, user_peer.name
 
 
@@ -136,11 +137,9 @@ class TestRoomIsolation:
             try:
                 await asyncio.wait_for(room_a_event.wait(), timeout=timeout)
             except TimeoutError:
-                pass
-
-            assert len(room_a_received) > 0, (
-                f"[{adapter_name}] Room A: Agent should have acknowledged APPLE"
-            )
+                pytest.fail(
+                    f"[{adapter_name}] Room A: Agent did not acknowledge APPLE within {timeout}s"
+                )
 
             await send_user_message(
                 api_client,
@@ -152,11 +151,9 @@ class TestRoomIsolation:
             try:
                 await asyncio.wait_for(room_b_event.wait(), timeout=timeout)
             except TimeoutError:
-                pass
-
-            assert len(room_b_received) > 0, (
-                f"[{adapter_name}] Room B: Agent should have acknowledged BANANA"
-            )
+                pytest.fail(
+                    f"[{adapter_name}] Room B: Agent did not acknowledge BANANA within {timeout}s"
+                )
 
             # --- Phase 2: Query each room and verify isolation ---
             room_a_received.clear()
@@ -174,7 +171,9 @@ class TestRoomIsolation:
             try:
                 await asyncio.wait_for(room_a_event.wait(), timeout=timeout)
             except TimeoutError:
-                pass
+                pytest.fail(
+                    f"[{adapter_name}] Room A: Agent did not respond to query within {timeout}s"
+                )
 
             await send_user_message(
                 api_client,
@@ -186,19 +185,15 @@ class TestRoomIsolation:
             try:
                 await asyncio.wait_for(room_b_event.wait(), timeout=timeout)
             except TimeoutError:
-                pass
+                pytest.fail(
+                    f"[{adapter_name}] Room B: Agent did not respond to query within {timeout}s"
+                )
 
         # Verify Room A knows APPLE but not BANANA
-        assert len(room_a_received) > 0, (
-            f"[{adapter_name}] Room A: Agent should have responded about the code"
-        )
         assert_content_contains(room_a_received, "APPLE")
         assert_no_content_contains(room_a_received, "BANANA")
 
         # Verify Room B knows BANANA but not APPLE
-        assert len(room_b_received) > 0, (
-            f"[{adapter_name}] Room B: Agent should have responded about the code"
-        )
         assert_content_contains(room_b_received, "BANANA")
         assert_no_content_contains(room_b_received, "APPLE")
 
