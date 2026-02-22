@@ -58,6 +58,9 @@ class TrackingWebSocketClient:
         self._joined_rooms.clear()
 
     def __getattr__(self, name: str):
+        # Proxies all other attributes to the underlying WebSocketClient.
+        # Trade-off: typos on method calls won't be caught by type checkers
+        # and will only fail at runtime.
         return getattr(self._ws, name)
 
 
@@ -171,9 +174,10 @@ async def wait_for_agent_response_ws(
             if len(received) >= min_messages:
                 event.set()
 
-    await ws_client.join_chat_room_channel(room_id, handler)
-
+    joined = False
     try:
+        await ws_client.join_chat_room_channel(room_id, handler)
+        joined = True
         await asyncio.wait_for(event.wait(), timeout=timeout)
     except TimeoutError:
         logger.warning(
@@ -187,7 +191,8 @@ async def wait_for_agent_response_ws(
         if raise_on_timeout:
             raise
     finally:
-        await ws_client.leave_chat_room_channel(room_id)
+        if joined:
+            await ws_client.leave_chat_room_channel(room_id)
 
     return received
 
