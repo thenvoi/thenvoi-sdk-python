@@ -65,36 +65,29 @@ def _get_e2e_settings() -> E2ESettings:
 # =============================================================================
 
 
-_e2e_skip_reason: str = ""
-
-
-def _e2e_disabled() -> bool:
+def _check_e2e_status() -> tuple[bool, str]:
     """Check if E2E tests should be skipped.
 
     Evaluated once at module import time (when the ``requires_e2e`` marker
-    is created). The result is then cached in the ``skipif`` condition.
-    Sets ``_e2e_skip_reason`` so the skip message is actionable.
+    is created). Returns ``(is_disabled, reason)`` so the skip message is
+    actionable.
     """
-    global _e2e_skip_reason  # noqa: PLW0603
     try:
         settings = _get_e2e_settings()
         if not settings.e2e_tests_enabled:
-            _e2e_skip_reason = "E2E_TESTS_ENABLED is not set to true"
-            return True
+            return True, "E2E_TESTS_ENABLED is not set to true"
         if not settings.thenvoi_api_key:
-            _e2e_skip_reason = "THENVOI_API_KEY is not set"
-            return True
-        return False
+            return True, "THENVOI_API_KEY is not set"
+        return False, ""
     except Exception as exc:
-        _e2e_skip_reason = f"E2E settings could not be loaded: {exc}"
         logger.warning(
             "E2E settings could not be loaded (missing .env.test?), skipping E2E tests",
             exc_info=True,
         )
-        return True
+        return True, f"E2E settings could not be loaded: {exc}"
 
 
-_e2e_is_disabled = _e2e_disabled()
+_e2e_is_disabled, _e2e_skip_reason = _check_e2e_status()
 
 requires_e2e = pytest.mark.skipif(
     _e2e_is_disabled,
