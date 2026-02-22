@@ -13,18 +13,17 @@ Run with:
 
 from __future__ import annotations
 
-import asyncio
 import logging
 
 import pytest
 
 from thenvoi.agent import Agent
-from thenvoi.client.streaming import MessageCreatedPayload
 
 from tests.e2e.conftest import E2ESettings, requires_e2e
 from tests.e2e.helpers import (
     assert_content_contains,
     send_user_message,
+    wait_for_agent_response_ws,
 )
 
 logger = logging.getLogger(__name__)
@@ -86,16 +85,6 @@ class TestParlantE2E:
             rest_url=e2e_config.thenvoi_base_url,
         )
 
-        received: list[MessageCreatedPayload] = []
-        response_event = asyncio.Event()
-
-        async def on_message(payload: MessageCreatedPayload) -> None:
-            if payload.sender_type == "Agent" and payload.message_type == "text":
-                received.append(payload)
-                response_event.set()
-
-        await ws_client.join_chat_room_channel(chat_id, on_message)
-
         async with agent:
             agent_name = agent.agent_name
             agent_me = await api_client.agent_api.get_agent_me()
@@ -105,12 +94,9 @@ class TestParlantE2E:
                 api_client, chat_id, "Say hello", agent_name, agent_id
             )
 
-            try:
-                await asyncio.wait_for(
-                    response_event.wait(), timeout=e2e_config.e2e_timeout
-                )
-            except TimeoutError:
-                pass
+            received = await wait_for_agent_response_ws(
+                ws_client, chat_id, timeout=e2e_config.e2e_timeout
+            )
 
         assert len(received) > 0, "Agent should have responded to the message"
         logger.info("Parlant smoke test passed: received %d response(s)", len(received))
@@ -134,16 +120,6 @@ class TestParlantE2E:
             rest_url=e2e_config.thenvoi_base_url,
         )
 
-        received: list[MessageCreatedPayload] = []
-        response_event = asyncio.Event()
-
-        async def on_message(payload: MessageCreatedPayload) -> None:
-            if payload.sender_type == "Agent" and payload.message_type == "text":
-                received.append(payload)
-                response_event.set()
-
-        await ws_client.join_chat_room_channel(chat_id, on_message)
-
         async with agent:
             agent_name = agent.agent_name
             agent_me = await api_client.agent_api.get_agent_me()
@@ -157,12 +133,9 @@ class TestParlantE2E:
                 agent_id,
             )
 
-            try:
-                await asyncio.wait_for(
-                    response_event.wait(), timeout=e2e_config.e2e_timeout
-                )
-            except TimeoutError:
-                pass
+            received = await wait_for_agent_response_ws(
+                ws_client, chat_id, timeout=e2e_config.e2e_timeout
+            )
 
         assert len(received) > 0, "Agent should have sent a message via tool"
         assert_content_contains(received, "PINEAPPLE")
