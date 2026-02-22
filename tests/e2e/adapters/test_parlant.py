@@ -17,11 +17,13 @@ import logging
 from collections.abc import AsyncGenerator
 
 import pytest
+from thenvoi_rest import AsyncRestClient
 
 from thenvoi.agent import Agent
 
 from tests.e2e.conftest import E2ESettings, requires_e2e
 from tests.e2e.helpers import (
+    TrackingWebSocketClient,
     assert_content_contains,
     send_user_message,
     wait_for_agent_response_ws,
@@ -86,9 +88,9 @@ class TestParlantE2E:
         self,
         e2e_config: E2ESettings,
         e2e_chat_room_with_user: tuple[str, str, str],
-        ws_client,
+        ws_client: TrackingWebSocketClient,
         running_parlant_agent: Agent,
-        api_client,
+        api_client: AsyncRestClient,
         e2e_agent_id: str,
     ):
         """Smoke test: agent starts, receives a message, and responds."""
@@ -111,9 +113,9 @@ class TestParlantE2E:
         self,
         e2e_config: E2ESettings,
         e2e_chat_room_with_user: tuple[str, str, str],
-        ws_client,
+        ws_client: TrackingWebSocketClient,
         running_parlant_agent: Agent,
-        api_client,
+        api_client: AsyncRestClient,
         e2e_agent_id: str,
     ):
         """Verify the agent uses thenvoi_send_message tool to respond."""
