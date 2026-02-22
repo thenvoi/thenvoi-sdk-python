@@ -49,6 +49,10 @@ class TestRoomIsolation:
         Room B: Send "The code is BANANA"
         Room A: Ask "What's the code?" -> Assert "APPLE", not "BANANA"
         Room B: Ask "What's the code?" -> Assert "BANANA", not "APPLE"
+
+        Note: This test creates 2 rooms per adapter via ``create_room_with_user``
+        (not the ``e2e_chat_room_with_user`` fixture). These rooms persist because
+        there is no delete API for agents. Expect room accumulation across runs.
         """
         adapter_name, factory = adapter_entry
         timeout = e2e_config.e2e_timeout
@@ -138,13 +142,13 @@ class TestRoomIsolation:
                 raise_on_timeout=True,
             )
 
-        # Verify Room A knows APPLE but not BANANA
-        assert_content_contains(room_a_received, "APPLE")
-        assert_no_content_contains(room_a_received, "BANANA")
+            # Verify Room A knows APPLE but not BANANA
+            assert_content_contains(room_a_received, "APPLE")
+            assert_no_content_contains(room_a_received, "BANANA")
 
-        # Verify Room B knows BANANA but not APPLE
-        assert_content_contains(room_b_received, "BANANA")
-        assert_no_content_contains(room_b_received, "APPLE")
+            # Verify Room B knows BANANA but not APPLE
+            assert_content_contains(room_b_received, "BANANA")
+            assert_no_content_contains(room_b_received, "APPLE")
 
         logger.info(
             "[%s] Room isolation test PASSED: rooms are correctly isolated",

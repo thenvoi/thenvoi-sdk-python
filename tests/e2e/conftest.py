@@ -71,7 +71,11 @@ def _get_e2e_settings() -> E2ESettings:
 
 
 def _e2e_disabled() -> bool:
-    """Check if E2E tests should be skipped (evaluated lazily)."""
+    """Check if E2E tests should be skipped.
+
+    Evaluated once at module import time (when the ``requires_e2e`` marker
+    is created). The result is then cached in the ``skipif`` condition.
+    """
     try:
         settings = _get_e2e_settings()
         return not settings.e2e_tests_enabled or not settings.thenvoi_api_key

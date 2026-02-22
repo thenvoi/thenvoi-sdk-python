@@ -17,6 +17,9 @@ Run a specific adapter:
 from __future__ import annotations
 
 import logging
+from collections.abc import AsyncGenerator
+
+import pytest
 
 from thenvoi.agent import Agent
 
@@ -34,18 +37,18 @@ logger = logging.getLogger(__name__)
 class TestAdapterE2E:
     """E2E tests parametrized across all standard adapters."""
 
-    async def test_smoke_responds_to_message(
+    @pytest.fixture
+    async def running_agent(
         self,
         e2e_config: E2ESettings,
-        e2e_chat_room_with_user: tuple[str, str, str],
-        ws_client,
         adapter_factory,
-        api_client,
-        e2e_agent_id: str,
-    ):
-        """Smoke test: agent starts, receives a message, and responds."""
+    ) -> AsyncGenerator[tuple[str, Agent], None]:
+        """Create and start an agent from the parametrized adapter factory.
+
+        Yields (adapter_name, agent) with the agent running inside its
+        async context manager. Ensures clean shutdown on exit.
+        """
         adapter_name, factory = adapter_factory
-        chat_id, user_id, user_name = e2e_chat_room_with_user
         adapter = factory(e2e_config)
 
         agent = Agent.create(
@@ -57,15 +60,28 @@ class TestAdapterE2E:
         )
 
         async with agent:
-            agent_name = agent.agent_name
+            yield adapter_name, agent
 
-            await send_user_message(
-                api_client, chat_id, "Say hello", agent_name, e2e_agent_id
-            )
+    async def test_smoke_responds_to_message(
+        self,
+        e2e_config: E2ESettings,
+        e2e_chat_room_with_user: tuple[str, str, str],
+        ws_client,
+        running_agent: tuple[str, Agent],
+        api_client,
+        e2e_agent_id: str,
+    ):
+        """Smoke test: agent starts, receives a message, and responds."""
+        adapter_name, agent = running_agent
+        chat_id, user_id, user_name = e2e_chat_room_with_user
 
-            received = await wait_for_agent_response_ws(
-                ws_client, chat_id, timeout=e2e_config.e2e_timeout
-            )
+        await send_user_message(
+            api_client, chat_id, "Say hello", agent.agent_name, e2e_agent_id
+        )
+
+        received = await wait_for_agent_response_ws(
+            ws_client, chat_id, timeout=e2e_config.e2e_timeout
+        )
 
         assert len(received) > 0, (
             f"[{adapter_name}] Agent should have responded to the message"
@@ -81,37 +97,25 @@ class TestAdapterE2E:
         e2e_config: E2ESettings,
         e2e_chat_room_with_user: tuple[str, str, str],
         ws_client,
-        adapter_factory,
+        running_agent: tuple[str, Agent],
         api_client,
         e2e_agent_id: str,
     ):
         """Verify the agent uses thenvoi_send_message tool to respond."""
-        adapter_name, factory = adapter_factory
+        adapter_name, agent = running_agent
         chat_id, user_id, user_name = e2e_chat_room_with_user
-        adapter = factory(e2e_config)
 
-        agent = Agent.create(
-            adapter=adapter,
-            agent_id=e2e_config.test_agent_id,
-            api_key=e2e_config.thenvoi_api_key,
-            ws_url=e2e_config.thenvoi_ws_url,
-            rest_url=e2e_config.thenvoi_base_url,
+        await send_user_message(
+            api_client,
+            chat_id,
+            "Reply with the word PINEAPPLE",
+            agent.agent_name,
+            e2e_agent_id,
         )
 
-        async with agent:
-            agent_name = agent.agent_name
-
-            await send_user_message(
-                api_client,
-                chat_id,
-                "Reply with the word PINEAPPLE",
-                agent_name,
-                e2e_agent_id,
-            )
-
-            received = await wait_for_agent_response_ws(
-                ws_client, chat_id, timeout=e2e_config.e2e_timeout
-            )
+        received = await wait_for_agent_response_ws(
+            ws_client, chat_id, timeout=e2e_config.e2e_timeout
+        )
 
         assert len(received) > 0, (
             f"[{adapter_name}] Agent should have sent a message via tool"

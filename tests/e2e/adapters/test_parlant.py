@@ -14,6 +14,7 @@ Run with:
 from __future__ import annotations
 
 import logging
+from collections.abc import AsyncGenerator
 
 import pytest
 
@@ -48,8 +49,14 @@ class TestParlantE2E:
     """
 
     @pytest.fixture
-    async def parlant_adapter(self, e2e_config: E2ESettings):
-        """Create a Parlant adapter with an in-process server."""
+    async def running_parlant_agent(
+        self,
+        e2e_config: E2ESettings,
+    ) -> AsyncGenerator[Agent, None]:
+        """Create a Parlant adapter with an in-process server and start the agent.
+
+        Yields a running Agent inside its async context manager.
+        """
         from thenvoi.adapters.parlant import ParlantAdapter
 
         async with p.Server() as server:
@@ -64,38 +71,37 @@ class TestParlantE2E:
                 custom_section="Keep responses short and concise.",
             )
 
-            yield adapter
+            agent = Agent.create(
+                adapter=adapter,
+                agent_id=e2e_config.test_agent_id,
+                api_key=e2e_config.thenvoi_api_key,
+                ws_url=e2e_config.thenvoi_ws_url,
+                rest_url=e2e_config.thenvoi_base_url,
+            )
+
+            async with agent:
+                yield agent
 
     async def test_smoke_responds_to_message(
         self,
         e2e_config: E2ESettings,
         e2e_chat_room_with_user: tuple[str, str, str],
         ws_client,
-        parlant_adapter,
+        running_parlant_agent: Agent,
         api_client,
         e2e_agent_id: str,
     ):
         """Smoke test: agent starts, receives a message, and responds."""
         chat_id, user_id, user_name = e2e_chat_room_with_user
+        agent = running_parlant_agent
 
-        agent = Agent.create(
-            adapter=parlant_adapter,
-            agent_id=e2e_config.test_agent_id,
-            api_key=e2e_config.thenvoi_api_key,
-            ws_url=e2e_config.thenvoi_ws_url,
-            rest_url=e2e_config.thenvoi_base_url,
+        await send_user_message(
+            api_client, chat_id, "Say hello", agent.agent_name, e2e_agent_id
         )
 
-        async with agent:
-            agent_name = agent.agent_name
-
-            await send_user_message(
-                api_client, chat_id, "Say hello", agent_name, e2e_agent_id
-            )
-
-            received = await wait_for_agent_response_ws(
-                ws_client, chat_id, timeout=e2e_config.e2e_timeout
-            )
+        received = await wait_for_agent_response_ws(
+            ws_client, chat_id, timeout=e2e_config.e2e_timeout
+        )
 
         assert len(received) > 0, "Agent should have responded to the message"
         logger.info("Parlant smoke test passed: received %d response(s)", len(received))
@@ -105,35 +111,25 @@ class TestParlantE2E:
         e2e_config: E2ESettings,
         e2e_chat_room_with_user: tuple[str, str, str],
         ws_client,
-        parlant_adapter,
+        running_parlant_agent: Agent,
         api_client,
         e2e_agent_id: str,
     ):
         """Verify the agent uses thenvoi_send_message tool to respond."""
         chat_id, user_id, user_name = e2e_chat_room_with_user
+        agent = running_parlant_agent
 
-        agent = Agent.create(
-            adapter=parlant_adapter,
-            agent_id=e2e_config.test_agent_id,
-            api_key=e2e_config.thenvoi_api_key,
-            ws_url=e2e_config.thenvoi_ws_url,
-            rest_url=e2e_config.thenvoi_base_url,
+        await send_user_message(
+            api_client,
+            chat_id,
+            "Reply with the word PINEAPPLE",
+            agent.agent_name,
+            e2e_agent_id,
         )
 
-        async with agent:
-            agent_name = agent.agent_name
-
-            await send_user_message(
-                api_client,
-                chat_id,
-                "Reply with the word PINEAPPLE",
-                agent_name,
-                e2e_agent_id,
-            )
-
-            received = await wait_for_agent_response_ws(
-                ws_client, chat_id, timeout=e2e_config.e2e_timeout
-            )
+        received = await wait_for_agent_response_ws(
+            ws_client, chat_id, timeout=e2e_config.e2e_timeout
+        )
 
         assert len(received) > 0, "Agent should have sent a message via tool"
         assert_content_contains(received, "PINEAPPLE")

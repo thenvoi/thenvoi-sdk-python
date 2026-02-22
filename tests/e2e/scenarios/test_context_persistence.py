@@ -113,7 +113,8 @@ class TestContextPersistence:
                 ws_client, chat_id, timeout=timeout, raise_on_timeout=True
             )
 
-        assert_content_contains(phase2_received, "ABC123")
+            assert_content_contains(phase2_received, "ABC123")
+
         logger.info(
             "[%s] Context persistence test PASSED: agent remembered ABC123",
             adapter_name,
