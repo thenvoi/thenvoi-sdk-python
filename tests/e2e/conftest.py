@@ -12,14 +12,14 @@ Configuration is loaded from .env.test with E2E-specific overrides from env vars
 from __future__ import annotations
 
 import logging
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Awaitable, Callable
 from pathlib import Path
 
 import pytest
-from thenvoi_rest import AsyncRestClient, ChatRoomRequest
+from thenvoi_rest import AsyncRestClient
 from thenvoi_testing.settings import ThenvoiTestSettings
 
-from thenvoi.client.streaming import WebSocketClient
+from thenvoi.client.streaming import MessageCreatedPayload, WebSocketClient
 
 from tests.e2e.helpers import create_room_with_user
 
@@ -71,6 +71,10 @@ def _e2e_disabled() -> bool:
         settings = _get_e2e_settings()
         return not settings.e2e_tests_enabled or not settings.thenvoi_api_key
     except Exception:
+        logger.warning(
+            "E2E settings could not be loaded (missing .env.test?), skipping E2E tests",
+            exc_info=True,
+        )
         return True
 
 
@@ -104,24 +108,6 @@ def api_client(e2e_config: E2ESettings) -> AsyncRestClient:
 
 
 @pytest.fixture
-async def e2e_chat_room(
-    api_client: AsyncRestClient,
-) -> AsyncGenerator[str, None]:
-    """Create a unique chat room per test, yield room_id.
-
-    Cleans up by leaving the room (rooms can't be deleted via agent API).
-    """
-    response = await api_client.agent_api.create_agent_chat(chat=ChatRoomRequest())
-    chat_id = response.data.id
-    logger.info("Created E2E test chat room: %s", chat_id)
-
-    yield chat_id
-
-    # Cleanup: rooms can't be deleted via agent API, so just log
-    logger.info("E2E test chat room %s will persist (no delete API)", chat_id)
-
-
-@pytest.fixture
 async def e2e_chat_room_with_user(
     api_client: AsyncRestClient,
 ) -> AsyncGenerator[tuple[str, str, str], None]:
@@ -138,7 +124,54 @@ async def e2e_chat_room_with_user(
 
 
 @pytest.fixture
-async def ws_client(e2e_config: E2ESettings) -> AsyncGenerator[WebSocketClient, None]:
+async def e2e_agent_id(api_client: AsyncRestClient) -> str:
+    """Get the agent ID for the test agent (avoids repeated get_agent_me calls)."""
+    agent_me = await api_client.agent_api.get_agent_me()
+    return agent_me.data.id
+
+
+class TrackingWebSocketClient:
+    """Wrapper around WebSocketClient that tracks joined rooms for cleanup.
+
+    Uses a set to avoid duplicate leave calls when tests manually leave
+    and rejoin the same room.
+    """
+
+    def __init__(self, ws: WebSocketClient) -> None:
+        self._ws = ws
+        self._joined_rooms: set[str] = set()
+
+    async def join_chat_room_channel(
+        self,
+        chat_room_id: str,
+        on_message_created: Callable[[MessageCreatedPayload], Awaitable[None]],
+    ):
+        result = await self._ws.join_chat_room_channel(chat_room_id, on_message_created)
+        self._joined_rooms.add(chat_room_id)
+        return result
+
+    async def leave_chat_room_channel(self, chat_room_id: str):
+        result = await self._ws.leave_chat_room_channel(chat_room_id)
+        self._joined_rooms.discard(chat_room_id)
+        return result
+
+    async def cleanup_channels(self) -> None:
+        """Leave all tracked channels. Best-effort, errors are logged."""
+        for room_id in list(self._joined_rooms):
+            try:
+                await self._ws.leave_chat_room_channel(room_id)
+            except Exception:
+                logger.debug("Failed to leave room %s during cleanup", room_id)
+        self._joined_rooms.clear()
+
+    def __getattr__(self, name: str):
+        return getattr(self._ws, name)
+
+
+@pytest.fixture
+async def ws_client(
+    e2e_config: E2ESettings,
+) -> AsyncGenerator[TrackingWebSocketClient, None]:
     """WebSocket client for observing agent responses.
 
     Note: This creates a second WebSocket connection alongside the Agent's own
@@ -146,8 +179,8 @@ async def ws_client(e2e_config: E2ESettings) -> AsyncGenerator[WebSocketClient, 
     connections for an agent, so both the agent and this test observer receive
     messages. This is intentional for test observability.
 
-    Tracks joined channels and explicitly leaves them on teardown before
-    closing the connection.
+    Wraps the raw WebSocketClient in a TrackingWebSocketClient that tracks
+    joined channels and explicitly leaves them on teardown.
     """
     if not e2e_config.thenvoi_api_key:
         pytest.skip("THENVOI_API_KEY not set")
@@ -157,24 +190,8 @@ async def ws_client(e2e_config: E2ESettings) -> AsyncGenerator[WebSocketClient, 
         api_key=e2e_config.thenvoi_api_key,
         agent_id=e2e_config.test_agent_id,
     )
-    joined_rooms: list[str] = []
-
-    # Monkey-patch join to track rooms for cleanup
-    _original_join = ws.join_chat_room_channel
-
-    async def _tracking_join(chat_room_id, on_message_created):
-        result = await _original_join(chat_room_id, on_message_created)
-        joined_rooms.append(chat_room_id)
-        return result
-
-    ws.join_chat_room_channel = _tracking_join  # type: ignore[assignment]
 
     async with ws:
-        yield ws
-
-        # Explicitly leave all joined channels before connection closes
-        for room_id in joined_rooms:
-            try:
-                await ws.leave_chat_room_channel(room_id)
-            except Exception:
-                logger.debug("Failed to leave room %s during cleanup", room_id)
+        tracking_ws = TrackingWebSocketClient(ws)
+        yield tracking_ws
+        await tracking_ws.cleanup_channels()
