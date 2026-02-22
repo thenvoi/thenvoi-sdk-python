@@ -12,18 +12,23 @@ Configuration is loaded from .env.test with E2E-specific overrides from env vars
 from __future__ import annotations
 
 import logging
-from collections.abc import AsyncGenerator, Awaitable, Callable
+from collections.abc import AsyncGenerator
 from pathlib import Path
 
 import pytest
 from thenvoi_rest import AsyncRestClient
 from thenvoi_testing.settings import ThenvoiTestSettings
 
-from thenvoi.client.streaming import MessageCreatedPayload, WebSocketClient
+from thenvoi.client.streaming import WebSocketClient
 
-from tests.e2e.helpers import create_room_with_user
+from tests.e2e.helpers import TrackingWebSocketClient, create_room_with_user
 
 logger = logging.getLogger(__name__)
+
+# Apply asyncio marker to all E2E tests. This is defensive — asyncio_mode="auto"
+# is set in pyproject.toml, but an explicit marker ensures async tests keep
+# running correctly even if that global config changes.
+pytestmark = [pytest.mark.asyncio]
 
 
 # =============================================================================
@@ -128,44 +133,6 @@ async def e2e_agent_id(api_client: AsyncRestClient) -> str:
     """Get the agent ID for the test agent (avoids repeated get_agent_me calls)."""
     agent_me = await api_client.agent_api.get_agent_me()
     return agent_me.data.id
-
-
-class TrackingWebSocketClient:
-    """Wrapper around WebSocketClient that tracks joined rooms for cleanup.
-
-    Uses a set to avoid duplicate leave calls when tests manually leave
-    and rejoin the same room.
-    """
-
-    def __init__(self, ws: WebSocketClient) -> None:
-        self._ws = ws
-        self._joined_rooms: set[str] = set()
-
-    async def join_chat_room_channel(
-        self,
-        chat_room_id: str,
-        on_message_created: Callable[[MessageCreatedPayload], Awaitable[None]],
-    ):
-        result = await self._ws.join_chat_room_channel(chat_room_id, on_message_created)
-        self._joined_rooms.add(chat_room_id)
-        return result
-
-    async def leave_chat_room_channel(self, chat_room_id: str):
-        result = await self._ws.leave_chat_room_channel(chat_room_id)
-        self._joined_rooms.discard(chat_room_id)
-        return result
-
-    async def cleanup_channels(self) -> None:
-        """Leave all tracked channels. Best-effort, errors are logged."""
-        for room_id in list(self._joined_rooms):
-            try:
-                await self._ws.leave_chat_room_channel(room_id)
-            except Exception:
-                logger.debug("Failed to leave room %s during cleanup", room_id)
-        self._joined_rooms.clear()
-
-    def __getattr__(self, name: str):
-        return getattr(self._ws, name)
 
 
 @pytest.fixture

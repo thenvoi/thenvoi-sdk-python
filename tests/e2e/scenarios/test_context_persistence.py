@@ -97,9 +97,6 @@ class TestContextPersistence:
             rest_url=e2e_config.thenvoi_base_url,
         )
 
-        # Leave and rejoin channel to reset the handler for fresh message collection
-        await ws_client.leave_chat_room_channel(chat_id)
-
         async with agent2:
             agent_name2 = agent2.agent_name
 
