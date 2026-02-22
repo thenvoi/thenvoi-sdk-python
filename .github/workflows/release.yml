@@ -13,6 +13,7 @@ permissions:
 jobs:
   release:
     runs-on: ubuntu-latest
+    environment: release
     concurrency: release
 
     steps:
@@ -62,9 +63,7 @@ jobs:
 
       - name: Publish to PyPI
         if: steps.release.outputs.release_created == 'true'
-        run: uv publish
-        env:
-          UV_PUBLISH_TOKEN: ${{ secrets.PYPI_TOKEN }}
+        uses: pypa/gh-action-pypi-publish@release/v1
 
       - name: Publish release summary
         if: steps.release.outputs.release_created == 'true'
