@@ -29,8 +29,8 @@ from tests.e2e.conftest import E2ESettings, requires_e2e
 from tests.e2e.helpers import (
     TrackingWebSocketClient,
     assert_content_contains,
+    listening_for_agent_responses,
     send_user_message,
-    wait_for_agent_response_ws,
 )
 
 logger = logging.getLogger(__name__)
@@ -78,14 +78,13 @@ class TestAdapterE2E:
         adapter_name, agent = running_agent
         chat_id, user_id, user_name = e2e_chat_room_with_user
 
-        # Self-mention triggers agent processing (see send_user_message docs)
-        await send_user_message(
-            api_client, chat_id, "Say hello", agent.agent_name, e2e_agent_id
-        )
-
-        received = await wait_for_agent_response_ws(
+        async with listening_for_agent_responses(
             ws_client, chat_id, timeout=e2e_config.e2e_timeout
-        )
+        ) as wait:
+            await send_user_message(
+                api_client, chat_id, "Say hello", agent.agent_name, e2e_agent_id
+            )
+            received = await wait()
 
         assert len(received) > 0, (
             f"[{adapter_name}] Agent should have responded to the message"
@@ -109,18 +108,17 @@ class TestAdapterE2E:
         adapter_name, agent = running_agent
         chat_id, user_id, user_name = e2e_chat_room_with_user
 
-        # Self-mention triggers agent processing (see send_user_message docs)
-        await send_user_message(
-            api_client,
-            chat_id,
-            "Reply with the word PINEAPPLE",
-            agent.agent_name,
-            e2e_agent_id,
-        )
-
-        received = await wait_for_agent_response_ws(
+        async with listening_for_agent_responses(
             ws_client, chat_id, timeout=e2e_config.e2e_timeout
-        )
+        ) as wait:
+            await send_user_message(
+                api_client,
+                chat_id,
+                "Reply with the word PINEAPPLE",
+                agent.agent_name,
+                e2e_agent_id,
+            )
+            received = await wait()
 
         assert len(received) > 0, (
             f"[{adapter_name}] Agent should have sent a message via tool"
