@@ -26,8 +26,10 @@ async def send_user_message(
 ) -> str:
     """Send a message mentioning an agent, return message_id.
 
-    The message is sent as the agent (via agent API) mentioning itself
-    to simulate an incoming user message that triggers the agent.
+    Uses the agent API to send a message with a self-mention. The platform
+    treats self-mentions as triggering events, so this simulates an incoming
+    user message that causes the agent to process and respond. This approach
+    avoids needing separate user credentials for E2E tests.
 
     Args:
         client: REST API client for sending messages.
@@ -57,6 +59,7 @@ async def wait_for_agent_response_ws(
     room_id: str,
     timeout: float = 30.0,
     min_messages: int = 1,
+    raise_on_timeout: bool = False,
 ) -> list[MessageCreatedPayload]:
     """Wait for agent response(s) via WebSocket.
 
@@ -69,9 +72,15 @@ async def wait_for_agent_response_ws(
         room_id: Chat room to listen on.
         timeout: Maximum seconds to wait.
         min_messages: Minimum number of agent messages to wait for.
+        raise_on_timeout: If True, raise TimeoutError instead of returning
+            partial results when the timeout is reached.
 
     Returns:
         List of received agent messages.
+
+    Raises:
+        TimeoutError: If raise_on_timeout is True and timeout is reached
+            before min_messages are received.
     """
     received: list[MessageCreatedPayload] = []
     event = asyncio.Event()
@@ -100,6 +109,8 @@ async def wait_for_agent_response_ws(
             min_messages,
             timeout,
         )
+        if raise_on_timeout:
+            raise
 
     return received
 
