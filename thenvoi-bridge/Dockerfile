@@ -1,4 +1,4 @@
-FROM python:3.11-slim AS builder
+FROM --platform=linux/arm64 python:3.11-slim AS builder
 
 RUN apt-get update && apt-get install -y --no-install-recommends git \
     && rm -rf /var/lib/apt/lists/*
@@ -15,10 +15,10 @@ WORKDIR /app
 # Install dependencies first (cached layer), then install the SDK
 COPY pyproject.toml uv.lock ./
 COPY src/ src/
-RUN uv sync --frozen --extra bridge --no-dev
+RUN uv sync --frozen --extra bridge --extra bridge_agentcore --no-dev
 
 # --- Final stage ---
-FROM python:3.11-slim
+FROM --platform=linux/arm64 python:3.11-slim
 
 # Copy virtual environment from builder
 COPY --from=builder /app/.venv /app/.venv

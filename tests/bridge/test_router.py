@@ -349,6 +349,27 @@ class TestMentionRouterRoute:
 
         mock_handler.handle.assert_not_called()
 
+    async def test_none_mentions_does_nothing(
+        self, router: MentionRouter, mock_handler: AsyncMock
+    ) -> None:
+        """A payload with metadata.mentions=None should not dispatch."""
+        payload = MessageCreatedPayload(
+            id="msg-1",
+            content="hello",
+            message_type="text",
+            sender_id="user-1",
+            sender_type="User",
+            chat_room_id="room-1",
+            inserted_at="2024-01-01T00:00:00Z",
+            updated_at="2024-01-01T00:00:00Z",
+            metadata=MessageMetadata(mentions=None, status="sent"),
+        )
+        tools = MagicMock()
+
+        await router.route(payload, "room-1", tools)
+
+        mock_handler.handle.assert_not_called()
+
     async def test_marks_processing_before_handler(
         self, router: MentionRouter, mock_handler: AsyncMock, mock_link: AsyncMock
     ) -> None:

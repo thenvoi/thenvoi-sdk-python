@@ -27,6 +27,13 @@ class MentionRouter:
     When a message arrives, inspects mention metadata and dispatches to
     the appropriate handler(s). Integrates with ThenvoiLink for message
     lifecycle marking (processing/processed/failed).
+
+    **Timeout layering**: The router applies ``handler_timeout``
+    (from ``BridgeConfig``, default 300 s) around each handler's
+    ``handle()`` call.  Individual handlers (e.g. ``AgentCoreHandler``)
+    may apply their own *inner* timeout (default 120 s).  The inner
+    timeout fires first; the router timeout acts as a safety net for
+    handlers that lack their own timeout.
     """
 
     def __init__(
@@ -209,7 +216,7 @@ class MentionRouter:
                     await asyncio.wait_for(coro, timeout=self._handler_timeout)
                 else:
                     await coro
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 logger.error(
                     "Handler '%s' timed out after %.1fs for @%s in room %s",
                     handler_name,

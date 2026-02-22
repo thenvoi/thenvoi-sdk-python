@@ -25,6 +25,7 @@ __all__ = [
     "WebSocketClient",
     "MessageCreatedPayload",
     "RoomAddedPayload",
+    "RoomOwner",
     "RoomRemovedPayload",
     "ParticipantAddedPayload",
     "ParticipantRemovedPayload",

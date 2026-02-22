@@ -4,10 +4,10 @@ services:
       context: ..
       dockerfile: thenvoi-bridge/Dockerfile
     env_file: .env
-    # REQUIRED: set `command` to your entry point that registers handlers.
-    # Without this, the container exits immediately with a usage message.
-    # Example:
-    #   command: ["python", "run.py"]
+    # REQUIRED: uncomment and set `command` to your entry point that
+    # registers handlers.  Without this, the container exits immediately
+    # with a usage message.
+    # command: ["python", "run.py"]
     ports:
       - "8080:8080"
     healthcheck:
@@ -19,6 +19,6 @@ services:
     deploy:
       resources:
         limits:
-          memory: 512M
+          memory: 1024M
           cpus: "1.0"
     restart: unless-stopped

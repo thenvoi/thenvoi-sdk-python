@@ -96,6 +96,14 @@ class InMemorySessionStore:
         self._high_session_warned = False
 
     _HIGH_SESSION_THRESHOLD = 10_000
+    """Warn once when session count exceeds this threshold."""
+
+    def _is_expired(self, session: SessionData) -> bool:
+        """Check if a single session has exceeded the TTL."""
+        if self._session_ttl is None:
+            return False
+        elapsed = (datetime.now(timezone.utc) - session.last_activity).total_seconds()
+        return elapsed > self._session_ttl
 
     def _evict_expired(self) -> None:
         """Remove sessions that have exceeded the TTL. Must be called under lock.
@@ -117,15 +125,14 @@ class InMemorySessionStore:
             del self._sessions[room_id]
 
         count = len(self._sessions)
-        if count >= self._HIGH_SESSION_THRESHOLD:
-            if not self._high_session_warned:
-                logger.warning(
-                    "Session count (%d) exceeds %d — consider a background eviction task",
-                    count,
-                    self._HIGH_SESSION_THRESHOLD,
-                )
-                self._high_session_warned = True
-        else:
+        if count >= self._HIGH_SESSION_THRESHOLD and not self._high_session_warned:
+            logger.warning(
+                "Session count (%d) exceeds %d — consider a background eviction task",
+                count,
+                self._HIGH_SESSION_THRESHOLD,
+            )
+            self._high_session_warned = True
+        elif count < self._HIGH_SESSION_THRESHOLD:
             self._high_session_warned = False
 
     async def get_or_create(self, room_id: str) -> SessionData:
@@ -140,7 +147,11 @@ class InMemorySessionStore:
 
     async def get(self, room_id: str) -> SessionData | None:
         async with self._lock:
-            return self._sessions.get(room_id)
+            session = self._sessions.get(room_id)
+            if session is not None and self._is_expired(session):
+                del self._sessions[room_id]
+                return None
+            return session
 
     async def remove(self, room_id: str) -> None:
         async with self._lock:
