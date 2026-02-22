@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections.abc import Awaitable, Callable
 
 import pytest
 from thenvoi_rest import AsyncRestClient, ChatMessageRequest, ChatRoomRequest
@@ -20,6 +21,44 @@ from thenvoi_rest.types import (
 from thenvoi.client.streaming import MessageCreatedPayload, WebSocketClient
 
 logger = logging.getLogger(__name__)
+
+
+class TrackingWebSocketClient:
+    """Wrapper around WebSocketClient that tracks joined rooms for cleanup.
+
+    Uses a set to avoid duplicate leave calls when tests manually leave
+    and rejoin the same room.
+    """
+
+    def __init__(self, ws: WebSocketClient) -> None:
+        self._ws = ws
+        self._joined_rooms: set[str] = set()
+
+    async def join_chat_room_channel(
+        self,
+        chat_room_id: str,
+        on_message_created: Callable[[MessageCreatedPayload], Awaitable[None]],
+    ):
+        result = await self._ws.join_chat_room_channel(chat_room_id, on_message_created)
+        self._joined_rooms.add(chat_room_id)
+        return result
+
+    async def leave_chat_room_channel(self, chat_room_id: str):
+        result = await self._ws.leave_chat_room_channel(chat_room_id)
+        self._joined_rooms.discard(chat_room_id)
+        return result
+
+    async def cleanup_channels(self) -> None:
+        """Leave all tracked channels. Best-effort, errors are logged."""
+        for room_id in list(self._joined_rooms):
+            try:
+                await self._ws.leave_chat_room_channel(room_id)
+            except Exception:
+                logger.debug("Failed to leave room %s during cleanup", room_id)
+        self._joined_rooms.clear()
+
+    def __getattr__(self, name: str):
+        return getattr(self._ws, name)
 
 
 async def send_user_message(
@@ -90,7 +129,7 @@ async def create_room_with_user(
 
 
 async def wait_for_agent_response_ws(
-    ws_client: WebSocketClient,
+    ws_client: WebSocketClient | TrackingWebSocketClient,
     room_id: str,
     timeout: float = 30.0,
     min_messages: int = 1,
@@ -100,10 +139,11 @@ async def wait_for_agent_response_ws(
 
     Subscribes to the chat room channel and waits for messages from
     agents (sender_type == "Agent"). Returns once at least min_messages
-    are received or timeout is reached.
+    are received or timeout is reached. The channel is always left on
+    return (or exception), so callers don't need to manage cleanup.
 
     Args:
-        ws_client: Connected WebSocket client.
+        ws_client: Connected WebSocket client (or TrackingWebSocketClient).
         room_id: Chat room to listen on.
         timeout: Maximum seconds to wait.
         min_messages: Minimum number of agent messages to wait for.
@@ -146,6 +186,8 @@ async def wait_for_agent_response_ws(
         )
         if raise_on_timeout:
             raise
+    finally:
+        await ws_client.leave_chat_room_channel(room_id)
 
     return received
 

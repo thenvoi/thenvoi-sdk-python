@@ -110,10 +110,6 @@ class TestRoomIsolation:
             )
 
             # --- Phase 2: Query each room and verify isolation ---
-            # Leave and rejoin to reset handlers for fresh message collection
-            await ws_client.leave_chat_room_channel(room_a_id)
-            await ws_client.leave_chat_room_channel(room_b_id)
-
             await send_user_message(
                 api_client,
                 room_a_id,
