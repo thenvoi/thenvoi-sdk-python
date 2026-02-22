@@ -17,12 +17,15 @@ from __future__ import annotations
 import asyncio
 import logging
 
+from thenvoi_rest import AsyncRestClient
+
 from thenvoi.agent import Agent
 from thenvoi.client.streaming import MessageCreatedPayload
 
 from tests.e2e.adapters.conftest import AdapterFactory
 from tests.e2e.conftest import E2ESettings, requires_e2e
 from tests.e2e.helpers import (
+    TrackingWebSocketClient,
     assert_content_contains,
     assert_no_content_contains,
     create_room_with_user,
@@ -40,9 +43,9 @@ class TestRoomIsolation:
     async def test_agents_in_different_rooms_isolated(
         self,
         e2e_config: E2ESettings,
-        ws_client,
+        ws_client: TrackingWebSocketClient,
         adapter_entry: tuple[str, AdapterFactory],
-        api_client,
+        api_client: AsyncRestClient,
         e2e_agent_id: str,
     ):
         """Agents in different rooms don't see each other's context.

@@ -13,7 +13,6 @@ from collections.abc import Awaitable, Callable
 import pytest
 from thenvoi_rest import AsyncRestClient, ChatMessageRequest, ChatRoomRequest
 from thenvoi_rest.types import (
-    ChatMessage,
     ChatMessageRequestMentionsItem as Mention,
     ParticipantRequest,
 )
@@ -196,60 +195,6 @@ async def wait_for_agent_response_ws(
             await ws_client.leave_chat_room_channel(room_id)
 
     return received
-
-
-async def wait_for_agent_response_polling(
-    client: AsyncRestClient,
-    room_id: str,
-    after_message_id: str,
-    timeout: float = 30.0,
-    poll_interval: float = 1.0,
-) -> list[ChatMessage]:
-    """Wait for agent response by polling /context endpoint.
-
-    Fallback method when WebSocket is not available. Polls the context
-    API and looks for new messages after the given message ID.
-
-    Args:
-        client: REST API client.
-        room_id: Chat room to poll.
-        after_message_id: Only return messages sent after this ID.
-        timeout: Maximum seconds to wait.
-        poll_interval: Seconds between polls.
-
-    Returns:
-        List of new ChatMessage objects from the agent.
-    """
-    loop = asyncio.get_running_loop()
-    deadline = loop.time() + timeout
-    seen_ids = {after_message_id}
-
-    while loop.time() < deadline:
-        response = await client.agent_api.get_agent_chat_context(room_id)
-        context = response.data or []
-
-        new_items: list[ChatMessage] = []
-        for item in context:
-            if item.id not in seen_ids and item.sender_type == "Agent":
-                new_items.append(item)
-                seen_ids.add(item.id)
-
-        if new_items:
-            logger.info(
-                "Found %d new agent messages in room %s via polling",
-                len(new_items),
-                room_id,
-            )
-            return new_items
-
-        await asyncio.sleep(poll_interval)
-
-    logger.warning(
-        "Timeout polling for agent response in room %s after %.1fs",
-        room_id,
-        timeout,
-    )
-    return []
 
 
 def assert_content_contains(
