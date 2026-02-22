@@ -25,8 +25,8 @@ from tests.e2e.conftest import E2ESettings, requires_e2e
 from tests.e2e.helpers import (
     TrackingWebSocketClient,
     assert_content_contains,
+    listening_for_agent_responses,
     send_user_message,
-    wait_for_agent_response_ws,
 )
 
 logger = logging.getLogger(__name__)
@@ -70,18 +70,17 @@ class TestContextPersistence:
         async with agent:
             agent_name = agent.agent_name
 
-            # Self-mention triggers agent processing (see send_user_message docs)
-            await send_user_message(
-                api_client,
-                chat_id,
-                "Remember this secret code: ABC123. Respond confirming you remember it.",
-                agent_name,
-                e2e_agent_id,
-            )
-
-            phase1_received = await wait_for_agent_response_ws(
+            async with listening_for_agent_responses(
                 ws_client, chat_id, timeout=timeout, raise_on_timeout=True
-            )
+            ) as wait:
+                await send_user_message(
+                    api_client,
+                    chat_id,
+                    "Remember this secret code: ABC123. Respond confirming you remember it.",
+                    agent_name,
+                    e2e_agent_id,
+                )
+                phase1_received = await wait()
 
         logger.info(
             "[%s] Phase 1 complete: agent acknowledged with %d message(s)",
@@ -103,18 +102,17 @@ class TestContextPersistence:
         async with agent2:
             agent_name2 = agent2.agent_name
 
-            # Self-mention triggers agent processing (see send_user_message docs)
-            await send_user_message(
-                api_client,
-                chat_id,
-                "What was the secret code I told you to remember? Reply with just the code.",
-                agent_name2,
-                e2e_agent_id,
-            )
-
-            phase2_received = await wait_for_agent_response_ws(
+            async with listening_for_agent_responses(
                 ws_client, chat_id, timeout=timeout, raise_on_timeout=True
-            )
+            ) as wait:
+                await send_user_message(
+                    api_client,
+                    chat_id,
+                    "What was the secret code I told you to remember? Reply with just the code.",
+                    agent_name2,
+                    e2e_agent_id,
+                )
+                phase2_received = await wait()
 
             assert_content_contains(phase2_received, "ABC123")
 

@@ -8,7 +8,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import Awaitable, Callable
+from collections.abc import AsyncGenerator, Awaitable, Callable
+from contextlib import asynccontextmanager
 
 import pytest
 from thenvoi_rest import AsyncRestClient, ChatMessageRequest, ChatRoomRequest
@@ -195,6 +196,76 @@ async def wait_for_agent_response_ws(
             await ws_client.leave_chat_room_channel(room_id)
 
     return received
+
+
+@asynccontextmanager
+async def listening_for_agent_responses(
+    ws_client: WebSocketClient | TrackingWebSocketClient,
+    room_id: str,
+    timeout: float = 30.0,
+    min_messages: int = 1,
+    raise_on_timeout: bool = False,
+) -> AsyncGenerator[Callable[[], Awaitable[list[MessageCreatedPayload]]], None]:
+    """Context manager that subscribes to a room before any messages are sent.
+
+    Subscribes to the chat room channel on entry, yields an async ``wait``
+    function, and leaves the channel on exit.  Call ``wait()`` after sending
+    a message to collect agent responses without a race condition.
+
+    Usage::
+
+        async with listening_for_agent_responses(ws, room_id) as wait:
+            await send_user_message(client, room_id, "Hello", ...)
+            received = await wait()
+
+    Args:
+        ws_client: Connected WebSocket client (or TrackingWebSocketClient).
+        room_id: Chat room to listen on.
+        timeout: Maximum seconds ``wait()`` will block.
+        min_messages: Minimum agent messages to collect before returning.
+        raise_on_timeout: If True, ``wait()`` raises ``TimeoutError`` instead
+            of returning partial results.
+
+    Yields:
+        An async callable that blocks until *min_messages* agent messages
+        arrive (or *timeout* elapses) and returns the collected messages.
+    """
+    received: list[MessageCreatedPayload] = []
+    event = asyncio.Event()
+
+    async def handler(payload: MessageCreatedPayload) -> None:
+        if payload.sender_type == "Agent" and payload.message_type == "text":
+            received.append(payload)
+            logger.info(
+                "Received agent response in room %s: %s",
+                room_id,
+                payload.content[:80],
+            )
+            if len(received) >= min_messages:
+                event.set()
+
+    await ws_client.join_chat_room_channel(room_id, handler)
+    try:
+
+        async def wait() -> list[MessageCreatedPayload]:
+            try:
+                await asyncio.wait_for(event.wait(), timeout=timeout)
+            except TimeoutError:
+                logger.warning(
+                    "Timeout waiting for agent response in room %s "
+                    "(received %d/%d messages after %.1fs)",
+                    room_id,
+                    len(received),
+                    min_messages,
+                    timeout,
+                )
+                if raise_on_timeout:
+                    raise
+            return received
+
+        yield wait
+    finally:
+        await ws_client.leave_chat_room_channel(room_id)
 
 
 def assert_content_contains(

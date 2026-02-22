@@ -137,12 +137,12 @@ async def e2e_chat_room_with_user(
     return await create_room_with_user(api_client)
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture(scope="session")
 async def e2e_agent_id() -> str:
-    """Get the agent ID for the test agent (cached per module).
+    """Get the agent ID for the test agent (cached for the entire session).
 
     Uses ``_get_e2e_settings()`` directly instead of the function-scoped
-    ``e2e_config`` fixture, since module-scoped fixtures cannot depend on
+    ``e2e_config`` fixture, since session-scoped fixtures cannot depend on
     function-scoped ones.
     """
     settings = _get_e2e_settings()
