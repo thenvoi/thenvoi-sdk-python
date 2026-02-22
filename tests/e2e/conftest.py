@@ -17,10 +17,11 @@ from pathlib import Path
 
 import pytest
 from thenvoi_rest import AsyncRestClient, ChatRoomRequest
-from thenvoi_rest.types import ParticipantRequest
 from thenvoi_testing.settings import ThenvoiTestSettings
 
 from thenvoi.client.streaming import WebSocketClient
+
+from tests.e2e.helpers import create_room_with_user
 
 logger = logging.getLogger(__name__)
 
@@ -47,16 +48,34 @@ class E2ESettings(ThenvoiTestSettings):
     e2e_tests_enabled: bool = False
 
 
-# Singleton settings instance
-e2e_settings = E2ESettings()
+# Lazy singleton — avoids blowing up test collection if .env.test is
+# missing or malformed (only E2E tests need these settings).
+_e2e_settings: E2ESettings | None = None
+
+
+def _get_e2e_settings() -> E2ESettings:
+    global _e2e_settings  # noqa: PLW0603
+    if _e2e_settings is None:
+        _e2e_settings = E2ESettings()
+    return _e2e_settings
 
 
 # =============================================================================
 # Skip Markers
 # =============================================================================
 
+
+def _e2e_disabled() -> bool:
+    """Check if E2E tests should be skipped (evaluated lazily)."""
+    try:
+        settings = _get_e2e_settings()
+        return not settings.e2e_tests_enabled or not settings.thenvoi_api_key
+    except Exception:
+        return True
+
+
 requires_e2e = pytest.mark.skipif(
-    not e2e_settings.e2e_tests_enabled or not e2e_settings.thenvoi_api_key,
+    _e2e_disabled(),
     reason="E2E_TESTS_ENABLED=false or THENVOI_API_KEY not set",
 )
 
@@ -69,7 +88,7 @@ requires_e2e = pytest.mark.skipif(
 @pytest.fixture
 def e2e_config() -> E2ESettings:
     """Provide E2E settings to tests."""
-    return e2e_settings
+    return _get_e2e_settings()
 
 
 @pytest.fixture
@@ -111,30 +130,9 @@ async def e2e_chat_room_with_user(
     Yields (chat_id, user_id, user_name) tuple.
     The user peer is needed so agents can send @mentioned messages.
     """
-    # Create chat room
-    response = await api_client.agent_api.create_agent_chat(chat=ChatRoomRequest())
-    chat_id = response.data.id
+    chat_id, user_id, user_name = await create_room_with_user(api_client)
 
-    # Find a User peer to add
-    peers_response = await api_client.agent_api.list_agent_peers()
-    user_peer = next((p for p in peers_response.data if p.type == "User"), None)
-    if user_peer is None:
-        pytest.skip("No User peer available for E2E tests")
-
-    # Add user to the room
-    await api_client.agent_api.add_agent_chat_participant(
-        chat_id,
-        participant=ParticipantRequest(participant_id=user_peer.id, role="member"),
-    )
-
-    logger.info(
-        "Created E2E chat room %s with user %s (%s)",
-        chat_id,
-        user_peer.name,
-        user_peer.id,
-    )
-
-    yield chat_id, user_peer.id, user_peer.name
+    yield chat_id, user_id, user_name
 
     logger.info("E2E test chat room %s will persist (no delete API)", chat_id)
 
@@ -147,6 +145,9 @@ async def ws_client(e2e_config: E2ESettings) -> AsyncGenerator[WebSocketClient, 
     connection for the same agent_id. The platform broadcasts messages to all
     connections for an agent, so both the agent and this test observer receive
     messages. This is intentional for test observability.
+
+    Tracks joined channels and explicitly leaves them on teardown before
+    closing the connection.
     """
     if not e2e_config.thenvoi_api_key:
         pytest.skip("THENVOI_API_KEY not set")
@@ -154,7 +155,26 @@ async def ws_client(e2e_config: E2ESettings) -> AsyncGenerator[WebSocketClient, 
     ws = WebSocketClient(
         ws_url=e2e_config.thenvoi_ws_url,
         api_key=e2e_config.thenvoi_api_key,
-        agent_id=e2e_config.test_agent_id or None,
+        agent_id=e2e_config.test_agent_id,
     )
+    joined_rooms: list[str] = []
+
+    # Monkey-patch join to track rooms for cleanup
+    _original_join = ws.join_chat_room_channel
+
+    async def _tracking_join(chat_room_id, on_message_created):
+        result = await _original_join(chat_room_id, on_message_created)
+        joined_rooms.append(chat_room_id)
+        return result
+
+    ws.join_chat_room_channel = _tracking_join  # type: ignore[assignment]
+
     async with ws:
         yield ws
+
+        # Explicitly leave all joined channels before connection closes
+        for room_id in joined_rooms:
+            try:
+                await ws.leave_chat_room_channel(room_id)
+            except Exception:
+                logger.debug("Failed to leave room %s during cleanup", room_id)

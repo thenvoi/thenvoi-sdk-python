@@ -14,19 +14,16 @@ Run with:
 
 from __future__ import annotations
 
-import asyncio
 import logging
 
-import pytest
-
 from thenvoi.agent import Agent
-from thenvoi.client.streaming import MessageCreatedPayload
 
 from tests.e2e.adapters.conftest import AdapterFactory
 from tests.e2e.conftest import E2ESettings, requires_e2e
 from tests.e2e.helpers import (
     assert_content_contains,
     send_user_message,
+    wait_for_agent_response_ws,
 )
 
 logger = logging.getLogger(__name__)
@@ -66,16 +63,6 @@ class TestContextPersistence:
             rest_url=e2e_config.thenvoi_base_url,
         )
 
-        phase1_received: list[MessageCreatedPayload] = []
-        phase1_event = asyncio.Event()
-
-        async def phase1_handler(payload: MessageCreatedPayload) -> None:
-            if payload.sender_type == "Agent" and payload.message_type == "text":
-                phase1_received.append(payload)
-                phase1_event.set()
-
-        await ws_client.join_chat_room_channel(chat_id, phase1_handler)
-
         async with agent:
             agent_name = agent.agent_name
             agent_me = await api_client.agent_api.get_agent_me()
@@ -90,12 +77,9 @@ class TestContextPersistence:
                 agent_id,
             )
 
-            try:
-                await asyncio.wait_for(phase1_event.wait(), timeout=timeout)
-            except TimeoutError:
-                pytest.fail(
-                    f"[{adapter_name}] Phase 1: Agent did not respond within {timeout}s"
-                )
+            phase1_received = await wait_for_agent_response_ws(
+                ws_client, chat_id, timeout=timeout, raise_on_timeout=True
+            )
 
         logger.info(
             "[%s] Phase 1 complete: agent acknowledged with %d message(s)",
@@ -114,17 +98,8 @@ class TestContextPersistence:
             rest_url=e2e_config.thenvoi_base_url,
         )
 
-        phase2_received: list[MessageCreatedPayload] = []
-        phase2_event = asyncio.Event()
-
-        async def phase2_handler(payload: MessageCreatedPayload) -> None:
-            if payload.sender_type == "Agent" and payload.message_type == "text":
-                phase2_received.append(payload)
-                phase2_event.set()
-
-        # Re-subscribe with new handler (WebSocket channel may already be joined)
+        # Leave and rejoin channel to reset the handler for fresh message collection
         await ws_client.leave_chat_room_channel(chat_id)
-        await ws_client.join_chat_room_channel(chat_id, phase2_handler)
 
         async with agent2:
             agent_name2 = agent2.agent_name
@@ -139,12 +114,9 @@ class TestContextPersistence:
                 agent_id,
             )
 
-            try:
-                await asyncio.wait_for(phase2_event.wait(), timeout=timeout)
-            except TimeoutError:
-                pytest.fail(
-                    f"[{adapter_name}] Phase 2: Agent did not respond within {timeout}s"
-                )
+            phase2_received = await wait_for_agent_response_ws(
+                ws_client, chat_id, timeout=timeout, raise_on_timeout=True
+            )
 
         assert_content_contains(phase2_received, "ABC123")
         logger.info(

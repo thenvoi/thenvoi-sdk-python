@@ -14,54 +14,21 @@ Run with:
 
 from __future__ import annotations
 
-import asyncio
 import logging
 
-import pytest
-from thenvoi_rest import AsyncRestClient, ChatRoomRequest
-from thenvoi_rest.types import ParticipantRequest
-
 from thenvoi.agent import Agent
-from thenvoi.client.streaming import MessageCreatedPayload
 
 from tests.e2e.adapters.conftest import AdapterFactory
 from tests.e2e.conftest import E2ESettings, requires_e2e
 from tests.e2e.helpers import (
     assert_content_contains,
     assert_no_content_contains,
+    create_room_with_user,
     send_user_message,
+    wait_for_agent_response_ws,
 )
 
 logger = logging.getLogger(__name__)
-
-
-async def _create_room_with_user(
-    api_client: AsyncRestClient,
-) -> tuple[str, str, str]:
-    """Create a chat room and add a User peer. Returns (chat_id, user_id, user_name).
-
-    Note: Rooms created here will persist (no delete API for agents).
-    This matches the e2e_chat_room_with_user fixture behavior.
-    """
-    response = await api_client.agent_api.create_agent_chat(chat=ChatRoomRequest())
-    chat_id = response.data.id
-
-    peers_response = await api_client.agent_api.list_agent_peers()
-    user_peer = next((p for p in peers_response.data if p.type == "User"), None)
-    if user_peer is None:
-        pytest.skip("No User peer available for E2E tests")
-
-    await api_client.agent_api.add_agent_chat_participant(
-        chat_id,
-        participant=ParticipantRequest(participant_id=user_peer.id, role="member"),
-    )
-
-    logger.info(
-        "Created isolation test room %s with user %s (will persist, no delete API)",
-        chat_id,
-        user_peer.name,
-    )
-    return chat_id, user_peer.id, user_peer.name
 
 
 @requires_e2e
@@ -88,8 +55,8 @@ class TestRoomIsolation:
         logger.info("Testing room isolation with %s adapter", adapter_name)
 
         # Create two separate rooms
-        room_a_id, user_id, user_name = await _create_room_with_user(api_client)
-        room_b_id, _, _ = await _create_room_with_user(api_client)
+        room_a_id, user_id, user_name = await create_room_with_user(api_client)
+        room_b_id, _, _ = await create_room_with_user(api_client)
         logger.info("Room A: %s, Room B: %s", room_a_id, room_b_id)
 
         # Create adapter and agent (single agent, two rooms)
@@ -101,25 +68,6 @@ class TestRoomIsolation:
             ws_url=e2e_config.thenvoi_ws_url,
             rest_url=e2e_config.thenvoi_base_url,
         )
-
-        # Set up WebSocket handlers for both rooms
-        room_a_received: list[MessageCreatedPayload] = []
-        room_b_received: list[MessageCreatedPayload] = []
-        room_a_event = asyncio.Event()
-        room_b_event = asyncio.Event()
-
-        async def room_a_handler(payload: MessageCreatedPayload) -> None:
-            if payload.sender_type == "Agent" and payload.message_type == "text":
-                room_a_received.append(payload)
-                room_a_event.set()
-
-        async def room_b_handler(payload: MessageCreatedPayload) -> None:
-            if payload.sender_type == "Agent" and payload.message_type == "text":
-                room_b_received.append(payload)
-                room_b_event.set()
-
-        await ws_client.join_chat_room_channel(room_a_id, room_a_handler)
-        await ws_client.join_chat_room_channel(room_b_id, room_b_handler)
 
         async with agent:
             agent_name = agent.agent_name
@@ -134,12 +82,12 @@ class TestRoomIsolation:
                 agent_name,
                 agent_id,
             )
-            try:
-                await asyncio.wait_for(room_a_event.wait(), timeout=timeout)
-            except TimeoutError:
-                pytest.fail(
-                    f"[{adapter_name}] Room A: Agent did not acknowledge APPLE within {timeout}s"
-                )
+            room_a_phase1 = await wait_for_agent_response_ws(
+                ws_client,
+                room_a_id,
+                timeout=timeout,
+                raise_on_timeout=True,
+            )
 
             await send_user_message(
                 api_client,
@@ -148,18 +96,24 @@ class TestRoomIsolation:
                 agent_name,
                 agent_id,
             )
-            try:
-                await asyncio.wait_for(room_b_event.wait(), timeout=timeout)
-            except TimeoutError:
-                pytest.fail(
-                    f"[{adapter_name}] Room B: Agent did not acknowledge BANANA within {timeout}s"
-                )
+            room_b_phase1 = await wait_for_agent_response_ws(
+                ws_client,
+                room_b_id,
+                timeout=timeout,
+                raise_on_timeout=True,
+            )
+
+            logger.info(
+                "[%s] Phase 1 complete: Room A got %d, Room B got %d response(s)",
+                adapter_name,
+                len(room_a_phase1),
+                len(room_b_phase1),
+            )
 
             # --- Phase 2: Query each room and verify isolation ---
-            room_a_received.clear()
-            room_a_event.clear()
-            room_b_received.clear()
-            room_b_event.clear()
+            # Leave and rejoin to reset handlers for fresh message collection
+            await ws_client.leave_chat_room_channel(room_a_id)
+            await ws_client.leave_chat_room_channel(room_b_id)
 
             await send_user_message(
                 api_client,
@@ -168,12 +122,12 @@ class TestRoomIsolation:
                 agent_name,
                 agent_id,
             )
-            try:
-                await asyncio.wait_for(room_a_event.wait(), timeout=timeout)
-            except TimeoutError:
-                pytest.fail(
-                    f"[{adapter_name}] Room A: Agent did not respond to query within {timeout}s"
-                )
+            room_a_received = await wait_for_agent_response_ws(
+                ws_client,
+                room_a_id,
+                timeout=timeout,
+                raise_on_timeout=True,
+            )
 
             await send_user_message(
                 api_client,
@@ -182,12 +136,12 @@ class TestRoomIsolation:
                 agent_name,
                 agent_id,
             )
-            try:
-                await asyncio.wait_for(room_b_event.wait(), timeout=timeout)
-            except TimeoutError:
-                pytest.fail(
-                    f"[{adapter_name}] Room B: Agent did not respond to query within {timeout}s"
-                )
+            room_b_received = await wait_for_agent_response_ws(
+                ws_client,
+                room_b_id,
+                timeout=timeout,
+                raise_on_timeout=True,
+            )
 
         # Verify Room A knows APPLE but not BANANA
         assert_content_contains(room_a_received, "APPLE")

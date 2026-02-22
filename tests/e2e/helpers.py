@@ -8,10 +8,14 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import Any
 
-from thenvoi_rest import AsyncRestClient, ChatMessageRequest
-from thenvoi_rest.types import ChatMessageRequestMentionsItem as Mention
+import pytest
+from thenvoi_rest import AsyncRestClient, ChatMessageRequest, ChatRoomRequest
+from thenvoi_rest.types import (
+    ChatMessage,
+    ChatMessageRequestMentionsItem as Mention,
+    ParticipantRequest,
+)
 
 from thenvoi.client.streaming import MessageCreatedPayload, WebSocketClient
 
@@ -53,6 +57,36 @@ async def send_user_message(
     message_id = response.data.id
     logger.info("Sent message %s to room %s: %s", message_id, room_id, content[:80])
     return message_id
+
+
+async def create_room_with_user(
+    api_client: AsyncRestClient,
+) -> tuple[str, str, str]:
+    """Create a chat room and add a User peer.
+
+    Returns (chat_id, user_id, user_name). Rooms created here will persist
+    (no delete API for agents).
+    """
+    response = await api_client.agent_api.create_agent_chat(chat=ChatRoomRequest())
+    chat_id = response.data.id
+
+    peers_response = await api_client.agent_api.list_agent_peers()
+    user_peer = next((p for p in peers_response.data if p.type == "User"), None)
+    if user_peer is None:
+        pytest.skip("No User peer available for E2E tests")
+
+    await api_client.agent_api.add_agent_chat_participant(
+        chat_id,
+        participant=ParticipantRequest(participant_id=user_peer.id, role="member"),
+    )
+
+    logger.info(
+        "Created chat room %s with user %s (%s) (will persist, no delete API)",
+        chat_id,
+        user_peer.name,
+        user_peer.id,
+    )
+    return chat_id, user_peer.id, user_peer.name
 
 
 async def wait_for_agent_response_ws(
@@ -122,7 +156,7 @@ async def wait_for_agent_response_polling(
     after_message_id: str,
     timeout: float = 30.0,
     poll_interval: float = 1.0,
-) -> list[Any]:
+) -> list[ChatMessage]:
     """Wait for agent response by polling /context endpoint.
 
     Fallback method when WebSocket is not available. Polls the context
@@ -136,7 +170,7 @@ async def wait_for_agent_response_polling(
         poll_interval: Seconds between polls.
 
     Returns:
-        List of new context items (messages/events) from the agent.
+        List of new ChatMessage objects from the agent.
     """
     loop = asyncio.get_running_loop()
     deadline = loop.time() + timeout
@@ -146,13 +180,11 @@ async def wait_for_agent_response_polling(
         response = await client.agent_api.get_agent_chat_context(room_id)
         context = response.data or []
 
-        new_items = []
+        new_items: list[ChatMessage] = []
         for item in context:
-            if hasattr(item, "id") and item.id not in seen_ids:
-                # Check if this is an agent message (not our own)
-                if hasattr(item, "sender_type") and item.sender_type == "Agent":
-                    new_items.append(item)
-                    seen_ids.add(item.id)
+            if item.id not in seen_ids and item.sender_type == "Agent":
+                new_items.append(item)
+                seen_ids.add(item.id)
 
         if new_items:
             logger.info(
