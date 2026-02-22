@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from typing import Any
 
 from thenvoi_rest import AsyncRestClient, ChatMessageRequest
 from thenvoi_rest.types import ChatMessageRequestMentionsItem as Mention
@@ -121,7 +122,7 @@ async def wait_for_agent_response_polling(
     after_message_id: str,
     timeout: float = 30.0,
     poll_interval: float = 1.0,
-) -> list[dict]:
+) -> list[Any]:
     """Wait for agent response by polling /context endpoint.
 
     Fallback method when WebSocket is not available. Polls the context
