@@ -123,33 +123,3 @@ def adapter_factory(
     """Parametrized fixture that yields (adapter_name, factory) for all adapters."""
     factory = ADAPTER_FACTORIES[adapter_name]
     return adapter_name, factory
-
-
-@pytest.fixture
-def langgraph_adapter_factory() -> AdapterFactory:
-    """Factory for LangGraph adapter only."""
-    return create_langgraph_adapter
-
-
-@pytest.fixture
-def anthropic_adapter_factory() -> AdapterFactory:
-    """Factory for Anthropic adapter only."""
-    return create_anthropic_adapter
-
-
-@pytest.fixture
-def pydantic_ai_adapter_factory() -> AdapterFactory:
-    """Factory for Pydantic AI adapter only."""
-    return create_pydantic_ai_adapter
-
-
-@pytest.fixture
-def claude_sdk_adapter_factory() -> AdapterFactory:
-    """Factory for Claude SDK adapter only."""
-    return create_claude_sdk_adapter
-
-
-@pytest.fixture
-def crewai_adapter_factory() -> AdapterFactory:
-    """Factory for CrewAI adapter only."""
-    return create_crewai_adapter

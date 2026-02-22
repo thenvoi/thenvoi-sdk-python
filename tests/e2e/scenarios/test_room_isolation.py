@@ -24,7 +24,7 @@ from thenvoi_rest.types import ParticipantRequest
 from thenvoi.agent import Agent
 from thenvoi.client.streaming import MessageCreatedPayload
 
-from tests.e2e.adapters.conftest import ADAPTER_FACTORIES, AdapterFactory
+from tests.e2e.adapters.conftest import AdapterFactory
 from tests.e2e.conftest import E2ESettings, requires_e2e
 from tests.e2e.helpers import (
     assert_content_contains,
@@ -38,7 +38,11 @@ logger = logging.getLogger(__name__)
 async def _create_room_with_user(
     api_client: AsyncRestClient,
 ) -> tuple[str, str, str]:
-    """Create a chat room and add a User peer. Returns (chat_id, user_id, user_name)."""
+    """Create a chat room and add a User peer. Returns (chat_id, user_id, user_name).
+
+    Note: Rooms created here will persist (no delete API for agents).
+    This matches the e2e_chat_room_with_user fixture behavior.
+    """
     response = await api_client.agent_api.create_agent_chat(chat=ChatRoomRequest())
     chat_id = response.data.id
 
@@ -52,21 +56,17 @@ async def _create_room_with_user(
         participant=ParticipantRequest(participant_id=user_peer.id, role="member"),
     )
 
-    logger.info("Created isolation test room %s with user %s", chat_id, user_peer.name)
+    logger.info(
+        "Created isolation test room %s with user %s (will persist, no delete API)",
+        chat_id,
+        user_peer.name,
+    )
     return chat_id, user_peer.id, user_peer.name
 
 
 @requires_e2e
 class TestRoomIsolation:
     """Test that agents in different rooms maintain isolated context."""
-
-    @pytest.fixture(params=list(ADAPTER_FACTORIES.keys()))
-    def adapter_entry(
-        self, request: pytest.FixtureRequest
-    ) -> tuple[str, AdapterFactory]:
-        """Parametrized fixture yielding (name, factory) for each adapter."""
-        name = request.param
-        return name, ADAPTER_FACTORIES[name]
 
     async def test_agents_in_different_rooms_isolated(
         self,

@@ -12,10 +12,8 @@ Configuration is loaded from .env.test with E2E-specific overrides from env vars
 from __future__ import annotations
 
 import logging
-import os
 from collections.abc import AsyncGenerator
 from pathlib import Path
-from typing import Any
 
 import pytest
 from thenvoi_rest import AsyncRestClient, ChatRoomRequest
@@ -36,6 +34,8 @@ class E2ESettings(ThenvoiTestSettings):
     """Settings for E2E tests, extending the standard test settings.
 
     Loads from .env.test and allows E2E-specific overrides via env vars.
+    Pydantic BaseSettings automatically maps environment variables to fields
+    (e.g. E2E_LLM_MODEL -> e2e_llm_model) with case-insensitive matching.
     """
 
     _env_file_path = Path(__file__).parent.parent.parent / ".env.test"
@@ -45,18 +45,6 @@ class E2ESettings(ThenvoiTestSettings):
     e2e_anthropic_model: str = "claude-3-haiku-20240307"
     e2e_timeout: int = 30
     e2e_tests_enabled: bool = False
-
-    def __init__(self, **kwargs: Any) -> None:
-        super().__init__(**kwargs)
-        # Allow env var overrides for E2E-specific settings
-        if os.environ.get("E2E_LLM_MODEL"):
-            self.e2e_llm_model = os.environ["E2E_LLM_MODEL"]
-        if os.environ.get("E2E_ANTHROPIC_MODEL"):
-            self.e2e_anthropic_model = os.environ["E2E_ANTHROPIC_MODEL"]
-        if os.environ.get("E2E_TIMEOUT"):
-            self.e2e_timeout = int(os.environ["E2E_TIMEOUT"])
-        if os.environ.get("E2E_TESTS_ENABLED", "").lower() in ("1", "true", "yes"):
-            self.e2e_tests_enabled = True
 
 
 # Singleton settings instance
@@ -153,7 +141,13 @@ async def e2e_chat_room_with_user(
 
 @pytest.fixture
 async def ws_client(e2e_config: E2ESettings) -> AsyncGenerator[WebSocketClient, None]:
-    """WebSocket client for receiving agent responses."""
+    """WebSocket client for observing agent responses.
+
+    Note: This creates a second WebSocket connection alongside the Agent's own
+    connection for the same agent_id. The platform broadcasts messages to all
+    connections for an agent, so both the agent and this test observer receive
+    messages. This is intentional for test observability.
+    """
     if not e2e_config.thenvoi_api_key:
         pytest.skip("THENVOI_API_KEY not set")
 

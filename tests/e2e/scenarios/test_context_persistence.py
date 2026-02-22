@@ -22,7 +22,7 @@ import pytest
 from thenvoi.agent import Agent
 from thenvoi.client.streaming import MessageCreatedPayload
 
-from tests.e2e.adapters.conftest import ADAPTER_FACTORIES, AdapterFactory
+from tests.e2e.adapters.conftest import AdapterFactory
 from tests.e2e.conftest import E2ESettings, requires_e2e
 from tests.e2e.helpers import (
     assert_content_contains,
@@ -35,14 +35,6 @@ logger = logging.getLogger(__name__)
 @requires_e2e
 class TestContextPersistence:
     """Test that agents remember context after rejoin via platform history."""
-
-    @pytest.fixture(params=list(ADAPTER_FACTORIES.keys()))
-    def adapter_entry(
-        self, request: pytest.FixtureRequest
-    ) -> tuple[str, AdapterFactory]:
-        """Parametrized fixture yielding (name, factory) for each adapter."""
-        name = request.param
-        return name, ADAPTER_FACTORIES[name]
 
     async def test_agent_remembers_context_after_rejoin(
         self,
