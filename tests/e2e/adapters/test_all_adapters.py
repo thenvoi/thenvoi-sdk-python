@@ -44,14 +44,14 @@ class TestAdapterE2E:
     async def running_agent(
         self,
         e2e_config: E2ESettings,
-        adapter_factory: tuple[str, AdapterFactory],
+        adapter_entry: tuple[str, AdapterFactory],
     ) -> AsyncGenerator[tuple[str, Agent], None]:
         """Create and start an agent from the parametrized adapter factory.
 
         Yields (adapter_name, agent) with the agent running inside its
         async context manager. Ensures clean shutdown on exit.
         """
-        adapter_name, factory = adapter_factory
+        adapter_name, factory = adapter_entry
         adapter = factory(e2e_config)
 
         agent = Agent.create(

@@ -111,15 +111,9 @@ ADAPTER_FACTORIES: dict[str, AdapterFactory] = {
 
 
 @pytest.fixture(params=list(ADAPTER_FACTORIES.keys()))
-def adapter_name(request: pytest.FixtureRequest) -> str:
-    """Parametrized fixture that yields each adapter name."""
-    return request.param
-
-
-@pytest.fixture
-def adapter_factory(
-    adapter_name: str,
+def adapter_entry(
+    request: pytest.FixtureRequest,
 ) -> tuple[str, AdapterFactory]:
-    """Parametrized fixture that yields (adapter_name, factory) for all adapters."""
-    factory = ADAPTER_FACTORIES[adapter_name]
-    return adapter_name, factory
+    """Parametrized fixture yielding (name, factory) for each adapter."""
+    name: str = request.param
+    return name, ADAPTER_FACTORIES[name]
