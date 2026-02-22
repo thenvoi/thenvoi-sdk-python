@@ -9,6 +9,7 @@ Install the extra you need:
     uv add thenvoi-sdk[parlant]
     uv add thenvoi-sdk[crewai]
     uv add thenvoi-sdk[a2a]
+    uv add thenvoi-sdk[codex]
 """
 
 from typing import TYPE_CHECKING
@@ -44,6 +45,9 @@ if TYPE_CHECKING:
     from thenvoi.converters.a2a_gateway import (
         GatewayHistoryConverter as GatewayHistoryConverter,
     )
+    from thenvoi.converters.codex import (
+        CodexHistoryConverter as CodexHistoryConverter,
+    )
 
 __all__ = [
     "LangChainHistoryConverter",
@@ -59,6 +63,7 @@ __all__ = [
     "CrewAIMessages",
     "A2AHistoryConverter",
     "GatewayHistoryConverter",
+    "CodexHistoryConverter",
 ]
 
 
@@ -128,5 +133,9 @@ def __getattr__(name: str):
         from thenvoi.converters.a2a_gateway import GatewayHistoryConverter
 
         return GatewayHistoryConverter
+    elif name == "CodexHistoryConverter":
+        from thenvoi.converters.codex import CodexHistoryConverter
+
+        return CodexHistoryConverter
 
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
