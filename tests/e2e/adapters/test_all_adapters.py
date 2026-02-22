@@ -75,6 +75,7 @@ class TestAdapterE2E:
         adapter_name, agent = running_agent
         chat_id, user_id, user_name = e2e_chat_room_with_user
 
+        # Self-mention triggers agent processing (see send_user_message docs)
         await send_user_message(
             api_client, chat_id, "Say hello", agent.agent_name, e2e_agent_id
         )
@@ -105,6 +106,7 @@ class TestAdapterE2E:
         adapter_name, agent = running_agent
         chat_id, user_id, user_name = e2e_chat_room_with_user
 
+        # Self-mention triggers agent processing (see send_user_message docs)
         await send_user_message(
             api_client,
             chat_id,

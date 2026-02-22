@@ -25,9 +25,8 @@ from tests.e2e.helpers import TrackingWebSocketClient, create_room_with_user
 
 logger = logging.getLogger(__name__)
 
-# Apply asyncio marker to all E2E tests. This is defensive — asyncio_mode="auto"
-# is set in pyproject.toml, but an explicit marker ensures async tests keep
-# running correctly even if that global config changes.
+# Apply asyncio marker to tests in *this* module only. Subpackage conftest
+# files (adapters/, scenarios/) inherit asyncio_mode="auto" from pyproject.toml.
 pytestmark = [pytest.mark.asyncio]
 
 
@@ -70,16 +69,28 @@ def _get_e2e_settings() -> E2ESettings:
 # =============================================================================
 
 
+_e2e_skip_reason: str = ""
+
+
 def _e2e_disabled() -> bool:
     """Check if E2E tests should be skipped.
 
     Evaluated once at module import time (when the ``requires_e2e`` marker
     is created). The result is then cached in the ``skipif`` condition.
+    Sets ``_e2e_skip_reason`` so the skip message is actionable.
     """
+    global _e2e_skip_reason  # noqa: PLW0603
     try:
         settings = _get_e2e_settings()
-        return not settings.e2e_tests_enabled or not settings.thenvoi_api_key
-    except Exception:
+        if not settings.e2e_tests_enabled:
+            _e2e_skip_reason = "E2E_TESTS_ENABLED is not set to true"
+            return True
+        if not settings.thenvoi_api_key:
+            _e2e_skip_reason = "THENVOI_API_KEY is not set"
+            return True
+        return False
+    except Exception as exc:
+        _e2e_skip_reason = f"E2E settings could not be loaded: {exc}"
         logger.warning(
             "E2E settings could not be loaded (missing .env.test?), skipping E2E tests",
             exc_info=True,
@@ -87,9 +98,11 @@ def _e2e_disabled() -> bool:
         return True
 
 
+_e2e_is_disabled = _e2e_disabled()
+
 requires_e2e = pytest.mark.skipif(
-    _e2e_disabled(),
-    reason="E2E_TESTS_ENABLED=false or THENVOI_API_KEY not set",
+    _e2e_is_disabled,
+    reason=_e2e_skip_reason or "E2E tests disabled",
 )
 
 
@@ -119,17 +132,15 @@ def api_client(e2e_config: E2ESettings) -> AsyncRestClient:
 @pytest.fixture
 async def e2e_chat_room_with_user(
     api_client: AsyncRestClient,
-) -> AsyncGenerator[tuple[str, str, str], None]:
+) -> tuple[str, str, str]:
     """Create a chat room with a User peer added.
 
-    Yields (chat_id, user_id, user_name) tuple.
+    Returns (chat_id, user_id, user_name) tuple.
     The user peer is needed so agents can send @mentioned messages.
+
+    Note: rooms persist — there is no delete API for agents.
     """
-    chat_id, user_id, user_name = await create_room_with_user(api_client)
-
-    yield chat_id, user_id, user_name
-
-    logger.info("E2E test chat room %s will persist (no delete API)", chat_id)
+    return await create_room_with_user(api_client)
 
 
 @pytest.fixture

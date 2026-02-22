@@ -27,12 +27,19 @@ class TrackingWebSocketClient:
     """Wrapper around WebSocketClient that tracks joined rooms for cleanup.
 
     Uses a set to avoid duplicate leave calls when tests manually leave
-    and rejoin the same room.
+    and rejoin the same room. Only the methods used in E2E tests are
+    explicitly delegated — no ``__getattr__`` proxy — so typos are caught
+    by the type checker instead of failing silently at runtime.
     """
 
     def __init__(self, ws: WebSocketClient) -> None:
         self._ws = ws
         self._joined_rooms: set[str] = set()
+
+    @property
+    def ws(self) -> WebSocketClient:
+        """Access the underlying WebSocketClient for methods not wrapped here."""
+        return self._ws
 
     async def join_chat_room_channel(
         self,
@@ -56,12 +63,6 @@ class TrackingWebSocketClient:
             except Exception:
                 logger.debug("Failed to leave room %s during cleanup", room_id)
         self._joined_rooms.clear()
-
-    def __getattr__(self, name: str):
-        # Proxies all other attributes to the underlying WebSocketClient.
-        # Trade-off: typos on method calls won't be caught by type checkers
-        # and will only fail at runtime.
-        return getattr(self._ws, name)
 
 
 async def send_user_message(
