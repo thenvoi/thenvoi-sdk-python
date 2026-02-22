@@ -18,6 +18,7 @@ import asyncio
 import logging
 
 from thenvoi.agent import Agent
+from thenvoi.client.streaming import MessageCreatedPayload
 
 from tests.e2e.adapters.conftest import AdapterFactory
 from tests.e2e.conftest import E2ESettings, requires_e2e
@@ -79,7 +80,7 @@ class TestRoomIsolation:
             agent_name = agent.agent_name
 
             # --- Phase 1: Set context in both rooms concurrently ---
-            async def _set_context_room_a() -> list:
+            async def _set_context_room_a() -> list[MessageCreatedPayload]:
                 # Self-mention triggers agent processing (see send_user_message docs)
                 await send_user_message(
                     api_client,
@@ -95,7 +96,7 @@ class TestRoomIsolation:
                     raise_on_timeout=True,
                 )
 
-            async def _set_context_room_b() -> list:
+            async def _set_context_room_b() -> list[MessageCreatedPayload]:
                 # Self-mention triggers agent processing (see send_user_message docs)
                 await send_user_message(
                     api_client,
@@ -124,7 +125,7 @@ class TestRoomIsolation:
             )
 
             # --- Phase 2: Query each room concurrently and verify isolation ---
-            async def _query_room_a() -> list:
+            async def _query_room_a() -> list[MessageCreatedPayload]:
                 await send_user_message(
                     api_client,
                     room_a_id,
@@ -139,7 +140,7 @@ class TestRoomIsolation:
                     raise_on_timeout=True,
                 )
 
-            async def _query_room_b() -> list:
+            async def _query_room_b() -> list[MessageCreatedPayload]:
                 await send_user_message(
                     api_client,
                     room_b_id,

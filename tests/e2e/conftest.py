@@ -25,10 +25,6 @@ from tests.e2e.helpers import TrackingWebSocketClient, create_room_with_user
 
 logger = logging.getLogger(__name__)
 
-# Apply asyncio marker to tests in *this* module only. Subpackage conftest
-# files (adapters/, scenarios/) inherit asyncio_mode="auto" from pyproject.toml.
-pytestmark = [pytest.mark.asyncio]
-
 
 # =============================================================================
 # E2E Settings
@@ -118,15 +114,19 @@ def e2e_config() -> E2ESettings:
 
 
 @pytest.fixture
-def api_client(e2e_config: E2ESettings) -> AsyncRestClient:
+async def api_client(
+    e2e_config: E2ESettings,
+) -> AsyncGenerator[AsyncRestClient, None]:
     """Create a REST API client for the primary test agent."""
     if not e2e_config.thenvoi_api_key:
         pytest.skip("THENVOI_API_KEY not set")
 
-    return AsyncRestClient(
+    client = AsyncRestClient(
         api_key=e2e_config.thenvoi_api_key,
         base_url=e2e_config.thenvoi_base_url,
     )
+    yield client
+    await client.close()
 
 
 @pytest.fixture
@@ -143,11 +143,27 @@ async def e2e_chat_room_with_user(
     return await create_room_with_user(api_client)
 
 
-@pytest.fixture
-async def e2e_agent_id(api_client: AsyncRestClient) -> str:
-    """Get the agent ID for the test agent (avoids repeated get_agent_me calls)."""
-    agent_me = await api_client.agent_api.get_agent_me()
-    return agent_me.data.id
+@pytest.fixture(scope="module")
+async def e2e_agent_id() -> str:
+    """Get the agent ID for the test agent (cached per module).
+
+    Uses ``_get_e2e_settings()`` directly instead of the function-scoped
+    ``e2e_config`` fixture, since module-scoped fixtures cannot depend on
+    function-scoped ones.
+    """
+    settings = _get_e2e_settings()
+    if not settings.thenvoi_api_key:
+        pytest.skip("THENVOI_API_KEY not set")
+
+    client = AsyncRestClient(
+        api_key=settings.thenvoi_api_key,
+        base_url=settings.thenvoi_base_url,
+    )
+    try:
+        agent_me = await client.agent_api.get_agent_me()
+        return agent_me.data.id
+    finally:
+        await client.close()
 
 
 @pytest.fixture
