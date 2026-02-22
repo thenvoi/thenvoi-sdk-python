@@ -67,7 +67,7 @@ class TestContextPersistence:
         async with agent:
             agent_name = agent.agent_name
 
-            # Send context-setting message
+            # Self-mention triggers agent processing (see send_user_message docs)
             await send_user_message(
                 api_client,
                 chat_id,
@@ -100,7 +100,7 @@ class TestContextPersistence:
         async with agent2:
             agent_name2 = agent2.agent_name
 
-            # Ask about the code - agent should load history from platform
+            # Self-mention triggers agent processing (see send_user_message docs)
             await send_user_message(
                 api_client,
                 chat_id,
