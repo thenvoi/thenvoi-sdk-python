@@ -157,6 +157,20 @@ a2a_agent:
   api_key: ""
 
 # =============================================================================
+# Arena Examples (20 Questions Game)
+# =============================================================================
+
+# Thinker agent - picks a secret word and answers yes/no questions
+arena_thinker:
+  agent_id: ""
+  api_key: ""
+
+# Guesser agent - asks yes/no questions to guess the word
+arena_guesser:
+  agent_id: ""
+  api_key: ""
+
+# =============================================================================
 # Shared Agents (used by multiple frameworks)
 # =============================================================================
 
