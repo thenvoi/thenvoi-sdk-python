@@ -30,6 +30,9 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+codex = [
+    "websockets>=13.0",
+]
 pydantic-ai = [
     "pydantic-ai-slim>=1.0.0",
     "openai>=1.0.0",

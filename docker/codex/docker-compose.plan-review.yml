@@ -1,0 +1,116 @@
+services:
+  codex-planner:
+    restart: unless-stopped
+    build:
+      context: ../..
+      dockerfile: docker/codex/Dockerfile
+    env_file:
+      - ../../.env
+    environment:
+      CODEX_TRANSPORT: stdio
+      CODEX_CWD: ${CODEX_PLANNER_CWD:-/workspace/repo}
+      CODEX_SANDBOX: ${CODEX_PLANNER_SANDBOX:-external-sandbox}
+      CODEX_AGENT_KEY: ${CODEX_PLANNER_AGENT_KEY:-codex_planner}
+      CODEX_APPROVAL_MODE: ${CODEX_PLANNER_APPROVAL_MODE:-manual}
+      CODEX_TURN_TASK_MARKERS: "false"
+      PYTHONPATH: /workspace/repo/src
+      THENVOI_REST_URL: ${THENVOI_REST_URL_DOCKER:-http://host.docker.internal:4000}
+      THENVOI_WS_URL: ${THENVOI_WS_URL_DOCKER:-ws://host.docker.internal:4000/api/v1/socket/websocket}
+      THENVOI_CLIENT_REST_WHEEL: ${THENVOI_CLIENT_REST_WHEEL:-}
+      PHOENIX_CHANNELS_CLIENT_WHEEL: ${PHOENIX_CHANNELS_CLIENT_WHEEL:-}
+    volumes:
+      - ../../agent_config.yaml:/app/agent_config.yaml:ro
+      - ../../:/workspace/repo
+      - ${HOME}/.codex:/home/codex/.codex
+      - ${HOME}/.config/gh:/home/codex/.config/gh
+      - ${HOME}/.ssh:/home/codex/.ssh:ro
+      - ${HOME}/.gitconfig:/home/codex/.gitconfig:ro
+      - ${THENVOI_CLIENT_REST_WHEEL_DIR:-/tmp/thenvoi-client-rest}:/opt/thenvoi-client-rest:ro
+      - ${PHOENIX_CHANNELS_CLIENT_WHEEL_DIR:-/tmp/phoenix-client}:/opt/phoenix-client:ro
+      - codex_state:/state
+      - codex_prompts:/prompts
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    working_dir: /workspace/repo
+    command:
+      - /app/.venv/bin/python
+      - examples/run_agent.py
+      - --example
+      - codex
+      - --agent
+      - ${CODEX_PLANNER_AGENT_KEY:-codex_planner}
+      - --codex-role
+      - planner
+      - --codex-transport
+      - ${CODEX_TRANSPORT:-stdio}
+      - --codex-cwd
+      - ${CODEX_PLANNER_CWD:-/workspace/repo}
+      - --codex-sandbox
+      - ${CODEX_PLANNER_SANDBOX:-external-sandbox}
+      - --codex-approval-mode
+      - ${CODEX_PLANNER_APPROVAL_MODE:-manual}
+      - --custom-section
+      - ${CODEX_PLANNER_CUSTOM_SECTION:-You are the planning agent. Create and maintain docs/plan.md. Keep it phased and testable. When complete ask @codex-reviewer to review docs/plan.md. If any requirement is ambiguous or blocked, ask a concise question to a human participant in this room before proceeding.}
+      - --no-codex-turn-task-markers
+    stdin_open: true
+    tty: true
+
+  codex-reviewer:
+    restart: unless-stopped
+    build:
+      context: ../..
+      dockerfile: docker/codex/Dockerfile
+    env_file:
+      - ../../.env
+    environment:
+      CODEX_TRANSPORT: stdio
+      CODEX_CWD: ${CODEX_REVIEWER_CWD:-/workspace/repo}
+      CODEX_SANDBOX: ${CODEX_REVIEWER_SANDBOX:-external-sandbox}
+      CODEX_AGENT_KEY: ${CODEX_REVIEWER_AGENT_KEY:-codex_reviewer}
+      CODEX_APPROVAL_MODE: ${CODEX_REVIEWER_APPROVAL_MODE:-manual}
+      CODEX_TURN_TASK_MARKERS: "false"
+      PYTHONPATH: /workspace/repo/src
+      THENVOI_REST_URL: ${THENVOI_REST_URL_DOCKER:-http://host.docker.internal:4000}
+      THENVOI_WS_URL: ${THENVOI_WS_URL_DOCKER:-ws://host.docker.internal:4000/api/v1/socket/websocket}
+      THENVOI_CLIENT_REST_WHEEL: ${THENVOI_CLIENT_REST_WHEEL:-}
+      PHOENIX_CHANNELS_CLIENT_WHEEL: ${PHOENIX_CHANNELS_CLIENT_WHEEL:-}
+    volumes:
+      - ../../agent_config.yaml:/app/agent_config.yaml:ro
+      - ../../:/workspace/repo
+      - ${HOME}/.codex:/home/codex/.codex
+      - ${HOME}/.config/gh:/home/codex/.config/gh
+      - ${HOME}/.ssh:/home/codex/.ssh:ro
+      - ${HOME}/.gitconfig:/home/codex/.gitconfig:ro
+      - ${THENVOI_CLIENT_REST_WHEEL_DIR:-/tmp/thenvoi-client-rest}:/opt/thenvoi-client-rest:ro
+      - ${PHOENIX_CHANNELS_CLIENT_WHEEL_DIR:-/tmp/phoenix-client}:/opt/phoenix-client:ro
+      - codex_state:/state
+      - codex_prompts:/prompts
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    working_dir: /workspace/repo
+    command:
+      - /app/.venv/bin/python
+      - examples/run_agent.py
+      - --example
+      - codex
+      - --agent
+      - ${CODEX_REVIEWER_AGENT_KEY:-codex_reviewer}
+      - --codex-role
+      - reviewer
+      - --codex-transport
+      - ${CODEX_TRANSPORT:-stdio}
+      - --codex-cwd
+      - ${CODEX_REVIEWER_CWD:-/workspace/repo}
+      - --codex-sandbox
+      - ${CODEX_REVIEWER_SANDBOX:-external-sandbox}
+      - --codex-approval-mode
+      - ${CODEX_REVIEWER_APPROVAL_MODE:-manual}
+      - --custom-section
+      - ${CODEX_REVIEWER_CUSTOM_SECTION:-You are the review agent. Review docs/plan.md for gaps, risks, contradictions, and missing tests. Reply with prioritized findings. If requirements are ambiguous or you need a decision, ask a concise question to a human participant in this room before proceeding.}
+      - --no-codex-turn-task-markers
+    stdin_open: true
+    tty: true
+
+volumes:
+  codex_state:
+  codex_prompts:

@@ -804,11 +804,20 @@ Primary control files for identity/folders/permissions:
 - `agent_config.yaml`: maps agent identities/credentials (use different agent keys for different containers).
 - `docker/codex/docker-compose.yml`: controls mounted folders, network endpoints, sandbox mode, and runtime command.
 - `docker/codex/docker-compose.multi.yml`: ready-made dual-agent setup (`codex-darter` + `codex-reviewer`).
+- `docker/codex/docker-compose.plan-review.yml`: ready-made planner+reviewer setup (`codex-planner` + `codex-reviewer`) sharing the same repo and using plan/review-specific system instructions.
+- `docker/codex/.env.plan-review.example`: env template for planner/reviewer overrides.
 - `.env`: shared Thenvoi URLs and other environment defaults.
 
 Ready-made two-agent compose (recommended):
 ```bash
 docker compose -f docker/codex/docker-compose.multi.yml up --build
+```
+
+Ready-made planner+reviewer compose:
+```bash
+cp docker/codex/.env.plan-review.example .env.codex.plan-review
+# edit .env.codex.plan-review if needed
+docker compose --env-file .env.codex.plan-review -f docker/codex/docker-compose.plan-review.yml up --build
 ```
 
 Run only one service from the multi file:
