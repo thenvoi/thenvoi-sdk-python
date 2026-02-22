@@ -14,8 +14,6 @@ import logging
 from collections.abc import Callable
 from typing import Any
 
-import pytest
-
 from thenvoi.core.simple_adapter import SimpleAdapter
 
 from tests.e2e.conftest import E2ESettings
@@ -105,15 +103,5 @@ ADAPTER_FACTORIES: dict[str, AdapterFactory] = {
 # It has its own dedicated test file.
 
 
-# =============================================================================
-# Fixtures
-# =============================================================================
-
-
-@pytest.fixture(params=list(ADAPTER_FACTORIES.keys()))
-def adapter_entry(
-    request: pytest.FixtureRequest,
-) -> tuple[str, AdapterFactory]:
-    """Parametrized fixture yielding (name, factory) for each adapter."""
-    name: str = request.param
-    return name, ADAPTER_FACTORIES[name]
+# Note: The parametrized `adapter_entry` fixture lives in tests/e2e/conftest.py
+# so it is shared between adapters/ and scenarios/ tests.

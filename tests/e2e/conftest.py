@@ -14,6 +14,7 @@ from __future__ import annotations
 import logging
 from collections.abc import AsyncGenerator
 from pathlib import Path
+from typing import Any
 
 import pytest
 from thenvoi_rest import AsyncRestClient
@@ -186,3 +187,27 @@ async def ws_client(
         tracking_ws = TrackingWebSocketClient(ws)
         yield tracking_ws
         await tracking_ws.cleanup_channels()
+
+
+@pytest.fixture(
+    params=[
+        "langgraph",
+        "anthropic",
+        "pydantic_ai",
+        "claude_sdk",
+        "crewai",
+    ]
+)
+def adapter_entry(
+    request: pytest.FixtureRequest,
+) -> tuple[str, Any]:
+    """Parametrized fixture yielding (name, factory) for each adapter.
+
+    Defined here (e2e/conftest.py) so both adapters/ and scenarios/ tests
+    share a single definition. The import is deferred to avoid a circular
+    dependency (adapters/conftest.py imports E2ESettings from this module).
+    """
+    from tests.e2e.adapters.conftest import ADAPTER_FACTORIES
+
+    name: str = request.param
+    return name, ADAPTER_FACTORIES[name]
