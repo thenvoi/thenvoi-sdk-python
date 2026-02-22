@@ -41,6 +41,7 @@ class TestRoomIsolation:
         ws_client,
         adapter_entry: tuple[str, AdapterFactory],
         api_client,
+        e2e_agent_id: str,
     ):
         """Agents in different rooms don't see each other's context.
 
@@ -71,8 +72,6 @@ class TestRoomIsolation:
 
         async with agent:
             agent_name = agent.agent_name
-            agent_me = await api_client.agent_api.get_agent_me()
-            agent_id = agent_me.data.id
 
             # --- Phase 1: Set context in both rooms ---
             await send_user_message(
@@ -80,7 +79,7 @@ class TestRoomIsolation:
                 room_a_id,
                 "Remember: the secret code is APPLE. Confirm you remember it.",
                 agent_name,
-                agent_id,
+                e2e_agent_id,
             )
             room_a_phase1 = await wait_for_agent_response_ws(
                 ws_client,
@@ -94,7 +93,7 @@ class TestRoomIsolation:
                 room_b_id,
                 "Remember: the secret code is BANANA. Confirm you remember it.",
                 agent_name,
-                agent_id,
+                e2e_agent_id,
             )
             room_b_phase1 = await wait_for_agent_response_ws(
                 ws_client,
@@ -120,7 +119,7 @@ class TestRoomIsolation:
                 room_a_id,
                 "What is the secret code? Reply with just the code word.",
                 agent_name,
-                agent_id,
+                e2e_agent_id,
             )
             room_a_received = await wait_for_agent_response_ws(
                 ws_client,
@@ -134,7 +133,7 @@ class TestRoomIsolation:
                 room_b_id,
                 "What is the secret code? Reply with just the code word.",
                 agent_name,
-                agent_id,
+                e2e_agent_id,
             )
             room_b_received = await wait_for_agent_response_ws(
                 ws_client,
@@ -154,4 +153,9 @@ class TestRoomIsolation:
         logger.info(
             "[%s] Room isolation test PASSED: rooms are correctly isolated",
             adapter_name,
+        )
+        logger.info(
+            "E2E test rooms %s, %s will persist (no delete API)",
+            room_a_id,
+            room_b_id,
         )

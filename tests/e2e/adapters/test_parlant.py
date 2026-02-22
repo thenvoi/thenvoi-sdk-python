@@ -73,6 +73,7 @@ class TestParlantE2E:
         ws_client,
         parlant_adapter,
         api_client,
+        e2e_agent_id: str,
     ):
         """Smoke test: agent starts, receives a message, and responds."""
         chat_id, user_id, user_name = e2e_chat_room_with_user
@@ -87,11 +88,9 @@ class TestParlantE2E:
 
         async with agent:
             agent_name = agent.agent_name
-            agent_me = await api_client.agent_api.get_agent_me()
-            agent_id = agent_me.data.id
 
             await send_user_message(
-                api_client, chat_id, "Say hello", agent_name, agent_id
+                api_client, chat_id, "Say hello", agent_name, e2e_agent_id
             )
 
             received = await wait_for_agent_response_ws(
@@ -108,6 +107,7 @@ class TestParlantE2E:
         ws_client,
         parlant_adapter,
         api_client,
+        e2e_agent_id: str,
     ):
         """Verify the agent uses thenvoi_send_message tool to respond."""
         chat_id, user_id, user_name = e2e_chat_room_with_user
@@ -122,15 +122,13 @@ class TestParlantE2E:
 
         async with agent:
             agent_name = agent.agent_name
-            agent_me = await api_client.agent_api.get_agent_me()
-            agent_id = agent_me.data.id
 
             await send_user_message(
                 api_client,
                 chat_id,
                 "Reply with the word PINEAPPLE",
                 agent_name,
-                agent_id,
+                e2e_agent_id,
             )
 
             received = await wait_for_agent_response_ws(

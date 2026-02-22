@@ -41,6 +41,7 @@ class TestAdapterE2E:
         ws_client,
         adapter_factory,
         api_client,
+        e2e_agent_id: str,
     ):
         """Smoke test: agent starts, receives a message, and responds."""
         adapter_name, factory = adapter_factory
@@ -57,11 +58,9 @@ class TestAdapterE2E:
 
         async with agent:
             agent_name = agent.agent_name
-            agent_me = await api_client.agent_api.get_agent_me()
-            agent_id = agent_me.data.id
 
             await send_user_message(
-                api_client, chat_id, "Say hello", agent_name, agent_id
+                api_client, chat_id, "Say hello", agent_name, e2e_agent_id
             )
 
             received = await wait_for_agent_response_ws(
@@ -84,6 +83,7 @@ class TestAdapterE2E:
         ws_client,
         adapter_factory,
         api_client,
+        e2e_agent_id: str,
     ):
         """Verify the agent uses thenvoi_send_message tool to respond."""
         adapter_name, factory = adapter_factory
@@ -100,15 +100,13 @@ class TestAdapterE2E:
 
         async with agent:
             agent_name = agent.agent_name
-            agent_me = await api_client.agent_api.get_agent_me()
-            agent_id = agent_me.data.id
 
             await send_user_message(
                 api_client,
                 chat_id,
                 "Reply with the word PINEAPPLE",
                 agent_name,
-                agent_id,
+                e2e_agent_id,
             )
 
             received = await wait_for_agent_response_ws(

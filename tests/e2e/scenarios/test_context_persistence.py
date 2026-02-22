@@ -40,6 +40,7 @@ class TestContextPersistence:
         ws_client,
         adapter_entry: tuple[str, AdapterFactory],
         api_client,
+        e2e_agent_id: str,
     ):
         """Agent removed then re-added remembers context via platform history.
 
@@ -65,8 +66,6 @@ class TestContextPersistence:
 
         async with agent:
             agent_name = agent.agent_name
-            agent_me = await api_client.agent_api.get_agent_me()
-            agent_id = agent_me.data.id
 
             # Send context-setting message
             await send_user_message(
@@ -74,7 +73,7 @@ class TestContextPersistence:
                 chat_id,
                 "Remember this secret code: ABC123. Respond confirming you remember it.",
                 agent_name,
-                agent_id,
+                e2e_agent_id,
             )
 
             phase1_received = await wait_for_agent_response_ws(
@@ -103,7 +102,6 @@ class TestContextPersistence:
 
         async with agent2:
             agent_name2 = agent2.agent_name
-            # agent_id is the same
 
             # Ask about the code - agent should load history from platform
             await send_user_message(
@@ -111,7 +109,7 @@ class TestContextPersistence:
                 chat_id,
                 "What was the secret code I told you to remember? Reply with just the code.",
                 agent_name2,
-                agent_id,
+                e2e_agent_id,
             )
 
             phase2_received = await wait_for_agent_response_ws(
