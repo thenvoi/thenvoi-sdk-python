@@ -1,25 +1,24 @@
 #!/usr/bin/env python3
 # /// script
 # requires-python = ">=3.11"
-# dependencies = ["thenvoi-sdk[claude_sdk]", "pyyaml"]
+# dependencies = ["thenvoi-sdk", "pyyaml"]
 #
 # [tool.uv.sources]
 # thenvoi-sdk = { git = "https://github.com/thenvoi/thenvoi-sdk-python.git" }
 # ///
 """
-YAML-based agent runner for Thenvoi Claude SDK.
+Claude Code CLI agent runner for Thenvoi platform.
 
-Reads agent configuration from a YAML file and runs the agent.
-Designed for Docker deployment without writing Python code.
+Reads agent configuration from YAML and runs ClaudeCodeDesktopAdapter
+with workspace access for file operations.
 
 Usage:
-    AGENT_CONFIG=/app/config/agent.yaml python runner.py
+    AGENT_CONFIG=/app/agent_config.yaml python runner.py
 """
 
 from __future__ import annotations
 
 import asyncio
-import importlib.util
 import logging
 import os
 import signal
@@ -28,15 +27,14 @@ from typing import Any
 
 import yaml
 
-# Global flag for graceful shutdown
+# Global shutdown event
 _shutdown_event: asyncio.Event | None = None
 
-# Retry configuration for connection failures
+# Retry configuration
 MAX_RETRIES = 5
-INITIAL_RETRY_DELAY = 1.0  # seconds
-MAX_RETRY_DELAY = 60.0  # seconds
+INITIAL_RETRY_DELAY = 1.0
+MAX_RETRY_DELAY = 60.0
 
-# Setup logging
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -70,26 +68,24 @@ def load_config(config_path: str) -> dict[str, Any]:
     return config
 
 
-def load_role_prompt(role: str, prompt_dir: Path | None = None) -> str | None:
+def load_role_prompt(role: str, prompt_dir: str) -> str | None:
     """
     Load role prompt from file or built-in roles.
 
-    First checks for markdown file in prompt_dir (if provided), then falls back
-    to built-in roles from thenvoi.prompts.
+    First checks for markdown file in prompt_dir, then falls back to built-in.
 
     Args:
         role: Role name (e.g., "planner")
-        prompt_dir: Optional directory containing prompt files
+        prompt_dir: Directory containing prompt files
 
     Returns:
         Role prompt string or None if not found
     """
-    # Check for markdown file in prompt_dir
-    if prompt_dir:
-        prompt_file = prompt_dir / f"{role}.md"
-        if prompt_file.exists():
-            logger.info("Loading role prompt from: %s", prompt_file)
-            return prompt_file.read_text(encoding="utf-8")
+    # Check for markdown file
+    prompt_file = Path(prompt_dir) / f"{role}.md"
+    if prompt_file.exists():
+        logger.info("Loading role prompt from: %s", prompt_file)
+        return prompt_file.read_text(encoding="utf-8")
 
     # Fall back to built-in roles
     try:
@@ -102,60 +98,15 @@ def load_role_prompt(role: str, prompt_dir: Path | None = None) -> str | None:
         return None
 
 
-def load_custom_tools(tools_dir: Path, config_dir: Path, tool_names: list[str]) -> list:
-    """Load custom tools from tools directory.
-
-    Args:
-        tools_dir: Path to the tools directory.
-        config_dir: Path to the config directory (for path traversal validation).
-        tool_names: List of tool names to load.
-
-    Returns a list of tool functions (decorated with @tool from claude_agent_sdk).
-    """
-    # Resolve and validate path to prevent path traversal
-    resolved_tools_dir = tools_dir.resolve()
-    resolved_config_dir = config_dir.resolve()
-
-    # Ensure tools_dir is within or a sibling of config_dir
-    try:
-        resolved_tools_dir.relative_to(resolved_config_dir.parent)
-    except ValueError:
-        logger.warning(
-            f"Tools directory {resolved_tools_dir} is outside allowed path, skipping"
-        )
-        return []
-
-    tools_init = resolved_tools_dir / "__init__.py"
-    if not tools_init.exists():
-        return []
-
-    # Use importlib to load module without modifying sys.path
-    try:
-        spec = importlib.util.spec_from_file_location("tools", tools_init)
-        if spec is None or spec.loader is None:
-            logger.warning("Could not create module spec for tools")
-            return []
-
-        tools_module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(tools_module)
-
-        tool_registry = getattr(tools_module, "TOOL_REGISTRY", {})
-        # Filter to only requested tools, return as list
-        return [tool_registry[name] for name in tool_names if name in tool_registry]
-    except Exception as e:
-        logger.warning(f"Could not load custom tools: {e}")
-        return []
-
-
 def _handle_signal(sig: signal.Signals) -> None:
     """Handle shutdown signals (SIGTERM, SIGINT)."""
-    logger.info(f"Received {sig.name}, initiating graceful shutdown...")
+    logger.info("Received %s, initiating graceful shutdown...", sig.name)
     if _shutdown_event:
         _shutdown_event.set()
 
 
 async def main() -> None:
-    """Run the agent from YAML configuration."""
+    """Run the Claude Code agent."""
     global _shutdown_event
     _shutdown_event = asyncio.Event()
 
@@ -164,48 +115,42 @@ async def main() -> None:
     for sig in (signal.SIGTERM, signal.SIGINT):
         loop.add_signal_handler(sig, _handle_signal, sig)
 
-    # Get config path from environment
-    config_path = os.environ.get("AGENT_CONFIG")
-    if not config_path:
-        raise ValueError("AGENT_CONFIG environment variable not set")
+    # Get paths from environment
+    config_path = os.environ.get("AGENT_CONFIG", "/app/agent_config.yaml")
+    prompt_dir = os.environ.get("PROMPT_DIR", "/prompts")
+    workspace = os.environ.get("WORKSPACE", "/workspace/repo")
 
     # Validate Thenvoi platform URLs
     ws_url = os.environ.get(
         "THENVOI_WS_URL", "wss://app.thenvoi.com/api/v1/socket/websocket"
     )
     rest_url = os.environ.get("THENVOI_REST_URL", "https://app.thenvoi.com/")
+
     if not ws_url:
         raise ValueError("THENVOI_WS_URL environment variable is empty")
     if not rest_url:
         raise ValueError("THENVOI_REST_URL environment variable is empty")
 
-    logger.info(f"Loading config from: {config_path}")
+    logger.info("Loading config from: %s", config_path)
     config = load_config(config_path)
 
     # Import here to allow early config validation
     from thenvoi import Agent
-    from thenvoi.adapters import ClaudeSDKAdapter
+    from thenvoi.adapters import ClaudeCodeDesktopAdapter
 
     # Extract config values
     agent_id = config["agent_id"]
     api_key = config["api_key"]
-    model = config.get("model", "claude-sonnet-4-5-20250929")
+
+    # Get role and custom prompt
+    role = config.get("role") or os.environ.get("AGENT_ROLE")
     custom_prompt = config.get("prompt", "")
-    thinking_tokens = config.get("thinking_tokens")
-    tool_names = config.get("tools", [])
 
-    # Get role from config or environment (env overrides config)
-    role = os.environ.get("AGENT_ROLE") or config.get("role")
-
-    # Build final prompt combining role and custom prompt
-    config_dir = Path(config_path).parent
-    prompt_dir = config_dir / "prompts"
+    # Build final prompt
     final_prompt_parts = []
 
     if role:
-        role_prompt = load_role_prompt(
-            role, prompt_dir if prompt_dir.exists() else None
-        )
+        role_prompt = load_role_prompt(role, prompt_dir)
         if role_prompt:
             final_prompt_parts.append(role_prompt)
             logger.info("Using role: %s", role)
@@ -213,28 +158,27 @@ async def main() -> None:
     if custom_prompt:
         final_prompt_parts.append(custom_prompt)
 
-    # Default prompt if nothing specified
-    if not final_prompt_parts:
-        final_prompt_parts.append("You are a helpful assistant.")
+    # Add workspace context
+    workspace_context = f"""
+## Workspace Access
 
-    final_prompt = "\n\n".join(final_prompt_parts)
+You have read/write access to the following directories:
+- `/workspace/repo` - Project source code
+- `/workspace/notes` - Markdown notes, plans, and design documents
 
-    # Load custom tools if specified
-    custom_tools = []
-    if tool_names:
-        tools_dir = config_dir / "tools"
-        custom_tools = load_custom_tools(tools_dir, config_dir, tool_names)
-        if custom_tools:
-            tool_fn_names = [getattr(t, "_tool_name", t.__name__) for t in custom_tools]
-            logger.info("Loaded custom tools: %s", tool_fn_names)
+Current working directory: {workspace}
 
-    # Create adapter
-    adapter = ClaudeSDKAdapter(
-        model=model,
+When creating design docs or plans, save them to `/workspace/notes/`.
+"""
+    final_prompt_parts.append(workspace_context)
+
+    final_prompt = "\n\n".join(final_prompt_parts) if final_prompt_parts else None
+
+    # Create adapter with file operation tools enabled
+    adapter = ClaudeCodeDesktopAdapter(
         custom_section=final_prompt,
-        max_thinking_tokens=thinking_tokens,
-        enable_execution_reporting=True,
-        additional_tools=custom_tools if custom_tools else None,
+        cli_timeout=300000,  # 5 minutes for complex operations
+        allowed_tools=["Read", "Write", "Edit", "Glob", "Grep", "Bash"],
     )
 
     # Create agent
@@ -246,12 +190,10 @@ async def main() -> None:
         rest_url=rest_url,
     )
 
-    logger.info("Starting agent: %s", agent_id)
-    logger.info("Model: %s", model)
+    logger.info("Starting Claude Code agent: %s", agent_id)
     if role:
         logger.info("Role: %s", role)
-    if thinking_tokens:
-        logger.info("Extended thinking: %s tokens", thinking_tokens)
+    logger.info("Workspace: %s", workspace)
     logger.info("Press Ctrl+C to stop")
 
     retry_count = 0
@@ -291,12 +233,15 @@ async def main() -> None:
         except (ConnectionError, OSError) as e:
             retry_count += 1
             if retry_count > MAX_RETRIES:
-                logger.error(f"Max retries ({MAX_RETRIES}) exceeded, giving up")
+                logger.error("Max retries (%s) exceeded, giving up", MAX_RETRIES)
                 raise
 
             logger.warning(
-                f"Connection error: {e}. Retrying in {retry_delay:.1f}s "
-                f"(attempt {retry_count}/{MAX_RETRIES})"
+                "Connection error: %s. Retrying in %.1fs (attempt %s/%s)",
+                e,
+                retry_delay,
+                retry_count,
+                MAX_RETRIES,
             )
             await asyncio.sleep(retry_delay)
             # Exponential backoff with cap
@@ -311,7 +256,7 @@ async def main() -> None:
         if hasattr(agent, "close"):
             await agent.close()
     except Exception as e:
-        logger.warning(f"Error during agent cleanup: {e}")
+        logger.warning("Error during agent cleanup: %s", e)
     logger.info("Agent stopped")
 
 

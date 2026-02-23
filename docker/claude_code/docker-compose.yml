@@ -1,0 +1,39 @@
+# Thenvoi Claude Code Agent - Docker Compose
+#
+# Build:  docker compose build
+# Run:    docker compose up
+#
+# Prerequisites:
+#   1. Copy .env.example to .env and configure
+#   2. Copy agent_config.yaml.example to agent_config.yaml and add credentials
+
+x-agent: &agent-base
+  build:
+    context: ../..
+    dockerfile: docker/claude_code/Dockerfile
+  image: thenvoi-claude-code:latest
+  env_file: .env
+  environment:
+    THENVOI_WS_URL: ${THENVOI_WS_URL:-wss://app.thenvoi.com/api/v1/socket/websocket}
+    THENVOI_REST_URL: ${THENVOI_REST_URL:-https://app.thenvoi.com/}
+    AGENT_CONFIG: /app/agent_config.yaml
+  volumes:
+    # Repository workspace (configurable via REPO_PATH)
+    - ${REPO_PATH:-../../}:/workspace/repo:rw
+    # Notes directory (persisted)
+    - ./workspace/notes:/workspace/notes:rw
+    # Agent config (read-only)
+    - ./agent_config.yaml:/app/agent_config.yaml:ro
+    # Prompts (read-only)
+    - ./prompts:/prompts:ro
+  restart: unless-stopped
+
+services:
+  planner:
+    <<: *agent-base
+    container_name: thenvoi-claude-code-planner
+    environment:
+      THENVOI_WS_URL: ${THENVOI_WS_URL:-wss://app.thenvoi.com/api/v1/socket/websocket}
+      THENVOI_REST_URL: ${THENVOI_REST_URL:-https://app.thenvoi.com/}
+      AGENT_CONFIG: /app/agent_config.yaml
+      AGENT_ROLE: planner

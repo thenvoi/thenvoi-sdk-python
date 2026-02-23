@@ -1,0 +1,59 @@
+# Thenvoi Claude Code - Multi-Agent Plan & Review Setup
+#
+# Build:  docker compose -f docker-compose.plan-review.yml build
+# Run:    docker compose -f docker-compose.plan-review.yml up
+#
+# This configuration runs two agents:
+#   - Planner: Creates design documents and implementation plans
+#   - Reviewer: Reviews plans and provides feedback
+#
+# Prerequisites:
+#   1. Copy .env.plan-review.example to .env and configure
+#   2. Create agent_config.planner.yaml and agent_config.reviewer.yaml
+
+x-agent: &agent-base
+  build:
+    context: ../..
+    dockerfile: docker/claude_code/Dockerfile
+  image: thenvoi-claude-code:latest
+  env_file: .env
+  environment:
+    THENVOI_WS_URL: ${THENVOI_WS_URL:-wss://app.thenvoi.com/api/v1/socket/websocket}
+    THENVOI_REST_URL: ${THENVOI_REST_URL:-https://app.thenvoi.com/}
+  volumes:
+    # Repository workspace (configurable via REPO_PATH)
+    - ${REPO_PATH:-../../}:/workspace/repo:rw
+    # Shared notes directory
+    - ./workspace/notes:/workspace/notes:rw
+    # Prompts (read-only)
+    - ./prompts:/prompts:ro
+  restart: unless-stopped
+
+services:
+  planner:
+    <<: *agent-base
+    container_name: thenvoi-planner
+    environment:
+      THENVOI_WS_URL: ${THENVOI_WS_URL:-wss://app.thenvoi.com/api/v1/socket/websocket}
+      THENVOI_REST_URL: ${THENVOI_REST_URL:-https://app.thenvoi.com/}
+      AGENT_CONFIG: /app/agent_config.yaml
+      AGENT_ROLE: planner
+    volumes:
+      - ${REPO_PATH:-../../}:/workspace/repo:rw
+      - ./workspace/notes:/workspace/notes:rw
+      - ./agent_config.planner.yaml:/app/agent_config.yaml:ro
+      - ./prompts:/prompts:ro
+
+  reviewer:
+    <<: *agent-base
+    container_name: thenvoi-reviewer
+    environment:
+      THENVOI_WS_URL: ${THENVOI_WS_URL:-wss://app.thenvoi.com/api/v1/socket/websocket}
+      THENVOI_REST_URL: ${THENVOI_REST_URL:-https://app.thenvoi.com/}
+      AGENT_CONFIG: /app/agent_config.yaml
+      AGENT_ROLE: reviewer
+    volumes:
+      - ${REPO_PATH:-../../}:/workspace/repo:rw
+      - ./workspace/notes:/workspace/notes:rw
+      - ./agent_config.reviewer.yaml:/app/agent_config.yaml:ro
+      - ./prompts:/prompts:ro
