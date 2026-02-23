@@ -439,7 +439,7 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
             "personality": self.config.personality,
             "dynamicTools": dynamic_tools,
         }
-        self._apply_sandbox(start_params)
+        self._apply_thread_sandbox(start_params)
 
         started = await self._client.request("thread/start", start_params)
         thread = started.get("thread") if isinstance(started, dict) else {}
@@ -973,9 +973,49 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
         params["cwd"] = self.config.cwd
         params["approvalPolicy"] = self.config.approval_policy
         params["personality"] = self.config.personality
-        self._apply_sandbox(params)
+        self._apply_turn_sandbox(params)
 
-    def _apply_sandbox(self, params: dict[str, Any]) -> None:
+    def _apply_thread_sandbox(self, params: dict[str, Any]) -> None:
+        """Apply sandbox to thread/start params (only SandboxMode is accepted)."""
+        if self.config.sandbox_policy is not None:
+            # thread/start only has a `sandbox` field (SandboxMode enum).
+            # Extract mode from sandbox_policy when possible.
+            policy_type = self.config.sandbox_policy.get("type")
+            if isinstance(policy_type, str):
+                mode = self._normalize_sandbox_mode(policy_type)
+                if mode is not None:
+                    params["sandbox"] = mode
+                    return
+            logger.warning(
+                "sandbox_policy type %s is not representable on thread/start; "
+                "it will be applied at turn level instead",
+                policy_type,
+            )
+            return
+
+        if self.config.sandbox is None:
+            return
+
+        sandbox_mode = self._normalize_sandbox_mode(self.config.sandbox)
+        if sandbox_mode is not None:
+            params["sandbox"] = sandbox_mode
+            return
+
+        if self._canonical_sandbox_key(self.config.sandbox) == "external-sandbox":
+            # externalSandbox is only representable via sandboxPolicy on
+            # turn/start; thread/start does not accept it.
+            logger.debug(
+                "external-sandbox will be applied at turn level, "
+                "not on thread/start"
+            )
+            return
+
+        logger.warning(
+            "Ignoring unsupported Codex sandbox value: %s", self.config.sandbox
+        )
+
+    def _apply_turn_sandbox(self, params: dict[str, Any]) -> None:
+        """Apply sandbox to turn/start params (full SandboxPolicy is accepted)."""
         if self.config.sandbox_policy is not None:
             params["sandboxPolicy"] = self._normalize_sandbox_policy(
                 self.config.sandbox_policy
@@ -987,7 +1027,7 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
 
         sandbox_mode = self._normalize_sandbox_mode(self.config.sandbox)
         if sandbox_mode is not None:
-            params["sandbox"] = sandbox_mode
+            params["sandboxPolicy"] = {"type": sandbox_mode}
             return
 
         if self._canonical_sandbox_key(self.config.sandbox) == "external-sandbox":

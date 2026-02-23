@@ -694,8 +694,10 @@ class TestCodexAdapter:
         turn_start = next(
             params for method, params in fake_client.requests if method == "turn/start"
         )
+        # thread/start only accepts the sandbox field (SandboxMode enum)
         assert thread_start["sandbox"] == "danger-full-access"
-        assert turn_start["sandbox"] == "danger-full-access"
+        # turn/start uses sandboxPolicy (full SandboxPolicy tagged union)
+        assert turn_start["sandboxPolicy"]["type"] == "danger-full-access"
 
     @pytest.mark.asyncio
     async def test_external_sandbox_alias_uses_sandbox_policy(self) -> None:
@@ -738,5 +740,12 @@ class TestCodexAdapter:
             for method, params in fake_client.requests
             if method == "thread/start"
         )
+        turn_start = next(
+            params for method, params in fake_client.requests if method == "turn/start"
+        )
+        # thread/start has no sandboxPolicy field; externalSandbox is
+        # only representable at turn level
         assert "sandbox" not in thread_start
-        assert thread_start["sandboxPolicy"]["type"] == "externalSandbox"
+        assert "sandboxPolicy" not in thread_start
+        # turn/start can express the full SandboxPolicy tagged union
+        assert turn_start["sandboxPolicy"]["type"] == "externalSandbox"
