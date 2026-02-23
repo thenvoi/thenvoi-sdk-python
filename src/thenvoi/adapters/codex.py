@@ -28,6 +28,8 @@ from thenvoi.runtime.custom_tools import (
 )
 from thenvoi.runtime.prompts import render_system_prompt
 
+from pydantic import BaseModel, Field
+
 logger = logging.getLogger(__name__)
 
 TransportKind = Literal["stdio", "ws"]
@@ -35,11 +37,44 @@ ApprovalMode = Literal["auto_accept", "auto_decline", "manual"]
 ApprovalDecision = Literal["accept", "decline"]
 RoleProfile = Literal["coding", "planner", "reviewer"]
 
+_REASONING_EFFORTS = {"none", "minimal", "low", "medium", "high", "xhigh"}
+_REASONING_SUMMARIES = {"auto", "concise", "detailed", "none"}
+
 # Platform tools whose execution should not be reported as tool_call/tool_result
 # events — they already produce visible output (messages or events) on the platform.
 _SILENT_REPORTING_TOOLS: frozenset[str] = frozenset(
-    {"thenvoi_send_message", "thenvoi_send_event"}
+    {
+        "thenvoi_send_message",
+        "thenvoi_send_event",
+        "setmodel",
+        "setreasoning",
+    }
 )
+
+
+# ---------------------------------------------------------------------------
+# Self-configuration tools — let Codex change its own model/reasoning at runtime
+# ---------------------------------------------------------------------------
+
+
+class SetModelInput(BaseModel):
+    """Switch the model used for subsequent turns. Call this when a different model would be more appropriate for the task (e.g. a faster model for simple queries, a stronger model for complex reasoning)."""
+
+    model: str = Field(description="Model ID to use (e.g. 'gpt-5.3-codex', 'gpt-5.2').")
+
+
+class SetReasoningInput(BaseModel):
+    """Adjust reasoning effort and summary detail for subsequent turns. Use higher effort for complex problems and lower effort for straightforward tasks."""
+
+    effort: str | None = Field(
+        default=None,
+        description="Reasoning effort level: none, minimal, low, medium, high, or xhigh. Omit to keep current.",
+    )
+    summary: str | None = Field(
+        default=None,
+        description="Reasoning summary detail: auto, concise, detailed, or none. Omit to keep current.",
+    )
+
 
 _ROLE_SECTION: dict[RoleProfile, str] = {
     "coding": "Primary mode: implement and validate code changes end-to-end.",
@@ -130,6 +165,7 @@ class CodexAdapterConfig:
     codex_env: dict[str, str] | None = None
     codex_ws_url: str = "ws://127.0.0.1:8765"
     enable_execution_reporting: bool = False
+    enable_self_config_tools: bool = False
     additional_dynamic_tools: list[dict[str, Any]] = field(default_factory=list)
     inject_history_on_resume_failure: bool = True
     max_history_messages: int = 50
@@ -154,7 +190,9 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
     ) -> None:
         super().__init__(history_converter=history_converter or CodexHistoryConverter())
         self.config = config or CodexAdapterConfig()
-        self._custom_tools: list[CustomToolDef] = additional_tools or []
+        self._custom_tools: list[CustomToolDef] = list(additional_tools or [])
+        if self.config.enable_self_config_tools:
+            self._custom_tools.extend(self._build_self_config_tools())
         self._client_factory = client_factory
         self._client: _CodexClientProtocol | None = None
         self._initialized = False
@@ -168,6 +206,45 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
         self._needs_history_injection: set[str] = set()
         # Single client receive queue means turn processing must be serialized.
         self._rpc_lock = asyncio.Lock()
+
+    def _build_self_config_tools(self) -> list[CustomToolDef]:
+        """Build custom tools that let Codex change its own model/reasoning."""
+        adapter = self
+
+        def _handle_set_model(inp: SetModelInput) -> str:
+            adapter.config.model = inp.model
+            adapter._selected_model = inp.model
+            return f"Model changed to {inp.model} for subsequent turns."
+
+        def _handle_set_reasoning(inp: SetReasoningInput) -> str:
+            parts: list[str] = []
+            if inp.effort is not None:
+                if inp.effort not in _REASONING_EFFORTS:
+                    return (
+                        f"Invalid reasoning effort '{inp.effort}'. "
+                        f"Valid: {', '.join(sorted(_REASONING_EFFORTS))}."
+                    )
+                adapter.config.reasoning_effort = inp.effort  # type: ignore[assignment]
+                parts.append(f"effort={inp.effort}")
+            if inp.summary is not None:
+                if inp.summary not in _REASONING_SUMMARIES:
+                    return (
+                        f"Invalid reasoning summary '{inp.summary}'. "
+                        f"Valid: {', '.join(sorted(_REASONING_SUMMARIES))}."
+                    )
+                adapter.config.reasoning_summary = inp.summary  # type: ignore[assignment]
+                parts.append(f"summary={inp.summary}")
+            if not parts:
+                return (
+                    f"No changes. Current: effort={adapter.config.reasoning_effort or 'default'}, "
+                    f"summary={adapter.config.reasoning_summary or 'default'}."
+                )
+            return f"Reasoning updated: {', '.join(parts)}."
+
+        return [
+            (SetModelInput, _handle_set_model),
+            (SetReasoningInput, _handle_set_reasoning),
+        ]
 
     async def on_started(self, agent_name: str, agent_description: str) -> None:
         await super().on_started(agent_name, agent_description)
@@ -1244,19 +1321,18 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
 
         if command == "reasoning":
             effort_arg = args.strip().lower()
-            valid_efforts = {"none", "minimal", "low", "medium", "high", "xhigh"}
             if not effort_arg:
                 await tools.send_message(
                     f"Current reasoning effort: `{self.config.reasoning_effort or 'default'}`. "
                     f"Summary: `{self.config.reasoning_summary or 'default'}`. "
-                    f"Use `/reasoning <{'|'.join(sorted(valid_efforts))}>` to override.",
+                    f"Use `/reasoning <{'|'.join(sorted(_REASONING_EFFORTS))}>` to override.",
                     mentions=mention,
                 )
                 return True
-            if effort_arg not in valid_efforts:
+            if effort_arg not in _REASONING_EFFORTS:
                 await tools.send_message(
                     f"Invalid reasoning effort `{effort_arg}`. "
-                    f"Valid values: {', '.join(sorted(valid_efforts))}.",
+                    f"Valid values: {', '.join(sorted(_REASONING_EFFORTS))}.",
                     mentions=mention,
                 )
                 return True

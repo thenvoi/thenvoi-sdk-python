@@ -793,6 +793,234 @@ class TestCodexAdapter:
         assert "Invalid reasoning effort" in tools.messages_sent[0]["content"]
 
     @pytest.mark.asyncio
+    async def test_self_config_tools_registered_when_enabled(self) -> None:
+        events = [
+            _event_notification(
+                "turn/completed",
+                {
+                    "turn": {
+                        "id": "t1",
+                        "threadId": "th1",
+                        "status": "completed",
+                    },
+                    "text": "Done",
+                },
+            ),
+        ]
+        fake_client = FakeCodexClient(events=events)
+        adapter = CodexAdapter(
+            config=CodexAdapterConfig(transport="ws", enable_self_config_tools=True),
+            client_factory=lambda _config: fake_client,
+        )
+        tools = ToolSchemaFakeTools()
+        await adapter.on_started("Agent", "A coding agent")
+        await adapter.on_message(
+            make_platform_message(content="hello"),
+            tools,
+            CodexSessionState(),
+            participants_msg=None,
+            contacts_msg=None,
+            is_session_bootstrap=True,
+            room_id="room-1",
+        )
+        # Check that thread/start included setmodel and setreasoning dynamic tools
+        thread_params = next(
+            params
+            for method, params in fake_client.requests
+            if method == "thread/start"
+        )
+        tool_names = [t["name"] for t in thread_params.get("dynamicTools", [])]
+        assert "setmodel" in tool_names
+        assert "setreasoning" in tool_names
+
+    @pytest.mark.asyncio
+    async def test_self_config_tools_not_registered_when_disabled(self) -> None:
+        events = [
+            _event_notification(
+                "turn/completed",
+                {
+                    "turn": {
+                        "id": "t1",
+                        "threadId": "th1",
+                        "status": "completed",
+                    },
+                    "text": "Done",
+                },
+            ),
+        ]
+        fake_client = FakeCodexClient(events=events)
+        adapter = CodexAdapter(
+            config=CodexAdapterConfig(transport="ws", enable_self_config_tools=False),
+            client_factory=lambda _config: fake_client,
+        )
+        tools = ToolSchemaFakeTools()
+        await adapter.on_started("Agent", "A coding agent")
+        await adapter.on_message(
+            make_platform_message(content="hello"),
+            tools,
+            CodexSessionState(),
+            participants_msg=None,
+            contacts_msg=None,
+            is_session_bootstrap=True,
+            room_id="room-1",
+        )
+        thread_params = next(
+            params
+            for method, params in fake_client.requests
+            if method == "thread/start"
+        )
+        tool_names = [t["name"] for t in thread_params.get("dynamicTools", [])]
+        assert "setmodel" not in tool_names
+        assert "setreasoning" not in tool_names
+
+    @pytest.mark.asyncio
+    async def test_setmodel_tool_changes_model(self) -> None:
+        events = [
+            _event_request(
+                99,
+                "item/tool/call",
+                {
+                    "tool": "setmodel",
+                    "callId": "call-1",
+                    "arguments": {"model": "o3"},
+                },
+            ),
+            _event_notification(
+                "turn/completed",
+                {
+                    "turn": {
+                        "id": "turn-1",
+                        "status": "completed",
+                        "items": [],
+                        "error": None,
+                    },
+                },
+            ),
+        ]
+        fake_client = FakeCodexClient(events=events)
+        adapter = CodexAdapter(
+            config=CodexAdapterConfig(transport="ws", enable_self_config_tools=True),
+            client_factory=lambda _config: fake_client,
+        )
+        tools = ToolSchemaFakeTools()
+        await adapter.on_started("Agent", "A coding agent")
+        await adapter.on_message(
+            make_platform_message(content="switch to o3"),
+            tools,
+            CodexSessionState(),
+            participants_msg=None,
+            contacts_msg=None,
+            is_session_bootstrap=True,
+            room_id="room-1",
+        )
+        assert adapter.config.model == "o3"
+        assert adapter._selected_model == "o3"
+        # Verify the tool response was sent back
+        tool_responses = [
+            (rid, result)
+            for rid, result in fake_client.responses
+            if isinstance(result, dict) and "contentItems" in result
+        ]
+        assert len(tool_responses) >= 1
+        result_text = tool_responses[0][1]["contentItems"][0]["text"]
+        assert "o3" in result_text
+
+    @pytest.mark.asyncio
+    async def test_setreasoning_tool_changes_effort(self) -> None:
+        events = [
+            _event_request(
+                99,
+                "item/tool/call",
+                {
+                    "tool": "setreasoning",
+                    "callId": "call-2",
+                    "arguments": {"effort": "xhigh", "summary": "detailed"},
+                },
+            ),
+            _event_notification(
+                "turn/completed",
+                {
+                    "turn": {
+                        "id": "turn-1",
+                        "status": "completed",
+                        "items": [],
+                        "error": None,
+                    },
+                },
+            ),
+        ]
+        fake_client = FakeCodexClient(events=events)
+        adapter = CodexAdapter(
+            config=CodexAdapterConfig(transport="ws", enable_self_config_tools=True),
+            client_factory=lambda _config: fake_client,
+        )
+        tools = ToolSchemaFakeTools()
+        await adapter.on_started("Agent", "A coding agent")
+        await adapter.on_message(
+            make_platform_message(content="increase reasoning"),
+            tools,
+            CodexSessionState(),
+            participants_msg=None,
+            contacts_msg=None,
+            is_session_bootstrap=True,
+            room_id="room-1",
+        )
+        assert adapter.config.reasoning_effort == "xhigh"
+        assert adapter.config.reasoning_summary == "detailed"
+
+    @pytest.mark.asyncio
+    async def test_setreasoning_tool_rejects_invalid_effort(self) -> None:
+        events = [
+            _event_request(
+                99,
+                "item/tool/call",
+                {
+                    "tool": "setreasoning",
+                    "callId": "call-3",
+                    "arguments": {"effort": "ultra"},
+                },
+            ),
+            _event_notification(
+                "turn/completed",
+                {
+                    "turn": {
+                        "id": "turn-1",
+                        "status": "completed",
+                        "items": [],
+                        "error": None,
+                    },
+                },
+            ),
+        ]
+        fake_client = FakeCodexClient(events=events)
+        adapter = CodexAdapter(
+            config=CodexAdapterConfig(transport="ws", enable_self_config_tools=True),
+            client_factory=lambda _config: fake_client,
+        )
+        tools = ToolSchemaFakeTools()
+        await adapter.on_started("Agent", "A coding agent")
+        await adapter.on_message(
+            make_platform_message(content="set reasoning ultra"),
+            tools,
+            CodexSessionState(),
+            participants_msg=None,
+            contacts_msg=None,
+            is_session_bootstrap=True,
+            room_id="room-1",
+        )
+        # Effort should not have changed
+        assert adapter.config.reasoning_effort is None
+        # Tool response should contain error message
+        tool_responses = [
+            (rid, result)
+            for rid, result in fake_client.responses
+            if isinstance(result, dict) and "contentItems" in result
+        ]
+        assert len(tool_responses) >= 1
+        result_text = tool_responses[0][1]["contentItems"][0]["text"]
+        assert "Invalid reasoning effort" in result_text
+
+    @pytest.mark.asyncio
     async def test_sandbox_alias_is_normalized_for_thread_and_turn(self) -> None:
         events = [
             _event_notification(
