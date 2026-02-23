@@ -328,3 +328,56 @@ async def test_stdio_client_raises_after_retry_limit(
         assert delays == [0.01]
     finally:
         await client.close()
+
+
+@pytest.mark.asyncio
+async def test_stdio_client_eof_fails_pending_and_enqueues_disconnect(
+    tmp_path: Path,
+) -> None:
+    """When the server process exits, pending futures fail and a disconnect event is enqueued."""
+    script = tmp_path / "exit_after_init.py"
+    script.write_text(
+        textwrap.dedent(
+            """
+            import json
+            import sys
+
+            for raw in sys.stdin:
+                raw = raw.strip()
+                if not raw:
+                    continue
+                message = json.loads(raw)
+                method = message.get("method")
+                if method == "initialize":
+                    sys.stdout.write(
+                        json.dumps({"id": message["id"], "result": {"server": "fake"}})
+                        + "\\n"
+                    )
+                    sys.stdout.flush()
+                    continue
+                if method == "initialized":
+                    continue
+                # Exit immediately on any other request (simulates crash).
+                sys.exit(0)
+            """
+        ),
+        encoding="utf-8",
+    )
+    client = CodexStdioClient(
+        command=[sys.executable, "-u", str(script)],
+    )
+    await client.connect()
+    await client.initialize(
+        client_name="test",
+        client_title="Test",
+        client_version="0.0.1",
+    )
+
+    # Send a request that the server will never answer (it exits).
+    with pytest.raises(RuntimeError, match="exited unexpectedly"):
+        await client.request("thread/start", {"cwd": "/tmp"})
+
+    # A transport/closed event should be available.
+    event = await client.recv_event(timeout_s=1.0)
+    assert event.method == "transport/closed"
+    await client.close()

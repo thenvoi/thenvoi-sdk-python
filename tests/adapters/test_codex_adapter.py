@@ -749,3 +749,36 @@ class TestCodexAdapter:
         assert "sandboxPolicy" not in thread_start
         # turn/start can express the full SandboxPolicy tagged union
         assert turn_start["sandboxPolicy"]["type"] == "externalSandbox"
+
+    @pytest.mark.asyncio
+    async def test_transport_closed_event_aborts_turn(self) -> None:
+        """A transport/closed event should end the turn with a failed status."""
+        events = [
+            _event_notification(
+                "transport/closed",
+                {"reason": "Codex process exited unexpectedly"},
+            )
+        ]
+        fake_client = FakeCodexClient(events=events)
+        adapter = CodexAdapter(
+            config=CodexAdapterConfig(transport="ws"),
+            client_factory=lambda _config: fake_client,
+        )
+        tools = ToolSchemaFakeTools()
+
+        await adapter.on_started("Codex Agent", "A coding agent")
+        await adapter.on_message(
+            make_platform_message(),
+            tools,
+            CodexSessionState(),
+            participants_msg=None,
+            contacts_msg=None,
+            is_session_bootstrap=True,
+            room_id="room-1",
+        )
+
+        # Adapter should send a failure message mentioning the disconnect.
+        assert any(
+            "transport closed" in msg["content"].lower()
+            for msg in tools.messages_sent
+        )

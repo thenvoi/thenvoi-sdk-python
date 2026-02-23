@@ -306,6 +306,11 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
                             final_text = text
                     continue
 
+                if event.method == "transport/closed":
+                    turn_status = "failed"
+                    turn_error = "Codex transport closed unexpectedly"
+                    break
+
                 if event.method == "turn/completed":
                     turn_payload = (
                         params.get("turn")

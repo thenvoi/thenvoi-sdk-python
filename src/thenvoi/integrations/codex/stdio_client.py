@@ -237,11 +237,7 @@ class CodexStdioClient:
                 self._proc.kill()
                 await self._proc.wait()
 
-        pending_error = RuntimeError("Codex stdio client closed")
-        for future in list(self._pending.values()):
-            if not future.done():
-                future.set_exception(pending_error)
-        self._pending.clear()
+        self._fail_pending("Codex stdio client closed")
 
     async def _request_once(
         self, method: str, params: dict[str, Any]
@@ -278,6 +274,23 @@ class CodexStdioClient:
         self._proc.stdin.write(line.encode("utf-8"))
         await self._proc.stdin.drain()
 
+    def _fail_pending(self, reason: str) -> None:
+        """Fail all outstanding request futures and enqueue a disconnect event."""
+        error = RuntimeError(reason)
+        for future in list(self._pending.values()):
+            if not future.done():
+                future.set_exception(error)
+        self._pending.clear()
+        self._events.put_nowait(
+            RpcEvent(
+                kind="notification",
+                method="transport/closed",
+                params={"reason": reason},
+                id=None,
+                raw={"method": "transport/closed", "params": {"reason": reason}},
+            )
+        )
+
     async def _read_stdout_loop(self) -> None:
         if not self._proc or not self._proc.stdout:
             return
@@ -285,12 +298,14 @@ class CodexStdioClient:
             while True:
                 line = await self._proc.stdout.readline()
                 if not line:
+                    self._fail_pending("Codex process exited unexpectedly")
                     return
                 await self._dispatch_raw_line(line.decode("utf-8", errors="replace"))
         except asyncio.CancelledError:
             raise
         except Exception:
             logger.exception("Codex stdout loop failed")
+            self._fail_pending("Codex stdout loop failed")
 
     async def _read_stderr_loop(self) -> None:
         if not self._proc or not self._proc.stderr:

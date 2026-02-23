@@ -166,11 +166,7 @@ class CodexWebSocketClient:
             await self._ws.close()
             self._ws = None
 
-        pending_error = RuntimeError("Codex websocket client closed")
-        for future in list(self._pending.values()):
-            if not future.done():
-                future.set_exception(pending_error)
-        self._pending.clear()
+        self._fail_pending("Codex websocket client closed")
 
     async def _request_once(
         self, method: str, params: dict[str, Any]
@@ -205,10 +201,26 @@ class CodexWebSocketClient:
             raise RuntimeError("WebSocket not connected")
         await self._ws.send(json.dumps(payload, separators=(",", ":")))
 
+    def _fail_pending(self, reason: str) -> None:
+        """Fail all outstanding request futures and enqueue a disconnect event."""
+        error = RuntimeError(reason)
+        for future in list(self._pending.values()):
+            if not future.done():
+                future.set_exception(error)
+        self._pending.clear()
+        self._events.put_nowait(
+            RpcEvent(
+                kind="notification",
+                method="transport/closed",
+                params={"reason": reason},
+                id=None,
+                raw={"method": "transport/closed", "params": {"reason": reason}},
+            )
+        )
+
     async def _read_ws_loop(self) -> None:
         if self._ws is None:
             return
-        disconnected_error: Exception | None = None
 
         try:
             async for raw in self._ws:
@@ -219,17 +231,11 @@ class CodexWebSocketClient:
                 await self._dispatch_raw_message(text)
         except asyncio.CancelledError:
             raise
-        except Exception as exc:
+        except Exception:
             logger.exception("Codex websocket read loop failed")
-            disconnected_error = exc
         finally:
             if self._connected:
-                reason = disconnected_error or RuntimeError(
-                    "Codex websocket disconnected"
-                )
-                for future in list(self._pending.values()):
-                    if not future.done():
-                        future.set_exception(reason)
+                self._fail_pending("Codex websocket disconnected")
 
     async def _dispatch_raw_message(self, text: str) -> None:
         text = text.strip()
