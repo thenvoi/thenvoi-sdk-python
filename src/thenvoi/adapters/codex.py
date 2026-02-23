@@ -253,6 +253,26 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
         self._build_system_prompt()
         async with self._rpc_lock:
             await self._ensure_client_ready()
+        self._log_startup_config(agent_name)
+
+    def _log_startup_config(self, agent_name: str) -> None:
+        logger.info(
+            "Codex adapter started: agent=%s, transport=%s, model=%s, "
+            "sandbox=%s, approval_mode=%s, role=%s, "
+            "execution_reporting=%s, self_config_tools=%s, "
+            "task_events=%s, turn_markers=%s, thought_events=%s",
+            agent_name,
+            self.config.transport,
+            self._selected_model or self.config.model or "auto",
+            self.config.sandbox or "default",
+            self.config.approval_mode,
+            self.config.role,
+            self.config.enable_execution_reporting,
+            self.config.enable_self_config_tools,
+            self.config.enable_task_events,
+            self.config.emit_turn_task_markers,
+            self.config.emit_thought_events,
+        )
 
     async def on_event(self, inp: AgentInput) -> None:
         if (
@@ -396,16 +416,15 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
                             )
                         else:
                             logger.error("Codex error: %s", error_msg)
-                            if self.config.emit_thought_events:
-                                await tools.send_event(
-                                    content=f"Codex error: {error_msg}",
-                                    message_type="error",
-                                    metadata={
-                                        "codex_room_id": room_id,
-                                        "codex_thread_id": thread_id,
-                                        "codex_turn_id": turn_id or None,
-                                    },
-                                )
+                            await tools.send_event(
+                                content=f"Codex error: {error_msg}",
+                                message_type="error",
+                                metadata={
+                                    "codex_room_id": room_id,
+                                    "codex_thread_id": thread_id,
+                                    "codex_turn_id": turn_id or None,
+                                },
+                            )
                         continue
 
                     if event.method == "item/agentMessage/delta":

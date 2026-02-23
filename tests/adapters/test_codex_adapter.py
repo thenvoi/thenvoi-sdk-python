@@ -3076,3 +3076,72 @@ class TestHistoryInjection:
                 is_session_bootstrap=False,
                 room_id="room-1",
             )
+
+    async def test_startup_config_logged(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Startup emits a redacted config summary log line."""
+        fake_client = FakeCodexClient()
+        adapter = CodexAdapter(
+            config=CodexAdapterConfig(
+                transport="stdio",
+                model="gpt-5.3-codex",
+                sandbox="workspace-write",
+                approval_mode="manual",
+                role="reviewer",
+            ),
+            client_factory=lambda _config: fake_client,
+        )
+
+        with caplog.at_level("INFO", logger="thenvoi.adapters.codex"):
+            await adapter.on_started("TestBot", "A test agent")
+
+        startup_logs = [
+            r for r in caplog.records if "Codex adapter started" in r.message
+        ]
+        assert len(startup_logs) == 1
+        log_msg = startup_logs[0].message
+        assert "agent=TestBot" in log_msg
+        assert "transport=stdio" in log_msg
+        assert "model=gpt-5.3-codex" in log_msg
+        assert "sandbox=workspace-write" in log_msg
+        assert "approval_mode=manual" in log_msg
+        assert "role=reviewer" in log_msg
+
+    async def test_codex_error_emits_event_unconditionally(self) -> None:
+        """Non-retryable Codex errors always emit a structured error event."""
+        fake_client = FakeCodexClient(
+            events=[
+                _event_notification(
+                    "error",
+                    {"error": {"message": "Something went wrong"}, "willRetry": False},
+                ),
+                _event_notification(
+                    "turn/completed",
+                    {"turn": {"id": "turn-1", "status": "failed"}},
+                ),
+            ],
+        )
+        adapter = CodexAdapter(
+            config=CodexAdapterConfig(
+                emit_thought_events=False,
+            ),
+            client_factory=lambda _config: fake_client,
+        )
+        tools = ToolSchemaFakeTools()
+        await adapter.on_started("Agent", "An agent")
+
+        msg = make_platform_message(room_id="room-1", content="do something")
+        await adapter.on_message(
+            msg,
+            tools,
+            CodexSessionState(),
+            None,
+            None,
+            is_session_bootstrap=False,
+            room_id="room-1",
+        )
+
+        error_events = [e for e in tools.events_sent if e["message_type"] == "error"]
+        assert len(error_events) == 1
+        assert "Something went wrong" in error_events[0]["content"]
