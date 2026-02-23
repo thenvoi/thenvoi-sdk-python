@@ -375,9 +375,10 @@ def create_thenvoi_mcp_server(agent: Any):
     )
     async def create_chatroom(args: dict[str, Any]) -> dict[str, Any]:
         """Create a new chat room via API."""
-        task_id = args.get("task_id") or None
         try:
+            # room_id is the current room context (for tools lookup), not the new room
             room_id = args.get("room_id", "")
+            task_id = args.get("task_id") or None
 
             logger.info("[%s] create_chatroom: task_id=%s", room_id, task_id)
 
