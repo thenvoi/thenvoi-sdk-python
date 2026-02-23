@@ -14,7 +14,7 @@ from __future__ import annotations
 import logging
 from collections.abc import AsyncGenerator
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING
 
 import pytest
 from thenvoi_rest import AsyncRestClient
@@ -22,7 +22,14 @@ from thenvoi_testing.settings import ThenvoiTestSettings
 
 from thenvoi.client.streaming import WebSocketClient
 
-from tests.e2e.helpers import TrackingWebSocketClient, create_room_with_user
+from tests.e2e.helpers import (
+    TrackingWebSocketClient,
+    create_room_with_user,
+    created_room_ids,
+)
+
+if TYPE_CHECKING:
+    from tests.e2e.adapters.conftest import AdapterFactory
 
 logger = logging.getLogger(__name__)
 
@@ -50,8 +57,10 @@ class E2ESettings(ThenvoiTestSettings):
     e2e_tests_enabled: bool = False
 
 
-# Lazy singleton — avoids blowing up test collection if .env.test is
-# missing or malformed (only E2E tests need these settings).
+# Singleton instance — initialised lazily on first access via _get_e2e_settings().
+# Note: the first call happens at module import time (via _check_e2e_status below),
+# but is wrapped in a try/except so a missing or malformed .env.test won't blow up
+# test collection.
 _e2e_settings: E2ESettings | None = None
 
 
@@ -108,19 +117,38 @@ def e2e_config() -> E2ESettings:
     return _get_e2e_settings()
 
 
+@pytest.fixture(scope="session", autouse=True)
+def e2e_room_summary() -> None:
+    """Log a summary of rooms created during the E2E test session.
+
+    Rooms persist on the platform (no delete API for agents), so this
+    summary helps operators track accumulation across runs.
+    """
+    yield  # type: ignore[misc]
+    if created_room_ids:
+        logger.info(
+            "E2E session created %d room(s) that will persist: %s",
+            len(created_room_ids),
+            ", ".join(created_room_ids),
+        )
+
+
 @pytest.fixture
 async def api_client(
     e2e_config: E2ESettings,
-) -> AsyncGenerator[AsyncRestClient, None]:
-    """Create a REST API client for the primary test agent."""
+) -> AsyncRestClient:
+    """Create a REST API client for the primary test agent.
+
+    Note: AsyncRestClient has no close() method — the underlying httpx
+    client is managed internally and cleaned up on garbage collection.
+    """
     if not e2e_config.thenvoi_api_key:
         pytest.skip("THENVOI_API_KEY not set")
 
-    client = AsyncRestClient(
+    return AsyncRestClient(
         api_key=e2e_config.thenvoi_api_key,
         base_url=e2e_config.thenvoi_base_url,
     )
-    yield client
 
 
 @pytest.fixture
@@ -131,6 +159,11 @@ async def e2e_chat_room_with_user(
 
     Returns (chat_id, user_id, user_name) tuple.
     The user peer is needed so agents can send @mentioned messages.
+
+    Intentionally function-scoped: adapter tests are parametrized across
+    multiple adapters, and each adapter sends different messages into the
+    room. Sharing a room would leak context between adapters. This does
+    mean one orphaned room per test — see note below.
 
     Note: rooms persist — there is no delete API for agents.
     """
@@ -154,6 +187,9 @@ async def e2e_agent_id() -> str:
     if not settings.thenvoi_api_key:
         pytest.skip("THENVOI_API_KEY not set")
 
+    # Short-lived client — AsyncRestClient has no close() method, so the
+    # underlying httpx client is cleaned up on garbage collection when
+    # this local variable falls out of scope after the fixture returns.
     client = AsyncRestClient(
         api_key=settings.thenvoi_api_key,
         base_url=settings.thenvoi_base_url,
@@ -202,12 +238,14 @@ async def ws_client(
 )
 def adapter_entry(
     request: pytest.FixtureRequest,
-) -> tuple[str, Any]:
+) -> tuple[str, AdapterFactory]:
     """Parametrized fixture yielding (name, factory) for each adapter.
 
     Defined here (e2e/conftest.py) so both adapters/ and scenarios/ tests
-    share a single definition. The import is deferred to avoid a circular
-    dependency (adapters/conftest.py imports E2ESettings from this module).
+    share a single definition. The ADAPTER_FACTORIES import is deferred to
+    avoid a circular dependency (adapters/conftest.py imports E2ESettings
+    from this module). The ``AdapterFactory`` type is imported under
+    ``TYPE_CHECKING`` for the same reason.
     """
     from tests.e2e.adapters.conftest import ADAPTER_FACTORIES
 

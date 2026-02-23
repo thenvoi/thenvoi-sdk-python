@@ -22,6 +22,11 @@ from thenvoi.client.streaming import MessageCreatedPayload, WebSocketClient
 
 logger = logging.getLogger(__name__)
 
+# Tracks room IDs created during the test session for summary logging.
+# Populated by create_room_with_user(), logged by the e2e_room_summary
+# session fixture in conftest.py.
+created_room_ids: list[str] = []
+
 
 class TrackingWebSocketClient:
     """Wrapper around WebSocketClient that tracks joined rooms for cleanup.
@@ -123,11 +128,14 @@ async def create_room_with_user(
         participant=ParticipantRequest(participant_id=user_peer.id, role="member"),
     )
 
+    created_room_ids.append(chat_id)
     logger.info(
-        "Created chat room %s with user %s (%s) (will persist, no delete API)",
+        "Created chat room %s with user %s (%s) (will persist, no delete API) "
+        "[%d room(s) created this session]",
         chat_id,
         user_peer.name,
         user_peer.id,
+        len(created_room_ids),
     )
     return chat_id, user_peer.id, user_peer.name
 
