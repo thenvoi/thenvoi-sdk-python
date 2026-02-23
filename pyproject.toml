@@ -132,10 +132,16 @@ asyncio_mode = "auto"
 addopts = "-v"
 
 [tool.pyrefly]
+project_includes = [
+    "src/**/*.py",              # Only check source files
+]
 project_excludes = [
     "tests/**",                 # Tests use mocks with duck typing
     "examples/**",              # Examples use local imports
 ]
+# Disable the default **/.[!/.]*/** exclude so pyrefly works inside
+# .claude/worktrees/ (git worktree paths contain a hidden directory).
+disable-project-excludes-heuristics = true
 
 [tool.commitizen]
 name = "cz_conventional_commits"

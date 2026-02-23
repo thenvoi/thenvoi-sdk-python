@@ -167,18 +167,19 @@ def _build_crewai_config() -> ConverterConfig:
 
 
 def _build_claude_sdk_config() -> ConverterConfig:
-    from tests.framework_configs.output_adapters import StringOutputAdapter
+    from thenvoi.converters.claude_sdk import ClaudeSDKSessionState
+    from tests.framework_configs.output_adapters import ClaudeSDKOutputAdapter
 
     return ConverterConfig(
         framework_id="claude_sdk",
         display_name="ClaudeSDK",
         converter_factory=_claude_sdk_factory,
-        empty_result="",
+        empty_result=ClaudeSDKSessionState(text=""),
         empty_sender_behavior=SenderBehavior.BRACKETS_EMPTY,
         missing_sender_behavior=SenderBehavior.UNKNOWN_PREFIX,
         skips_empty_content=True,
         has_role_concept=False,
-        output_adapter=StringOutputAdapter(),
+        output_adapter=ClaudeSDKOutputAdapter(),
     )
 
 

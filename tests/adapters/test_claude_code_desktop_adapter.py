@@ -10,6 +10,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from thenvoi.adapters.claude_code_desktop import ClaudeCodeDesktopAdapter
+from thenvoi.converters.claude_sdk import ClaudeSDKSessionState
 from thenvoi.core.types import PlatformMessage
 
 
@@ -799,7 +800,7 @@ class TestClaudeCodeDesktopOnMessage:
             await adapter.on_message(
                 msg=sample_message,
                 tools=mock_tools,
-                history="previous context",
+                history=ClaudeSDKSessionState(text="previous context"),
                 participants_msg=None,
                 contacts_msg=None,
                 is_session_bootstrap=True,
@@ -838,7 +839,7 @@ class TestClaudeCodeDesktopOnMessage:
             await adapter.on_message(
                 msg=sample_message,
                 tools=mock_tools,
-                history="",
+                history=ClaudeSDKSessionState(text=""),
                 participants_msg=None,
                 contacts_msg=None,
                 is_session_bootstrap=False,
@@ -868,7 +869,7 @@ class TestClaudeCodeDesktopOnMessage:
             await adapter.on_message(
                 msg=sample_message,
                 tools=mock_tools,
-                history="",
+                history=ClaudeSDKSessionState(text=""),
                 participants_msg=None,
                 contacts_msg=None,
                 is_session_bootstrap=True,

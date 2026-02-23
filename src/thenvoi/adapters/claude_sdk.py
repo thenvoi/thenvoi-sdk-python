@@ -37,7 +37,10 @@ except ImportError as e:
 from thenvoi.core.protocols import AgentToolsProtocol
 from thenvoi.core.simple_adapter import SimpleAdapter
 from thenvoi.core.types import PlatformMessage
-from thenvoi.converters.claude_sdk import ClaudeSDKHistoryConverter
+from thenvoi.converters.claude_sdk import (
+    ClaudeSDKHistoryConverter,
+    ClaudeSDKSessionState,
+)
 from thenvoi.integrations.claude_sdk.session_manager import ClaudeSessionManager
 from thenvoi.integrations.claude_sdk.prompts import generate_claude_sdk_agent_prompt
 from thenvoi.runtime.custom_tools import (
@@ -81,7 +84,7 @@ THENVOI_MEMORY_TOOLS = [
 THENVOI_TOOLS = THENVOI_BASE_TOOLS + THENVOI_MEMORY_TOOLS
 
 
-class ClaudeSDKAdapter(SimpleAdapter[str]):
+class ClaudeSDKAdapter(SimpleAdapter[ClaudeSDKSessionState]):
     """
     Claude Agent SDK adapter using SimpleAdapter pattern.
 
@@ -818,7 +821,7 @@ class ClaudeSDKAdapter(SimpleAdapter[str]):
         self,
         msg: PlatformMessage,
         tools: AgentToolsProtocol,
-        history: str,  # We ignore this, handle history ourselves
+        history: ClaudeSDKSessionState,
         participants_msg: str | None,
         contacts_msg: str | None,
         *,
@@ -842,27 +845,42 @@ class ClaudeSDKAdapter(SimpleAdapter[str]):
         # Store tools for MCP server access
         self._room_tools[room_id] = tools
 
-        # Get stored session_id for potential resume (only on bootstrap/reconnect)
-        stored_session_id = (
-            self._session_ids.get(room_id) if is_session_bootstrap else None
-        )
+        # Determine session_id for resume: prefer history (persisted) then
+        # in-memory cache.  Only used on bootstrap/reconnect.
+        stored_session_id: str | None = None
+        if is_session_bootstrap:
+            stored_session_id = history.session_id or self._session_ids.get(room_id)
 
         # Get or create Claude SDK client for this room (optionally resuming)
-        client = await self._session_manager.get_or_create_session(
-            room_id, resume_session_id=stored_session_id
-        )
+        try:
+            client = await self._session_manager.get_or_create_session(
+                room_id, resume_session_id=stored_session_id
+            )
+        except Exception:
+            if stored_session_id:
+                logger.warning(
+                    "Room %s: Session resume failed (session_id=%s), "
+                    "creating new session",
+                    room_id,
+                    stored_session_id,
+                )
+                client = await self._session_manager.get_or_create_session(
+                    room_id, resume_session_id=None
+                )
+            else:
+                raise
 
         # Add room_id context (Claude needs this for tool calls)
         room_context = f"[room_id: {room_id}]"
 
         # Initialize history for this room on first message
         if is_session_bootstrap:
-            if history:  # Already converted to text by SimpleAdapter
-                self._session_context[room_id] = history
+            if history.text:  # Already converted to text by SimpleAdapter
+                self._session_context[room_id] = history.text
                 logger.info(
                     "Room %s: Loaded historical context (%s chars)",
                     room_id,
-                    len(history),
+                    len(history.text),
                 )
             else:
                 self._session_context[room_id] = ""
@@ -1014,6 +1032,21 @@ class ClaudeSDKAdapter(SimpleAdapter[str]):
                         room_id,
                         sdk_message.session_id,
                     )
+                    # Persist session_id as task event (best-effort)
+                    try:
+                        await tools.send_event(
+                            content="Claude SDK session",
+                            message_type="task",
+                            metadata={
+                                "claude_sdk_session_id": sdk_message.session_id,
+                            },
+                        )
+                    except Exception as e:
+                        logger.warning(
+                            "Room %s: Failed to persist session_id: %s",
+                            room_id,
+                            e,
+                        )
                 break
 
     # --- Copied from ThenvoiClaudeSDKAgent._cleanup_session ---

@@ -13,6 +13,7 @@ from typing import Any, Protocol
 __all__ = [
     "OutputAdapter",
     "BaseDictListOutputAdapter",
+    "ClaudeSDKOutputAdapter",
     "DictListOutputAdapter",
     "LangChainOutputAdapter",
     "PydanticAIOutputAdapter",
@@ -411,6 +412,51 @@ class StringOutputAdapter:
             "ClaudeSDK returns a flat string without sender metadata. "
             "Ensure has_sender_metadata=False in the ConverterConfig."
         )
+
+
+class ClaudeSDKOutputAdapter:
+    """Adapter for ClaudeSDK converter output (:class:`ClaudeSDKSessionState`).
+
+    Unwraps the ``.text`` attribute and delegates all assertions to
+    :class:`StringOutputAdapter`.
+    """
+
+    def __init__(self) -> None:
+        self._inner = StringOutputAdapter()
+
+    def assert_result_type(self, result: Any) -> None:
+        from thenvoi.converters.claude_sdk import ClaudeSDKSessionState
+
+        assert isinstance(result, ClaudeSDKSessionState), (
+            f"Expected ClaudeSDKSessionState, got {type(result).__name__}"
+        )
+
+    def result_length(self, result: Any) -> int:
+        return self._inner.result_length(result.text)
+
+    def get_content(self, result: Any, index: int) -> str:
+        return self._inner.get_content(result.text, index)
+
+    def get_role(self, result: Any, index: int) -> str:
+        return self._inner.get_role(result.text, index)
+
+    def is_empty(self, result: Any) -> bool:
+        return self._inner.is_empty(result.text)
+
+    def content_contains(self, result: Any, substring: str) -> bool:
+        return self._inner.content_contains(result.text, substring)
+
+    def assert_element_type(self, result: Any, index: int, expected_role: str) -> None:
+        self._inner.assert_element_type(result.text, index, expected_role)
+
+    def assert_sender_metadata(
+        self,
+        result: Any,
+        index: int,
+        sender_name: str,
+        sender_type: str | None = None,
+    ) -> None:
+        self._inner.assert_sender_metadata(result.text, index, sender_name, sender_type)
 
 
 class SenderDictListAdapter(BaseDictListOutputAdapter):

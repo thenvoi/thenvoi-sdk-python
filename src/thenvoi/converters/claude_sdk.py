@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass, field
 from typing import Any
 
 from thenvoi.core.protocols import HistoryConverter
@@ -10,7 +11,20 @@ from thenvoi.core.protocols import HistoryConverter
 logger = logging.getLogger(__name__)
 
 
-class ClaudeSDKHistoryConverter(HistoryConverter[str]):
+@dataclass
+class ClaudeSDKSessionState:
+    """Composite state returned by the Claude SDK converter.
+
+    Combines the text history (for context injection) with an optional
+    ``session_id`` extracted from persisted task events, enabling session
+    resume after process restart.
+    """
+
+    text: str = ""
+    session_id: str | None = field(default=None)
+
+
+class ClaudeSDKHistoryConverter(HistoryConverter[ClaudeSDKSessionState]):
     """
     Converts platform history to Claude SDK text format.
 
@@ -49,10 +63,25 @@ class ClaudeSDKHistoryConverter(HistoryConverter[str]):
         """
         self._agent_name = name
 
-    def convert(self, raw: list[dict[str, Any]]) -> str:
-        """Convert platform history to text format for Claude SDK."""
+    def convert(self, raw: list[dict[str, Any]]) -> ClaudeSDKSessionState:
+        """Convert platform history to text format for Claude SDK.
+
+        Returns a :class:`ClaudeSDKSessionState` containing the text history
+        and an optional ``session_id`` extracted from persisted task events.
+        """
         if not raw:
-            return ""
+            return ClaudeSDKSessionState(text="")
+
+        # Scan history in reverse for the latest task event containing a
+        # claude_sdk_session_id in its metadata.
+        session_id: str | None = None
+        for hist in reversed(raw):
+            if hist.get("message_type") == "task":
+                metadata = hist.get("metadata") or {}
+                sid = metadata.get("claude_sdk_session_id")
+                if sid:
+                    session_id = sid
+                    break
 
         lines: list[str] = []
 
@@ -61,6 +90,10 @@ class ClaudeSDKHistoryConverter(HistoryConverter[str]):
             content = hist.get("content", "")
             role = hist.get("role", "user")
             sender_name = hist.get("sender_name", "Unknown")
+
+            # Task events are internal bookkeeping — never include in text.
+            if message_type == "task":
+                continue
 
             if message_type == "text":
                 # Skip own text (redundant with tool results)
@@ -81,4 +114,5 @@ class ClaudeSDKHistoryConverter(HistoryConverter[str]):
                 if content:
                     lines.append(content)
 
-        return "\n".join(lines) if lines else ""
+        text = "\n".join(lines) if lines else ""
+        return ClaudeSDKSessionState(text=text, session_id=session_id)

@@ -4,12 +4,15 @@ Tests for shared converter behavior (user messages, agent filtering, empty
 history, edge cases, output shape) live in
 tests/framework_conformance/test_converter_conformance.py.
 This file contains ClaudeSDK-specific multi-message joining, tool event
-handling, and mixed history integration tests.
+handling, session ID extraction, and mixed history integration tests.
 """
 
 import json
 
-from thenvoi.converters.claude_sdk import ClaudeSDKHistoryConverter
+from thenvoi.converters.claude_sdk import (
+    ClaudeSDKHistoryConverter,
+    ClaudeSDKSessionState,
+)
 
 
 class TestBasicConversion:
@@ -36,7 +39,13 @@ class TestBasicConversion:
         result = converter.convert(raw)
 
         expected = "[Alice]: Hello!\n[Bob]: Hi there!"
-        assert result == expected
+        assert result.text == expected
+
+    def test_returns_session_state(self):
+        """convert() returns a ClaudeSDKSessionState instance."""
+        converter = ClaudeSDKHistoryConverter()
+        result = converter.convert([])
+        assert isinstance(result, ClaudeSDKSessionState)
 
 
 class TestEdgeCases:
@@ -61,7 +70,7 @@ class TestEdgeCases:
         result = converter.convert(raw)
 
         # Should be included (not filtered as own-agent message)
-        assert "[Bob]: Hello" in result
+        assert "[Bob]: Hello" in result.text
 
     def test_missing_role_not_filtered_as_assistant(self):
         """Messages without 'role' must not be filtered by agent_name."""
@@ -78,7 +87,7 @@ class TestEdgeCases:
 
         # Without "role": "assistant", the message defaults to user role
         # and should NOT be filtered even though sender_name matches agent_name.
-        assert "I said something" in result
+        assert "I said something" in result.text
 
 
 class TestToolEventHandling:
@@ -110,9 +119,9 @@ class TestToolEventHandling:
 
         result = converter.convert(raw)
 
-        assert "[User]: Hello" in result
+        assert "[User]: Hello" in result.text
         # Raw JSON is included as-is
-        assert tool_call_json in result
+        assert tool_call_json in result.text
 
     def test_includes_tool_result_as_raw_json(self):
         """tool_result messages are included as raw JSON."""
@@ -131,7 +140,7 @@ class TestToolEventHandling:
         result = converter.convert(raw)
 
         # Raw JSON is included as-is
-        assert result == tool_result_json
+        assert result.text == tool_result_json
 
     def test_tool_events_included_regardless_of_agent_name(self):
         """Tool events are included as raw JSON regardless of agent_name."""
@@ -146,7 +155,7 @@ class TestToolEventHandling:
 
         result = converter.convert(raw)
 
-        assert result == tool_call_json
+        assert result.text == tool_call_json
 
     def test_skips_empty_tool_call_content(self):
         """Should skip tool_call with empty content."""
@@ -160,7 +169,7 @@ class TestToolEventHandling:
 
         result = converter.convert(raw)
 
-        assert result == ""
+        assert result.text == ""
 
     def test_skips_empty_tool_result_content(self):
         """Should skip tool_result with empty content."""
@@ -174,7 +183,121 @@ class TestToolEventHandling:
 
         result = converter.convert(raw)
 
-        assert result == ""
+        assert result.text == ""
+
+
+class TestSessionIdExtraction:
+    """Tests for session_id extraction from task events."""
+
+    def test_extracts_session_id_from_task_event(self):
+        """Should extract session_id from task event metadata."""
+        converter = ClaudeSDKHistoryConverter()
+        raw = [
+            {
+                "role": "user",
+                "content": "Hello",
+                "sender_name": "Alice",
+                "message_type": "text",
+            },
+            {
+                "content": "Claude SDK session",
+                "message_type": "task",
+                "metadata": {"claude_sdk_session_id": "sess-abc-123"},
+            },
+        ]
+
+        result = converter.convert(raw)
+
+        assert result.session_id == "sess-abc-123"
+
+    def test_returns_latest_session_id(self):
+        """When multiple task events exist, return the latest session_id."""
+        converter = ClaudeSDKHistoryConverter()
+        raw = [
+            {
+                "content": "Claude SDK session",
+                "message_type": "task",
+                "metadata": {"claude_sdk_session_id": "sess-old"},
+            },
+            {
+                "role": "user",
+                "content": "Hello",
+                "sender_name": "Alice",
+                "message_type": "text",
+            },
+            {
+                "content": "Claude SDK session",
+                "message_type": "task",
+                "metadata": {"claude_sdk_session_id": "sess-new"},
+            },
+        ]
+
+        result = converter.convert(raw)
+
+        assert result.session_id == "sess-new"
+
+    def test_returns_none_when_no_task_events(self):
+        """Should return None when no task events exist."""
+        converter = ClaudeSDKHistoryConverter()
+        raw = [
+            {
+                "role": "user",
+                "content": "Hello",
+                "sender_name": "Alice",
+                "message_type": "text",
+            },
+        ]
+
+        result = converter.convert(raw)
+
+        assert result.session_id is None
+
+    def test_ignores_task_events_without_session_id_key(self):
+        """Should ignore task events that don't have claude_sdk_session_id."""
+        converter = ClaudeSDKHistoryConverter()
+        raw = [
+            {
+                "content": "Some other task event",
+                "message_type": "task",
+                "metadata": {"other_key": "value"},
+            },
+        ]
+
+        result = converter.convert(raw)
+
+        assert result.session_id is None
+
+    def test_task_events_not_included_in_text(self):
+        """Task events should never appear in the text output."""
+        converter = ClaudeSDKHistoryConverter()
+        raw = [
+            {
+                "role": "user",
+                "content": "Hello",
+                "sender_name": "Alice",
+                "message_type": "text",
+            },
+            {
+                "content": "Claude SDK session",
+                "message_type": "task",
+                "metadata": {"claude_sdk_session_id": "sess-abc"},
+            },
+        ]
+
+        result = converter.convert(raw)
+
+        assert "Claude SDK session" not in result.text
+        assert "sess-abc" not in result.text
+        assert result.text == "[Alice]: Hello"
+
+    def test_empty_history_returns_empty_state(self):
+        """Empty history should return empty state with no session_id."""
+        converter = ClaudeSDKHistoryConverter()
+
+        result = converter.convert([])
+
+        assert result.text == ""
+        assert result.session_id is None
 
 
 class TestMixedHistory:
@@ -232,13 +355,13 @@ class TestMixedHistory:
         result = converter.convert(raw)
 
         # Should include user messages
-        assert "[Alice]: What's the weather?" in result
-        assert "[Alice]: Thanks!" in result
+        assert "[Alice]: What's the weather?" in result.text
+        assert "[Alice]: Thanks!" in result.text
         # Should include raw tool event JSON
-        assert tool_call_json in result
-        assert tool_result_json in result
+        assert tool_call_json in result.text
+        assert tool_result_json in result.text
         # Should NOT include own text message
-        assert "It's sunny today!" not in result
+        assert "It's sunny today!" not in result.text
 
     def test_multi_agent_conversation(self):
         """Handles multiple agents in conversation."""
@@ -266,10 +389,10 @@ class TestMixedHistory:
 
         result = converter.convert(raw)
 
-        assert "[Alice]: Hi team!" in result
-        assert "[OtherAgent]: Hello!" in result
+        assert "[Alice]: Hi team!" in result.text
+        assert "[OtherAgent]: Hello!" in result.text
         # Own message skipped
-        assert "Hi Alice!" not in result
+        assert "Hi Alice!" not in result.text
 
     def test_preserves_message_order(self):
         """Messages appear in the same order as input."""
@@ -281,7 +404,7 @@ class TestMixedHistory:
         ]
 
         result = converter.convert(raw)
-        lines = result.split("\n")
+        lines = result.text.split("\n")
 
         assert len(lines) == 3
         assert "First" in lines[0]

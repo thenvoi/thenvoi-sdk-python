@@ -33,13 +33,16 @@ from typing import Any
 from thenvoi.core.protocols import AgentToolsProtocol
 from thenvoi.core.simple_adapter import SimpleAdapter
 from thenvoi.core.types import PlatformMessage
-from thenvoi.converters.claude_sdk import ClaudeSDKHistoryConverter
+from thenvoi.converters.claude_sdk import (
+    ClaudeSDKHistoryConverter,
+    ClaudeSDKSessionState,
+)
 from thenvoi.runtime.tools import get_tool_description
 
 logger = logging.getLogger(__name__)
 
 
-class ClaudeCodeDesktopAdapter(SimpleAdapter[str]):
+class ClaudeCodeDesktopAdapter(SimpleAdapter[ClaudeSDKSessionState]):
     """
     Claude Code Desktop adapter using SimpleAdapter pattern.
 
@@ -619,7 +622,7 @@ class ClaudeCodeDesktopAdapter(SimpleAdapter[str]):
         self,
         msg: PlatformMessage,
         tools: AgentToolsProtocol,
-        history: str,
+        history: ClaudeSDKSessionState,
         participants_msg: str | None,
         contacts_msg: str | None,
         *,
@@ -632,7 +635,7 @@ class ClaudeCodeDesktopAdapter(SimpleAdapter[str]):
         Args:
             msg: Platform message
             tools: Agent tools (send_message, send_event, etc.)
-            history: Converted history as text
+            history: Converted history (text + optional session_id)
             participants_msg: Participants update message, or None
             contacts_msg: Contact changes broadcast message, or None
             is_session_bootstrap: True if first message from this room
@@ -640,16 +643,17 @@ class ClaudeCodeDesktopAdapter(SimpleAdapter[str]):
         """
         logger.debug("Handling message %s in room %s", msg.id, room_id)
 
-        # Get stored session_id for potential resume (only on subsequent messages)
+        # Determine session_id for resume: prefer history (persisted) then
+        # in-memory cache.  Only used on subsequent (non-bootstrap) messages.
         session_id = None
         if not is_session_bootstrap:
-            session_id = self._session_ids.get(room_id)
+            session_id = history.session_id or self._session_ids.get(room_id)
 
         # Generate prompt
         prompt = self._generate_prompt(
             room_id=room_id,
             message=msg.format_for_llm(),
-            history=history if is_session_bootstrap else "",
+            history=history.text if is_session_bootstrap else "",
             participants_msg=participants_msg,
         )
 
