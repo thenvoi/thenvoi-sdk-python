@@ -2,6 +2,6 @@
 
 from __future__ import annotations
 
-from .roles import AVAILABLE_ROLES, get_role_prompt
+from .roles import get_available_roles, get_role_prompt, load_role_prompt
 
-__all__ = ["get_role_prompt", "AVAILABLE_ROLES"]
+__all__ = ["get_role_prompt", "get_available_roles", "load_role_prompt"]

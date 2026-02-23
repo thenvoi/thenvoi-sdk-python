@@ -14,7 +14,7 @@
 x-agent: &agent-base
   build:
     context: ../..
-    dockerfile: docker/claude_code/Dockerfile
+    dockerfile: examples/claude_code/Dockerfile
   image: thenvoi-claude-code:latest
   env_file: .env
   environment:
@@ -22,7 +22,7 @@ x-agent: &agent-base
     THENVOI_REST_URL: ${THENVOI_REST_URL:-https://app.thenvoi.com/}
   volumes:
     # Repository workspace (configurable via REPO_PATH)
-    - ${REPO_PATH:-../../}:/workspace/repo:rw
+    - ${REPO_PATH:-../../}:/workspace/repo:ro
     # Shared notes directory
     - ./workspace/notes:/workspace/notes:rw
     # Prompts (read-only)
@@ -39,7 +39,7 @@ services:
       AGENT_CONFIG: /app/agent_config.yaml
       AGENT_ROLE: planner
     volumes:
-      - ${REPO_PATH:-../../}:/workspace/repo:rw
+      - ${REPO_PATH:-../../}:/workspace/repo:ro
       - ./workspace/notes:/workspace/notes:rw
       - ./agent_config.planner.yaml:/app/agent_config.yaml:ro
       - ./prompts:/prompts:ro
@@ -53,7 +53,7 @@ services:
       AGENT_CONFIG: /app/agent_config.yaml
       AGENT_ROLE: reviewer
     volumes:
-      - ${REPO_PATH:-../../}:/workspace/repo:rw
+      - ${REPO_PATH:-../../}:/workspace/repo:ro
       - ./workspace/notes:/workspace/notes:rw
       - ./agent_config.reviewer.yaml:/app/agent_config.yaml:ro
       - ./prompts:/prompts:ro

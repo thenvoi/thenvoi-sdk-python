@@ -13,7 +13,7 @@ Run Claude Code CLI as a Thenvoi agent with workspace access for file operations
 ### 1. Setup configuration
 
 ```bash
-cd docker/claude_code
+cd examples/claude_code
 
 # Copy example configs
 cp .env.example .env
@@ -42,7 +42,7 @@ REPO_PATH=/path/to/your/project docker compose up
 
 | Path | Mode | Description |
 |------|------|-------------|
-| `/workspace/repo` | rw | Project source code (via REPO_PATH) |
+| `/workspace/repo` | ro | Project source code (via REPO_PATH) |
 | `/workspace/notes` | rw | Markdown plans and design docs |
 | `/app/agent_config.yaml` | ro | Platform identity |
 | `/prompts` | ro | Role prompt profiles |
@@ -125,9 +125,9 @@ docker compose exec planner claude --version
 
 ### Permission denied
 
-The container runs as `appuser` (UID 1000). Ensure mounted directories are writable:
+The container runs as `appuser` (UID 1000). Ensure mounted directories match the container user:
 ```bash
-chmod -R 777 workspace/notes
+chown -R 1000:1000 workspace/notes
 ```
 
 ### Connection errors

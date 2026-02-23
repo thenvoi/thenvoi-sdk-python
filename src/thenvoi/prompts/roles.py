@@ -17,7 +17,11 @@ Usage:
 
 from __future__ import annotations
 
+import logging
+from pathlib import Path
 from typing import Callable
+
+logger = logging.getLogger(__name__)
 
 # Role registry: name -> generator function
 ROLE_GENERATORS: dict[str, Callable[[str], str]] = {}
@@ -272,5 +276,34 @@ def get_role_prompt(role: str, agent_name: str | None = None) -> str:
     return generator(name)
 
 
-# List of available roles for documentation/introspection
-AVAILABLE_ROLES: list[str] = list(ROLE_GENERATORS.keys())
+def get_available_roles() -> list[str]:
+    """Return list of registered role names."""
+    return list(ROLE_GENERATORS.keys())
+
+
+def load_role_prompt(role: str, prompt_dir: str | Path | None = None) -> str | None:
+    """
+    Load role prompt from file or built-in roles.
+
+    Checks for a markdown file at ``{prompt_dir}/{role}.md`` first, then
+    falls back to the built-in role registry.
+
+    Args:
+        role: Role name (e.g., "planner")
+        prompt_dir: Optional directory containing prompt override files
+
+    Returns:
+        Role prompt string or None if not found
+    """
+    if prompt_dir is not None:
+        prompt_file = Path(prompt_dir) / f"{role}.md"
+        if prompt_file.exists():
+            logger.info("Loading role prompt from: %s", prompt_file)
+            return prompt_file.read_text(encoding="utf-8")
+
+    try:
+        logger.info("Loading built-in role: %s", role)
+        return get_role_prompt(role)
+    except ValueError as e:
+        logger.warning("Role '%s' not found: %s", role, e)
+        return None

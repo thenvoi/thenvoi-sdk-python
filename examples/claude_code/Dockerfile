@@ -42,11 +42,7 @@ COPY src/ ./src/
 RUN uv sync
 
 # Copy runner script
-COPY docker/claude_code/runner.py ./runner.py
-
-# Copy entrypoint
-COPY docker/claude_code/entrypoint.sh /entrypoint.sh
-RUN chmod +x /entrypoint.sh
+COPY examples/claude_code/runner.py ./runner.py
 
 # Create workspace directories
 RUN mkdir -p /workspace/repo /workspace/notes /prompts
@@ -60,5 +56,4 @@ USER appuser
 # Set working directory to workspace for file operations
 WORKDIR /workspace/repo
 
-ENTRYPOINT ["/entrypoint.sh"]
 CMD ["uv", "run", "python", "/app/runner.py"]

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from thenvoi.prompts import AVAILABLE_ROLES, get_role_prompt
+from thenvoi.prompts import get_available_roles, get_role_prompt, load_role_prompt
 
 
 class TestGetRolePrompt:
@@ -61,30 +61,77 @@ class TestGetRolePrompt:
         assert "planner" in str(exc_info.value)
 
     def test_all_available_roles_work(self) -> None:
-        """Test that all roles in AVAILABLE_ROLES can be loaded."""
-        for role in AVAILABLE_ROLES:
+        """Test that all roles in get_available_roles() can be loaded."""
+        for role in get_available_roles():
             prompt = get_role_prompt(role)
             assert isinstance(prompt, str)
             assert len(prompt) > 100  # Should have substantial content
 
 
-class TestAvailableRoles:
-    """Tests for AVAILABLE_ROLES list."""
+class TestGetAvailableRoles:
+    """Tests for get_available_roles function."""
 
     def test_contains_expected_roles(self) -> None:
         """Test that expected roles are available."""
-        assert "planner" in AVAILABLE_ROLES
-        assert "reviewer" in AVAILABLE_ROLES
-        assert "implementer" in AVAILABLE_ROLES
+        roles = get_available_roles()
+        assert "planner" in roles
+        assert "reviewer" in roles
+        assert "implementer" in roles
 
-    def test_is_list(self) -> None:
-        """Test that AVAILABLE_ROLES is a list."""
-        assert isinstance(AVAILABLE_ROLES, list)
+    def test_returns_list(self) -> None:
+        """Test that get_available_roles returns a list."""
+        assert isinstance(get_available_roles(), list)
 
     def test_all_strings(self) -> None:
         """Test that all roles are strings."""
-        for role in AVAILABLE_ROLES:
+        for role in get_available_roles():
             assert isinstance(role, str)
+
+
+class TestLoadRolePrompt:
+    """Tests for load_role_prompt function."""
+
+    def test_loads_builtin_role(self) -> None:
+        """Test loading a built-in role without prompt_dir."""
+        prompt = load_role_prompt("planner")
+        assert prompt is not None
+        assert "# Role: Planner" in prompt
+
+    def test_returns_none_for_unknown_role(self) -> None:
+        """Test that unknown role returns None."""
+        result = load_role_prompt("nonexistent_role")
+        assert result is None
+
+    def test_loads_from_prompt_dir(self, tmp_path: object) -> None:
+        """Test loading role from file in prompt_dir."""
+        from pathlib import Path
+
+        prompt_dir = Path(str(tmp_path))
+        prompt_file = prompt_dir / "custom.md"
+        prompt_file.write_text("# Custom Role Prompt")
+
+        result = load_role_prompt("custom", prompt_dir)
+        assert result == "# Custom Role Prompt"
+
+    def test_file_overrides_builtin(self, tmp_path: object) -> None:
+        """Test that file in prompt_dir overrides built-in role."""
+        from pathlib import Path
+
+        prompt_dir = Path(str(tmp_path))
+        prompt_file = prompt_dir / "planner.md"
+        prompt_file.write_text("# Custom Planner Override")
+
+        result = load_role_prompt("planner", prompt_dir)
+        assert result == "# Custom Planner Override"
+
+    def test_falls_back_to_builtin_when_file_missing(self, tmp_path: object) -> None:
+        """Test fallback to built-in when file not in prompt_dir."""
+        from pathlib import Path
+
+        prompt_dir = Path(str(tmp_path))
+        result = load_role_prompt("planner", prompt_dir)
+        assert result is not None
+        assert "# Role: Planner" in result
 
 
 class TestRolePromptContent:
@@ -125,6 +172,6 @@ class TestRolePromptContent:
 
     def test_all_roles_have_mention_format(self) -> None:
         """Test that all roles explain how to mention other agents."""
-        for role in AVAILABLE_ROLES:
+        for role in get_available_roles():
             prompt = get_role_prompt(role)
             assert "@username/agent-name" in prompt or "@agent" in prompt

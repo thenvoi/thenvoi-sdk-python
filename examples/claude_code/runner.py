@@ -68,36 +68,6 @@ def load_config(config_path: str) -> dict[str, Any]:
     return config
 
 
-def load_role_prompt(role: str, prompt_dir: str) -> str | None:
-    """
-    Load role prompt from file or built-in roles.
-
-    First checks for markdown file in prompt_dir, then falls back to built-in.
-
-    Args:
-        role: Role name (e.g., "planner")
-        prompt_dir: Directory containing prompt files
-
-    Returns:
-        Role prompt string or None if not found
-    """
-    # Check for markdown file
-    prompt_file = Path(prompt_dir) / f"{role}.md"
-    if prompt_file.exists():
-        logger.info("Loading role prompt from: %s", prompt_file)
-        return prompt_file.read_text(encoding="utf-8")
-
-    # Fall back to built-in roles
-    try:
-        from thenvoi.prompts.roles import get_role_prompt
-
-        logger.info("Loading built-in role: %s", role)
-        return get_role_prompt(role)
-    except (ImportError, ValueError) as e:
-        logger.warning("Role '%s' not found: %s", role, e)
-        return None
-
-
 def _handle_signal(sig: signal.Signals) -> None:
     """Handle shutdown signals (SIGTERM, SIGINT)."""
     logger.info("Received %s, initiating graceful shutdown...", sig.name)
@@ -137,13 +107,14 @@ async def main() -> None:
     # Import here to allow early config validation
     from thenvoi import Agent
     from thenvoi.adapters import ClaudeCodeDesktopAdapter
+    from thenvoi.prompts import load_role_prompt
 
     # Extract config values
     agent_id = config["agent_id"]
     api_key = config["api_key"]
 
-    # Get role and custom prompt
-    role = config.get("role") or os.environ.get("AGENT_ROLE")
+    # Get role (env overrides config)
+    role = os.environ.get("AGENT_ROLE") or config.get("role")
     custom_prompt = config.get("prompt", "")
 
     # Build final prompt
@@ -162,9 +133,9 @@ async def main() -> None:
     workspace_context = f"""
 ## Workspace Access
 
-You have read/write access to the following directories:
-- `/workspace/repo` - Project source code
-- `/workspace/notes` - Markdown notes, plans, and design documents
+You have access to the following directories:
+- `/workspace/repo` - Project source code (read-only)
+- `/workspace/notes` - Markdown notes, plans, and design documents (read-write)
 
 Current working directory: {workspace}
 

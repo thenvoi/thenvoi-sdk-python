@@ -10,7 +10,7 @@
 x-agent: &agent-base
   build:
     context: ../..
-    dockerfile: docker/claude_code/Dockerfile
+    dockerfile: examples/claude_code/Dockerfile
   image: thenvoi-claude-code:latest
   env_file: .env
   environment:
@@ -19,7 +19,7 @@ x-agent: &agent-base
     AGENT_CONFIG: /app/agent_config.yaml
   volumes:
     # Repository workspace (configurable via REPO_PATH)
-    - ${REPO_PATH:-../../}:/workspace/repo:rw
+    - ${REPO_PATH:-../../}:/workspace/repo:ro
     # Notes directory (persisted)
     - ./workspace/notes:/workspace/notes:rw
     # Agent config (read-only)
