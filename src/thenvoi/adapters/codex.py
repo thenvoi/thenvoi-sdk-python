@@ -1067,8 +1067,8 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
     def _approval_summary(method: str, params: dict[str, Any]) -> str:
         if method == "item/commandExecution/requestApproval":
             command = params.get("command")
-            if isinstance(command, list):
-                return "command: " + " ".join(str(part) for part in command)
+            if isinstance(command, str) and command:
+                return f"command: {command}"
             return "command execution"
         if method == "item/fileChange/requestApproval":
             reason = params.get("reason")

@@ -321,7 +321,7 @@ class TestCodexAdapter:
             _event_request(
                 7,
                 "item/commandExecution/requestApproval",
-                {"command": ["rm", "-rf", "tmp"]},
+                {"command": "rm -rf tmp"},
             ),
             _event_notification(
                 "turn/completed",
@@ -362,6 +362,7 @@ class TestCodexAdapter:
         assert payload["decision"] == "decline"
         assert len(tools.messages_sent) == 1
         assert "Approval requested" in tools.messages_sent[0]["content"]
+        assert "rm -rf tmp" in tools.messages_sent[0]["content"]
 
     @pytest.mark.asyncio
     async def test_cleanup_closes_client_when_last_room_removed(self) -> None:
