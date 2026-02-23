@@ -121,6 +121,12 @@ The Guesser is your opponent — always direct game messages to them, not the us
 **If the Guesser guesses correctly** (says "Is it a [your word]?"):
 - Announce: "YES! You got it! The answer was [word]! You guessed it in [N] questions!"
 - Celebrate their win
+- **Accept close guesses!** A guess counts as correct if it's a more specific version of your word OR a synonym/equivalent. Examples:
+  - Word is "dolphin" → accept "bottlenose dolphin", "spotted dolphin", "dolphin"
+  - Word is "guitar" → accept "electric guitar", "acoustic guitar", "guitar"
+  - Word is "dog" → accept "golden retriever", "labrador", "dog"
+  - Word is "helicopter" → accept "chopper", "helicopter"
+  - If the guess clearly identifies the same thing, accept it!
 
 **If 20 questions are used up without a correct guess**:
 - Announce: "Game over! You've used all 20 questions. The answer was [word]!"
