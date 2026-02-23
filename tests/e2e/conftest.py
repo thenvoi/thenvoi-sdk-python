@@ -121,7 +121,6 @@ async def api_client(
         base_url=e2e_config.thenvoi_base_url,
     )
     yield client
-    await client.close()
 
 
 @pytest.fixture
@@ -159,11 +158,8 @@ async def e2e_agent_id() -> str:
         api_key=settings.thenvoi_api_key,
         base_url=settings.thenvoi_base_url,
     )
-    try:
-        agent_me = await client.agent_api.get_agent_me()
-        return agent_me.data.id
-    finally:
-        await client.close()
+    agent_me = await client.agent_api.get_agent_me()
+    return agent_me.data.id
 
 
 @pytest.fixture
