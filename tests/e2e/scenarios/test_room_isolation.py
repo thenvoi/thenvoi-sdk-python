@@ -14,13 +14,11 @@ Run with:
 
 from __future__ import annotations
 
-import asyncio
 import logging
 
 from thenvoi_rest import AsyncRestClient
 
 from thenvoi.agent import Agent
-from thenvoi.client.streaming import MessageCreatedPayload
 
 from tests.e2e.adapters.conftest import AdapterFactory
 from tests.e2e.conftest import E2ESettings, requires_e2e
@@ -82,37 +80,32 @@ class TestRoomIsolation:
         async with agent:
             agent_name = agent.agent_name
 
-            # --- Phase 1: Set context in both rooms concurrently ---
-            async def _set_context_room_a() -> list[MessageCreatedPayload]:
-                async with listening_for_agent_responses(
-                    ws_client, room_a_id, timeout=timeout, raise_on_timeout=True
-                ) as wait:
-                    await send_user_message(
-                        api_client,
-                        room_a_id,
-                        "Remember: the secret code is APPLE. Confirm you remember it.",
-                        agent_name,
-                        e2e_agent_id,
-                    )
-                    return await wait()
+            # --- Phase 1: Set context in both rooms sequentially ---
+            # Sequential to avoid flakiness: a single agent processes one
+            # room at a time, so concurrent sends can cause timeouts.
+            async with listening_for_agent_responses(
+                ws_client, room_a_id, timeout=timeout, raise_on_timeout=True
+            ) as wait:
+                await send_user_message(
+                    api_client,
+                    room_a_id,
+                    "Remember: the secret code is APPLE. Confirm you remember it.",
+                    agent_name,
+                    e2e_agent_id,
+                )
+                room_a_phase1 = await wait()
 
-            async def _set_context_room_b() -> list[MessageCreatedPayload]:
-                async with listening_for_agent_responses(
-                    ws_client, room_b_id, timeout=timeout, raise_on_timeout=True
-                ) as wait:
-                    await send_user_message(
-                        api_client,
-                        room_b_id,
-                        "Remember: the secret code is BANANA. Confirm you remember it.",
-                        agent_name,
-                        e2e_agent_id,
-                    )
-                    return await wait()
-
-            room_a_phase1, room_b_phase1 = await asyncio.gather(
-                _set_context_room_a(),
-                _set_context_room_b(),
-            )
+            async with listening_for_agent_responses(
+                ws_client, room_b_id, timeout=timeout, raise_on_timeout=True
+            ) as wait:
+                await send_user_message(
+                    api_client,
+                    room_b_id,
+                    "Remember: the secret code is BANANA. Confirm you remember it.",
+                    agent_name,
+                    e2e_agent_id,
+                )
+                room_b_phase1 = await wait()
 
             logger.info(
                 "[%s] Phase 1 complete: Room A got %d, Room B got %d response(s)",
@@ -121,37 +114,30 @@ class TestRoomIsolation:
                 len(room_b_phase1),
             )
 
-            # --- Phase 2: Query each room concurrently and verify isolation ---
-            async def _query_room_a() -> list[MessageCreatedPayload]:
-                async with listening_for_agent_responses(
-                    ws_client, room_a_id, timeout=timeout, raise_on_timeout=True
-                ) as wait:
-                    await send_user_message(
-                        api_client,
-                        room_a_id,
-                        "What is the secret code? Reply with just the code word.",
-                        agent_name,
-                        e2e_agent_id,
-                    )
-                    return await wait()
+            # --- Phase 2: Query each room and verify isolation ---
+            async with listening_for_agent_responses(
+                ws_client, room_a_id, timeout=timeout, raise_on_timeout=True
+            ) as wait:
+                await send_user_message(
+                    api_client,
+                    room_a_id,
+                    "What is the secret code? Reply with just the code word.",
+                    agent_name,
+                    e2e_agent_id,
+                )
+                room_a_received = await wait()
 
-            async def _query_room_b() -> list[MessageCreatedPayload]:
-                async with listening_for_agent_responses(
-                    ws_client, room_b_id, timeout=timeout, raise_on_timeout=True
-                ) as wait:
-                    await send_user_message(
-                        api_client,
-                        room_b_id,
-                        "What is the secret code? Reply with just the code word.",
-                        agent_name,
-                        e2e_agent_id,
-                    )
-                    return await wait()
-
-            room_a_received, room_b_received = await asyncio.gather(
-                _query_room_a(),
-                _query_room_b(),
-            )
+            async with listening_for_agent_responses(
+                ws_client, room_b_id, timeout=timeout, raise_on_timeout=True
+            ) as wait:
+                await send_user_message(
+                    api_client,
+                    room_b_id,
+                    "What is the secret code? Reply with just the code word.",
+                    agent_name,
+                    e2e_agent_id,
+                )
+                room_b_received = await wait()
 
             # Verify Room A knows APPLE but not BANANA
             assert_content_contains(room_a_received, "APPLE")
