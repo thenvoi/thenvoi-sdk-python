@@ -17,9 +17,6 @@ x-agent: &agent-base
     dockerfile: examples/claude_code/Dockerfile
   image: thenvoi-claude-code:latest
   env_file: .env
-  environment:
-    THENVOI_WS_URL: ${THENVOI_WS_URL:-wss://app.thenvoi.com/api/v1/socket/websocket}
-    THENVOI_REST_URL: ${THENVOI_REST_URL:-https://app.thenvoi.com/}
   volumes:
     # Repository workspace (configurable via REPO_PATH)
     - ${REPO_PATH:-../../}:/workspace/repo:ro
@@ -34,8 +31,6 @@ services:
     <<: *agent-base
     container_name: thenvoi-planner
     environment:
-      THENVOI_WS_URL: ${THENVOI_WS_URL:-wss://app.thenvoi.com/api/v1/socket/websocket}
-      THENVOI_REST_URL: ${THENVOI_REST_URL:-https://app.thenvoi.com/}
       AGENT_CONFIG: /app/agent_config.yaml
       AGENT_ROLE: planner
     volumes:
@@ -48,8 +43,6 @@ services:
     <<: *agent-base
     container_name: thenvoi-reviewer
     environment:
-      THENVOI_WS_URL: ${THENVOI_WS_URL:-wss://app.thenvoi.com/api/v1/socket/websocket}
-      THENVOI_REST_URL: ${THENVOI_REST_URL:-https://app.thenvoi.com/}
       AGENT_CONFIG: /app/agent_config.yaml
       AGENT_ROLE: reviewer
     volumes:
