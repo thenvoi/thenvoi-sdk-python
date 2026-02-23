@@ -1,4 +1,4 @@
-"""Claude SDK history converter."""
+"""Claude SDK history converters."""
 
 from __future__ import annotations
 
@@ -24,20 +24,56 @@ class ClaudeSDKSessionState:
     session_id: str | None = None
 
 
+def _build_text(raw: list[dict[str, Any]], agent_name: str) -> str:
+    """Build text history from raw platform messages.
+
+    Shared by both :class:`ClaudeSDKHistoryConverter` and
+    :class:`ClaudeCodeDesktopHistoryConverter`.
+    """
+    lines: list[str] = []
+
+    for hist in raw:
+        message_type = hist.get("message_type", "text")
+        content = hist.get("content", "")
+        role = hist.get("role", "user")
+        sender_name = hist.get("sender_name", "Unknown")
+
+        # Task events are internal bookkeeping — never include in text.
+        if message_type == "task":
+            continue
+
+        if message_type == "text":
+            # Skip own text (redundant with tool results)
+            if role == "assistant" and sender_name == agent_name:
+                logger.debug("Skipping own message: %s...", content[:50])
+                continue
+            # Include user and other agents' messages
+            if content:
+                lines.append(f"[{sender_name}]: {content}")
+
+        elif message_type == "tool_call":
+            # Include raw tool_call JSON as-is
+            if content:
+                lines.append(content)
+
+        elif message_type == "tool_result":
+            # Include raw tool_result JSON as-is
+            if content:
+                lines.append(content)
+
+    return "\n".join(lines) if lines else ""
+
+
 class ClaudeSDKHistoryConverter(HistoryConverter[ClaudeSDKSessionState]):
     """
-    Converts platform history to Claude SDK text format.
+    Converts platform history to Claude SDK text format with session state.
 
-    Claude SDK uses text context rather than structured messages.
-    This converter formats history as a text block for context injection.
+    Returns a :class:`ClaudeSDKSessionState` containing the text history
+    and an optional ``session_id`` extracted from persisted task events,
+    enabling session resume after process restart.
 
-    Handles:
-    - Skipping this agent's text messages (redundant with tool events)
-    - Including other agents' text messages with [name]: prefix
-    - Including tool_call events as raw JSON (as stored by platform)
-    - Including tool_result events as raw JSON (as stored by platform)
+    Output example::
 
-    Output example:
         [Alice]: What's the weather?
         {"name": "get_weather", "args": {"location": "NYC"}, "tool_call_id": "toolu_123"}
         {"output": {"temperature": 72}, "tool_call_id": "toolu_123"}
@@ -45,35 +81,16 @@ class ClaudeSDKHistoryConverter(HistoryConverter[ClaudeSDKSessionState]):
     """
 
     def __init__(self, agent_name: str = ""):
-        """
-        Initialize converter.
-
-        Args:
-            agent_name: Name of this agent. Text messages from this agent
-                       are skipped (redundant with tool events).
-        """
         self._agent_name = agent_name
 
     def set_agent_name(self, name: str) -> None:
-        """
-        Set agent name so converter knows which messages to skip.
-
-        Args:
-            name: Name of this agent
-        """
         self._agent_name = name
 
     def convert(self, raw: list[dict[str, Any]]) -> ClaudeSDKSessionState:
-        """Convert platform history to text format for Claude SDK.
-
-        Returns a :class:`ClaudeSDKSessionState` containing the text history
-        and an optional ``session_id`` extracted from persisted task events.
-        """
         if not raw:
             return ClaudeSDKSessionState(text="")
 
-        # Scan history in reverse for the latest task event containing a
-        # claude_sdk_session_id in its metadata.
+        # Scan history in reverse for the latest task event with a session_id.
         session_id: str | None = None
         for hist in reversed(raw):
             if hist.get("message_type") == "task":
@@ -83,36 +100,25 @@ class ClaudeSDKHistoryConverter(HistoryConverter[ClaudeSDKSessionState]):
                     session_id = sid
                     break
 
-        lines: list[str] = []
-
-        for hist in raw:
-            message_type = hist.get("message_type", "text")
-            content = hist.get("content", "")
-            role = hist.get("role", "user")
-            sender_name = hist.get("sender_name", "Unknown")
-
-            # Task events are internal bookkeeping — never include in text.
-            if message_type == "task":
-                continue
-
-            if message_type == "text":
-                # Skip own text (redundant with tool results)
-                if role == "assistant" and sender_name == self._agent_name:
-                    logger.debug("Skipping own message: %s...", content[:50])
-                    continue
-                # Include user and other agents' messages
-                if content:
-                    lines.append(f"[{sender_name}]: {content}")
-
-            elif message_type == "tool_call":
-                # Include raw tool_call JSON as-is
-                if content:
-                    lines.append(content)
-
-            elif message_type == "tool_result":
-                # Include raw tool_result JSON as-is
-                if content:
-                    lines.append(content)
-
-        text = "\n".join(lines) if lines else ""
+        text = _build_text(raw, self._agent_name)
         return ClaudeSDKSessionState(text=text, session_id=session_id)
+
+
+class ClaudeCodeDesktopHistoryConverter(HistoryConverter[str]):
+    """Converts platform history to plain text for Claude Code Desktop.
+
+    Same text format as :class:`ClaudeSDKHistoryConverter` but returns a
+    plain ``str`` — the desktop adapter manages sessions via CLI flags and
+    does not need the composite :class:`ClaudeSDKSessionState`.
+    """
+
+    def __init__(self, agent_name: str = ""):
+        self._agent_name = agent_name
+
+    def set_agent_name(self, name: str) -> None:
+        self._agent_name = name
+
+    def convert(self, raw: list[dict[str, Any]]) -> str:
+        if not raw:
+            return ""
+        return _build_text(raw, self._agent_name)

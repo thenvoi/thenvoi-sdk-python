@@ -33,7 +33,7 @@ from typing import Any
 from thenvoi.core.protocols import AgentToolsProtocol
 from thenvoi.core.simple_adapter import SimpleAdapter
 from thenvoi.core.types import PlatformMessage
-from thenvoi.converters.claude_sdk import ClaudeSDKHistoryConverter
+from thenvoi.converters.claude_sdk import ClaudeCodeDesktopHistoryConverter
 from thenvoi.runtime.tools import get_tool_description
 
 logger = logging.getLogger(__name__)
@@ -66,7 +66,7 @@ class ClaudeCodeDesktopAdapter(SimpleAdapter[str]):
         custom_section: str | None = None,
         cli_path: str | None = None,
         cli_timeout: int = 120000,
-        history_converter: ClaudeSDKHistoryConverter | None = None,
+        history_converter: ClaudeCodeDesktopHistoryConverter | None = None,
         allowed_tools: list[str] | None = None,
         verbose: bool = False,
     ):
@@ -78,14 +78,15 @@ class ClaudeCodeDesktopAdapter(SimpleAdapter[str]):
             cli_path: Path to Claude Code CLI. If not set, uses CLAUDE_CODE_PATH
                      env var or searches PATH.
             cli_timeout: CLI invocation timeout in milliseconds (default: 2 minutes).
-            history_converter: Optional history converter. Defaults to ClaudeSDKHistoryConverter.
+            history_converter: Optional history converter. Defaults to
+                ClaudeCodeDesktopHistoryConverter.
             allowed_tools: Optional list of Claude Code tools to enable (e.g.
                           ["Read", "Write", "Edit"]). When set, these tools are
                           auto-approved via --allowedTools. Default: None (no tools).
             verbose: Pass --verbose to the CLI for detailed output (default: False).
         """
         super().__init__(
-            history_converter=history_converter or ClaudeSDKHistoryConverter()  # type: ignore[arg-type]  # desktop adapter consumes .text only
+            history_converter=history_converter or ClaudeCodeDesktopHistoryConverter()
         )
 
         self.custom_section = custom_section
