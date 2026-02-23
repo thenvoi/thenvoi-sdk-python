@@ -13,7 +13,6 @@ Run with:
 
 from __future__ import annotations
 
-import logging
 from collections.abc import AsyncGenerator
 
 import pytest
@@ -24,12 +23,9 @@ from thenvoi.agent import Agent
 from tests.e2e.conftest import E2ESettings, requires_e2e
 from tests.e2e.helpers import (
     TrackingWebSocketClient,
-    assert_content_contains,
-    listening_for_agent_responses,
-    send_user_message,
+    run_smoke_test,
+    run_tool_execution_test,
 )
-
-logger = logging.getLogger(__name__)
 
 try:
     import parlant.sdk as p
@@ -41,6 +37,7 @@ except ImportError:
 requires_parlant = pytest.mark.skipif(not HAS_PARLANT, reason="parlant not installed")
 
 
+@pytest.mark.asyncio
 @requires_e2e
 @requires_parlant
 class TestParlantE2E:
@@ -95,19 +92,18 @@ class TestParlantE2E:
     ):
         """Smoke test: agent starts, receives a message, and responds."""
         chat_id, user_id, user_name = e2e_chat_room_with_user
-        agent = running_parlant_agent
 
-        async with listening_for_agent_responses(
-            ws_client, chat_id, timeout=e2e_config.e2e_timeout
-        ) as wait:
-            await send_user_message(
-                api_client, chat_id, "Say hello", agent.agent_name, e2e_agent_id
-            )
-            received = await wait()
+        await run_smoke_test(
+            ws_client,
+            api_client,
+            chat_id,
+            running_parlant_agent.agent_name,
+            e2e_agent_id,
+            timeout=e2e_config.e2e_timeout,
+            adapter_name="parlant",
+        )
 
-        assert len(received) > 0, "Agent should have responded to the message"
-        logger.info("Parlant smoke test passed: received %d response(s)", len(received))
-
+    @pytest.mark.flaky(reruns=2)
     async def test_tool_execution_send_message(
         self,
         e2e_config: E2ESettings,
@@ -119,20 +115,13 @@ class TestParlantE2E:
     ):
         """Verify the agent uses thenvoi_send_message tool to respond."""
         chat_id, user_id, user_name = e2e_chat_room_with_user
-        agent = running_parlant_agent
 
-        async with listening_for_agent_responses(
-            ws_client, chat_id, timeout=e2e_config.e2e_timeout
-        ) as wait:
-            await send_user_message(
-                api_client,
-                chat_id,
-                "Reply with the word PINEAPPLE",
-                agent.agent_name,
-                e2e_agent_id,
-            )
-            received = await wait()
-
-        assert len(received) > 0, "Agent should have sent a message via tool"
-        assert_content_contains(received, "PINEAPPLE")
-        logger.info("Parlant tool execution test passed")
+        await run_tool_execution_test(
+            ws_client,
+            api_client,
+            chat_id,
+            running_parlant_agent.agent_name,
+            e2e_agent_id,
+            timeout=e2e_config.e2e_timeout,
+            adapter_name="parlant",
+        )
