@@ -1040,6 +1040,14 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
             "Ignoring unsupported Codex sandbox value: %s", self.config.sandbox
         )
 
+    # SandboxMode (thread/start) uses kebab-case: "read-only", "workspace-write", etc.
+    # SandboxPolicy (turn/start) uses camelCase type tags: "readOnly", "workspaceWrite", etc.
+    _SANDBOX_MODE_TO_POLICY_TYPE: dict[str, str] = {
+        "read-only": "readOnly",
+        "workspace-write": "workspaceWrite",
+        "danger-full-access": "dangerFullAccess",
+    }
+
     def _apply_turn_sandbox(self, params: dict[str, Any]) -> None:
         """Apply sandbox to turn/start params (full SandboxPolicy is accepted)."""
         if self.config.sandbox_policy is not None:
@@ -1053,7 +1061,9 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
 
         sandbox_mode = self._normalize_sandbox_mode(self.config.sandbox)
         if sandbox_mode is not None:
-            params["sandboxPolicy"] = {"type": sandbox_mode}
+            policy_type = self._SANDBOX_MODE_TO_POLICY_TYPE.get(sandbox_mode)
+            if policy_type:
+                params["sandboxPolicy"] = {"type": policy_type}
             return
 
         if self._canonical_sandbox_key(self.config.sandbox) == "external-sandbox":
@@ -1081,8 +1091,9 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
             return normalized
 
         key = cls._canonical_sandbox_key(policy_type)
-        if key in {"read-only", "workspace-write", "danger-full-access"}:
-            normalized["type"] = key
+        camel = cls._SANDBOX_MODE_TO_POLICY_TYPE.get(key)
+        if camel:
+            normalized["type"] = camel
         elif key == "external-sandbox":
             # externalSandbox is represented only via sandboxPolicy.
             normalized["type"] = "externalSandbox"

@@ -697,7 +697,7 @@ class TestCodexAdapter:
         # thread/start only accepts the sandbox field (SandboxMode enum)
         assert thread_start["sandbox"] == "danger-full-access"
         # turn/start uses sandboxPolicy (full SandboxPolicy tagged union)
-        assert turn_start["sandboxPolicy"]["type"] == "danger-full-access"
+        assert turn_start["sandboxPolicy"]["type"] == "dangerFullAccess"
 
     @pytest.mark.asyncio
     async def test_external_sandbox_alias_uses_sandbox_policy(self) -> None:
