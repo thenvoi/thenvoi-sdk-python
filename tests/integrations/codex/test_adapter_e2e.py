@@ -11,7 +11,7 @@ import pytest
 
 from thenvoi.adapters.codex import CodexAdapter, CodexAdapterConfig
 from thenvoi.core.types import AgentInput, HistoryProvider, PlatformMessage
-from thenvoi.integrations.codex import RpcEvent
+from thenvoi.integrations.codex import CodexJsonRpcError, RpcEvent
 from thenvoi.testing import FakeAgentTools
 
 
@@ -66,10 +66,16 @@ class _ToolSchemaFakeTools(FakeAgentTools):
 
 
 class _FakeCodexClient:
-    def __init__(self, *, events: list[RpcEvent] | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        events: list[RpcEvent] | None = None,
+        resume_error: Exception | None = None,
+    ) -> None:
         self.requests: list[tuple[str, dict[str, Any]]] = []
         self.responses: list[tuple[int | str, dict[str, Any]]] = []
         self._events = deque(events or [])
+        self._resume_error = resume_error
         self._thread_counter = 0
         self._turn_counter = 0
 
@@ -100,6 +106,8 @@ class _FakeCodexClient:
         if method == "model/list":
             return {"data": [{"id": "gpt-5.3-codex", "hidden": False}]}
         if method == "thread/resume":
+            if self._resume_error is not None:
+                raise self._resume_error
             return {"thread": {"id": str(payload.get("threadId") or "thr-resumed")}}
         if method == "thread/start":
             self._thread_counter += 1
@@ -345,3 +353,222 @@ async def test_restart_rehydrates_mapping_from_previous_task_events() -> None:
     methods_second = [method for method, _ in fake_client_second.requests]
     assert "thread/resume" in methods_second
     assert "thread/start" not in methods_second
+
+
+@pytest.mark.asyncio
+async def test_resume_failure_injects_conversation_history() -> None:
+    """Full lifecycle: first session produces history, second session resume fails,
+    verify turn input contains history context."""
+    # --- First session: produce some history ---
+    tools_first = _ToolSchemaFakeTools()
+    fake_client_first = _FakeCodexClient(
+        events=[
+            _notify(
+                "turn/completed",
+                {
+                    "turn": {
+                        "id": "turn-1",
+                        "status": "completed",
+                        "items": [],
+                        "error": None,
+                    }
+                },
+            )
+        ]
+    )
+    adapter_first = CodexAdapter(
+        config=CodexAdapterConfig(transport="ws"),
+        client_factory=lambda _cfg: fake_client_first,
+    )
+    await adapter_first.on_started("Codex Agent", "Integration test agent")
+    await adapter_first.on_event(
+        _agent_input(
+            "refactor the auth module",
+            tools_first,
+            room_id="room-hist",
+            is_session_bootstrap=True,
+        )
+    )
+
+    # Simulate persisted history: task events + text messages
+    persisted_history = list(tools_first.events_sent)
+    persisted_history.append(
+        {
+            "message_type": "text",
+            "content": "refactor the auth module",
+            "sender_name": "Alice",
+        }
+    )
+    persisted_history.append(
+        {
+            "message_type": "text",
+            "content": "Done — split into auth_handler.py and middleware.py",
+            "sender_name": "CodexAgent",
+        }
+    )
+
+    # --- Second session: resume fails, should inject history ---
+    tools_second = _ToolSchemaFakeTools()
+    fake_client_second = _FakeCodexClient(
+        events=[
+            _notify(
+                "turn/completed",
+                {
+                    "turn": {
+                        "id": "turn-1",
+                        "status": "completed",
+                        "items": [],
+                        "error": None,
+                    }
+                },
+            )
+        ],
+        resume_error=CodexJsonRpcError(code=-32002, message="Thread expired"),
+    )
+    adapter_second = CodexAdapter(
+        config=CodexAdapterConfig(transport="ws"),
+        client_factory=lambda _cfg: fake_client_second,
+    )
+    await adapter_second.on_started("Codex Agent", "Integration test agent")
+    await adapter_second.on_event(
+        _agent_input(
+            "now add rate limiting",
+            tools_second,
+            raw_history=persisted_history,
+            room_id="room-hist",
+            is_session_bootstrap=True,
+        )
+    )
+
+    methods = [method for method, _ in fake_client_second.requests]
+    assert "thread/resume" in methods
+    assert "thread/start" in methods
+
+    turn_start = next(
+        params
+        for method, params in fake_client_second.requests
+        if method == "turn/start"
+    )
+    turn_input = turn_start["input"]
+    history_items = [
+        item for item in turn_input if "[Conversation History]" in item["text"]
+    ]
+    assert len(history_items) == 1
+    assert "[Alice]: refactor the auth module" in history_items[0]["text"]
+    assert (
+        "[CodexAgent]: Done — split into auth_handler.py and middleware.py"
+        in history_items[0]["text"]
+    )
+
+
+@pytest.mark.asyncio
+async def test_item_completed_forwards_internal_operations() -> None:
+    """Full cycle: commandExecution + fileChange + agentMessage items all forwarded."""
+    import json
+
+    tools = _ToolSchemaFakeTools()
+    fake_client = _FakeCodexClient(
+        events=[
+            _notify(
+                "item/completed",
+                {
+                    "item": {
+                        "type": "commandExecution",
+                        "id": "cmd-1",
+                        "command": "pytest tests/",
+                        "cwd": "/workspace",
+                        "aggregated_output": "5 passed",
+                        "exitCode": 0,
+                    }
+                },
+            ),
+            _notify(
+                "item/completed",
+                {
+                    "item": {
+                        "type": "fileChange",
+                        "id": "fc-1",
+                        "changes": [{"path": "src/app.py"}],
+                        "status": "applied",
+                    }
+                },
+            ),
+            _notify(
+                "item/completed",
+                {
+                    "item": {
+                        "type": "reasoning",
+                        "id": "reason-1",
+                        "summary": ["Tests pass, applying fix"],
+                    }
+                },
+            ),
+            _notify(
+                "item/completed",
+                {
+                    "item": {
+                        "type": "agentMessage",
+                        "id": "msg-1",
+                        "text": "Fixed the bug and all tests pass.",
+                    }
+                },
+            ),
+            _notify(
+                "turn/completed",
+                {
+                    "turn": {
+                        "id": "turn-1",
+                        "status": "completed",
+                        "items": [],
+                        "error": None,
+                    }
+                },
+            ),
+        ]
+    )
+    adapter = CodexAdapter(
+        config=CodexAdapterConfig(
+            transport="ws",
+            enable_execution_reporting=True,
+            emit_thought_events=True,
+        ),
+        client_factory=lambda _cfg: fake_client,
+    )
+    await adapter.on_started("Codex Agent", "Integration test agent")
+    await adapter.on_event(
+        _agent_input(
+            "fix the failing test",
+            tools,
+            room_id="room-ops",
+            is_session_bootstrap=True,
+        )
+    )
+
+    # Verify tool events for commandExecution
+    tool_call_events = [
+        e for e in tools.events_sent if e["message_type"] == "tool_call"
+    ]
+    tool_result_events = [
+        e for e in tools.events_sent if e["message_type"] == "tool_result"
+    ]
+    # commandExecution + fileChange = 2 tool_call + 2 tool_result
+    assert len(tool_call_events) == 2
+    assert len(tool_result_events) == 2
+
+    exec_call = json.loads(tool_call_events[0]["content"])
+    assert exec_call["name"] == "exec"
+    assert exec_call["args"]["command"] == "pytest tests/"
+
+    file_call = json.loads(tool_call_events[1]["content"])
+    assert file_call["name"] == "file_edit"
+
+    # Verify thought event for reasoning
+    thought_events = [e for e in tools.events_sent if e["message_type"] == "thought"]
+    assert len(thought_events) == 1
+    assert "Tests pass" in thought_events[0]["content"]
+
+    # Verify final text message from agentMessage
+    assert any(
+        msg["content"] == "Fixed the bug and all tests pass."
+        for msg in tools.messages_sent
+    )

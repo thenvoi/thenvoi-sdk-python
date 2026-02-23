@@ -12,7 +12,7 @@ from typing import Any, Callable, Literal, Protocol
 from thenvoi.converters.codex import CodexHistoryConverter
 from thenvoi.core.protocols import AgentToolsProtocol
 from thenvoi.core.simple_adapter import SimpleAdapter
-from thenvoi.core.types import PlatformMessage
+from thenvoi.core.types import AgentInput, PlatformMessage
 from thenvoi.integrations.codex import (
     CodexJsonRpcError,
     CodexStdioClient,
@@ -34,6 +34,12 @@ TransportKind = Literal["stdio", "ws"]
 ApprovalMode = Literal["auto_accept", "auto_decline", "manual"]
 ApprovalDecision = Literal["accept", "decline"]
 RoleProfile = Literal["coding", "planner", "reviewer"]
+
+# Platform tools whose execution should not be reported as tool_call/tool_result
+# events — they already produce visible output (messages or events) on the platform.
+_SILENT_REPORTING_TOOLS: frozenset[str] = frozenset(
+    {"thenvoi_send_message", "thenvoi_send_event"}
+)
 
 _ROLE_SECTION: dict[RoleProfile, str] = {
     "coding": "Primary mode: implement and validate code changes end-to-end.",
@@ -121,6 +127,8 @@ class CodexAdapterConfig:
     codex_ws_url: str = "ws://127.0.0.1:8765"
     enable_execution_reporting: bool = False
     additional_dynamic_tools: list[dict[str, Any]] = field(default_factory=list)
+    inject_history_on_resume_failure: bool = True
+    max_history_messages: int = 50
 
 
 class CodexAdapter(SimpleAdapter[CodexSessionState]):
@@ -152,6 +160,8 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
         self._prompt_injected_rooms: set[str] = set()
         self._task_titles_by_id: dict[str, str] = {}
         self._pending_approvals: dict[str, dict[str, _PendingApproval]] = {}
+        self._raw_history_by_room: dict[str, list[dict[str, Any]]] = {}
+        self._needs_history_injection: set[str] = set()
         # Single client receive queue means turn processing must be serialized.
         self._rpc_lock = asyncio.Lock()
 
@@ -160,6 +170,15 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
         self._build_system_prompt()
         async with self._rpc_lock:
             await self._ensure_client_ready()
+
+    async def on_event(self, inp: AgentInput) -> None:
+        if (
+            self.config.inject_history_on_resume_failure
+            and inp.is_session_bootstrap
+            and inp.history.raw
+        ):
+            self._raw_history_by_room[inp.room_id] = inp.history.raw
+        await super().on_event(inp)
 
     async def on_message(
         self,
@@ -312,13 +331,20 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
 
                     if event.method == "item/completed":
                         item = params.get("item") if isinstance(params, dict) else {}
-                        if (
-                            isinstance(item, dict)
-                            and item.get("type") == "agentMessage"
-                        ):
-                            text = item.get("text")
-                            if isinstance(text, str) and text:
-                                final_text = text
+                        if isinstance(item, dict):
+                            item_type = item.get("type")
+                            if item_type == "agentMessage":
+                                text = item.get("text")
+                                if isinstance(text, str) and text:
+                                    final_text = text
+                            else:
+                                await self._emit_item_completed_events(
+                                    tools=tools,
+                                    item=item,
+                                    room_id=room_id,
+                                    thread_id=thread_id,
+                                    turn_id=turn_id or None,
+                                )
                         continue
 
                     if event.method == "transport/closed":
@@ -370,6 +396,8 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
     async def on_cleanup(self, room_id: str) -> None:
         self._room_threads.pop(room_id, None)
         self._prompt_injected_rooms.discard(room_id)
+        self._raw_history_by_room.pop(room_id, None)
+        self._needs_history_injection.discard(room_id)
         self._clear_pending_approvals_for_room(room_id)
         if self._room_threads:
             return
@@ -469,6 +497,7 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
                 thread_id = str(resumed.get("id") or history.thread_id or "")
                 if thread_id:
                     self._room_threads[room_id] = thread_id
+                    self._raw_history_by_room.pop(room_id, None)
                     if self.config.enable_task_events:
                         await tools.send_event(
                             content=self._build_task_event_content(
@@ -492,6 +521,11 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
                     history.thread_id,
                     exc,
                 )
+                if self.config.inject_history_on_resume_failure:
+                    self._needs_history_injection.add(room_id)
+        else:
+            # Not a bootstrap resume — clean up any stashed history
+            self._raw_history_by_room.pop(room_id, None)
 
         dynamic_tools = self._build_dynamic_tools(tools)
         start_params: dict[str, Any] = {
@@ -618,6 +652,14 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
             )
             self._prompt_injected_rooms.add(room_id)
 
+        if room_id in self._needs_history_injection:
+            self._needs_history_injection.discard(room_id)
+            raw_history = self._raw_history_by_room.pop(room_id, None)
+            if raw_history:
+                context = self._format_history_context(raw_history)
+                if context:
+                    items.append({"type": "text", "text": context})
+
         if participants_msg:
             items.append({"type": "text", "text": f"[System]: {participants_msg}"})
 
@@ -626,6 +668,29 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
 
         items.append({"type": "text", "text": msg.format_for_llm()})
         return items
+
+    def _format_history_context(self, raw: list[dict[str, Any]]) -> str | None:
+        text_messages: list[str] = []
+        for entry in raw:
+            msg_type = entry.get("message_type", "")
+            if msg_type not in {"text", "message"}:
+                continue
+            content = entry.get("content", "")
+            if not isinstance(content, str) or not content.strip():
+                continue
+            sender = entry.get("sender_name") or entry.get("sender_type") or "Unknown"
+            text_messages.append(f"[{sender}]: {content}")
+
+        if not text_messages:
+            return None
+
+        truncated = text_messages[-self.config.max_history_messages :]
+        header = (
+            "[Conversation History]\n"
+            "The following is the conversation history from a previous session. "
+            "Use it to maintain continuity.\n"
+        )
+        return header + "\n".join(truncated)
 
     async def _handle_server_request(
         self,
@@ -648,7 +713,14 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
                 arguments = {}
             call_id = str(params.get("callId") or "")
 
-            if self.config.enable_execution_reporting:
+            # Don't emit reporting for platform tools that already produce
+            # visible output (messages/events) — reporting them is redundant.
+            should_report = (
+                self.config.enable_execution_reporting
+                and tool_name not in _SILENT_REPORTING_TOOLS
+            )
+
+            if should_report:
                 await tools.send_event(
                     content=json.dumps(
                         {"name": tool_name, "args": arguments, "tool_call_id": call_id}
@@ -675,7 +747,7 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
                         "success": success,
                     },
                 )
-                if self.config.enable_execution_reporting:
+                if should_report:
                     await tools.send_event(
                         content=json.dumps(
                             {
@@ -695,7 +767,7 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
                         "success": False,
                     },
                 )
-                if self.config.enable_execution_reporting:
+                if should_report:
                     await tools.send_event(
                         content=json.dumps(
                             {
@@ -816,6 +888,172 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
             else f"I couldn't complete this request ({turn_status}): {turn_error}"
         )
         await tools.send_message(error_text, mentions=mention)
+
+    async def _emit_item_completed_events(
+        self,
+        *,
+        tools: AgentToolsProtocol,
+        item: dict[str, Any],
+        room_id: str,
+        thread_id: str,
+        turn_id: str | None,
+    ) -> None:
+        """Forward internal Codex operations as platform events."""
+        item_type = item.get("type", "")
+        item_id = str(item.get("id") or "")
+        metadata = {
+            "codex_room_id": room_id,
+            "codex_thread_id": thread_id,
+            "codex_turn_id": turn_id,
+        }
+
+        # Tool-like items gated on enable_execution_reporting
+        if item_type in {
+            "commandExecution",
+            "fileChange",
+            "mcpToolCall",
+            "webSearch",
+            "imageView",
+            "collabAgentToolCall",
+        }:
+            if not self.config.enable_execution_reporting:
+                return
+            name, args, output = self._extract_tool_item(item_type, item)
+            await tools.send_event(
+                content=json.dumps(
+                    {"name": name, "args": args, "tool_call_id": item_id}
+                ),
+                message_type="tool_call",
+                metadata=metadata,
+            )
+            await tools.send_event(
+                content=json.dumps(
+                    {"name": name, "output": output, "tool_call_id": item_id}
+                ),
+                message_type="tool_result",
+                metadata=metadata,
+            )
+            return
+
+        # Thought-like items gated on emit_thought_events
+        if item_type in {
+            "reasoning",
+            "plan",
+            "contextCompaction",
+            "enteredReviewMode",
+            "exitedReviewMode",
+        }:
+            if not self.config.emit_thought_events:
+                return
+            text = self._extract_thought_text(item_type, item)
+            await tools.send_event(
+                content=text,
+                message_type="thought",
+                metadata=metadata,
+            )
+            return
+
+        # Skip known non-actionable types
+        if item_type in {"userMessage", "agentMessage"}:
+            return
+
+        logger.debug("Unhandled item/completed type: %s", item_type)
+
+    @staticmethod
+    def _extract_tool_item(
+        item_type: str, item: dict[str, Any]
+    ) -> tuple[str, dict[str, Any], str]:
+        """Extract (name, args, output) for a tool-like item."""
+        if item_type == "commandExecution":
+            command = item.get("command", "")
+            cwd = item.get("cwd", "")
+            args: dict[str, Any] = {"command": command, "cwd": cwd}
+            output_parts: list[str] = []
+            if item.get("aggregated_output"):
+                output_parts.append(str(item["aggregated_output"]))
+            exit_code = item.get("exitCode")
+            if exit_code is not None:
+                output_parts.append(f"exit_code={exit_code}")
+            status = item.get("status", "")
+            output = "\n".join(output_parts) if output_parts else str(status)
+            return "exec", args, output
+
+        if item_type == "fileChange":
+            changes = item.get("changes", [])
+            if not isinstance(changes, list):
+                changes = []
+            file_paths = [c.get("path", "") for c in changes if isinstance(c, dict)]
+            return (
+                "file_edit",
+                {"files": file_paths},
+                str(item.get("status", "applied")),
+            )
+
+        if item_type == "mcpToolCall":
+            server = item.get("server", "")
+            tool = item.get("tool", "")
+            name = f"mcp:{server}/{tool}"
+            mcp_args = item.get("arguments", {})
+            if not isinstance(mcp_args, dict):
+                mcp_args = {}
+            result = item.get("result")
+            error = item.get("error")
+            if result is not None:
+                output = json.dumps(result, default=str)
+            elif error is not None:
+                output = json.dumps(error, default=str)
+            else:
+                output = "completed"
+            return name, mcp_args, output
+
+        if item_type == "webSearch":
+            query = item.get("query", "")
+            action = item.get("action")
+            output = json.dumps(action, default=str) if action else "completed"
+            return "web_search", {"query": query}, output
+
+        if item_type == "imageView":
+            path = item.get("path", "")
+            return "view_image", {"path": path}, str(item.get("status", "viewed"))
+
+        if item_type == "collabAgentToolCall":
+            collab_tool = item.get("tool", "")
+            name = f"collab:{collab_tool}"
+            collab_args: dict[str, Any] = {}
+            if item.get("prompt"):
+                collab_args["prompt"] = item["prompt"]
+            if item.get("agents"):
+                collab_args["agents"] = item["agents"]
+            result = item.get("result")
+            output = (
+                json.dumps(result, default=str) if result is not None else "completed"
+            )
+            return name, collab_args, output
+
+        return item_type, {}, "completed"
+
+    @staticmethod
+    def _extract_thought_text(item_type: str, item: dict[str, Any]) -> str:
+        """Extract display text for a thought-like item."""
+        if item_type == "reasoning":
+            summary = item.get("summary", [])
+            if isinstance(summary, list):
+                return "\n".join(str(s) for s in summary) or "(reasoning)"
+            return str(summary) or "(reasoning)"
+
+        if item_type == "plan":
+            return str(item.get("text", "")) or "(plan)"
+
+        if item_type == "contextCompaction":
+            return "Context compaction performed"
+
+        if item_type in {"enteredReviewMode", "exitedReviewMode"}:
+            text = item.get("text", "")
+            if text:
+                return str(text)
+            return f"Review mode: {item_type}"
+
+        return str(item.get("text", "")) or item_type
 
     async def _resolve_manual_approval(
         self,
