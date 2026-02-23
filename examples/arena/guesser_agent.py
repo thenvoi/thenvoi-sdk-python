@@ -31,7 +31,7 @@ from langgraph.checkpoint.memory import InMemorySaver
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from arena.prompts import create_llm, generate_guesser_prompt
+from arena.prompts import generate_guesser_prompt
 
 from arena.setup_logging import setup_logging
 from thenvoi import Agent
@@ -56,8 +56,10 @@ async def main() -> None:
     # Load Guesser's credentials from agent_config.yaml
     agent_id, api_key = load_agent_config("arena_guesser")
 
-    # Select LLM based on available API keys
-    llm = create_llm()
+    # Guesser uses GPT-5.2
+    from langchain_openai import ChatOpenAI
+
+    llm = ChatOpenAI(model="gpt-5.2")
 
     # Create adapter with Guesser's game prompt
     adapter = LangGraphAdapter(
