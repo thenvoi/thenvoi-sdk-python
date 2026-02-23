@@ -261,6 +261,73 @@ class TestCodexAdapter:
         assert tools.messages_sent[0]["mentions"][0]["id"] == "user-1"
 
     @pytest.mark.asyncio
+    async def test_system_prompt_retry_after_turn_start_failure(self) -> None:
+        """System instructions stay pending until turn/start succeeds."""
+        events = [
+            _event_notification(
+                "turn/completed",
+                {
+                    "turn": {
+                        "id": "turn-1",
+                        "status": "completed",
+                        "items": [],
+                        "error": None,
+                    }
+                },
+            ),
+        ]
+        fake_client = FakeCodexClient(
+            events=events,
+            turn_start_error=CodexJsonRpcError(
+                code=-32000,
+                message="Model not available",
+            ),
+            turn_start_error_once=True,
+        )
+        adapter = CodexAdapter(
+            config=CodexAdapterConfig(transport="ws", model="gpt-5.3-codex"),
+            client_factory=lambda _config: fake_client,
+        )
+        tools = ToolSchemaFakeTools()
+
+        await adapter.on_started("Codex Agent", "A coding agent")
+
+        with pytest.raises(CodexJsonRpcError, match="not available"):
+            await adapter.on_message(
+                make_platform_message(room_id="room-1", content="first try"),
+                tools,
+                CodexSessionState(),
+                participants_msg=None,
+                contacts_msg=None,
+                is_session_bootstrap=True,
+                room_id="room-1",
+            )
+        assert "room-1" not in adapter._prompt_injected_rooms
+
+        await adapter.on_message(
+            make_platform_message(room_id="room-1", content="second try"),
+            tools,
+            CodexSessionState(),
+            participants_msg=None,
+            contacts_msg=None,
+            is_session_bootstrap=False,
+            room_id="room-1",
+        )
+        assert "room-1" in adapter._prompt_injected_rooms
+
+        turn_inputs = [
+            params["input"]
+            for method, params in fake_client.requests
+            if method == "turn/start"
+        ]
+        assert len(turn_inputs) == 2
+        for turn_input in turn_inputs:
+            assert any(
+                item.get("text", "").startswith("[System Instructions]\n")
+                for item in turn_input
+            )
+
+    @pytest.mark.asyncio
     async def test_tool_call_request_is_dispatched_and_responded(self) -> None:
         events = [
             _event_request(
@@ -307,6 +374,78 @@ class TestCodexAdapter:
         response_id, response_payload = fake_client.responses[0]
         assert response_id == 42
         assert response_payload["success"] is True
+
+    @pytest.mark.asyncio
+    async def test_fallback_text_not_suppressed_when_send_message_tool_fails(
+        self,
+    ) -> None:
+        """Fallback agent text should still be delivered when send_message fails."""
+
+        class SendMessageFailureTools(ToolSchemaFakeTools):
+            async def execute_tool_call(
+                self, tool_name: str, arguments: dict[str, Any]
+            ) -> Any:
+                call = {"tool_name": tool_name, "arguments": arguments}
+                self.tool_calls.append(call)
+                if tool_name == "thenvoi_send_message":
+                    raise RuntimeError("send failed")
+                return {"status": "ok"}
+
+        events = [
+            _event_request(
+                77,
+                "item/tool/call",
+                {
+                    "tool": "thenvoi_send_message",
+                    "arguments": {"content": "hi"},
+                    "callId": "call-77",
+                },
+            ),
+            _event_notification(
+                "item/completed",
+                {
+                    "item": {
+                        "type": "agentMessage",
+                        "id": "msg-1",
+                        "text": "fallback final text",
+                    }
+                },
+            ),
+            _event_notification(
+                "turn/completed",
+                {
+                    "turn": {
+                        "id": "turn-1",
+                        "status": "completed",
+                        "items": [],
+                        "error": None,
+                    }
+                },
+            ),
+        ]
+        fake_client = FakeCodexClient(events=events)
+        adapter = CodexAdapter(
+            config=CodexAdapterConfig(transport="ws"),
+            client_factory=lambda _config: fake_client,
+        )
+        tools = SendMessageFailureTools()
+
+        await adapter.on_started("Codex Agent", "A coding agent")
+        await adapter.on_message(
+            make_platform_message(),
+            tools,
+            CodexSessionState(),
+            participants_msg=None,
+            contacts_msg=None,
+            is_session_bootstrap=True,
+            room_id="room-1",
+        )
+
+        assert len(tools.messages_sent) == 1
+        assert tools.messages_sent[0]["content"] == "fallback final text"
+        assert len(fake_client.responses) == 1
+        _, payload = fake_client.responses[0]
+        assert payload["success"] is False
 
     @pytest.mark.asyncio
     async def test_resume_failure_falls_back_to_thread_start(self) -> None:

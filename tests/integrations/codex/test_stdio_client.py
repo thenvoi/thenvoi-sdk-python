@@ -201,6 +201,23 @@ async def _build_client(
     return client
 
 
+def test_stdio_client_merges_custom_env_with_parent(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("THENVOI_PARENT_ENV", "parent-value")
+    client = CodexStdioClient(
+        command=["codex"],
+        env={
+            "THENVOI_CHILD_ONLY": "child-value",
+            "THENVOI_PARENT_ENV": "overridden-value",
+        },
+    )
+
+    assert client.env is not None
+    assert client.env["THENVOI_CHILD_ONLY"] == "child-value"
+    assert client.env["THENVOI_PARENT_ENV"] == "overridden-value"
+
+
 @pytest.mark.asyncio
 async def test_stdio_client_basic_lifecycle(fake_codex_server_script: Path) -> None:
     client = await _build_client(fake_codex_server_script, scenario="basic")

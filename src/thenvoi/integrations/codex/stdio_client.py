@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 import random
 import shutil
 from collections.abc import Awaitable, Callable, Mapping, Sequence
@@ -74,7 +75,12 @@ class CodexStdioClient:
     ) -> None:
         self.command = tuple(command) if command else self._default_codex_command()
         self.cwd = cwd
-        self.env = dict(env) if env else None
+        if env is None:
+            self.env = None
+        else:
+            merged_env = dict(os.environ)
+            merged_env.update(env)
+            self.env = merged_env
         self.retry_policy = retry_policy or OverloadRetryPolicy()
         self._sleep = sleep
 

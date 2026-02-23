@@ -309,7 +309,7 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
                 is_session_bootstrap=is_session_bootstrap,
             )
 
-            turn_input = self._build_turn_input(
+            turn_input, has_pending_prompt_injection = self._build_turn_input(
                 msg=msg,
                 participants_msg=participants_msg,
                 contacts_msg=contacts_msg,
@@ -323,6 +323,8 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
             self._apply_turn_overrides(turn_params)
 
             turn_started = await self._start_turn_with_model_fallback(turn_params)
+            if has_pending_prompt_injection:
+                self._prompt_injected_rooms.add(room_id)
             turn = turn_started.get("turn") if isinstance(turn_started, dict) else {}
             turn_id = str((turn or {}).get("id") or "")
 
@@ -723,8 +725,9 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
         participants_msg: str | None,
         contacts_msg: str | None,
         room_id: str,
-    ) -> list[dict[str, str]]:
+    ) -> tuple[list[dict[str, str]], bool]:
         items: list[dict[str, str]] = []
+        injected_system_prompt = False
 
         if room_id not in self._prompt_injected_rooms and self._system_prompt:
             items.append(
@@ -733,7 +736,7 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
                     "text": "[System Instructions]\n" + self._system_prompt,
                 }
             )
-            self._prompt_injected_rooms.add(room_id)
+            injected_system_prompt = True
 
         if room_id in self._needs_history_injection:
             self._needs_history_injection.discard(room_id)
@@ -750,7 +753,7 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
             items.append({"type": "text", "text": f"[System]: {contacts_msg}"})
 
         items.append({"type": "text", "text": msg.format_for_llm()})
-        return items
+        return items, injected_system_prompt
 
     def _format_history_context(self, raw: list[dict[str, Any]]) -> str | None:
         text_messages: list[str] = []
@@ -795,6 +798,7 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
             if not isinstance(arguments, dict):
                 arguments = {}
             call_id = str(params.get("callId") or "")
+            tool_call_succeeded = False
 
             # Don't emit reporting for platform tools that already produce
             # visible output (messages/events) — reporting them is redundant.
@@ -830,6 +834,7 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
                         "success": success,
                     },
                 )
+                tool_call_succeeded = True
                 if should_report:
                     await tools.send_event(
                         content=json.dumps(
@@ -862,7 +867,7 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
                         message_type="tool_result",
                     )
 
-            return tool_name == "thenvoi_send_message"
+            return tool_name == "thenvoi_send_message" and tool_call_succeeded
 
         if event.method in {
             "item/commandExecution/requestApproval",
