@@ -160,13 +160,20 @@ class LangGraphAdapter(SimpleAdapter[LangChainMessages]):
             if history:
                 messages.extend(history)  # Already converted by history_converter
 
+        # Combine context (participants, contacts) with the user message
+        # to avoid multiple non-consecutive system messages which Anthropic rejects.
+        context_parts: list[str] = []
         if participants_msg:
-            messages.append(("system", participants_msg))
-
+            context_parts.append(participants_msg)
         if contacts_msg:
-            messages.append(("system", contacts_msg))
+            context_parts.append(contacts_msg)
 
-        messages.append(("user", msg.format_for_llm()))
+        user_content = msg.format_for_llm()
+        if context_parts:
+            context_block = "\n\n".join(context_parts)
+            user_content = f"[Context]\n{context_block}\n\n[Message]\n{user_content}"
+
+        messages.append(("user", user_content))
 
         graph_input = {"messages": messages}
 
