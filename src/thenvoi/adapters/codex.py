@@ -197,6 +197,7 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
         self._client: _CodexClientProtocol | None = None
         self._initialized = False
         self._selected_model: str | None = None
+        self._model_explicitly_set: bool = bool(self.config.model)
         self._system_prompt: str = ""
         self._room_threads: dict[str, str] = {}
         self._prompt_injected_rooms: set[str] = set()
@@ -214,6 +215,7 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
         def _handle_set_model(inp: SetModelInput) -> str:
             adapter.config.model = inp.model
             adapter._selected_model = inp.model
+            adapter._model_explicitly_set = True
             return f"Model changed to {inp.model} for subsequent turns."
 
         def _handle_set_reasoning(inp: SetReasoningInput) -> str:
@@ -320,7 +322,7 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
             }
             self._apply_turn_overrides(turn_params)
 
-            turn_started = await self._client.request("turn/start", turn_params)
+            turn_started = await self._start_turn_with_model_fallback(turn_params)
             turn = turn_started.get("turn") if isinstance(turn_started, dict) else {}
             turn_id = str((turn or {}).get("id") or "")
 
@@ -1313,6 +1315,7 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
 
             self.config.model = model_arg
             self._selected_model = model_arg
+            self._model_explicitly_set = True
             await tools.send_message(
                 f"Model override set to `{model_arg}` for subsequent turns.",
                 mentions=mention,
@@ -1436,6 +1439,85 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
         if self.config.reasoning_summary is not None:
             params["summary"] = self.config.reasoning_summary
         self._apply_turn_sandbox(params)
+
+    async def _start_turn_with_model_fallback(
+        self, params: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Start a turn, falling back to an available model if the auto-selected one is unavailable.
+
+        Only attempts fallback when the model was auto-selected (config.model was None).
+        When the user explicitly configured a model, the error propagates — they may
+        be using unlisted models that model/list doesn't report.
+        """
+        assert self._client is not None
+        try:
+            return await self._client.request("turn/start", params)
+        except CodexJsonRpcError as exc:
+            if self._model_explicitly_set:
+                raise
+            if not self._is_model_unavailable_error(exc):
+                raise
+            original_model = params.get("model", self._selected_model)
+            logger.warning(
+                "Model %s unavailable (code=%s): %s. Querying available models...",
+                original_model,
+                exc.code,
+                exc.message,
+            )
+            fallback = await self._find_fallback_model(exclude=original_model)
+            if fallback is None:
+                raise
+            logger.warning(
+                "Falling back from %s to %s",
+                original_model,
+                fallback,
+            )
+            self._selected_model = fallback
+            params["model"] = fallback
+            return await self._client.request("turn/start", params)
+
+    _FALLBACK_MODELS: tuple[str, ...] = ("gpt-5.2", "gpt-5.3-codex")
+
+    async def _find_fallback_model(self, exclude: Any = None) -> str | None:
+        """Query model/list and return a fallback model, or None if unavailable."""
+        assert self._client is not None
+        try:
+            result = await self._client.request("model/list", {})
+        except Exception:
+            logger.warning("model/list failed during fallback lookup")
+            # Fall through to hardcoded defaults
+            for model_id in self._FALLBACK_MODELS:
+                if model_id != exclude:
+                    return model_id
+            return None
+        models = self._visible_model_ids(result)
+        # Prefer gpt-5.2 if available, then any other visible model
+        for model_id in models:
+            if model_id != exclude and model_id in self._FALLBACK_MODELS:
+                return model_id
+        for model_id in models:
+            if model_id != exclude:
+                return model_id
+        # No visible models — try hardcoded defaults
+        for model_id in self._FALLBACK_MODELS:
+            if model_id != exclude:
+                return model_id
+        return None
+
+    @staticmethod
+    def _is_model_unavailable_error(exc: CodexJsonRpcError) -> bool:
+        """Check if the error indicates the requested model is not available."""
+        msg = exc.message.lower()
+        return any(
+            phrase in msg
+            for phrase in (
+                "model",
+                "not available",
+                "not found",
+                "unavailable",
+                "access",
+            )
+        )
 
     def _apply_thread_sandbox(self, params: dict[str, Any]) -> None:
         """Apply sandbox to thread/start params (only SandboxMode is accepted)."""

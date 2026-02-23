@@ -83,6 +83,9 @@ class FakeCodexClient:
         *,
         events: list[RpcEvent] | None = None,
         resume_error: Exception | None = None,
+        turn_start_error: Exception | None = None,
+        turn_start_error_once: bool = True,
+        model_list_result: dict[str, Any] | None = None,
     ) -> None:
         self.connected = False
         self.initialized = False
@@ -92,6 +95,9 @@ class FakeCodexClient:
         self.closed = False
         self._events = deque(events or [])
         self._resume_error = resume_error
+        self._turn_start_error = turn_start_error
+        self._turn_start_error_once = turn_start_error_once
+        self._model_list_result = model_list_result
         self._thread_counter = 0
         self._turn_counter = 0
 
@@ -118,9 +124,11 @@ class FakeCodexClient:
         retry_on_overload: bool = True,
     ) -> dict[str, Any]:
         payload = params or {}
-        self.requests.append((method, payload))
+        self.requests.append((method, dict(payload)))
 
         if method == "model/list":
+            if self._model_list_result is not None:
+                return self._model_list_result
             return {"data": [{"id": "gpt-5.3-codex", "hidden": False}]}
 
         if method == "thread/resume":
@@ -133,6 +141,11 @@ class FakeCodexClient:
             return {"thread": {"id": f"thr-{self._thread_counter}"}}
 
         if method == "turn/start":
+            if self._turn_start_error is not None:
+                err = self._turn_start_error
+                if self._turn_start_error_once:
+                    self._turn_start_error = None
+                raise err
             self._turn_counter += 1
             return {
                 "turn": {
@@ -2672,3 +2685,255 @@ class TestHistoryInjection:
         # After injection, stashed data should be cleaned up
         assert "room-1" not in adapter._raw_history_by_room
         assert "room-1" not in adapter._needs_history_injection
+
+    @pytest.mark.asyncio
+    async def test_model_fallback_on_auto_selected_model(self) -> None:
+        """When auto-selected model fails, adapter falls back to another model."""
+        events = [
+            _event_notification(
+                "turn/completed",
+                {"turn": {"id": "turn-1", "status": "completed"}},
+            ),
+        ]
+        fake_client = FakeCodexClient(
+            events=events,
+            turn_start_error=CodexJsonRpcError(
+                code=-32000,
+                message="Model gpt-5.3-codex is not available for this account",
+            ),
+            turn_start_error_once=True,
+            model_list_result={
+                "data": [
+                    {"id": "gpt-5.3-codex", "hidden": False},
+                    {"id": "gpt-5.2", "hidden": False},
+                ]
+            },
+        )
+        # model=None means auto-select — fallback should trigger
+        adapter = CodexAdapter(
+            config=CodexAdapterConfig(model=None),
+            client_factory=lambda _config: fake_client,
+        )
+        tools = ToolSchemaFakeTools()
+        await adapter.on_started("Agent", "An agent")
+
+        msg = make_platform_message(room_id="room-1", content="hello")
+        await adapter.on_message(
+            msg,
+            tools,
+            CodexSessionState(),
+            None,
+            None,
+            is_session_bootstrap=False,
+            room_id="room-1",
+        )
+
+        # Should have retried with fallback model
+        turn_start_calls = [
+            (m, p) for m, p in fake_client.requests if m == "turn/start"
+        ]
+        assert len(turn_start_calls) == 2
+        # First attempt used auto-selected model
+        assert turn_start_calls[0][1]["model"] == "gpt-5.3-codex"
+        # Retry used fallback (gpt-5.2 since gpt-5.3-codex is excluded)
+        assert turn_start_calls[1][1]["model"] == "gpt-5.2"
+        assert adapter._selected_model == "gpt-5.2"
+
+    @pytest.mark.asyncio
+    async def test_model_fallback_prefers_gpt_5_2(self) -> None:
+        """Fallback prefers gpt-5.2 over other models."""
+        events = [
+            _event_notification(
+                "turn/completed",
+                {"turn": {"id": "turn-1", "status": "completed"}},
+            ),
+        ]
+        # Auto-select picks gpt-5.3-codex (first codex model).
+        # After turn/start fails, fallback should pick gpt-5.2 (preferred fallback).
+        fake_client = FakeCodexClient(
+            events=events,
+            turn_start_error=CodexJsonRpcError(
+                code=-32000, message="Model unavailable"
+            ),
+            turn_start_error_once=True,
+            model_list_result={
+                "data": [
+                    {"id": "gpt-5.3-codex", "hidden": False},
+                    {"id": "gpt-5.1", "hidden": False},
+                    {"id": "gpt-5.2", "hidden": False},
+                ]
+            },
+        )
+        adapter = CodexAdapter(
+            config=CodexAdapterConfig(model=None),
+            client_factory=lambda _config: fake_client,
+        )
+        tools = ToolSchemaFakeTools()
+        await adapter.on_started("Agent", "An agent")
+
+        msg = make_platform_message(room_id="room-1", content="hello")
+        await adapter.on_message(
+            msg,
+            tools,
+            CodexSessionState(),
+            None,
+            None,
+            is_session_bootstrap=False,
+            room_id="room-1",
+        )
+
+        # Should prefer gpt-5.2 over gpt-5.1
+        assert adapter._selected_model == "gpt-5.2"
+
+    @pytest.mark.asyncio
+    async def test_explicit_model_error_propagates_without_fallback(self) -> None:
+        """When the user explicitly set a model, errors propagate — no silent fallback."""
+        fake_client = FakeCodexClient(
+            turn_start_error=CodexJsonRpcError(
+                code=-32000,
+                message="Model gpt-5.3-codex-spark is not available",
+            ),
+            turn_start_error_once=False,
+            model_list_result={
+                "data": [
+                    {"id": "gpt-5.3-codex", "hidden": False},
+                    {"id": "gpt-5.2", "hidden": False},
+                ]
+            },
+        )
+        # Explicitly configured model — user chose this, don't override
+        adapter = CodexAdapter(
+            config=CodexAdapterConfig(model="gpt-5.3-codex-spark"),
+            client_factory=lambda _config: fake_client,
+        )
+        tools = ToolSchemaFakeTools()
+        await adapter.on_started("Agent", "An agent")
+
+        msg = make_platform_message(room_id="room-1", content="hello")
+        with pytest.raises(CodexJsonRpcError, match="not available"):
+            await adapter.on_message(
+                msg,
+                tools,
+                CodexSessionState(),
+                None,
+                None,
+                is_session_bootstrap=False,
+                room_id="room-1",
+            )
+
+        # No model/list query for fallback should have been attempted
+        model_list_calls = [m for m, _ in fake_client.requests if m == "model/list"]
+        assert len(model_list_calls) == 0
+
+    @pytest.mark.asyncio
+    async def test_model_fallback_raises_when_no_alternative(self) -> None:
+        """When no fallback model is available, the original error propagates."""
+        fake_client = FakeCodexClient(
+            turn_start_error=CodexJsonRpcError(
+                code=-32000, message="Model not available"
+            ),
+            turn_start_error_once=False,
+            model_list_result={"data": []},
+        )
+        adapter = CodexAdapter(
+            config=CodexAdapterConfig(model=None),
+            client_factory=lambda _config: fake_client,
+        )
+        tools = ToolSchemaFakeTools()
+        await adapter.on_started("Agent", "An agent")
+
+        msg = make_platform_message(room_id="room-1", content="hello")
+        with pytest.raises(CodexJsonRpcError, match="not available"):
+            await adapter.on_message(
+                msg,
+                tools,
+                CodexSessionState(),
+                None,
+                None,
+                is_session_bootstrap=False,
+                room_id="room-1",
+            )
+
+    @pytest.mark.asyncio
+    async def test_model_fallback_uses_hardcoded_default_when_model_list_fails(
+        self,
+    ) -> None:
+        """When model/list fails during fallback, hardcoded defaults are used."""
+        events = [
+            _event_notification(
+                "turn/completed",
+                {"turn": {"id": "turn-1", "status": "completed"}},
+            ),
+        ]
+
+        class ModelListFailsClient(FakeCodexClient):
+            async def request(
+                self,
+                method: str,
+                params: dict[str, Any] | None = None,
+                *,
+                retry_on_overload: bool = True,
+            ) -> dict[str, Any]:
+                if method == "model/list" and self.initialized:
+                    # First call during init succeeds, subsequent calls fail
+                    raise RuntimeError("model/list unavailable")
+                return await super().request(
+                    method, params, retry_on_overload=retry_on_overload
+                )
+
+        fake_client = ModelListFailsClient(
+            events=events,
+            turn_start_error=CodexJsonRpcError(
+                code=-32000, message="Model not available"
+            ),
+            turn_start_error_once=True,
+        )
+        adapter = CodexAdapter(
+            config=CodexAdapterConfig(model=None),
+            client_factory=lambda _config: fake_client,
+        )
+        tools = ToolSchemaFakeTools()
+        await adapter.on_started("Agent", "An agent")
+
+        msg = make_platform_message(room_id="room-1", content="hello")
+        await adapter.on_message(
+            msg,
+            tools,
+            CodexSessionState(),
+            None,
+            None,
+            is_session_bootstrap=False,
+            room_id="room-1",
+        )
+
+        # Should fall back to gpt-5.2 from hardcoded defaults
+        # (gpt-5.3-codex excluded since it was the auto-selected model that failed)
+        assert adapter._selected_model == "gpt-5.2"
+
+    @pytest.mark.asyncio
+    async def test_non_model_error_not_caught_by_fallback(self) -> None:
+        """Non-model-related errors propagate without fallback attempt."""
+        fake_client = FakeCodexClient(
+            turn_start_error=CodexJsonRpcError(
+                code=-32001, message="Server overloaded"
+            ),
+            turn_start_error_once=False,
+        )
+        adapter = CodexAdapter(
+            config=CodexAdapterConfig(model=None),
+            client_factory=lambda _config: fake_client,
+        )
+        tools = ToolSchemaFakeTools()
+        await adapter.on_started("Agent", "An agent")
+
+        msg = make_platform_message(room_id="room-1", content="hello")
+        with pytest.raises(CodexJsonRpcError, match="overloaded"):
+            await adapter.on_message(
+                msg,
+                tools,
+                CodexSessionState(),
+                None,
+                None,
+                is_session_bootstrap=False,
+                room_id="room-1",
+            )
