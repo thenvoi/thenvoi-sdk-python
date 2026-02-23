@@ -310,7 +310,7 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
                             and item.get("type") == "agentMessage"
                         ):
                             text = item.get("text")
-                            if isinstance(text, str) and text and not final_text:
+                            if isinstance(text, str) and text:
                                 final_text = text
                         continue
 

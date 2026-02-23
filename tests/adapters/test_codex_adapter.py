@@ -815,3 +815,61 @@ class TestCodexAdapter:
         assert any(
             "stopped" in msg["content"].lower() for msg in tools.messages_sent
         )
+
+    @pytest.mark.asyncio
+    async def test_item_completed_text_overrides_accumulated_deltas(self) -> None:
+        """item/completed text is authoritative and should replace any accumulated deltas."""
+        events = [
+            _event_notification(
+                "item/agentMessage/delta",
+                {"itemId": "msg-1", "delta": "partial "},
+            ),
+            _event_notification(
+                "item/agentMessage/delta",
+                {"itemId": "msg-1", "delta": "garbled"},
+            ),
+            _event_notification(
+                "item/completed",
+                {
+                    "item": {
+                        "type": "agentMessage",
+                        "id": "msg-1",
+                        "text": "authoritative final text",
+                    }
+                },
+            ),
+            _event_notification(
+                "turn/completed",
+                {
+                    "turn": {
+                        "id": "turn-1",
+                        "status": "completed",
+                        "items": [],
+                        "error": None,
+                    }
+                },
+            ),
+        ]
+        fake_client = FakeCodexClient(events=events)
+        adapter = CodexAdapter(
+            config=CodexAdapterConfig(transport="ws"),
+            client_factory=lambda _config: fake_client,
+        )
+        tools = ToolSchemaFakeTools()
+
+        await adapter.on_started("Codex Agent", "A coding agent")
+        await adapter.on_message(
+            make_platform_message(),
+            tools,
+            CodexSessionState(),
+            participants_msg=None,
+            contacts_msg=None,
+            is_session_bootstrap=True,
+            room_id="room-1",
+        )
+
+        # The authoritative text from item/completed should be used, not the deltas.
+        assert any(
+            msg["content"] == "authoritative final text"
+            for msg in tools.messages_sent
+        )
