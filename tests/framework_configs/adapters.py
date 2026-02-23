@@ -242,6 +242,12 @@ def _parlant_factory(**kw: Any) -> Any:
     return ParlantAdapter(**kw)
 
 
+def _codex_factory(**kw: Any) -> Any:
+    from thenvoi.adapters.codex import CodexAdapter
+
+    return CodexAdapter(**kw)
+
+
 # ---------------------------------------------------------------------------
 # Registry  (built lazily to avoid top-level adapter imports)
 # ---------------------------------------------------------------------------
@@ -443,6 +449,29 @@ def _build_parlant_config() -> AdapterConfig:
     )
 
 
+def _build_codex_config() -> AdapterConfig:
+    from thenvoi.adapters.codex import CodexAdapterConfig
+
+    return AdapterConfig(
+        framework_id="codex",
+        display_name="Codex",
+        adapter_factory=_codex_factory,
+        expected_initial_values={
+            "_custom_tools": [],
+            "config": CodexAdapterConfig(),
+        },
+        custom_kwargs={
+            "config": CodexAdapterConfig(enable_execution_reporting=True),
+        },
+        custom_expected={
+            "config": CodexAdapterConfig(enable_execution_reporting=True),
+        },
+        has_custom_tools_attr=True,
+        custom_tools_attr="_custom_tools",
+        skip_on_started_conformance=True,  # on_started creates live Codex client
+    )
+
+
 # Adapter modules intentionally excluded from conformance tests.
 # a2a / a2a_gateway use the A2A protocol (Google Agent-to-Agent) which has a
 # fundamentally different lifecycle than framework adapters (no on_message /
@@ -460,6 +489,7 @@ _ADAPTER_CONFIG_BUILDERS: list[Callable[[], AdapterConfig]] = [
     _build_claude_sdk_config,
     _build_pydantic_ai_config,
     _build_parlant_config,
+    _build_codex_config,
 ]
 
 

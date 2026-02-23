@@ -10,10 +10,13 @@ from uuid import uuid4
 
 import pytest
 
+from pydantic import BaseModel
+
 from thenvoi.adapters.codex import CodexAdapter, CodexAdapterConfig
 from thenvoi.core.types import PlatformMessage
 from thenvoi.integrations.codex import CodexJsonRpcError, RpcEvent
 from thenvoi.integrations.codex.types import CodexSessionState
+from thenvoi.runtime.custom_tools import CustomToolDef
 from thenvoi.testing import FakeAgentTools
 
 
@@ -869,3 +872,280 @@ class TestCodexAdapter:
         assert any(
             msg["content"] == "authoritative final text" for msg in tools.messages_sent
         )
+
+    @pytest.mark.asyncio
+    async def test_custom_tools_schemas_merged_into_dynamic_tools(self) -> None:
+        """Custom tool schemas appear in _build_dynamic_tools output."""
+
+        class WeatherInput(BaseModel):
+            """Get current weather for a location."""
+
+            city: str
+
+        def get_weather(inp: WeatherInput) -> str:
+            return f"Sunny in {inp.city}"
+
+        custom_tools: list[CustomToolDef] = [(WeatherInput, get_weather)]
+        adapter = CodexAdapter(
+            config=CodexAdapterConfig(transport="ws"),
+            additional_tools=custom_tools,
+        )
+
+        tools = ToolSchemaFakeTools()
+        dynamic_tools = adapter._build_dynamic_tools(tools)
+
+        names = [t["name"] for t in dynamic_tools]
+        assert "weather" in names
+
+        weather_tool = next(t for t in dynamic_tools if t["name"] == "weather")
+        assert weather_tool["description"] == "Get current weather for a location."
+        assert "inputSchema" in weather_tool
+        assert "city" in weather_tool["inputSchema"].get("properties", {})
+
+    @pytest.mark.asyncio
+    async def test_custom_tool_dispatched_before_platform_tools(self) -> None:
+        """Custom tool is invoked via execute_custom_tool, not platform tools."""
+
+        class CalculatorInput(BaseModel):
+            """Simple calculator."""
+
+            expression: str
+
+        call_log: list[str] = []
+
+        async def calculate(inp: CalculatorInput) -> str:
+            call_log.append(inp.expression)
+            return "42"
+
+        custom_tools: list[CustomToolDef] = [(CalculatorInput, calculate)]
+        events = [
+            _event_request(
+                99,
+                "item/tool/call",
+                {
+                    "tool": "calculator",
+                    "arguments": {"expression": "6*7"},
+                    "callId": "call-99",
+                },
+            ),
+            _event_notification(
+                "turn/completed",
+                {
+                    "turn": {
+                        "id": "turn-1",
+                        "status": "completed",
+                        "items": [],
+                        "error": None,
+                    }
+                },
+            ),
+        ]
+        fake_client = FakeCodexClient(events=events)
+        adapter = CodexAdapter(
+            config=CodexAdapterConfig(transport="ws"),
+            additional_tools=custom_tools,
+            client_factory=lambda _config: fake_client,
+        )
+        tools = ToolSchemaFakeTools()
+
+        await adapter.on_started("Codex Agent", "A coding agent")
+        await adapter.on_message(
+            make_platform_message(),
+            tools,
+            CodexSessionState(),
+            participants_msg=None,
+            contacts_msg=None,
+            is_session_bootstrap=True,
+            room_id="room-1",
+        )
+
+        # Custom tool was called
+        assert call_log == ["6*7"]
+        # Platform execute_tool_call was NOT called for the custom tool
+        assert not any(tc["tool_name"] == "calculator" for tc in tools.tool_calls)
+        # Response was sent back to Codex
+        assert fake_client.responses
+        _, payload = fake_client.responses[0]
+        assert payload["success"] is True
+        assert payload["contentItems"][0]["text"] == "42"
+
+    @pytest.mark.asyncio
+    async def test_execution_reporting_emits_tool_call_and_result_events(self) -> None:
+        """With enable_execution_reporting, tool_call and tool_result events are emitted."""
+        events = [
+            _event_request(
+                50,
+                "item/tool/call",
+                {
+                    "tool": "thenvoi_lookup_peers",
+                    "arguments": {"page": 1},
+                    "callId": "call-50",
+                },
+            ),
+            _event_notification(
+                "turn/completed",
+                {
+                    "turn": {
+                        "id": "turn-1",
+                        "status": "completed",
+                        "items": [],
+                        "error": None,
+                    }
+                },
+            ),
+        ]
+        fake_client = FakeCodexClient(events=events)
+        adapter = CodexAdapter(
+            config=CodexAdapterConfig(transport="ws", enable_execution_reporting=True),
+            client_factory=lambda _config: fake_client,
+        )
+        tools = ToolSchemaFakeTools()
+
+        await adapter.on_started("Codex Agent", "A coding agent")
+        await adapter.on_message(
+            make_platform_message(),
+            tools,
+            CodexSessionState(),
+            participants_msg=None,
+            contacts_msg=None,
+            is_session_bootstrap=True,
+            room_id="room-1",
+        )
+
+        tool_call_events = [
+            e for e in tools.events_sent if e["message_type"] == "tool_call"
+        ]
+        tool_result_events = [
+            e for e in tools.events_sent if e["message_type"] == "tool_result"
+        ]
+        assert len(tool_call_events) == 1
+        assert len(tool_result_events) == 1
+
+        import json
+
+        call_data = json.loads(tool_call_events[0]["content"])
+        assert call_data["name"] == "thenvoi_lookup_peers"
+        assert call_data["tool_call_id"] == "call-50"
+
+        result_data = json.loads(tool_result_events[0]["content"])
+        assert result_data["name"] == "thenvoi_lookup_peers"
+        assert result_data["tool_call_id"] == "call-50"
+
+    @pytest.mark.asyncio
+    async def test_execution_reporting_disabled_by_default(self) -> None:
+        """Without enable_execution_reporting, no tool_call/tool_result events are emitted."""
+        events = [
+            _event_request(
+                50,
+                "item/tool/call",
+                {
+                    "tool": "thenvoi_lookup_peers",
+                    "arguments": {"page": 1},
+                    "callId": "call-50",
+                },
+            ),
+            _event_notification(
+                "turn/completed",
+                {
+                    "turn": {
+                        "id": "turn-1",
+                        "status": "completed",
+                        "items": [],
+                        "error": None,
+                    }
+                },
+            ),
+        ]
+        fake_client = FakeCodexClient(events=events)
+        adapter = CodexAdapter(
+            config=CodexAdapterConfig(transport="ws"),
+            client_factory=lambda _config: fake_client,
+        )
+        tools = ToolSchemaFakeTools()
+
+        await adapter.on_started("Codex Agent", "A coding agent")
+        await adapter.on_message(
+            make_platform_message(),
+            tools,
+            CodexSessionState(),
+            participants_msg=None,
+            contacts_msg=None,
+            is_session_bootstrap=True,
+            room_id="room-1",
+        )
+
+        tool_events = [
+            e
+            for e in tools.events_sent
+            if e["message_type"] in {"tool_call", "tool_result"}
+        ]
+        assert tool_events == []
+
+    @pytest.mark.asyncio
+    async def test_execution_reporting_on_tool_error(self) -> None:
+        """Execution reporting emits tool_result with error text on failure."""
+
+        class FailInput(BaseModel):
+            """A tool that always fails."""
+
+            x: int
+
+        async def fail_func(inp: FailInput) -> str:
+            raise RuntimeError("boom")
+
+        custom_tools: list[CustomToolDef] = [(FailInput, fail_func)]
+        events = [
+            _event_request(
+                60,
+                "item/tool/call",
+                {
+                    "tool": "fail",
+                    "arguments": {"x": 1},
+                    "callId": "call-60",
+                },
+            ),
+            _event_notification(
+                "turn/completed",
+                {
+                    "turn": {
+                        "id": "turn-1",
+                        "status": "completed",
+                        "items": [],
+                        "error": None,
+                    }
+                },
+            ),
+        ]
+        fake_client = FakeCodexClient(events=events)
+        adapter = CodexAdapter(
+            config=CodexAdapterConfig(transport="ws", enable_execution_reporting=True),
+            additional_tools=custom_tools,
+            client_factory=lambda _config: fake_client,
+        )
+        tools = ToolSchemaFakeTools()
+
+        await adapter.on_started("Codex Agent", "A coding agent")
+        await adapter.on_message(
+            make_platform_message(),
+            tools,
+            CodexSessionState(),
+            participants_msg=None,
+            contacts_msg=None,
+            is_session_bootstrap=True,
+            room_id="room-1",
+        )
+
+        import json
+
+        tool_result_events = [
+            e for e in tools.events_sent if e["message_type"] == "tool_result"
+        ]
+        assert len(tool_result_events) == 1
+        result_data = json.loads(tool_result_events[0]["content"])
+        assert result_data["name"] == "fail"
+        assert "boom" in result_data["output"]
+        assert result_data["tool_call_id"] == "call-60"
+
+        # Codex response should indicate failure
+        _, payload = fake_client.responses[0]
+        assert payload["success"] is False

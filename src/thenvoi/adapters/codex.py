@@ -20,6 +20,12 @@ from thenvoi.integrations.codex import (
     RpcEvent,
 )
 from thenvoi.integrations.codex.types import CodexSessionState
+from thenvoi.runtime.custom_tools import (
+    CustomToolDef,
+    custom_tool_to_openai_schema,
+    execute_custom_tool,
+    find_custom_tool,
+)
 from thenvoi.runtime.prompts import render_system_prompt
 
 logger = logging.getLogger(__name__)
@@ -113,6 +119,7 @@ class CodexAdapterConfig:
     codex_command: tuple[str, ...] | None = None
     codex_env: dict[str, str] | None = None
     codex_ws_url: str = "ws://127.0.0.1:8765"
+    enable_execution_reporting: bool = False
     additional_dynamic_tools: list[dict[str, Any]] = field(default_factory=list)
 
 
@@ -128,12 +135,14 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
         self,
         config: CodexAdapterConfig | None = None,
         *,
+        additional_tools: list[CustomToolDef] | None = None,
         history_converter: CodexHistoryConverter | None = None,
         client_factory: Callable[[CodexAdapterConfig], _CodexClientProtocol]
         | None = None,
     ) -> None:
         super().__init__(history_converter=history_converter or CodexHistoryConverter())
         self.config = config or CodexAdapterConfig()
+        self._custom_tools: list[CustomToolDef] = additional_tools or []
         self._client_factory = client_factory
         self._client: _CodexClientProtocol | None = None
         self._initialized = False
@@ -572,6 +581,22 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
             dynamic_tools.append(tool)
             seen.add(name)
 
+        for model_cls, _ in self._custom_tools:
+            schema = custom_tool_to_openai_schema(model_cls)
+            function = schema.get("function", {})
+            name = function.get("name", "")
+            if not name or name in seen:
+                continue
+            dynamic_tools.append(
+                {
+                    "name": name,
+                    "description": str(function.get("description") or ""),
+                    "inputSchema": function.get("parameters")
+                    or {"type": "object", "properties": {}},
+                }
+            )
+            seen.add(name)
+
         return dynamic_tools
 
     def _build_turn_input(
@@ -621,15 +646,28 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
             arguments = params.get("arguments")
             if not isinstance(arguments, dict):
                 arguments = {}
+            call_id = str(params.get("callId") or "")
+
+            if self.config.enable_execution_reporting:
+                await tools.send_event(
+                    content=json.dumps(
+                        {"name": tool_name, "args": arguments, "tool_call_id": call_id}
+                    ),
+                    message_type="tool_call",
+                )
 
             try:
-                result = await tools.execute_tool_call(tool_name, arguments)
+                custom_tool = find_custom_tool(self._custom_tools, tool_name)
+                if custom_tool:
+                    result = await execute_custom_tool(custom_tool, arguments)
+                else:
+                    result = await tools.execute_tool_call(tool_name, arguments)
                 text_result = (
                     result
                     if isinstance(result, str)
                     else json.dumps(result, default=str)
                 )
-                success = not self._is_tool_error_result(result)
+                success = True
                 await self._client.respond(
                     event.id,
                     {
@@ -637,16 +675,37 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
                         "success": success,
                     },
                 )
+                if self.config.enable_execution_reporting:
+                    await tools.send_event(
+                        content=json.dumps(
+                            {
+                                "name": tool_name,
+                                "output": text_result,
+                                "tool_call_id": call_id,
+                            }
+                        ),
+                        message_type="tool_result",
+                    )
             except Exception as exc:
+                error_text = f"Error: {exc}"
                 await self._client.respond(
                     event.id,
                     {
-                        "contentItems": [
-                            {"type": "inputText", "text": f"Error: {exc}"}
-                        ],
+                        "contentItems": [{"type": "inputText", "text": error_text}],
                         "success": False,
                     },
                 )
+                if self.config.enable_execution_reporting:
+                    await tools.send_event(
+                        content=json.dumps(
+                            {
+                                "name": tool_name,
+                                "output": error_text,
+                                "tool_call_id": call_id,
+                            }
+                        ),
+                        message_type="tool_result",
+                    )
 
             return tool_name == "thenvoi_send_message"
 
@@ -1148,23 +1207,6 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
             if isinstance(message, str):
                 return message
         return ""
-
-    @staticmethod
-    def _is_tool_error_result(result: Any) -> bool:
-        if isinstance(result, str):
-            lowered = result.strip().lower()
-            return (
-                lowered.startswith("error")
-                or lowered.startswith("invalid")
-                or "unknown tool" in lowered
-            )
-        if isinstance(result, dict):
-            status = result.get("status")
-            if isinstance(status, str) and status.lower() in {"error", "failed"}:
-                return True
-            if isinstance(result.get("error"), str):
-                return True
-        return False
 
     @staticmethod
     def _approval_summary(method: str, params: dict[str, Any]) -> str:
