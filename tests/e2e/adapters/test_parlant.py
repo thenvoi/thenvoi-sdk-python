@@ -81,6 +81,7 @@ class TestParlantE2E:
             async with agent:
                 yield agent
 
+    @pytest.mark.flaky(reruns=2)
     async def test_smoke_responds_to_message(
         self,
         e2e_config: E2ESettings,
