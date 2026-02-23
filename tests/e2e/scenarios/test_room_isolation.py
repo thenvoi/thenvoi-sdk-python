@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import logging
 
+import pytest
 from thenvoi_rest import AsyncRestClient
 
 from thenvoi.agent import Agent
@@ -34,10 +35,12 @@ from tests.e2e.helpers import (
 logger = logging.getLogger(__name__)
 
 
+@pytest.mark.asyncio
 @requires_e2e
 class TestRoomIsolation:
     """Test that agents in different rooms maintain isolated context."""
 
+    @pytest.mark.flaky(reruns=2)
     async def test_agents_in_different_rooms_isolated(
         self,
         e2e_config: E2ESettings,

@@ -40,6 +40,7 @@ class E2ESettings(ThenvoiTestSettings):
     (e.g. E2E_LLM_MODEL -> e2e_llm_model) with case-insensitive matching.
     """
 
+    # Standard ThenvoiTestSettings convention for locating the env file.
     _env_file_path = Path(__file__).parent.parent.parent / ".env.test"
 
     # E2E-specific settings (override via environment variables)
@@ -144,6 +145,11 @@ async def e2e_agent_id() -> str:
     Uses ``_get_e2e_settings()`` directly instead of the function-scoped
     ``e2e_config`` fixture, since session-scoped fixtures cannot depend on
     function-scoped ones.
+
+    Note: Session-scoped because the agent ID is stable for a given API key
+    and never changes mid-run. If the underlying agent is recreated between
+    tests, this cached value would be stale — but that scenario doesn't
+    apply to E2E runs against a persistent platform.
     """
     settings = _get_e2e_settings()
     if not settings.thenvoi_api_key:

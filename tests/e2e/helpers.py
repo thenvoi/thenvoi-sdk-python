@@ -242,3 +242,74 @@ def assert_no_content_contains(
         f"Expected no message to contain '{unexpected_substring}', "
         f"but found it in: {contents}"
     )
+
+
+# =============================================================================
+# Shared Test Workflows
+# =============================================================================
+
+
+async def run_smoke_test(
+    ws_client: TrackingWebSocketClient,
+    api_client: AsyncRestClient,
+    chat_id: str,
+    agent_name: str,
+    e2e_agent_id: str,
+    timeout: float,
+    adapter_name: str,
+) -> list[MessageCreatedPayload]:
+    """Run a smoke test: send a message and verify the agent responds.
+
+    Returns the list of received agent messages for further inspection.
+    """
+    async with listening_for_agent_responses(
+        ws_client, chat_id, timeout=timeout
+    ) as wait:
+        await send_user_message(
+            api_client, chat_id, "Say hello", agent_name, e2e_agent_id
+        )
+        received = await wait()
+
+    assert len(received) > 0, (
+        f"[{adapter_name}] Agent should have responded to the message"
+    )
+    logger.info(
+        "[%s] Smoke test passed: received %d response(s)",
+        adapter_name,
+        len(received),
+    )
+    return received
+
+
+async def run_tool_execution_test(
+    ws_client: TrackingWebSocketClient,
+    api_client: AsyncRestClient,
+    chat_id: str,
+    agent_name: str,
+    e2e_agent_id: str,
+    timeout: float,
+    adapter_name: str,
+) -> list[MessageCreatedPayload]:
+    """Run a tool execution test: verify agent uses thenvoi_send_message.
+
+    Asks the agent to reply with a specific keyword (PINEAPPLE) and asserts
+    it appears in the response. Returns the received messages.
+    """
+    async with listening_for_agent_responses(
+        ws_client, chat_id, timeout=timeout
+    ) as wait:
+        await send_user_message(
+            api_client,
+            chat_id,
+            "Reply with the word PINEAPPLE",
+            agent_name,
+            e2e_agent_id,
+        )
+        received = await wait()
+
+    assert len(received) > 0, (
+        f"[{adapter_name}] Agent should have sent a message via tool"
+    )
+    assert_content_contains(received, "PINEAPPLE")
+    logger.info("[%s] Tool execution test passed", adapter_name)
+    return received

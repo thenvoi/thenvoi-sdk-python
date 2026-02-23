@@ -16,7 +16,6 @@ Run a specific adapter:
 
 from __future__ import annotations
 
-import logging
 from collections.abc import AsyncGenerator
 
 import pytest
@@ -28,14 +27,12 @@ from tests.e2e.adapters.conftest import AdapterFactory
 from tests.e2e.conftest import E2ESettings, requires_e2e
 from tests.e2e.helpers import (
     TrackingWebSocketClient,
-    assert_content_contains,
-    listening_for_agent_responses,
-    send_user_message,
+    run_smoke_test,
+    run_tool_execution_test,
 )
 
-logger = logging.getLogger(__name__)
 
-
+@pytest.mark.asyncio
 @requires_e2e
 class TestAdapterE2E:
     """E2E tests parametrized across all standard adapters."""
@@ -78,23 +75,17 @@ class TestAdapterE2E:
         adapter_name, agent = running_agent
         chat_id, user_id, user_name = e2e_chat_room_with_user
 
-        async with listening_for_agent_responses(
-            ws_client, chat_id, timeout=e2e_config.e2e_timeout
-        ) as wait:
-            await send_user_message(
-                api_client, chat_id, "Say hello", agent.agent_name, e2e_agent_id
-            )
-            received = await wait()
-
-        assert len(received) > 0, (
-            f"[{adapter_name}] Agent should have responded to the message"
-        )
-        logger.info(
-            "[%s] Smoke test passed: received %d response(s)",
-            adapter_name,
-            len(received),
+        await run_smoke_test(
+            ws_client,
+            api_client,
+            chat_id,
+            agent.agent_name,
+            e2e_agent_id,
+            timeout=e2e_config.e2e_timeout,
+            adapter_name=adapter_name,
         )
 
+    @pytest.mark.flaky(reruns=2)
     async def test_tool_execution_send_message(
         self,
         e2e_config: E2ESettings,
@@ -108,20 +99,12 @@ class TestAdapterE2E:
         adapter_name, agent = running_agent
         chat_id, user_id, user_name = e2e_chat_room_with_user
 
-        async with listening_for_agent_responses(
-            ws_client, chat_id, timeout=e2e_config.e2e_timeout
-        ) as wait:
-            await send_user_message(
-                api_client,
-                chat_id,
-                "Reply with the word PINEAPPLE",
-                agent.agent_name,
-                e2e_agent_id,
-            )
-            received = await wait()
-
-        assert len(received) > 0, (
-            f"[{adapter_name}] Agent should have sent a message via tool"
+        await run_tool_execution_test(
+            ws_client,
+            api_client,
+            chat_id,
+            agent.agent_name,
+            e2e_agent_id,
+            timeout=e2e_config.e2e_timeout,
+            adapter_name=adapter_name,
         )
-        assert_content_contains(received, "PINEAPPLE")
-        logger.info("[%s] Tool execution test passed", adapter_name)

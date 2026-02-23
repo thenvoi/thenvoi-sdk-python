@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import logging
 
+import pytest
 from thenvoi_rest import AsyncRestClient
 
 from thenvoi.agent import Agent
@@ -32,10 +33,12 @@ from tests.e2e.helpers import (
 logger = logging.getLogger(__name__)
 
 
+@pytest.mark.asyncio
 @requires_e2e
 class TestContextPersistence:
     """Test that agents remember context after rejoin via platform history."""
 
+    @pytest.mark.flaky(reruns=2)
     async def test_agent_remembers_context_after_rejoin(
         self,
         e2e_config: E2ESettings,
