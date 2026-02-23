@@ -22,24 +22,22 @@ RUN apt-get update && apt-get install -y \
     build-essential \
     && rm -rf /var/lib/apt/lists/*
 
-# Configure git to prefer HTTPS over SSH (Codex pattern)
-# This avoids SSH auth issues in Docker builds
-RUN git config --global url."https://github.com/".insteadOf "git@github.com:" && \
-    git config --global url."https://github.com/".insteadOf "ssh://git@github.com/"
+# Configure git to prefer HTTPS over SSH via env vars
+# (env vars are always read by git, unlike global config which may be skipped)
+ENV GIT_CONFIG_COUNT=2 \
+    GIT_CONFIG_KEY_0=url.https://github.com/.insteadOf \
+    GIT_CONFIG_VALUE_0=git@github.com: \
+    GIT_CONFIG_KEY_1=url.https://github.com/.insteadOf \
+    GIT_CONFIG_VALUE_1=ssh://git@github.com/
 
 # Install Claude Code CLI globally
 RUN npm install -g @anthropic-ai/claude-code
 
-# Install uv package manager (pinned version for reproducibility)
-RUN curl -LsSf https://astral.sh/uv/0.5.18/install.sh | sh && \
-    cp /root/.local/bin/uv /usr/local/bin/uv
-
-# Copy SDK source and install
-COPY pyproject.toml uv.lock ./
+# Copy SDK source and install with pip
+COPY pyproject.toml ./
 COPY src/ ./src/
 
-# Install thenvoi SDK (no claude_sdk extra - we use CLI directly)
-RUN uv sync
+RUN pip install --break-system-packages .
 
 # Copy runner script
 COPY examples/claude_code/runner.py ./runner.py
@@ -47,13 +45,12 @@ COPY examples/claude_code/runner.py ./runner.py
 # Create workspace directories
 RUN mkdir -p /workspace/repo /workspace/notes /prompts
 
-# Create non-root user for security
-RUN useradd -m -u 1000 appuser && \
-    chown -R appuser:appuser /app /workspace /prompts
+# Use existing node user (UID 1000) for security
+RUN chown -R node:node /app /workspace /prompts
 
-USER appuser
+USER node
 
 # Set working directory to workspace for file operations
 WORKDIR /workspace/repo
 
-CMD ["uv", "run", "python", "/app/runner.py"]
+CMD ["python3", "/app/runner.py"]

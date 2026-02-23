@@ -150,6 +150,7 @@ When creating design docs or plans, save them to `/workspace/notes/`.
         custom_section=final_prompt,
         cli_timeout=300000,  # 5 minutes for complex operations
         allowed_tools=["Read", "Write", "Edit", "Glob", "Grep", "Bash"],
+        verbose=True,
     )
 
     # Create agent
