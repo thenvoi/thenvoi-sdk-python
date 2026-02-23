@@ -236,93 +236,121 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
             turn_status = "failed"
             turn_error = ""
 
-            while True:
-                event = await self._client.recv_event(
-                    timeout_s=self.config.turn_timeout_s
-                )
-                if event.kind == "request":
-                    used_send_message = await self._handle_server_request(
-                        tools=tools,
-                        msg=msg,
-                        room_id=room_id,
-                        event=event,
+            try:
+                while True:
+                    event = await self._client.recv_event(
+                        timeout_s=self.config.turn_timeout_s
                     )
-                    saw_send_message_tool = saw_send_message_tool or used_send_message
-                    continue
-
-                params = event.params if isinstance(event.params, dict) else {}
-
-                if event.method in {
-                    "codex/event/task_started",
-                    "codex/event/task_complete",
-                }:
-                    await self._forward_raw_task_event(
-                        tools=tools,
-                        room_id=room_id,
-                        thread_id=thread_id,
-                        turn_id=turn_id or None,
-                        method=event.method,
-                        params=params,
-                    )
-                    continue
-
-                if event.method == "error":
-                    error_obj = params.get("error") or {}
-                    if isinstance(error_obj, dict):
-                        error_msg = error_obj.get("message", "")
-                    else:
-                        error_msg = str(error_obj)
-                    will_retry = bool(params.get("willRetry", False))
-                    if will_retry:
-                        logger.warning(
-                            "Codex transient error (will retry): %s",
-                            error_msg,
+                    if event.kind == "request":
+                        used_send_message = await self._handle_server_request(
+                            tools=tools,
+                            msg=msg,
+                            room_id=room_id,
+                            event=event,
                         )
-                    else:
-                        logger.error("Codex error: %s", error_msg)
-                        if self.config.emit_thought_events:
-                            await tools.send_event(
-                                content=f"Codex error: {error_msg}",
-                                message_type="error",
-                                metadata={
-                                    "codex_room_id": room_id,
-                                    "codex_thread_id": thread_id,
-                                    "codex_turn_id": turn_id or None,
-                                },
-                            )
-                    continue
-
-                if event.method == "item/agentMessage/delta":
-                    delta = params.get("delta")
-                    if isinstance(delta, str):
-                        final_text += delta
-                    continue
-
-                if event.method == "item/completed":
-                    item = params.get("item") if isinstance(params, dict) else {}
-                    if isinstance(item, dict) and item.get("type") == "agentMessage":
-                        text = item.get("text")
-                        if isinstance(text, str) and text and not final_text:
-                            final_text = text
-                    continue
-
-                if event.method == "transport/closed":
-                    turn_status = "failed"
-                    turn_error = "Codex transport closed unexpectedly"
-                    break
-
-                if event.method == "turn/completed":
-                    turn_payload = (
-                        params.get("turn")
-                        if isinstance(params.get("turn"), dict)
-                        else {}
-                    )
-                    event_turn_id = str(turn_payload.get("id") or "")
-                    if turn_id and event_turn_id and event_turn_id != turn_id:
+                        saw_send_message_tool = (
+                            saw_send_message_tool or used_send_message
+                        )
                         continue
-                    turn_status = str(turn_payload.get("status") or "failed")
-                    turn_error = self._extract_turn_error(turn_payload)
-                    break
+
+                    params = event.params if isinstance(event.params, dict) else {}
+
+                    if event.method in {
+                        "codex/event/task_started",
+                        "codex/event/task_complete",
+                    }:
+                        await self._forward_raw_task_event(
+                            tools=tools,
+                            room_id=room_id,
+                            thread_id=thread_id,
+                            turn_id=turn_id or None,
+                            method=event.method,
+                            params=params,
+                        )
+                        continue
+
+                    if event.method == "error":
+                        error_obj = params.get("error") or {}
+                        if isinstance(error_obj, dict):
+                            error_msg = error_obj.get("message", "")
+                        else:
+                            error_msg = str(error_obj)
+                        will_retry = bool(params.get("willRetry", False))
+                        if will_retry:
+                            logger.warning(
+                                "Codex transient error (will retry): %s",
+                                error_msg,
+                            )
+                        else:
+                            logger.error("Codex error: %s", error_msg)
+                            if self.config.emit_thought_events:
+                                await tools.send_event(
+                                    content=f"Codex error: {error_msg}",
+                                    message_type="error",
+                                    metadata={
+                                        "codex_room_id": room_id,
+                                        "codex_thread_id": thread_id,
+                                        "codex_turn_id": turn_id or None,
+                                    },
+                                )
+                        continue
+
+                    if event.method == "item/agentMessage/delta":
+                        delta = params.get("delta")
+                        if isinstance(delta, str):
+                            final_text += delta
+                        continue
+
+                    if event.method == "item/completed":
+                        item = (
+                            params.get("item") if isinstance(params, dict) else {}
+                        )
+                        if (
+                            isinstance(item, dict)
+                            and item.get("type") == "agentMessage"
+                        ):
+                            text = item.get("text")
+                            if isinstance(text, str) and text and not final_text:
+                                final_text = text
+                        continue
+
+                    if event.method == "transport/closed":
+                        turn_status = "failed"
+                        turn_error = "Codex transport closed unexpectedly"
+                        break
+
+                    if event.method == "turn/completed":
+                        turn_payload = (
+                            params.get("turn")
+                            if isinstance(params.get("turn"), dict)
+                            else {}
+                        )
+                        event_turn_id = str(turn_payload.get("id") or "")
+                        if turn_id and event_turn_id and event_turn_id != turn_id:
+                            continue
+                        turn_status = str(
+                            turn_payload.get("status") or "failed"
+                        )
+                        turn_error = self._extract_turn_error(turn_payload)
+                        break
+            except asyncio.TimeoutError:
+                logger.error(
+                    "Codex turn timed out after %ss (thread=%s, turn=%s)",
+                    self.config.turn_timeout_s,
+                    thread_id,
+                    turn_id,
+                )
+                if turn_id:
+                    try:
+                        await self._client.request(
+                            "turn/interrupt", {"turnId": turn_id}
+                        )
+                    except Exception:
+                        logger.warning(
+                            "Failed to send turn/interrupt after timeout"
+                        )
+                turn_status = "interrupted"
+                turn_error = "Turn timed out"
 
             await self._emit_turn_outcome(
                 tools=tools,

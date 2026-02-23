@@ -782,3 +782,36 @@ class TestCodexAdapter:
             "transport closed" in msg["content"].lower()
             for msg in tools.messages_sent
         )
+
+    @pytest.mark.asyncio
+    async def test_turn_timeout_sends_interrupt_and_clean_error(self) -> None:
+        """When recv_event times out, the adapter sends turn/interrupt and reports cleanly."""
+        # No events means FakeCodexClient raises asyncio.TimeoutError immediately.
+        fake_client = FakeCodexClient(events=[])
+        adapter = CodexAdapter(
+            config=CodexAdapterConfig(transport="ws", turn_timeout_s=0.01),
+            client_factory=lambda _config: fake_client,
+        )
+        tools = ToolSchemaFakeTools()
+
+        await adapter.on_started("Codex Agent", "A coding agent")
+        await adapter.on_message(
+            make_platform_message(),
+            tools,
+            CodexSessionState(),
+            participants_msg=None,
+            contacts_msg=None,
+            is_session_bootstrap=True,
+            room_id="room-1",
+        )
+
+        # Adapter should have sent turn/interrupt.
+        interrupt_requests = [
+            (m, p) for m, p in fake_client.requests if m == "turn/interrupt"
+        ]
+        assert len(interrupt_requests) == 1
+
+        # Adapter should send a user-facing message about stopping.
+        assert any(
+            "stopped" in msg["content"].lower() for msg in tools.messages_sent
+        )
