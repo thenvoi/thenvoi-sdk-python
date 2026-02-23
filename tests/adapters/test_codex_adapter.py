@@ -666,9 +666,131 @@ class TestCodexAdapter:
         methods = [method for method, _ in fake_client.requests]
         assert "turn/start" not in methods
         assert "thread/start" not in methods
-        assert methods.count("model/list") >= 2
+        assert methods.count("model/list") >= 1
         assert len(tools.messages_sent) == 1
         assert "Available models" in tools.messages_sent[0]["content"]
+
+    @pytest.mark.asyncio
+    async def test_reasoning_effort_passed_in_turn_overrides(self) -> None:
+        events = [
+            _event_notification(
+                "turn/completed",
+                {
+                    "turn": {
+                        "id": "t1",
+                        "threadId": "th1",
+                        "status": "completed",
+                    },
+                    "text": "Done",
+                },
+            ),
+        ]
+        fake_client = FakeCodexClient(events=events)
+        adapter = CodexAdapter(
+            config=CodexAdapterConfig(
+                transport="ws",
+                reasoning_effort="high",
+                reasoning_summary="concise",
+            ),
+            client_factory=lambda _config: fake_client,
+        )
+        tools = ToolSchemaFakeTools()
+        await adapter.on_started("Agent", "A coding agent")
+        await adapter.on_message(
+            make_platform_message(content="hello"),
+            tools,
+            CodexSessionState(),
+            participants_msg=None,
+            contacts_msg=None,
+            is_session_bootstrap=True,
+            room_id="room-1",
+        )
+        turn_params = next(
+            params for method, params in fake_client.requests if method == "turn/start"
+        )
+        assert turn_params["effort"] == "high"
+        assert turn_params["summary"] == "concise"
+
+    @pytest.mark.asyncio
+    async def test_reasoning_effort_omitted_when_none(self) -> None:
+        events = [
+            _event_notification(
+                "turn/completed",
+                {
+                    "turn": {
+                        "id": "t1",
+                        "threadId": "th1",
+                        "status": "completed",
+                    },
+                    "text": "Done",
+                },
+            ),
+        ]
+        fake_client = FakeCodexClient(events=events)
+        adapter = CodexAdapter(
+            config=CodexAdapterConfig(transport="ws"),
+            client_factory=lambda _config: fake_client,
+        )
+        tools = ToolSchemaFakeTools()
+        await adapter.on_started("Agent", "A coding agent")
+        await adapter.on_message(
+            make_platform_message(content="hello"),
+            tools,
+            CodexSessionState(),
+            participants_msg=None,
+            contacts_msg=None,
+            is_session_bootstrap=True,
+            room_id="room-1",
+        )
+        turn_params = next(
+            params for method, params in fake_client.requests if method == "turn/start"
+        )
+        assert "effort" not in turn_params
+        assert "summary" not in turn_params
+
+    @pytest.mark.asyncio
+    async def test_reasoning_command_sets_effort(self) -> None:
+        fake_client = FakeCodexClient()
+        adapter = CodexAdapter(
+            config=CodexAdapterConfig(transport="ws"),
+            client_factory=lambda _config: fake_client,
+        )
+        tools = ToolSchemaFakeTools()
+        await adapter.on_started("Agent", "A coding agent")
+        await adapter.on_message(
+            make_platform_message(content="/reasoning high"),
+            tools,
+            CodexSessionState(),
+            participants_msg=None,
+            contacts_msg=None,
+            is_session_bootstrap=True,
+            room_id="room-1",
+        )
+        assert adapter.config.reasoning_effort == "high"
+        assert len(tools.messages_sent) == 1
+        assert "Reasoning effort set to `high`" in tools.messages_sent[0]["content"]
+
+    @pytest.mark.asyncio
+    async def test_reasoning_command_rejects_invalid_effort(self) -> None:
+        fake_client = FakeCodexClient()
+        adapter = CodexAdapter(
+            config=CodexAdapterConfig(transport="ws"),
+            client_factory=lambda _config: fake_client,
+        )
+        tools = ToolSchemaFakeTools()
+        await adapter.on_started("Agent", "A coding agent")
+        await adapter.on_message(
+            make_platform_message(content="/reasoning ultra"),
+            tools,
+            CodexSessionState(),
+            participants_msg=None,
+            contacts_msg=None,
+            is_session_bootstrap=True,
+            room_id="room-1",
+        )
+        assert adapter.config.reasoning_effort is None
+        assert len(tools.messages_sent) == 1
+        assert "Invalid reasoning effort" in tools.messages_sent[0]["content"]
 
     @pytest.mark.asyncio
     async def test_sandbox_alias_is_normalized_for_thread_and_turn(self) -> None:

@@ -99,7 +99,11 @@ class CodexAdapterConfig:
     """Runtime configuration for Codex adapter sessions."""
 
     transport: TransportKind = "stdio"
-    model: str | None = None
+    model: str | None = "gpt-5.3-codex"
+    reasoning_effort: (
+        Literal["none", "minimal", "low", "medium", "high", "xhigh"] | None
+    ) = None
+    reasoning_summary: Literal["auto", "concise", "detailed", "none"] | None = None
     cwd: str | None = None
     approval_policy: str = "never"
     personality: Literal["friendly", "pragmatic", "none"] = "pragmatic"
@@ -1173,6 +1177,7 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
             await tools.send_message(
                 "Codex commands: "
                 "`/status`, `/model`, `/models`, `/model list`, `/models list`, `/model <id>`, "
+                "`/reasoning [none|minimal|low|medium|high|xhigh]`, "
                 "`/approvals`, `/approve <id>`, `/decline <id>`, `/help`.",
                 mentions=mention,
             )
@@ -1190,6 +1195,8 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
                 f"- approval_policy: {self.config.approval_policy}\n"
                 f"- approval_mode: {self.config.approval_mode}\n"
                 f"- sandbox: {self.config.sandbox or 'default'}\n"
+                f"- reasoning_effort: {self.config.reasoning_effort or 'default'}\n"
+                f"- reasoning_summary: {self.config.reasoning_summary or 'default'}\n"
                 f"- pending_approvals: {len(self._pending_approvals.get(room_id, {}))}\n"
                 f"- turn_task_markers: {self.config.emit_turn_task_markers}"
             )
@@ -1231,6 +1238,31 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
             self._selected_model = model_arg
             await tools.send_message(
                 f"Model override set to `{model_arg}` for subsequent turns.",
+                mentions=mention,
+            )
+            return True
+
+        if command == "reasoning":
+            effort_arg = args.strip().lower()
+            valid_efforts = {"none", "minimal", "low", "medium", "high", "xhigh"}
+            if not effort_arg:
+                await tools.send_message(
+                    f"Current reasoning effort: `{self.config.reasoning_effort or 'default'}`. "
+                    f"Summary: `{self.config.reasoning_summary or 'default'}`. "
+                    f"Use `/reasoning <{'|'.join(sorted(valid_efforts))}>` to override.",
+                    mentions=mention,
+                )
+                return True
+            if effort_arg not in valid_efforts:
+                await tools.send_message(
+                    f"Invalid reasoning effort `{effort_arg}`. "
+                    f"Valid values: {', '.join(sorted(valid_efforts))}.",
+                    mentions=mention,
+                )
+                return True
+            self.config.reasoning_effort = effort_arg  # type: ignore[assignment]
+            await tools.send_message(
+                f"Reasoning effort set to `{effort_arg}` for subsequent turns.",
                 mentions=mention,
             )
             return True
@@ -1323,6 +1355,10 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
         params["cwd"] = self.config.cwd
         params["approvalPolicy"] = self.config.approval_policy
         params["personality"] = self.config.personality
+        if self.config.reasoning_effort is not None:
+            params["effort"] = self.config.reasoning_effort
+        if self.config.reasoning_summary is not None:
+            params["summary"] = self.config.reasoning_summary
         self._apply_turn_sandbox(params)
 
     def _apply_thread_sandbox(self, params: dict[str, Any]) -> None:
@@ -1536,6 +1572,7 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
                 "status",
                 "model",
                 "models",
+                "reasoning",
                 "approvals",
                 "approve",
                 "decline",
