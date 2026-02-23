@@ -112,6 +112,7 @@ class CodexStdioClient:
                 stderr=asyncio.subprocess.PIPE,
                 cwd=self.cwd,
                 env=self.env,
+                limit=16 * 1024 * 1024,  # 16 MB — Codex sends large JSON-RPC lines
             )
         except FileNotFoundError as exc:
             binary = self.command[0] if self.command else "codex"
