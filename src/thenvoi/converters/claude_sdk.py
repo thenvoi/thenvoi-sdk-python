@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 
 from thenvoi.core.protocols import HistoryConverter
@@ -21,7 +21,7 @@ class ClaudeSDKSessionState:
     """
 
     text: str = ""
-    session_id: str | None = field(default=None)
+    session_id: str | None = None
 
 
 class ClaudeSDKHistoryConverter(HistoryConverter[ClaudeSDKSessionState]):

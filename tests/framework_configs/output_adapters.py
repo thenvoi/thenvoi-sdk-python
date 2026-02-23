@@ -414,7 +414,7 @@ class StringOutputAdapter:
         )
 
 
-class ClaudeSDKOutputAdapter:
+class ClaudeSDKOutputAdapter(OutputAdapter):
     """Adapter for ClaudeSDK converter output (:class:`ClaudeSDKSessionState`).
 
     Unwraps the ``.text`` attribute and delegates all assertions to

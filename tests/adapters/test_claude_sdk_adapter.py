@@ -355,7 +355,7 @@ class TestThenvoiTools:
 
 
 class TestCustomTools:
-    """Tests for custom tool support (CustomToolDef -> MCP)."""
+    """Tests for custom tool support (CustomToolDef → MCP)."""
 
     def test_accepts_additional_tools_parameter(self):
         """Adapter accepts list of CustomToolDef tuples."""
