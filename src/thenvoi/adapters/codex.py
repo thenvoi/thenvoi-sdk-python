@@ -266,6 +266,32 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
                     )
                     continue
 
+                if event.method == "error":
+                    error_obj = params.get("error") or {}
+                    if isinstance(error_obj, dict):
+                        error_msg = error_obj.get("message", "")
+                    else:
+                        error_msg = str(error_obj)
+                    will_retry = bool(params.get("willRetry", False))
+                    if will_retry:
+                        logger.warning(
+                            "Codex transient error (will retry): %s",
+                            error_msg,
+                        )
+                    else:
+                        logger.error("Codex error: %s", error_msg)
+                        if self.config.emit_thought_events:
+                            await tools.send_event(
+                                content=f"Codex error: {error_msg}",
+                                message_type="error",
+                                metadata={
+                                    "codex_room_id": room_id,
+                                    "codex_thread_id": thread_id,
+                                    "codex_turn_id": turn_id or None,
+                                },
+                            )
+                    continue
+
                 if event.method == "item/agentMessage/delta":
                     delta = params.get("delta")
                     if isinstance(delta, str):
