@@ -779,8 +779,7 @@ class TestCodexAdapter:
 
         # Adapter should send a failure message mentioning the disconnect.
         assert any(
-            "transport closed" in msg["content"].lower()
-            for msg in tools.messages_sent
+            "transport closed" in msg["content"].lower() for msg in tools.messages_sent
         )
 
     @pytest.mark.asyncio
@@ -812,9 +811,7 @@ class TestCodexAdapter:
         assert len(interrupt_requests) == 1
 
         # Adapter should send a user-facing message about stopping.
-        assert any(
-            "stopped" in msg["content"].lower() for msg in tools.messages_sent
-        )
+        assert any("stopped" in msg["content"].lower() for msg in tools.messages_sent)
 
     @pytest.mark.asyncio
     async def test_item_completed_text_overrides_accumulated_deltas(self) -> None:
@@ -870,6 +867,5 @@ class TestCodexAdapter:
 
         # The authoritative text from item/completed should be used, not the deltas.
         assert any(
-            msg["content"] == "authoritative final text"
-            for msg in tools.messages_sent
+            msg["content"] == "authoritative final text" for msg in tools.messages_sent
         )

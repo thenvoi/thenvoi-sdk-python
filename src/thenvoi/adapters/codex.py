@@ -302,9 +302,7 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
                         continue
 
                     if event.method == "item/completed":
-                        item = (
-                            params.get("item") if isinstance(params, dict) else {}
-                        )
+                        item = params.get("item") if isinstance(params, dict) else {}
                         if (
                             isinstance(item, dict)
                             and item.get("type") == "agentMessage"
@@ -328,9 +326,7 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
                         event_turn_id = str(turn_payload.get("id") or "")
                         if turn_id and event_turn_id and event_turn_id != turn_id:
                             continue
-                        turn_status = str(
-                            turn_payload.get("status") or "failed"
-                        )
+                        turn_status = str(turn_payload.get("status") or "failed")
                         turn_error = self._extract_turn_error(turn_payload)
                         break
             except asyncio.TimeoutError:
@@ -346,9 +342,7 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
                             "turn/interrupt", {"turnId": turn_id}
                         )
                     except Exception:
-                        logger.warning(
-                            "Failed to send turn/interrupt after timeout"
-                        )
+                        logger.warning("Failed to send turn/interrupt after timeout")
                 turn_status = "interrupted"
                 turn_error = "Turn timed out"
 
@@ -1064,8 +1058,7 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
             # externalSandbox is only representable via sandboxPolicy on
             # turn/start; thread/start does not accept it.
             logger.debug(
-                "external-sandbox will be applied at turn level, "
-                "not on thread/start"
+                "external-sandbox will be applied at turn level, not on thread/start"
             )
             return
 
