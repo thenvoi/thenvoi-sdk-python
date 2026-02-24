@@ -6,7 +6,7 @@ Run a 3-agent team (Claude Code planner + Codex reviewer + Codex implementer) sh
 
 ```
 docker compose up
-├── claude-planner     (ClaudeCodeDesktopAdapter, Claude model)
+├── claude-planner     (ClaudeSDKAdapter, Claude model)
 │   └── Role: planner — designs plans, coordinates agents
 ├── codex-reviewer     (CodexAdapter, gpt-5.3-codex, reasoning: xhigh)
 │   └── Role: reviewer — reviews code, finds regressions
