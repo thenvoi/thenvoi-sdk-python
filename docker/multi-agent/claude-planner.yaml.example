@@ -1,0 +1,6 @@
+# Claude Code Planner Agent Configuration
+# Copy to claude-planner.yaml and fill in values from the Thenvoi platform.
+
+agent_id: ""    # Agent UUID from Thenvoi platform
+api_key: ""     # Agent-specific Thenvoi API key
+role: planner

@@ -809,7 +809,9 @@ class TestClaudeCodeDesktopOnMessage:
         # Should have captured session_id
         assert adapter._session_ids["room-123"] == "new-session-abc"
         # Should have sent the message
-        mock_tools.send_message.assert_called_once_with("Hi!", [])
+        mock_tools.send_message.assert_called_once_with(
+            "Hi!", [{"id": "user-456", "name": "Alice"}]
+        )
 
     @pytest.mark.asyncio
     async def test_on_message_resume(self, sample_message, mock_tools):

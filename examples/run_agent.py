@@ -447,6 +447,7 @@ async def run_codex_agent(
     codex_turn_task_markers: bool,
     codex_cwd: str,
     codex_sandbox: str | None,
+    codex_reasoning_effort: str | None,
     logger: logging.Logger,
 ):
     """Run the Codex app-server adapter."""
@@ -463,6 +464,7 @@ async def run_codex_agent(
             approval_policy=codex_approval_policy,
             approval_mode=codex_approval_mode,  # type: ignore[arg-type]
             sandbox=codex_sandbox,
+            reasoning_effort=codex_reasoning_effort,  # type: ignore[arg-type]
             codex_ws_url=codex_ws_url,
             custom_section=custom_section,
             include_base_instructions=True,
@@ -908,6 +910,12 @@ Examples:
         help="Working directory given to Codex app-server (default: current directory)",
     )
     parser.add_argument(
+        "--codex-reasoning-effort",
+        choices=["none", "minimal", "low", "medium", "high", "xhigh"],
+        default=None,
+        help="Codex reasoning effort level",
+    )
+    parser.add_argument(
         "--codex-sandbox",
         default=os.getenv("CODEX_SANDBOX", "external-sandbox"),
         help=(
@@ -1160,6 +1168,7 @@ Examples:
                 codex_turn_task_markers=args.codex_turn_task_markers,
                 codex_cwd=args.codex_cwd,
                 codex_sandbox=args.codex_sandbox,
+                codex_reasoning_effort=args.codex_reasoning_effort,
                 logger=logger,
             )
         elif args.example == "a2a":

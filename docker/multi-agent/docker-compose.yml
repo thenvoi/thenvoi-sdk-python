@@ -1,0 +1,134 @@
+# Multi-Agent Docker Compose: Claude SDK (planner) + Codex (reviewer, implementer)
+#
+# All three agents share /workspace/repo and connect to the Thenvoi platform.
+#
+# Usage:
+#   cp .env.example .env          # Configure credentials
+#   cp claude-planner.yaml.example claude-planner.yaml  # Configure planner agent
+#   docker compose build
+#   docker compose up -d
+#   docker compose logs -f
+
+x-codex: &codex-base
+  restart: unless-stopped
+  build:
+    context: ../..
+    dockerfile: docker/codex/Dockerfile
+  env_file:
+    - path: .env
+      required: false
+  environment: &codex-env-base
+    CODEX_TRANSPORT: stdio
+    CODEX_TURN_TASK_MARKERS: "false"
+    PYTHONPATH: /workspace/repo/src
+    THENVOI_REST_URL: ${THENVOI_REST_URL:-https://app.thenvoi.com}
+    THENVOI_WS_URL: ${THENVOI_WS_URL:-wss://app.thenvoi.com/api/v1/socket/websocket}
+    THENVOI_CLIENT_REST_WHEEL: ${THENVOI_CLIENT_REST_WHEEL:-}
+    PHOENIX_CHANNELS_CLIENT_WHEEL: ${PHOENIX_CHANNELS_CLIENT_WHEEL:-}
+  volumes: &codex-volumes
+    - ../../agent_config.yaml:/app/agent_config.yaml:ro
+    - ${REPO_PATH:-.}:/workspace/repo
+    - shared_notes:/workspace/notes
+    - ${HOME}/.codex:/home/codex/.codex
+    - ${HOME}/.config/gh:/home/codex/.config/gh
+    - ${HOME}/.ssh:/home/codex/.ssh:ro
+    - ${HOME}/.gitconfig:/home/codex/.gitconfig:ro
+    - ${THENVOI_CLIENT_REST_WHEEL_DIR:-/tmp/thenvoi-client-rest}:/opt/thenvoi-client-rest:ro
+    - ${PHOENIX_CHANNELS_CLIENT_WHEEL_DIR:-/tmp/phoenix-client}:/opt/phoenix-client:ro
+  extra_hosts:
+    - "host.docker.internal:host-gateway"
+  working_dir: /workspace/repo
+  stdin_open: true
+  tty: true
+
+services:
+  # ── Claude SDK planner ────────────────────────────────────────────────
+  claude-planner:
+    restart: unless-stopped
+    build:
+      context: ../..
+      dockerfile: examples/claude_sdk_docker/Dockerfile
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      AGENT_CONFIG: /app/config/claude-planner.yaml
+      AGENT_ROLE: planner
+      WORKSPACE: /workspace/repo
+      THENVOI_REST_URL: ${THENVOI_REST_URL:-https://app.thenvoi.com}
+      THENVOI_WS_URL: ${THENVOI_WS_URL:-wss://app.thenvoi.com/api/v1/socket/websocket}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+    volumes:
+      - ./claude-planner.yaml:/app/config/claude-planner.yaml:ro
+      - ./prompts:/app/config/prompts:ro
+      - ${REPO_PATH:-.}:/workspace/repo
+      - shared_notes:/workspace/notes
+      - shared_state:/workspace/state
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  # ── Codex reviewer ─────────────────────────────────────────────────────
+  codex-reviewer:
+    <<: *codex-base
+    environment:
+      <<: *codex-env-base
+      CODEX_CWD: /workspace/repo
+      CODEX_SANDBOX: ${CODEX_REVIEWER_SANDBOX:-external-sandbox}
+      CODEX_AGENT_KEY: ${CODEX_REVIEWER_AGENT_KEY:-reviewer}
+      CODEX_APPROVAL_MODE: ${CODEX_REVIEWER_APPROVAL_MODE:-manual}
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+    command:
+      - /app/.venv/bin/python
+      - examples/run_agent.py
+      - --example
+      - codex
+      - --agent
+      - ${CODEX_REVIEWER_AGENT_KEY:-reviewer}
+      - --codex-role
+      - reviewer
+      - --codex-transport
+      - stdio
+      - --codex-model
+      - ${CODEX_REVIEWER_MODEL:-gpt-5.3-codex}
+      - --codex-reasoning-effort
+      - ${CODEX_REVIEWER_REASONING_EFFORT:-xhigh}
+      - --codex-cwd
+      - /workspace/repo
+      - --codex-sandbox
+      - ${CODEX_REVIEWER_SANDBOX:-external-sandbox}
+      - --no-codex-turn-task-markers
+
+  # ── Codex implementer ──────────────────────────────────────────────────
+  codex-implementer:
+    <<: *codex-base
+    environment:
+      <<: *codex-env-base
+      CODEX_CWD: /workspace/repo
+      CODEX_SANDBOX: ${CODEX_IMPLEMENTER_SANDBOX:-external-sandbox}
+      CODEX_AGENT_KEY: ${CODEX_IMPLEMENTER_AGENT_KEY:-implementer}
+      CODEX_APPROVAL_MODE: ${CODEX_IMPLEMENTER_APPROVAL_MODE:-manual}
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+    command:
+      - /app/.venv/bin/python
+      - examples/run_agent.py
+      - --example
+      - codex
+      - --agent
+      - ${CODEX_IMPLEMENTER_AGENT_KEY:-implementer}
+      - --codex-role
+      - coding
+      - --codex-transport
+      - stdio
+      - --codex-model
+      - ${CODEX_IMPLEMENTER_MODEL:-gpt-5.3-codex}
+      - --codex-reasoning-effort
+      - ${CODEX_IMPLEMENTER_REASONING_EFFORT:-high}
+      - --codex-cwd
+      - /workspace/repo
+      - --codex-sandbox
+      - ${CODEX_IMPLEMENTER_SANDBOX:-external-sandbox}
+      - --no-codex-turn-task-markers
+
+volumes:
+  shared_notes:
+  shared_state:

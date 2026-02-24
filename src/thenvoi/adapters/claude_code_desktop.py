@@ -452,6 +452,7 @@ class ClaudeCodeDesktopAdapter(SimpleAdapter[str]):
         response: dict[str, Any],
         tools: AgentToolsProtocol,
         room_id: str,
+        msg: PlatformMessage | None = None,
     ) -> None:
         """
         Process CLI response and execute any actions.
@@ -460,8 +461,14 @@ class ClaudeCodeDesktopAdapter(SimpleAdapter[str]):
             response: Parsed CLI response
             tools: Agent tools for executing actions
             room_id: Room identifier
+            msg: Original platform message (used for fallback mentions)
         """
         result = response.get("result", "")
+        fallback_mentions: list[dict[str, str]] = []
+        if msg:
+            fallback_mentions = [
+                {"id": msg.sender_id, "name": msg.sender_name or msg.sender_type}
+            ]
 
         if response.get("is_error"):
             logger.error("Room %s: CLI returned error: %s", room_id, result)
@@ -476,14 +483,14 @@ class ClaudeCodeDesktopAdapter(SimpleAdapter[str]):
 
         if actions:
             for action_data in actions:
-                await self._execute_action(action_data, tools)
+                await self._execute_action(action_data, tools, fallback_mentions)
                 logger.debug(
                     "Room %s: Executed action '%s'", room_id, action_data.get("action")
                 )
         else:
             # No structured action, send as message
             if result.strip():
-                await tools.send_message(result.strip(), [])
+                await tools.send_message(result.strip(), fallback_mentions)
                 logger.debug("Room %s: Sent plain text response", room_id)
 
     def _extract_actions(self, result: str) -> list[dict[str, Any]]:
@@ -541,6 +548,7 @@ class ClaudeCodeDesktopAdapter(SimpleAdapter[str]):
         self,
         action_data: dict[str, Any],
         tools: AgentToolsProtocol,
+        fallback_mentions: list[dict[str, str]] | None = None,
     ) -> None:
         """
         Execute a parsed action.
@@ -548,13 +556,14 @@ class ClaudeCodeDesktopAdapter(SimpleAdapter[str]):
         Args:
             action_data: Action data with 'action' key
             tools: Agent tools for execution
+            fallback_mentions: Default mentions if action has none
         """
         action = action_data.get("action")
 
         try:
             if action == "send_message":
                 content = action_data.get("content", "")
-                mentions = action_data.get("mentions", [])
+                mentions = action_data.get("mentions") or fallback_mentions or []
                 await tools.send_message(content, mentions)
                 logger.info(
                     "Sent message: %s%s",
@@ -676,7 +685,7 @@ class ClaudeCodeDesktopAdapter(SimpleAdapter[str]):
                 logger.info("Room %s: Cost $%.4f", room_id, cost)
 
             # Process response (execute actions)
-            await self._process_response(response, tools, room_id)
+            await self._process_response(response, tools, room_id, msg)
 
         except Exception as e:
             logger.error("Error processing message: %s", e, exc_info=True)
