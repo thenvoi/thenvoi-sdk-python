@@ -79,7 +79,6 @@ a2a_gateway_demo = [
 ]
 bridge = [
     "aiohttp>=3.9,<4",      # Health check HTTP server
-    "python-dotenv>=1.0",    # Environment variable loading
 ]
 
 dev = [
@@ -116,7 +115,6 @@ dev = [
     "nest-asyncio>=1.6.0",  # Required for CrewAI adapter sync-to-async bridging
     # Include bridge deps for testing
     "aiohttp>=3.9,<4",
-    "python-dotenv>=1.0",
     # Development tools
     "pre-commit>=3.0.0",
     "ruff>=0.8.0",
