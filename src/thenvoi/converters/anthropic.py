@@ -122,6 +122,9 @@ def _patch_orphaned_tool_uses(messages: AnthropicMessages) -> None:
                 next_msg["content"].extend(synthetic_results)
             else:
                 # No result message at all — insert a new user message.
+                # The inserted message lands at i+1; the loop increments i
+                # to i+1 next, but the inserted msg has role "user" so it's
+                # skipped immediately, advancing to the original next message.
                 messages.insert(
                     i + 1,
                     {"role": "user", "content": synthetic_results},

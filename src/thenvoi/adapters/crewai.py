@@ -353,16 +353,11 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
         """
         if self.enable_execution_reporting:
             try:
-                if is_error:
-                    await tools.send_event(
-                        content=json.dumps({"tool": tool_name, "error": result}),
-                        message_type="tool_result",
-                    )
-                else:
-                    await tools.send_event(
-                        content=json.dumps({"tool": tool_name, "result": result}),
-                        message_type="tool_result",
-                    )
+                key = "error" if is_error else "result"
+                await tools.send_event(
+                    content=json.dumps({"tool": tool_name, key: result}),
+                    message_type="tool_result",
+                )
             except Exception:
                 logger.warning(
                     "Failed to report tool_result event for %s (non-fatal)",

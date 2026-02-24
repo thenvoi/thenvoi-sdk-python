@@ -402,4 +402,4 @@ class AnthropicAdapter(SimpleAdapter[AnthropicMessages]):
         try:
             await tools.send_event(content=f"Error: {error}", message_type="error")
         except Exception:
-            pass
+            logger.warning("Failed to report error event (non-fatal)")
