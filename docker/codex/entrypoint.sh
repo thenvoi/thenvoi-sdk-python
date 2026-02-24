@@ -52,7 +52,7 @@ if [[ ! -d "/workspace/repo" ]]; then
 fi
 
 # Configure git safe.directory for bind-mounted repos
-for dir in /workspace/repo ${GIT_SAFE_DIRS//,/ }; do
+for dir in /workspace/repo ${GIT_SAFE_DIRS:+${GIT_SAFE_DIRS//,/ }}; do
   [ -d "$dir" ] && git config --global --add safe.directory "$dir"
 done
 

@@ -932,40 +932,57 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
         }:
             summary = self._approval_summary(event.method, params)
             if self.config.approval_mode == "manual":
-                decision = await self._resolve_manual_approval(
-                    tools=tools,
-                    msg=msg,
-                    room_id=room_id,
-                    event=event,
-                    summary=summary,
-                    params=params,
-                )
+                try:
+                    decision = await self._resolve_manual_approval(
+                        tools=tools,
+                        msg=msg,
+                        room_id=room_id,
+                        event=event,
+                        summary=summary,
+                        params=params,
+                    )
+                except Exception:
+                    # Ensure we still answer the server request even if human-facing
+                    # notification fails.
+                    logger.exception(
+                        "Manual approval flow failed; defaulting to decline"
+                    )
+                    decision = "decline"
             else:
                 decision = (
                     "accept"
                     if self.config.approval_mode == "auto_accept"
                     else "decline"
                 )
-                if self.config.approval_text_notifications:
-                    mention = [
-                        {
-                            "id": msg.sender_id,
-                            "name": msg.sender_name or msg.sender_type,
-                        }
-                    ]
+            await self._client.respond(event.id, {"decision": decision})
+
+            if (
+                self.config.approval_mode != "manual"
+                and self.config.approval_text_notifications
+            ):
+                mention = [
+                    {
+                        "id": msg.sender_id,
+                        "name": msg.sender_name or msg.sender_type,
+                    }
+                ]
+                try:
                     await tools.send_message(
                         f"Approval requested ({summary}). Policy decision: {decision}.",
                         mentions=mention,
                     )
-
-            await self._client.respond(event.id, {"decision": decision})
+                except Exception:
+                    logger.exception("Failed to send approval policy notification")
 
             if self.config.emit_thought_events:
-                await tools.send_event(
-                    content=f"Codex approval request handled automatically ({decision}).",
-                    message_type="thought",
-                    metadata={"codex_approval_method": event.method},
-                )
+                try:
+                    await tools.send_event(
+                        content=f"Codex approval request handled automatically ({decision}).",
+                        message_type="thought",
+                        metadata={"codex_approval_method": event.method},
+                    )
+                except Exception:
+                    logger.exception("Failed to emit approval thought event")
             return False
 
         await self._client.respond_error(
@@ -1234,15 +1251,14 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
                 self.config.max_pending_approvals_per_room,
             )
         room_pending[token] = pending
-        await tools.send_message(
-            "Approval requested "
-            f"({summary}). Approval id: `{token}`. "
-            f"Reply `/approve {token}` or `/decline {token}`. "
-            "Use `/approvals` to list pending approvals.",
-            mentions=mention,
-        )
-
         try:
+            await tools.send_message(
+                "Approval requested "
+                f"({summary}). Approval id: `{token}`. "
+                f"Reply `/approve {token}` or `/decline {token}`. "
+                "Use `/approvals` to list pending approvals.",
+                mentions=mention,
+            )
             decision_raw = await asyncio.wait_for(
                 pending.future,
                 timeout=self.config.approval_wait_timeout_s,
@@ -1253,10 +1269,13 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
             return decision
         except asyncio.TimeoutError:
             timeout_decision = self.config.approval_timeout_decision
-            await tools.send_message(
-                f"Approval `{token}` timed out. Applied `{timeout_decision}`.",
-                mentions=mention,
-            )
+            try:
+                await tools.send_message(
+                    f"Approval `{token}` timed out. Applied `{timeout_decision}`.",
+                    mentions=mention,
+                )
+            except Exception:
+                logger.exception("Failed to send approval timeout notification")
             return timeout_decision
         finally:
             self._clear_pending_approval(room_id, token)
@@ -1440,7 +1459,7 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
                 return True
             lines = ["Pending approvals:"]
             now = datetime.now(timezone.utc)
-            for token, item in pending.items():
+            for token, item in list(pending.items()):
                 age_s = int((now - item.created_at).total_seconds())
                 lines.append(f"- {token}: {item.summary} ({age_s}s)")
             await tools.send_message("\n".join(lines), mentions=mention)
@@ -1795,20 +1814,28 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
     @staticmethod
     def _extract_local_command(content: str) -> tuple[str, str] | None:
         tokens = content.strip().split()
-        for idx, token in enumerate(tokens):
+        if not tokens:
+            return None
+        # Only look for a /command in the first few tokens (to allow for
+        # leading @mentions which the platform prepends) but not deep in
+        # the message body where a slash word is just prose.
+        _COMMANDS = {
+            "help",
+            "status",
+            "model",
+            "models",
+            "reasoning",
+            "approvals",
+            "approve",
+            "decline",
+        }
+        search_limit = min(len(tokens), 5)
+        for idx in range(search_limit):
+            token = tokens[idx]
             if not token.startswith("/") or len(token) == 1:
                 continue
             command = token[1:].lower()
-            if command not in {
-                "help",
-                "status",
-                "model",
-                "models",
-                "reasoning",
-                "approvals",
-                "approve",
-                "decline",
-            }:
+            if command not in _COMMANDS:
                 continue
             args = " ".join(tokens[idx + 1 :]).strip()
             return command, args

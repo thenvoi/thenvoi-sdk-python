@@ -34,6 +34,7 @@ x-codex: &codex-base
     - ../../agent_config.yaml:/app/agent_config.yaml:ro
     - ${REPO_PATH:-.}:/workspace/repo  # rw: codex agents need write access for code changes
     - shared_notes:/workspace/notes
+    - shared_state:/workspace/state
     - ${HOME}/.codex:/home/codex/.codex:ro
     - codex_sessions:/home/codex/.codex/sessions  # shared session state across agents
     - ${HOME}/.config/gh:/home/codex/.config/gh:ro
