@@ -16,11 +16,17 @@ Supports both OpenAI and Anthropic LLMs -- set either OPENAI_API_KEY or
 ANTHROPIC_API_KEY in your environment.
 
 Run with (from repo root):
+    # Default (auto-detects LLM from env, prefers Anthropic)
     uv run examples/arena/thinker_agent.py
+
+    # Explicit model
+    uv run examples/arena/thinker_agent.py --model claude-sonnet-4-6
+    uv run examples/arena/thinker_agent.py -m gpt-5.2
 """
 
 from __future__ import annotations
 
+import argparse
 import asyncio
 import logging
 import os
@@ -31,7 +37,7 @@ from langgraph.checkpoint.memory import InMemorySaver
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from arena.prompts import create_llm, generate_thinker_prompt
+from arena.prompts import create_llm, create_llm_by_name, generate_thinker_prompt
 
 from arena.setup_logging import setup_logging
 from thenvoi import Agent
@@ -41,12 +47,26 @@ from thenvoi.config import load_agent_config
 logger = logging.getLogger(__name__)
 
 
+def _parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Thinker agent for 20 Questions")
+    parser.add_argument(
+        "--model",
+        "-m",
+        default=None,
+        help="LLM model name (e.g. gpt-5.2, claude-sonnet-4-6). "
+        "If omitted, auto-detects from env vars.",
+    )
+    return parser.parse_args()
+
+
 async def main() -> None:
     load_dotenv()
+    args = _parse_args()
     setup_logging(agent_tag="thinker")
 
     logger.info("=" * 60)
     logger.info("THINKER AGENT STARTING")
+    logger.info("  model flag : %s", args.model or "(auto-detect)")
     logger.info("=" * 60)
 
     ws_url = os.getenv("THENVOI_WS_URL")
@@ -63,8 +83,11 @@ async def main() -> None:
     logger.info("  ws_url     : %s", ws_url)
     logger.info("  rest_url   : %s", rest_url)
 
-    # Select LLM based on available API keys
-    llm = create_llm()
+    # Select LLM: explicit model name or auto-detect from env
+    if args.model:
+        llm = create_llm_by_name(args.model)
+    else:
+        llm = create_llm()
     logger.info("  llm class  : %s", type(llm).__name__)
     logger.info(
         "  llm model  : %s",
