@@ -145,14 +145,16 @@ class GameManager:
             })
 
         # --- Start agent subprocesses ---
-        # Use `uv run` so each script resolves its own dependencies
-        # (sys.executable may not have langgraph etc. installed).
+        # Use `uv run python <script>` (not `uv run <script>`) so that the
+        # project's full venv is used.  Running `uv run <script>` triggers
+        # PEP 723 isolated-env resolution which misses langchain-anthropic
+        # and other extras not listed in the script's inline metadata.
         uv_bin = shutil.which("uv") or "uv"
         env = {**os.environ}
         processes: list[asyncio.subprocess.Process] = []
 
         thinker_cmd = [
-            uv_bin, "run",
+            uv_bin, "run", "python",
             str(REPO_ROOT / "examples" / "arena" / "thinker_agent.py"),
         ]
         if thinker_model:
@@ -170,7 +172,7 @@ class GameManager:
 
         for gc in guesser_configs:
             guesser_cmd = [
-                uv_bin, "run",
+                uv_bin, "run", "python",
                 str(REPO_ROOT / "examples" / "arena" / "guesser_agent.py"),
                 "--config", gc["key"],
                 "--model", gc["model"],
