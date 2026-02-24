@@ -66,6 +66,7 @@ class LangGraphAdapter(SimpleAdapter[LangChainMessages]):
         additional_tools: List[Any] | None = None,
         enable_memory_tools: bool = False,
         history_converter: LangChainHistoryConverter | None = None,
+        recursion_limit: int = 50,
     ):
         # Use default LangChain converter if not provided
         super().__init__(
@@ -102,6 +103,7 @@ class LangGraphAdapter(SimpleAdapter[LangChainMessages]):
         self.custom_section = custom_section
         self.additional_tools = additional_tools or []
         self.enable_memory_tools = enable_memory_tools
+        self.recursion_limit = recursion_limit
         self._system_prompt: str = ""
 
     async def on_started(self, agent_name: str, agent_description: str) -> None:
@@ -173,7 +175,10 @@ class LangGraphAdapter(SimpleAdapter[LangChainMessages]):
         try:
             async for event in graph.astream_events(
                 graph_input,
-                config={"configurable": {"thread_id": room_id}},
+                config={
+                    "configurable": {"thread_id": room_id},
+                    "recursion_limit": self.recursion_limit,
+                },
                 version="v2",
             ):
                 await self._handle_stream_event(event, room_id, tools)
