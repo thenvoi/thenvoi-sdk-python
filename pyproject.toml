@@ -77,6 +77,9 @@ a2a_gateway_demo = [
     "langchain-openai>=0.3.0",  # OpenAI model for LLM
     "click>=8.0.0",         # CLI for demo orchestrator
 ]
+bridge = [
+    "aiohttp>=3.9,<4",      # Health check HTTP server
+]
 
 dev = [
     "thenvoi-testing-python @ git+https://github.com/thenvoi/thenvoi-testing-python.git@thenvoi-testing-python-v0.1.1",
@@ -110,6 +113,8 @@ dev = [
     # Include crewai for testing
     "crewai>=0.80.0",
     "nest-asyncio>=1.6.0",  # Required for CrewAI adapter sync-to-async bridging
+    # Include bridge deps for testing
+    "aiohttp>=3.9,<4",
     # Development tools
     "pre-commit>=3.0.0",
     "ruff>=0.8.0",
@@ -135,6 +140,7 @@ addopts = "-v"
 project_excludes = [
     "tests/**",                 # Tests use mocks with duck typing
     "examples/**",              # Examples use local imports
+    "thenvoi-bridge/**",        # Standalone bridge app, not in src/ import root
 ]
 
 [tool.commitizen]
