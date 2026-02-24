@@ -476,11 +476,7 @@ def _build_codex_config() -> AdapterConfig:
 # a2a / a2a_gateway use the A2A protocol (Google Agent-to-Agent) which has a
 # fundamentally different lifecycle than framework adapters (no on_message /
 # on_cleanup contract), so they cannot share the same conformance tests.
-# claude_code_desktop invokes Claude Code CLI as a subprocess rather than
-# calling an LLM API, so it cannot share the standard conformance tests.
-ADAPTER_EXCLUDED_MODULES: frozenset[str] = frozenset(
-    {"a2a", "a2a_gateway", "claude_code_desktop"}
-)
+ADAPTER_EXCLUDED_MODULES: frozenset[str] = frozenset({"a2a", "a2a_gateway"})
 
 _ADAPTER_CONFIG_BUILDERS: list[Callable[[], AdapterConfig]] = [
     _build_anthropic_config,
