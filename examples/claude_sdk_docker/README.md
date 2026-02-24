@@ -91,6 +91,7 @@ docker compose up
 | `Dockerfile` | Docker image definition (builds from SDK source) |
 | `runner.py` | Agent runner script (reads YAML config) |
 | `tools/` | Custom tools for your agent |
+| `entrypoint.sh` | Container entrypoint (configures git safe.directory at runtime) |
 
 > **Note:** Environment variables are loaded from the root `.env` file. Copy `.env.example` to `.env` in the repository root.
 
@@ -148,4 +149,53 @@ docker compose up -d        # Start in background
 docker compose logs -f      # View logs
 docker compose down         # Stop
 docker compose restart      # Restart
+```
+
+## Mount Contract (NFR-007)
+
+Containers require the following mount points. The runner validates these at startup and fails with an actionable error if any are missing.
+
+| Mount Point | Purpose | Env Override | Access |
+|-------------|---------|--------------|--------|
+| `/workspace/repo` | Source code repository | `REPO_PATH` | rw |
+| `/workspace/notes` | Agent notes and scratch space | `NOTES_PATH` | rw |
+| `/workspace/state` | Agent state persistence | `STATE_PATH` | rw |
+
+The default `docker-compose.yml` provides all required mounts. If you customize volumes, ensure all three mount points are present.
+
+### Shared Workspace (Default)
+
+All agents share the same mounts. This is the simplest setup for multi-agent collaboration.
+
+Concurrency guidance for shared workspaces:
+- Designate one agent (typically the implementer) as the primary writer
+- Other agents should read code but coordinate changes via chat
+- Use Thenvoi messaging to coordinate file modifications between agents
+
+### Isolated Workspaces
+
+For isolated per-agent workspaces, override mounts per service using separate directories or git worktrees:
+
+```yaml
+services:
+  implementer:
+    <<: *agent-base
+    volumes:
+      - ./:/app/config:ro
+      - ${REPO_PATH:-.}/worktrees/implementer:/workspace/repo
+      - ./data/notes/implementer:/workspace/notes
+      - ./data/state/implementer:/workspace/state
+    environment:
+      AGENT_CONFIG: /app/config/implementer.yaml
+      WORKSPACE: /workspace/repo
+      GIT_SAFE_DIRS: /workspace/repo
+```
+
+### Additional Writable Roots (NFR-007c)
+
+The `GIT_SAFE_DIRS` environment variable accepts a comma-separated list of additional directories to mark as git-safe at container startup. Use this for worktree directories, clone targets, or other git repositories:
+
+```yaml
+environment:
+  GIT_SAFE_DIRS: /workspace/repo/worktrees/feature-branch,/workspace/repo/clones/upstream
 ```

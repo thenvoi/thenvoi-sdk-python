@@ -31,6 +31,13 @@ import yaml
 # Global flag for graceful shutdown
 _shutdown_event: asyncio.Event | None = None
 
+# Required mount points per SRS NFR-007
+REQUIRED_MOUNTS = [
+    "/workspace/repo",
+    "/workspace/notes",
+    "/workspace/state",
+]
+
 # Retry configuration for connection failures
 MAX_RETRIES = 5
 INITIAL_RETRY_DELAY = 1.0  # seconds
@@ -42,6 +49,21 @@ logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
 )
 logger = logging.getLogger(__name__)
+
+
+def validate_mounts() -> None:
+    """Validate required mount points exist (NFR-007a).
+
+    Raises ValueError with actionable message if any required mount is missing.
+    """
+    missing = [m for m in REQUIRED_MOUNTS if not Path(m).is_dir()]
+    if missing:
+        raise ValueError(
+            f"Missing required mount points: {missing}. "
+            "Ensure docker-compose.yml mounts: "
+            f"{', '.join(f'{m} (rw)' for m in REQUIRED_MOUNTS)}. "
+            "See README.md for mount contract details."
+        )
 
 
 def load_config(config_path: str) -> dict[str, Any]:
@@ -147,6 +169,9 @@ async def main() -> None:
         raise ValueError("THENVOI_WS_URL environment variable is empty")
     if not rest_url:
         raise ValueError("THENVOI_REST_URL environment variable is empty")
+
+    # Validate required mount points (NFR-007a)
+    validate_mounts()
 
     logger.info("Loading config from: %s", config_path)
     config = load_config(config_path)

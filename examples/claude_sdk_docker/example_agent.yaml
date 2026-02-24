@@ -24,5 +24,9 @@ prompt: |
 #   - calculator
 #   - get_time
 
+# Optional: working directory for the agent (default: /workspace/repo)
+# Can also be set via WORKSPACE environment variable
+# workspace: /workspace/repo
+
 # Optional: extended thinking
 # thinking_tokens: 10000

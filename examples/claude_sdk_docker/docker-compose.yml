@@ -1,8 +1,14 @@
 # Build:  docker compose build
 # Run:    docker compose up
 #
+# Mount contract (SRS NFR-007):
+#   /workspace/repo   - source code (rw)
+#   /workspace/notes  - agent notes (rw)
+#   /workspace/state  - agent state (rw)
+#
 # Set REPO_PATH in .env to mount a git repo into the containers.
-# All agents share the same workspace so they can collaborate on code.
+# All agents share the same mounts by default (shared workspace pattern).
+# For isolated workspaces, see README.md.
 
 x-agent: &agent-base
   build:
@@ -12,7 +18,11 @@ x-agent: &agent-base
   env_file: .env
   volumes:
     - ./:/app/config:ro
-    - ${REPO_PATH:-.}:/workspace
+    - ${REPO_PATH:-.}:/workspace/repo                # NFR-007: source code (rw)
+    - ${NOTES_PATH:-./data/notes}:/workspace/notes    # NFR-007: agent notes (rw)
+    - ${STATE_PATH:-./data/state}:/workspace/state    # NFR-007: agent state (rw)
+  environment:
+    WORKSPACE: /workspace/repo
   restart: unless-stopped
 
 services:
@@ -21,18 +31,18 @@ services:
     container_name: thenvoi-planner
     environment:
       AGENT_CONFIG: /app/config/planner.yaml
-      WORKSPACE: /workspace
+      WORKSPACE: /workspace/repo
 
   reviewer:
     <<: *agent-base
     container_name: thenvoi-reviewer
     environment:
       AGENT_CONFIG: /app/config/reviewer.yaml
-      WORKSPACE: /workspace
+      WORKSPACE: /workspace/repo
 
   implementer:
     <<: *agent-base
     container_name: thenvoi-implementer
     environment:
       AGENT_CONFIG: /app/config/implementer.yaml
-      WORKSPACE: /workspace
+      WORKSPACE: /workspace/repo

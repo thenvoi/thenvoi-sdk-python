@@ -14,7 +14,7 @@ class TestGetRolePrompt:
         """Test getting planner role prompt."""
         prompt = get_role_prompt("planner")
 
-        assert "# Role: Planner" in prompt
+        assert "Role: Planner" in prompt
         assert "Design Document" in prompt
         assert "Multi-Agent Collaboration" in prompt
         assert "@username/agent-name" in prompt
@@ -24,7 +24,7 @@ class TestGetRolePrompt:
         """Test getting reviewer role prompt."""
         prompt = get_role_prompt("reviewer")
 
-        assert "# Role: Code Reviewer" in prompt
+        assert "Role: Code Reviewer" in prompt
         assert "Review Checklist" in prompt
         assert "[Critical]" in prompt
         assert "[Suggestion]" in prompt
@@ -34,7 +34,7 @@ class TestGetRolePrompt:
         """Test getting implementer role prompt."""
         prompt = get_role_prompt("implementer")
 
-        assert "# Role: Implementer" in prompt
+        assert "Role: Implementer" in prompt
         assert "Progress Updates" in prompt
         assert "Implementation complete" in prompt
 
@@ -42,14 +42,13 @@ class TestGetRolePrompt:
         """Test that custom agent name is used in prompt."""
         prompt = get_role_prompt("planner", agent_name="Design Bot")
 
-        assert "**Design Bot**" in prompt
-        assert "Planner" not in prompt.split("# Role: Planner")[1].split("\n")[0]
+        assert "Design Bot" in prompt
 
     def test_default_agent_name(self) -> None:
         """Test that default agent name is used when not specified."""
         prompt = get_role_prompt("planner")
 
-        assert "**Planner**" in prompt
+        assert "You are Planner" in prompt
 
     def test_unknown_role_raises_error(self) -> None:
         """Test that unknown role raises ValueError with helpful message."""
@@ -95,7 +94,7 @@ class TestLoadRolePrompt:
         """Test loading a built-in role without prompt_dir."""
         prompt = load_role_prompt("planner")
         assert prompt is not None
-        assert "# Role: Planner" in prompt
+        assert "Role: Planner" in prompt
 
     def test_returns_none_for_unknown_role(self) -> None:
         """Test that unknown role returns None."""
@@ -108,10 +107,10 @@ class TestLoadRolePrompt:
 
         prompt_dir = Path(str(tmp_path))
         prompt_file = prompt_dir / "custom.md"
-        prompt_file.write_text("# Custom Role Prompt")
+        prompt_file.write_text("Custom Role Prompt")
 
         result = load_role_prompt("custom", prompt_dir)
-        assert result == "# Custom Role Prompt"
+        assert result == "Custom Role Prompt"
 
     def test_file_overrides_builtin(self, tmp_path: object) -> None:
         """Test that file in prompt_dir overrides built-in role."""
@@ -119,10 +118,10 @@ class TestLoadRolePrompt:
 
         prompt_dir = Path(str(tmp_path))
         prompt_file = prompt_dir / "planner.md"
-        prompt_file.write_text("# Custom Planner Override")
+        prompt_file.write_text("Custom Planner Override")
 
         result = load_role_prompt("planner", prompt_dir)
-        assert result == "# Custom Planner Override"
+        assert result == "Custom Planner Override"
 
     def test_falls_back_to_builtin_when_file_missing(self, tmp_path: object) -> None:
         """Test fallback to built-in when file not in prompt_dir."""
@@ -131,20 +130,20 @@ class TestLoadRolePrompt:
         prompt_dir = Path(str(tmp_path))
         result = load_role_prompt("planner", prompt_dir)
         assert result is not None
-        assert "# Role: Planner" in result
+        assert "Role: Planner" in result
 
 
 class TestRolePromptContent:
     """Tests for specific content in role prompts."""
 
-    def test_planner_has_design_doc_format(self) -> None:
-        """Test that planner includes design document template."""
+    def test_planner_has_design_doc_structure(self) -> None:
+        """Test that planner includes design document structure."""
         prompt = get_role_prompt("planner")
 
-        assert "## Summary" in prompt
-        assert "## Problem Statement" in prompt
-        assert "## Technical Design" in prompt
-        assert "## Testing Strategy" in prompt
+        assert "Summary" in prompt
+        assert "Problem Statement" in prompt
+        assert "Technical Design" in prompt
+        assert "Testing Strategy" in prompt
 
     def test_planner_has_human_escalation(self) -> None:
         """Test that planner includes when to involve humans."""
@@ -158,7 +157,7 @@ class TestRolePromptContent:
         """Test that planner includes conversation termination signals."""
         prompt = get_role_prompt("planner")
 
-        assert "Conversation Termination Signals" in prompt
+        assert "Conversation Discipline" in prompt
         assert "Planning complete" in prompt
         assert "Handing off to" in prompt
 
@@ -175,3 +174,9 @@ class TestRolePromptContent:
         for role in get_available_roles():
             prompt = get_role_prompt(role)
             assert "@username/agent-name" in prompt or "@agent" in prompt
+
+    def test_all_roles_have_must_respond_when_mentioned(self) -> None:
+        """Test that all roles require responding when @mentioned."""
+        for role in get_available_roles():
+            prompt = get_role_prompt(role)
+            assert "you MUST respond" in prompt

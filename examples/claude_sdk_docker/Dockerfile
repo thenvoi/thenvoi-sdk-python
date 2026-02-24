@@ -40,13 +40,17 @@ COPY examples/claude_sdk_docker/tools/ ./tools/
 RUN useradd -m -u 1000 appuser && \
     chown -R appuser:appuser /app
 
-# Mark /workspace as safe for git (bind mount may have different ownership)
-RUN git config --global --add safe.directory /workspace
+# Copy entrypoint script (runtime git safe.directory configuration)
+COPY examples/claude_sdk_docker/entrypoint.sh ./entrypoint.sh
+RUN chmod +x ./entrypoint.sh
 
 USER appuser
 
 # Config will be mounted at runtime
 VOLUME /app/config
+
+# Entrypoint configures git safe.directory at runtime for bind-mounted dirs
+ENTRYPOINT ["./entrypoint.sh"]
 
 # Run the agent runner
 CMD ["uv", "run", "--extra", "claude_sdk", "python", "runner.py"]
