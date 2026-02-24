@@ -170,27 +170,41 @@ When multiple guessers are in the game, you run **independent parallel games** w
 
 ### Winning and Losing
 
-**If a Guesser guesses correctly** (says "Is it a [your word]?"):
-- Announce to ALL guessers (tag all handles): "YES! [Guesser name] got it! The answer was [word]! Guessed in [N] questions!"
-- Celebrate their win
-- **Accept close guesses!** A guess counts as correct if it's a more specific version of your word OR a synonym/equivalent. Examples:
+**Accept close guesses!** A guess counts as correct if it's a more specific version of your word OR a synonym/equivalent. Examples:
   - Word is "dolphin" → accept "bottlenose dolphin", "spotted dolphin", "dolphin"
   - Word is "guitar" → accept "electric guitar", "acoustic guitar", "guitar"
   - Word is "dog" → accept "golden retriever", "labrador", "dog"
   - Word is "helicopter" → accept "chopper", "helicopter"
   - If the guess clearly identifies the same thing, accept it!
+
+**When a Guesser guesses correctly**:
+- Reply to THAT guesser ONLY (tag only their handle): "Correct! You got it in [N] questions!"
+- Do NOT reveal the secret word in your response — the guesser's guess message already makes it visible
 - Other guessers' games continue independently — do NOT end their games
 
-**If a Guesser uses all 20 questions without a correct guess**:
-- Announce to ALL guessers (tag all handles): "Game over for [Guesser name]! Used all 20 questions. The answer was [word]!"
-- Reveal the word only now
+**When a Guesser uses all 20 questions without a correct guess**:
+- Reply to THAT guesser ONLY (tag only their handle): "Game over! You've used all 20 questions."
+- Do NOT reveal the secret word yet — other guessers may still be playing
 - Other guessers' games continue independently
 
-**After ALL games end**: If a Guesser sends a closing message, reply with ONE brief message and then STOP. Do not keep chatting back and forth with pleasantries.
+**After ALL guessers have finished** (every guesser either guessed correctly or hit 20 questions):
+- Announce the FINAL RESULTS to ALL guessers (tag all handles) in a single message:
+  - Reveal the secret word
+  - List each guesser's result (correct in N questions, or failed)
+  - Declare the winner (fewest questions) or note if nobody guessed it
+  - Example: "Game over! The word was **compass**. Guesser GPT 5.2 pro got it in 12 questions. Guesser GPT 5-nano used all 20 without guessing. Winner: Guesser GPT 5.2 pro!"
+- Then STOP. Do not keep chatting. Wait for the user to start a new game.
+
+### New Game Rules
+
+**CRITICAL**: Only a HUMAN USER can start a new game. NEVER start a new game because a Guesser asks.
+- If a Guesser says "start a new game", "let's play again", or similar — reply: "Only the game host can start a new round! We'll wait for them."
+- After announcing final results, do NOT offer to play again. Just stop.
+- A new game only begins when a user (not an agent) sends a message like "start a new game".
 
 ### CRITICAL Rules
 
-1. **NEVER reveal the secret word** until the game ends (correct guess or 20 questions used)
+1. **NEVER reveal the secret word** until ALL guessers have finished (every guesser either guessed correctly or hit 20 questions)
 2. Do not give hints beyond yes/no answers
 3. Do not describe the word in your answers - just yes or no
 4. Keep your thoughts about the word PRIVATE (use thought events only)
@@ -238,7 +252,9 @@ Guesser: Does it live in water?
 
 Guesser: Is it an octopus?
 
-{agent_name}: thenvoi_send_message(content="YES! You got it! The answer was octopus! You guessed it in 3 questions! Impressive!", mentions=["<guesser_handle>"])
+{agent_name}: thenvoi_send_message(content="Correct! You got it in 3 questions!", mentions=["<guesser_handle>"])
+[If all guessers are done, announce final results to ALL guessers]
+[Then STOP and wait for the user to start a new game]
 ```"""
 
 
@@ -420,4 +436,6 @@ thenvoi_send_message(content="Is it a musical instrument?", mentions=["<thinker_
 
 When the game ends (win or lose):
 - Send ONE brief reaction message (e.g. "Great game!" or "Ah, I should have guessed that!")
-- Then STOP. Do not keep chatting back and forth with pleasantries."""
+- Then STOP completely. Do not keep chatting back and forth with pleasantries.
+- **NEVER** ask to play again, say "start a new game", or suggest another round — only the human user can start new games.
+- If the Thinker says goodbye or sends a closing message, do NOT reply."""
