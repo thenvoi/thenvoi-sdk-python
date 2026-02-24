@@ -21,6 +21,9 @@ Usage:
     uv run python examples/run_agent.py --example parlant
     uv run python examples/run_agent.py --example crewai
     uv run python examples/run_agent.py --example crewai --streaming  # Show tool calls
+    uv run python examples/run_agent.py --example codex
+    uv run python examples/run_agent.py --example codex --agent darter --codex-transport stdio
+    uv run python examples/run_agent.py --example codex --agent darter --codex-transport ws --codex-ws-url ws://127.0.0.1:8765
     uv run python examples/run_agent.py --example a2a --a2a-url http://localhost:10000  # A2A bridge
     uv run python examples/run_agent.py --example a2a_gateway              # A2A Gateway (exposes peers)
     uv run python examples/run_agent.py --example a2a_gateway --gateway-port 8080  # Custom port
@@ -428,6 +431,67 @@ async def run_crewai_agent(
     await agent.run()
 
 
+async def run_codex_agent(
+    agent_id: str,
+    api_key: str,
+    rest_url: str,
+    ws_url: str,
+    custom_section: str,
+    codex_transport: str,
+    codex_ws_url: str,
+    codex_model: str | None,
+    codex_role: str,
+    codex_personality: str,
+    codex_approval_policy: str,
+    codex_approval_mode: str,
+    codex_turn_task_markers: bool,
+    codex_cwd: str,
+    codex_sandbox: str | None,
+    logger: logging.Logger,
+):
+    """Run the Codex app-server adapter."""
+    from thenvoi.adapters import CodexAdapter
+    from thenvoi.adapters.codex import CodexAdapterConfig
+
+    adapter = CodexAdapter(
+        config=CodexAdapterConfig(
+            transport=codex_transport,  # type: ignore[arg-type]
+            cwd=codex_cwd,
+            model=codex_model,
+            role=codex_role,  # type: ignore[arg-type]
+            personality=codex_personality,  # type: ignore[arg-type]
+            approval_policy=codex_approval_policy,
+            approval_mode=codex_approval_mode,  # type: ignore[arg-type]
+            sandbox=codex_sandbox,
+            codex_ws_url=codex_ws_url,
+            custom_section=custom_section,
+            include_base_instructions=True,
+            enable_task_events=True,
+            emit_turn_task_markers=codex_turn_task_markers,
+            emit_thought_events=False,
+            fallback_send_agent_text=True,
+            experimental_api=True,
+        )
+    )
+
+    agent = Agent.create(
+        adapter=adapter,
+        agent_id=agent_id,
+        api_key=api_key,
+        ws_url=ws_url,
+        rest_url=rest_url,
+    )
+
+    logger.info(
+        "Starting Codex agent (transport=%s, role=%s, model=%s, cwd=%s)",
+        codex_transport,
+        codex_role,
+        codex_model or "auto",
+        codex_cwd,
+    )
+    await agent.run()
+
+
 async def run_pydantic_ai_contacts_agent(
     agent_id: str,
     api_key: str,
@@ -739,6 +803,10 @@ Examples:
   uv run python examples/run_agent.py --example parlant --streaming       # With tool visibility
   uv run python examples/run_agent.py --example crewai                    # CrewAI adapter
   uv run python examples/run_agent.py --example crewai --streaming        # With tool visibility
+  uv run python examples/run_agent.py --example codex                     # Codex app-server adapter
+  uv run python examples/run_agent.py --example codex --agent darter      # Run Codex as darter agent
+  uv run python examples/run_agent.py --example codex --codex-transport stdio
+  uv run python examples/run_agent.py --example codex --codex-transport ws --codex-ws-url ws://127.0.0.1:8765
   uv run python examples/run_agent.py --example a2a                       # A2A bridge (default: localhost:10000)
   uv run python examples/run_agent.py --example a2a --debug               # A2A with debug logging (context_id tracing)
   uv run python examples/run_agent.py --example a2a --a2a-url http://remote:8080  # A2A with custom URL
@@ -763,6 +831,7 @@ Examples:
             "claude_sdk",
             "parlant",
             "crewai",
+            "codex",
             "a2a",
             "a2a_gateway",
         ],
@@ -806,6 +875,65 @@ Examples:
         help="Enable tool call/result visibility for anthropic/claude_sdk/parlant/crewai (default: False)",
     )
     parser.add_argument(
+        "--codex-transport",
+        choices=["stdio", "ws"],
+        default="stdio",
+        help="Codex transport mode (default: stdio)",
+    )
+    parser.add_argument(
+        "--codex-ws-url",
+        default=os.getenv("CODEX_WS_URL", "ws://127.0.0.1:8765"),
+        help="Codex WebSocket URL when --codex-transport=ws",
+    )
+    parser.add_argument(
+        "--codex-role",
+        choices=["coding", "planner", "reviewer"],
+        default="coding",
+        help="Codex role profile (default: coding)",
+    )
+    parser.add_argument(
+        "--codex-personality",
+        choices=["friendly", "pragmatic", "none"],
+        default="pragmatic",
+        help="Codex personality (default: pragmatic)",
+    )
+    parser.add_argument(
+        "--codex-model",
+        default=None,
+        help="Codex model id override (default: auto-select via model/list)",
+    )
+    parser.add_argument(
+        "--codex-cwd",
+        default=os.getcwd(),
+        help="Working directory given to Codex app-server (default: current directory)",
+    )
+    parser.add_argument(
+        "--codex-sandbox",
+        default=os.getenv("CODEX_SANDBOX", "external-sandbox"),
+        help=(
+            "Optional Codex sandbox override. "
+            "Examples: external-sandbox, workspace-write, danger-full-access, "
+            "or legacy aliases like workspaceWrite."
+        ),
+    )
+    parser.add_argument(
+        "--codex-approval-policy",
+        default="never",
+        help="Codex approvalPolicy value (default: never)",
+    )
+    parser.add_argument(
+        "--codex-approval-mode",
+        choices=["manual", "auto_accept", "auto_decline"],
+        default="manual",
+        help="How adapter answers Codex approval requests (default: manual)",
+    )
+    parser.add_argument(
+        "--codex-turn-task-markers",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="Emit synthetic Codex turn started/completed task events (default: False)",
+    )
+    parser.add_argument(
         "--a2a-url",
         default=os.getenv("A2A_AGENT_URL", "http://localhost:10000"),
         help="URL of the remote A2A agent (default: http://localhost:10000 or A2A_AGENT_URL env var)",
@@ -846,6 +974,7 @@ Examples:
         "claude_sdk": "anthropic_agent",
         "parlant": "parlant_agent",
         "crewai": "crewai_agent",
+        "codex": "simple_agent",
         "a2a": "a2a_agent",
         "a2a_gateway": "a2a_gateway_agent",
     }
@@ -1012,6 +1141,25 @@ Examples:
                 model=model,
                 custom_section=args.custom_section,
                 enable_streaming=args.streaming,
+                logger=logger,
+            )
+        elif args.example == "codex":
+            await run_codex_agent(
+                agent_id=agent_id,
+                api_key=api_key,
+                rest_url=rest_url,
+                ws_url=ws_url,
+                custom_section=args.custom_section,
+                codex_transport=args.codex_transport,
+                codex_ws_url=args.codex_ws_url,
+                codex_model=args.codex_model,
+                codex_role=args.codex_role,
+                codex_personality=args.codex_personality,
+                codex_approval_policy=args.codex_approval_policy,
+                codex_approval_mode=args.codex_approval_mode,
+                codex_turn_task_markers=args.codex_turn_task_markers,
+                codex_cwd=args.codex_cwd,
+                codex_sandbox=args.codex_sandbox,
                 logger=logger,
             )
         elif args.example == "a2a":
