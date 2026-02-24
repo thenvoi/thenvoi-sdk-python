@@ -538,6 +538,114 @@ class TestCodexAdapter:
         assert "rm -rf tmp" in tools.messages_sent[0]["content"]
 
     @pytest.mark.asyncio
+    async def test_auto_approval_responds_even_if_notification_fails(self) -> None:
+        class FailingNotifyTools(ToolSchemaFakeTools):
+            async def send_message(
+                self, content: str, mentions: list[dict[str, str]] | None = None
+            ) -> Any:
+                raise RuntimeError("notification failed")
+
+        events = [
+            _event_request(
+                7,
+                "item/commandExecution/requestApproval",
+                {"command": "rm -rf tmp"},
+            ),
+            _event_notification(
+                "turn/completed",
+                {
+                    "turn": {
+                        "id": "turn-1",
+                        "status": "completed",
+                        "items": [],
+                        "error": None,
+                    }
+                },
+            ),
+        ]
+        fake_client = FakeCodexClient(events=events)
+        adapter = CodexAdapter(
+            config=CodexAdapterConfig(
+                transport="ws",
+                approval_mode="auto_decline",
+                approval_text_notifications=True,
+            ),
+            client_factory=lambda _config: fake_client,
+        )
+        tools = FailingNotifyTools()
+
+        await adapter.on_started("Codex Agent", "A coding agent")
+        await adapter.on_message(
+            make_platform_message(),
+            tools,
+            CodexSessionState(),
+            participants_msg=None,
+            contacts_msg=None,
+            is_session_bootstrap=True,
+            room_id="room-1",
+        )
+
+        assert fake_client.responses
+        response_id, payload = fake_client.responses[0]
+        assert response_id == 7
+        assert payload["decision"] == "decline"
+
+    @pytest.mark.asyncio
+    async def test_manual_approval_responds_with_decline_if_notification_fails(
+        self,
+    ) -> None:
+        class FailingNotifyTools(ToolSchemaFakeTools):
+            async def send_message(
+                self, content: str, mentions: list[dict[str, str]] | None = None
+            ) -> Any:
+                raise RuntimeError("notification failed")
+
+        events = [
+            _event_request(
+                7,
+                "item/commandExecution/requestApproval",
+                {"command": "rm -rf tmp"},
+            ),
+            _event_notification(
+                "turn/completed",
+                {
+                    "turn": {
+                        "id": "turn-1",
+                        "status": "completed",
+                        "items": [],
+                        "error": None,
+                    }
+                },
+            ),
+        ]
+        fake_client = FakeCodexClient(events=events)
+        adapter = CodexAdapter(
+            config=CodexAdapterConfig(
+                transport="ws",
+                approval_mode="manual",
+            ),
+            client_factory=lambda _config: fake_client,
+        )
+        tools = FailingNotifyTools()
+
+        await adapter.on_started("Codex Agent", "A coding agent")
+        await adapter.on_message(
+            make_platform_message(),
+            tools,
+            CodexSessionState(),
+            participants_msg=None,
+            contacts_msg=None,
+            is_session_bootstrap=True,
+            room_id="room-1",
+        )
+
+        assert fake_client.responses
+        response_id, payload = fake_client.responses[0]
+        assert response_id == 7
+        assert payload["decision"] == "decline"
+        assert "room-1" not in adapter._pending_approvals
+
+    @pytest.mark.asyncio
     async def test_cleanup_closes_client_when_last_room_removed(self) -> None:
         fake_client = FakeCodexClient(
             events=[

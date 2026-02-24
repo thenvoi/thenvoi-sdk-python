@@ -233,6 +233,27 @@ async def _build_client(
 
 
 @pytest.mark.asyncio
+async def test_websocket_client_connect_sets_large_max_size(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured_kwargs: dict[str, Any] = {}
+    fake_ws = FakeCodexWebSocket(scenario="basic")
+
+    async def fake_connect(*_args, **kwargs):
+        captured_kwargs.update(kwargs)
+        return fake_ws
+
+    monkeypatch.setattr("websockets.asyncio.client.connect", fake_connect)
+
+    client = CodexWebSocketClient(ws_url="ws://fake.local")
+    await client.connect()
+    try:
+        assert captured_kwargs.get("max_size") == 16 * 1024 * 1024
+    finally:
+        await client.close()
+
+
+@pytest.mark.asyncio
 async def test_websocket_client_basic_lifecycle(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

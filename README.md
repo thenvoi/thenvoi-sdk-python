@@ -267,7 +267,7 @@ Runtime chat commands (handled by adapter without starting a Codex turn):
 Current support matrix:
 - Attached folders: supported.
 - Local runtime: set `--codex-cwd` (or `CodexAdapterConfig.cwd`) to any host path Codex should work in.
-- Docker runtime: add extra `volumes` mounts in `docker/codex/docker-compose.yml` and point `CODEX_CWD` (or `--codex-cwd`) to that mounted path.
+- Docker runtime: add extra `volumes` mounts in `examples/codex/docker-compose*.yml` and point `CODEX_CWD` (or `--codex-cwd`) to that mounted path.
 - Custom prompts: supported.
 - CLI-level custom prompt: `--custom-section "..."` (appended to the selected role profile prompt).
 - Programmatic full prompt override: `CodexAdapterConfig.system_prompt` (replaces generated base+role prompt).
@@ -752,14 +752,14 @@ docker run --rm \
 
 ### Codex Docker Worker (Phase 2)
 
-Use the dedicated Codex image/service under `docker/codex/` after local stdio validation passes.
+Use production image assets under `docker/codex/` and run via compose examples under `examples/codex/`.
 
 ```bash
-# Build and run Codex-backed Thenvoi agent
-docker compose -f docker/codex/docker-compose.yml up --build codex-agent
+# Build and run a single Codex-backed Thenvoi agent
+docker compose -f examples/codex/docker-compose.yml up --build codex-agent
 
-# One-off smoke check inside container (git/gh/codex/workspace write)
-scripts/codex_docker_smoke.sh
+# One-off smoke check inside the running container
+docker compose -f examples/codex/docker-compose.yml exec codex-agent /app/docker/codex/smoke.sh
 ```
 
 Dependency modes:
@@ -772,7 +772,7 @@ Dependency modes:
 ```bash
 export THENVOI_CLIENT_REST_WHEEL_DIR=/Users/vlad/Documents/elixir/dist_rearch/fern/generated_sdk/dist
 export THENVOI_CLIENT_REST_WHEEL=/opt/thenvoi-client-rest/thenvoi_client_rest-0.0.1.dev6-py3-none-any.whl
-docker compose -f docker/codex/docker-compose.yml up --build codex-agent
+docker compose -f examples/codex/docker-compose.yml up --build codex-agent
 ```
 
 If you also need a local `phoenix-channels-python-client` build:
@@ -781,7 +781,7 @@ If you also need a local `phoenix-channels-python-client` build:
 export PHOENIX_CHANNELS_CLIENT_WHEEL_DIR=/path/to/phoenix-client/dist
 export PHOENIX_CHANNELS_CLIENT_WHEEL=/opt/phoenix-client
 # (optional: use /opt/phoenix-client/<wheel-file>.whl instead of directory)
-docker compose -f docker/codex/docker-compose.yml up --build codex-agent
+docker compose -f examples/codex/docker-compose.yml up --build codex-agent
 ```
 
 If you need both local wheels in one run:
@@ -791,8 +791,8 @@ export THENVOI_CLIENT_REST_WHEEL_DIR=/Users/vlad/Documents/elixir/dist_rearch/fe
 export THENVOI_CLIENT_REST_WHEEL=/opt/thenvoi-client-rest/thenvoi_client_rest-0.0.1.dev6-py3-none-any.whl
 export PHOENIX_CHANNELS_CLIENT_WHEEL_DIR=/Users/vlad/Documents/elixir/dist_rearch/phoenix-channels-python-client/dist
 export PHOENIX_CHANNELS_CLIENT_WHEEL=/opt/phoenix-client
-docker compose -f docker/codex/docker-compose.yml build --no-cache codex-agent
-docker compose -f docker/codex/docker-compose.yml up codex-agent
+docker compose -f examples/codex/docker-compose.yml build --no-cache codex-agent
+docker compose -f examples/codex/docker-compose.yml up codex-agent
 ```
 
 Expected host mounts:
@@ -802,44 +802,47 @@ Expected host mounts:
 
 Primary control files for identity/folders/permissions:
 - `agent_config.yaml`: maps agent identities/credentials (use different agent keys for different containers).
-- `docker/codex/docker-compose.yml`: controls mounted folders, network endpoints, sandbox mode, and runtime command.
-- `docker/codex/docker-compose.multi.yml`: ready-made dual-agent setup (`codex-darter` + `codex-reviewer`).
-- `docker/codex/docker-compose.plan-review.yml`: ready-made planner+reviewer setup (`codex-planner` + `codex-reviewer`) sharing the same repo and using plan/review-specific system instructions.
-- `docker/codex/.env.plan-review.example`: env template for planner/reviewer overrides.
+- `docker/codex/Dockerfile`: Codex runtime image.
+- `docker/codex/entrypoint.sh`: runtime setup and optional wheel installation.
+- `docker/codex/smoke.sh`: in-container smoke checks.
+- `examples/codex/docker-compose.yml`: single-agent Codex service.
+- `examples/codex/docker-compose.multi.yml`: ready-made dual-agent setup (`codex-darter` + `codex-reviewer`).
+- `examples/codex/docker-compose.plan-review.yml`: ready-made planner+reviewer setup (`codex-planner` + `codex-reviewer`) sharing the same repo and using plan/review-specific system instructions.
+- `examples/codex/.env.plan-review.example`: env template for planner/reviewer overrides.
 - `.env`: shared Thenvoi URLs and other environment defaults.
 
 Ready-made two-agent compose (recommended):
 ```bash
-docker compose -f docker/codex/docker-compose.multi.yml up --build
+docker compose -f examples/codex/docker-compose.multi.yml up --build
 ```
 
 Ready-made planner+reviewer compose:
 ```bash
-cp docker/codex/.env.plan-review.example .env.codex.plan-review
+cp examples/codex/.env.plan-review.example .env.codex.plan-review
 # edit .env.codex.plan-review if needed
-docker compose --env-file .env.codex.plan-review -f docker/codex/docker-compose.plan-review.yml up --build
+docker compose --env-file .env.codex.plan-review -f examples/codex/docker-compose.plan-review.yml up --build
 ```
 
 Run only one service from the multi file:
 ```bash
-docker compose -f docker/codex/docker-compose.multi.yml up --build codex-darter
-docker compose -f docker/codex/docker-compose.multi.yml up --build codex-reviewer
+docker compose -f examples/codex/docker-compose.multi.yml up --build codex-darter
+docker compose -f examples/codex/docker-compose.multi.yml up --build codex-reviewer
 ```
 
 Override identities/folders/sandbox per service:
 ```bash
 CODEX_DARTER_AGENT_KEY=darter CODEX_DARTER_CWD=/workspace/repo CODEX_DARTER_SANDBOX=external-sandbox \
   CODEX_REVIEWER_AGENT_KEY=reviewer CODEX_REVIEWER_CWD=/workspace/repo CODEX_REVIEWER_SANDBOX=external-sandbox \
-  docker compose -f docker/codex/docker-compose.multi.yml up --build
+  docker compose -f examples/codex/docker-compose.multi.yml up --build
 ```
 
 Ad-hoc alternative (single-service compose with explicit project names):
 ```bash
 CODEX_AGENT_KEY=darter CODEX_CWD=/workspace/repo CODEX_SANDBOX=external-sandbox \
-  docker compose -p codex-darter -f docker/codex/docker-compose.yml up --build codex-agent
+  docker compose -p codex-darter -f examples/codex/docker-compose.yml up --build codex-agent
 
 CODEX_AGENT_KEY=reviewer CODEX_CWD=/workspace/repo CODEX_SANDBOX=external-sandbox \
-  docker compose -p codex-reviewer -f docker/codex/docker-compose.yml up --build codex-agent
+  docker compose -p codex-reviewer -f examples/codex/docker-compose.yml up --build codex-agent
 ```
 
 Networking note:

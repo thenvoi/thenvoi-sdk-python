@@ -48,6 +48,7 @@ class CodexWebSocketClient(BaseJsonRpcClient):
         self._ws = await connect(
             self.ws_url,
             compression=None,
+            max_size=16 * 1024 * 1024,  # Codex can emit large JSON-RPC payloads.
             open_timeout=self._connect_timeout_s,
         )
         self._connected = True

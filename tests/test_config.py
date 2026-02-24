@@ -195,3 +195,33 @@ simple_agent:
     assert api_key == "test-key-abc"
     assert isinstance((agent_id, api_key), tuple)
     assert len((agent_id, api_key)) == 2
+
+
+def test_load_with_explicit_config_path(tmp_path):
+    """Should load keyed config when config_path is passed explicitly."""
+    config_path = tmp_path / "custom_config.yaml"
+    config_path.write_text("""
+reviewer:
+  agent_id: reviewer-123
+  api_key: reviewer-key
+    """)
+
+    agent_id, api_key = load_agent_config("reviewer", config_path=config_path)
+
+    assert agent_id == "reviewer-123"
+    assert api_key == "reviewer-key"
+
+
+def test_flat_format_fallback_with_explicit_config_path(tmp_path):
+    """Should fall back to flat YAML format when agent key is absent."""
+    config_path = tmp_path / "single_agent.yaml"
+    config_path.write_text("""
+agent_id: flat-agent-123
+api_key: flat-key-abc
+role: planner
+    """)
+
+    agent_id, api_key = load_agent_config("any_key", config_path=config_path)
+
+    assert agent_id == "flat-agent-123"
+    assert api_key == "flat-key-abc"

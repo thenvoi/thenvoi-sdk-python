@@ -48,6 +48,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ripgrep \
     && rm -rf /var/lib/apt/lists/*
 
+# Runtime entrypoint installs optional wheel overrides via `uv pip install`.
+RUN pip install --no-cache-dir uv
+
 WORKDIR /app
 
 # Copy Python venv and SDK source from builder.
