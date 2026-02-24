@@ -85,22 +85,53 @@ class ActiveGame:
     is_active: bool = True
 
 
+def _get_field(msg: dict[str, Any], snake: str, *alternatives: str) -> Any:
+    """Get a field by snake_case name, falling back to camelCase or alternatives."""
+    val = msg.get(snake)
+    if val is not None:
+        return val
+    # Try camelCase variant (e.g. sender_name -> senderName)
+    parts = snake.split("_")
+    camel = parts[0] + "".join(p.capitalize() for p in parts[1:])
+    val = msg.get(camel)
+    if val is not None:
+        return val
+    # Try explicit alternatives
+    for alt in alternatives:
+        val = msg.get(alt)
+        if val is not None:
+            return val
+    return None
+
+
 def _serialize_message_dict(msg: dict[str, Any]) -> dict[str, Any]:
-    """Convert a raw API message dict to a JSON-serializable dict."""
+    """Convert a raw API message dict to a JSON-serializable dict.
+
+    Handles both snake_case and camelCase field names from the API.
+    """
+    content = _get_field(msg, "content", "body", "text") or ""
+    sender_name = _get_field(msg, "sender_name", "senderName", "sender") or "Unknown"
+    msg_type = str(
+        _get_field(msg, "message_type", "messageType", "type") or "message"
+    )
+
     result: dict[str, Any] = {
-        "id": str(msg.get("id", "")),
-        "content": msg.get("content", "") or "",
-        "sender_name": msg.get("sender_name", "") or "Unknown",
-        "sender_id": str(msg.get("sender_id", "")),
-        "sender_type": str(msg.get("sender_type", "unknown")),
-        "message_type": str(msg.get("message_type", "message")),
-        "inserted_at": str(msg.get("inserted_at", "")),
+        "id": str(_get_field(msg, "id") or ""),
+        "content": content,
+        "sender_name": sender_name,
+        "sender_id": str(_get_field(msg, "sender_id", "senderId") or ""),
+        "sender_type": str(
+            _get_field(msg, "sender_type", "senderType") or "unknown"
+        ),
+        "message_type": msg_type,
+        "inserted_at": str(_get_field(msg, "inserted_at", "insertedAt") or ""),
     }
-    mentions = msg.get("mentions")
-    if mentions:
+    mentions = _get_field(msg, "mentions")
+    if mentions and isinstance(mentions, list):
         result["mentions"] = [
             {"id": str(m.get("id", "")), "name": m.get("name", "")}
             for m in mentions
+            if isinstance(m, dict)
         ]
     return result
 
@@ -285,7 +316,8 @@ class GameManager:
         if not game or not game.is_active:
             return []
 
-        url = f"{game.rest_url}/api/v1/me/chats/{game.chat_id}/messages"
+        base = game.rest_url.rstrip("/")
+        url = f"{base}/api/v1/me/chats/{game.chat_id}/messages"
         headers = {"X-API-Key": game.user_api_key}
 
         try:
@@ -310,10 +342,40 @@ class GameManager:
             logger.error("Poll %s: invalid JSON — %s", game_id, resp.text[:300])
             return []
 
-        messages: list[dict[str, Any]] = body.get("data", [])
+        # The API may return messages under "data" or at the top level
+        messages_raw = body.get("data")
+        if messages_raw is None:
+            # Fallback: body itself might be a list
+            if isinstance(body, list):
+                messages_raw = body
+            else:
+                # Try other common keys
+                messages_raw = body.get("messages", body.get("items", []))
+
+        if not isinstance(messages_raw, list):
+            logger.error(
+                "Poll %s: expected list of messages, got %s. body keys=%s",
+                game_id, type(messages_raw).__name__, list(body.keys()) if isinstance(body, dict) else "N/A",
+            )
+            return []
+
+        messages: list[dict[str, Any]] = messages_raw
         total = len(messages)
 
-        # Detailed log on first poll or when empty
+        # Detailed debug log on first poll to inspect API response structure
+        if len(game.seen_message_ids) == 0:
+            sample = messages[0] if messages else {}
+            logger.info(
+                "Poll %s [FIRST]: %d messages, body keys=%s, "
+                "sample msg keys=%s, sample=%s",
+                game_id,
+                total,
+                list(body.keys()) if isinstance(body, dict) else "N/A",
+                list(sample.keys()) if isinstance(sample, dict) else "N/A",
+                str(sample)[:300],
+            )
+
+        # Log on empty or normal
         if total == 0 and len(game.seen_message_ids) < 3:
             logger.warning(
                 "Poll %s: 0 messages from API (seen=%d). "
@@ -321,7 +383,7 @@ class GameManager:
                 game_id,
                 len(game.seen_message_ids),
                 resp.status_code,
-                list(body.keys()),
+                list(body.keys()) if isinstance(body, dict) else "N/A",
                 resp.text[:300],
             )
         else:
@@ -349,13 +411,14 @@ class GameManager:
         """Fetch all messages directly from the REST API (fresh call).
 
         Unlike poll_messages (used by SSE), this makes an independent HTTP
-        request each time — reliable for frontend REST polling.
+        request each time -- reliable for frontend REST polling.
         """
         game = self._games.get(game_id)
-        if not game:
+        if not game or not game.is_active:
             return []
 
-        url = f"{game.rest_url.rstrip('/')}/api/v1/me/chats/{game.chat_id}/messages"
+        base = game.rest_url.rstrip("/")
+        url = f"{base}/api/v1/me/chats/{game.chat_id}/messages"
         headers = {"X-API-Key": game.user_api_key}
 
         try:
@@ -365,8 +428,25 @@ class GameManager:
                 logger.error("fetch_messages %s: HTTP %d", game_id, resp.status_code)
                 return []
             body = resp.json()
-            messages: list[dict[str, Any]] = body.get("data", [])
-            serialized = [_serialize_message_dict(m) for m in messages]
+
+            # Handle multiple possible response shapes
+            messages_raw = body.get("data") if isinstance(body, dict) else None
+            if messages_raw is None:
+                if isinstance(body, list):
+                    messages_raw = body
+                elif isinstance(body, dict):
+                    messages_raw = body.get("messages", body.get("items", []))
+                else:
+                    messages_raw = []
+
+            if not isinstance(messages_raw, list):
+                logger.error(
+                    "fetch_messages %s: unexpected type %s",
+                    game_id, type(messages_raw).__name__,
+                )
+                return []
+
+            serialized = [_serialize_message_dict(m) for m in messages_raw]
             serialized.sort(key=lambda m: m["inserted_at"])
             return serialized
         except Exception:
