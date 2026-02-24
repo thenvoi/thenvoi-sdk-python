@@ -16,6 +16,7 @@ import sys
 from pathlib import Path
 
 from dotenv import load_dotenv
+from thenvoi_rest import AsyncRestClient
 from starlette.applications import Starlette
 from starlette.requests import Request
 from starlette.responses import HTMLResponse, JSONResponse, StreamingResponse
@@ -94,10 +95,14 @@ async def start_game(request: Request) -> JSONResponse:
 async def game_events(request: Request) -> StreamingResponse:
     """SSE endpoint — streams new messages for a running game."""
     game_id = request.path_params["game_id"]
+    logger.info("SSE connected for game %s", game_id)
 
     async def generate():
+        # Send initial heartbeat so the browser knows the connection is alive
+        yield f"event: heartbeat\ndata: {json.dumps({'game_id': game_id})}\n\n"
         while True:
             if await request.is_disconnected():
+                logger.info("SSE client disconnected for %s", game_id)
                 break
             game = manager._games.get(game_id)
             if not game or not game.is_active:
@@ -106,9 +111,15 @@ async def game_events(request: Request) -> StreamingResponse:
             try:
                 messages = await manager.poll_messages(game_id)
                 for msg in messages:
+                    logger.info(
+                        "SSE >> %s: [%s] %s",
+                        game_id, msg.get("sender_name"), msg.get("content", "")[:60],
+                    )
                     yield f"event: message\ndata: {json.dumps(msg)}\n\n"
             except Exception:
                 logger.exception("SSE poll error")
+            # Heartbeat every cycle to keep connection alive
+            yield ": heartbeat\n\n"
             await asyncio.sleep(2)
 
     return StreamingResponse(
@@ -119,9 +130,63 @@ async def game_events(request: Request) -> StreamingResponse:
 
 
 async def get_messages(request: Request) -> JSONResponse:
+    """Fresh API call each time — used by frontend REST polling."""
     game_id = request.path_params["game_id"]
-    msgs = await manager.get_all_messages(game_id)
+    msgs = await manager.fetch_messages(game_id)
     return JSONResponse({"messages": msgs})
+
+
+async def debug_poll(request: Request) -> JSONResponse:
+    """One-shot debug — hit /api/debug/poll to inspect raw REST response."""
+    import httpx
+
+    game = manager.current_game
+    if not game:
+        return JSONResponse({"error": "no active game"}, status_code=404)
+
+    base = game.rest_url.rstrip("/")
+    url = f"{base}/api/v1/me/chats/{game.chat_id}/messages"
+    headers = {"X-API-Key": game.user_api_key}
+
+    async with httpx.AsyncClient() as http:
+        raw = await http.get(url, headers=headers, params={"page_size": 10})
+
+    # Also try Fern client for comparison
+    fern_client = AsyncRestClient(
+        api_key=game.user_api_key, base_url=game.rest_url
+    )
+    try:
+        fern_resp = await fern_client.human_api_messages.list_my_chat_messages(
+            game.chat_id, page_size=10
+        )
+        fern_count = len(fern_resp.data) if fern_resp.data else 0
+        fern_error = None
+    except Exception as exc:
+        fern_count = 0
+        fern_error = f"{type(exc).__name__}: {exc}"
+
+    # Parse raw body for message count
+    raw_data_count = 0
+    try:
+        raw_json = raw.json()
+        raw_data_count = len(raw_json.get("data", []))
+    except Exception:
+        pass
+
+    return JSONResponse({
+        "game_id": game.game_id,
+        "chat_id": game.chat_id,
+        "rest_url": game.rest_url,
+        "api_url": url,
+        "api_key_prefix": game.user_api_key[:8] + "..." if game.user_api_key else "EMPTY",
+        "seen_count": len(game.seen_message_ids),
+        "all_messages_count": len(game.all_messages),
+        "raw_status": raw.status_code,
+        "raw_data_count": raw_data_count,
+        "raw_body": raw.text[:3000],
+        "fern_count": fern_count,
+        "fern_error": fern_error,
+    })
 
 
 async def stop_game(request: Request) -> JSONResponse:
@@ -158,6 +223,7 @@ app = Starlette(
         Route("/api/game/{game_id}/events", game_events),
         Route("/api/game/{game_id}/messages", get_messages),
         Route("/api/game/{game_id}/stop", stop_game, methods=["POST"]),
+        Route("/api/debug/poll", debug_poll),
         Mount("/static", app=StaticFiles(directory=str(STATIC_DIR)), name="static"),
     ],
     on_shutdown=[on_shutdown],

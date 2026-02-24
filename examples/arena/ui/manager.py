@@ -13,6 +13,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+import httpx
 from thenvoi_rest import AsyncRestClient, ChatMessageRequest, ParticipantRequest
 from thenvoi_rest.human_api_chats.types.create_my_chat_room_request_chat import (
     CreateMyChatRoomRequestChat,
@@ -84,21 +85,21 @@ class ActiveGame:
     is_active: bool = True
 
 
-def _serialize_message(msg: Any) -> dict[str, Any]:
-    """Convert a REST message object to a JSON-serializable dict."""
+def _serialize_message_dict(msg: dict[str, Any]) -> dict[str, Any]:
+    """Convert a raw API message dict to a JSON-serializable dict."""
     result: dict[str, Any] = {
-        "id": str(getattr(msg, "id", "")),
-        "content": getattr(msg, "content", "") or "",
-        "sender_name": getattr(msg, "sender_name", "") or "Unknown",
-        "sender_id": str(getattr(msg, "sender_id", "")),
-        "sender_type": str(getattr(msg, "sender_type", "unknown")),
-        "message_type": str(getattr(msg, "message_type", "message")),
-        "inserted_at": str(getattr(msg, "inserted_at", "")),
+        "id": str(msg.get("id", "")),
+        "content": msg.get("content", "") or "",
+        "sender_name": msg.get("sender_name", "") or "Unknown",
+        "sender_id": str(msg.get("sender_id", "")),
+        "sender_type": str(msg.get("sender_type", "unknown")),
+        "message_type": str(msg.get("message_type", "message")),
+        "inserted_at": str(msg.get("inserted_at", "")),
     }
-    mentions = getattr(msg, "mentions", None)
+    mentions = msg.get("mentions")
     if mentions:
         result["mentions"] = [
-            {"id": str(getattr(m, "id", "")), "name": getattr(m, "name", "")}
+            {"id": str(m.get("id", "")), "name": m.get("name", "")}
             for m in mentions
         ]
     return result
@@ -110,6 +111,13 @@ class GameManager:
     def __init__(self) -> None:
         self._games: dict[str, ActiveGame] = {}
         self._counter = 0
+        self._http: httpx.AsyncClient | None = None
+
+    async def _get_http(self) -> httpx.AsyncClient:
+        """Reusable httpx client for raw polling."""
+        if self._http is None or self._http.is_closed:
+            self._http = httpx.AsyncClient(timeout=15)
+        return self._http
 
     @property
     def current_game(self) -> ActiveGame | None:
@@ -233,17 +241,22 @@ class GameManager:
         thinker_name = thinker_p.name if thinker_p else "Thinker"
 
         mentions = [Mention(id=THINKER_AGENT_ID, name=thinker_name)]
+        guesser_names: list[str] = []
         for gc in guesser_configs:
             p = agents_map.get(gc["agent_id"])
             if p:
                 mentions.append(Mention(id=str(p.id), name=p.name))
+                guesser_names.append(p.name)
 
+        names_list = ", ".join(guesser_names)
         await client.human_api_messages.send_my_chat_message(
             chat_id,
             message=ChatMessageRequest(
                 content=(
                     f"@{thinker_name} start a new game of 20 questions "
-                    "with all the guessers in this room!"
+                    f"with {names_list}. "
+                    "These guessers are already in the room — do NOT "
+                    "look up or invite any other guessers."
                 ),
                 mentions=mentions,
             ),
@@ -263,33 +276,102 @@ class GameManager:
         return game
 
     async def poll_messages(self, game_id: str) -> list[dict[str, Any]]:
-        """Return newly seen messages for a game."""
+        """Return newly seen messages for a game using raw HTTP.
+
+        Uses httpx directly instead of the Fern client so we get full
+        visibility into the HTTP response (status, body) for debugging.
+        """
         game = self._games.get(game_id)
         if not game or not game.is_active:
             return []
 
-        client = AsyncRestClient(api_key=game.user_api_key, base_url=game.rest_url)
+        url = f"{game.rest_url}/api/v1/me/chats/{game.chat_id}/messages"
+        headers = {"X-API-Key": game.user_api_key}
 
         try:
-            resp = await client.human_api_messages.list_my_chat_messages(
-                game.chat_id, page_size=200
+            http = await self._get_http()
+            resp = await http.get(
+                url, headers=headers, params={"page_size": 200}
             )
         except Exception:
-            logger.exception("Poll error for game %s", game_id)
+            logger.exception("Poll HTTP error for game %s", game_id)
             return []
 
+        if resp.status_code != 200:
+            logger.error(
+                "Poll %s: HTTP %d — %s",
+                game_id, resp.status_code, resp.text[:500],
+            )
+            return []
+
+        try:
+            body = resp.json()
+        except Exception:
+            logger.error("Poll %s: invalid JSON — %s", game_id, resp.text[:300])
+            return []
+
+        messages: list[dict[str, Any]] = body.get("data", [])
+        total = len(messages)
+
+        # Detailed log on first poll or when empty
+        if total == 0 and len(game.seen_message_ids) < 3:
+            logger.warning(
+                "Poll %s: 0 messages from API (seen=%d). "
+                "HTTP %d, body keys=%s, body[:300]=%s",
+                game_id,
+                len(game.seen_message_ids),
+                resp.status_code,
+                list(body.keys()),
+                resp.text[:300],
+            )
+        else:
+            logger.info(
+                "Poll %s: %d total messages, %d already seen",
+                game_id, total, len(game.seen_message_ids),
+            )
+
         new_msgs: list[dict[str, Any]] = []
-        for msg in resp.data:
-            mid = str(getattr(msg, "id", ""))
-            if mid in game.seen_message_ids:
+        for msg in messages:
+            mid = str(msg.get("id", ""))
+            if not mid or mid in game.seen_message_ids:
                 continue
             game.seen_message_ids.add(mid)
-            serialized = _serialize_message(msg)
+            serialized = _serialize_message_dict(msg)
             new_msgs.append(serialized)
             game.all_messages.append(serialized)
 
+        if new_msgs:
+            logger.info("Poll %s: %d NEW messages", game_id, len(new_msgs))
         new_msgs.sort(key=lambda m: m["inserted_at"])
         return new_msgs
+
+    async def fetch_messages(self, game_id: str) -> list[dict[str, Any]]:
+        """Fetch all messages directly from the REST API (fresh call).
+
+        Unlike poll_messages (used by SSE), this makes an independent HTTP
+        request each time — reliable for frontend REST polling.
+        """
+        game = self._games.get(game_id)
+        if not game:
+            return []
+
+        url = f"{game.rest_url.rstrip('/')}/api/v1/me/chats/{game.chat_id}/messages"
+        headers = {"X-API-Key": game.user_api_key}
+
+        try:
+            http = await self._get_http()
+            resp = await http.get(url, headers=headers, params={"page_size": 200})
+            if resp.status_code != 200:
+                logger.error("fetch_messages %s: HTTP %d", game_id, resp.status_code)
+                return []
+            body = resp.json()
+            messages: list[dict[str, Any]] = body.get("data", [])
+            serialized = [_serialize_message_dict(m) for m in messages]
+            serialized.sort(key=lambda m: m["inserted_at"])
+            return serialized
+        except Exception:
+            logger.exception("fetch_messages error for %s", game_id)
+            return []
 
     async def get_all_messages(self, game_id: str) -> list[dict[str, Any]]:
         """Return all messages seen so far for a game."""
@@ -317,6 +399,8 @@ class GameManager:
         logger.info("Game %s stopped", game_id)
 
     async def stop_all(self) -> None:
-        """Stop every active game."""
+        """Stop every active game and close shared resources."""
         for gid in list(self._games):
             await self.stop_game(gid)
+        if self._http and not self._http.is_closed:
+            await self._http.aclose()
