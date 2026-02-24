@@ -100,10 +100,11 @@ def _patch_orphaned_tool_uses(messages: AnthropicMessages) -> None:
         orphaned_ids = tool_use_ids - matched_ids
 
         if orphaned_ids:
+            sorted_ids = sorted(orphaned_ids)
             logger.warning(
                 "Patching %d orphaned tool_use block(s): %s",
-                len(orphaned_ids),
-                orphaned_ids,
+                len(sorted_ids),
+                sorted_ids,
             )
             synthetic_results = [
                 {
@@ -112,7 +113,7 @@ def _patch_orphaned_tool_uses(messages: AnthropicMessages) -> None:
                     "content": "Error: tool execution was interrupted",
                     "is_error": True,
                 }
-                for uid in orphaned_ids
+                for uid in sorted_ids
             ]
 
             if matched_ids and next_msg is not None:
