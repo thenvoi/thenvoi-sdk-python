@@ -27,27 +27,23 @@ resolve_wheel_path() {
   echo "${value}"
 }
 
-if [[ -n "${THENVOI_CLIENT_REST_WHEEL:-}" ]]; then
-  thenvoi_wheel="$(resolve_wheel_path "${THENVOI_CLIENT_REST_WHEEL}")"
-  if [[ -f "${thenvoi_wheel}" ]]; then
-    echo "[codex-entrypoint] Installing local thenvoi-client-rest wheel: ${thenvoi_wheel}"
-    uv pip install --python /app/.venv/bin/python --force-reinstall "${thenvoi_wheel}"
+install_wheel() {
+  local env_name="$1" wheel_path="$2" label="$3"
+  # Treat whitespace-only values as unset
+  [[ -z "${wheel_path// /}" ]] && return 0
+  local resolved
+  resolved="$(resolve_wheel_path "$wheel_path")"
+  if [[ -f "$resolved" ]]; then
+    echo "[codex-entrypoint] Installing local $label wheel: $resolved"
+    uv pip install --python /app/.venv/bin/python --force-reinstall "$resolved"
   else
-    echo "[codex-entrypoint] THENVOI_CLIENT_REST_WHEEL is set but file does not exist: ${thenvoi_wheel}" >&2
+    echo "[codex-entrypoint] $env_name is set but file does not exist: $resolved" >&2
     exit 2
   fi
-fi
+}
 
-if [[ -n "${PHOENIX_CHANNELS_CLIENT_WHEEL:-}" ]]; then
-  phoenix_wheel="$(resolve_wheel_path "${PHOENIX_CHANNELS_CLIENT_WHEEL}")"
-  if [[ -f "${phoenix_wheel}" ]]; then
-    echo "[codex-entrypoint] Installing local phoenix client wheel: ${phoenix_wheel}"
-    uv pip install --python /app/.venv/bin/python --force-reinstall "${phoenix_wheel}"
-  else
-    echo "[codex-entrypoint] PHOENIX_CHANNELS_CLIENT_WHEEL is set but file does not exist: ${phoenix_wheel}" >&2
-    exit 2
-  fi
-fi
+install_wheel "THENVOI_CLIENT_REST_WHEEL" "${THENVOI_CLIENT_REST_WHEEL:-}" "thenvoi-client-rest"
+install_wheel "PHOENIX_CHANNELS_CLIENT_WHEEL" "${PHOENIX_CHANNELS_CLIENT_WHEEL:-}" "phoenix client"
 
 # Validate required workspace mount
 if [[ ! -d "/workspace/repo" ]]; then

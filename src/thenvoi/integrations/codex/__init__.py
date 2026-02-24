@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-from .stdio_client import (
+from .rpc_base import (
     CodexJsonRpcError,
-    CodexStdioClient,
     OverloadRetryPolicy,
     RpcEvent,
 )
+from .stdio_client import CodexStdioClient
 from .types import CodexSessionState
 from .websocket_client import CodexWebSocketClient
 

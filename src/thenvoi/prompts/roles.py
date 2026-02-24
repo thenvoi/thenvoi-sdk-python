@@ -23,9 +23,6 @@ from typing import Callable
 
 logger = logging.getLogger(__name__)
 
-# Role registry: name -> generator function
-ROLE_GENERATORS: dict[str, Callable[[str], str]] = {}
-
 # Shared conversation discipline injected into all role prompts.
 # Extracted so rules are consistent and cannot drift between roles.
 CONVERSATION_DISCIPLINE = """CRITICAL: Conversation Discipline
@@ -72,17 +69,6 @@ Use thenvoi_send_event(message_type="thought") for progress/status updates,
 not chat messages, unless a human explicitly requests a status summary."""
 
 
-def register_role(name: str) -> Callable[[Callable[[str], str]], Callable[[str], str]]:
-    """Decorator to register a role generator function."""
-
-    def decorator(func: Callable[[str], str]) -> Callable[[str], str]:
-        ROLE_GENERATORS[name] = func
-        return func
-
-    return decorator
-
-
-@register_role("planner")
 def generate_planner_prompt(agent_name: str = "Planner") -> str:
     """Generate planner role prompt for design docs and coordination."""
     return f"""Role: Planner
@@ -139,7 +125,6 @@ Best Practices:
 """
 
 
-@register_role("reviewer")
 def generate_reviewer_prompt(agent_name: str = "Reviewer") -> str:
     """Generate code reviewer role prompt."""
     return f"""Role: Code Reviewer
@@ -200,7 +185,6 @@ Best Practices:
 """
 
 
-@register_role("implementer")
 def generate_implementer_prompt(agent_name: str = "Implementer") -> str:
     """Generate implementer role prompt."""
     return f"""Role: Implementer
@@ -254,6 +238,14 @@ Best Practices:
 - Document: Update docs for any API changes
 - Ask Early: If blocked or uncertain, ask rather than guess
 """
+
+
+# Role registry: name -> generator function
+ROLE_GENERATORS: dict[str, Callable[[str], str]] = {
+    "planner": generate_planner_prompt,
+    "reviewer": generate_reviewer_prompt,
+    "implementer": generate_implementer_prompt,
+}
 
 
 def get_role_prompt(role: str, agent_name: str | None = None) -> str:

@@ -162,6 +162,20 @@ CREWAI_DEFAULTS = {
     "complex topics into understandable insights.",
 }
 
+# When --model is left at the default "openai:gpt-4o", these examples override
+# it to a framework-appropriate model. The user can always pass --model
+# explicitly to bypass this.
+_DEFAULT_MODELS: dict[str, str] = {
+    "pydantic_ai_contacts": "anthropic:claude-sonnet-4-5",
+    "contacts_auto": "anthropic:claude-sonnet-4-5",
+    "contacts_hub": "anthropic:claude-sonnet-4-5",
+    "contacts_broadcast": "anthropic:claude-sonnet-4-5",
+    "anthropic": "claude-sonnet-4-5-20250929",
+    "claude_sdk": "claude-sonnet-4-5-20250929",
+    "parlant": "gpt-4o",
+    "crewai": "gpt-4o",
+}
+
 CONTACTS_INSTRUCTIONS = """
 ## Contact Management Assistant
 
@@ -1029,6 +1043,12 @@ Examples:
             contact_config.broadcast_changes,
         )
 
+    # Resolve model: override the CLI default when the user hasn't
+    # explicitly chosen a model and the example needs a different one.
+    model = args.model
+    if model == "openai:gpt-4o" and args.example in _DEFAULT_MODELS:
+        model = _DEFAULT_MODELS[args.example]
+
     try:
         if args.example == "langgraph":
             await run_langgraph_agent(
@@ -1045,16 +1065,13 @@ Examples:
                 api_key=api_key,
                 rest_url=rest_url,
                 ws_url=ws_url,
-                model=args.model,
+                model=model,
                 custom_section=args.custom_section,
                 enable_streaming=args.streaming,
                 contact_config=contact_config,
                 logger=logger,
             )
         elif args.example == "pydantic_ai_contacts":
-            model = args.model
-            if model == "openai:gpt-4o":
-                model = "anthropic:claude-sonnet-4-5"
             await run_pydantic_ai_contacts_agent(
                 agent_id=agent_id,
                 api_key=api_key,
@@ -1064,9 +1081,6 @@ Examples:
                 logger=logger,
             )
         elif args.example == "contacts_auto":
-            model = args.model
-            if model == "openai:gpt-4o":
-                model = "anthropic:claude-sonnet-4-5"
             await run_contacts_auto_agent(
                 agent_id=agent_id,
                 api_key=api_key,
@@ -1076,9 +1090,6 @@ Examples:
                 logger=logger,
             )
         elif args.example == "contacts_hub":
-            model = args.model
-            if model == "openai:gpt-4o":
-                model = "anthropic:claude-sonnet-4-5"
             await run_contacts_hub_agent(
                 agent_id=agent_id,
                 api_key=api_key,
@@ -1088,9 +1099,6 @@ Examples:
                 logger=logger,
             )
         elif args.example == "contacts_broadcast":
-            model = args.model
-            if model == "openai:gpt-4o":
-                model = "anthropic:claude-sonnet-4-5"
             await run_contacts_broadcast_agent(
                 agent_id=agent_id,
                 api_key=api_key,
@@ -1100,10 +1108,6 @@ Examples:
                 logger=logger,
             )
         elif args.example == "anthropic":
-            # For Anthropic example, use claude model format if default model is still set
-            model = args.model
-            if model == "openai:gpt-4o":
-                model = "claude-sonnet-4-5-20250929"
             await run_anthropic_agent(
                 agent_id=agent_id,
                 api_key=api_key,
@@ -1116,10 +1120,6 @@ Examples:
                 logger=logger,
             )
         elif args.example == "claude_sdk":
-            # For Claude SDK example, use claude model format if default model is still set
-            model = args.model
-            if model == "openai:gpt-4o":
-                model = "claude-sonnet-4-5-20250929"
             await run_claude_sdk_agent(
                 agent_id=agent_id,
                 api_key=api_key,
@@ -1133,10 +1133,6 @@ Examples:
                 logger=logger,
             )
         elif args.example == "parlant":
-            # For Parlant example, use OpenAI model format
-            model = args.model
-            if model == "openai:gpt-4o":
-                model = "gpt-4o"
             await run_parlant_agent(
                 agent_id=agent_id,
                 api_key=api_key,
@@ -1148,10 +1144,6 @@ Examples:
                 logger=logger,
             )
         elif args.example == "crewai":
-            # For CrewAI example, use OpenAI model format
-            model = args.model
-            if model == "openai:gpt-4o":
-                model = "gpt-4o"
             await run_crewai_agent(
                 agent_id=agent_id,
                 api_key=api_key,
