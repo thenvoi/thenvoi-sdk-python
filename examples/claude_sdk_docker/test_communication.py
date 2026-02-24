@@ -47,7 +47,7 @@ async def main() -> None:
     reviewer = load_agent_config("reviewer.yaml")
     implementer = load_agent_config("implementer.yaml")
 
-    base_url = os.environ.get("THENVOI_REST_URL", "https://app.thenvoi.com/")
+    base_url = os.environ.get("THENVOI_REST_URL", "https://app.thenvoi.com")
 
     # Use planner as the "orchestrator" to create the room
     client = AsyncRestClient(api_key=planner["api_key"], base_url=base_url)

@@ -279,7 +279,7 @@ class ClaudeSDKAdapter(SimpleAdapter[ClaudeSDKSessionState]):
                 return _make_result({"status": "success", "message": "Message sent"})
 
             except Exception as e:
-                logger.error("send_message failed: %s", e, exc_info=True)
+                logger.exception("send_message failed: %s", e)
                 return _make_error(str(e))
 
         @tool(
@@ -303,7 +303,7 @@ class ClaudeSDKAdapter(SimpleAdapter[ClaudeSDKSessionState]):
                 return _make_result({"status": "success", "message": "Event sent"})
 
             except Exception as e:
-                logger.error("send_event failed: %s", e, exc_info=True)
+                logger.exception("send_event failed: %s", e)
                 return _make_error(str(e))
 
         @tool(
@@ -333,7 +333,7 @@ class ClaudeSDKAdapter(SimpleAdapter[ClaudeSDKSessionState]):
                 )
 
             except Exception as e:
-                logger.error("add_participant failed: %s", e, exc_info=True)
+                logger.exception("add_participant failed: %s", e)
                 return _make_error(str(e))
 
         @tool(
@@ -362,7 +362,7 @@ class ClaudeSDKAdapter(SimpleAdapter[ClaudeSDKSessionState]):
                 )
 
             except Exception as e:
-                logger.error("remove_participant failed: %s", e, exc_info=True)
+                logger.exception("remove_participant failed: %s", e)
                 return _make_error(str(e))
 
         @tool(
@@ -390,7 +390,7 @@ class ClaudeSDKAdapter(SimpleAdapter[ClaudeSDKSessionState]):
                 )
 
             except Exception as e:
-                logger.error("get_participants failed: %s", e, exc_info=True)
+                logger.exception("get_participants failed: %s", e)
                 return _make_error(str(e))
 
         @tool(
@@ -414,7 +414,7 @@ class ClaudeSDKAdapter(SimpleAdapter[ClaudeSDKSessionState]):
                 return _make_result({"status": "success", **result})
 
             except Exception as e:
-                logger.error("lookup_peers failed: %s", e, exc_info=True)
+                logger.exception("lookup_peers failed: %s", e)
                 return _make_error(str(e))
 
         @tool(
@@ -472,7 +472,7 @@ class ClaudeSDKAdapter(SimpleAdapter[ClaudeSDKSessionState]):
                 return _make_result({"status": "success", **result})
 
             except Exception as e:
-                logger.error("list_contacts failed: %s", e, exc_info=True)
+                logger.exception("list_contacts failed: %s", e)
                 return _make_error(str(e))
 
         @tool(
@@ -495,7 +495,7 @@ class ClaudeSDKAdapter(SimpleAdapter[ClaudeSDKSessionState]):
                 return _make_result({"status": "success", **result})
 
             except Exception as e:
-                logger.error("add_contact failed: %s", e, exc_info=True)
+                logger.exception("add_contact failed: %s", e)
                 return _make_error(str(e))
 
         @tool(
@@ -518,7 +518,7 @@ class ClaudeSDKAdapter(SimpleAdapter[ClaudeSDKSessionState]):
                 return _make_result({"status": "success", **result})
 
             except Exception as e:
-                logger.error("remove_contact failed: %s", e, exc_info=True)
+                logger.exception("remove_contact failed: %s", e)
                 return _make_error(str(e))
 
         @tool(
@@ -542,7 +542,7 @@ class ClaudeSDKAdapter(SimpleAdapter[ClaudeSDKSessionState]):
                 return _make_result({"status": "success", **result})
 
             except Exception as e:
-                logger.error("list_contact_requests failed: %s", e, exc_info=True)
+                logger.exception("list_contact_requests failed: %s", e)
                 return _make_error(str(e))
 
         @tool(
@@ -566,7 +566,7 @@ class ClaudeSDKAdapter(SimpleAdapter[ClaudeSDKSessionState]):
                 return _make_result({"status": "success", **result})
 
             except Exception as e:
-                logger.error("respond_contact_request failed: %s", e, exc_info=True)
+                logger.exception("respond_contact_request failed: %s", e)
                 return _make_error(str(e))
 
         # Memory management tools
@@ -615,7 +615,7 @@ class ClaudeSDKAdapter(SimpleAdapter[ClaudeSDKSessionState]):
                 return _make_result({"status": "success", **result})
 
             except Exception as e:
-                logger.error("list_memories failed: %s", e, exc_info=True)
+                logger.exception("list_memories failed: %s", e)
                 return _make_error(str(e))
 
         @tool(
@@ -660,7 +660,7 @@ class ClaudeSDKAdapter(SimpleAdapter[ClaudeSDKSessionState]):
                 return _make_result({"status": "success", **result})
 
             except Exception as e:
-                logger.error("store_memory failed: %s", e, exc_info=True)
+                logger.exception("store_memory failed: %s", e)
                 return _make_error(str(e))
 
         @tool(
@@ -682,7 +682,7 @@ class ClaudeSDKAdapter(SimpleAdapter[ClaudeSDKSessionState]):
                 return _make_result({"status": "success", **result})
 
             except Exception as e:
-                logger.error("get_memory failed: %s", e, exc_info=True)
+                logger.exception("get_memory failed: %s", e)
                 return _make_error(str(e))
 
         @tool(
@@ -704,7 +704,7 @@ class ClaudeSDKAdapter(SimpleAdapter[ClaudeSDKSessionState]):
                 return _make_result({"status": "success", **result})
 
             except Exception as e:
-                logger.error("supersede_memory failed: %s", e, exc_info=True)
+                logger.exception("supersede_memory failed: %s", e)
                 return _make_error(str(e))
 
         @tool(
@@ -726,7 +726,7 @@ class ClaudeSDKAdapter(SimpleAdapter[ClaudeSDKSessionState]):
                 return _make_result({"status": "success", **result})
 
             except Exception as e:
-                logger.error("archive_memory failed: %s", e, exc_info=True)
+                logger.exception("archive_memory failed: %s", e)
                 return _make_error(str(e))
 
         # Start with platform tools
@@ -941,7 +941,7 @@ class ClaudeSDKAdapter(SimpleAdapter[ClaudeSDKSessionState]):
             await self._process_response(client, room_id, tools)
 
         except Exception as e:
-            logger.error("Error processing message: %s", e, exc_info=True)
+            logger.exception("Error processing message: %s", e)
             await self._report_error(tools, str(e))
             raise
 

@@ -35,7 +35,7 @@ async def main() -> None:
     if not api_key:
         raise ValueError("THENVOI_API_KEY environment variable is required")
 
-    base_url = os.environ.get("THENVOI_REST_URL", "https://app.thenvoi.com/")
+    base_url = os.environ.get("THENVOI_REST_URL", "https://app.thenvoi.com")
 
     from thenvoi_rest import AsyncRestClient
     from thenvoi_rest.types import AgentRegisterRequest

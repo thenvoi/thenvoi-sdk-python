@@ -98,7 +98,7 @@ docker compose -f docker-compose.plan-review.yml up
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
 | `THENVOI_WS_URL` | Yes | `wss://app.thenvoi.com/...` | WebSocket URL |
-| `THENVOI_REST_URL` | Yes | `https://app.thenvoi.com/` | REST API URL |
+| `THENVOI_REST_URL` | Yes | `https://app.thenvoi.com` | REST API URL |
 | `REPO_PATH` | No | `../../` | Path to repository to mount |
 | `AGENT_CONFIG` | No | `/app/agent_config.yaml` | Config file path |
 | `AGENT_ROLE` | No | - | Override role from config |

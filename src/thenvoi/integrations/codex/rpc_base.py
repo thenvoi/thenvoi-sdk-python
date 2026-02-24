@@ -232,15 +232,18 @@ class BaseJsonRpcClient(ABC):
             if not future.done():
                 future.set_exception(error)
         self._pending.clear()
-        self._events.put_nowait(
-            RpcEvent(
-                kind="notification",
-                method="transport/closed",
-                params={"reason": reason},
-                id=None,
-                raw={"method": "transport/closed", "params": {"reason": reason}},
+        try:
+            self._events.put_nowait(
+                RpcEvent(
+                    kind="notification",
+                    method="transport/closed",
+                    params={"reason": reason},
+                    id=None,
+                    raw={"method": "transport/closed", "params": {"reason": reason}},
+                )
             )
-        )
+        except asyncio.QueueFull:
+            logger.warning("Event queue full; disconnect event dropped")
 
     async def _dispatch_rpc_message(self, text: str) -> None:
         """Parse a raw JSON-RPC text frame and route it."""

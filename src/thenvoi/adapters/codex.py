@@ -565,7 +565,7 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
         try:
             result = await self._client.request("model/list", {})
         except Exception:
-            logger.warning("model/list failed; using fallback model id")
+            logger.warning("model/list failed; using fallback model id", exc_info=True)
             return _DEFAULT_MODEL
 
         data = result.get("data") if isinstance(result, dict) else None

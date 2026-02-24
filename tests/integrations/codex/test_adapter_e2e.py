@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import time
 from collections import deque
 from datetime import datetime, timezone
 from typing import Any
@@ -264,13 +265,13 @@ async def test_manual_approval_resolved_by_out_of_band_approve_command() -> None
         )
     )
 
-    found = False
-    for _ in range(50):
+    start = time.monotonic()
+    while time.monotonic() - start < 2.0:
         if any("Approval id: `ap-1`" in msg["content"] for msg in tools.messages_sent):
-            found = True
             break
         await asyncio.sleep(0.01)
-    assert found, "Approval notification not sent within timeout"
+    else:
+        pytest.fail("Approval notification not sent within timeout")
 
     await adapter.on_event(
         _agent_input(
