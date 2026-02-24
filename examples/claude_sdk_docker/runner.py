@@ -89,7 +89,8 @@ def load_custom_tools(tools_dir: Path, config_dir: Path, tool_names: list[str]) 
         resolved_tools_dir.relative_to(resolved_config_dir.parent)
     except ValueError:
         logger.warning(
-            f"Tools directory {resolved_tools_dir} is outside allowed path, skipping"
+            "Tools directory %s is outside allowed path, skipping",
+            resolved_tools_dir,
         )
         return []
 
@@ -111,13 +112,13 @@ def load_custom_tools(tools_dir: Path, config_dir: Path, tool_names: list[str]) 
         # Filter to only requested tools, return as list
         return [tool_registry[name] for name in tool_names if name in tool_registry]
     except Exception as e:
-        logger.warning(f"Could not load custom tools: {e}")
+        logger.warning("Could not load custom tools: %s", e)
         return []
 
 
 def _handle_signal(sig: signal.Signals) -> None:
     """Handle shutdown signals (SIGTERM, SIGINT)."""
-    logger.info(f"Received {sig.name}, initiating graceful shutdown...")
+    logger.info("Received %s, initiating graceful shutdown...", sig.name)
     if _shutdown_event:
         _shutdown_event.set()
 
@@ -147,7 +148,7 @@ async def main() -> None:
     if not rest_url:
         raise ValueError("THENVOI_REST_URL environment variable is empty")
 
-    logger.info(f"Loading config from: {config_path}")
+    logger.info("Loading config from: %s", config_path)
     config = load_config(config_path)
 
     # Import here to allow early config validation
@@ -162,6 +163,9 @@ async def main() -> None:
     custom_prompt = config.get("prompt", "")
     thinking_tokens = config.get("thinking_tokens")
     tool_names = config.get("tools", [])
+
+    # Working directory for Claude Code (env overrides config)
+    workspace = os.environ.get("WORKSPACE") or config.get("workspace")
 
     # Get role from config or environment (env overrides config)
     role = os.environ.get("AGENT_ROLE") or config.get("role")
@@ -204,6 +208,7 @@ async def main() -> None:
         max_thinking_tokens=thinking_tokens,
         enable_execution_reporting=True,
         additional_tools=custom_tools if custom_tools else None,
+        cwd=workspace,
     )
 
     # Create agent
@@ -219,6 +224,8 @@ async def main() -> None:
     logger.info("Model: %s", model)
     if role:
         logger.info("Role: %s", role)
+    if workspace:
+        logger.info("Workspace: %s", workspace)
     if thinking_tokens:
         logger.info("Extended thinking: %s tokens", thinking_tokens)
     logger.info("Press Ctrl+C to stop")
@@ -260,12 +267,15 @@ async def main() -> None:
         except (ConnectionError, OSError) as e:
             retry_count += 1
             if retry_count > MAX_RETRIES:
-                logger.error(f"Max retries ({MAX_RETRIES}) exceeded, giving up")
+                logger.error("Max retries (%s) exceeded, giving up", MAX_RETRIES)
                 raise
 
             logger.warning(
-                f"Connection error: {e}. Retrying in {retry_delay:.1f}s "
-                f"(attempt {retry_count}/{MAX_RETRIES})"
+                "Connection error: %s. Retrying in %.1fs (attempt %s/%s)",
+                e,
+                retry_delay,
+                retry_count,
+                MAX_RETRIES,
             )
             await asyncio.sleep(retry_delay)
             # Exponential backoff with cap
@@ -280,7 +290,7 @@ async def main() -> None:
         if hasattr(agent, "close"):
             await agent.close()
     except Exception as e:
-        logger.warning(f"Error during agent cleanup: {e}")
+        logger.warning("Error during agent cleanup: %s", e)
     logger.info("Agent stopped")
 
 

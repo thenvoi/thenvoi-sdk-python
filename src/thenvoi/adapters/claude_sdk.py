@@ -111,6 +111,7 @@ class ClaudeSDKAdapter(SimpleAdapter[str]):
         enable_memory_tools: bool = False,
         history_converter: ClaudeSDKHistoryConverter | None = None,
         additional_tools: list[CustomToolDef] | None = None,
+        cwd: str | None = None,
     ):
         """
         Initialize the Claude SDK adapter.
@@ -126,6 +127,8 @@ class ClaudeSDKAdapter(SimpleAdapter[str]):
             history_converter: Optional custom history converter
             additional_tools: Optional list of custom tools as (PydanticModel, callable)
                 tuples. These are converted to MCP tools internally.
+            cwd: Working directory for Claude Code sessions. If set, Claude Code
+                will operate in this directory (e.g., a mounted git repo).
         """
         super().__init__(
             history_converter=history_converter or ClaudeSDKHistoryConverter()
@@ -137,6 +140,7 @@ class ClaudeSDKAdapter(SimpleAdapter[str]):
         self.permission_mode: ClaudeSDKAdapter.PermissionMode = permission_mode
         self.enable_execution_reporting = enable_execution_reporting
         self.enable_memory_tools = enable_memory_tools
+        self.cwd = cwd
 
         # Session manager and MCP server (created after start)
         self._session_manager: ClaudeSessionManager | None = None
@@ -190,6 +194,10 @@ class ClaudeSDKAdapter(SimpleAdapter[str]):
         # Add extended thinking if configured
         if self.max_thinking_tokens:
             sdk_options.max_thinking_tokens = self.max_thinking_tokens
+
+        # Set working directory if configured
+        if self.cwd:
+            sdk_options.cwd = self.cwd
 
         # Create session manager
         self._session_manager = ClaudeSessionManager(sdk_options)

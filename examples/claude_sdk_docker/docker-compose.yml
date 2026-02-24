@@ -1,25 +1,38 @@
 # Build:  docker compose build
 # Run:    docker compose up
+#
+# Set REPO_PATH in .env to mount a git repo into the containers.
+# All agents share the same workspace so they can collaborate on code.
 
 x-agent: &agent-base
   build:
     context: ../..
     dockerfile: examples/claude_sdk_docker/Dockerfile
   image: thenvoi-claude-sdk:latest
-  env_file: ../../.env
+  env_file: .env
   volumes:
     - ./:/app/config:ro
+    - ${REPO_PATH:-.}:/workspace
   restart: unless-stopped
 
 services:
-  agent1:
+  planner:
     <<: *agent-base
-    container_name: thenvoi-agent1
+    container_name: thenvoi-planner
     environment:
-      AGENT_CONFIG: /app/config/agent1.yaml
+      AGENT_CONFIG: /app/config/planner.yaml
+      WORKSPACE: /workspace
 
-  # Add more agents:
-  # agent2:
-  #   <<: *agent-base
-  #   environment:
-  #     AGENT_CONFIG: /app/config/agent2.yaml
+  reviewer:
+    <<: *agent-base
+    container_name: thenvoi-reviewer
+    environment:
+      AGENT_CONFIG: /app/config/reviewer.yaml
+      WORKSPACE: /workspace
+
+  implementer:
+    <<: *agent-base
+    container_name: thenvoi-implementer
+    environment:
+      AGENT_CONFIG: /app/config/implementer.yaml
+      WORKSPACE: /workspace

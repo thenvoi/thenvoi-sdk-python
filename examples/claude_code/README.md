@@ -102,6 +102,7 @@ docker compose -f docker-compose.plan-review.yml up
 | `REPO_PATH` | No | `../../` | Path to repository to mount |
 | `AGENT_CONFIG` | No | `/app/agent_config.yaml` | Config file path |
 | `AGENT_ROLE` | No | - | Override role from config |
+| `PROMPT_DIR` | No | `/prompts` | Directory for role prompt files |
 | `GITHUB_TOKEN` | No | - | GitHub token for git operations |
 
 ## Tools Available
@@ -125,7 +126,7 @@ docker compose exec planner claude --version
 
 ### Permission denied
 
-The container runs as `appuser` (UID 1000). Ensure mounted directories match the container user:
+The container runs as `node` (UID 1000). Ensure mounted directories match the container user:
 ```bash
 chown -R 1000:1000 workspace/notes
 ```

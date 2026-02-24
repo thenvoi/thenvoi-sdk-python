@@ -39,6 +39,10 @@ COPY examples/claude_sdk_docker/tools/ ./tools/
 # Create non-root user for security
 RUN useradd -m -u 1000 appuser && \
     chown -R appuser:appuser /app
+
+# Mark /workspace as safe for git (bind mount may have different ownership)
+RUN git config --global --add safe.directory /workspace
+
 USER appuser
 
 # Config will be mounted at runtime
