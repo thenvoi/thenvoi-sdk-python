@@ -45,39 +45,20 @@ from thenvoi.runtime.custom_tools import (
     execute_custom_tool,
     get_custom_tool_name,
 )
-from thenvoi.runtime.tools import get_tool_description
+from thenvoi.runtime.tools import (
+    BASE_TOOL_NAMES,
+    MEMORY_TOOL_NAMES,
+    get_tool_description,
+    mcp_tool_names,
+)
 
 logger = logging.getLogger(__name__)
 
 
 # Tool names as constants (MCP naming convention: mcp__{server}__{tool})
-# Base platform tools (always included)
-THENVOI_BASE_TOOLS = [
-    "mcp__thenvoi__thenvoi_send_message",
-    "mcp__thenvoi__thenvoi_send_event",
-    "mcp__thenvoi__thenvoi_add_participant",
-    "mcp__thenvoi__thenvoi_remove_participant",
-    "mcp__thenvoi__thenvoi_get_participants",
-    "mcp__thenvoi__thenvoi_lookup_peers",
-    "mcp__thenvoi__thenvoi_create_chatroom",
-    # Contact management tools
-    "mcp__thenvoi__thenvoi_list_contacts",
-    "mcp__thenvoi__thenvoi_add_contact",
-    "mcp__thenvoi__thenvoi_remove_contact",
-    "mcp__thenvoi__thenvoi_list_contact_requests",
-    "mcp__thenvoi__thenvoi_respond_contact_request",
-]
-
-# Memory management tools (enterprise only - opt-in)
-THENVOI_MEMORY_TOOLS = [
-    "mcp__thenvoi__thenvoi_list_memories",
-    "mcp__thenvoi__thenvoi_store_memory",
-    "mcp__thenvoi__thenvoi_get_memory",
-    "mcp__thenvoi__thenvoi_supersede_memory",
-    "mcp__thenvoi__thenvoi_archive_memory",
-]
-
-# All tools combined (for backwards compatibility)
+# Derived from TOOL_MODELS — single source of truth
+THENVOI_BASE_TOOLS = mcp_tool_names(BASE_TOOL_NAMES)
+THENVOI_MEMORY_TOOLS = mcp_tool_names(MEMORY_TOOL_NAMES)
 THENVOI_TOOLS = THENVOI_BASE_TOOLS + THENVOI_MEMORY_TOOLS
 
 

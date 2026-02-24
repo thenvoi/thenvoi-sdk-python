@@ -287,13 +287,29 @@ TOOL_MODELS: dict[str, type[BaseModel]] = {
 }
 
 # Memory tools - optional, only available for enterprise customers
-MEMORY_TOOL_NAMES: set[str] = {
-    "thenvoi_list_memories",
-    "thenvoi_store_memory",
-    "thenvoi_get_memory",
-    "thenvoi_supersede_memory",
-    "thenvoi_archive_memory",
-}
+MEMORY_TOOL_NAMES: frozenset[str] = frozenset(
+    {
+        "thenvoi_list_memories",
+        "thenvoi_store_memory",
+        "thenvoi_get_memory",
+        "thenvoi_supersede_memory",
+        "thenvoi_archive_memory",
+    }
+)
+
+# Derived from TOOL_MODELS — single source of truth
+ALL_TOOL_NAMES: frozenset[str] = frozenset(TOOL_MODELS.keys())
+BASE_TOOL_NAMES: frozenset[str] = ALL_TOOL_NAMES - MEMORY_TOOL_NAMES
+CONTACT_TOOL_NAMES: frozenset[str] = frozenset(
+    name for name in ALL_TOOL_NAMES if "contact" in name
+)
+CHAT_TOOL_NAMES: frozenset[str] = BASE_TOOL_NAMES - CONTACT_TOOL_NAMES
+MCP_TOOL_PREFIX = "mcp__thenvoi__"
+
+
+def mcp_tool_names(names: frozenset[str] | set[str]) -> list[str]:
+    """Convert base tool names to MCP-prefixed names for Claude SDK."""
+    return [f"{MCP_TOOL_PREFIX}{name}" for name in sorted(names)]
 
 
 def get_tool_description(name: str) -> str:

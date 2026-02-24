@@ -27,6 +27,8 @@ except ImportError as e:
         "Or: uv add claude-agent-sdk"
     ) from e
 
+from thenvoi.runtime.tools import CHAT_TOOL_NAMES, mcp_tool_names
+
 logger = logging.getLogger(__name__)
 
 
@@ -418,12 +420,5 @@ def create_thenvoi_mcp_server(agent: Any):
 
 
 # Tool names as constants (MCP naming convention: mcp__{server}__{tool})
-THENVOI_TOOLS = [
-    "mcp__thenvoi__thenvoi_send_message",
-    "mcp__thenvoi__thenvoi_send_event",
-    "mcp__thenvoi__thenvoi_add_participant",
-    "mcp__thenvoi__thenvoi_remove_participant",
-    "mcp__thenvoi__thenvoi_get_participants",
-    "mcp__thenvoi__thenvoi_lookup_peers",
-    "mcp__thenvoi__thenvoi_create_chatroom",
-]
+# Derived from TOOL_MODELS — single source of truth (chat tools only, no contacts/memory)
+THENVOI_TOOLS = mcp_tool_names(CHAT_TOOL_NAMES)
