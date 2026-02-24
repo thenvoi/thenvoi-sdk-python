@@ -63,9 +63,7 @@ def _patch_orphaned_tool_uses(messages: AnthropicMessages) -> None:
     i = 0
     while i < len(messages):
         msg = messages[i]
-        if msg.get("role") != "assistant" or not isinstance(
-            msg.get("content"), list
-        ):
+        if msg.get("role") != "assistant" or not isinstance(msg.get("content"), list):
             i += 1
             continue
 

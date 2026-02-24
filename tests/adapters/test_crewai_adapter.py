@@ -629,7 +629,6 @@ class TestExecutionReporting:
 
         assert mock_tools.send_event.call_count >= 2
 
-
     @pytest.mark.asyncio
     async def test_report_tool_call_403_does_not_crash(
         self, CrewAIAdapter, crewai_mocks, mock_tools
