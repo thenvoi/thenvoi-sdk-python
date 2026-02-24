@@ -324,12 +324,21 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
         tool_name: str,
         input_data: dict[str, Any],
     ) -> None:
-        """Report tool call event if execution reporting is enabled."""
+        """Report tool call event if execution reporting is enabled.
+
+        Best-effort: event reporting must never crash tool execution.
+        """
         if self.enable_execution_reporting:
-            await tools.send_event(
-                content=json.dumps({"tool": tool_name, "input": input_data}),
-                message_type="tool_call",
-            )
+            try:
+                await tools.send_event(
+                    content=json.dumps({"tool": tool_name, "input": input_data}),
+                    message_type="tool_call",
+                )
+            except Exception:
+                logger.warning(
+                    "Failed to report tool_call event for %s (non-fatal)",
+                    tool_name,
+                )
 
     async def _report_tool_result(
         self,
@@ -338,17 +347,26 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
         result: Any,
         is_error: bool = False,
     ) -> None:
-        """Report tool result event if execution reporting is enabled."""
+        """Report tool result event if execution reporting is enabled.
+
+        Best-effort: event reporting must never crash tool execution.
+        """
         if self.enable_execution_reporting:
-            if is_error:
-                await tools.send_event(
-                    content=json.dumps({"tool": tool_name, "error": result}),
-                    message_type="tool_result",
-                )
-            else:
-                await tools.send_event(
-                    content=json.dumps({"tool": tool_name, "result": result}),
-                    message_type="tool_result",
+            try:
+                if is_error:
+                    await tools.send_event(
+                        content=json.dumps({"tool": tool_name, "error": result}),
+                        message_type="tool_result",
+                    )
+                else:
+                    await tools.send_event(
+                        content=json.dumps({"tool": tool_name, "result": result}),
+                        message_type="tool_result",
+                    )
+            except Exception:
+                logger.warning(
+                    "Failed to report tool_result event for %s (non-fatal)",
+                    tool_name,
                 )
 
     def _convert_custom_tools_to_crewai(self) -> list[BaseTool]:
