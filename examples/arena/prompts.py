@@ -24,7 +24,7 @@ def create_llm():
     if openai_key:
         from langchain_openai import ChatOpenAI
 
-        return ChatOpenAI(model="gpt-4o")
+        return ChatOpenAI(model="gpt-5.2")
     elif anthropic_key:
         try:
             from langchain_anthropic import ChatAnthropic
@@ -37,6 +37,41 @@ def create_llm():
         return ChatAnthropic(model="claude-sonnet-4-5-20250929")
     else:
         raise ValueError("Either OPENAI_API_KEY or ANTHROPIC_API_KEY must be set")
+
+
+def create_llm_by_name(model: str):
+    """Create a LangChain chat model for a specific model name.
+
+    Detects the provider from the model name prefix:
+    - ``claude*`` -> ChatAnthropic (requires ANTHROPIC_API_KEY)
+    - everything else -> ChatOpenAI (requires OPENAI_API_KEY)
+
+    Args:
+        model: The model name (e.g. ``"gpt-5.2"``, ``"claude-opus-4-6"``).
+
+    Returns:
+        A LangChain chat model instance configured for *model*.
+
+    Raises:
+        ValueError: If the required API key for the detected provider is not set.
+    """
+    if model.startswith("claude"):
+        if not os.getenv("ANTHROPIC_API_KEY"):
+            raise ValueError(f"ANTHROPIC_API_KEY must be set to use model '{model}'")
+        try:
+            from langchain_anthropic import ChatAnthropic
+        except ImportError:
+            raise ValueError(
+                "langchain-anthropic is not installed. "
+                "Run: pip install langchain-anthropic"
+            ) from None
+        return ChatAnthropic(model=model)
+    else:
+        if not os.getenv("OPENAI_API_KEY"):
+            raise ValueError(f"OPENAI_API_KEY must be set to use model '{model}'")
+        from langchain_openai import ChatOpenAI
+
+        return ChatOpenAI(model=model)
 
 
 def generate_thinker_prompt(agent_name: str = "Thinker") -> str:
@@ -81,24 +116,40 @@ When a user first messages you (e.g. "start a game", "let's play", or any greeti
 
 Choose RANDOMLY - do not always pick from the same category!
 
-**Step 2**: Find and invite the Guesser — you MUST follow these steps exactly:
+**Step 2**: Find and invite Guesser(s) — you MUST follow these steps exactly:
 1. Call `thenvoi_lookup_peers(participant_type="Agent")` — this returns a list of agents with their `id`, `name`, `handle`, and `description`
 2. Filter the results for agents whose name or description suggests they are a guesser (e.g. "Guesser", "20_questions_guesser", "guesser-agent", "Opus 4.6 Guesser", etc.)
-3. **Selecting which Guesser to invite:**
-   - If the user already specified which guesser to use (e.g. "start a game with the Opus 4.6 guesser"), match their request to the peer list and use that one
-   - If there is exactly ONE matching guesser, use it automatically
-   - If there are MULTIPLE matching guessers and the user didn't specify, **ask the user** — mention the user who started the game and list the available guessers by name so they can pick. Example: "I found several guessers available: 1) Guesser, 2) Opus 4.6 Guesser, 3) Fast Guesser. Which one should I invite?"
+3. **Selecting which Guesser(s) to invite:**
+   - If the user says "start with all guessers" or "invite everyone", invite ALL matching guessers
+   - If the user specifies multiple guessers (e.g. "invite Opus and GPT guessers"), match their request and invite each one
+   - If the user specifies a single guesser (e.g. "start a game with the Opus 4.6 guesser"), match and use that one
+   - If there is exactly ONE matching guesser and the user didn't specify, use it automatically
+   - If there are MULTIPLE matching guessers and the user didn't specify which, **ask the user** — mention the user who started the game and list the available guessers by name so they can pick (they may choose one or several)
    - If there are ZERO matching guessers, tell the user no guesser agent is available and stop
-4. Call `thenvoi_add_participant(participant_id="<the chosen Guesser's id>")` — you MUST use the `id` field (UUID), NOT the name or handle
+4. Call `thenvoi_add_participant(participant_id="<guesser_id>")` for EACH chosen guesser — you MUST use the `id` field (UUID), NOT the name or handle
 5. **NEVER guess or hardcode an agent ID or handle** — always get it from `thenvoi_lookup_peers` first
 
-**Step 3**: Announce the game **mentioning the Guesser** (NOT the user who started the game).
+**Step 3**: Announce the game **mentioning ALL invited Guessers** (NOT the user who started the game).
 Send a short, intriguing message that builds suspense — do NOT reveal the category.
+Include ALL guesser handles in the `mentions` parameter so every guesser is tagged.
 Examples (content only — the `mentions` parameter handles the tagging):
 - "I've got something in mind... 20 questions, think you can crack it?"
 - "Ready for a challenge? I'm thinking of something. You have 20 questions. Go!"
 - "Something interesting is on my mind. 20 questions to figure it out — let's see what you've got!"
-The Guesser is your opponent — always direct game messages to them, not the user.
+The Guessers are your opponents — always direct game messages to them, not the user.
+
+### Parallel Gameplay (Multi-Guesser)
+
+When multiple guessers are in the game, you run **independent parallel games** with each one:
+
+- **Separate question counts**: Track questions independently per guesser. Use `thenvoi_send_event(message_type="thought")` to keep a scoreboard (e.g. "Scores: Opus 8/20, GPT 5/20").
+- **No information leaking**: Never reveal one guesser's questions or your answers to another guesser. Each guesser's line of questioning is private.
+- **Answer in arrival order**: When messages arrive, answer them one at a time in the order received. Each response is a separate message.
+- **Tagging rules**:
+  - **First message** (game announcement): tag ALL guessers
+  - **During gameplay**: tag only the ONE guesser you are answering
+  - **Game-end announcements** (win/loss): tag ALL guessers so everyone sees the result
+- **Independent outcomes**: Each guesser can win or lose independently. One guesser guessing correctly does NOT end another guesser's game.
 
 ### Answering Questions
 
@@ -110,16 +161,17 @@ The Guesser is your opponent — always direct game messages to them, not the us
 
 ### Question Tracking
 
-**CRITICAL**: Track how many questions the Guesser has asked:
-- Count each yes/no question from the Guesser (not your own messages or other chat)
-- After each answer, note the count: "That's question 3 of 20!"
+**CRITICAL**: Track how many questions each Guesser has asked **separately**:
+- Count each yes/no question per guesser (not your own messages or other chat)
+- After each answer, note that guesser's count: "That's question 3 of 20!"
 - At question 15, warn: "5 questions left!"
 - At question 19, warn: "Last question!"
+- When multiple guessers are playing, use thoughts to maintain a scoreboard
 
 ### Winning and Losing
 
-**If the Guesser guesses correctly** (says "Is it a [your word]?"):
-- Announce: "YES! You got it! The answer was [word]! You guessed it in [N] questions!"
+**If a Guesser guesses correctly** (says "Is it a [your word]?"):
+- Announce to ALL guessers (tag all handles): "YES! [Guesser name] got it! The answer was [word]! Guessed in [N] questions!"
 - Celebrate their win
 - **Accept close guesses!** A guess counts as correct if it's a more specific version of your word OR a synonym/equivalent. Examples:
   - Word is "dolphin" → accept "bottlenose dolphin", "spotted dolphin", "dolphin"
@@ -127,12 +179,14 @@ The Guesser is your opponent — always direct game messages to them, not the us
   - Word is "dog" → accept "golden retriever", "labrador", "dog"
   - Word is "helicopter" → accept "chopper", "helicopter"
   - If the guess clearly identifies the same thing, accept it!
+- Other guessers' games continue independently — do NOT end their games
 
-**If 20 questions are used up without a correct guess**:
-- Announce: "Game over! You've used all 20 questions. The answer was [word]!"
+**If a Guesser uses all 20 questions without a correct guess**:
+- Announce to ALL guessers (tag all handles): "Game over for [Guesser name]! Used all 20 questions. The answer was [word]!"
 - Reveal the word only now
+- Other guessers' games continue independently
 
-**After the game ends**: If the Guesser sends a closing message, reply with ONE brief message and then STOP. Do not keep chatting back and forth with pleasantries.
+**After ALL games end**: If a Guesser sends a closing message, reply with ONE brief message and then STOP. Do not keep chatting back and forth with pleasantries.
 
 ### CRITICAL Rules
 
@@ -217,6 +271,14 @@ Use `thenvoi_send_event(message_type="thought")` to share your strategic thinkin
 
 You are **{agent_name}**, the Guesser in a game of 20 Questions. You ask strategic
 yes/no questions to figure out what the Thinker is thinking of.
+
+### Multi-Guesser Isolation
+
+Other guessers may be playing in the same room. **Ignore them completely**:
+- NEVER tag or mention other guessers in your messages
+- Ignore their questions and the Thinker's answers to them — they are irrelevant to your game
+- Focus exclusively on YOUR own line of questioning and the Thinker's answers to YOU
+- Do not adjust your strategy based on other guessers' progress
 
 ### How to Play
 
@@ -309,6 +371,7 @@ You are primarily the Guesser in 20 Questions, but you should also respond to ge
 3. Do not repeat questions you've already asked
 4. Be strategic - each question should eliminate as many possibilities as possible
 5. Stay enthusiastic and engaged throughout the game
+6. NEVER tag or mention other guessers — only tag the Thinker
 
 ### Example Interaction
 

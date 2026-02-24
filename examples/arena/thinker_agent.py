@@ -38,12 +38,16 @@ from thenvoi import Agent
 from thenvoi.adapters import LangGraphAdapter
 from thenvoi.config import load_agent_config
 
-setup_logging()
 logger = logging.getLogger(__name__)
 
 
 async def main() -> None:
     load_dotenv()
+    setup_logging(agent_tag="thinker")
+
+    logger.info("=" * 60)
+    logger.info("THINKER AGENT STARTING")
+    logger.info("=" * 60)
 
     ws_url = os.getenv("THENVOI_WS_URL")
     rest_url = os.getenv("THENVOI_REST_URL")
@@ -55,9 +59,17 @@ async def main() -> None:
 
     # Load Thinker's credentials from agent_config.yaml
     agent_id, api_key = load_agent_config("arena_thinker")
+    logger.info("  agent_id   : %s", agent_id)
+    logger.info("  ws_url     : %s", ws_url)
+    logger.info("  rest_url   : %s", rest_url)
 
     # Select LLM based on available API keys
     llm = create_llm()
+    logger.info("  llm class  : %s", type(llm).__name__)
+    logger.info(
+        "  llm model  : %s",
+        getattr(llm, "model_name", getattr(llm, "model", "unknown")),
+    )
 
     # Create adapter with Thinker's game prompt
     adapter = LangGraphAdapter(
