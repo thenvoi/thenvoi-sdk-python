@@ -30,6 +30,12 @@ import yaml
 # Global shutdown event
 _shutdown_event: asyncio.Event | None = None
 
+# Required mount points for Docker operation
+REQUIRED_MOUNTS = [
+    "/workspace/repo",
+    "/workspace/notes",
+]
+
 # Retry configuration
 MAX_RETRIES = 5
 INITIAL_RETRY_DELAY = 1.0
@@ -40,6 +46,17 @@ logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
 )
 logger = logging.getLogger(__name__)
+
+
+def validate_mounts() -> None:
+    """Validate required mount points exist."""
+    missing = [m for m in REQUIRED_MOUNTS if not Path(m).is_dir()]
+    if missing:
+        raise ValueError(
+            f"Missing required mount points: {missing}. "
+            "Ensure docker-compose.yml mounts: "
+            f"{', '.join(f'{m} (rw)' for m in REQUIRED_MOUNTS)}. "
+        )
 
 
 def load_config(config_path: str) -> dict[str, Any]:
@@ -101,6 +118,9 @@ async def main() -> None:
     if not rest_url:
         raise ValueError("THENVOI_REST_URL environment variable is empty")
 
+    # Validate required mount points
+    validate_mounts()
+
     logger.info("Loading config from: %s", config_path)
     config = load_config(config_path)
 
@@ -134,7 +154,7 @@ async def main() -> None:
 ## Workspace Access
 
 You have access to the following directories:
-- `/workspace/repo` - Project source code (read-only)
+- `{workspace}` - Project source code (read-only)
 - `/workspace/notes` - Markdown notes, plans, and design documents (read-write)
 
 Current working directory: {workspace}

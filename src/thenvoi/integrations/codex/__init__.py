@@ -1,5 +1,7 @@
 """Codex app-server integration helpers."""
 
+from __future__ import annotations
+
 from .stdio_client import (
     CodexJsonRpcError,
     CodexStdioClient,

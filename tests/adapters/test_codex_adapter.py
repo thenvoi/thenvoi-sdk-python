@@ -575,6 +575,110 @@ class TestCodexAdapter:
         assert fake_client.closed is True
 
     @pytest.mark.asyncio
+    async def test_cleanup_idempotent(self) -> None:
+        """Calling on_cleanup twice for the same room should not raise."""
+        fake_client = FakeCodexClient(
+            events=[
+                _event_notification(
+                    "turn/completed",
+                    {
+                        "turn": {
+                            "id": "turn-1",
+                            "status": "completed",
+                            "items": [],
+                            "error": None,
+                        }
+                    },
+                )
+            ]
+        )
+        adapter = CodexAdapter(
+            config=CodexAdapterConfig(transport="ws"),
+            client_factory=lambda _config: fake_client,
+        )
+        tools = ToolSchemaFakeTools()
+
+        await adapter.on_started("Codex Agent", "A coding agent")
+        await adapter.on_message(
+            make_platform_message(room_id="room-1"),
+            tools,
+            CodexSessionState(),
+            participants_msg=None,
+            contacts_msg=None,
+            is_session_bootstrap=True,
+            room_id="room-1",
+        )
+
+        await adapter.on_cleanup("room-1")
+        assert fake_client.closed is True
+        # Second cleanup should not raise
+        await adapter.on_cleanup("room-1")
+
+    @pytest.mark.asyncio
+    async def test_cleanup_multi_room_keeps_client_until_last(self) -> None:
+        """Client stays open until the last room is cleaned up."""
+        events_room1 = [
+            _event_notification(
+                "turn/completed",
+                {
+                    "turn": {
+                        "id": "turn-1",
+                        "status": "completed",
+                        "items": [],
+                        "error": None,
+                    }
+                },
+            )
+        ]
+        events_room2 = [
+            _event_notification(
+                "turn/completed",
+                {
+                    "turn": {
+                        "id": "turn-2",
+                        "status": "completed",
+                        "items": [],
+                        "error": None,
+                    }
+                },
+            )
+        ]
+        fake_client = FakeCodexClient(events=events_room1 + events_room2)
+        adapter = CodexAdapter(
+            config=CodexAdapterConfig(transport="ws"),
+            client_factory=lambda _config: fake_client,
+        )
+        tools = ToolSchemaFakeTools()
+
+        await adapter.on_started("Codex Agent", "A coding agent")
+        await adapter.on_message(
+            make_platform_message(room_id="room-1"),
+            tools,
+            CodexSessionState(),
+            participants_msg=None,
+            contacts_msg=None,
+            is_session_bootstrap=True,
+            room_id="room-1",
+        )
+        await adapter.on_message(
+            make_platform_message(room_id="room-2"),
+            tools,
+            CodexSessionState(),
+            participants_msg=None,
+            contacts_msg=None,
+            is_session_bootstrap=True,
+            room_id="room-2",
+        )
+
+        # Cleaning up room-1 should NOT close the client (room-2 still active)
+        await adapter.on_cleanup("room-1")
+        assert fake_client.closed is False
+
+        # Cleaning up room-2 should close the client (last room)
+        await adapter.on_cleanup("room-2")
+        assert fake_client.closed is True
+
+    @pytest.mark.asyncio
     async def test_forwards_raw_codex_task_events(self) -> None:
         events = [
             _event_notification(

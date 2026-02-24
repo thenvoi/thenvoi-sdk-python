@@ -28,7 +28,7 @@ from thenvoi.runtime.custom_tools import (
 )
 from thenvoi.runtime.prompts import render_system_prompt
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 
 logger = logging.getLogger(__name__)
 
@@ -75,6 +75,8 @@ class SetReasoningInput(BaseModel):
         description="Reasoning summary detail: auto, concise, detailed, or none. Omit to keep current.",
     )
 
+
+_DEFAULT_MODEL = "gpt-5.3-codex"
 
 _ROLE_SECTION: dict[RoleProfile, str] = {
     "coding": "Primary mode: implement and validate code changes end-to-end.",
@@ -134,7 +136,7 @@ class CodexAdapterConfig:
     """Runtime configuration for Codex adapter sessions."""
 
     transport: TransportKind = "stdio"
-    model: str | None = "gpt-5.3-codex"
+    model: str | None = None
     reasoning_effort: (
         Literal["none", "minimal", "low", "medium", "high", "xhigh"] | None
     ) = None
@@ -169,6 +171,7 @@ class CodexAdapterConfig:
     additional_dynamic_tools: list[dict[str, Any]] = field(default_factory=list)
     inject_history_on_resume_failure: bool = True
     max_history_messages: int = 50
+    fallback_models: tuple[str, ...] = ("gpt-5.2", "gpt-5.3-codex")
 
 
 class CodexAdapter(SimpleAdapter[CodexSessionState]):
@@ -498,23 +501,24 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
             )
 
     async def on_cleanup(self, room_id: str) -> None:
-        self._room_threads.pop(room_id, None)
-        self._prompt_injected_rooms.discard(room_id)
-        self._raw_history_by_room.pop(room_id, None)
-        self._needs_history_injection.discard(room_id)
-        self._clear_pending_approvals_for_room(room_id)
-        if self._room_threads:
-            return
-        if self._client is None:
-            return
-        try:
-            await self._client.close()
-        finally:
-            self._client = None
-            self._initialized = False
-            self._selected_model = None
-            self._task_titles_by_id.clear()
-            self._pending_approvals.clear()
+        async with self._rpc_lock:
+            self._room_threads.pop(room_id, None)
+            self._prompt_injected_rooms.discard(room_id)
+            self._raw_history_by_room.pop(room_id, None)
+            self._needs_history_injection.discard(room_id)
+            self._clear_pending_approvals_for_room(room_id)
+            if self._room_threads:
+                return
+            if self._client is None:
+                return
+            try:
+                await self._client.close()
+            finally:
+                self._client = None
+                self._initialized = False
+                self._selected_model = None
+                self._task_titles_by_id.clear()
+                self._pending_approvals.clear()
 
     async def _ensure_client_ready(self) -> None:
         if self._client is None:
@@ -553,11 +557,11 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
             result = await self._client.request("model/list", {})
         except Exception:
             logger.warning("model/list failed; using fallback model id")
-            return "gpt-5.3-codex"
+            return _DEFAULT_MODEL
 
         data = result.get("data") if isinstance(result, dict) else None
         if not isinstance(data, list):
-            return "gpt-5.3-codex"
+            return _DEFAULT_MODEL
 
         visible_models = [
             entry
@@ -572,7 +576,7 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
                 return model_id
         if visible_models:
             return str(visible_models[0]["id"])
-        return "gpt-5.3-codex"
+        return _DEFAULT_MODEL
 
     async def _ensure_thread(
         self,
@@ -865,8 +869,33 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
                         ),
                         message_type="tool_result",
                     )
+            except ValidationError as exc:
+                errors = "; ".join(
+                    f"{err['loc'][0]}: {err['msg']}" for err in exc.errors()
+                )
+                error_text = f"Invalid arguments for {tool_name}: {errors}"
+                logger.error("Validation error for tool %s: %s", tool_name, exc)
+                await self._client.respond(
+                    event.id,
+                    {
+                        "contentItems": [{"type": "inputText", "text": error_text}],
+                        "success": False,
+                    },
+                )
+                if should_report:
+                    await tools.send_event(
+                        content=json.dumps(
+                            {
+                                "name": tool_name,
+                                "output": error_text,
+                                "tool_call_id": call_id,
+                            }
+                        ),
+                        message_type="tool_result",
+                    )
             except Exception as exc:
                 error_text = f"Error: {exc}"
+                logger.exception("Tool execution failed for %s", tool_name)
                 await self._client.respond(
                     event.id,
                     {
@@ -1500,30 +1529,28 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
             params["model"] = fallback
             return await self._client.request("turn/start", params)
 
-    _FALLBACK_MODELS: tuple[str, ...] = ("gpt-5.2", "gpt-5.3-codex")
-
     async def _find_fallback_model(self, exclude: Any = None) -> str | None:
         """Query model/list and return a fallback model, or None if unavailable."""
         assert self._client is not None
+        fallbacks = self.config.fallback_models
         try:
             result = await self._client.request("model/list", {})
         except Exception:
             logger.warning("model/list failed during fallback lookup")
-            # Fall through to hardcoded defaults
-            for model_id in self._FALLBACK_MODELS:
+            for model_id in fallbacks:
                 if model_id != exclude:
                     return model_id
             return None
         models = self._visible_model_ids(result)
-        # Prefer gpt-5.2 if available, then any other visible model
+        # Prefer configured fallback models if available
         for model_id in models:
-            if model_id != exclude and model_id in self._FALLBACK_MODELS:
+            if model_id != exclude and model_id in fallbacks:
                 return model_id
         for model_id in models:
             if model_id != exclude:
                 return model_id
-        # No visible models — try hardcoded defaults
-        for model_id in self._FALLBACK_MODELS:
+        # No visible models — try configured defaults
+        for model_id in fallbacks:
             if model_id != exclude:
                 return model_id
         return None

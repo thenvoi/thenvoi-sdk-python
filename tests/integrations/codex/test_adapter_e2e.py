@@ -263,10 +263,13 @@ async def test_manual_approval_resolved_by_out_of_band_approve_command() -> None
         )
     )
 
+    found = False
     for _ in range(50):
         if any("Approval id: `ap-1`" in msg["content"] for msg in tools.messages_sent):
+            found = True
             break
         await asyncio.sleep(0.01)
+    assert found, "Approval notification not sent within timeout"
 
     await adapter.on_event(
         _agent_input(

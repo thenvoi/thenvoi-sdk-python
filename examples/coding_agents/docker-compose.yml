@@ -1,6 +1,11 @@
 # Multi-Agent Docker Compose: Claude SDK (planner) + Codex (reviewer, implementer)
 #
 # All three agents share /workspace/repo and connect to the Thenvoi platform.
+# Default Codex model is gpt-5.3-codex — override via CODEX_REVIEWER_MODEL /
+# CODEX_IMPLEMENTER_MODEL in .env if your API key doesn't have access.
+#
+# Named volumes (shared_notes, shared_state) persist after `docker compose down`.
+# Use `docker compose down -v` to remove them.
 #
 # Usage:
 #   cp .env.example .env          # Configure credentials
@@ -30,7 +35,7 @@ x-codex: &codex-base
     - ${REPO_PATH:-.}:/workspace/repo
     - shared_notes:/workspace/notes
     - ${HOME}/.codex:/home/codex/.codex
-    - ${HOME}/.config/gh:/home/codex/.config/gh
+    - ${HOME}/.config/gh:/home/codex/.config/gh:ro
     - ${HOME}/.ssh:/home/codex/.ssh:ro
     - ${HOME}/.gitconfig:/home/codex/.gitconfig:ro
     - ${THENVOI_CLIENT_REST_WHEEL_DIR:-/tmp/thenvoi-client-rest}:/opt/thenvoi-client-rest:ro

@@ -23,17 +23,17 @@ WORKDIR /app
 COPY pyproject.toml uv.lock README.md ./
 COPY src ./src
 COPY examples ./examples
-COPY scripts ./scripts
 COPY docker/codex ./docker/codex
 
 # Prefer HTTPS for GitHub URLs to avoid SSH key requirements in container builds.
+# Trust bind-mounted repo to avoid "dubious ownership" errors.
 RUN git config --global --add url."https://github.com/".insteadOf "git@github.com:" \
-    && git config --global --add url."https://github.com/".insteadOf "ssh://git@github.com/"
+    && git config --global --add url."https://github.com/".insteadOf "ssh://git@github.com/" \
+    && git config --global --add safe.directory /workspace/repo
 
 # Normalize host-specific/local dev dependency sources for container builds.
-# 1) Replace git-based phoenix dependency with an HTTPS archive URL pinned to commit
-#    to avoid git submodule/SSH behavior during image build.
-# 2) Remove [tool.uv.sources] local absolute wheel mappings that are host-specific.
+# 1) Remove [tool.uv.sources] local absolute wheel mappings that are host-specific.
+# 2) The git+https:// phoenix dependency works directly via the HTTPS config above.
 # 3) Local wheel overrides can still be applied at runtime via entrypoint env vars.
 RUN python - <<'PY'
 from pathlib import Path
@@ -41,10 +41,6 @@ import re
 
 path = Path("/app/pyproject.toml")
 content = path.read_text()
-content = content.replace(
-    '"phoenix-channels-python-client @ git+https://github.com/thenvoi/phoenix-channels-python-client-alpha.git",',
-    '"phoenix-channels-python-client @ https://github.com/thenvoi/phoenix-channels-python-client-alpha/archive/5491ebaf961c3add0fb1c426dc994c6ff11e0d50.tar.gz",',
-)
 content = re.sub(
     r"\n\[tool\.uv\.sources\]\n(?:[^\[\n].*\n?)+",
     "\n",

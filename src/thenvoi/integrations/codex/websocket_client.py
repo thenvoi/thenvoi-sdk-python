@@ -163,7 +163,10 @@ class CodexWebSocketClient:
                 pass
 
         if self._ws is not None:
-            await self._ws.close()
+            try:
+                await self._ws.close()
+            except Exception:
+                logger.debug("Exception during ws.close()", exc_info=True)
             self._ws = None
 
         self._fail_pending("Codex websocket client closed")

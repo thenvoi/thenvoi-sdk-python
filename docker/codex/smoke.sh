@@ -4,7 +4,8 @@ set -euo pipefail
 echo "[smoke] versions"
 python --version
 uv --version
-codex --version || true
+command -v codex >/dev/null 2>&1 || { echo "[smoke] FAIL: codex not found"; exit 1; }
+codex --version
 git --version
 gh --version
 jq --version

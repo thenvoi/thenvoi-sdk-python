@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import logging
+from pathlib import Path
 from typing import Any, Literal
 
 try:
@@ -140,6 +141,8 @@ class ClaudeSDKAdapter(SimpleAdapter[str]):
         self.permission_mode: ClaudeSDKAdapter.PermissionMode = permission_mode
         self.enable_execution_reporting = enable_execution_reporting
         self.enable_memory_tools = enable_memory_tools
+        if cwd and not Path(cwd).is_dir():
+            raise ValueError(f"cwd does not exist or is not a directory: {cwd}")
         self.cwd = cwd
 
         # Session manager and MCP server (created after start)

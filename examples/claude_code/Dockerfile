@@ -45,6 +45,9 @@ COPY examples/claude_code/runner.py ./runner.py
 # Create workspace directories
 RUN mkdir -p /workspace/repo /workspace/notes /prompts
 
+# Trust bind-mounted repo to avoid "dubious ownership" errors
+RUN git config --global --add safe.directory /workspace/repo
+
 # Use existing node user (UID 1000) for security
 RUN chown -R node:node /app /workspace /prompts
 

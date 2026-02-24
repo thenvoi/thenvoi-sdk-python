@@ -34,7 +34,7 @@ services:
       - ../../agent_config.yaml:/app/agent_config.yaml:ro
       - ../../:/workspace/repo
       - ${HOME}/.codex:/home/codex/.codex
-      - ${HOME}/.config/gh:/home/codex/.config/gh
+      - ${HOME}/.config/gh:/home/codex/.config/gh:ro
       - ${HOME}/.ssh:/home/codex/.ssh:ro
       - ${HOME}/.gitconfig:/home/codex/.gitconfig:ro
       - ${THENVOI_CLIENT_REST_WHEEL_DIR:-/tmp/thenvoi-client-rest}:/opt/thenvoi-client-rest:ro

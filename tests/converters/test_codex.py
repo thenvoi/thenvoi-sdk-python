@@ -59,3 +59,89 @@ class TestCodexHistoryConverter:
         state = converter.convert(raw_history)
         assert state.thread_id is None
         assert state.room_id is None
+
+    def test_convert_handles_none_metadata(self) -> None:
+        converter = CodexHistoryConverter()
+        raw_history = [
+            {"message_type": "task", "metadata": None},
+        ]
+        state = converter.convert(raw_history)
+        assert state.thread_id is None
+
+    def test_convert_handles_non_dict_metadata(self) -> None:
+        converter = CodexHistoryConverter()
+        raw_history = [
+            {"message_type": "task", "metadata": "not-a-dict"},
+        ]
+        state = converter.convert(raw_history)
+        assert state.thread_id is None
+
+    def test_convert_handles_missing_metadata_key(self) -> None:
+        converter = CodexHistoryConverter()
+        raw_history = [
+            {"message_type": "task"},
+        ]
+        state = converter.convert(raw_history)
+        assert state.thread_id is None
+
+    def test_convert_handles_invalid_datetime(self) -> None:
+        converter = CodexHistoryConverter()
+        raw_history = [
+            {
+                "message_type": "task",
+                "metadata": {
+                    "codex_thread_id": "thr-1",
+                    "codex_room_id": "room-1",
+                    "codex_created_at": "not-a-date",
+                },
+            },
+        ]
+        state = converter.convert(raw_history)
+        assert state.thread_id == "thr-1"
+        assert state.created_at is None
+
+    def test_convert_handles_empty_thread_id(self) -> None:
+        """Empty string thread_id should be skipped."""
+        converter = CodexHistoryConverter()
+        raw_history = [
+            {
+                "message_type": "task",
+                "metadata": {
+                    "codex_thread_id": "",
+                    "codex_room_id": "room-1",
+                },
+            },
+        ]
+        state = converter.convert(raw_history)
+        assert state.thread_id is None
+
+    def test_convert_coerces_integer_thread_id(self) -> None:
+        """Non-string thread_id should be coerced to string."""
+        converter = CodexHistoryConverter()
+        raw_history = [
+            {
+                "message_type": "task",
+                "metadata": {
+                    "codex_thread_id": 42,
+                    "codex_room_id": "room-1",
+                },
+            },
+        ]
+        state = converter.convert(raw_history)
+        assert state.thread_id == "42"
+
+    def test_convert_returns_first_match_in_reversed_order(self) -> None:
+        """When multiple valid entries exist, the last one in the list wins."""
+        converter = CodexHistoryConverter()
+        raw_history = [
+            {
+                "message_type": "task",
+                "metadata": {"codex_thread_id": "thr-old"},
+            },
+            {
+                "message_type": "task",
+                "metadata": {"codex_thread_id": "thr-new"},
+            },
+        ]
+        state = converter.convert(raw_history)
+        assert state.thread_id == "thr-new"

@@ -1,1 +1,0 @@
-../../../examples/claude_code/prompts/planner.md

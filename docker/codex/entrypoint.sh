@@ -9,8 +9,12 @@ resolve_wheel_path() {
   fi
 
   if [[ -d "${value}" ]]; then
+    if [[ ! -r "${value}" ]]; then
+      echo "[codex-entrypoint] Wheel directory is not readable: ${value}" >&2
+      exit 2
+    fi
     local wheel
-    wheel="$(find "${value}" -maxdepth 1 -type f -name '*.whl' | sort | head -n1 || true)"
+    wheel="$(find "${value}" -maxdepth 1 -type f -name '*.whl' 2>/dev/null | sort | head -n1)"
     if [[ -n "${wheel}" ]]; then
       echo "${wheel}"
       return 0

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from thenvoi.prompts import get_available_roles, get_role_prompt, load_role_prompt
@@ -143,7 +145,7 @@ class TestLoadRolePrompt:
         result = load_role_prompt("nonexistent_role")
         assert result is None
 
-    def test_loads_from_prompt_dir(self, tmp_path: object) -> None:
+    def test_loads_from_prompt_dir(self, tmp_path: Path) -> None:
         """Test loading role from file in prompt_dir."""
         from pathlib import Path
 
@@ -154,7 +156,7 @@ class TestLoadRolePrompt:
         result = load_role_prompt("custom", prompt_dir)
         assert result == "Custom Role Prompt"
 
-    def test_file_overrides_builtin(self, tmp_path: object) -> None:
+    def test_file_overrides_builtin(self, tmp_path: Path) -> None:
         """Test that file in prompt_dir overrides built-in role."""
         from pathlib import Path
 
@@ -165,7 +167,7 @@ class TestLoadRolePrompt:
         result = load_role_prompt("planner", prompt_dir)
         assert result == "Custom Planner Override"
 
-    def test_falls_back_to_builtin_when_file_missing(self, tmp_path: object) -> None:
+    def test_falls_back_to_builtin_when_file_missing(self, tmp_path: Path) -> None:
         """Test fallback to built-in when file not in prompt_dir."""
         from pathlib import Path
 
