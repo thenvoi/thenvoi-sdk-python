@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from collections import deque
 from datetime import datetime
 from typing import Any
@@ -13,7 +14,7 @@ import pytest
 from pydantic import BaseModel
 
 from thenvoi.adapters.codex import CodexAdapter, CodexAdapterConfig
-from thenvoi.core.types import PlatformMessage
+from thenvoi.core.types import AgentInput, HistoryProvider, PlatformMessage
 from thenvoi.integrations.codex import CodexJsonRpcError, RpcEvent
 from thenvoi.integrations.codex.types import CodexSessionState
 from thenvoi.runtime.custom_tools import CustomToolDef
@@ -1644,8 +1645,6 @@ class TestCodexAdapter:
         assert len(tool_call_events) == 1
         assert len(tool_result_events) == 1
 
-        import json
-
         call_data = json.loads(tool_call_events[0]["content"])
         assert call_data["name"] == "thenvoi_lookup_peers"
         assert call_data["tool_call_id"] == "call-50"
@@ -1757,8 +1756,6 @@ class TestCodexAdapter:
             is_session_bootstrap=True,
             room_id="room-1",
         )
-
-        import json
 
         tool_result_events = [
             e for e in tools.events_sent if e["message_type"] == "tool_result"
@@ -1886,8 +1883,6 @@ class TestItemCompletedForwarding:
             room_id="room-1",
         )
 
-        import json
-
         tool_call_events = [
             e for e in tools.events_sent if e["message_type"] == "tool_call"
         ]
@@ -1957,8 +1952,6 @@ class TestItemCompletedForwarding:
             room_id="room-1",
         )
 
-        import json
-
         tool_call_events = [
             e for e in tools.events_sent if e["message_type"] == "tool_call"
         ]
@@ -2020,8 +2013,6 @@ class TestItemCompletedForwarding:
             room_id="room-1",
         )
 
-        import json
-
         tool_call_events = [
             e for e in tools.events_sent if e["message_type"] == "tool_call"
         ]
@@ -2074,8 +2065,6 @@ class TestItemCompletedForwarding:
             is_session_bootstrap=True,
             room_id="room-1",
         )
-
-        import json
 
         tool_call_events = [
             e for e in tools.events_sent if e["message_type"] == "tool_call"
@@ -2136,8 +2125,6 @@ class TestItemCompletedForwarding:
             is_session_bootstrap=True,
             room_id="room-1",
         )
-
-        import json
 
         tool_call_events = [
             e for e in tools.events_sent if e["message_type"] == "tool_call"
@@ -2202,8 +2189,6 @@ class TestItemCompletedForwarding:
             is_session_bootstrap=True,
             room_id="room-1",
         )
-
-        import json
 
         tool_call_events = [
             e for e in tools.events_sent if e["message_type"] == "tool_call"
@@ -2450,8 +2435,6 @@ class TestItemCompletedForwarding:
             room_id="room-1",
         )
 
-        import json
-
         tool_call_events = [
             e for e in tools.events_sent if e["message_type"] == "tool_call"
         ]
@@ -2562,8 +2545,6 @@ class TestHistoryInjection:
             },
         ]
 
-        from thenvoi.core.types import AgentInput, HistoryProvider
-
         inp = AgentInput(
             msg=make_platform_message(
                 room_id="room-1", content="Now add rate limiting"
@@ -2634,8 +2615,6 @@ class TestHistoryInjection:
             },
         ]
 
-        from thenvoi.core.types import AgentInput, HistoryProvider
-
         inp = AgentInput(
             msg=make_platform_message(room_id="room-1", content="Continue"),
             tools=tools,
@@ -2691,8 +2670,6 @@ class TestHistoryInjection:
                 "sender_name": "Alice",
             },
         ]
-
-        from thenvoi.core.types import AgentInput, HistoryProvider
 
         inp = AgentInput(
             msg=make_platform_message(room_id="room-1", content="Continue"),
@@ -2774,8 +2751,6 @@ class TestHistoryInjection:
             },
         ]
 
-        from thenvoi.core.types import AgentInput, HistoryProvider
-
         inp = AgentInput(
             msg=make_platform_message(room_id="room-1", content="Go"),
             tools=tools,
@@ -2847,8 +2822,6 @@ class TestHistoryInjection:
             for i in range(10)
         )
 
-        from thenvoi.core.types import AgentInput, HistoryProvider
-
         inp = AgentInput(
             msg=make_platform_message(room_id="room-1", content="Go"),
             tools=tools,
@@ -2911,8 +2884,6 @@ class TestHistoryInjection:
                 "sender_name": "Alice",
             },
         ]
-
-        from thenvoi.core.types import AgentInput, HistoryProvider
 
         inp = AgentInput(
             msg=make_platform_message(room_id="room-1", content="Go"),
@@ -3181,6 +3152,7 @@ class TestHistoryInjection:
                 room_id="room-1",
             )
 
+    @pytest.mark.asyncio
     async def test_startup_config_logged(
         self, caplog: pytest.LogCaptureFixture
     ) -> None:
@@ -3212,6 +3184,7 @@ class TestHistoryInjection:
         assert "approval_mode=manual" in log_msg
         assert "role=reviewer" in log_msg
 
+    @pytest.mark.asyncio
     async def test_codex_error_emits_event_unconditionally(self) -> None:
         """Non-retryable Codex errors always emit a structured error event."""
         fake_client = FakeCodexClient(
@@ -3249,3 +3222,122 @@ class TestHistoryInjection:
         error_events = [e for e in tools.events_sent if e["message_type"] == "error"]
         assert len(error_events) == 1
         assert "Something went wrong" in error_events[0]["content"]
+
+    @pytest.mark.asyncio
+    async def test_cleanup_before_start(self) -> None:
+        """Calling on_cleanup on a freshly constructed adapter should not raise."""
+        adapter = CodexAdapter(
+            config=CodexAdapterConfig(transport="stdio"),
+            client_factory=lambda _config: FakeCodexClient(),
+        )
+        # No on_started called — cleanup should be safe (idempotent)
+        await adapter.on_cleanup("room-x")
+
+    @pytest.mark.asyncio
+    async def test_cleanup_clears_pending_approvals(self) -> None:
+        """on_cleanup should evict all pending approvals for the given room."""
+        fake_client = FakeCodexClient()
+        adapter = CodexAdapter(
+            config=CodexAdapterConfig(transport="stdio"),
+            client_factory=lambda _config: fake_client,
+        )
+        await adapter.on_started("Bot", "desc")
+
+        # Manually inject a pending approval for room-1
+        loop = asyncio.get_running_loop()
+        fut: asyncio.Future[str] = loop.create_future()
+        adapter._pending_approvals["room-1"] = {
+            "tok-1": type(
+                "_PA",
+                (),
+                {
+                    "request_id": 1,
+                    "method": "item/tool/call",
+                    "summary": "test",
+                    "created_at": datetime.now(),
+                    "future": fut,
+                },
+            )(),
+        }
+        # Also register a room thread so the client isn't closed
+        adapter._room_threads["room-1"] = "thr-1"
+        adapter._room_threads["room-2"] = "thr-2"
+
+        await adapter.on_cleanup("room-1")
+
+        assert "room-1" not in adapter._pending_approvals
+        # The future should have been resolved (declined)
+        assert fut.done()
+
+    @pytest.mark.asyncio
+    async def test_tool_call_validation_error_returns_friendly_message(self) -> None:
+        """A ValidationError during tool dispatch returns a user-friendly error."""
+        from pydantic import ValidationError as PydanticValidationError
+
+        class ValidationErrorTools(ToolSchemaFakeTools):
+            async def execute_tool_call(
+                self, tool_name: str, arguments: dict[str, Any]
+            ) -> Any:
+                call = {"tool_name": tool_name, "arguments": arguments}
+                self.tool_calls.append(call)
+                # Trigger a real Pydantic ValidationError
+                raise PydanticValidationError.from_exception_data(
+                    "thenvoi_send_message",
+                    [
+                        {
+                            "type": "missing",
+                            "loc": ("content",),
+                            "msg": "Field required",
+                            "input": arguments,
+                        }
+                    ],
+                )
+
+        events = [
+            _event_request(
+                99,
+                "item/tool/call",
+                {
+                    "tool": "thenvoi_send_message",
+                    "arguments": {},
+                },
+            ),
+            _event_notification(
+                "turn/completed",
+                {
+                    "turn": {
+                        "id": "turn-1",
+                        "status": "completed",
+                        "items": [],
+                        "error": None,
+                    }
+                },
+            ),
+        ]
+        fake_client = FakeCodexClient(events=events)
+        adapter = CodexAdapter(
+            config=CodexAdapterConfig(transport="ws"),
+            client_factory=lambda _config: fake_client,
+        )
+        tools = ValidationErrorTools()
+
+        await adapter.on_started("Bot", "desc")
+        await adapter.on_message(
+            make_platform_message(),
+            tools,
+            CodexSessionState(),
+            None,
+            None,
+            is_session_bootstrap=True,
+            room_id="room-1",
+        )
+
+        # The adapter should have responded to the tool call with success=False
+        error_responses = [
+            (rid, payload)
+            for rid, payload in fake_client.responses
+            if payload.get("success") is False
+        ]
+        assert len(error_responses) == 1
+        error_text = error_responses[0][1]["contentItems"][0]["text"]
+        assert "Invalid arguments for thenvoi_send_message" in error_text

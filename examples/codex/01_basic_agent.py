@@ -78,13 +78,13 @@ async def main() -> None:
 
     adapter = CodexAdapter(
         config=CodexAdapterConfig(
-            transport=codex_transport,  # type: ignore[arg-type]
+            transport=codex_transport,  # type: ignore[arg-type]  # str from env, validated at runtime
             codex_ws_url=os.getenv("CODEX_WS_URL", "ws://127.0.0.1:8765"),
-            role=codex_role,  # type: ignore[arg-type]
+            role=codex_role,  # type: ignore[arg-type]  # str from env, validated at runtime
             model=os.getenv("CODEX_MODEL") or None,
             cwd=os.getenv("CODEX_CWD", os.getcwd()),
             approval_policy=os.getenv("CODEX_APPROVAL_POLICY", "never"),
-            approval_mode=os.getenv("CODEX_APPROVAL_MODE", "manual"),  # type: ignore[arg-type]
+            approval_mode=os.getenv("CODEX_APPROVAL_MODE", "manual"),  # type: ignore[arg-type]  # str from env, validated at runtime
             personality="pragmatic",
             custom_section="You are a helpful assistant. Keep responses concise.",
             include_base_instructions=True,

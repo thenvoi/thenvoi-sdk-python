@@ -76,6 +76,8 @@ class SetReasoningInput(BaseModel):
     )
 
 
+# Hardcoded default — update when OpenAI rotates model IDs.
+# Override at runtime via CodexAdapterConfig.model or CODEX_MODEL env var.
 _DEFAULT_MODEL = "gpt-5.3-codex"
 
 _ROLE_SECTION: dict[RoleProfile, str] = {
@@ -172,6 +174,7 @@ class CodexAdapterConfig:
     inject_history_on_resume_failure: bool = True
     max_history_messages: int = 50
     fallback_models: tuple[str, ...] = ("gpt-5.2", "gpt-5.3-codex")
+    max_pending_approvals_per_room: int = 50
 
 
 class CodexAdapter(SimpleAdapter[CodexSessionState]):
@@ -212,7 +215,13 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
         self._rpc_lock = asyncio.Lock()
 
     def _build_self_config_tools(self) -> list[CustomToolDef]:
-        """Build custom tools that let Codex change its own model/reasoning."""
+        """Build custom tools that let Codex change its own model/reasoning.
+
+        Note: ``_handle_set_model`` and ``_handle_set_reasoning`` closures
+        mutate adapter state (``config.model``, ``_selected_model``, etc.).
+        They are safe because they are always called inside the
+        ``_handle_server_request`` path which holds ``_rpc_lock``.
+        """
         adapter = self
 
         def _handle_set_model(inp: SetModelInput) -> str:
@@ -229,7 +238,7 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
                         f"Invalid reasoning effort '{inp.effort}'. "
                         f"Valid: {', '.join(sorted(_REASONING_EFFORTS))}."
                     )
-                adapter.config.reasoning_effort = inp.effort  # type: ignore[assignment]
+                adapter.config.reasoning_effort = inp.effort  # type: ignore[assignment]  # Literal narrowed by Pydantic validation
                 parts.append(f"effort={inp.effort}")
             if inp.summary is not None:
                 if inp.summary not in _REASONING_SUMMARIES:
@@ -237,7 +246,7 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
                         f"Invalid reasoning summary '{inp.summary}'. "
                         f"Valid: {', '.join(sorted(_REASONING_SUMMARIES))}."
                     )
-                adapter.config.reasoning_summary = inp.summary  # type: ignore[assignment]
+                adapter.config.reasoning_summary = inp.summary  # type: ignore[assignment]  # Literal narrowed by Pydantic validation
                 parts.append(f"summary={inp.summary}")
             if not parts:
                 return (
@@ -1212,7 +1221,19 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
             created_at=datetime.now(timezone.utc),
             future=loop.create_future(),
         )
-        self._pending_approvals.setdefault(room_id, {})[token] = pending
+        room_pending = self._pending_approvals.setdefault(room_id, {})
+        if len(room_pending) >= self.config.max_pending_approvals_per_room:
+            oldest_token = min(room_pending, key=lambda t: room_pending[t].created_at)
+            evicted = room_pending.pop(oldest_token)
+            if not evicted.future.done():
+                evicted.future.set_result("decline")
+            logger.warning(
+                "Evicted oldest pending approval %s in room %s (limit %s)",
+                oldest_token,
+                room_id,
+                self.config.max_pending_approvals_per_room,
+            )
+        room_pending[token] = pending
         await tools.send_message(
             "Approval requested "
             f"({summary}). Approval id: `{token}`. "
@@ -1392,7 +1413,7 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
                     mentions=mention,
                 )
                 return True
-            self.config.reasoning_effort = effort_arg  # type: ignore[assignment]
+            self.config.reasoning_effort = effort_arg  # type: ignore[assignment]  # Literal narrowed by Pydantic validation
             await tools.send_message(
                 f"Reasoning effort set to `{effort_arg}` for subsequent turns.",
                 mentions=mention,
@@ -1562,11 +1583,13 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
         return any(
             phrase in msg
             for phrase in (
-                "model",
-                "not available",
-                "not found",
-                "unavailable",
-                "access",
+                "model not found",
+                "model not available",
+                "is not available",
+                "model_not_found",
+                "model unavailable",
+                "does not have access",
+                "no access to model",
             )
         )
 

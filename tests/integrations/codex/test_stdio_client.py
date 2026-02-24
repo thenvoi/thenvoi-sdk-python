@@ -6,6 +6,7 @@ import asyncio
 import os
 import sys
 import textwrap
+from collections.abc import Awaitable, Callable
 from pathlib import Path
 
 import pytest
@@ -180,7 +181,7 @@ async def _build_client(
     fake_server_script: Path,
     *,
     scenario: str,
-    sleep=asyncio.sleep,
+    sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
     retry_policy: OverloadRetryPolicy | None = None,
 ) -> CodexStdioClient:
     env = dict(os.environ)

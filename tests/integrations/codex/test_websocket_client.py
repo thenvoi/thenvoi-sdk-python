@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 import pytest
@@ -206,7 +207,7 @@ async def _build_client(
     monkeypatch: pytest.MonkeyPatch,
     *,
     scenario: str,
-    sleep=asyncio.sleep,
+    sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
     retry_policy: OverloadRetryPolicy | None = None,
 ) -> tuple[CodexWebSocketClient, FakeCodexWebSocket]:
     fake_ws = FakeCodexWebSocket(scenario=scenario)
@@ -332,6 +333,56 @@ async def test_websocket_client_retries_overload(
         assert delays == [0.01]
     finally:
         await client.close()
+
+
+@pytest.mark.asyncio
+async def test_websocket_client_server_close_fails_pending_and_enqueues_disconnect(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """When the server closes the connection, pending futures fail and a disconnect event is enqueued."""
+
+    class CloseAfterInitWebSocket(FakeCodexWebSocket):
+        """Accepts initialization but closes on the next request."""
+
+        async def send(self, text: str) -> None:
+            message = json.loads(text)
+            method = message.get("method")
+
+            if method == "initialize":
+                await self._emit(
+                    {"id": message["id"], "result": {"server": "fake_codex_ws"}}
+                )
+                return
+            if method == "initialized":
+                self.initialized = True
+                return
+
+            # Close the websocket for any subsequent request
+            await self._incoming.put(None)
+
+    fake_ws = CloseAfterInitWebSocket(scenario="close_after_init")
+
+    async def fake_connect(*_args: Any, **_kwargs: Any) -> CloseAfterInitWebSocket:
+        return fake_ws
+
+    monkeypatch.setattr("websockets.asyncio.client.connect", fake_connect)
+
+    client = CodexWebSocketClient(ws_url="ws://fake.local")
+    await client.connect()
+    await client.initialize(
+        client_name="test_ws_client",
+        client_title="Test WS Client",
+        client_version="0.1.0",
+    )
+
+    # Send a request — the server will close instead of responding
+    with pytest.raises(RuntimeError, match="disconnected"):
+        await client.request("thread/start", {"cwd": "/tmp"})
+
+    # A transport/closed event should be available
+    event = await client.recv_event(timeout_s=1.0)
+    assert event.method == "transport/closed"
+    await client.close()
 
 
 @pytest.mark.asyncio

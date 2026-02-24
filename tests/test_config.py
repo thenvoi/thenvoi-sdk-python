@@ -42,7 +42,7 @@ def test_missing_config_file(tmp_path, monkeypatch):
         load_agent_config("any_agent")
 
     # Verify error message is helpful
-    assert "agent_config.yaml not found" in str(exc_info.value)
+    assert "Config file not found" in str(exc_info.value)
     assert "agent_config.yaml.example" in str(exc_info.value)
 
 

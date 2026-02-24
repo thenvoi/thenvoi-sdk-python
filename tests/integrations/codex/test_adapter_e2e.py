@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from collections import deque
 from datetime import datetime, timezone
 from typing import Any
@@ -467,7 +468,6 @@ async def test_resume_failure_injects_conversation_history() -> None:
 @pytest.mark.asyncio
 async def test_item_completed_forwards_internal_operations() -> None:
     """Full cycle: commandExecution + fileChange + agentMessage items all forwarded."""
-    import json
 
     tools = _ToolSchemaFakeTools()
     fake_client = _FakeCodexClient(

@@ -32,8 +32,9 @@ services:
       PHOENIX_CHANNELS_CLIENT_WHEEL: ${PHOENIX_CHANNELS_CLIENT_WHEEL:-}
     volumes:
       - ../../agent_config.yaml:/app/agent_config.yaml:ro
-      - ../../:/workspace/repo
-      - ${HOME}/.codex:/home/codex/.codex
+      - ../../:/workspace/repo  # rw: codex agents need write access for code changes
+      - ${HOME}/.codex:/home/codex/.codex:ro
+      - codex_sessions:/home/codex/.codex/sessions  # per-container session state
       - ${HOME}/.config/gh:/home/codex/.config/gh:ro
       - ${HOME}/.ssh:/home/codex/.ssh:ro
       - ${HOME}/.gitconfig:/home/codex/.gitconfig:ro
@@ -61,6 +62,9 @@ services:
     stdin_open: true
     tty: true
 
+# Named volumes persist after `docker compose down`.
+# Use `docker compose down -v` to remove them.
 volumes:
+  codex_sessions:
   codex_state:
   codex_prompts:

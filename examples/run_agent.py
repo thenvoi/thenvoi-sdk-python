@@ -1,4 +1,14 @@
 #!/usr/bin/env python3
+# /// script
+# requires-python = ">=3.11"
+# dependencies = [
+#   "thenvoi-sdk[langgraph,anthropic,pydantic-ai,claude_sdk,parlant,crewai,a2a,codex]",
+#   "python-dotenv>=1.1.1",
+# ]
+#
+# [tool.uv.sources]
+# thenvoi-sdk = { git = "https://github.com/thenvoi/thenvoi-sdk-python.git" }
+# ///
 """
 Run Thenvoi SDK agents using the composition pattern.
 
@@ -45,6 +55,8 @@ Setup:
 
 4. For A2A Gateway example, the gateway exposes Thenvoi platform peers as A2A endpoints
 """
+
+from __future__ import annotations
 
 import argparse
 import asyncio
@@ -199,7 +211,7 @@ async def run_langgraph_agent(
     ws_url: str,
     custom_section: str,
     logger: logging.Logger,
-):
+) -> None:
     """Run the LangGraph agent."""
     from langchain_openai import ChatOpenAI
     from langgraph.checkpoint.memory import InMemorySaver
@@ -234,7 +246,7 @@ async def run_pydantic_ai_agent(
     enable_streaming: bool,
     contact_config: ContactEventConfig | None,
     logger: logging.Logger,
-):
+) -> None:
     """Run the Pydantic AI agent."""
     from thenvoi.adapters import PydanticAIAdapter
 
@@ -290,7 +302,7 @@ async def run_anthropic_agent(
     enable_streaming: bool,
     contact_config: ContactEventConfig | None,
     logger: logging.Logger,
-):
+) -> None:
     """Run the Anthropic SDK agent."""
     from thenvoi.adapters import AnthropicAdapter
 
@@ -333,7 +345,7 @@ async def run_claude_sdk_agent(
     enable_streaming: bool,
     contact_config: ContactEventConfig | None,
     logger: logging.Logger,
-):
+) -> None:
     """Run the Claude Agent SDK agent."""
     from thenvoi.adapters import ClaudeSDKAdapter
 
@@ -374,7 +386,7 @@ async def run_parlant_agent(
     custom_section: str,
     enable_streaming: bool,
     logger: logging.Logger,
-):
+) -> None:
     """Run the Parlant agent."""
     from thenvoi.adapters import ParlantAdapter
 
@@ -406,7 +418,7 @@ async def run_crewai_agent(
     custom_section: str,
     enable_streaming: bool,
     logger: logging.Logger,
-):
+) -> None:
     """Run the CrewAI agent."""
     from thenvoi.adapters import CrewAIAdapter
 
@@ -449,22 +461,22 @@ async def run_codex_agent(
     codex_sandbox: str | None,
     codex_reasoning_effort: str | None,
     logger: logging.Logger,
-):
+) -> None:
     """Run the Codex app-server adapter."""
     from thenvoi.adapters import CodexAdapter
     from thenvoi.adapters.codex import CodexAdapterConfig
 
     adapter = CodexAdapter(
         config=CodexAdapterConfig(
-            transport=codex_transport,  # type: ignore[arg-type]
+            transport=codex_transport,  # type: ignore[arg-type]  # str from CLI args, validated at runtime
             cwd=codex_cwd,
             model=codex_model,
-            role=codex_role,  # type: ignore[arg-type]
-            personality=codex_personality,  # type: ignore[arg-type]
+            role=codex_role,  # type: ignore[arg-type]  # str from CLI args, validated at runtime
+            personality=codex_personality,  # type: ignore[arg-type]  # str from CLI args, validated at runtime
             approval_policy=codex_approval_policy,
-            approval_mode=codex_approval_mode,  # type: ignore[arg-type]
+            approval_mode=codex_approval_mode,  # type: ignore[arg-type]  # str from CLI args, validated at runtime
             sandbox=codex_sandbox,
-            reasoning_effort=codex_reasoning_effort,  # type: ignore[arg-type]
+            reasoning_effort=codex_reasoning_effort,  # type: ignore[arg-type]  # str from CLI args, validated at runtime
             codex_ws_url=codex_ws_url,
             custom_section=custom_section,
             include_base_instructions=True,
@@ -501,7 +513,7 @@ async def run_pydantic_ai_contacts_agent(
     ws_url: str,
     model: str,
     logger: logging.Logger,
-):
+) -> None:
     """Run Pydantic AI agent with contact management focus.
 
     This example demonstrates using contact tools via natural language:
@@ -539,7 +551,7 @@ async def run_contacts_auto_agent(
     ws_url: str,
     model: str,
     logger: logging.Logger,
-):
+) -> None:
     """Run agent with CALLBACK strategy that auto-approves contact requests.
 
     This example demonstrates:
@@ -548,10 +560,9 @@ async def run_contacts_auto_agent(
     - broadcast_changes=True to notify all rooms of contact updates
     """
     from thenvoi.adapters import PydanticAIAdapter
-    from thenvoi.platform.event import ContactRequestReceivedEvent, ContactEvent
-    from thenvoi.runtime.contact_tools import ContactTools
+    from thenvoi.platform.event import ContactRequestReceivedEvent
 
-    async def auto_approve(event: ContactEvent, tools: ContactTools) -> None:
+    async def auto_approve(event: "ContactEvent", tools: "ContactTools") -> None:
         """Auto-approve all contact requests."""
         if isinstance(event, ContactRequestReceivedEvent):
             if event.payload:
@@ -597,7 +608,7 @@ async def run_contacts_hub_agent(
     ws_url: str,
     model: str,
     logger: logging.Logger,
-):
+) -> None:
     """Run agent with HUB_ROOM strategy for LLM-driven contact decisions.
 
     This example demonstrates:
@@ -656,7 +667,7 @@ async def run_contacts_broadcast_agent(
     ws_url: str,
     model: str,
     logger: logging.Logger,
-):
+) -> None:
     """Run agent with broadcast-only contact notifications.
 
     This example demonstrates:
@@ -707,7 +718,7 @@ async def run_a2a_agent(
     a2a_url: str,
     enable_debug: bool,
     logger: logging.Logger,
-):
+) -> None:
     """Run the A2A bridge agent."""
     from thenvoi.adapters import A2AAdapter
 
@@ -741,7 +752,7 @@ async def run_a2a_gateway_agent(
     gateway_port: int,
     enable_debug: bool,
     logger: logging.Logger,
-):
+) -> None:
     """Run the A2A Gateway agent.
 
     The gateway connects to Thenvoi platform and exposes discovered peers
@@ -780,7 +791,7 @@ async def run_a2a_gateway_agent(
     await agent.run()
 
 
-async def main():
+async def main() -> None:
     parser = argparse.ArgumentParser(
         description="Run a Thenvoi SDK test agent",
         formatter_class=argparse.RawDescriptionHelpFormatter,

@@ -847,8 +847,9 @@ class ClaudeSDKAdapter(SimpleAdapter[str]):
         logger.debug("Handling message %s in room %s", msg.id, room_id)
 
         if not self._session_manager:
-            logger.error("Session manager not initialized")
-            return
+            raise RuntimeError(
+                "ClaudeSDKAdapter session manager not initialized — was on_started() called?"
+            )
 
         # Store tools for MCP server access
         self._room_tools[room_id] = tools
@@ -1032,12 +1033,9 @@ class ClaudeSDKAdapter(SimpleAdapter[str]):
         """Clean up Claude SDK session and stored tools when agent leaves a room."""
         if self._session_manager:
             await self._session_manager.cleanup_session(room_id)
-        if room_id in self._room_tools:
-            del self._room_tools[room_id]
-        if room_id in self._session_context:
-            del self._session_context[room_id]
-        if room_id in self._session_ids:
-            del self._session_ids[room_id]
+        self._room_tools.pop(room_id, None)
+        self._session_context.pop(room_id, None)
+        self._session_ids.pop(room_id, None)
         logger.debug("Room %s: Cleaned up Claude SDK session", room_id)
 
     # --- Copied from BaseFrameworkAgent._report_error ---
@@ -1046,7 +1044,7 @@ class ClaudeSDKAdapter(SimpleAdapter[str]):
         try:
             await tools.send_event(content=f"Error: {error}", message_type="error")
         except Exception:
-            pass
+            logger.debug("Failed to send error event", exc_info=True)
 
     async def cleanup_all(self) -> None:
         """Cleanup all sessions (call on stop)."""

@@ -1,7 +1,8 @@
 """Built-in framework adapters.
 
 Adapters are lazily imported to avoid requiring all optional dependencies.
-Install the extra you need:
+Install the extra you need::
+
     uv add thenvoi-sdk[langgraph]
     uv add thenvoi-sdk[anthropic]
     uv add thenvoi-sdk[pydantic_ai]
@@ -12,6 +13,8 @@ Install the extra you need:
     uv add thenvoi-sdk[a2a_gateway]
     uv add thenvoi-sdk[codex]
 """
+
+from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
@@ -44,7 +47,7 @@ __all__ = [
 ]
 
 
-def __getattr__(name: str):
+def __getattr__(name: str) -> type:
     """Lazy import adapters to avoid loading optional dependencies."""
     if name == "LangGraphAdapter":
         from thenvoi.adapters.langgraph import LangGraphAdapter

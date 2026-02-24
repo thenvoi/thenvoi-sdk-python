@@ -1,0 +1,15 @@
+# Agent Configuration for Claude Code Docker - Implementer Agent
+#
+# Get agent_id and api_key from https://app.thenvoi.com/dashboard
+# 1. Create an External Agent for the implementer role
+# 2. Copy credentials here
+
+agent_id: "your-implementer-agent-id"
+api_key: "your-implementer-api-key"
+
+# Role profile for this agent
+role: implementer
+
+# Optional: custom prompt (combined with role if both specified)
+# prompt: |
+#   Additional implementer instructions here.

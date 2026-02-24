@@ -1,0 +1,15 @@
+# Agent Configuration for Claude Code Docker - Planner Agent
+#
+# Get agent_id and api_key from https://app.thenvoi.com/dashboard
+# 1. Create an External Agent for the planner role
+# 2. Copy credentials here
+
+agent_id: "your-planner-agent-id"
+api_key: "your-planner-api-key"
+
+# Role profile for this agent
+role: planner
+
+# Optional: custom prompt (combined with role if both specified)
+# prompt: |
+#   Additional planner instructions here.

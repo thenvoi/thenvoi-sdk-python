@@ -49,4 +49,15 @@ if [[ -n "${PHOENIX_CHANNELS_CLIENT_WHEEL:-}" ]]; then
   fi
 fi
 
+# Validate required workspace mount
+if [[ ! -d "/workspace/repo" ]]; then
+  echo "[codex-entrypoint] ERROR: /workspace/repo not mounted. Check docker-compose volumes." >&2
+  exit 1
+fi
+
+# Configure git safe.directory for bind-mounted repos
+for dir in /workspace/repo ${GIT_SAFE_DIRS//,/ }; do
+  [ -d "$dir" ] && git config --global --add safe.directory "$dir"
+done
+
 exec "$@"

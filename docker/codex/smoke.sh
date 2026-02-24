@@ -21,7 +21,7 @@ test -f /workspace/notes/smoke.md
 
 if [ -d /workspace/repo/.git ]; then
   echo "[smoke] git worktree list"
-  git -C /workspace/repo worktree list || true
+  git -C /workspace/repo worktree list
 fi
 
 echo "[smoke] done"

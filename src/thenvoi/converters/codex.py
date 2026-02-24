@@ -4,12 +4,10 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from thenvoi.core.protocols import HistoryConverter
-
-if TYPE_CHECKING:
-    from thenvoi.integrations.codex.types import CodexSessionState
+from thenvoi.integrations.codex.types import CodexSessionState
 
 logger = logging.getLogger(__name__)
 
@@ -24,8 +22,6 @@ class CodexHistoryConverter(HistoryConverter["CodexSessionState"]):
 
     def convert(self, raw: list[dict[str, Any]]) -> CodexSessionState:
         """Return most recent Codex session state found in history."""
-        from thenvoi.integrations.codex.types import CodexSessionState
-
         logger.debug("CodexHistoryConverter: scanning %d messages", len(raw))
 
         for msg in reversed(raw):

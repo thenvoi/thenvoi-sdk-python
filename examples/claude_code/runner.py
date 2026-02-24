@@ -27,13 +27,18 @@ from typing import Any
 
 import yaml
 
+from thenvoi.config.loader import load_agent_config
+
 # Global shutdown event
 _shutdown_event: asyncio.Event | None = None
 
 # Required mount points for Docker operation
+NOTES_DIR = os.environ.get("NOTES_DIR", "/workspace/notes")
+WORKSPACE_DIR = os.environ.get("WORKSPACE", "/workspace/repo")
+
 REQUIRED_MOUNTS = [
-    "/workspace/repo",
-    "/workspace/notes",
+    WORKSPACE_DIR,
+    NOTES_DIR,
 ]
 
 # Retry configuration
@@ -60,7 +65,13 @@ def validate_mounts() -> None:
 
 
 def load_config(config_path: str) -> dict[str, Any]:
-    """Load agent configuration from YAML file."""
+    """Load agent configuration from YAML file.
+
+    Credentials (agent_id, api_key) are validated via the SDK's
+    ``load_agent_config()`` so all examples follow a single path
+    for credential loading.  Additional fields (role, prompt, etc.)
+    are returned as-is for the runner to consume.
+    """
     path = Path(config_path).resolve()
     if not path.exists():
         raise ValueError(f"Config file not found: {config_path}")
@@ -76,11 +87,10 @@ def load_config(config_path: str) -> dict[str, Any]:
     if config is None:
         raise ValueError("Config file is empty")
 
-    # Validate required fields
-    required = ["agent_id", "api_key"]
-    missing = [field for field in required if not config.get(field)]
-    if missing:
-        raise ValueError(f"Missing required config fields: {missing}")
+    # Validate credentials via the SDK config loader (supports flat YAML format)
+    agent_id, api_key = load_agent_config("agent", config_path=path)
+    config["agent_id"] = agent_id
+    config["api_key"] = api_key
 
     return config
 
@@ -155,11 +165,11 @@ async def main() -> None:
 
 You have access to the following directories:
 - `{workspace}` - Project source code (read-only)
-- `/workspace/notes` - Markdown notes, plans, and design documents (read-write)
+- `{NOTES_DIR}` - Markdown notes, plans, and design documents (read-write)
 
 Current working directory: {workspace}
 
-When creating design docs or plans, save them to `/workspace/notes/`.
+When creating design docs or plans, save them to `{NOTES_DIR}/`.
 """
     final_prompt_parts.append(workspace_context)
 

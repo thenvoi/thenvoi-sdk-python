@@ -147,8 +147,6 @@ class TestLoadRolePrompt:
 
     def test_loads_from_prompt_dir(self, tmp_path: Path) -> None:
         """Test loading role from file in prompt_dir."""
-        from pathlib import Path
-
         prompt_dir = Path(str(tmp_path))
         prompt_file = prompt_dir / "custom.md"
         prompt_file.write_text("Custom Role Prompt")
@@ -158,8 +156,6 @@ class TestLoadRolePrompt:
 
     def test_file_overrides_builtin(self, tmp_path: Path) -> None:
         """Test that file in prompt_dir overrides built-in role."""
-        from pathlib import Path
-
         prompt_dir = Path(str(tmp_path))
         prompt_file = prompt_dir / "planner.md"
         prompt_file.write_text("Custom Planner Override")
@@ -169,8 +165,6 @@ class TestLoadRolePrompt:
 
     def test_falls_back_to_builtin_when_file_missing(self, tmp_path: Path) -> None:
         """Test fallback to built-in when file not in prompt_dir."""
-        from pathlib import Path
-
         prompt_dir = Path(str(tmp_path))
         result = load_role_prompt("planner", prompt_dir)
         assert result is not None

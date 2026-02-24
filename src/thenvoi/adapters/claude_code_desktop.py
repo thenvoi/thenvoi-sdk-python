@@ -699,8 +699,7 @@ class ClaudeCodeDesktopAdapter(SimpleAdapter[str]):
 
     async def on_cleanup(self, room_id: str) -> None:
         """Clean up session ID when agent leaves a room."""
-        if room_id in self._session_ids:
-            del self._session_ids[room_id]
+        self._session_ids.pop(room_id, None)
         logger.debug("Room %s: Cleaned up Claude Code Desktop session", room_id)
 
     async def cleanup_all(self) -> None:

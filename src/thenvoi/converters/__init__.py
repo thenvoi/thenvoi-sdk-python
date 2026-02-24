@@ -1,7 +1,8 @@
 """Built-in history converters.
 
 Converters are lazily imported to avoid requiring all optional dependencies.
-Install the extra you need:
+Install the extra you need::
+
     uv add thenvoi-sdk[langgraph]
     uv add thenvoi-sdk[anthropic]
     uv add thenvoi-sdk[pydantic_ai]
@@ -11,6 +12,8 @@ Install the extra you need:
     uv add thenvoi-sdk[a2a]
     uv add thenvoi-sdk[codex]
 """
+
+from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
@@ -67,7 +70,7 @@ __all__ = [
 ]
 
 
-def __getattr__(name: str):
+def __getattr__(name: str) -> type:
     """Lazy import converters to avoid loading optional dependencies."""
     if name in ("LangChainHistoryConverter", "LangChainMessages"):
         from thenvoi.converters.langchain import (

@@ -34,7 +34,7 @@ class CodexWebSocketClient:
         self._ws: Any = None
         self._reader_task: asyncio.Task[None] | None = None
         self._pending: dict[JsonRpcId, asyncio.Future[dict[str, Any]]] = {}
-        self._events: asyncio.Queue[RpcEvent] = asyncio.Queue()
+        self._events: asyncio.Queue[RpcEvent] = asyncio.Queue(maxsize=10_000)
         self._request_id = 0
         self._connected = False
 
