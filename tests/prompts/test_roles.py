@@ -5,6 +5,50 @@ from __future__ import annotations
 import pytest
 
 from thenvoi.prompts import get_available_roles, get_role_prompt, load_role_prompt
+from thenvoi.prompts.roles import CONVERSATION_DISCIPLINE
+
+
+class TestConversationDiscipline:
+    """Tests for the shared conversation discipline block."""
+
+    def test_has_rule_priority(self) -> None:
+        """Test that rule priority is explicitly defined."""
+        assert "Rule priority (highest to lowest):" in CONVERSATION_DISCIPLINE
+        assert "1." in CONVERSATION_DISCIPLINE
+        assert "2." in CONVERSATION_DISCIPLINE
+        assert "3." in CONVERSATION_DISCIPLINE
+
+    def test_mention_overrides_silence(self) -> None:
+        """Test that @mention override is the highest priority rule."""
+        assert "overrides every" in CONVERSATION_DISCIPLINE
+        assert "you MUST respond" in CONVERSATION_DISCIPLINE
+
+    def test_has_mention_detection(self) -> None:
+        """Test that mention detection rules are defined."""
+        assert "Mention detection:" in CONVERSATION_DISCIPLINE
+        assert "@dataclass" in CONVERSATION_DISCIPLINE
+        assert "email addresses" in CONVERSATION_DISCIPLINE
+
+    def test_has_anti_ping_pong(self) -> None:
+        """Test that anti-ping-pong rule exists."""
+        assert "do NOT @mention the sender" in CONVERSATION_DISCIPLINE
+        assert "mention loops" in CONVERSATION_DISCIPLINE
+
+    def test_has_missing_inputs_guidance(self) -> None:
+        """Test guidance for when @mentioned but missing context."""
+        assert "missing inputs" in CONVERSATION_DISCIPLINE
+        assert "acknowledgment" in CONVERSATION_DISCIPLINE
+
+    def test_has_event_vs_message_guidance(self) -> None:
+        """Test guidance on using events vs messages."""
+        assert "thenvoi_send_event" in CONVERSATION_DISCIPLINE
+
+    def test_injected_into_all_roles(self) -> None:
+        """Test that the shared block appears in every role prompt."""
+        for role in get_available_roles():
+            prompt = get_role_prompt(role)
+            assert "Rule priority (highest to lowest):" in prompt
+            assert "Mention detection:" in prompt
 
 
 class TestGetRolePrompt:
@@ -16,8 +60,6 @@ class TestGetRolePrompt:
 
         assert "Role: Planner" in prompt
         assert "Design Document" in prompt
-        assert "Multi-Agent Collaboration" in prompt
-        assert "@username/agent-name" in prompt
         assert "Planning complete" in prompt
 
     def test_get_reviewer_role(self) -> None:
@@ -64,7 +106,7 @@ class TestGetRolePrompt:
         for role in get_available_roles():
             prompt = get_role_prompt(role)
             assert isinstance(prompt, str)
-            assert len(prompt) > 100  # Should have substantial content
+            assert len(prompt) > 100
 
 
 class TestGetAvailableRoles:
@@ -133,8 +175,8 @@ class TestLoadRolePrompt:
         assert "Role: Planner" in result
 
 
-class TestRolePromptContent:
-    """Tests for specific content in role prompts."""
+class TestRoleSpecificRules:
+    """Tests for role-specific rules that differ from the shared base."""
 
     def test_planner_has_design_doc_structure(self) -> None:
         """Test that planner includes design document structure."""
@@ -153,13 +195,27 @@ class TestRolePromptContent:
         assert "Architecture decisions" in prompt
         assert "Security-sensitive" in prompt
 
-    def test_planner_has_termination_signals(self) -> None:
-        """Test that planner includes conversation termination signals."""
+    def test_planner_is_default_speaker(self) -> None:
+        """Test that planner responds to unaddressed human messages."""
         prompt = get_role_prompt("planner")
+        assert "without @mentioning a specific" in prompt
+        assert "you should respond and coordinate" in prompt
 
-        assert "Conversation Discipline" in prompt
-        assert "Planning complete" in prompt
-        assert "Handing off to" in prompt
+    def test_reviewer_defers_unaddressed_messages(self) -> None:
+        """Test that reviewer waits for delegation on unaddressed messages."""
+        prompt = get_role_prompt("reviewer")
+        assert "do NOT respond unless it is clearly a review request" in prompt
+
+    def test_implementer_defers_unaddressed_messages(self) -> None:
+        """Test that implementer waits for delegation on unaddressed messages."""
+        prompt = get_role_prompt("implementer")
+        assert "do NOT respond unless it is clearly an implementation request" in prompt
+
+    def test_planner_allows_agent_workstream_continuation(self) -> None:
+        """Test planner can respond to agents within active workstreams."""
+        prompt = get_role_prompt("planner")
+        assert "Only start NEW workstreams when a HUMAN asks" in prompt
+        assert "respond to questions or tasks from other agents" in prompt
 
     def test_reviewer_has_feedback_format(self) -> None:
         """Test that reviewer includes feedback format guidance."""
@@ -169,14 +225,8 @@ class TestRolePromptContent:
         assert "[Suggestion]" in prompt
         assert "[Nit]" in prompt
 
-    def test_all_roles_have_mention_format(self) -> None:
-        """Test that all roles explain how to mention other agents."""
+    def test_all_roles_have_handoff_protocol(self) -> None:
+        """Test that all roles have handoff guidance."""
         for role in get_available_roles():
             prompt = get_role_prompt(role)
-            assert "@username/agent-name" in prompt or "@agent" in prompt
-
-    def test_all_roles_have_must_respond_when_mentioned(self) -> None:
-        """Test that all roles require responding when @mentioned."""
-        for role in get_available_roles():
-            prompt = get_role_prompt(role)
-            assert "you MUST respond" in prompt
+            assert "wait silently" in prompt.lower()
