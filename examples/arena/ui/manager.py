@@ -13,7 +13,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from thenvoi.client.streaming.client import MessageCreatedPayload, WebSocketClient
+from thenvoi.client.streaming.client import WebSocketClient
 from thenvoi_rest import AsyncRestClient, ChatMessageRequest, ParticipantRequest
 from thenvoi_rest.human_api_chats.types.create_my_chat_room_request_chat import (
     CreateMyChatRoomRequestChat,
@@ -87,25 +87,6 @@ class ActiveGame:
     seen_message_ids: set[str] = field(default_factory=set)
     all_messages: list[dict[str, Any]] = field(default_factory=list)
     is_active: bool = True
-
-
-def _serialize_ws_payload(msg: MessageCreatedPayload) -> dict[str, Any]:
-    """Convert a WebSocket MessageCreatedPayload to a JSON-serializable dict."""
-    result: dict[str, Any] = {
-        "id": msg.id,
-        "content": msg.content or "",
-        "sender_name": msg.sender_name or "Unknown",
-        "sender_id": msg.sender_id,
-        "sender_type": msg.sender_type,
-        "message_type": msg.message_type,
-        "inserted_at": msg.inserted_at,
-    }
-    if msg.metadata and msg.metadata.mentions:
-        result["mentions"] = [
-            {"id": m.id, "name": m.name or ""}
-            for m in msg.metadata.mentions
-        ]
-    return result
 
 
 class GameManager:
@@ -237,12 +218,10 @@ class GameManager:
         thinker_p = agents_map.get(THINKER_AGENT_ID)
         thinker_name = thinker_p.name if thinker_p else "Thinker"
 
-        mentions = [Mention(id=THINKER_AGENT_ID, name=thinker_name)]
         guesser_names: list[str] = []
         for gc in guesser_configs:
             p = agents_map.get(gc["agent_id"])
             if p:
-                mentions.append(Mention(id=str(p.id), name=p.name))
                 guesser_names.append(p.name)
 
         names_list = ", ".join(guesser_names)
@@ -255,7 +234,7 @@ class GameManager:
                     "These guessers are already in the room — do NOT "
                     "look up or invite any other guessers."
                 ),
-                mentions=mentions,
+                mentions=[Mention(id=THINKER_AGENT_ID, name=thinker_name)],
             ),
         )
         logger.info("Game started in room %s", chat_id)
@@ -288,22 +267,108 @@ class GameManager:
             await ws.__aenter__()
             game.ws_client = ws
 
-            async def on_message(payload: MessageCreatedPayload) -> None:
-                if payload.id in game.seen_message_ids:
+            def _serialize(payload: dict[str, Any]) -> dict[str, Any]:
+                """Convert a raw WS payload to our serialized format."""
+                mid = str(payload.get("id", ""))
+                serialized: dict[str, Any] = {
+                    "id": mid,
+                    "content": payload.get("content", ""),
+                    "sender_name": payload.get("sender_name") or "Unknown",
+                    "sender_id": str(payload.get("sender_id", "")),
+                    "sender_type": str(payload.get("sender_type", "unknown")),
+                    "message_type": str(payload.get("message_type", "text")),
+                    "inserted_at": str(payload.get("inserted_at", "")),
+                }
+                mentions = payload.get("metadata", {})
+                if isinstance(mentions, dict):
+                    mentions = mentions.get("mentions")
+                    if mentions and isinstance(mentions, list):
+                        serialized["mentions"] = [
+                            {"id": str(m.get("id", "")), "name": m.get("name", "")}
+                            for m in mentions
+                            if isinstance(m, dict)
+                        ]
+                return serialized
+
+            def _ingest(payload: dict[str, Any]) -> None:
+                """Ingest a new message/event payload into the game."""
+                mid = str(payload.get("id", ""))
+                if not mid or mid in game.seen_message_ids:
                     return
-                game.seen_message_ids.add(payload.id)
-                serialized = _serialize_ws_payload(payload)
+                game.seen_message_ids.add(mid)
+                serialized = _serialize(payload)
                 game.all_messages.append(serialized)
                 logger.info(
-                    "WS %s: [%s] %s",
+                    "WS %s [%s]: [%s] %s",
                     game.game_id,
-                    payload.sender_name or payload.sender_id,
-                    (payload.content or "")[:80],
+                    serialized["message_type"],
+                    serialized["sender_name"],
+                    serialized["content"][:80],
                 )
 
-            await ws.join_chat_room_channel(
-                game.chat_id, on_message_created=on_message
-            )
+            def _ingest_update(payload: dict[str, Any]) -> None:
+                """Update an already-seen message (e.g. text→thought type change)."""
+                mid = str(payload.get("id", ""))
+                if not mid:
+                    return
+                serialized = _serialize(payload)
+                # Find and replace the existing entry
+                for i, msg in enumerate(game.all_messages):
+                    if msg["id"] == mid:
+                        game.all_messages[i] = serialized
+                        logger.info(
+                            "WS %s [%s] UPDATED: [%s] %s",
+                            game.game_id,
+                            serialized["message_type"],
+                            serialized["sender_name"],
+                            serialized["content"][:80],
+                        )
+                        return
+                # Not found in list (shouldn't happen), append it
+                game.all_messages.append(serialized)
+
+            # Subscribe directly to the topic so we handle ALL event types,
+            # not just message_created (thoughts may arrive as message_updated
+            # or event_created).
+            topic = f"chat_room:{game.chat_id}"
+
+            async def raw_handler(message: Any) -> None:
+                event = getattr(message, "event", "")
+                payload = getattr(message, "payload", {}) or {}
+                if event == "message_created":
+                    _ingest(payload)
+                elif event == "message_updated":
+                    mtype = payload.get("message_type", "?")
+                    mid = str(payload.get("id", "?"))
+                    is_new = mid not in game.seen_message_ids
+                    logger.info(
+                        "WS %s message_updated: id=%s type=%s new=%s content=%s",
+                        game.game_id, mid[:8], mtype, is_new,
+                        str(payload.get("content", ""))[:60],
+                    )
+                    if is_new:
+                        _ingest(payload)
+                    else:
+                        # Update in place — catches type changes (text→thought)
+                        _ingest_update(payload)
+                elif event == "event_created":
+                    logger.info(
+                        "WS %s event_created: type=%s keys=%s content=%s",
+                        game.game_id,
+                        payload.get("message_type", "?"),
+                        list(payload.keys()),
+                        str(payload.get("content", ""))[:80],
+                    )
+                    _ingest(payload)
+                elif event in ("phx_reply", "phx_error"):
+                    pass
+                else:
+                    logger.info(
+                        "WS %s: event=%s keys=%s",
+                        game.game_id, event, list(payload.keys()),
+                    )
+
+            await ws.client.subscribe_to_topic(topic, raw_handler)
             logger.info(
                 "WebSocket listener connected for game %s (room %s)",
                 game.game_id, game.chat_id,
