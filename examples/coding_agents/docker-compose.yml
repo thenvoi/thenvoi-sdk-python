@@ -36,7 +36,7 @@ x-codex: &codex-base
     - ${REPO_PATH:-.}:/workspace/repo  # rw: codex agents need write access
     - shared_notes:/workspace/notes
     - shared_state:/workspace/state
-    - ${HOME}/.codex:/home/codex/.codex:ro
+    - ${HOME}/.codex:/home/codex/.codex
     - codex_sessions:/home/codex/.codex/sessions
     - ${HOME}/.config/gh:/home/codex/.config/gh:ro
     - ${HOME}/.ssh:/home/codex/.ssh:ro
@@ -63,7 +63,7 @@ services:
       AGENT_CONFIG: /app/config/agent_config.yaml
       AGENT_KEY: planner
       AGENT_ROLE: planner
-      WORKSPACE: /workspace/repo
+      WORKSPACE: /workspace
       THENVOI_REST_URL: ${THENVOI_REST_URL:-https://app.thenvoi.com}
       THENVOI_WS_URL: ${THENVOI_WS_URL:-wss://app.thenvoi.com/api/v1/socket/websocket}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
