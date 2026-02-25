@@ -1,6 +1,6 @@
 # Multi-Agent Docker Compose
 
-Run a 3-agent team (Claude Code planner + Codex reviewer + Codex implementer) sharing a workspace, connected to the Thenvoi platform.
+Run a 3-agent team (Claude SDK planner + Codex reviewer + Codex implementer) sharing a workspace, connected to the Thenvoi platform.
 
 ## Architecture
 
@@ -9,17 +9,19 @@ docker compose up
 ├── claude-planner     (ClaudeSDKAdapter, Claude model)
 │   └── Role: planner — designs plans, coordinates agents
 ├── codex-reviewer     (CodexAdapter, gpt-5.3-codex, reasoning: xhigh)
-│   └── Role: reviewer — reviews code, finds regressions
+│   └── Role: reviewer — reviews plans and code, finds gaps and risks
 └── codex-implementer  (CodexAdapter, gpt-5.3-codex, reasoning: high)
     └── Role: coding — implements changes end-to-end
 ```
 
-All services share `/workspace/repo` (mounted from host) and `/workspace/notes` (Docker volume).
+All services share `/workspace/repo` (mounted from host) and `/workspace/notes` + `/workspace/state` (Docker volumes).
+
+The planner saves plans to `/workspace/notes/plan.md`. The reviewer cross-checks plans against source code. The implementer executes approved plans.
 
 ## Prerequisites
 
 - Docker and Docker Compose v2
-- Anthropic API key (or Claude MAX subscription) for the planner
+- Anthropic API key for the planner
 - OpenAI API key for Codex agents
 - Agent credentials from the Thenvoi platform (agent_id + api_key per agent)
 - Agents registered in `agent_config.yaml` at the repo root
@@ -30,7 +32,7 @@ All services share `/workspace/repo` (mounted from host) and `/workspace/notes` 
 
    ```bash
    cp .env.example .env
-   # Edit .env with your API keys and agent config keys
+   # Edit .env with your API keys and repo path
    ```
 
 2. **Configure planner agent:**
@@ -58,6 +60,15 @@ All services share `/workspace/repo` (mounted from host) and `/workspace/notes` 
    docker compose logs -f codex-implementer
    ```
 
+## How It Works
+
+1. The **planner** receives a task and creates `/workspace/notes/plan.md` with a phased implementation plan
+2. The planner @mentions the **reviewer** to review the plan
+3. The reviewer reads the plan, cross-checks against source code, and provides structured feedback ([Critical], [Risk], [Gap], [Suggestion])
+4. If changes are requested, the planner updates the plan and re-requests review
+5. Once approved, the **implementer** executes the plan phases in `/workspace/repo`
+6. Humans can join the conversation at any point to provide guidance or make decisions
+
 ## Configuration
 
 ### Environment Variables
@@ -66,17 +77,19 @@ All services share `/workspace/repo` (mounted from host) and `/workspace/notes` 
 |----------|---------|-------------|
 | `THENVOI_REST_URL` | `https://app.thenvoi.com` | Platform REST API |
 | `THENVOI_WS_URL` | `wss://app.thenvoi.com/...` | Platform WebSocket |
-| `ANTHROPIC_API_KEY` | — | Anthropic API key for planner |
-| `OPENAI_API_KEY` | — | OpenAI API key for Codex agents |
+| `ANTHROPIC_API_KEY` | -- | Anthropic API key for planner |
+| `OPENAI_API_KEY` | -- | OpenAI API key for Codex agents |
 | `REPO_PATH` | `.` | Host path to mount as `/workspace/repo` |
 | `CODEX_REVIEWER_AGENT_KEY` | `reviewer` | Agent config key for reviewer |
+| `CODEX_REVIEWER_MODEL` | `gpt-5.3-codex` | Model for reviewer |
 | `CODEX_REVIEWER_REASONING_EFFORT` | `xhigh` | Reasoning effort for reviewer |
 | `CODEX_IMPLEMENTER_AGENT_KEY` | `implementer` | Agent config key for implementer |
+| `CODEX_IMPLEMENTER_MODEL` | `gpt-5.3-codex` | Model for implementer |
 | `CODEX_IMPLEMENTER_REASONING_EFFORT` | `high` | Reasoning effort for implementer |
 
 ### Planner Prompts
 
-The planner loads role prompts from `prompts/`. The default `prompts/planner.md` is a symlink to `examples/claude_code/prompts/planner.md`. Customize or replace it as needed.
+The planner loads role prompts from `prompts/planner.md`. The Claude SDK runner injects workspace context (paths to `/workspace/repo` and `/workspace/notes`) automatically. Customize the prompt as needed.
 
 ## Troubleshooting
 
@@ -86,9 +99,9 @@ The planner loads role prompts from `prompts/`. The default `prompts/planner.md`
 - **Codex model errors**: Verify `OPENAI_API_KEY` has access to `gpt-5.3-codex`.
 - **Permission errors on `/workspace/repo`**: Ensure `REPO_PATH` points to an accessible directory.
 
-## Stopping
+## Cleanup
 
 ```bash
 docker compose down           # Stop containers
-docker compose down -v        # Stop and remove volumes (shared_notes)
+docker compose down -v        # Stop and remove volumes (shared_notes, shared_state)
 ```

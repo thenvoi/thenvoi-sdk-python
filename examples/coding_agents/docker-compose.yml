@@ -68,7 +68,7 @@ services:
     volumes:
       - ./claude-planner.yaml:/app/config/claude-planner.yaml:ro
       - ./prompts:/app/config/prompts:ro
-      - ${REPO_PATH:-.}:/workspace/repo  # rw: codex agents need write access for code changes
+      - ${REPO_PATH:-.}:/workspace/repo:ro  # planner only reads source code
       - shared_notes:/workspace/notes
       - shared_state:/workspace/state
     extra_hosts:
