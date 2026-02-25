@@ -1066,7 +1066,12 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
         thread_id: str,
         turn_id: str | None,
     ) -> None:
-        """Forward internal Codex operations as platform events."""
+        """Forward internal Codex operations as platform events.
+
+        Best-effort: failures are logged but never propagated, since
+        execution reporting is supplementary and must not kill message
+        processing (e.g. a transient 403 from the load balancer).
+        """
         item_type = item.get("type", "")
         item_id = str(item.get("id") or "")
         metadata = {
@@ -1075,6 +1080,32 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
             "codex_turn_id": turn_id,
         }
 
+        try:
+            await self._emit_item_event(
+                tools=tools,
+                item_type=item_type,
+                item_id=item_id,
+                item=item,
+                metadata=metadata,
+            )
+        except Exception:
+            logger.warning(
+                "Failed to emit %s event for item %s (best-effort)",
+                item_type,
+                item_id,
+                exc_info=True,
+            )
+
+    async def _emit_item_event(
+        self,
+        *,
+        tools: AgentToolsProtocol,
+        item_type: str,
+        item_id: str,
+        item: dict[str, Any],
+        metadata: dict[str, Any],
+    ) -> None:
+        """Inner dispatch for item events — may raise on API errors."""
         # Tool-like items gated on enable_execution_reporting
         if item_type in {
             "commandExecution",
