@@ -185,14 +185,40 @@
 
 <!-- ════════════ WINNER MODAL ════════════ -->
 <div id="winner-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-6 bg-black/60 backdrop-blur-sm">
-  <div class="glass border border-slate-700/50 rounded-2xl shadow-2xl max-w-lg w-full p-8 fade-up text-center">
+  <div class="glass border border-slate-700/50 rounded-2xl shadow-2xl max-w-lg w-full p-8 fade-up text-center max-h-[90vh] overflow-y-auto chat-scroll">
     <div class="text-5xl mb-4">&#127942;</div>
     <h2 class="text-2xl font-extrabold mb-1">Game Over!</h2>
     <p id="winner-word" class="text-slate-400 mb-6"></p>
     <div id="winner-results" class="space-y-2 mb-6 text-left"></div>
-    <button onclick="handleNewGame()"
-      class="w-full bg-gradient-to-r from-violet-600 to-blue-600 hover:from-violet-500 hover:to-blue-500 rounded-xl py-3 font-semibold text-sm transition-all">
-      New Game
+
+    <!-- Analysis section (hidden until requested) -->
+    <div id="analysis-section" class="hidden mb-6">
+      <div id="analysis-loading" class="hidden py-6">
+        <div class="w-10 h-10 mx-auto mb-3 border-[3px] border-violet-500/30 border-t-violet-500 rounded-full spin-slow"></div>
+        <p class="text-slate-400 text-sm">Analyzing gameplay...</p>
+      </div>
+      <div id="analysis-content" class="hidden text-left">
+        <div class="border-t border-slate-700/50 pt-4 mb-3">
+          <h3 class="text-sm font-bold text-violet-400 uppercase tracking-wider mb-3">Game Analysis</h3>
+        </div>
+        <div id="analysis-text" class="text-sm text-slate-300 leading-relaxed space-y-2"></div>
+      </div>
+    </div>
+
+    <!-- Buttons -->
+    <div class="flex gap-3">
+      <button onclick="handleAnalyze()" id="analyze-btn"
+        class="flex-1 bg-slate-800 hover:bg-slate-700 border border-violet-500/30 hover:border-violet-500/50 rounded-xl py-3 font-semibold text-sm text-violet-300 transition-all">
+        Analyze Game
+      </button>
+      <button onclick="handleNewGame()"
+        class="flex-1 bg-gradient-to-r from-violet-600 to-blue-600 hover:from-violet-500 hover:to-blue-500 rounded-xl py-3 font-semibold text-sm transition-all">
+        New Game
+      </button>
+    </div>
+    <button onclick="handleViewGame()" id="view-game-btn"
+      class="hidden w-full mt-3 bg-slate-800/60 hover:bg-slate-700/60 border border-slate-600/40 rounded-xl py-2.5 font-medium text-xs text-slate-400 hover:text-slate-300 transition-all">
+      View Game Messages
     </button>
   </div>
 </div>
@@ -771,6 +797,7 @@ function checkGameEnd(msg) {
 }
 
 function showWinner(word, results) {
+  resetAnalysis();
   document.getElementById('winner-word').innerHTML = `The word was <strong class="text-white text-lg">${word}</strong>`;
   const container = document.getElementById('winner-results');
   container.innerHTML = results.map((r, i) => {
@@ -803,7 +830,71 @@ async function handleStop() {
 
 function handleNewGame() {
   document.getElementById('winner-modal').classList.add('hidden');
+  resetAnalysis();
   handleStop();
+}
+
+function handleViewGame() {
+  document.getElementById('winner-modal').classList.add('hidden');
+}
+
+function resetAnalysis() {
+  document.getElementById('analysis-section').classList.add('hidden');
+  document.getElementById('analysis-loading').classList.add('hidden');
+  document.getElementById('analysis-content').classList.add('hidden');
+  document.getElementById('analysis-text').innerHTML = '';
+  const btn = document.getElementById('analyze-btn');
+  btn.classList.remove('hidden', 'opacity-50', 'cursor-not-allowed');
+  btn.disabled = false;
+  btn.textContent = 'Analyze Game';
+  document.getElementById('view-game-btn').classList.add('hidden');
+}
+
+async function handleAnalyze() {
+  const btn = document.getElementById('analyze-btn');
+  const section = document.getElementById('analysis-section');
+  const loading = document.getElementById('analysis-loading');
+  const content = document.getElementById('analysis-content');
+
+  btn.disabled = true;
+  btn.textContent = 'Analyzing...';
+  btn.classList.add('opacity-50', 'cursor-not-allowed');
+
+  section.classList.remove('hidden');
+  loading.classList.remove('hidden');
+  content.classList.add('hidden');
+
+  try {
+    const resp = await fetch(`/api/game/${state.gameId}/analyze`, { method: 'POST' });
+    const data = await resp.json();
+    if (!resp.ok) throw new Error(data.error || 'Analysis failed');
+
+    let text = data.analysis || '';
+    text = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    text = text.replace(/\*\*(.+?)\*\*/g, '<strong class="text-white font-semibold">$1</strong>');
+    const paragraphs = text.split(/\n\n+/).filter(p => p.trim());
+    document.getElementById('analysis-text').innerHTML = paragraphs.map(p =>
+      `<p>${p.replace(/\n/g, '<br>')}</p>`
+    ).join('');
+
+    loading.classList.add('hidden');
+    content.classList.remove('hidden');
+
+    btn.classList.add('hidden');
+    document.getElementById('view-game-btn').classList.remove('hidden');
+  } catch (e) {
+    loading.classList.add('hidden');
+    section.classList.add('hidden');
+    btn.disabled = false;
+    btn.textContent = 'Analyze Game';
+    btn.classList.remove('opacity-50', 'cursor-not-allowed');
+    console.error('[Arena] Analysis failed:', e);
+    // Show error inline
+    section.classList.remove('hidden');
+    content.classList.remove('hidden');
+    document.getElementById('analysis-text').innerHTML =
+      `<p class="text-red-400">${e.message}</p>`;
+  }
 }
 
 // ── Screen management ────────────────────────────────────────────────────────

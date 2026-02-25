@@ -197,6 +197,93 @@ async def debug_poll(request: Request) -> JSONResponse:
     })
 
 
+async def analyze_game(request: Request) -> JSONResponse:
+    """Call an LLM to analyze the completed game transcript."""
+    game_id = request.path_params["game_id"]
+    game = manager._games.get(game_id)
+    if not game:
+        return JSONResponse({"error": "Game not found"}, status_code=404)
+
+    messages = await manager.get_all_messages(game_id)
+    if not messages:
+        return JSONResponse({"error": "No messages to analyze"}, status_code=400)
+
+    # Build transcript from visible messages only
+    transcript_lines: list[str] = []
+    for msg in messages:
+        msg_type = (msg.get("message_type") or "").lower()
+        if msg_type in ("tool_call", "tool_result", "thought"):
+            continue
+        sender = msg.get("sender_name") or "Unknown"
+        content = (msg.get("content") or "").strip()
+        if content:
+            transcript_lines.append(f"[{sender}]: {content}")
+
+    if not transcript_lines:
+        return JSONResponse({"error": "No visible messages to analyze"}, status_code=400)
+
+    guesser_info = "\n".join(
+        f"  - {gc['label']} (model: {gc['model']})" for gc in game.guesser_configs
+    )
+    prompt = (
+        'You are analyzing a completed game of "20 Questions" between AI agents.\n\n'
+        f"Game Setup:\n"
+        f"- Game Master (Thinker): model {game.thinker_model}\n"
+        f"- Guessers:\n{guesser_info}\n\n"
+        f"Full Game Transcript:\n"
+        + "\n".join(transcript_lines)
+        + "\n\n"
+        "Provide a concise, insightful analysis covering:\n"
+        "1. The secret word and whether the Thinker played fairly "
+        "(gave accurate yes/no answers)\n"
+        "2. Each guesser's strategy — what approach did they take, "
+        "how effective was it, did they guess correctly?\n"
+        "3. Overall verdict — who played best and why\n\n"
+        "Keep it conversational and brief (3-5 short paragraphs). "
+        "Use agent names directly."
+    )
+
+    anthropic_key = os.getenv("ANTHROPIC_API_KEY")
+    openai_key = os.getenv("OPENAI_API_KEY")
+    analysis: str | None = None
+
+    if anthropic_key:
+        try:
+            import anthropic
+
+            client = anthropic.AsyncAnthropic(api_key=anthropic_key)
+            resp = await client.messages.create(
+                model="claude-opus-4-6",
+                max_tokens=2048,
+                messages=[{"role": "user", "content": prompt}],
+            )
+            analysis = resp.content[0].text
+        except Exception as exc:
+            logger.warning("Anthropic analysis failed: %s", exc)
+
+    if analysis is None and openai_key:
+        try:
+            import openai
+
+            client = openai.AsyncOpenAI(api_key=openai_key)
+            resp = await client.chat.completions.create(
+                model="gpt-5.2",
+                max_tokens=2048,
+                messages=[{"role": "user", "content": prompt}],
+            )
+            analysis = resp.choices[0].message.content
+        except Exception as exc:
+            logger.warning("OpenAI analysis failed: %s", exc)
+
+    if analysis is None:
+        return JSONResponse(
+            {"error": "No LLM API key available. Set ANTHROPIC_API_KEY or OPENAI_API_KEY."},
+            status_code=500,
+        )
+
+    return JSONResponse({"analysis": analysis})
+
+
 async def stop_game(request: Request) -> JSONResponse:
     game_id = request.path_params["game_id"]
     await manager.stop_game(game_id)
@@ -230,6 +317,7 @@ app = Starlette(
         Route("/api/game/current", current_game),
         Route("/api/game/{game_id}/events", game_events),
         Route("/api/game/{game_id}/messages", get_messages),
+        Route("/api/game/{game_id}/analyze", analyze_game, methods=["POST"]),
         Route("/api/game/{game_id}/stop", stop_game, methods=["POST"]),
         Route("/api/debug/poll", debug_poll),
         Mount("/static", app=StaticFiles(directory=str(STATIC_DIR)), name="static"),
