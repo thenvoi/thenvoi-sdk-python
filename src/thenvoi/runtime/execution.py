@@ -650,18 +650,25 @@ class ExecutionContext:
         """
         Synchronize backlog via /next API until caught up with WebSocket.
 
+        First recovers any messages stuck in 'processing' state from a
+        previous crash, then processes pending messages via /next.
+
         Uses _first_ws_msg_id marker:
-        1. Call /next to get next unprocessed message
-        2. If None → no backlog, we're synced
-        3. Check if message ID matches _first_ws_msg_id (first WebSocket message)
-        4. If match → synced! Process this message, pop duplicate from queue
-        5. If no match → process /next message, repeat from step 1
+        1. Recover stale processing messages (crash recovery)
+        2. Call /next to get next unprocessed message
+        3. If None → no backlog, we're synced
+        4. Check if message ID matches _first_ws_msg_id (first WebSocket message)
+        5. If match → synced! Process this message, pop duplicate from queue
+        6. If no match → process /next message, repeat from step 1
         """
         logger.debug(
             "ExecutionContext %s: Starting /next synchronization", self.room_id
         )
 
         try:
+            # Recover messages stuck in 'processing' state from a previous crash.
+            # The /next endpoint skips these, so we must handle them explicitly.
+            await self._recover_stale_processing_messages()
             while True:  # Cancellation handles exit
                 next_msg = await self._get_next_message()
 
@@ -728,6 +735,33 @@ class ExecutionContext:
 
         logger.debug("ExecutionContext %s: Synchronization complete", self.room_id)
         self._sync_complete = True
+
+    async def _recover_stale_processing_messages(self) -> None:
+        """
+        Recover messages stuck in 'processing' state from a previous crash.
+
+        When an agent crashes mid-processing, the message stays in 'processing'
+        state on the server. The /next endpoint skips these messages, so the
+        agent would never pick them up again. This method finds such messages
+        and re-processes them by calling mark_processing (creates a new attempt).
+        """
+        stale_messages = await self.link.get_stale_processing_messages(self.room_id)
+        if not stale_messages:
+            return
+
+        logger.info(
+            "ExecutionContext %s: Recovering %d stale processing message(s)",
+            self.room_id,
+            len(stale_messages),
+        )
+
+        for msg in stale_messages:
+            logger.info(
+                "ExecutionContext %s: Re-processing stale message %s",
+                self.room_id,
+                msg.id,
+            )
+            await self._process_backlog_message(msg)
 
     async def _get_next_message(self) -> PlatformMessage | None:
         """

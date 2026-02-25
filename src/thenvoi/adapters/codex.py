@@ -225,12 +225,18 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
         adapter = self
 
         def _handle_set_model(inp: SetModelInput) -> str:
+            assert adapter._rpc_lock.locked(), (
+                "_handle_set_model must run under _rpc_lock"
+            )
             adapter.config.model = inp.model
             adapter._selected_model = inp.model
             adapter._model_explicitly_set = True
             return f"Model changed to {inp.model} for subsequent turns."
 
         def _handle_set_reasoning(inp: SetReasoningInput) -> str:
+            assert adapter._rpc_lock.locked(), (
+                "_handle_set_reasoning must run under _rpc_lock"
+            )
             parts: list[str] = []
             if inp.effort is not None:
                 if inp.effort not in _REASONING_EFFORTS:
