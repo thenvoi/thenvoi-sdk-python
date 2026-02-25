@@ -510,7 +510,7 @@ class TestOrphanedToolUseSanitization:
         assert "is_error" not in result[1]["content"][0]
 
     def test_patches_orphan_followed_by_text(self):
-        """tool_use followed by text (no tool_result) gets patched."""
+        """tool_use followed by text (no tool_result) merges into user msg."""
         converter = AnthropicHistoryConverter()
         raw = [
             {
@@ -529,15 +529,18 @@ class TestOrphanedToolUseSanitization:
 
         result = converter.convert(raw)
 
-        # Should have: tool_use, synthetic tool_result, then user text
-        assert len(result) == 3
+        # Should merge synthetic tool_result into the user message
+        # to avoid consecutive user messages (violates alternating turns)
+        assert len(result) == 2
         assert result[0]["role"] == "assistant"
         assert result[0]["content"][0]["type"] == "tool_use"
+        # User message has synthetic tool_result prepended + converted text
         assert result[1]["role"] == "user"
+        assert isinstance(result[1]["content"], list)
         assert result[1]["content"][0]["type"] == "tool_result"
         assert result[1]["content"][0]["is_error"] is True
-        assert result[2]["role"] == "user"
-        assert "[Alice]" in result[2]["content"]
+        assert result[1]["content"][1]["type"] == "text"
+        assert "[Alice]" in result[1]["content"][1]["text"]
 
     def test_logs_warning_for_orphaned_tool_uses(self, caplog):
         """Should log warning when patching orphaned tool_use blocks."""

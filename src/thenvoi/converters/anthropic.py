@@ -114,15 +114,16 @@ def _patch_orphaned_tool_uses(messages: AnthropicMessages) -> None:
                 for uid in sorted_ids
             ]
 
-            if matched_ids and next_msg is not None:
-                # Some results exist — append synthetics to the existing
-                # user message so all results stay in one block.
-                next_msg["content"].extend(synthetic_results)
+            if next_msg is not None and next_msg.get("role") == "user":
+                # Merge synthetics into the existing user message to
+                # preserve the alternating-turns contract.
+                if isinstance(next_msg["content"], str):
+                    next_msg["content"] = [
+                        {"type": "text", "text": next_msg["content"]}
+                    ]
+                next_msg["content"] = synthetic_results + next_msg["content"]
             else:
-                # No result message at all — insert a new user message.
-                # The inserted message lands at i+1; the loop increments i
-                # to i+1 next, but the inserted msg has role "user" so it's
-                # skipped immediately, advancing to the original next message.
+                # No user message follows — insert a new one.
                 messages.insert(
                     i + 1,
                     {"role": "user", "content": synthetic_results},

@@ -334,10 +334,10 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
                     content=json.dumps({"tool": tool_name, "input": input_data}),
                     message_type="tool_call",
                 )
-            except Exception:
+            except Exception as e:
                 logger.warning(
-                    "Failed to report tool_call event for %s (non-fatal)",
-                    tool_name,
+                    "Failed to send tool_call event: %s",
+                    e,
                 )
 
     async def _report_tool_result(
@@ -358,10 +358,10 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
                     content=json.dumps({"tool": tool_name, key: result}),
                     message_type="tool_result",
                 )
-            except Exception:
+            except Exception as e:
                 logger.warning(
-                    "Failed to report tool_result event for %s (non-fatal)",
-                    tool_name,
+                    "Failed to send tool_result event: %s",
+                    e,
                 )
 
     def _convert_custom_tools_to_crewai(self) -> list[BaseTool]:
@@ -1235,5 +1235,5 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
         """Send error event (best effort)."""
         try:
             await tools.send_event(content=f"Error: {error}", message_type="error")
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("Failed to send error event: %s", e)

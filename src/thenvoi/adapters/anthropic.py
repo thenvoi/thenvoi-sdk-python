@@ -341,10 +341,10 @@ class AnthropicAdapter(SimpleAdapter[AnthropicMessages]):
                         ),
                         message_type="tool_call",
                     )
-                except Exception:
+                except Exception as e:
                     logger.warning(
-                        "Failed to report tool_call event for %s (non-fatal)",
-                        tool_name,
+                        "Failed to send tool_call event: %s",
+                        e,
                     )
 
             # Execute tool (check custom tools first, then platform tools)
@@ -379,10 +379,10 @@ class AnthropicAdapter(SimpleAdapter[AnthropicMessages]):
                         ),
                         message_type="tool_result",
                     )
-                except Exception:
+                except Exception as e:
                     logger.warning(
-                        "Failed to report tool_result event for %s (non-fatal)",
-                        tool_name,
+                        "Failed to send tool_result event: %s",
+                        e,
                     )
 
             tool_results.append(
@@ -401,5 +401,5 @@ class AnthropicAdapter(SimpleAdapter[AnthropicMessages]):
         """Send error event (best effort)."""
         try:
             await tools.send_event(content=f"Error: {error}", message_type="error")
-        except Exception:
-            logger.warning("Failed to report error event (non-fatal)")
+        except Exception as e:
+            logger.warning("Failed to send error event: %s", e)
