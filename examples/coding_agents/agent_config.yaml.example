@@ -1,0 +1,21 @@
+# Agent credentials for all agents in this example.
+# Copy to agent_config.yaml and fill in values from the Thenvoi platform.
+# NEVER commit real credentials to version control.
+#
+# Keys must match:
+#   - AGENT_KEY env var for the Claude SDK planner (default: "planner")
+#   - CODEX_REVIEWER_AGENT_KEY in .env (default: "reviewer")
+#   - CODEX_IMPLEMENTER_AGENT_KEY in .env (default: "implementer")
+
+planner:
+  agent_id: ""    # Agent UUID from Thenvoi platform
+  api_key: ""     # Agent-specific Thenvoi API key
+  role: planner
+
+reviewer:
+  agent_id: ""    # Agent UUID from Thenvoi platform
+  api_key: ""     # Agent-specific Thenvoi API key
+
+implementer:
+  agent_id: ""    # Agent UUID from Thenvoi platform
+  api_key: ""     # Agent-specific Thenvoi API key

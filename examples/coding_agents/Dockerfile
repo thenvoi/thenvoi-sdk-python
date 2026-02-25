@@ -1,6 +1,6 @@
 # Dockerfile for Thenvoi Claude SDK Agent Runner
 #
-# Build:   docker build -t thenvoi-claude-sdk .
+# Build:   docker compose build
 # Run:     docker compose up
 #
 # This image provides a YAML-configured agent runner for the Thenvoi platform.
@@ -33,15 +33,15 @@ RUN git config --global url."https://github.com/".insteadOf "git@github.com:" &&
     uv sync --extra claude_sdk
 
 # Copy runner and example tools
-COPY examples/claude_sdk_docker/runner.py ./runner.py
-COPY examples/claude_sdk_docker/tools/ ./tools/
+COPY examples/coding_agents/runner.py ./runner.py
+COPY examples/coding_agents/tools/ ./tools/
 
 # Create non-root user for security
 RUN useradd -m -u 1000 appuser && \
     chown -R appuser:appuser /app
 
 # Copy entrypoint script (runtime git safe.directory configuration)
-COPY examples/claude_sdk_docker/entrypoint.sh ./entrypoint.sh
+COPY examples/coding_agents/entrypoint.sh ./entrypoint.sh
 RUN chmod +x ./entrypoint.sh
 
 USER appuser

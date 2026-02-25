@@ -24,7 +24,6 @@ The planner saves plans to `/workspace/notes/plan.md`. The reviewer cross-checks
 - Anthropic API key for the planner
 - OpenAI API key for Codex agents
 - Agent credentials from the Thenvoi platform (agent_id + api_key per agent)
-- Agents registered in `agent_config.yaml` at the repo root
 
 ## Setup
 
@@ -35,23 +34,21 @@ The planner saves plans to `/workspace/notes/plan.md`. The reviewer cross-checks
    # Edit .env with your API keys and repo path
    ```
 
-2. **Configure planner agent:**
+2. **Configure agents:**
 
    ```bash
-   cp claude-planner.yaml.example claude-planner.yaml
-   # Edit with agent_id and api_key from Thenvoi platform
+   cp agent_config.yaml.example agent_config.yaml
+   # Edit with agent_id and api_key for each agent from Thenvoi platform
    ```
 
-3. **Ensure agent_config.yaml** exists at the repo root with entries for the reviewer and implementer agents (keyed by `CODEX_REVIEWER_AGENT_KEY` and `CODEX_IMPLEMENTER_AGENT_KEY`).
-
-4. **Build and run:**
+3. **Build and run:**
 
    ```bash
    docker compose build
    docker compose up -d
    ```
 
-5. **View logs:**
+4. **View logs:**
 
    ```bash
    docker compose logs -f
@@ -93,8 +90,8 @@ The planner loads role prompts from `prompts/planner.md`. The Claude SDK runner 
 
 ## Troubleshooting
 
-- **"Config file not found"**: Ensure `claude-planner.yaml` exists (not just the `.example`).
-- **"Missing required config fields"**: Fill in `agent_id` and `api_key` in `claude-planner.yaml`.
+- **"Config file not found"**: Ensure `agent_config.yaml` exists (not just the `.example`).
+- **"Missing required config fields"**: Fill in `agent_id` and `api_key` for each agent in `agent_config.yaml`.
 - **Agent not connecting**: Check `THENVOI_REST_URL` / `THENVOI_WS_URL` in `.env`.
 - **Codex model errors**: Verify `OPENAI_API_KEY` has access to `gpt-5.3-codex`.
 - **Permission errors on `/workspace/repo`**: Ensure `REPO_PATH` points to an accessible directory.

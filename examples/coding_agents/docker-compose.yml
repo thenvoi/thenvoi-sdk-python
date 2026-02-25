@@ -1,6 +1,8 @@
 # Multi-Agent Docker Compose: Claude SDK (planner) + Codex (reviewer, implementer)
 #
 # All three agents share /workspace/repo and connect to the Thenvoi platform.
+# All agents read credentials from a single agent_config.yaml (keyed format).
+#
 # Default Codex model is gpt-5.3-codex — override via CODEX_REVIEWER_MODEL /
 # CODEX_IMPLEMENTER_MODEL in .env if your API key doesn't have access.
 #
@@ -8,8 +10,8 @@
 # Use `docker compose down -v` to remove them.
 #
 # Usage:
-#   cp .env.example .env          # Configure credentials
-#   cp claude-planner.yaml.example claude-planner.yaml  # Configure planner agent
+#   cp .env.example .env                            # Configure credentials
+#   cp agent_config.yaml.example agent_config.yaml  # Configure all agents
 #   docker compose build
 #   docker compose up -d
 #   docker compose logs -f
@@ -31,7 +33,7 @@ x-codex: &codex-base
     THENVOI_CLIENT_REST_WHEEL: ${THENVOI_CLIENT_REST_WHEEL:-}
     PHOENIX_CHANNELS_CLIENT_WHEEL: ${PHOENIX_CHANNELS_CLIENT_WHEEL:-}
   volumes: &codex-volumes
-    - ../../agent_config.yaml:/app/agent_config.yaml:ro
+    - ./agent_config.yaml:/app/agent_config.yaml:ro
     - ${REPO_PATH:-.}:/workspace/repo  # rw: codex agents need write access for code changes
     - shared_notes:/workspace/notes
     - shared_state:/workspace/state
@@ -54,19 +56,20 @@ services:
     restart: unless-stopped
     build:
       context: ../..
-      dockerfile: examples/claude_sdk_docker/Dockerfile
+      dockerfile: examples/coding_agents/Dockerfile
     env_file:
       - path: .env
         required: false
     environment:
-      AGENT_CONFIG: /app/config/claude-planner.yaml
+      AGENT_CONFIG: /app/config/agent_config.yaml
+      AGENT_KEY: planner
       AGENT_ROLE: planner
       WORKSPACE: /workspace/repo
       THENVOI_REST_URL: ${THENVOI_REST_URL:-https://app.thenvoi.com}
       THENVOI_WS_URL: ${THENVOI_WS_URL:-wss://app.thenvoi.com/api/v1/socket/websocket}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
     volumes:
-      - ./claude-planner.yaml:/app/config/claude-planner.yaml:ro
+      - ./agent_config.yaml:/app/config/agent_config.yaml:ro
       - ./prompts:/app/config/prompts:ro
       - ${REPO_PATH:-.}:/workspace/repo:ro  # planner only reads source code
       - shared_notes:/workspace/notes
