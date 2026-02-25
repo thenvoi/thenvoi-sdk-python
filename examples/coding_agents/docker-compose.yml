@@ -3,9 +3,6 @@
 # All three agents share /workspace/repo and connect to the Thenvoi platform.
 # All agents read credentials from a single agent_config.yaml (keyed format).
 #
-# Default Codex model is gpt-5.3-codex — override via CODEX_REVIEWER_MODEL /
-# CODEX_IMPLEMENTER_MODEL in .env if your API key doesn't have access.
-#
 # Named volumes (shared_notes, shared_state) persist after `docker compose down`.
 # Use `docker compose down -v` to remove them.
 #
@@ -34,11 +31,11 @@ x-codex: &codex-base
     PHOENIX_CHANNELS_CLIENT_WHEEL: ${PHOENIX_CHANNELS_CLIENT_WHEEL:-}
   volumes: &codex-volumes
     - ./agent_config.yaml:/app/agent_config.yaml:ro
-    - ${REPO_PATH:-.}:/workspace/repo  # rw: codex agents need write access for code changes
+    - ${REPO_PATH:-.}:/workspace/repo  # rw: codex agents need write access
     - shared_notes:/workspace/notes
     - shared_state:/workspace/state
     - ${HOME}/.codex:/home/codex/.codex:ro
-    - codex_sessions:/home/codex/.codex/sessions  # shared session state across agents
+    - codex_sessions:/home/codex/.codex/sessions
     - ${HOME}/.config/gh:/home/codex/.config/gh:ro
     - ${HOME}/.ssh:/home/codex/.ssh:ro
     - ${HOME}/.gitconfig:/home/codex/.gitconfig:ro
@@ -51,8 +48,8 @@ x-codex: &codex-base
   tty: true
 
 services:
-  # ── Claude SDK planner ────────────────────────────────────────────────
-  claude-planner:
+  # ── Planner (Claude SDK) ────────────────────────────────────────────────
+  planner:
     restart: unless-stopped
     build:
       context: ../..
@@ -77,15 +74,15 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
 
-  # ── Codex reviewer ─────────────────────────────────────────────────────
-  codex-reviewer:
+  # ── Reviewer (Codex) ───────────────────────────────────────────────────
+  reviewer:
     <<: *codex-base
     environment:
       <<: *codex-env-base
       CODEX_CWD: /workspace/repo
-      CODEX_SANDBOX: ${CODEX_REVIEWER_SANDBOX:-external-sandbox}
-      CODEX_AGENT_KEY: ${CODEX_REVIEWER_AGENT_KEY:-reviewer}
-      CODEX_APPROVAL_MODE: ${CODEX_REVIEWER_APPROVAL_MODE:-manual}
+      CODEX_SANDBOX: ${REVIEWER_SANDBOX:-external-sandbox}
+      CODEX_AGENT_KEY: ${REVIEWER_AGENT_KEY:-reviewer}
+      CODEX_APPROVAL_MODE: ${REVIEWER_APPROVAL_MODE:-manual}
       OPENAI_API_KEY: ${OPENAI_API_KEY}
     command:
       - /app/.venv/bin/python
@@ -93,30 +90,30 @@ services:
       - --example
       - codex
       - --agent
-      - ${CODEX_REVIEWER_AGENT_KEY:-reviewer}
+      - ${REVIEWER_AGENT_KEY:-reviewer}
       - --codex-role
       - reviewer
       - --codex-transport
       - stdio
       - --codex-model
-      - ${CODEX_REVIEWER_MODEL:-gpt-5.3-codex}
+      - ${REVIEWER_MODEL:-gpt-5.3-codex}
       - --codex-reasoning-effort
-      - ${CODEX_REVIEWER_REASONING_EFFORT:-xhigh}
+      - ${REVIEWER_REASONING_EFFORT:-xhigh}
       - --codex-cwd
       - /workspace/repo
       - --codex-sandbox
-      - ${CODEX_REVIEWER_SANDBOX:-external-sandbox}
+      - ${REVIEWER_SANDBOX:-external-sandbox}
       - --no-codex-turn-task-markers
 
-  # ── Codex implementer ──────────────────────────────────────────────────
-  codex-implementer:
+  # ── Implementer (Codex) ────────────────────────────────────────────────
+  implementer:
     <<: *codex-base
     environment:
       <<: *codex-env-base
       CODEX_CWD: /workspace/repo
-      CODEX_SANDBOX: ${CODEX_IMPLEMENTER_SANDBOX:-external-sandbox}
-      CODEX_AGENT_KEY: ${CODEX_IMPLEMENTER_AGENT_KEY:-implementer}
-      CODEX_APPROVAL_MODE: ${CODEX_IMPLEMENTER_APPROVAL_MODE:-manual}
+      CODEX_SANDBOX: ${IMPLEMENTER_SANDBOX:-external-sandbox}
+      CODEX_AGENT_KEY: ${IMPLEMENTER_AGENT_KEY:-implementer}
+      CODEX_APPROVAL_MODE: ${IMPLEMENTER_APPROVAL_MODE:-manual}
       OPENAI_API_KEY: ${OPENAI_API_KEY}
     command:
       - /app/.venv/bin/python
@@ -124,19 +121,19 @@ services:
       - --example
       - codex
       - --agent
-      - ${CODEX_IMPLEMENTER_AGENT_KEY:-implementer}
+      - ${IMPLEMENTER_AGENT_KEY:-implementer}
       - --codex-role
       - coding
       - --codex-transport
       - stdio
       - --codex-model
-      - ${CODEX_IMPLEMENTER_MODEL:-gpt-5.3-codex}
+      - ${IMPLEMENTER_MODEL:-gpt-5.3-codex}
       - --codex-reasoning-effort
-      - ${CODEX_IMPLEMENTER_REASONING_EFFORT:-high}
+      - ${IMPLEMENTER_REASONING_EFFORT:-high}
       - --codex-cwd
       - /workspace/repo
       - --codex-sandbox
-      - ${CODEX_IMPLEMENTER_SANDBOX:-external-sandbox}
+      - ${IMPLEMENTER_SANDBOX:-external-sandbox}
       - --no-codex-turn-task-markers
 
 volumes:

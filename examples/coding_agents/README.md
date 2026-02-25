@@ -75,14 +75,14 @@ The planner saves plans to `/workspace/notes/plan.md`. The reviewer cross-checks
 | `THENVOI_REST_URL` | `https://app.thenvoi.com` | Platform REST API |
 | `THENVOI_WS_URL` | `wss://app.thenvoi.com/...` | Platform WebSocket |
 | `ANTHROPIC_API_KEY` | -- | Anthropic API key for planner |
-| `OPENAI_API_KEY` | -- | OpenAI API key for Codex agents |
+| `OPENAI_API_KEY` | -- | OpenAI API key for reviewer/implementer |
 | `REPO_PATH` | `.` | Host path to mount as `/workspace/repo` |
-| `CODEX_REVIEWER_AGENT_KEY` | `reviewer` | Agent config key for reviewer |
-| `CODEX_REVIEWER_MODEL` | `gpt-5.3-codex` | Model for reviewer |
-| `CODEX_REVIEWER_REASONING_EFFORT` | `xhigh` | Reasoning effort for reviewer |
-| `CODEX_IMPLEMENTER_AGENT_KEY` | `implementer` | Agent config key for implementer |
-| `CODEX_IMPLEMENTER_MODEL` | `gpt-5.3-codex` | Model for implementer |
-| `CODEX_IMPLEMENTER_REASONING_EFFORT` | `high` | Reasoning effort for implementer |
+| `REVIEWER_AGENT_KEY` | `reviewer` | Agent config key for reviewer |
+| `REVIEWER_MODEL` | `gpt-5.3-codex` | Model for reviewer |
+| `REVIEWER_REASONING_EFFORT` | `xhigh` | Reasoning effort for reviewer |
+| `IMPLEMENTER_AGENT_KEY` | `implementer` | Agent config key for implementer |
+| `IMPLEMENTER_MODEL` | `gpt-5.3-codex` | Model for implementer |
+| `IMPLEMENTER_REASONING_EFFORT` | `high` | Reasoning effort for implementer |
 
 ### Planner Prompts
 
