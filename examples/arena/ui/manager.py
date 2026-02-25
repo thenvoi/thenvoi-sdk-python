@@ -222,6 +222,7 @@ class GameManager:
         for gc in guesser_configs:
             p = agents_map.get(gc["agent_id"])
             if p:
+                gc["name"] = p.name
                 guesser_names.append(p.name)
 
         names_list = ", ".join(guesser_names)

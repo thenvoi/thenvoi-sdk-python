@@ -674,7 +674,7 @@ function formatContent(text, type) {
     // Try to find the agent name
     if (uuid === state.thinkerAgentId) return '@Thinker';
     const g = state.guessers.find(g => g.agent_id === uuid);
-    if (g) return `@${g.label}`;
+    if (g) return `@${g.name || g.label}`;
     return '@agent';
   });
   // If after stripping mentions the content is only whitespace, return placeholder

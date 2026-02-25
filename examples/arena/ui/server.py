@@ -12,6 +12,7 @@ import asyncio
 import json
 import logging
 import os
+import re
 import sys
 from pathlib import Path
 
@@ -208,6 +209,19 @@ async def analyze_game(request: Request) -> JSONResponse:
     if not messages:
         return JSONResponse({"error": "No messages to analyze"}, status_code=400)
 
+    # Build a lookup from agent_id -> display name for mention resolution
+    agent_names: dict[str, str] = {THINKER_AGENT_ID: "Thinker"}
+    for gc in game.guesser_configs:
+        agent_names[gc["agent_id"]] = gc.get("name") or gc["label"]
+
+    def resolve_mentions(text: str) -> str:
+        """Replace @[[uuid]] mention tags with actual agent names."""
+        def _replace(m: re.Match) -> str:
+            uuid = m.group(1)
+            name = agent_names.get(uuid)
+            return f"@{name}" if name else "@agent"
+        return re.sub(r"@\[\[([\w-]+)\]\]", _replace, text)
+
     # Build transcript from visible messages only
     transcript_lines: list[str] = []
     for msg in messages:
@@ -215,7 +229,7 @@ async def analyze_game(request: Request) -> JSONResponse:
         if msg_type in ("tool_call", "tool_result", "thought"):
             continue
         sender = msg.get("sender_name") or "Unknown"
-        content = (msg.get("content") or "").strip()
+        content = resolve_mentions((msg.get("content") or "").strip())
         if content:
             transcript_lines.append(f"[{sender}]: {content}")
 
@@ -223,7 +237,8 @@ async def analyze_game(request: Request) -> JSONResponse:
         return JSONResponse({"error": "No visible messages to analyze"}, status_code=400)
 
     guesser_info = "\n".join(
-        f"  - {gc['label']} (model: {gc['model']})" for gc in game.guesser_configs
+        f"  - {gc.get('name') or gc['label']} (model: {gc['model']})"
+        for gc in game.guesser_configs
     )
     prompt = (
         'You are analyzing a completed game of "20 Questions" between AI agents.\n\n'
