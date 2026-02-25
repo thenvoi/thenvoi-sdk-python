@@ -22,6 +22,7 @@ NOTE: We intentionally do NOT use `from __future__ import annotations` here
 because Parlant's @p.tool decorator checks annotation types at runtime.
 """
 
+import json
 import logging
 import warnings
 from typing import Any, Optional
@@ -462,8 +463,6 @@ def create_parlant_tools() -> list[Any]:
 
         try:
             result = await tools.list_contacts(page, page_size)
-            import json
-
             return ToolResult(data=json.dumps(result, default=str))
         except Exception as e:
             logger.error("[Parlant Tool] Error listing contacts: %s", e, exc_info=True)
@@ -595,8 +594,6 @@ def create_parlant_tools() -> list[Any]:
 
         try:
             result = await tools.list_contact_requests(page, page_size, sent_status)
-            import json
-
             return ToolResult(data=json.dumps(result, default=str))
         except Exception as e:
             logger.error(

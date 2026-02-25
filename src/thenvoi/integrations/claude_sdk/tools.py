@@ -435,9 +435,16 @@ def create_thenvoi_mcp_server(agent: Any):
         "thenvoi_add_contact",
         "Send a contact request to add someone as a contact. Returns 'pending' when request is created, 'approved' when inverse request existed.",
         {
-            "room_id": str,
-            "handle": str,
-            "message": str,
+            "type": "object",
+            "properties": {
+                "room_id": {"type": "string"},
+                "handle": {"type": "string"},
+                "message": {
+                    "type": "string",
+                    "description": "Optional message to include with the contact request",
+                },
+            },
+            "required": ["room_id", "handle"],
         },
     )
     async def add_contact(args: dict[str, Any]) -> dict[str, Any]:
@@ -478,6 +485,9 @@ def create_thenvoi_mcp_server(agent: Any):
             room_id = args.get("room_id", "")
             handle = args.get("handle") or None
             contact_id = args.get("contact_id") or None
+
+            if not handle and not contact_id:
+                return _make_error("Either handle or contact_id must be provided")
 
             logger.info(
                 "[%s] remove_contact: handle=%s, contact_id=%s",
@@ -556,6 +566,14 @@ def create_thenvoi_mcp_server(agent: Any):
             action = args.get("action", "")
             handle = args.get("handle") or None
             request_id = args.get("request_id") or None
+
+            if not handle and not request_id:
+                return _make_error("Either handle or request_id must be provided")
+
+            if action not in ("approve", "reject", "cancel"):
+                return _make_error(
+                    f"Invalid action '{action}'. Use 'approve', 'reject', or 'cancel'"
+                )
 
             logger.info(
                 "[%s] respond_contact_request: action=%s, handle=%s, request_id=%s",
