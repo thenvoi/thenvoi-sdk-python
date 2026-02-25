@@ -146,9 +146,15 @@ async def main() -> None:
     codex_transport = os.environ.get("CODEX_TRANSPORT", "stdio")
     codex_model = os.environ.get("CODEX_MODEL") or config.get("model")
     codex_role = os.environ.get("CODEX_ROLE", config.get("role", "coding"))
-    codex_sandbox = os.environ.get("CODEX_SANDBOX", config.get("sandbox", "external-sandbox"))
-    codex_reasoning = os.environ.get("CODEX_REASONING_EFFORT") or config.get("reasoning_effort")
-    codex_approval = os.environ.get("CODEX_APPROVAL_MODE", config.get("approval_mode", "manual"))
+    codex_sandbox = os.environ.get(
+        "CODEX_SANDBOX", config.get("sandbox", "external-sandbox")
+    )
+    codex_reasoning = os.environ.get("CODEX_REASONING_EFFORT") or config.get(
+        "reasoning_effort"
+    )
+    codex_approval = os.environ.get(
+        "CODEX_APPROVAL_MODE", config.get("approval_mode", "manual")
+    )
     codex_turn_markers = _env_bool("CODEX_TURN_TASK_MARKERS", default=False)
 
     adapter = CodexAdapter(

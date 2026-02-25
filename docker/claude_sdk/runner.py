@@ -93,9 +93,7 @@ def load_config(config_path: str, agent_key: str) -> dict[str, Any]:
     return result
 
 
-def load_custom_tools(
-    tools_dir: Path, config_dir: Path, tool_names: list[str]
-) -> list:
+def load_custom_tools(tools_dir: Path, config_dir: Path, tool_names: list[str]) -> list:
     """Load custom tools from tools directory."""
     resolved_tools_dir = tools_dir.resolve()
     resolved_config_dir = config_dir.resolve()
@@ -205,9 +203,7 @@ async def main() -> None:
         tools_dir = config_dir / "tools"
         custom_tools = load_custom_tools(tools_dir, config_dir, tool_names)
         if custom_tools:
-            tool_fn_names = [
-                getattr(t, "_tool_name", t.__name__) for t in custom_tools
-            ]
+            tool_fn_names = [getattr(t, "_tool_name", t.__name__) for t in custom_tools]
             logger.info("Loaded custom tools: %s", tool_fn_names)
 
     adapter = ClaudeSDKAdapter(
