@@ -32,6 +32,7 @@ from typing import Any, Literal
 import yaml
 
 from thenvoi.config.loader import load_agent_config
+from thenvoi.runtime.repo_init import initialize_repo
 
 # Global flag for graceful shutdown
 _shutdown_event: asyncio.Event | None = None
@@ -206,6 +207,12 @@ async def main() -> None:
 
     logger.info("Loading config from: %s (key: %s)", config_path, agent_key)
     config = load_config(config_path, agent_key)
+    lock_timeout_s = float(os.environ.get("REPO_INIT_LOCK_TIMEOUT_S", "120"))
+    repo_init = initialize_repo(
+        config,
+        agent_key=agent_key,
+        lock_timeout_s=lock_timeout_s,
+    )
 
     from thenvoi import Agent
     from thenvoi.adapters import CodexAdapter
@@ -215,7 +222,12 @@ async def main() -> None:
     api_key = config["api_key"]
 
     # Codex-specific config from environment (env overrides YAML)
-    codex_cwd = _optional_str(os.environ.get("CODEX_CWD")) or "/workspace/repo"
+    codex_cwd = (
+        _optional_str(os.environ.get("CODEX_CWD"))
+        or _optional_str(config.get("workspace"))
+        or repo_init.repo_path
+        or "/workspace/repo"
+    )
     codex_transport = _parse_transport(
         _optional_str(os.environ.get("CODEX_TRANSPORT")) or "stdio"
     )
@@ -255,7 +267,7 @@ async def main() -> None:
             sandbox=codex_sandbox,
             reasoning_effort=codex_reasoning,
             codex_ws_url=os.environ.get("CODEX_WS_URL", "ws://127.0.0.1:8765"),
-            custom_section="",
+            custom_section=repo_init.context_bundle,
             include_base_instructions=True,
             enable_task_events=True,
             emit_turn_task_markers=codex_turn_markers,
@@ -283,6 +295,13 @@ async def main() -> None:
         codex_cwd,
         codex_sandbox,
     )
+    if repo_init.enabled:
+        logger.info(
+            "Repo init: cloned=%s indexed=%s path=%s",
+            repo_init.cloned,
+            repo_init.indexed,
+            repo_init.repo_path,
+        )
 
     retry_count = 0
     retry_delay = INITIAL_RETRY_DELAY

@@ -69,7 +69,7 @@ COPY docker/claude_sdk/runner.py /app/docker/claude_sdk/runner.py
 RUN git config --global --add safe.directory /workspace/repo
 
 RUN useradd -m -u 1000 -s /bin/bash appuser \
-    && mkdir -p /workspace/repo /workspace/notes /workspace/state \
+    && mkdir -p /workspace/repo /workspace/notes /workspace/state /workspace/context \
     && chown -R appuser:appuser /app /workspace
 
 USER appuser

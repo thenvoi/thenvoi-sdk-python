@@ -46,6 +46,14 @@ from .prompts import render_system_prompt, BASE_INSTRUCTIONS, TEMPLATES
 from .participant_tracker import ParticipantTracker
 from .retry_tracker import MessageRetryTracker
 from .shutdown import GracefulShutdown, run_with_graceful_shutdown
+from .repo_init import (
+    RepoConfig,
+    RepoInitMetadata,
+    RepoInitResult,
+    initialize_repo,
+    load_context_bundle,
+    parse_repo_config,
+)
 
 __all__ = [
     # Types
@@ -77,4 +85,11 @@ __all__ = [
     # Shutdown
     "GracefulShutdown",
     "run_with_graceful_shutdown",
+    # Repo init
+    "RepoConfig",
+    "RepoInitMetadata",
+    "RepoInitResult",
+    "initialize_repo",
+    "load_context_bundle",
+    "parse_repo_config",
 ]

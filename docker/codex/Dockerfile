@@ -75,7 +75,7 @@ RUN codex --version \
     && codex app-server --help >/dev/null
 
 RUN useradd -m -u 1000 -s /bin/bash codex \
-    && mkdir -p /workspace/repo /workspace/notes /prompts /state /home/codex/.codex \
+    && mkdir -p /workspace/repo /workspace/notes /workspace/state /workspace/context /prompts /state /home/codex/.codex \
     && chown -R codex:codex /app /workspace /prompts /state /home/codex
 
 USER codex

@@ -3,7 +3,8 @@
 # Both agents share /workspace/repo and connect to the Thenvoi platform.
 # All agents read credentials from a single agent_config.yaml (keyed format).
 #
-# Named volumes (shared_notes, shared_state) persist after `docker compose down`.
+# Named volumes (shared_repo, shared_notes, shared_state, shared_context) persist
+# after `docker compose down`.
 # Use `docker compose down -v` to remove them.
 #
 # Usage:
@@ -26,6 +27,8 @@ x-codex: &codex-base
     CODEX_CWD: /workspace/repo
     CODEX_TRANSPORT: stdio
     CODEX_TURN_TASK_MARKERS: "false"
+    GIT_SSH_STRICT_HOST_KEY_CHECKING: ${GIT_SSH_STRICT_HOST_KEY_CHECKING:-true}
+    REPO_INIT_LOCK_TIMEOUT_S: ${REPO_INIT_LOCK_TIMEOUT_S:-120}
     PYTHONPATH: /workspace/repo/src
     THENVOI_REST_URL: ${THENVOI_REST_URL:-https://app.thenvoi.com}
     THENVOI_WS_URL: ${THENVOI_WS_URL:-wss://app.thenvoi.com/api/v1/socket/websocket}
@@ -33,9 +36,10 @@ x-codex: &codex-base
     PHOENIX_CHANNELS_CLIENT_WHEEL: ${PHOENIX_CHANNELS_CLIENT_WHEEL:-}
   volumes: &codex-volumes
     - ./agent_config.yaml:/app/agent_config.yaml:ro
-    - ${REPO_PATH:-.}:/workspace/repo  # rw: codex agents need write access
+    - shared_repo:/workspace/repo
     - shared_notes:/workspace/notes
     - shared_state:/workspace/state
+    - shared_context:/workspace/context
     - ${HOME}/.codex:/home/codex/.codex
     - codex_sessions:/home/codex/.codex/sessions
     - ${HOME}/.config/gh:/home/codex/.config/gh:ro
@@ -64,15 +68,21 @@ services:
       AGENT_KEY: planner
       AGENT_ROLE: planner
       WORKSPACE: /workspace
+      GIT_SSH_STRICT_HOST_KEY_CHECKING: ${GIT_SSH_STRICT_HOST_KEY_CHECKING:-true}
+      REPO_INIT_LOCK_TIMEOUT_S: ${REPO_INIT_LOCK_TIMEOUT_S:-120}
       THENVOI_REST_URL: ${THENVOI_REST_URL:-https://app.thenvoi.com}
       THENVOI_WS_URL: ${THENVOI_WS_URL:-wss://app.thenvoi.com/api/v1/socket/websocket}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
     volumes:
       - ./agent_config.yaml:/app/config/agent_config.yaml:ro
       - ./prompts:/app/config/prompts:ro
-      - ${REPO_PATH:-.}:/workspace/repo:ro  # planner only reads source code
+      - shared_repo:/workspace/repo
       - shared_notes:/workspace/notes
       - shared_state:/workspace/state
+      - shared_context:/workspace/context
+      - ${HOME}/.ssh:/home/appuser/.ssh:ro
+      - ${HOME}/.gitconfig:/home/appuser/.gitconfig:ro
+      - ${HOME}/.config/gh:/home/appuser/.config/gh:ro
     extra_hosts:
       - "host.docker.internal:host-gateway"
 
@@ -91,5 +101,7 @@ services:
 
 volumes:
   codex_sessions:
+  shared_repo:
   shared_notes:
   shared_state:
+  shared_context:
