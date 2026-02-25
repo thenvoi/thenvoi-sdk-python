@@ -3866,14 +3866,14 @@ wheels = [
 
 [[package]]
 name = "phoenix-channels-python-client"
-version = "0.1.2"
+version = "0.1.4"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "websockets" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/ec/cb/8561a337777def7729af81c5fa45f51631329c249c0097bc6b27d4fb73ba/phoenix_channels_python_client-0.1.2.tar.gz", hash = "sha256:1511fa58b089acf4c6de3df2bb74760a8415c64dd7b45900c7bab83f04d218ed", size = 17836, upload-time = "2026-02-25T11:56:41.033Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/1b/9e/eff5e6bbd46c0c2f35e147e63bfb5e123b60dc9e797be43edb5efec3dc03/phoenix_channels_python_client-0.1.4.tar.gz", hash = "sha256:01084395d3a4c64c1e87d8152846936be5f96a4bd1c4fb01d3071acf5e3c1531", size = 17907, upload-time = "2026-02-25T13:00:36.795Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/1f/2c/f8ebe87ffef2ca3e1ea9cb175c5b49df2d89e94558de479d05123fa2070e/phoenix_channels_python_client-0.1.2-py3-none-any.whl", hash = "sha256:5b92faf44538471c214b57812db0d1e03a6b1fd14b649f5cc7770b0fd31251d7", size = 17702, upload-time = "2026-02-25T11:56:39.443Z" },
+    { url = "https://files.pythonhosted.org/packages/72/c9/6c06defc2d4dcdb3eba3cc03078de660a1bb293c9a2f433594e77f8f9c32/phoenix_channels_python_client-0.1.4-py3-none-any.whl", hash = "sha256:d8c5e53491d5e5c154aced65166972958ad57fca8ebc7504632351a8a0da9aef", size = 17728, upload-time = "2026-02-25T13:00:37.83Z" },
 ]
 
 [[package]]
@@ -5639,7 +5639,7 @@ requires-dist = [
     { name = "openai", marker = "extra == 'pydantic-ai'", specifier = ">=1.0.0" },
     { name = "parlant", marker = "extra == 'dev'", specifier = ">=3.0.0" },
     { name = "parlant", marker = "extra == 'parlant'", specifier = ">=3.0.0" },
-    { name = "phoenix-channels-python-client", specifier = ">=0.1.2" },
+    { name = "phoenix-channels-python-client", specifier = ">=0.1.4" },
     { name = "pre-commit", marker = "extra == 'dev'", specifier = ">=3.0.0" },
     { name = "pydantic-ai-slim", marker = "extra == 'dev'", specifier = ">=1.0.0" },
     { name = "pydantic-ai-slim", marker = "extra == 'pydantic-ai'", specifier = ">=1.0.0" },
