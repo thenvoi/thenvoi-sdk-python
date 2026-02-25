@@ -360,7 +360,9 @@ class TestThenvoiTools:
         assert set(THENVOI_ALL_TOOLS) == set(THENVOI_BASE_TOOLS) | set(
             THENVOI_MEMORY_TOOLS
         )
-        assert len(THENVOI_ALL_TOOLS) == len(set(THENVOI_ALL_TOOLS)), "duplicate entries"
+        assert len(THENVOI_ALL_TOOLS) == len(set(THENVOI_ALL_TOOLS)), (
+            "duplicate entries"
+        )
         assert set(THENVOI_ALL_TOOLS) == set(mcp_tool_names(ALL_TOOL_NAMES)), (
             "THENVOI_ALL_TOOLS content does not match mcp_tool_names(ALL_TOOL_NAMES) — "
             "a tool may have been dropped from the registry"
