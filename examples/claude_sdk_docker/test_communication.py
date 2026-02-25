@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Test inter-agent communication between planner, reviewer, implementer.
+"""Test inter-agent communication between planner and reviewer.
 
 Creates a chat room, adds all 3 agents, sends a test message,
 and verifies delivery by checking container logs.
@@ -42,10 +42,9 @@ async def main() -> None:
         ParticipantRequest,
     )
 
-    # Load all agent configs
+    # Load agent configs
     planner = load_agent_config("planner.yaml")
     reviewer = load_agent_config("reviewer.yaml")
-    implementer = load_agent_config("implementer.yaml")
 
     base_url = os.environ.get("THENVOI_REST_URL", "https://app.thenvoi.com")
 
@@ -61,8 +60,8 @@ async def main() -> None:
     room_id = room.id
     logger.info("  Room created: %s", room_id)
 
-    # Step 2: Add reviewer and implementer as participants
-    for name, agent_config in [("Reviewer", reviewer), ("Implementer", implementer)]:
+    # Step 2: Add reviewer as participant
+    for name, agent_config in [("Reviewer", reviewer)]:
         logger.info("Adding %s to room...", name)
         await client.agent_api_participants.add_agent_chat_participant(
             chat_id=room_id,
@@ -74,23 +73,19 @@ async def main() -> None:
     logger.info("Waiting for agents to join room...")
     await asyncio.sleep(3)
 
-    # Step 3: Send a test message mentioning reviewer and implementer
+    # Step 3: Send a test message mentioning reviewer
     logger.info("Sending test message...")
     mentions = [
         ChatMessageRequestMentionsItem(
             id=reviewer["agent_id"],
             name="INT-169 Reviewer",
         ),
-        ChatMessageRequestMentionsItem(
-            id=implementer["agent_id"],
-            name="INT-169 Implementer",
-        ),
     ]
 
     msg_response = await client.agent_api_messages.create_agent_chat_message(
         chat_id=room_id,
         message=ChatMessageRequest(
-            content="Hello @INT-169 Reviewer and @INT-169 Implementer! This is a test message from the planner. Please confirm you received this by saying 'acknowledged'.",
+            content="Hello @INT-169 Reviewer! This is a test message from the planner. Please confirm you received this by saying 'acknowledged'.",
             mentions=mentions,
         ),
     )

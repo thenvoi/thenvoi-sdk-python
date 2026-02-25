@@ -1,6 +1,6 @@
 # Multi-Agent Docker Compose
 
-Run a 3-agent team (Claude SDK planner + Codex reviewer + Codex implementer) sharing a workspace, connected to the Thenvoi platform.
+Run a 2-agent team (Claude SDK planner + Codex reviewer) sharing a workspace, connected to the Thenvoi platform.
 
 ## Architecture
 
@@ -10,13 +10,11 @@ docker compose up
 │   └── Role: planner — designs plans, coordinates agents
 ├── reviewer       (CodexAdapter, gpt-5.3-codex, reasoning: xhigh)
 │   └── Role: reviewer — reviews plans and code, finds gaps and risks
-└── implementer    (CodexAdapter, gpt-5.3-codex, reasoning: high)
-    └── Role: coding — implements changes end-to-end
 ```
 
 All services share `/workspace/repo` (mounted from host) and `/workspace/notes` + `/workspace/state` (Docker volumes).
 
-The planner saves plans to `/workspace/notes/plan.md`. The reviewer cross-checks plans against source code. The implementer executes approved plans.
+The planner saves plans to `/workspace/notes/plan.md`. The reviewer cross-checks plans against source code.
 
 ## Prerequisites
 
@@ -54,7 +52,6 @@ The planner saves plans to `/workspace/notes/plan.md`. The reviewer cross-checks
    docker compose logs -f
    docker compose logs -f planner
    docker compose logs -f reviewer
-   docker compose logs -f implementer
    ```
 
 ## How It Works
@@ -63,7 +60,7 @@ The planner saves plans to `/workspace/notes/plan.md`. The reviewer cross-checks
 2. The planner @mentions the **reviewer** to review the plan
 3. The reviewer reads the plan, cross-checks against source code, and provides structured feedback ([Critical], [Risk], [Gap], [Suggestion])
 4. If changes are requested, the planner updates the plan and re-requests review
-5. Once approved, the **implementer** executes the plan phases in `/workspace/repo`
+5. Once approved, proceed with implementation in your normal engineering workflow
 6. Humans can join the conversation at any point to provide guidance or make decisions
 
 ## Configuration
@@ -75,14 +72,11 @@ The planner saves plans to `/workspace/notes/plan.md`. The reviewer cross-checks
 | `THENVOI_REST_URL` | `https://app.thenvoi.com` | Platform REST API |
 | `THENVOI_WS_URL` | `wss://app.thenvoi.com/...` | Platform WebSocket |
 | `ANTHROPIC_API_KEY` | -- | Anthropic API key for planner |
-| `OPENAI_API_KEY` | -- | OpenAI API key for reviewer/implementer |
+| `OPENAI_API_KEY` | -- | OpenAI API key for reviewer |
 | `REPO_PATH` | `.` | Host path to mount as `/workspace/repo` |
 | `REVIEWER_AGENT_KEY` | `reviewer` | Agent config key for reviewer |
 | `REVIEWER_MODEL` | `gpt-5.3-codex` | Model for reviewer |
 | `REVIEWER_REASONING_EFFORT` | `xhigh` | Reasoning effort for reviewer |
-| `IMPLEMENTER_AGENT_KEY` | `implementer` | Agent config key for implementer |
-| `IMPLEMENTER_MODEL` | `gpt-5.3-codex` | Model for implementer |
-| `IMPLEMENTER_REASONING_EFFORT` | `high` | Reasoning effort for implementer |
 
 ### Planner Prompts
 

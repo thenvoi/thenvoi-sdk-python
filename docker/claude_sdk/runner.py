@@ -7,7 +7,7 @@ deployment — all configuration is via environment variables.
 Environment variables:
     AGENT_CONFIG   Path to the YAML config file (required)
     AGENT_KEY      Key to look up in keyed config (default: "agent")
-    AGENT_ROLE     Role override (planner, reviewer, implementer)
+    AGENT_ROLE     Role override (planner, reviewer)
     WORKSPACE      Working directory override
     THENVOI_WS_URL     Platform WebSocket URL
     THENVOI_REST_URL   Platform REST URL

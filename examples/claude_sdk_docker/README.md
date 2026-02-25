@@ -168,7 +168,7 @@ The default `docker-compose.yml` provides all required mounts. If you customize 
 All agents share the same mounts. This is the simplest setup for multi-agent collaboration.
 
 Concurrency guidance for shared workspaces:
-- Designate one agent (typically the implementer) as the primary writer
+- Designate one agent (typically the planner) as the primary writer
 - Other agents should read code but coordinate changes via chat
 - Use Thenvoi messaging to coordinate file modifications between agents
 
@@ -178,15 +178,15 @@ For isolated per-agent workspaces, override mounts per service using separate di
 
 ```yaml
 services:
-  implementer:
+  reviewer:
     <<: *agent-base
     volumes:
       - ./:/app/config:ro
-      - ${REPO_PATH:-.}/worktrees/implementer:/workspace/repo
-      - ./data/notes/implementer:/workspace/notes
-      - ./data/state/implementer:/workspace/state
+      - ${REPO_PATH:-.}/worktrees/reviewer:/workspace/repo
+      - ./data/notes/reviewer:/workspace/notes
+      - ./data/state/reviewer:/workspace/state
     environment:
-      AGENT_CONFIG: /app/config/implementer.yaml
+      AGENT_CONFIG: /app/config/reviewer.yaml
       WORKSPACE: /workspace/repo
       GIT_SAFE_DIRS: /workspace/repo
 ```

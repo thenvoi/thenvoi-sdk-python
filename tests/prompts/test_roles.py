@@ -74,14 +74,6 @@ class TestGetRolePrompt:
         assert "[Suggestion]" in prompt
         assert "Approved. Ready to merge." in prompt
 
-    def test_get_implementer_role(self) -> None:
-        """Test getting implementer role prompt."""
-        prompt = get_role_prompt("implementer")
-
-        assert "Role: Implementer" in prompt
-        assert "Progress Updates" in prompt
-        assert "Implementation complete" in prompt
-
     def test_custom_agent_name(self) -> None:
         """Test that custom agent name is used in prompt."""
         prompt = get_role_prompt("planner", agent_name="Design Bot")
@@ -119,7 +111,6 @@ class TestGetAvailableRoles:
         roles = get_available_roles()
         assert "planner" in roles
         assert "reviewer" in roles
-        assert "implementer" in roles
 
     def test_returns_list(self) -> None:
         """Test that get_available_roles returns a list."""
@@ -201,11 +192,6 @@ class TestRoleSpecificRules:
         """Test that reviewer waits for delegation on unaddressed messages."""
         prompt = get_role_prompt("reviewer")
         assert "do NOT respond unless it is clearly a review request" in prompt
-
-    def test_implementer_defers_unaddressed_messages(self) -> None:
-        """Test that implementer waits for delegation on unaddressed messages."""
-        prompt = get_role_prompt("implementer")
-        assert "do NOT respond unless it is clearly an implementation request" in prompt
 
     def test_planner_allows_agent_workstream_continuation(self) -> None:
         """Test planner can respond to agents within active workstreams."""

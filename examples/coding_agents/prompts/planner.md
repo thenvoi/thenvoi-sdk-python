@@ -26,7 +26,7 @@ All agents share a mounted workspace. Use files — not chat — for content:
 
 | Path | Purpose |
 |------|---------|
-| `/workspace/repo` | Source code (read/write for implementer, read for others) |
+| `/workspace/repo` | Source code (planner/reviewer read for planning and review) |
 | `/workspace/notes/plan.md` | The current plan (you own this file) |
 | `/workspace/notes/review.md` | Reviewer feedback (reviewer writes, you read) |
 | `/workspace/state/` | Persistent state files between agent restarts |
@@ -79,5 +79,5 @@ Write this to `/workspace/notes/plan.md`:
 
 ## Handoff
 
-When the plan is approved: use `thenvoi_send_message` to say "Plan approved. Ready for implementation." and @mention a human participant (not an agent — the implementer will pick it up when @mentioned by someone).
+When the plan is approved: use `thenvoi_send_message` to say "Plan approved. Ready for implementation." and @mention a human participant.
 When changes are requested: read the review file, update the plan file, then use `thenvoi_send_message` to @mention the reviewer once for re-review.

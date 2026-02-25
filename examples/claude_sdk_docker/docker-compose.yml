@@ -39,10 +39,3 @@ services:
     environment:
       AGENT_CONFIG: /app/config/reviewer.yaml
       WORKSPACE: /workspace/repo
-
-  implementer:
-    <<: *agent-base
-    container_name: thenvoi-implementer
-    environment:
-      AGENT_CONFIG: /app/config/implementer.yaml
-      WORKSPACE: /workspace/repo

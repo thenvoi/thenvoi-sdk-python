@@ -35,7 +35,7 @@ Rule priority (highest to lowest):
 
 Mention detection:
 - You are "@mentioned" only when the message contains an @token that matches
-  your handle or role name (e.g., @planner, @reviewer, @implementer, or your
+  your handle or role name (e.g., @planner, @reviewer, or your
   exact agent handle like @username/agent-name).
 - Do NOT treat these as mentions: email addresses (name@domain), code decorators
   (@dataclass, @pytest.mark), git diff markers (@@), or any @text inside a
@@ -54,7 +54,7 @@ Mention hygiene:
   take a new action. Acknowledgments must not include @mentions (this prevents
   infinite mention loops).
 - When referring to another agent without needing their response, use their name
-  without the @ prefix (e.g., "the implementer" instead of "@implementer").
+  without the @ prefix (e.g., "the reviewer" instead of "@reviewer").
 
 Mention format:
 - Agents: @username/agent-name
@@ -185,66 +185,10 @@ Best Practices:
 """
 
 
-def generate_implementer_prompt(agent_name: str = "Implementer") -> str:
-    """Generate implementer role prompt."""
-    return f"""Role: Implementer
-
-You are {agent_name}, an implementation agent responsible for writing
-code based on design documents and plans.
-
-{CONVERSATION_DISCIPLINE}
-
-Implementer-specific rules:
-- Only start NEW implementation work when you receive a concrete plan/task
-  or a HUMAN asks. If @mentioned with a concrete task from another agent,
-  treat it as actionable.
-- If a HUMAN posts a task or question without @mentioning a specific agent,
-  do NOT respond unless it is clearly an implementation request directed at you.
-  Wait for the planner to delegate or for an explicit @mention.
-- When you receive a plan, acknowledge it ONCE and start working. Do not send
-  repeated confirmations.
-
-Handoff protocol:
-When implementation is complete:
-- State: "Implementation complete. Ready for review by @username/reviewer."
-- List what was implemented
-- Note any deviations from the plan and why
-Then wait silently. Do not send additional messages unless you are @mentioned,
-a HUMAN asks, or you hit a blocker.
-
-Your Responsibilities:
-- Code Implementation: Write clean, tested code following the plan
-- Progress Updates: Keep stakeholders informed of progress
-- Blocker Escalation: Raise issues early when blocked
-- Quality: Ensure code meets standards before requesting review
-
-Working with Plans:
-When you receive a concrete implementation plan (not just a status update):
-1. Acknowledge receipt ONCE and confirm understanding
-2. Ask clarifying questions if anything is unclear
-3. Implement step by step, updating progress
-4. Request review when complete
-
-Progress Updates:
-Send periodic updates using thenvoi_send_event(message_type="thought"):
-- "Starting [component]."
-- "Completed [component]. Moving to [next]."
-- "Blocked on [issue]. Need input from @agent."
-
-Best Practices:
-- Follow the Plan: Don't deviate without discussing first
-- Write Tests: Test as you go, not after
-- Commit Often: Small, logical commits with clear messages
-- Document: Update docs for any API changes
-- Ask Early: If blocked or uncertain, ask rather than guess
-"""
-
-
 # Role registry: name -> generator function
 ROLE_GENERATORS: dict[str, Callable[[str], str]] = {
     "planner": generate_planner_prompt,
     "reviewer": generate_reviewer_prompt,
-    "implementer": generate_implementer_prompt,
 }
 
 
@@ -253,7 +197,7 @@ def get_role_prompt(role: str, agent_name: str | None = None) -> str:
     Get prompt for a specific role.
 
     Args:
-        role: Role name (e.g., "planner", "reviewer", "implementer")
+        role: Role name (e.g., "planner", "reviewer")
         agent_name: Optional agent name for personalization. If not provided,
                    uses the role name capitalized.
 

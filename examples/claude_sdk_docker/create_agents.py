@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Create 3 test agents for INT-169 E2E testing.
+"""Create test agents for INT-169 E2E testing.
 
-Registers planner, reviewer, implementer agents via User API
+Registers planner and reviewer agents via User API
 and writes their credentials to YAML config files.
 
 Usage:
@@ -26,7 +26,6 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../.."))
 AGENTS = [
     {"name": "INT-169 Planner", "role": "planner", "file": "planner.yaml"},
     {"name": "INT-169 Reviewer", "role": "reviewer", "file": "reviewer.yaml"},
-    {"name": "INT-169 Implementer", "role": "implementer", "file": "implementer.yaml"},
 ]
 
 
