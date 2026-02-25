@@ -1,5 +1,7 @@
 """Unit tests for pure formatting functions."""
 
+from __future__ import annotations
+
 from thenvoi.runtime.formatters import (
     format_message_for_llm,
     format_history_for_llm,

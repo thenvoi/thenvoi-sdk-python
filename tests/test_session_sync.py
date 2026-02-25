@@ -7,6 +7,8 @@ Tests cover:
 - _synchronize_with_next() using marker instead of queue peeking
 """
 
+from __future__ import annotations
+
 import pytest
 from unittest.mock import AsyncMock, MagicMock
 from datetime import datetime, timezone

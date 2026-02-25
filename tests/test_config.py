@@ -5,6 +5,8 @@ Tests cover all error paths and edge cases for loading agent credentials
 from YAML configuration files.
 """
 
+from __future__ import annotations
+
 import pytest
 from thenvoi.config import load_agent_config
 

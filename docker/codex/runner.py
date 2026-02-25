@@ -27,7 +27,7 @@ import logging
 import os
 import signal
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import yaml
 
@@ -51,6 +51,31 @@ logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
 )
 logger = logging.getLogger(__name__)
+
+CodexTransport = Literal["stdio", "ws"]
+CodexRole = Literal["coding", "planner", "reviewer"]
+CodexApprovalMode = Literal["manual", "auto_accept", "auto_decline"]
+CodexReasoningEffort = Literal["none", "minimal", "low", "medium", "high", "xhigh"]
+
+_TRANSPORTS: dict[str, CodexTransport] = {"stdio": "stdio", "ws": "ws"}
+_ROLES: dict[str, CodexRole] = {
+    "coding": "coding",
+    "planner": "planner",
+    "reviewer": "reviewer",
+}
+_APPROVAL_MODES: dict[str, CodexApprovalMode] = {
+    "manual": "manual",
+    "auto_accept": "auto_accept",
+    "auto_decline": "auto_decline",
+}
+_REASONING_EFFORTS: dict[str, CodexReasoningEffort] = {
+    "none": "none",
+    "minimal": "minimal",
+    "low": "low",
+    "medium": "medium",
+    "high": "high",
+    "xhigh": "xhigh",
+}
 
 
 def validate_mounts() -> None:
@@ -98,6 +123,54 @@ def _env_bool(key: str, default: bool = False) -> bool:
     return val.lower() in ("1", "true", "yes")
 
 
+def _optional_str(value: Any) -> str | None:
+    """Return a stripped string or None for empty/missing values."""
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text or None
+
+
+def _parse_transport(value: str) -> CodexTransport:
+    parsed = _TRANSPORTS.get(value.lower())
+    if parsed is None:
+        raise ValueError(
+            f"CODEX_TRANSPORT must be one of {', '.join(sorted(_TRANSPORTS))}; got: {value}"
+        )
+    return parsed
+
+
+def _parse_role(value: str) -> CodexRole:
+    parsed = _ROLES.get(value.lower())
+    if parsed is None:
+        raise ValueError(
+            f"CODEX_ROLE must be one of {', '.join(sorted(_ROLES))}; got: {value}"
+        )
+    return parsed
+
+
+def _parse_approval_mode(value: str) -> CodexApprovalMode:
+    parsed = _APPROVAL_MODES.get(value.lower())
+    if parsed is None:
+        raise ValueError(
+            "CODEX_APPROVAL_MODE must be one of "
+            f"{', '.join(sorted(_APPROVAL_MODES))}; got: {value}"
+        )
+    return parsed
+
+
+def _parse_reasoning_effort(value: str | None) -> CodexReasoningEffort | None:
+    if value is None:
+        return None
+    parsed = _REASONING_EFFORTS.get(value.lower())
+    if parsed is None:
+        raise ValueError(
+            "CODEX_REASONING_EFFORT must be one of "
+            f"{', '.join(sorted(_REASONING_EFFORTS))}; got: {value}"
+        )
+    return parsed
+
+
 def _handle_signal(sig: signal.Signals) -> None:
     """Handle shutdown signals (SIGTERM, SIGINT)."""
     logger.info("Received %s, initiating graceful shutdown...", sig.name)
@@ -142,32 +215,45 @@ async def main() -> None:
     api_key = config["api_key"]
 
     # Codex-specific config from environment (env overrides YAML)
-    codex_cwd = os.environ.get("CODEX_CWD", "/workspace/repo")
-    codex_transport = os.environ.get("CODEX_TRANSPORT", "stdio")
-    codex_model = os.environ.get("CODEX_MODEL") or config.get("model")
-    codex_role = os.environ.get("CODEX_ROLE", config.get("role", "coding"))
-    codex_sandbox = os.environ.get(
-        "CODEX_SANDBOX", config.get("sandbox", "external-sandbox")
+    codex_cwd = _optional_str(os.environ.get("CODEX_CWD")) or "/workspace/repo"
+    codex_transport = _parse_transport(
+        _optional_str(os.environ.get("CODEX_TRANSPORT")) or "stdio"
     )
-    codex_reasoning = os.environ.get("CODEX_REASONING_EFFORT") or config.get(
-        "reasoning_effort"
+    codex_model = _optional_str(os.environ.get("CODEX_MODEL")) or _optional_str(
+        config.get("model")
     )
-    codex_approval = os.environ.get(
-        "CODEX_APPROVAL_MODE", config.get("approval_mode", "manual")
+    codex_role = _parse_role(
+        _optional_str(os.environ.get("CODEX_ROLE"))
+        or _optional_str(config.get("role"))
+        or "coding"
+    )
+    codex_sandbox = (
+        _optional_str(os.environ.get("CODEX_SANDBOX"))
+        or _optional_str(config.get("sandbox"))
+        or "external-sandbox"
+    )
+    codex_reasoning = _parse_reasoning_effort(
+        _optional_str(os.environ.get("CODEX_REASONING_EFFORT"))
+        or _optional_str(config.get("reasoning_effort"))
+    )
+    codex_approval = _parse_approval_mode(
+        _optional_str(os.environ.get("CODEX_APPROVAL_MODE"))
+        or _optional_str(config.get("approval_mode"))
+        or "manual"
     )
     codex_turn_markers = _env_bool("CODEX_TURN_TASK_MARKERS", default=False)
 
     adapter = CodexAdapter(
         config=CodexAdapterConfig(
-            transport=codex_transport,  # type: ignore[arg-type]  # str from env, validated at runtime
+            transport=codex_transport,
             cwd=codex_cwd,
             model=codex_model,
-            role=codex_role,  # type: ignore[arg-type]  # str from env, validated at runtime
+            role=codex_role,
             personality="pragmatic",
             approval_policy="never",
-            approval_mode=codex_approval,  # type: ignore[arg-type]  # str from env, validated at runtime
+            approval_mode=codex_approval,
             sandbox=codex_sandbox,
-            reasoning_effort=codex_reasoning,  # type: ignore[arg-type]  # str from env, validated at runtime
+            reasoning_effort=codex_reasoning,
             codex_ws_url=os.environ.get("CODEX_WS_URL", "ws://127.0.0.1:8765"),
             custom_section="",
             include_base_instructions=True,

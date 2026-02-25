@@ -7,6 +7,8 @@ This file contains ClaudeSDK-specific multi-message joining, tool event
 handling, session ID extraction, and mixed history integration tests.
 """
 
+from __future__ import annotations
+
 import json
 
 from thenvoi.converters.claude_sdk import (

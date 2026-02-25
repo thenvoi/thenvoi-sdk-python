@@ -56,7 +56,9 @@ COPY --from=builder /app/examples /app/examples
 
 # Ensure the bundled Claude CLI binary is executable (pip preserves permissions
 # inconsistently across layers).
-RUN chmod +x /app/.venv/lib/python3.12/site-packages/claude_agent_sdk/_bundled/claude || true
+RUN CLAUDE_BIN=/app/.venv/lib/python3.12/site-packages/claude_agent_sdk/_bundled/claude \
+    && test -f "$CLAUDE_BIN" \
+    && chmod +x "$CLAUDE_BIN"
 
 # Copy entrypoint and runner.
 COPY docker/claude_sdk/entrypoint.sh /app/docker/claude_sdk/entrypoint.sh

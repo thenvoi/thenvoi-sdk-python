@@ -28,6 +28,7 @@ RUN uv sync --extra codex
 FROM python:3.12-slim
 
 ENV DEBIAN_FRONTEND=noninteractive
+ARG CODEX_VERSION=0.104.0
 
 # Runtime-only system dependencies (no build tools).
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -57,7 +58,7 @@ COPY --from=builder /app/examples /app/examples
 # Install Codex CLI directly in runtime (npm resolves platform-specific
 # optional deps at install time; copying from builder breaks resolution).
 RUN apt-get update && apt-get install -y --no-install-recommends npm \
-    && npm i -g @openai/codex@latest \
+    && npm i -g @openai/codex@${CODEX_VERSION} \
     && apt-get purge -y npm \
     && apt-get autoremove -y \
     && rm -rf /var/lib/apt/lists/*

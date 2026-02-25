@@ -8,6 +8,8 @@ creation, room tools storage, SDK query invocation, custom tools, and
 session persistence.
 """
 
+from __future__ import annotations
+
 from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 

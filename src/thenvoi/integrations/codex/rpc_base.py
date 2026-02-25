@@ -6,7 +6,6 @@ import asyncio
 import json
 import logging
 import random
-from abc import ABC, abstractmethod
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any, Literal
@@ -60,7 +59,7 @@ class RpcEvent:
     raw: dict[str, Any]
 
 
-class BaseJsonRpcClient(ABC):
+class BaseJsonRpcClient:
     """Abstract bidirectional JSON-RPC client with shared protocol logic.
 
     Subclasses implement transport-specific ``connect``, ``close``, and
@@ -84,20 +83,20 @@ class BaseJsonRpcClient(ABC):
         self._transport_label = "payload"  # overridden by subclasses for diagnostics
 
     # ------------------------------------------------------------------
-    # Abstract transport methods
+    # Transport methods
     # ------------------------------------------------------------------
 
-    @abstractmethod
     async def connect(self) -> None:
         """Open the underlying transport."""
+        raise NotImplementedError
 
-    @abstractmethod
     async def close(self) -> None:
         """Close the underlying transport."""
+        raise NotImplementedError
 
-    @abstractmethod
     async def _send_json(self, payload: dict[str, Any]) -> None:
         """Serialize *payload* as JSON and send over the transport."""
+        raise NotImplementedError
 
     # ------------------------------------------------------------------
     # Protocol methods (shared)
