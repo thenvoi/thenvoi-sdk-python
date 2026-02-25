@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import logging
+import warnings
 from typing import Any, Literal
 
 try:
@@ -46,6 +47,7 @@ from thenvoi.runtime.custom_tools import (
     get_custom_tool_name,
 )
 from thenvoi.runtime.tools import (
+    ALL_TOOL_NAMES,
     BASE_TOOL_NAMES,
     MEMORY_TOOL_NAMES,
     get_tool_description,
@@ -57,9 +59,27 @@ logger = logging.getLogger(__name__)
 
 # Tool names as constants (MCP naming convention: mcp__{server}__{tool})
 # Derived from TOOL_MODELS — single source of truth
-THENVOI_BASE_TOOLS = mcp_tool_names(BASE_TOOL_NAMES)
-THENVOI_MEMORY_TOOLS = mcp_tool_names(MEMORY_TOOL_NAMES)
-THENVOI_TOOLS = THENVOI_BASE_TOOLS + THENVOI_MEMORY_TOOLS
+THENVOI_BASE_TOOLS: list[str] = mcp_tool_names(BASE_TOOL_NAMES)
+THENVOI_MEMORY_TOOLS: list[str] = mcp_tool_names(MEMORY_TOOL_NAMES)
+# All tools: chat + contacts + memory (17 total). For chat-only tools (7),
+# see thenvoi.integrations.claude_sdk.tools.THENVOI_CHAT_TOOLS.
+THENVOI_ALL_TOOLS: list[str] = mcp_tool_names(ALL_TOOL_NAMES)
+
+_THENVOI_TOOLS: list[str] = THENVOI_ALL_TOOLS
+
+
+def __getattr__(name: str) -> Any:
+    if name == "THENVOI_TOOLS":
+        warnings.warn(
+            "THENVOI_TOOLS is deprecated, use THENVOI_ALL_TOOLS instead. "
+            f"Note: this contains all {len(_THENVOI_TOOLS)} tools (chat + contacts + memory). "
+            "For chat-only tools, use "
+            "thenvoi.integrations.claude_sdk.tools.THENVOI_CHAT_TOOLS.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return _THENVOI_TOOLS
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 class ClaudeSDKAdapter(SimpleAdapter[str]):

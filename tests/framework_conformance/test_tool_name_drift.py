@@ -18,6 +18,7 @@ for individual names.
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 from thenvoi.runtime.tools import (
@@ -29,11 +30,27 @@ from thenvoi.runtime.tools import (
 )
 
 _SRC_ROOT = Path(__file__).resolve().parents[2] / "src" / "thenvoi"
+if not _SRC_ROOT.is_dir():
+    raise FileNotFoundError(f"Source root not found: {_SRC_ROOT}")
 
 
 def _extract_tool_names(source: str) -> set[str]:
-    """Extract all tool names from ``ALL_TOOL_NAMES`` referenced in source."""
-    return {name for name in ALL_TOOL_NAMES if name in source}
+    """Extract all tool names from ``ALL_TOOL_NAMES`` referenced in source.
+
+    Uses a trailing word-boundary regex to avoid false positives from
+    prefix collisions (e.g. ``thenvoi_get_memory`` matching inside a
+    hypothetical ``thenvoi_get_memory_context``).  The leading boundary is
+    intentionally omitted so that MCP-prefixed names like
+    ``mcp__thenvoi__thenvoi_send_message`` still match.
+
+    Note: a tool name found anywhere in the source (including comments)
+    counts as present.  This is a **first line of defence** that catches
+    completely missing tools; actual ``@tool`` handler presence is verified
+    by the per-adapter unit and integration tests.
+    """
+    return {
+        name for name in ALL_TOOL_NAMES if re.search(re.escape(name) + r"\b", source)
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -62,8 +79,8 @@ class TestClaudeSDKAdapterToolDrift:
             "thenvoi.runtime.tools instead of hardcoding MCP tool names."
         )
 
-    def test_all_tools_registered_as_mcp_handlers(self):
-        """Every tool in TOOL_MODELS has a @tool decorator in the MCP server."""
+    def test_all_tools_referenced_in_source(self):
+        """Every tool in TOOL_MODELS is referenced in the adapter source (first line of defence)."""
         source = self._FILE.read_text()
         found = _extract_tool_names(source)
         missing = ALL_TOOL_NAMES - found
@@ -79,15 +96,15 @@ class TestClaudeSDKIntegrationToolDrift:
     _FILE = _SRC_ROOT / "integrations" / "claude_sdk" / "tools.py"
 
     def test_derives_tool_list_from_central_registry(self):
-        """Verify THENVOI_TOOLS is derived from CHAT_TOOL_NAMES."""
+        """Verify THENVOI_CHAT_TOOLS is derived from CHAT_TOOL_NAMES."""
         source = self._FILE.read_text()
         assert "CHAT_TOOL_NAMES" in source, (
             "Claude SDK integration tools should import CHAT_TOOL_NAMES from "
             "thenvoi.runtime.tools instead of hardcoding MCP tool names."
         )
 
-    def test_all_chat_tools_implemented(self):
-        """Every chat tool has a @tool handler."""
+    def test_all_chat_tools_referenced_in_source(self):
+        """Every chat tool is referenced in the integration source (first line of defence)."""
         source = self._FILE.read_text()
         found = _extract_tool_names(source)
         missing = CHAT_TOOL_NAMES - found
@@ -197,14 +214,24 @@ class TestToolRegistryConsistency:
     def test_no_overlap_base_memory(self):
         assert not (BASE_TOOL_NAMES & MEMORY_TOOL_NAMES)
 
-    def test_memory_tools_count(self):
-        assert len(MEMORY_TOOL_NAMES) == 5
+    def test_memory_tools_subset_of_all(self):
+        assert MEMORY_TOOL_NAMES <= ALL_TOOL_NAMES
 
-    def test_contact_tools_count(self):
-        assert len(CONTACT_TOOL_NAMES) == 5
+    def test_contact_tools_subset_of_all(self):
+        assert CONTACT_TOOL_NAMES <= ALL_TOOL_NAMES
 
-    def test_chat_tools_count(self):
-        assert len(CHAT_TOOL_NAMES) == 7
+    def test_all_memory_prefixed_tools_in_memory_set(self):
+        """Catch new memory tools not added to MEMORY_TOOL_NAMES."""
+        memory_like = {n for n in ALL_TOOL_NAMES if "memory" in n or "memories" in n}
+        assert memory_like <= MEMORY_TOOL_NAMES, (
+            f"Tools matching memory naming convention not in MEMORY_TOOL_NAMES: "
+            f"{memory_like - MEMORY_TOOL_NAMES}"
+        )
 
-    def test_all_tools_count(self):
-        assert len(ALL_TOOL_NAMES) == 17
+    def test_all_contact_prefixed_tools_in_contact_set(self):
+        """Catch new contact tools not added to CONTACT_TOOL_NAMES."""
+        contact_like = {n for n in ALL_TOOL_NAMES if "contact" in n}
+        assert contact_like <= CONTACT_TOOL_NAMES, (
+            f"Tools matching contact naming convention not in CONTACT_TOOL_NAMES: "
+            f"{contact_like - CONTACT_TOOL_NAMES}"
+        )
