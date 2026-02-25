@@ -26,6 +26,7 @@ from starlette.staticfiles import StaticFiles
 # Allow importing manager.py from the same directory
 sys.path.insert(0, os.path.dirname(__file__))
 from manager import (  # noqa: E402
+    DEFAULT_WS_URL,
     GUESSER_REGISTRY,
     MODEL_OPTIONS,
     THINKER_AGENT_ID,
@@ -37,9 +38,10 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s
 logger = logging.getLogger("arena.ui")
 
 STATIC_DIR = Path(__file__).parent / "static"
-manager = GameManager()
 
 DEFAULT_REST_URL = os.getenv("THENVOI_REST_URL", "https://app.thenvoi.com")
+DEFAULT_WS = os.getenv("THENVOI_WS_URL", DEFAULT_WS_URL)
+manager = GameManager(ws_url=DEFAULT_WS)
 
 
 # ── Route handlers ──────────────────────────────────────────────────────────

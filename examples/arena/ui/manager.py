@@ -13,11 +13,14 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from thenvoi.client.streaming.client import MessageCreatedPayload, WebSocketClient
 from thenvoi_rest import AsyncRestClient, ChatMessageRequest, ParticipantRequest
 from thenvoi_rest.human_api_chats.types.create_my_chat_room_request_chat import (
     CreateMyChatRoomRequestChat,
 )
 from thenvoi_rest.types import ChatMessageRequestMentionsItem as Mention
+
+DEFAULT_WS_URL = "wss://app.thenvoi.com/api/v1/socket/websocket"
 
 logger = logging.getLogger(__name__)
 
@@ -78,83 +81,29 @@ class ActiveGame:
     guesser_configs: list[dict[str, str]]
     user_api_key: str
     rest_url: str
-    rest_client: AsyncRestClient | None = None
+    ws_url: str = DEFAULT_WS_URL
+    ws_client: WebSocketClient | None = None
     processes: list[asyncio.subprocess.Process] = field(default_factory=list)
     seen_message_ids: set[str] = field(default_factory=set)
     all_messages: list[dict[str, Any]] = field(default_factory=list)
     is_active: bool = True
 
 
-def _get_field(msg: dict[str, Any], snake: str, *alternatives: str) -> Any:
-    """Get a field by snake_case name, falling back to camelCase or alternatives."""
-    val = msg.get(snake)
-    if val is not None:
-        return val
-    # Try camelCase variant (e.g. sender_name -> senderName)
-    parts = snake.split("_")
-    camel = parts[0] + "".join(p.capitalize() for p in parts[1:])
-    val = msg.get(camel)
-    if val is not None:
-        return val
-    # Try explicit alternatives
-    for alt in alternatives:
-        val = msg.get(alt)
-        if val is not None:
-            return val
-    return None
-
-
-def _serialize_message_dict(msg: dict[str, Any]) -> dict[str, Any]:
-    """Convert a raw API message dict to a JSON-serializable dict.
-
-    Handles both snake_case and camelCase field names from the API.
-    """
-    content = _get_field(msg, "content", "body", "text") or ""
-    sender_name = _get_field(msg, "sender_name", "senderName", "sender") or "Unknown"
-    msg_type = str(
-        _get_field(msg, "message_type", "messageType", "type") or "message"
-    )
-
+def _serialize_ws_payload(msg: MessageCreatedPayload) -> dict[str, Any]:
+    """Convert a WebSocket MessageCreatedPayload to a JSON-serializable dict."""
     result: dict[str, Any] = {
-        "id": str(_get_field(msg, "id") or ""),
-        "content": content,
-        "sender_name": sender_name,
-        "sender_id": str(_get_field(msg, "sender_id", "senderId") or ""),
-        "sender_type": str(
-            _get_field(msg, "sender_type", "senderType") or "unknown"
-        ),
-        "message_type": msg_type,
-        "inserted_at": str(_get_field(msg, "inserted_at", "insertedAt") or ""),
+        "id": msg.id,
+        "content": msg.content or "",
+        "sender_name": msg.sender_name or "Unknown",
+        "sender_id": msg.sender_id,
+        "sender_type": msg.sender_type,
+        "message_type": msg.message_type,
+        "inserted_at": msg.inserted_at,
     }
-    mentions = _get_field(msg, "mentions")
-    if mentions and isinstance(mentions, list):
+    if msg.metadata and msg.metadata.mentions:
         result["mentions"] = [
-            {"id": str(m.get("id", "")), "name": m.get("name", "")}
-            for m in mentions
-            if isinstance(m, dict)
-        ]
-    return result
-
-
-def _serialize_chat_message(msg: Any) -> dict[str, Any]:
-    """Convert a Fern ChatMessage object to a JSON-serializable dict."""
-    inserted = getattr(msg, "inserted_at", None)
-    metadata = getattr(msg, "metadata", None) or {}
-    result: dict[str, Any] = {
-        "id": str(getattr(msg, "id", "")),
-        "content": getattr(msg, "content", "") or "",
-        "sender_name": getattr(msg, "sender_name", None) or "Unknown",
-        "sender_id": str(getattr(msg, "sender_id", "")),
-        "sender_type": str(getattr(msg, "sender_type", "unknown")),
-        "message_type": str(getattr(msg, "message_type", "message")),
-        "inserted_at": inserted.isoformat() if inserted else "",
-    }
-    mentions = metadata.get("mentions") if isinstance(metadata, dict) else None
-    if mentions and isinstance(mentions, list):
-        result["mentions"] = [
-            {"id": str(m.get("id", "")), "name": m.get("name", "")}
-            for m in mentions
-            if isinstance(m, dict)
+            {"id": m.id, "name": m.name or ""}
+            for m in msg.metadata.mentions
         ]
     return result
 
@@ -162,9 +111,10 @@ def _serialize_chat_message(msg: Any) -> dict[str, Any]:
 class GameManager:
     """Manages arena game lifecycle: agent processes, room creation, message polling."""
 
-    def __init__(self) -> None:
+    def __init__(self, ws_url: str = DEFAULT_WS_URL) -> None:
         self._games: dict[str, ActiveGame] = {}
         self._counter = 0
+        self._ws_url = ws_url
 
     @property
     def current_game(self) -> ActiveGame | None:
@@ -317,95 +267,73 @@ class GameManager:
             guesser_configs=guesser_configs,
             user_api_key=user_api_key,
             rest_url=rest_url,
-            rest_client=client,
+            ws_url=self._ws_url,
             processes=processes,
         )
         self._games[game_id] = game
+
+        # --- Connect WebSocket to receive ALL messages in real-time ---
+        await self._start_ws_listener(game)
+
         return game
 
-    async def poll_messages(self, game_id: str) -> list[dict[str, Any]]:
-        """Return newly seen messages for a game via the Fern REST client."""
-        game = self._games.get(game_id)
-        if not game or not game.is_active:
-            return []
-
-        client = game.rest_client
-        if client is None:
-            client = AsyncRestClient(
-                api_key=game.user_api_key, base_url=game.rest_url
-            )
-            game.rest_client = client
-
+    async def _start_ws_listener(self, game: ActiveGame) -> None:
+        """Open a WebSocket as the user and subscribe to the chat room."""
         try:
-            resp = await client.human_api_messages.list_my_chat_messages(
-                game.chat_id, page_size=100
+            ws = WebSocketClient(
+                ws_url=game.ws_url,
+                api_key=game.user_api_key,
+                # No agent_id — connect as the human user
+            )
+            await ws.__aenter__()
+            game.ws_client = ws
+
+            async def on_message(payload: MessageCreatedPayload) -> None:
+                if payload.id in game.seen_message_ids:
+                    return
+                game.seen_message_ids.add(payload.id)
+                serialized = _serialize_ws_payload(payload)
+                game.all_messages.append(serialized)
+                logger.info(
+                    "WS %s: [%s] %s",
+                    game.game_id,
+                    payload.sender_name or payload.sender_id,
+                    (payload.content or "")[:80],
+                )
+
+            await ws.join_chat_room_channel(
+                game.chat_id, on_message_created=on_message
+            )
+            logger.info(
+                "WebSocket listener connected for game %s (room %s)",
+                game.game_id, game.chat_id,
             )
         except Exception:
-            logger.exception("Poll error for game %s", game_id)
-            return []
-
-        messages = resp.data
-        total = len(messages)
-
-        if len(game.seen_message_ids) == 0 and messages:
-            logger.info(
-                "Poll %s [FIRST]: %d messages, sample=%s",
-                game_id, total, str(messages[0])[:300],
+            logger.exception(
+                "Failed to start WebSocket listener for game %s", game.game_id
             )
 
-        if total == 0 and len(game.seen_message_ids) < 3:
-            logger.warning(
-                "Poll %s: 0 messages from API (seen=%d)",
-                game_id, len(game.seen_message_ids),
-            )
-        else:
-            logger.info(
-                "Poll %s: %d total messages, %d already seen",
-                game_id, total, len(game.seen_message_ids),
-            )
+    async def poll_messages(self, game_id: str) -> list[dict[str, Any]]:
+        """Return all messages accumulated via the WebSocket listener.
 
-        new_msgs: list[dict[str, Any]] = []
-        for msg in messages:
-            mid = str(getattr(msg, "id", ""))
-            if not mid or mid in game.seen_message_ids:
-                continue
-            game.seen_message_ids.add(mid)
-            serialized = _serialize_chat_message(msg)
-            new_msgs.append(serialized)
-            game.all_messages.append(serialized)
-
-        if new_msgs:
-            logger.info("Poll %s: %d NEW messages", game_id, len(new_msgs))
-        new_msgs.sort(key=lambda m: m["inserted_at"])
-        return new_msgs
-
-    async def fetch_messages(self, game_id: str) -> list[dict[str, Any]]:
-        """Fetch all messages directly via the Fern REST client (fresh call).
-
-        Unlike poll_messages (used by SSE), this is used for frontend REST
-        polling and returns all messages (not just new ones).
+        The WebSocket callback appends messages to game.all_messages
+        in real-time, so this just returns the full list.
         """
         game = self._games.get(game_id)
-        if not game or not game.is_active:
+        if not game:
             return []
+        return list(game.all_messages)
 
-        client = game.rest_client
-        if client is None:
-            client = AsyncRestClient(
-                api_key=game.user_api_key, base_url=game.rest_url
-            )
-            game.rest_client = client
+    async def fetch_messages(self, game_id: str) -> list[dict[str, Any]]:
+        """Return all messages accumulated via the WebSocket listener.
 
-        try:
-            resp = await client.human_api_messages.list_my_chat_messages(
-                game.chat_id, page_size=100
-            )
-            serialized = [_serialize_chat_message(m) for m in resp.data]
-            serialized.sort(key=lambda m: m["inserted_at"])
-            return serialized
-        except Exception:
-            logger.exception("fetch_messages error for %s", game_id)
+        Same as poll_messages — both read from the in-memory list
+        populated by the WebSocket `message_created` callback.
+        """
+        game = self._games.get(game_id)
+        if not game:
             return []
+        return list(game.all_messages)
 
     async def get_all_messages(self, game_id: str) -> list[dict[str, Any]]:
         """Return all messages seen so far for a game."""
@@ -415,11 +343,20 @@ class GameManager:
         return list(game.all_messages)
 
     async def stop_game(self, game_id: str) -> None:
-        """Terminate all agent processes for a game."""
+        """Terminate all agent processes and disconnect WebSocket for a game."""
         game = self._games.get(game_id)
         if not game:
             return
         game.is_active = False
+
+        # Close WebSocket listener
+        if game.ws_client is not None:
+            try:
+                await game.ws_client.__aexit__(None, None, None)
+            except Exception:
+                logger.warning("Error closing WebSocket for game %s", game_id)
+            game.ws_client = None
+
         for proc in game.processes:
             if proc.returncode is None:
                 try:
