@@ -265,27 +265,33 @@ class BaseJsonRpcClient(ABC):
         method = message.get("method")
 
         if method and msg_id is not None:
-            await self._events.put(
-                RpcEvent(
-                    kind="request",
-                    method=str(method),
-                    params=message.get("params"),
-                    id=msg_id,
-                    raw=message,
+            try:
+                self._events.put_nowait(
+                    RpcEvent(
+                        kind="request",
+                        method=str(method),
+                        params=message.get("params"),
+                        id=msg_id,
+                        raw=message,
+                    )
                 )
-            )
+            except asyncio.QueueFull:
+                logger.warning("Event queue full; dropping server request %s", method)
             return
 
         if method:
-            await self._events.put(
-                RpcEvent(
-                    kind="notification",
-                    method=str(method),
-                    params=message.get("params"),
-                    id=None,
-                    raw=message,
+            try:
+                self._events.put_nowait(
+                    RpcEvent(
+                        kind="notification",
+                        method=str(method),
+                        params=message.get("params"),
+                        id=None,
+                        raw=message,
+                    )
                 )
-            )
+            except asyncio.QueueFull:
+                logger.warning("Event queue full; dropping notification %s", method)
             return
 
         if msg_id is not None:

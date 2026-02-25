@@ -51,9 +51,23 @@ if [[ ! -d "/workspace/repo" ]]; then
   exit 1
 fi
 
-# Configure git safe.directory for bind-mounted repos
-for dir in /workspace/repo ${GIT_SAFE_DIRS:+${GIT_SAFE_DIRS//,/ }}; do
-  [ -d "$dir" ] && git config --global --add safe.directory "$dir"
-done
+# Configure git safe.directory for bind-mounted repos.
+# If the host .gitconfig is mounted read-only, write to a separate file
+# and include the host config from it.
+if ! git config --global --add safe.directory /workspace/repo 2>/dev/null; then
+  export GIT_CONFIG_GLOBAL="${HOME}/.gitconfig-local"
+  # Include the host .gitconfig if it exists
+  if [[ -f "${HOME}/.gitconfig" ]]; then
+    git config --global --add include.path "${HOME}/.gitconfig"
+  fi
+  for dir in /workspace/repo ${GIT_SAFE_DIRS:+${GIT_SAFE_DIRS//,/ }}; do
+    [ -d "$dir" ] && git config --global --add safe.directory "$dir"
+  done
+else
+  # Host .gitconfig is writable, add remaining dirs
+  for dir in ${GIT_SAFE_DIRS:+${GIT_SAFE_DIRS//,/ }}; do
+    [ -d "$dir" ] && git config --global --add safe.directory "$dir"
+  done
+fi
 
 exec "$@"

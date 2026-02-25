@@ -20,6 +20,9 @@ class CodexHistoryConverter(HistoryConverter["CodexSessionState"]):
     room->thread mapping metadata to resume Codex threads after reconnect/restart.
     """
 
+    def set_agent_name(self, name: str) -> None:
+        """No-op: Codex converter does not use agent name."""
+
     def convert(self, raw: list[dict[str, Any]]) -> CodexSessionState:
         """Return most recent Codex session state found in history."""
         logger.debug("CodexHistoryConverter: scanning %d messages", len(raw))

@@ -25,11 +25,7 @@ class ClaudeSDKSessionState:
 
 
 def _build_text(raw: list[dict[str, Any]], agent_name: str) -> str:
-    """Build text history from raw platform messages.
-
-    Shared by both :class:`ClaudeSDKHistoryConverter` and
-    :class:`ClaudeCodeDesktopHistoryConverter`.
-    """
+    """Build text history from raw platform messages."""
     lines: list[str] = []
 
     for hist in raw:
@@ -102,23 +98,3 @@ class ClaudeSDKHistoryConverter(HistoryConverter[ClaudeSDKSessionState]):
 
         text = _build_text(raw, self._agent_name)
         return ClaudeSDKSessionState(text=text, session_id=session_id)
-
-
-class ClaudeCodeDesktopHistoryConverter(HistoryConverter[str]):
-    """Converts platform history to plain text for Claude Code Desktop.
-
-    Same text format as :class:`ClaudeSDKHistoryConverter` but returns a
-    plain ``str`` — the desktop adapter manages sessions via CLI flags and
-    does not need the composite :class:`ClaudeSDKSessionState`.
-    """
-
-    def __init__(self, agent_name: str = ""):
-        self._agent_name = agent_name
-
-    def set_agent_name(self, name: str) -> None:
-        self._agent_name = name
-
-    def convert(self, raw: list[dict[str, Any]]) -> str:
-        if not raw:
-            return ""
-        return _build_text(raw, self._agent_name)

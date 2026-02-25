@@ -443,12 +443,7 @@ class ClaudeSDKAdapter(SimpleAdapter[ClaudeSDKSessionState]):
                 )
 
             except Exception as e:
-                logger.error(
-                    "create_chatroom failed (task_id=%s): %s",
-                    task_id,
-                    e,
-                    exc_info=True,
-                )
+                logger.exception("create_chatroom failed (task_id=%s): %s", task_id, e)
                 return _make_error(str(e))
 
         # Contact management tools
@@ -868,13 +863,14 @@ class ClaudeSDKAdapter(SimpleAdapter[ClaudeSDKSessionState]):
             client = await self._session_manager.get_or_create_session(
                 room_id, resume_session_id=stored_session_id
             )
-        except Exception:
+        except Exception as resume_exc:
             if stored_session_id:
                 logger.warning(
-                    "Room %s: Session resume failed (session_id=%s), "
-                    "creating new session",
+                    "Room %s: Session resume failed (session_id=%s): %s. "
+                    "Creating new session",
                     room_id,
                     stored_session_id,
+                    resume_exc,
                 )
                 client = await self._session_manager.get_or_create_session(
                     room_id, resume_session_id=None
@@ -1038,27 +1034,29 @@ class ClaudeSDKAdapter(SimpleAdapter[ClaudeSDKSessionState]):
                 )
                 # Capture session_id for potential resume
                 if sdk_message.session_id:
+                    prev_session_id = self._session_ids.get(room_id)
                     self._session_ids[room_id] = sdk_message.session_id
                     logger.debug(
                         "Room %s: Captured session_id %s",
                         room_id,
                         sdk_message.session_id,
                     )
-                    # Persist session_id as task event (best-effort)
-                    try:
-                        await tools.send_event(
-                            content="Claude SDK session",
-                            message_type="task",
-                            metadata={
-                                "claude_sdk_session_id": sdk_message.session_id,
-                            },
-                        )
-                    except Exception as e:
-                        logger.warning(
-                            "Room %s: Failed to persist session_id: %s",
-                            room_id,
-                            e,
-                        )
+                    # Persist session_id as task event (best-effort, only on change)
+                    if sdk_message.session_id != prev_session_id:
+                        try:
+                            await tools.send_event(
+                                content="Claude SDK session",
+                                message_type="task",
+                                metadata={
+                                    "claude_sdk_session_id": sdk_message.session_id,
+                                },
+                            )
+                        except Exception as e:
+                            logger.warning(
+                                "Room %s: Failed to persist session_id: %s",
+                                room_id,
+                                e,
+                            )
                 break
 
     # --- Copied from ThenvoiClaudeSDKAgent._cleanup_session ---

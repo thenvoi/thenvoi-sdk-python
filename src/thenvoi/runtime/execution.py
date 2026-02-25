@@ -761,7 +761,14 @@ class ExecutionContext:
                 self.room_id,
                 msg.id,
             )
-            await self._process_backlog_message(msg)
+            try:
+                await self._process_backlog_message(msg)
+            except Exception:
+                logger.exception(
+                    "ExecutionContext %s: Failed to recover stale message %s",
+                    self.room_id,
+                    msg.id,
+                )
 
     async def _get_next_message(self) -> PlatformMessage | None:
         """

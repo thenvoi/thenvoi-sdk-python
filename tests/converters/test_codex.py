@@ -146,8 +146,7 @@ class TestCodexHistoryConverter:
         state = converter.convert(raw_history)
         assert state.thread_id == "thr-new"
 
-    def test_set_agent_name_not_required(self) -> None:
-        """CodexHistoryConverter does not need set_agent_name (metadata-only converter)."""
+    def test_set_agent_name_is_noop(self) -> None:
+        """CodexHistoryConverter.set_agent_name is a no-op (metadata-only converter)."""
         converter = CodexHistoryConverter()
-        # set_agent_name is optional per hasattr check in SimpleAdapter.on_started
-        assert not hasattr(converter, "set_agent_name")
+        converter.set_agent_name("test-agent")  # should not raise

@@ -33,28 +33,29 @@ def make_message(msg_id: str, room_id: str = "room-123") -> PlatformMessage:
     )
 
 
+@pytest.fixture
+def mock_link():
+    """Create mock ThenvoiLink with all required async endpoints."""
+    link = MagicMock()
+    link.rest = MagicMock()
+    link.rest.agent_api_participants = MagicMock()
+    link.rest.agent_api_context = MagicMock()
+    link.rest.agent_api_participants.list_agent_chat_participants = AsyncMock(
+        return_value=MagicMock(data=[])
+    )
+    link.rest.agent_api_context.get_agent_chat_context = AsyncMock(
+        return_value=MagicMock(data=[])
+    )
+    link.get_next_message = AsyncMock(return_value=None)
+    link.mark_processing = AsyncMock()
+    link.mark_processed = AsyncMock()
+    link.mark_failed = AsyncMock()
+    link.get_stale_processing_messages = AsyncMock(return_value=[])
+    return link
+
+
 class TestFirstWsMessageIdMarker:
     """Tests for _first_ws_msg_id tracking in on_event()."""
-
-    @pytest.fixture
-    def mock_link(self):
-        """Create mock ThenvoiLink."""
-        link = MagicMock()
-        link.rest = MagicMock()
-        link.rest.agent_api_participants = MagicMock()
-        link.rest.agent_api_context = MagicMock()
-        link.rest.agent_api_participants.list_agent_chat_participants = AsyncMock(
-            return_value=MagicMock(data=[])
-        )
-        link.rest.agent_api_context.get_agent_chat_context = AsyncMock(
-            return_value=MagicMock(data=[])
-        )
-        link.get_next_message = AsyncMock(return_value=None)
-        link.mark_processing = AsyncMock()
-        link.mark_processed = AsyncMock()
-        link.mark_failed = AsyncMock()
-        link.get_stale_processing_messages = AsyncMock(return_value=[])
-        return link
 
     @pytest.fixture
     def ctx(self, mock_link):
@@ -109,26 +110,6 @@ class TestFirstWsMessageIdMarker:
 
 class TestLruDedupeCache:
     """Tests for LRU dedupe cache in _process_event()."""
-
-    @pytest.fixture
-    def mock_link(self):
-        """Create mock ThenvoiLink."""
-        link = MagicMock()
-        link.rest = MagicMock()
-        link.rest.agent_api_participants = MagicMock()
-        link.rest.agent_api_context = MagicMock()
-        link.rest.agent_api_participants.list_agent_chat_participants = AsyncMock(
-            return_value=MagicMock(data=[])
-        )
-        link.rest.agent_api_context.get_agent_chat_context = AsyncMock(
-            return_value=MagicMock(data=[])
-        )
-        link.get_next_message = AsyncMock(return_value=None)
-        link.mark_processing = AsyncMock()
-        link.mark_processed = AsyncMock()
-        link.mark_failed = AsyncMock()
-        link.get_stale_processing_messages = AsyncMock(return_value=[])
-        return link
 
     @pytest.fixture
     def ctx(self, mock_link):
@@ -214,26 +195,6 @@ class TestSynchronizeWithNext:
     """Tests for _synchronize_with_next() using marker."""
 
     @pytest.fixture
-    def mock_link(self):
-        """Create mock ThenvoiLink."""
-        link = MagicMock()
-        link.rest = MagicMock()
-        link.rest.agent_api_participants = MagicMock()
-        link.rest.agent_api_context = MagicMock()
-        link.rest.agent_api_participants.list_agent_chat_participants = AsyncMock(
-            return_value=MagicMock(data=[])
-        )
-        link.rest.agent_api_context.get_agent_chat_context = AsyncMock(
-            return_value=MagicMock(data=[])
-        )
-        link.get_next_message = AsyncMock(return_value=None)
-        link.mark_processing = AsyncMock()
-        link.mark_processed = AsyncMock()
-        link.mark_failed = AsyncMock()
-        link.get_stale_processing_messages = AsyncMock(return_value=[])
-        return link
-
-    @pytest.fixture
     def ctx(self, mock_link):
         """Create ExecutionContext with mocked dependencies."""
         handler = AsyncMock()
@@ -309,26 +270,6 @@ class TestSynchronizeWithNext:
 
 class TestCrashRecovery:
     """Tests for _recover_stale_processing_messages()."""
-
-    @pytest.fixture
-    def mock_link(self):
-        """Create mock ThenvoiLink."""
-        link = MagicMock()
-        link.rest = MagicMock()
-        link.rest.agent_api_participants = MagicMock()
-        link.rest.agent_api_context = MagicMock()
-        link.rest.agent_api_participants.list_agent_chat_participants = AsyncMock(
-            return_value=MagicMock(data=[])
-        )
-        link.rest.agent_api_context.get_agent_chat_context = AsyncMock(
-            return_value=MagicMock(data=[])
-        )
-        link.get_next_message = AsyncMock(return_value=None)
-        link.mark_processing = AsyncMock()
-        link.mark_processed = AsyncMock()
-        link.mark_failed = AsyncMock()
-        link.get_stale_processing_messages = AsyncMock(return_value=[])
-        return link
 
     @pytest.fixture
     def ctx(self, mock_link):

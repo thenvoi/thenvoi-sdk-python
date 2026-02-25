@@ -140,6 +140,7 @@ agent_config.yaml
 # Docker multi-agent credentials (real keys)
 docker/multi-agent/claude-planner.yaml
 docker/multi-agent/.env
+examples/coding_agents/claude-planner.yaml
 *.log
 phx_events_debug.log
 

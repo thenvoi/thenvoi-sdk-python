@@ -5,9 +5,13 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import time as _time
+from collections import OrderedDict
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Callable, Literal, Protocol
+
+from pydantic import BaseModel, Field, ValidationError
 
 from thenvoi.converters.codex import CodexHistoryConverter
 from thenvoi.core.protocols import AgentToolsProtocol
@@ -27,8 +31,6 @@ from thenvoi.runtime.custom_tools import (
     find_custom_tool,
 )
 from thenvoi.runtime.prompts import render_system_prompt
-
-from pydantic import BaseModel, Field, ValidationError
 
 logger = logging.getLogger(__name__)
 
@@ -173,6 +175,8 @@ class CodexAdapterConfig:
     additional_dynamic_tools: list[dict[str, Any]] = field(default_factory=list)
     inject_history_on_resume_failure: bool = True
     max_history_messages: int = 50
+    # Fallback models tried when model/list fails or returns empty.
+    # Update when OpenAI rotates model IDs.
     fallback_models: tuple[str, ...] = ("gpt-5.2", "gpt-5.3-codex")
     max_pending_approvals_per_room: int = 50
 
@@ -207,7 +211,8 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
         self._system_prompt: str = ""
         self._room_threads: dict[str, str] = {}
         self._prompt_injected_rooms: set[str] = set()
-        self._task_titles_by_id: dict[str, str] = {}
+        self._task_titles_by_id: OrderedDict[str, str] = OrderedDict()
+        self._max_task_titles: int = 500
         self._pending_approvals: dict[str, dict[str, _PendingApproval]] = {}
         self._raw_history_by_room: dict[str, list[dict[str, Any]]] = {}
         self._needs_history_injection: set[str] = set()
@@ -225,18 +230,16 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
         adapter = self
 
         def _handle_set_model(inp: SetModelInput) -> str:
-            assert adapter._rpc_lock.locked(), (
-                "_handle_set_model must run under _rpc_lock"
-            )
+            if not adapter._rpc_lock.locked():
+                raise RuntimeError("_handle_set_model must run under _rpc_lock")
             adapter.config.model = inp.model
             adapter._selected_model = inp.model
             adapter._model_explicitly_set = True
             return f"Model changed to {inp.model} for subsequent turns."
 
         def _handle_set_reasoning(inp: SetReasoningInput) -> str:
-            assert adapter._rpc_lock.locked(), (
-                "_handle_set_reasoning must run under _rpc_lock"
-            )
+            if not adapter._rpc_lock.locked():
+                raise RuntimeError("_handle_set_reasoning must run under _rpc_lock")
             parts: list[str] = []
             if inp.effort is not None:
                 if inp.effort not in _REASONING_EFFORTS:
@@ -326,7 +329,10 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
 
         async with self._rpc_lock:
             await self._ensure_client_ready()
-            assert self._client is not None
+            if self._client is None:
+                raise RuntimeError(
+                    "Codex client not initialized after _ensure_client_ready"
+                )
 
             if command is not None:
                 handled = await self._handle_local_command(
@@ -386,12 +392,15 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
             final_text = ""
             turn_status = "failed"
             turn_error = ""
+            _turn_start = _time.monotonic()
 
             try:
                 while True:
-                    event = await self._client.recv_event(
-                        timeout_s=self.config.turn_timeout_s
+                    _remaining = max(
+                        0.0,
+                        self.config.turn_timeout_s - (_time.monotonic() - _turn_start),
                     )
+                    event = await self._client.recv_event(timeout_s=_remaining)
                     if event.kind == "request":
                         used_send_message = await self._handle_server_request(
                             tools=tools,
@@ -499,7 +508,10 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
                             "turn/interrupt", {"turnId": turn_id}
                         )
                     except Exception:
-                        logger.warning("Failed to send turn/interrupt after timeout")
+                        logger.warning(
+                            "Failed to send turn/interrupt after timeout",
+                            exc_info=True,
+                        )
                 turn_status = "interrupted"
                 turn_error = "Turn timed out"
 
@@ -567,7 +579,8 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
         if self.config.model:
             return self.config.model
 
-        assert self._client is not None
+        if self._client is None:
+            raise RuntimeError("Codex client not initialized")
         try:
             result = await self._client.request("model/list", {})
         except Exception:
@@ -605,7 +618,8 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
         if thread_id:
             return thread_id
 
-        assert self._client is not None
+        if self._client is None:
+            raise RuntimeError("Codex client not initialized")
 
         if is_session_bootstrap and history.has_thread():
             try:
@@ -824,7 +838,8 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
         room_id: str,
         event: RpcEvent,
     ) -> bool:
-        assert self._client is not None
+        if self._client is None:
+            raise RuntimeError("CodexAdapter client is None — was on_started() called?")
         if event.id is None:
             return False
 
@@ -1089,11 +1104,10 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
                 metadata=metadata,
             )
         except Exception:
-            logger.warning(
+            logger.exception(
                 "Failed to emit %s event for item %s (best-effort)",
                 item_type,
                 item_id,
-                exc_info=True,
             )
 
     async def _emit_item_event(
@@ -1265,7 +1279,8 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
         params: dict[str, Any],
     ) -> ApprovalDecision:
         mention = [{"id": msg.sender_id, "name": msg.sender_name or msg.sender_type}]
-        assert event.id is not None, "approval request must have an id"
+        if event.id is None:
+            raise RuntimeError("approval request must have an id")
         token = self._approval_token(event.id, params)
         loop = asyncio.get_running_loop()
         pending = _PendingApproval(
@@ -1336,6 +1351,8 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
         title = self._task_event_title(params)
         if task_id and title and is_started:
             self._task_titles_by_id[task_id] = title
+            if len(self._task_titles_by_id) > self._max_task_titles:
+                self._task_titles_by_id.popitem(last=False)
         if task_id and not title:
             title = self._task_titles_by_id.get(task_id)
         summary = self._task_event_summary(params)
@@ -1425,7 +1442,8 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
                 return True
 
             if model_arg.lower() in {"list", "ls"}:
-                assert self._client is not None
+                if self._client is None:
+                    raise RuntimeError("Codex client not initialized")
                 result = await self._client.request("model/list", {})
                 models = self._visible_model_ids(result)
                 if models:
@@ -1533,7 +1551,8 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
             )
             return True
 
-        assert selected is not None
+        if selected is None:
+            raise RuntimeError("No matching pending approval after token lookup")
         decision: ApprovalDecision = "accept" if command == "approve" else "decline"
         if not selected.future.done():
             selected.future.set_result(decision)
@@ -1579,7 +1598,8 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
         When the user explicitly configured a model, the error propagates — they may
         be using unlisted models that model/list doesn't report.
         """
-        assert self._client is not None
+        if self._client is None:
+            raise RuntimeError("CodexAdapter client is None — was on_started() called?")
         try:
             return await self._client.request("turn/start", params)
         except CodexJsonRpcError as exc:
@@ -1608,12 +1628,13 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
 
     async def _find_fallback_model(self, exclude: Any = None) -> str | None:
         """Query model/list and return a fallback model, or None if unavailable."""
-        assert self._client is not None
+        if self._client is None:
+            raise RuntimeError("CodexAdapter client is None — was on_started() called?")
         fallbacks = self.config.fallback_models
         try:
             result = await self._client.request("model/list", {})
         except Exception:
-            logger.warning("model/list failed during fallback lookup")
+            logger.warning("model/list failed during fallback lookup", exc_info=True)
             for model_id in fallbacks:
                 if model_id != exclude:
                     return model_id

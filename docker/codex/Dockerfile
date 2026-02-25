@@ -5,8 +5,6 @@ ENV DEBIAN_FRONTEND=noninteractive
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
-    nodejs \
-    npm \
     && rm -rf /var/lib/apt/lists/*
 
 RUN pip install --no-cache-dir uv
@@ -24,9 +22,8 @@ RUN git config --global --add url."https://github.com/".insteadOf "git@github.co
 # Strip host-specific [tool.uv.sources] so uv resolves from the registry.
 RUN python /tmp/strip_uv_sources.py /app/pyproject.toml
 
-# Install Python dependencies and Codex CLI.
+# Install Python dependencies.
 RUN uv sync --extra codex
-RUN npm i -g @openai/codex@latest
 
 # ── Runtime stage ─────────────────────────────────────────────────────────
 FROM python:3.12-slim
@@ -58,9 +55,13 @@ COPY --from=builder /app/.venv /app/.venv
 COPY --from=builder /app/src /app/src
 COPY --from=builder /app/examples /app/examples
 
-# Copy global Codex CLI from builder.
-COPY --from=builder /usr/local/lib/node_modules /usr/local/lib/node_modules
-COPY --from=builder /usr/local/bin/codex /usr/local/bin/codex
+# Install Codex CLI directly in runtime (npm resolves platform-specific
+# optional deps at install time; copying from builder breaks resolution).
+RUN apt-get update && apt-get install -y --no-install-recommends npm \
+    && npm i -g @openai/codex@latest \
+    && apt-get purge -y npm \
+    && apt-get autoremove -y \
+    && rm -rf /var/lib/apt/lists/*
 
 # Copy entrypoint and smoke test.
 COPY docker/codex/entrypoint.sh /app/docker/codex/entrypoint.sh
