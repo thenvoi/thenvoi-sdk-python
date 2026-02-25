@@ -130,10 +130,16 @@ async def game_events(request: Request) -> StreamingResponse:
 
 
 async def get_messages(request: Request) -> JSONResponse:
-    """Fresh API call each time — used by frontend REST polling."""
+    """Fresh API call each time -- used by frontend REST polling."""
     game_id = request.path_params["game_id"]
+    game = manager._games.get(game_id)
+    if not game:
+        return JSONResponse(
+            {"messages": [], "error": "Game not found"}, status_code=404
+        )
     msgs = await manager.fetch_messages(game_id)
-    return JSONResponse({"messages": msgs})
+    logger.debug("GET messages %s: %d messages returned", game_id, len(msgs))
+    return JSONResponse({"messages": msgs, "game_active": game.is_active})
 
 
 async def debug_poll(request: Request) -> JSONResponse:

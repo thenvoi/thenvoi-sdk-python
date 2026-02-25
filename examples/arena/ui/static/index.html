@@ -39,6 +39,38 @@
     .chat-scroll::-webkit-scrollbar { width: 6px; }
     .chat-scroll::-webkit-scrollbar-track { background: transparent; }
     .chat-scroll::-webkit-scrollbar-thumb { background: #334155; border-radius: 3px; }
+
+    /* Chat message styles */
+    .chat-bubble { border-radius: 16px; }
+    .chat-bubble-thinker {
+      background: rgba(139, 92, 246, 0.08);
+      border: 1px solid rgba(139, 92, 246, 0.18);
+      border-radius: 16px;
+    }
+    .chat-bubble-user {
+      background: rgba(99, 102, 241, 0.15);
+      border: 1px solid rgba(99, 102, 241, 0.2);
+      border-radius: 16px 4px 16px 16px;
+    }
+    .chat-bubble-agent {
+      background: rgba(30, 41, 59, 0.6);
+      border: 1px solid rgba(51, 65, 85, 0.4);
+      border-radius: 4px 16px 16px 16px;
+    }
+    .chat-bubble-thought {
+      background: rgba(30, 41, 59, 0.3);
+      border: 1px dashed rgba(100, 116, 139, 0.3);
+      border-radius: 12px;
+    }
+    .chat-bubble-internal {
+      background: rgba(15, 23, 42, 0.5);
+      border: 1px solid rgba(51, 65, 85, 0.25);
+      border-radius: 8px;
+    }
+    .empty-state-pulse {
+      animation: pulse-ring 3s infinite;
+    }
+    .msg-separator { border-top: 1px solid rgba(51, 65, 85, 0.3); }
   </style>
 </head>
 <body class="text-white min-h-screen font-sans">
@@ -122,7 +154,19 @@
   </header>
 
   <!-- Chat area -->
-  <div class="flex-1 overflow-y-auto chat-scroll" id="chat-messages"></div>
+  <div class="flex-1 overflow-y-auto chat-scroll px-4 py-3" id="chat-messages">
+    <!-- Empty state (shown when no messages yet) -->
+    <div id="chat-empty-state" class="flex flex-col items-center justify-center h-full text-center">
+      <div class="w-12 h-12 rounded-full border-2 border-violet-500/30 flex items-center justify-center mb-4 empty-state-pulse">
+        <svg class="w-6 h-6 text-violet-400/60" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+          <path stroke-linecap="round" stroke-linejoin="round"
+            d="M8.625 12a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0H8.25m4.125 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0H12m4.125 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0h-.375M21 12c0 4.556-4.03 8.25-9 8.25a9.764 9.764 0 01-2.555-.337A5.972 5.972 0 015.41 20.97a5.969 5.969 0 01-.474-.065 4.48 4.48 0 00.978-2.025c.09-.457-.133-.901-.467-1.226C3.93 16.178 3 14.189 3 12c0-4.556 4.03-8.25 9-8.25s9 3.694 9 8.25z" />
+        </svg>
+      </div>
+      <p class="text-slate-400 text-sm font-medium mb-1">Waiting for messages...</p>
+      <p class="text-slate-600 text-xs">The game master is setting up the round</p>
+    </div>
+  </div>
 
   <!-- Bottom bar -->
   <div class="shrink-0 glass border-t border-slate-700/50 px-4 py-2 flex items-center gap-4">
@@ -330,7 +374,19 @@ function animateLoadingSteps() {
 // ── Enter game screen ────────────────────────────────────────────────────────
 function enterGameScreen() {
   showScreen('game');
-  document.getElementById('chat-messages').innerHTML = '';
+  // Reset chat area with empty state
+  const chatEl = document.getElementById('chat-messages');
+  chatEl.innerHTML = `
+    <div id="chat-empty-state" class="flex flex-col items-center justify-center h-full text-center">
+      <div class="w-12 h-12 rounded-full border-2 border-violet-500/30 flex items-center justify-center mb-4 empty-state-pulse">
+        <svg class="w-6 h-6 text-violet-400/60" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+          <path stroke-linecap="round" stroke-linejoin="round"
+            d="M8.625 12a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0H8.25m4.125 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0H12m4.125 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0h-.375M21 12c0 4.556-4.03 8.25-9 8.25a9.764 9.764 0 01-2.555-.337A5.972 5.972 0 015.41 20.97a5.969 5.969 0 01-.474-.065 4.48 4.48 0 00.978-2.025c.09-.457-.133-.901-.467-1.226C3.93 16.178 3 14.189 3 12c0-4.556 4.03-8.25 9-8.25s9 3.694 9 8.25z" />
+        </svg>
+      </div>
+      <p class="text-slate-400 text-sm font-medium mb-1">Waiting for messages...</p>
+      <p class="text-slate-600 text-xs">The game master is setting up the round</p>
+    </div>`;
   document.getElementById('thinker-model-label').textContent = state.thinkerModel || 'Auto';
   renderGuesserChips();
   startPolling();
@@ -363,17 +419,41 @@ function stopPolling() {
 async function pollMessages() {
   if (!state.gameId) return;
   try {
-    const resp = await fetch(`/api/game/${state.gameId}/messages`);
-    if (!resp.ok) { setPollStatus('error'); return; }
+    const url = `/api/game/${state.gameId}/messages`;
+    console.log(`[Arena] poll #${state.pollCount + 1} -> ${url}`);
+    const resp = await fetch(url);
+    if (!resp.ok) {
+      console.error(`[Arena] poll failed: HTTP ${resp.status}`);
+      setPollStatus('error');
+      return;
+    }
     const data = await resp.json();
     const messages = data.messages || [];
 
     state.pollCount++;
+    console.log(`[Arena] poll #${state.pollCount}: ${messages.length} total messages, ${state.seenIds.size} seen`);
+
+    // Log first message structure on first successful poll with data
+    if (state.pollCount === 1 && messages.length > 0) {
+      console.log('[Arena] first message sample:', JSON.stringify(messages[0]));
+      console.log('[Arena] first message keys:', Object.keys(messages[0]));
+    }
+
     setPollStatus('live', messages.length);
+
+    // Hide empty state once we have messages
+    if (messages.length > 0) {
+      const emptyState = document.getElementById('chat-empty-state');
+      if (emptyState) emptyState.style.display = 'none';
+    }
 
     // Find new messages not yet rendered
     let newCount = 0;
     for (const msg of messages) {
+      if (!msg.id) {
+        console.warn('[Arena] message missing id:', msg);
+        continue;
+      }
       if (state.seenIds.has(msg.id)) continue;
       state.seenIds.add(msg.id);
       state.messages.push(msg);
@@ -382,6 +462,7 @@ async function pollMessages() {
     }
 
     if (newCount > 0) {
+      console.log(`[Arena] rendered ${newCount} new messages`);
       scrollChat();
       updateChips();
       // Check for game end on every new message
@@ -393,6 +474,7 @@ async function pollMessages() {
       }
     }
   } catch (e) {
+    console.error('[Arena] poll error:', e);
     setPollStatus('error');
   }
 }
@@ -421,12 +503,13 @@ function renderMessage(msg) {
   const isThought = type === 'thought';
   const isInternal = type === 'tool_call' || type === 'tool_result';
   const isUser = senderType === 'user' || senderType === 'human';
+  const isThinker = msg.sender_id === state.thinkerAgentId;
   const info = getSenderInfo(msg);
   const time = formatTime(msg.inserted_at);
   const content = formatContent(msg.content, type);
 
-  // Skip empty content
-  if (!content.trim()) return;
+  // If content is empty after formatting, show a placeholder instead of dropping
+  const displayContent = content.trim() ? content : '<span class="text-slate-500 italic">@agent</span>';
 
   const div = document.createElement('div');
   div.dataset.msgId = msg.id;
@@ -437,52 +520,82 @@ function renderMessage(msg) {
 
   if (isInternal) {
     // Compact internal event row
-    div.className = `msg-enter internal-msg px-5 py-1 ${hidden ? 'hidden' : ''}`;
+    div.className = `msg-enter internal-msg py-1 ${hidden ? 'hidden' : ''}`;
     div.innerHTML = `
-      <div class="flex items-center gap-2 text-[10px] text-slate-600">
-        <span class="font-mono px-1.5 py-0.5 rounded bg-slate-800/60 text-slate-500">${type}</span>
-        <span style="color:${info.color}">${info.name}</span>
-        <span class="truncate max-w-[400px]">${content}</span>
-        <span class="ml-auto shrink-0">${time}</span>
+      <div class="chat-bubble-internal px-3 py-1.5 mx-auto max-w-2xl">
+        <div class="flex items-center gap-2 text-[10px] text-slate-500">
+          <span class="font-mono px-1.5 py-0.5 rounded bg-slate-800/80 text-slate-500 text-[9px]">${type}</span>
+          <span class="font-medium" style="color:${info.color}">${info.name}</span>
+          <span class="truncate flex-1">${displayContent}</span>
+          <span class="shrink-0 text-slate-600">${time}</span>
+        </div>
       </div>`;
   } else if (isThought) {
-    // Thought bubble - italic, muted
-    div.className = `msg-enter thought-msg px-5 py-1.5 ${hidden ? 'hidden' : ''}`;
+    // Thought bubble -- italic, muted, centered
+    div.className = `msg-enter thought-msg py-1 ${hidden ? 'hidden' : ''}`;
     div.innerHTML = `
-      <div class="flex items-start gap-2.5 max-w-3xl">
-        <div class="w-6 h-6 rounded-full flex items-center justify-center text-[9px] font-bold shrink-0 mt-0.5 border border-dashed"
-             style="border-color:${info.color}60;color:${info.color}80">${info.initial}</div>
-        <div class="flex-1 min-w-0">
-          <div class="text-[10px] mb-0.5" style="color:${info.color}80">${info.name} thinking...</div>
-          <div class="text-xs text-slate-500 italic leading-relaxed">${content}</div>
+      <div class="chat-bubble-thought px-4 py-2.5 max-w-2xl mx-auto">
+        <div class="flex items-start gap-2.5">
+          <div class="w-5 h-5 rounded-full flex items-center justify-center text-[8px] font-bold shrink-0 mt-0.5 border border-dashed"
+               style="border-color:${info.color}50;color:${info.color}70">${info.initial}</div>
+          <div class="flex-1 min-w-0">
+            <div class="flex items-center gap-2 mb-0.5">
+              <span class="text-[10px] font-medium" style="color:${info.color}90">${info.name}</span>
+              <span class="text-[9px] text-slate-600 italic">thinking</span>
+              <span class="ml-auto text-[9px] text-slate-600">${time}</span>
+            </div>
+            <div class="text-xs text-slate-500 italic leading-relaxed">${displayContent}</div>
+          </div>
         </div>
       </div>`;
   } else if (isUser) {
-    // User message - right aligned, distinct style
-    div.className = 'msg-enter px-5 py-2';
+    // User message -- right aligned
+    div.className = 'msg-enter py-1.5';
     div.innerHTML = `
       <div class="flex justify-end">
-        <div class="max-w-xl">
+        <div class="max-w-lg">
           <div class="flex items-center justify-end gap-2 mb-1">
             <span class="text-[10px] text-slate-500">${time}</span>
-            <span class="text-xs font-medium text-slate-400">${msg.sender_name || 'You'}</span>
+            <span class="text-[11px] font-semibold text-indigo-300">${msg.sender_name || 'You'}</span>
           </div>
-          <div class="bg-violet-600/20 border border-violet-500/20 rounded-2xl rounded-tr-sm px-4 py-2.5 text-sm text-slate-200 leading-relaxed">${content}</div>
+          <div class="chat-bubble-user px-4 py-2.5">
+            <div class="text-sm text-slate-200 leading-relaxed">${displayContent}</div>
+          </div>
+        </div>
+      </div>`;
+  } else if (isThinker) {
+    // Thinker (game master) message -- purple themed, prominent
+    div.className = 'msg-enter py-2';
+    div.innerHTML = `
+      <div class="flex items-start gap-3 max-w-2xl">
+        <div class="w-9 h-9 rounded-full flex items-center justify-center text-xs font-bold shrink-0 shadow-lg shadow-violet-500/20"
+             style="background: linear-gradient(135deg, #7C3AED, #8B5CF6); color: white;">${info.initial}</div>
+        <div class="flex-1 min-w-0">
+          <div class="flex items-baseline gap-2 mb-1">
+            <span class="font-bold text-sm" style="color: #A78BFA;">${info.name}</span>
+            <span class="text-[9px] text-violet-400/60 font-medium uppercase tracking-wider">Game Master</span>
+            <span class="text-[10px] text-slate-500">${time}</span>
+          </div>
+          <div class="chat-bubble-thinker px-4 py-3">
+            <div class="text-sm text-slate-200 leading-relaxed">${displayContent}</div>
+          </div>
         </div>
       </div>`;
   } else {
-    // Agent message - main conversation style
-    div.className = 'msg-enter px-5 py-2';
+    // Guesser agent message -- left aligned with agent color
+    div.className = 'msg-enter py-2';
     div.innerHTML = `
-      <div class="flex items-start gap-3 max-w-3xl">
-        <div class="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold shrink-0 shadow-lg mt-0.5"
-             style="background:${info.color}">${info.initial}</div>
+      <div class="flex items-start gap-3 max-w-2xl">
+        <div class="w-9 h-9 rounded-full flex items-center justify-center text-xs font-bold shrink-0 shadow-lg"
+             style="background:${info.color}; color: white;">${info.initial}</div>
         <div class="flex-1 min-w-0">
           <div class="flex items-baseline gap-2 mb-1">
             <span class="font-semibold text-sm" style="color:${info.color}">${info.name}</span>
             <span class="text-[10px] text-slate-500">${time}</span>
           </div>
-          <div class="text-sm text-slate-200 leading-relaxed">${content}</div>
+          <div class="chat-bubble-agent px-4 py-3">
+            <div class="text-sm text-slate-200 leading-relaxed">${displayContent}</div>
+          </div>
         </div>
       </div>`;
   }
@@ -512,8 +625,18 @@ function formatContent(text, type) {
     } catch {}
     return text.slice(0, 80);
   }
-  // Strip @[[uuid]] mention format
-  let clean = text.replace(/@\[\[[\w-]+\]\]/g, '');
+  // Strip @[[uuid]] mention format, but replace with agent name if possible
+  let clean = text.replace(/@\[\[[\w-]+\]\]/g, (match) => {
+    // Extract the UUID from @[[uuid]]
+    const uuid = match.slice(3, -2);
+    // Try to find the agent name
+    if (uuid === state.thinkerAgentId) return '@Thinker';
+    const g = state.guessers.find(g => g.agent_id === uuid);
+    if (g) return `@${g.label}`;
+    return '@agent';
+  });
+  // If after stripping mentions the content is only whitespace, return placeholder
+  if (!clean.trim()) return '';
   // HTML escape
   clean = clean.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   // Bold

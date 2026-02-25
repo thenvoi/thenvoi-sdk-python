@@ -13,7 +13,6 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-import httpx
 from thenvoi_rest import AsyncRestClient, ChatMessageRequest, ParticipantRequest
 from thenvoi_rest.human_api_chats.types.create_my_chat_room_request_chat import (
     CreateMyChatRoomRequestChat,
@@ -79,6 +78,7 @@ class ActiveGame:
     guesser_configs: list[dict[str, str]]
     user_api_key: str
     rest_url: str
+    rest_client: AsyncRestClient | None = None
     processes: list[asyncio.subprocess.Process] = field(default_factory=list)
     seen_message_ids: set[str] = field(default_factory=set)
     all_messages: list[dict[str, Any]] = field(default_factory=list)
@@ -136,19 +136,35 @@ def _serialize_message_dict(msg: dict[str, Any]) -> dict[str, Any]:
     return result
 
 
+def _serialize_chat_message(msg: Any) -> dict[str, Any]:
+    """Convert a Fern ChatMessage object to a JSON-serializable dict."""
+    inserted = getattr(msg, "inserted_at", None)
+    metadata = getattr(msg, "metadata", None) or {}
+    result: dict[str, Any] = {
+        "id": str(getattr(msg, "id", "")),
+        "content": getattr(msg, "content", "") or "",
+        "sender_name": getattr(msg, "sender_name", None) or "Unknown",
+        "sender_id": str(getattr(msg, "sender_id", "")),
+        "sender_type": str(getattr(msg, "sender_type", "unknown")),
+        "message_type": str(getattr(msg, "message_type", "message")),
+        "inserted_at": inserted.isoformat() if inserted else "",
+    }
+    mentions = metadata.get("mentions") if isinstance(metadata, dict) else None
+    if mentions and isinstance(mentions, list):
+        result["mentions"] = [
+            {"id": str(m.get("id", "")), "name": m.get("name", "")}
+            for m in mentions
+            if isinstance(m, dict)
+        ]
+    return result
+
+
 class GameManager:
     """Manages arena game lifecycle: agent processes, room creation, message polling."""
 
     def __init__(self) -> None:
         self._games: dict[str, ActiveGame] = {}
         self._counter = 0
-        self._http: httpx.AsyncClient | None = None
-
-    async def _get_http(self) -> httpx.AsyncClient:
-        """Reusable httpx client for raw polling."""
-        if self._http is None or self._http.is_closed:
-            self._http = httpx.AsyncClient(timeout=15)
-        return self._http
 
     @property
     def current_game(self) -> ActiveGame | None:
@@ -301,90 +317,46 @@ class GameManager:
             guesser_configs=guesser_configs,
             user_api_key=user_api_key,
             rest_url=rest_url,
+            rest_client=client,
             processes=processes,
         )
         self._games[game_id] = game
         return game
 
     async def poll_messages(self, game_id: str) -> list[dict[str, Any]]:
-        """Return newly seen messages for a game using raw HTTP.
-
-        Uses httpx directly instead of the Fern client so we get full
-        visibility into the HTTP response (status, body) for debugging.
-        """
+        """Return newly seen messages for a game via the Fern REST client."""
         game = self._games.get(game_id)
         if not game or not game.is_active:
             return []
 
-        base = game.rest_url.rstrip("/")
-        url = f"{base}/api/v1/me/chats/{game.chat_id}/messages"
-        headers = {"X-API-Key": game.user_api_key}
+        client = game.rest_client
+        if client is None:
+            client = AsyncRestClient(
+                api_key=game.user_api_key, base_url=game.rest_url
+            )
+            game.rest_client = client
 
         try:
-            http = await self._get_http()
-            resp = await http.get(
-                url, headers=headers, params={"page_size": 200}
+            resp = await client.human_api_messages.list_my_chat_messages(
+                game.chat_id, page_size=100
             )
         except Exception:
-            logger.exception("Poll HTTP error for game %s", game_id)
+            logger.exception("Poll error for game %s", game_id)
             return []
 
-        if resp.status_code != 200:
-            logger.error(
-                "Poll %s: HTTP %d — %s",
-                game_id, resp.status_code, resp.text[:500],
-            )
-            return []
-
-        try:
-            body = resp.json()
-        except Exception:
-            logger.error("Poll %s: invalid JSON — %s", game_id, resp.text[:300])
-            return []
-
-        # The API may return messages under "data" or at the top level
-        messages_raw = body.get("data")
-        if messages_raw is None:
-            # Fallback: body itself might be a list
-            if isinstance(body, list):
-                messages_raw = body
-            else:
-                # Try other common keys
-                messages_raw = body.get("messages", body.get("items", []))
-
-        if not isinstance(messages_raw, list):
-            logger.error(
-                "Poll %s: expected list of messages, got %s. body keys=%s",
-                game_id, type(messages_raw).__name__, list(body.keys()) if isinstance(body, dict) else "N/A",
-            )
-            return []
-
-        messages: list[dict[str, Any]] = messages_raw
+        messages = resp.data
         total = len(messages)
 
-        # Detailed debug log on first poll to inspect API response structure
-        if len(game.seen_message_ids) == 0:
-            sample = messages[0] if messages else {}
+        if len(game.seen_message_ids) == 0 and messages:
             logger.info(
-                "Poll %s [FIRST]: %d messages, body keys=%s, "
-                "sample msg keys=%s, sample=%s",
-                game_id,
-                total,
-                list(body.keys()) if isinstance(body, dict) else "N/A",
-                list(sample.keys()) if isinstance(sample, dict) else "N/A",
-                str(sample)[:300],
+                "Poll %s [FIRST]: %d messages, sample=%s",
+                game_id, total, str(messages[0])[:300],
             )
 
-        # Log on empty or normal
         if total == 0 and len(game.seen_message_ids) < 3:
             logger.warning(
-                "Poll %s: 0 messages from API (seen=%d). "
-                "HTTP %d, body keys=%s, body[:300]=%s",
-                game_id,
-                len(game.seen_message_ids),
-                resp.status_code,
-                list(body.keys()) if isinstance(body, dict) else "N/A",
-                resp.text[:300],
+                "Poll %s: 0 messages from API (seen=%d)",
+                game_id, len(game.seen_message_ids),
             )
         else:
             logger.info(
@@ -394,11 +366,11 @@ class GameManager:
 
         new_msgs: list[dict[str, Any]] = []
         for msg in messages:
-            mid = str(msg.get("id", ""))
+            mid = str(getattr(msg, "id", ""))
             if not mid or mid in game.seen_message_ids:
                 continue
             game.seen_message_ids.add(mid)
-            serialized = _serialize_message_dict(msg)
+            serialized = _serialize_chat_message(msg)
             new_msgs.append(serialized)
             game.all_messages.append(serialized)
 
@@ -408,45 +380,27 @@ class GameManager:
         return new_msgs
 
     async def fetch_messages(self, game_id: str) -> list[dict[str, Any]]:
-        """Fetch all messages directly from the REST API (fresh call).
+        """Fetch all messages directly via the Fern REST client (fresh call).
 
-        Unlike poll_messages (used by SSE), this makes an independent HTTP
-        request each time -- reliable for frontend REST polling.
+        Unlike poll_messages (used by SSE), this is used for frontend REST
+        polling and returns all messages (not just new ones).
         """
         game = self._games.get(game_id)
         if not game or not game.is_active:
             return []
 
-        base = game.rest_url.rstrip("/")
-        url = f"{base}/api/v1/me/chats/{game.chat_id}/messages"
-        headers = {"X-API-Key": game.user_api_key}
+        client = game.rest_client
+        if client is None:
+            client = AsyncRestClient(
+                api_key=game.user_api_key, base_url=game.rest_url
+            )
+            game.rest_client = client
 
         try:
-            http = await self._get_http()
-            resp = await http.get(url, headers=headers, params={"page_size": 200})
-            if resp.status_code != 200:
-                logger.error("fetch_messages %s: HTTP %d", game_id, resp.status_code)
-                return []
-            body = resp.json()
-
-            # Handle multiple possible response shapes
-            messages_raw = body.get("data") if isinstance(body, dict) else None
-            if messages_raw is None:
-                if isinstance(body, list):
-                    messages_raw = body
-                elif isinstance(body, dict):
-                    messages_raw = body.get("messages", body.get("items", []))
-                else:
-                    messages_raw = []
-
-            if not isinstance(messages_raw, list):
-                logger.error(
-                    "fetch_messages %s: unexpected type %s",
-                    game_id, type(messages_raw).__name__,
-                )
-                return []
-
-            serialized = [_serialize_message_dict(m) for m in messages_raw]
+            resp = await client.human_api_messages.list_my_chat_messages(
+                game.chat_id, page_size=100
+            )
+            serialized = [_serialize_chat_message(m) for m in resp.data]
             serialized.sort(key=lambda m: m["inserted_at"])
             return serialized
         except Exception:
@@ -479,8 +433,6 @@ class GameManager:
         logger.info("Game %s stopped", game_id)
 
     async def stop_all(self) -> None:
-        """Stop every active game and close shared resources."""
+        """Stop every active game."""
         for gid in list(self._games):
             await self.stop_game(gid)
-        if self._http and not self._http.is_closed:
-            await self._http.aclose()
