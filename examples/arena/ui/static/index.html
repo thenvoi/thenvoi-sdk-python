@@ -447,14 +447,28 @@ async function pollMessages() {
       if (emptyState) emptyState.style.display = 'none';
     }
 
-    // Find new messages not yet rendered
+    // Find new messages and detect updates to existing ones
     let newCount = 0;
     for (const msg of messages) {
       if (!msg.id) {
         console.warn('[Arena] message missing id:', msg);
         continue;
       }
-      if (state.seenIds.has(msg.id)) continue;
+      if (state.seenIds.has(msg.id)) {
+        // Check if message_type changed (e.g. text → thought)
+        const existing = state.messages.find(m => m.id === msg.id);
+        if (existing && existing.message_type !== msg.message_type) {
+          console.log(`[Arena] message ${msg.id} type changed: ${existing.message_type} → ${msg.message_type}`);
+          existing.message_type = msg.message_type;
+          existing.content = msg.content;
+          // Re-render: remove old DOM node and create new one
+          const oldNode = document.querySelector(`[data-msg-id="${msg.id}"]`);
+          if (oldNode) oldNode.remove();
+          renderMessage(existing);
+          newCount++;
+        }
+        continue;
+      }
       state.seenIds.add(msg.id);
       state.messages.push(msg);
       renderMessage(msg);
@@ -564,20 +578,22 @@ function renderMessage(msg) {
         </div>
       </div>`;
   } else if (isThinker) {
-    // Thinker (game master) message -- purple themed, prominent
+    // Thinker (game master) message -- purple themed, right aligned
     div.className = 'msg-enter py-2';
     div.innerHTML = `
-      <div class="flex items-start gap-3 max-w-2xl">
-        <div class="w-9 h-9 rounded-full flex items-center justify-center text-xs font-bold shrink-0 shadow-lg shadow-violet-500/20"
-             style="background: linear-gradient(135deg, #7C3AED, #8B5CF6); color: white;">${info.initial}</div>
-        <div class="flex-1 min-w-0">
-          <div class="flex items-baseline gap-2 mb-1">
-            <span class="font-bold text-sm" style="color: #A78BFA;">${info.name}</span>
-            <span class="text-[9px] text-violet-400/60 font-medium uppercase tracking-wider">Game Master</span>
-            <span class="text-[10px] text-slate-500">${time}</span>
-          </div>
-          <div class="chat-bubble-thinker px-4 py-3">
-            <div class="text-sm text-slate-200 leading-relaxed">${displayContent}</div>
+      <div class="flex justify-end">
+        <div class="flex items-start gap-3 max-w-2xl flex-row-reverse">
+          <div class="w-9 h-9 rounded-full flex items-center justify-center text-xs font-bold shrink-0 shadow-lg shadow-violet-500/20"
+               style="background: linear-gradient(135deg, #7C3AED, #8B5CF6); color: white;">${info.initial}</div>
+          <div class="flex-1 min-w-0">
+            <div class="flex items-baseline gap-2 mb-1 justify-end">
+              <span class="text-[10px] text-slate-500">${time}</span>
+              <span class="text-[9px] text-violet-400/60 font-medium uppercase tracking-wider">Game Master</span>
+              <span class="font-bold text-sm" style="color: #A78BFA;">${info.name}</span>
+            </div>
+            <div class="chat-bubble-thinker px-4 py-3" style="border-radius: 16px 4px 16px 16px;">
+              <div class="text-sm text-slate-200 leading-relaxed">${displayContent}</div>
+            </div>
           </div>
         </div>
       </div>`;
