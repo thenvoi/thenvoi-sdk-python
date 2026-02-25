@@ -22,7 +22,7 @@ RUN git config --global --add url."https://github.com/".insteadOf "git@github.co
 RUN sed -i '/^\[tool\.uv\.sources\]/,/^\[/{ /^\[tool\.uv\.sources\]/d; /^\[/!d; }' pyproject.toml
 
 # Install Python dependencies.
-RUN uv sync --extra codex
+RUN uv sync --extra claude_sdk
 
 # ── Runtime stage ─────────────────────────────────────────────────────────
 FROM python:3.12-slim
@@ -54,36 +54,23 @@ COPY --from=builder /app/.venv /app/.venv
 COPY --from=builder /app/src /app/src
 COPY --from=builder /app/examples /app/examples
 
-# Install Codex CLI directly in runtime (npm resolves platform-specific
-# optional deps at install time; copying from builder breaks resolution).
-RUN apt-get update && apt-get install -y --no-install-recommends npm \
-    && npm i -g @openai/codex@latest \
-    && apt-get purge -y npm \
-    && apt-get autoremove -y \
-    && rm -rf /var/lib/apt/lists/*
-
 # Copy entrypoint and runner.
-COPY docker/codex/entrypoint.sh /app/docker/codex/entrypoint.sh
-COPY docker/codex/runner.py /app/docker/codex/runner.py
+COPY docker/claude_sdk/entrypoint.sh /app/docker/claude_sdk/entrypoint.sh
+COPY docker/claude_sdk/runner.py /app/docker/claude_sdk/runner.py
 
 # Trust bind-mounted repo to avoid "dubious ownership" errors.
 # Additional dirs can be configured at runtime via GIT_SAFE_DIRS env var.
 RUN git config --global --add safe.directory /workspace/repo
 
-# Verify Codex CLI is functional.
-RUN codex --version \
-    && codex app-server --help >/dev/null
+RUN useradd -m -u 1000 -s /bin/bash appuser \
+    && mkdir -p /workspace/repo /workspace/notes /workspace/state \
+    && chown -R appuser:appuser /app /workspace
 
-RUN useradd -m -u 1000 -s /bin/bash codex \
-    && mkdir -p /workspace/repo /workspace/notes /prompts /state /home/codex/.codex \
-    && chown -R codex:codex /app /workspace /prompts /state /home/codex
-
-USER codex
-ENV HOME=/home/codex
-ENV CODEX_HOME=/home/codex/.codex
-ENV PATH="/home/codex/.local/bin:/app/.venv/bin:${PATH}"
+USER appuser
+ENV HOME=/home/appuser
+ENV PATH="/home/appuser/.local/bin:/app/.venv/bin:${PATH}"
 
 WORKDIR /workspace/repo
 
-ENTRYPOINT ["bash", "/app/docker/codex/entrypoint.sh"]
-CMD ["/app/.venv/bin/python", "/app/docker/codex/runner.py"]
+ENTRYPOINT ["bash", "/app/docker/claude_sdk/entrypoint.sh"]
+CMD ["/app/.venv/bin/python", "/app/docker/claude_sdk/runner.py"]

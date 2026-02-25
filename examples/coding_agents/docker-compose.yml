@@ -22,6 +22,8 @@ x-codex: &codex-base
     - path: .env
       required: false
   environment: &codex-env-base
+    AGENT_CONFIG: /app/agent_config.yaml
+    CODEX_CWD: /workspace/repo
     CODEX_TRANSPORT: stdio
     CODEX_TURN_TASK_MARKERS: "false"
     PYTHONPATH: /workspace/repo/src
@@ -53,7 +55,7 @@ services:
     restart: unless-stopped
     build:
       context: ../..
-      dockerfile: examples/coding_agents/Dockerfile
+      dockerfile: docker/claude_sdk/Dockerfile
     env_file:
       - path: .env
         required: false
@@ -79,62 +81,26 @@ services:
     <<: *codex-base
     environment:
       <<: *codex-env-base
-      CODEX_CWD: /workspace/repo
+      AGENT_KEY: ${REVIEWER_AGENT_KEY:-reviewer}
+      CODEX_ROLE: reviewer
+      CODEX_MODEL: ${REVIEWER_MODEL:-gpt-5.3-codex}
+      CODEX_REASONING_EFFORT: ${REVIEWER_REASONING_EFFORT:-xhigh}
       CODEX_SANDBOX: ${REVIEWER_SANDBOX:-external-sandbox}
-      CODEX_AGENT_KEY: ${REVIEWER_AGENT_KEY:-reviewer}
       CODEX_APPROVAL_MODE: ${REVIEWER_APPROVAL_MODE:-manual}
       OPENAI_API_KEY: ${OPENAI_API_KEY}
-    command:
-      - /app/.venv/bin/python
-      - examples/run_agent.py
-      - --example
-      - codex
-      - --agent
-      - ${REVIEWER_AGENT_KEY:-reviewer}
-      - --codex-role
-      - reviewer
-      - --codex-transport
-      - stdio
-      - --codex-model
-      - ${REVIEWER_MODEL:-gpt-5.3-codex}
-      - --codex-reasoning-effort
-      - ${REVIEWER_REASONING_EFFORT:-xhigh}
-      - --codex-cwd
-      - /workspace/repo
-      - --codex-sandbox
-      - ${REVIEWER_SANDBOX:-external-sandbox}
-      - --no-codex-turn-task-markers
 
   # ── Implementer (Codex) ────────────────────────────────────────────────
   implementer:
     <<: *codex-base
     environment:
       <<: *codex-env-base
-      CODEX_CWD: /workspace/repo
+      AGENT_KEY: ${IMPLEMENTER_AGENT_KEY:-implementer}
+      CODEX_ROLE: coding
+      CODEX_MODEL: ${IMPLEMENTER_MODEL:-gpt-5.3-codex}
+      CODEX_REASONING_EFFORT: ${IMPLEMENTER_REASONING_EFFORT:-high}
       CODEX_SANDBOX: ${IMPLEMENTER_SANDBOX:-external-sandbox}
-      CODEX_AGENT_KEY: ${IMPLEMENTER_AGENT_KEY:-implementer}
       CODEX_APPROVAL_MODE: ${IMPLEMENTER_APPROVAL_MODE:-manual}
       OPENAI_API_KEY: ${OPENAI_API_KEY}
-    command:
-      - /app/.venv/bin/python
-      - examples/run_agent.py
-      - --example
-      - codex
-      - --agent
-      - ${IMPLEMENTER_AGENT_KEY:-implementer}
-      - --codex-role
-      - coding
-      - --codex-transport
-      - stdio
-      - --codex-model
-      - ${IMPLEMENTER_MODEL:-gpt-5.3-codex}
-      - --codex-reasoning-effort
-      - ${IMPLEMENTER_REASONING_EFFORT:-high}
-      - --codex-cwd
-      - /workspace/repo
-      - --codex-sandbox
-      - ${IMPLEMENTER_SANDBOX:-external-sandbox}
-      - --no-codex-turn-task-markers
 
 volumes:
   codex_sessions:

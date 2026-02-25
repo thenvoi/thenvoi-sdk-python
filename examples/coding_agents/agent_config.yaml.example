@@ -4,8 +4,8 @@
 #
 # Keys must match:
 #   - AGENT_KEY env var for the Claude SDK planner (default: "planner")
-#   - CODEX_REVIEWER_AGENT_KEY in .env (default: "reviewer")
-#   - CODEX_IMPLEMENTER_AGENT_KEY in .env (default: "implementer")
+#   - REVIEWER_AGENT_KEY in .env (default: "reviewer")
+#   - IMPLEMENTER_AGENT_KEY in .env (default: "implementer")
 
 planner:
   agent_id: ""    # Agent UUID from Thenvoi platform

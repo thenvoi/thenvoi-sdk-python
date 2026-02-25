@@ -6,11 +6,11 @@ Run a 3-agent team (Claude SDK planner + Codex reviewer + Codex implementer) sha
 
 ```
 docker compose up
-├── claude-planner     (ClaudeSDKAdapter, Claude model)
+├── planner        (ClaudeSDKAdapter, Claude model)
 │   └── Role: planner — designs plans, coordinates agents
-├── codex-reviewer     (CodexAdapter, gpt-5.3-codex, reasoning: xhigh)
+├── reviewer       (CodexAdapter, gpt-5.3-codex, reasoning: xhigh)
 │   └── Role: reviewer — reviews plans and code, finds gaps and risks
-└── codex-implementer  (CodexAdapter, gpt-5.3-codex, reasoning: high)
+└── implementer    (CodexAdapter, gpt-5.3-codex, reasoning: high)
     └── Role: coding — implements changes end-to-end
 ```
 
@@ -52,9 +52,9 @@ The planner saves plans to `/workspace/notes/plan.md`. The reviewer cross-checks
 
    ```bash
    docker compose logs -f
-   docker compose logs -f claude-planner
-   docker compose logs -f codex-reviewer
-   docker compose logs -f codex-implementer
+   docker compose logs -f planner
+   docker compose logs -f reviewer
+   docker compose logs -f implementer
    ```
 
 ## How It Works
