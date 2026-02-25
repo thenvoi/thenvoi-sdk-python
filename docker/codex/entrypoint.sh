@@ -70,4 +70,49 @@ else
   done
 fi
 
+bootstrap_codex_home() {
+  # Build a container-safe runtime CODEX_HOME while preserving core auth/config.
+  if [[ "${CODEX_USE_SOURCE_HOME:-false}" == "true" ]]; then
+    echo "[codex-entrypoint] Using source CODEX_HOME as requested: ${CODEX_HOME:-${HOME}/.codex}"
+    return 0
+  fi
+
+  local source_home runtime_home source_config runtime_config
+  source_home="${CODEX_HOME:-${HOME}/.codex}"
+  runtime_home="${CODEX_RUNTIME_HOME:-/workspace/state/codex-home}"
+  source_config="${source_home}/config.toml"
+  runtime_config="${runtime_home}/config.toml"
+
+  mkdir -p "${runtime_home}/sessions"
+
+  # Preserve primary auth material when present.
+  if [[ -f "${source_home}/auth.json" ]]; then
+    cp -f "${source_home}/auth.json" "${runtime_home}/auth.json"
+    chmod 600 "${runtime_home}/auth.json" || true
+  fi
+
+  if [[ -f "${source_config}" ]]; then
+    # Rewrite host absolute ~/.codex references to the mounted source_home path.
+    awk -v src="${source_home}" '
+      {
+        gsub(/\/Users\/[^\/]+\/\.codex/, src);
+        gsub(/\/home\/[^\/]+\/\.codex/, src);
+        print
+      }
+    ' "${source_config}" > "${runtime_config}"
+  else
+    cat > "${runtime_config}" <<EOF
+model = "${CODEX_MODEL:-gpt-5.3-codex}"
+approval_policy = "never"
+sandbox_mode = "danger-full-access"
+EOF
+  fi
+  chmod 600 "${runtime_config}" || true
+
+  export CODEX_HOME="${runtime_home}"
+  echo "[codex-entrypoint] Bootstrapped runtime CODEX_HOME=${CODEX_HOME} (source=${source_home})"
+}
+
+bootstrap_codex_home
+
 exec "$@"
