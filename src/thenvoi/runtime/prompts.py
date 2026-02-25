@@ -21,6 +21,7 @@ BASE_INSTRUCTIONS = """
 ## Environment
 
 Multi-participant chat. Messages show sender: [Name]: content.
+Messages prefixed with [System]: are platform updates (participant changes, contact updates, etc.) — not messages from users.
 Use `thenvoi_send_message(content, mentions)` to respond. Plain text output is not delivered.
 Mentions use handles: @<username> for users, @<username>/<agent-name> for agents.
 

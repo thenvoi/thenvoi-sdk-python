@@ -57,6 +57,8 @@ class ThenvoiApiClient(Protocol):
         self, room_id: str, page: int = 1, page_size: int = 50
     ) -> dict[str, Any]: ...
 
+    async def create_chatroom(self, task_id: str | None = None) -> str: ...
+
 
 def create_thenvoi_mcp_server(agent: Any):
     """
@@ -364,6 +366,38 @@ def create_thenvoi_mcp_server(agent: Any):
             return _make_error(str(e))
 
     @tool(
+        "thenvoi_create_chatroom",
+        "Create a new chat room. Optionally link it to a task by providing a task_id.",
+        {
+            "room_id": str,
+            "task_id": str,  # Optional task ID to associate with the room
+        },
+    )
+    async def create_chatroom(args: dict[str, Any]) -> dict[str, Any]:
+        """Create a new chat room via API."""
+        task_id = args.get("task_id") or None
+        try:
+            room_id = args.get("room_id", "")
+            logger.info("[%s] create_chatroom: task_id=%s", room_id, task_id)
+
+            tools = _get_tools(room_id)
+            new_room_id = await tools.create_chatroom(task_id)
+
+            return _make_result(
+                {
+                    "status": "success",
+                    "message": "Chat room created",
+                    "room_id": new_room_id,
+                }
+            )
+
+        except Exception as e:
+            logger.error(
+                "create_chatroom failed (task_id=%s): %s", task_id, e, exc_info=True
+            )
+            return _make_error(str(e))
+
+    @tool(
         "thenvoi_list_contacts",
         "List agent's contacts with pagination. Returns contacts list and metadata.",
         {
@@ -556,6 +590,7 @@ def create_thenvoi_mcp_server(agent: Any):
             remove_participant,
             get_participants,
             lookup_peers,
+            create_chatroom,
             list_contacts,
             add_contact,
             remove_contact,
@@ -564,7 +599,7 @@ def create_thenvoi_mcp_server(agent: Any):
         ],
     )
 
-    logger.info("Thenvoi MCP SDK server created with 11 real tools")
+    logger.info("Thenvoi MCP SDK server created with 12 real tools")
 
     return server
 
@@ -577,6 +612,7 @@ THENVOI_TOOLS = [
     "mcp__thenvoi__thenvoi_remove_participant",
     "mcp__thenvoi__thenvoi_get_participants",
     "mcp__thenvoi__thenvoi_lookup_peers",
+    "mcp__thenvoi__thenvoi_create_chatroom",
     "mcp__thenvoi__thenvoi_list_contacts",
     "mcp__thenvoi__thenvoi_add_contact",
     "mcp__thenvoi__thenvoi_remove_contact",

@@ -21,6 +21,9 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+_BOOTSTRAP_TRACKING_WARN_THRESHOLD = 1000
+
+
 class LangGraphAdapter(SimpleAdapter[LangChainMessages]):
     """
     LangGraph adapter using SimpleAdapter pattern.
@@ -66,6 +69,7 @@ class LangGraphAdapter(SimpleAdapter[LangChainMessages]):
         additional_tools: List[Any] | None = None,
         enable_memory_tools: bool = False,
         history_converter: LangChainHistoryConverter | None = None,
+        recursion_limit: int = 50,
     ):
         # Use default LangChain converter if not provided
         super().__init__(
@@ -102,7 +106,12 @@ class LangGraphAdapter(SimpleAdapter[LangChainMessages]):
         self.custom_section = custom_section
         self.additional_tools = additional_tools or []
         self.enable_memory_tools = enable_memory_tools
+        self.recursion_limit = recursion_limit
         self._system_prompt: str = ""
+        # Track rooms that have already been bootstrapped to avoid injecting
+        # duplicate system prompts when the checkpointer retains state across
+        # reconnections (on_cleanup doesn't clear checkpointer state).
+        self._bootstrapped_rooms: set[str] = set()
 
     async def on_started(self, agent_name: str, agent_description: str) -> None:
         """Render system prompt after agent metadata is fetched."""
@@ -153,18 +162,31 @@ class LangGraphAdapter(SimpleAdapter[LangChainMessages]):
         # Build messages
         messages: list[Any] = []
 
-        # Session bootstrap: inject system prompt and any hydrated history
+        # Session bootstrap: inject system prompt and any hydrated history.
+        # Only inject the system prompt once per room to avoid duplicate system
+        # messages when the checkpointer retains state across reconnections.
         if is_session_bootstrap:
-            if self.graph_factory:
+            if self.graph_factory and room_id not in self._bootstrapped_rooms:
                 messages.append(("system", self._system_prompt))
+                self._bootstrapped_rooms.add(room_id)
+                if len(self._bootstrapped_rooms) == _BOOTSTRAP_TRACKING_WARN_THRESHOLD:
+                    logger.warning(
+                        "Bootstrap tracking has %d rooms; "
+                        "on_cleanup may not be called for all rooms",
+                        len(self._bootstrapped_rooms),
+                    )
             if history:
                 messages.extend(history)  # Already converted by history_converter
 
+        # Inject metadata updates as user messages with [System]: prefix.
+        # Many LLM providers (including Anthropic) require a single system
+        # message at the start; additional system messages scattered through
+        # the conversation cause errors and kill provider cache savings.
         if participants_msg:
-            messages.append(("system", participants_msg))
+            messages.append(("user", f"[System]: {participants_msg}"))
 
         if contacts_msg:
-            messages.append(("system", contacts_msg))
+            messages.append(("user", f"[System]: {contacts_msg}"))
 
         messages.append(("user", msg.format_for_llm()))
 
@@ -173,7 +195,10 @@ class LangGraphAdapter(SimpleAdapter[LangChainMessages]):
         try:
             async for event in graph.astream_events(
                 graph_input,
-                config={"configurable": {"thread_id": room_id}},
+                config={
+                    "configurable": {"thread_id": room_id},
+                    "recursion_limit": self.recursion_limit,
+                },
                 version="v2",
             ):
                 await self._handle_stream_event(event, room_id, tools)
@@ -220,7 +245,8 @@ class LangGraphAdapter(SimpleAdapter[LangChainMessages]):
                 logger.warning("Failed to send tool_result event: %s", e)
 
     async def on_cleanup(self, room_id: str) -> None:
-        """Clean up LangGraph checkpointer."""
+        """Clean up LangGraph state for a room."""
+        self._bootstrapped_rooms.discard(room_id)
         if not self.graph_factory:
             return
-        # Cleanup logic here
+        # Future graph_factory-specific cleanup (e.g. checkpointer) goes here
