@@ -1,4 +1,4 @@
-"""Shared logging configuration for arena examples."""
+"""Shared logging configuration for 20 Questions Arena."""
 
 import logging
 import os
@@ -11,8 +11,8 @@ _LOG_DIR = _ARENA_DIR / "logs"
 def setup_logging(level=logging.INFO, agent_tag: str | None = None):
     """Configure logging to console + rotating file.
 
-    Logs are written to ``examples/arena/logs/<agent_tag>.log`` (or
-    ``arena.log`` when *agent_tag* is not provided).  Console output
+    Logs are written to ``examples/20-questions-arena/logs/<agent_tag>.log`` (or
+    ``20-questions-arena.log`` when *agent_tag* is not provided).  Console output
     stays the same as before — only ``thenvoi.*`` loggers at *level*,
     everything else at WARNING.
 
@@ -30,7 +30,7 @@ def setup_logging(level=logging.INFO, agent_tag: str | None = None):
 
     # File handler — captures everything at DEBUG for post-mortem analysis
     _LOG_DIR.mkdir(exist_ok=True)
-    filename = f"{agent_tag}.log" if agent_tag else "arena.log"
+    filename = f"{agent_tag}.log" if agent_tag else "20-questions-arena.log"
     from logging.handlers import RotatingFileHandler
 
     fh = RotatingFileHandler(

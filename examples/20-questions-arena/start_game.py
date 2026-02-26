@@ -1,4 +1,4 @@
-"""Start an arena game as a user by creating a room, adding all agents, and sending a message."""
+"""Start a 20 Questions Arena game as a user by creating a room, adding all agents, and sending a message."""
 
 from __future__ import annotations
 

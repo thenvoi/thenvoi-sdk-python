@@ -1,7 +1,7 @@
 """Starlette server for the 20 Questions Arena UI.
 
 Run from the repo root:
-    uv run python examples/arena/ui/server.py
+    uv run python examples/20-questions-arena/ui/server.py
 
 Requires dev dependencies (uv sync --extra dev).
 """
@@ -36,7 +36,7 @@ from manager import (  # noqa: E402
 
 load_dotenv()
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
-logger = logging.getLogger("arena.ui")
+logger = logging.getLogger("20-questions-arena.ui")
 
 STATIC_DIR = Path(__file__).parent / "static"
 

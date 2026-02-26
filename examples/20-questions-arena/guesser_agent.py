@@ -6,22 +6,23 @@
 # thenvoi-sdk = { git = "https://github.com/thenvoi/thenvoi-sdk-python.git" }
 # ///
 """
-Thinker agent for the 20 Questions arena game.
+Guesser agent for the 20 Questions Arena game.
 
-The Thinker picks a secret word from a category (animals, foods, objects,
-vehicles), announces the category to the room, invites the Guesser agent,
-and answers yes/no questions for up to 20 rounds.
+The Guesser is invited into a room by the Thinker, reads the category
+announcement, and asks strategic yes/no questions to deduce the secret
+word within 20 rounds.
 
 Supports both OpenAI and Anthropic LLMs -- set either OPENAI_API_KEY or
 ANTHROPIC_API_KEY in your environment.
 
 Run with (from repo root):
-    # Default (auto-detects LLM from env, prefers Anthropic)
-    uv run examples/arena/thinker_agent.py
+    # Default guesser (auto-detects LLM from env)
+    uv run examples/20-questions-arena/guesser_agent.py
 
-    # Explicit model
-    uv run examples/arena/thinker_agent.py --model claude-sonnet-4-6
-    uv run examples/arena/thinker_agent.py -m gpt-5.2
+    # Multi-guesser: each terminal runs a different config + model
+    uv run examples/20-questions-arena/guesser_agent.py --config arena_guesser_2 --model gpt-5.2
+    uv run examples/20-questions-arena/guesser_agent.py -c arena_guesser_3 -m claude-opus-4-6
+    uv run examples/20-questions-arena/guesser_agent.py -c arena_guesser_4 -m claude-sonnet-4-6
 """
 
 from __future__ import annotations
@@ -35,11 +36,11 @@ import sys
 from dotenv import load_dotenv
 from langgraph.checkpoint.memory import InMemorySaver
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+sys.path.insert(0, os.path.dirname(__file__))
 
-from arena.prompts import create_llm, create_llm_by_name, generate_thinker_prompt
+from prompts import create_llm, create_llm_by_name, generate_guesser_prompt
 
-from arena.setup_logging import setup_logging
+from setup_logging import setup_logging
 from thenvoi import Agent
 from thenvoi.adapters import LangGraphAdapter
 from thenvoi.config import load_agent_config
@@ -48,12 +49,18 @@ logger = logging.getLogger(__name__)
 
 
 def _parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Thinker agent for 20 Questions")
+    parser = argparse.ArgumentParser(description="Guesser agent for 20 Questions Arena")
+    parser.add_argument(
+        "--config",
+        "-c",
+        default="arena_guesser",
+        help="Agent key in agent_config.yaml (default: arena_guesser)",
+    )
     parser.add_argument(
         "--model",
         "-m",
         default=None,
-        help="LLM model name (e.g. gpt-5.2, claude-sonnet-4-6). "
+        help="LLM model name (e.g. gpt-5.2, claude-opus-4-6). "
         "If omitted, auto-detects from env vars.",
     )
     return parser.parse_args()
@@ -62,10 +69,14 @@ def _parse_args() -> argparse.Namespace:
 async def main() -> None:
     load_dotenv()
     args = _parse_args()
-    setup_logging(agent_tag="thinker")
+
+    # Derive a short tag for the log file (e.g. "guesser_arena_guesser_2")
+    agent_tag = f"guesser_{args.config}"
+    setup_logging(agent_tag=agent_tag)
 
     logger.info("=" * 60)
-    logger.info("THINKER AGENT STARTING")
+    logger.info("GUESSER AGENT STARTING")
+    logger.info("  config key : %s", args.config)
     logger.info("  model flag : %s", args.model or "(auto-detect)")
     logger.info("=" * 60)
 
@@ -77,8 +88,8 @@ async def main() -> None:
     if not rest_url:
         raise ValueError("THENVOI_REST_URL environment variable is required")
 
-    # Load Thinker's credentials from agent_config.yaml
-    agent_id, api_key = load_agent_config("arena_thinker")
+    # Load Guesser's credentials from agent_config.yaml
+    agent_id, api_key = load_agent_config(args.config)
     logger.info("  agent_id   : %s", agent_id)
     logger.info("  ws_url     : %s", ws_url)
     logger.info("  rest_url   : %s", rest_url)
@@ -94,11 +105,11 @@ async def main() -> None:
         getattr(llm, "model_name", getattr(llm, "model", "unknown")),
     )
 
-    # Create adapter with Thinker's game prompt
+    # Create adapter with Guesser's game prompt
     adapter = LangGraphAdapter(
         llm=llm,
         checkpointer=InMemorySaver(),
-        custom_section=generate_thinker_prompt("Thinker"),
+        custom_section=generate_guesser_prompt("Guesser"),
     )
 
     # Create and start agent
@@ -110,7 +121,7 @@ async def main() -> None:
         rest_url=rest_url,
     )
 
-    logger.info("Thinker is ready -- waiting for a user to start a game...")
+    logger.info("Guesser is ready -- waiting to be invited to a game...")
     await agent.run()
 
 

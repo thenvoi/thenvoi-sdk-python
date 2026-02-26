@@ -1,4 +1,4 @@
-"""Game prompts for the 20 Questions arena game.
+"""Game prompts for the 20 Questions Arena.
 
 Provides prompt generators for the Thinker (word picker) and Guesser
 (question asker) agents, plus a helper to select the LLM provider.

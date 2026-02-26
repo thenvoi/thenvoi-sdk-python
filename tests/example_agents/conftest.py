@@ -11,4 +11,4 @@ from pathlib import Path
 examples_root = Path(__file__).parent.parent.parent / "examples"
 sys.path.insert(0, str(examples_root / "langgraph"))
 sys.path.insert(0, str(examples_root / "pydantic_ai"))
-sys.path.insert(0, str(examples_root))  # For arena package imports
+sys.path.insert(0, str(examples_root / "20-questions-arena"))  # For 20 Questions Arena imports

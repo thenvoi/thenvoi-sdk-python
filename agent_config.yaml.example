@@ -157,7 +157,7 @@ a2a_agent:
   api_key: ""
 
 # =============================================================================
-# Arena Examples (20 Questions Game)
+# 20 Questions Arena Examples
 # =============================================================================
 
 # Thinker agent - picks a secret word and answers yes/no questions

@@ -1,4 +1,4 @@
-"""Game orchestration for the Arena UI.
+"""Game orchestration for the 20 Questions Arena UI.
 
 Manages agent subprocesses, room creation, and message polling.
 """
@@ -90,7 +90,7 @@ class ActiveGame:
 
 
 class GameManager:
-    """Manages arena game lifecycle: agent processes, room creation, message polling."""
+    """Manages 20 Questions Arena game lifecycle: agent processes, room creation, message polling."""
 
     def __init__(self, ws_url: str = DEFAULT_WS_URL) -> None:
         self._games: dict[str, ActiveGame] = {}
@@ -141,7 +141,7 @@ class GameManager:
 
         thinker_cmd = [
             uv_bin, "run", "python",
-            str(REPO_ROOT / "examples" / "arena" / "thinker_agent.py"),
+            str(REPO_ROOT / "examples" / "20-questions-arena" / "thinker_agent.py"),
         ]
         if thinker_model:
             thinker_cmd.extend(["--model", thinker_model])
@@ -159,7 +159,7 @@ class GameManager:
         for gc in guesser_configs:
             guesser_cmd = [
                 uv_bin, "run", "python",
-                str(REPO_ROOT / "examples" / "arena" / "guesser_agent.py"),
+                str(REPO_ROOT / "examples" / "20-questions-arena" / "guesser_agent.py"),
                 "--config", gc["key"],
                 "--model", gc["model"],
             ]

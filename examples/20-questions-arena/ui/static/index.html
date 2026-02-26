@@ -123,7 +123,7 @@
 <div id="loading-screen" class="hidden min-h-screen flex items-center justify-center p-6">
   <div class="glass border border-slate-700/50 rounded-2xl shadow-2xl max-w-md w-full p-10 text-center fade-up">
     <div class="w-16 h-16 mx-auto mb-6 border-4 border-violet-500/30 border-t-violet-500 rounded-full spin-slow"></div>
-    <h2 class="text-xl font-bold mb-2">Setting up the Arena</h2>
+    <h2 class="text-xl font-bold mb-2">Setting up the 20 Questions Arena</h2>
     <p id="loading-status" class="text-slate-400 text-sm">Starting agents...</p>
     <div class="mt-6 space-y-2" id="loading-steps"></div>
   </div>
@@ -248,7 +248,7 @@ async function init() {
   state.config = await resp.json();
   state.thinkerAgentId = state.config.thinker_agent_id;
 
-  const saved = localStorage.getItem('arena_api_key');
+  const saved = localStorage.getItem('20q_arena_api_key');
   if (saved) document.getElementById('api-key').value = saved;
 
   renderSetupForm();
@@ -326,7 +326,7 @@ async function handleStart() {
   const checks = document.querySelectorAll('.guesser-check:checked');
   if (checks.length === 0) return showSetupError('Select at least one guesser');
 
-  localStorage.setItem('arena_api_key', apiKey);
+  localStorage.setItem('20q_arena_api_key', apiKey);
   hideSetupError();
 
   const guessers = [...checks].map(cb => {
@@ -446,10 +446,10 @@ async function pollMessages() {
   if (!state.gameId) return;
   try {
     const url = `/api/game/${state.gameId}/messages`;
-    console.log(`[Arena] poll #${state.pollCount + 1} -> ${url}`);
+    console.log(`[20Q Arena] poll #${state.pollCount + 1} -> ${url}`);
     const resp = await fetch(url);
     if (!resp.ok) {
-      console.error(`[Arena] poll failed: HTTP ${resp.status}`);
+      console.error(`[20Q Arena] poll failed: HTTP ${resp.status}`);
       setPollStatus('error');
       return;
     }
@@ -457,12 +457,12 @@ async function pollMessages() {
     const messages = data.messages || [];
 
     state.pollCount++;
-    console.log(`[Arena] poll #${state.pollCount}: ${messages.length} total messages, ${state.seenIds.size} seen`);
+    console.log(`[20Q Arena] poll #${state.pollCount}: ${messages.length} total messages, ${state.seenIds.size} seen`);
 
     // Log first message structure on first successful poll with data
     if (state.pollCount === 1 && messages.length > 0) {
-      console.log('[Arena] first message sample:', JSON.stringify(messages[0]));
-      console.log('[Arena] first message keys:', Object.keys(messages[0]));
+      console.log('[20Q Arena] first message sample:', JSON.stringify(messages[0]));
+      console.log('[20Q Arena] first message keys:', Object.keys(messages[0]));
     }
 
     setPollStatus('live', messages.length);
@@ -477,14 +477,14 @@ async function pollMessages() {
     let newCount = 0;
     for (const msg of messages) {
       if (!msg.id) {
-        console.warn('[Arena] message missing id:', msg);
+        console.warn('[20Q Arena] message missing id:', msg);
         continue;
       }
       if (state.seenIds.has(msg.id)) {
         // Check if message_type changed (e.g. text → thought)
         const existing = state.messages.find(m => m.id === msg.id);
         if (existing && existing.message_type !== msg.message_type) {
-          console.log(`[Arena] message ${msg.id} type changed: ${existing.message_type} → ${msg.message_type}`);
+          console.log(`[20Q Arena] message ${msg.id} type changed: ${existing.message_type} → ${msg.message_type}`);
           existing.message_type = msg.message_type;
           existing.content = msg.content;
           // Re-render: remove old DOM node and create new one
@@ -502,7 +502,7 @@ async function pollMessages() {
     }
 
     if (newCount > 0) {
-      console.log(`[Arena] rendered ${newCount} new messages`);
+      console.log(`[20Q Arena] rendered ${newCount} new messages`);
       scrollChat();
       updateChips();
       // Check for game end on every new message
@@ -514,7 +514,7 @@ async function pollMessages() {
       }
     }
   } catch (e) {
-    console.error('[Arena] poll error:', e);
+    console.error('[20Q Arena] poll error:', e);
     setPollStatus('error');
   }
 }
@@ -888,7 +888,7 @@ async function handleAnalyze() {
     btn.disabled = false;
     btn.textContent = 'Analyze Game';
     btn.classList.remove('opacity-50', 'cursor-not-allowed');
-    console.error('[Arena] Analysis failed:', e);
+    console.error('[20Q Arena] Analysis failed:', e);
     // Show error inline
     section.classList.remove('hidden');
     content.classList.remove('hidden');
