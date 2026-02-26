@@ -328,17 +328,24 @@ class AnthropicAdapter(SimpleAdapter[AnthropicMessages]):
             logger.debug("Executing tool: %s with input: %s", tool_name, tool_input)
 
             # Report tool call if enabled (JSON format with tool_call_id for linking)
+            # Best-effort: event reporting must never crash tool execution
             if self.enable_execution_reporting:
-                await tools.send_event(
-                    content=json.dumps(
-                        {
-                            "name": tool_name,
-                            "args": tool_input,
-                            "tool_call_id": tool_use_id,
-                        }
-                    ),
-                    message_type="tool_call",
-                )
+                try:
+                    await tools.send_event(
+                        content=json.dumps(
+                            {
+                                "name": tool_name,
+                                "args": tool_input,
+                                "tool_call_id": tool_use_id,
+                            }
+                        ),
+                        message_type="tool_call",
+                    )
+                except Exception as e:
+                    logger.warning(
+                        "Failed to send tool_call event: %s",
+                        e,
+                    )
 
             # Execute tool (check custom tools first, then platform tools)
             try:
@@ -359,17 +366,24 @@ class AnthropicAdapter(SimpleAdapter[AnthropicMessages]):
                 logger.error("Tool %s failed: %s", tool_name, e)
 
             # Report tool result if enabled (JSON format with tool_call_id for linking)
+            # Best-effort: event reporting must never crash tool execution
             if self.enable_execution_reporting:
-                await tools.send_event(
-                    content=json.dumps(
-                        {
-                            "name": tool_name,
-                            "output": result_str,
-                            "tool_call_id": tool_use_id,
-                        }
-                    ),
-                    message_type="tool_result",
-                )
+                try:
+                    await tools.send_event(
+                        content=json.dumps(
+                            {
+                                "name": tool_name,
+                                "output": result_str,
+                                "tool_call_id": tool_use_id,
+                            }
+                        ),
+                        message_type="tool_result",
+                    )
+                except Exception as e:
+                    logger.warning(
+                        "Failed to send tool_result event: %s",
+                        e,
+                    )
 
             tool_results.append(
                 {
@@ -387,5 +401,5 @@ class AnthropicAdapter(SimpleAdapter[AnthropicMessages]):
         """Send error event (best effort)."""
         try:
             await tools.send_event(content=f"Error: {error}", message_type="error")
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("Failed to send error event: %s", e)
