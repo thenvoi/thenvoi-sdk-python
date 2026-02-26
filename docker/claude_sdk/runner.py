@@ -186,7 +186,9 @@ async def main() -> None:
             final_prompt_parts.append(prompt_file.read_text(encoding="utf-8"))
             logger.info("Using role prompt from: %s", prompt_file)
         else:
-            logger.warning("Role '%s' specified but no prompt file at %s", role, prompt_file)
+            logger.warning(
+                "Role '%s' specified but no prompt file at %s", role, prompt_file
+            )
 
     if custom_prompt:
         final_prompt_parts.append(custom_prompt)

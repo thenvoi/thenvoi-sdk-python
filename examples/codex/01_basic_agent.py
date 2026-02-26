@@ -82,7 +82,9 @@ async def main() -> None:
             custom_section = prompt_file.read_text(encoding="utf-8")
             logger.info("Using role prompt from: %s", prompt_file)
         else:
-            logger.warning("Role '%s' specified but no prompt file at %s", codex_role, prompt_file)
+            logger.warning(
+                "Role '%s' specified but no prompt file at %s", codex_role, prompt_file
+            )
 
     adapter = CodexAdapter(
         config=CodexAdapterConfig(

@@ -207,9 +207,8 @@ async def main() -> None:
     codex_model = _optional_str(os.environ.get("CODEX_MODEL")) or _optional_str(
         config.get("model")
     )
-    codex_role = (
-        _optional_str(os.environ.get("CODEX_ROLE"))
-        or _optional_str(config.get("role"))
+    codex_role = _optional_str(os.environ.get("CODEX_ROLE")) or _optional_str(
+        config.get("role")
     )
 
     # Load role prompt from file if specified

@@ -80,6 +80,7 @@ class SetReasoningInput(BaseModel):
 # Override at runtime via CodexAdapterConfig.model or CODEX_MODEL env var.
 _DEFAULT_MODEL = "gpt-5.3-codex"
 
+
 class _CodexClientProtocol(Protocol):
     async def connect(self) -> None: ...
 

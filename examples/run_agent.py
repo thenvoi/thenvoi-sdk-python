@@ -1156,7 +1156,12 @@ Examples:
             # Load role prompt from file if --codex-role is set
             codex_custom = args.custom_section
             if args.codex_role:
-                prompt_file = Path(__file__).parent / "codex" / "prompts" / f"{args.codex_role}.md"
+                prompt_file = (
+                    Path(__file__).parent
+                    / "codex"
+                    / "prompts"
+                    / f"{args.codex_role}.md"
+                )
                 if prompt_file.exists():
                     codex_custom = prompt_file.read_text(encoding="utf-8")
                     logger.info("Using role prompt from: %s", prompt_file)
