@@ -161,6 +161,7 @@ examples/claude_sdk_docker/.agent_ids.txt
 
 # Parlant local data (sessions, cache, databases)
 parlant-data/
+.letta/
 
 uv.toml
 .obsidian/

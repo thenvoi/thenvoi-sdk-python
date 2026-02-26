@@ -141,6 +141,9 @@ include-package-data = true
 testpaths = ["tests"]
 asyncio_mode = "auto"
 addopts = "-v"
+markers = [
+    "requires_api: marks tests as requiring real API credentials (skipped in CI)",
+]
 
 [tool.pyrefly]
 project_includes = [

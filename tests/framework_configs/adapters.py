@@ -489,13 +489,21 @@ def _build_letta_config() -> AdapterConfig:
             "config": LettaAdapterConfig(),
         },
         custom_kwargs={
-            "config": LettaAdapterConfig(enable_execution_reporting=True),
+            "config": LettaAdapterConfig(
+                enable_execution_reporting=True,
+                mode="shared",
+                mcp_server_url="http://mcp:9000/sse",
+            ),
         },
         custom_expected={
-            "config": LettaAdapterConfig(enable_execution_reporting=True),
+            "config": LettaAdapterConfig(
+                enable_execution_reporting=True,
+                mode="shared",
+                mcp_server_url="http://mcp:9000/sse",
+            ),
         },
         has_custom_tools_attr=False,
-        skip_on_started_conformance=True,  # on_started creates live Letta SDK client
+        skip_on_started_conformance=True,  # on_started registers MCP server + creates live Letta client
     )
 
 
