@@ -722,8 +722,6 @@ adapter = AnthropicAdapter(
 )
 ```
 
-For detailed documentation, see [Custom Tools Guide](docs/custom-tools-guide.md).
-
 ---
 
 ## LangGraph Utilities

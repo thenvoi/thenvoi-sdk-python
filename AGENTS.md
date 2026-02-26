@@ -1,5 +1,3 @@
-<!-- This file mirrors CLAUDE.md and provides equivalent project context for OpenAI Codex and other agents. Keep in sync with CLAUDE.md when making changes. -->
-
 # Thenvoi Python SDK
 
 This is a Python SDK that connects AI agents to the Thenvoi collaborative platform.
