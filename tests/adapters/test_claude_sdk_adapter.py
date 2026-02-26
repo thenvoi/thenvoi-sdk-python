@@ -14,10 +14,11 @@ import pytest
 
 from thenvoi.adapters.claude_sdk import (
     ClaudeSDKAdapter,
-    THENVOI_TOOLS,
+    THENVOI_ALL_TOOLS,
     THENVOI_BASE_TOOLS,
     THENVOI_MEMORY_TOOLS,
 )
+from thenvoi.runtime.tools import ALL_TOOL_NAMES
 from thenvoi.core.types import PlatformMessage
 
 
@@ -316,7 +317,7 @@ class TestThenvoiTools:
 
     def test_thenvoi_base_tools_list(self):
         """Should define base platform tools (always included)."""
-        expected = [
+        expected = {
             "mcp__thenvoi__thenvoi_send_message",
             "mcp__thenvoi__thenvoi_send_event",
             "mcp__thenvoi__thenvoi_add_participant",
@@ -330,26 +331,42 @@ class TestThenvoiTools:
             "mcp__thenvoi__thenvoi_remove_contact",
             "mcp__thenvoi__thenvoi_list_contact_requests",
             "mcp__thenvoi__thenvoi_respond_contact_request",
-        ]
+        }
 
-        assert THENVOI_BASE_TOOLS == expected
+        assert set(THENVOI_BASE_TOOLS) == expected
+        assert len(THENVOI_BASE_TOOLS) == len(set(THENVOI_BASE_TOOLS)), (
+            "duplicate entries in THENVOI_BASE_TOOLS"
+        )
 
     def test_thenvoi_memory_tools_list(self):
         """Should define memory tools (enterprise only - opt-in)."""
-        expected = [
+        expected = {
             "mcp__thenvoi__thenvoi_list_memories",
             "mcp__thenvoi__thenvoi_store_memory",
             "mcp__thenvoi__thenvoi_get_memory",
             "mcp__thenvoi__thenvoi_supersede_memory",
             "mcp__thenvoi__thenvoi_archive_memory",
-        ]
+        }
 
-        assert THENVOI_MEMORY_TOOLS == expected
+        assert set(THENVOI_MEMORY_TOOLS) == expected
+        assert len(THENVOI_MEMORY_TOOLS) == len(set(THENVOI_MEMORY_TOOLS)), (
+            "duplicate entries in THENVOI_MEMORY_TOOLS"
+        )
 
-    def test_thenvoi_tools_combines_base_and_memory(self):
-        """THENVOI_TOOLS should combine base and memory tools."""
-        assert THENVOI_TOOLS == THENVOI_BASE_TOOLS + THENVOI_MEMORY_TOOLS
-        assert len(THENVOI_TOOLS) == 17  # 12 base + 5 memory
+    def test_thenvoi_all_tools_combines_base_and_memory(self):
+        """THENVOI_ALL_TOOLS should combine base and memory tools without duplicates."""
+        from thenvoi.runtime.tools import mcp_tool_names
+
+        assert set(THENVOI_ALL_TOOLS) == set(THENVOI_BASE_TOOLS) | set(
+            THENVOI_MEMORY_TOOLS
+        )
+        assert len(THENVOI_ALL_TOOLS) == len(set(THENVOI_ALL_TOOLS)), (
+            "duplicate entries"
+        )
+        assert set(THENVOI_ALL_TOOLS) == set(mcp_tool_names(ALL_TOOL_NAMES)), (
+            "THENVOI_ALL_TOOLS content does not match mcp_tool_names(ALL_TOOL_NAMES) — "
+            "a tool may have been dropped from the registry"
+        )
 
 
 class TestCustomTools:
