@@ -1,10 +1,16 @@
 """Live integration tests for Letta adapter.
 
-Requires LETTA_API_KEY and LETTA_AGENT_ID environment variables to be set.
+Requires a running self-hosted Letta server and thenvoi-mcp server.
 Skipped in CI by default.
 
+Environment variables:
+    LETTA_BASE_URL     Letta server URL (default: http://localhost:8283)
+    LETTA_API_KEY      Letta API key (optional for self-hosted)
+    LETTA_AGENT_ID     Pre-existing agent ID for reuse tests
+    MCP_SERVER_URL     thenvoi-mcp server URL (default: http://localhost:8002/sse)
+
 Run with:
-    LETTA_API_KEY="sk-let-..." LETTA_AGENT_ID="agent-..." uv run pytest tests/integration/test_letta_live.py -v -s --no-cov
+    uv run pytest tests/integration/test_letta_live.py -v -s --no-cov
 """
 
 from __future__ import annotations
@@ -15,12 +21,14 @@ import pytest
 
 pytestmark = pytest.mark.requires_api
 
+LETTA_BASE_URL = os.environ.get("LETTA_BASE_URL", "http://localhost:8283")
 LETTA_API_KEY = os.environ.get("LETTA_API_KEY", "")
 LETTA_AGENT_ID = os.environ.get("LETTA_AGENT_ID", "")
+MCP_SERVER_URL = os.environ.get("MCP_SERVER_URL", "http://localhost:8002/sse")
 
-skip_no_key = pytest.mark.skipif(
-    not LETTA_API_KEY,
-    reason="LETTA_API_KEY not set",
+skip_no_server = pytest.mark.skipif(
+    not os.environ.get("LETTA_BASE_URL"),
+    reason="LETTA_BASE_URL not set (no running Letta server)",
 )
 
 skip_no_agent = pytest.mark.skipif(
@@ -28,86 +36,116 @@ skip_no_agent = pytest.mark.skipif(
     reason="LETTA_AGENT_ID not set",
 )
 
+skip_no_mcp = pytest.mark.skipif(
+    not os.environ.get("MCP_SERVER_URL"),
+    reason="MCP_SERVER_URL not set (no running MCP server)",
+)
 
-@skip_no_key
-@skip_no_agent
+
+@skip_no_server
 @pytest.mark.asyncio
 async def test_existing_agent_message() -> None:
     """Send a message to a pre-existing Letta agent and verify response."""
     from letta_client import AsyncLetta
 
-    client = AsyncLetta(api_key=LETTA_API_KEY)
+    client_kwargs: dict[str, str] = {"base_url": LETTA_BASE_URL}
+    if LETTA_API_KEY:
+        client_kwargs["api_key"] = LETTA_API_KEY
 
-    # Verify agent exists
-    agent = await client.agents.retrieve(LETTA_AGENT_ID)
-    assert agent.id == LETTA_AGENT_ID
+    client = AsyncLetta(**client_kwargs)
 
-    # Send message
-    response = await client.agents.messages.create(
-        agent_id=LETTA_AGENT_ID,
-        messages=[{"role": "user", "content": "Say hello in exactly one word."}],
-    )
-    assert response.messages
-    msg_types = [getattr(m, "message_type", None) for m in response.messages]
-    assert any(t == "assistant_message" for t in msg_types), (
-        f"Expected assistant_message, got: {msg_types}"
+    # Create a temporary agent for this test
+    agent = await client.agents.create(
+        memory_blocks=[{"label": "persona", "value": "You are a test assistant."}],
+        include_base_tools=True,
     )
 
+    try:
+        response = await client.agents.messages.create(
+            agent_id=agent.id,
+            messages=[{"role": "user", "content": "Say hello in exactly one word."}],
+        )
+        assert response.messages
+        msg_types = [getattr(m, "message_type", None) for m in response.messages]
+        assert any(t == "assistant_message" for t in msg_types), (
+            f"Expected assistant_message, got: {msg_types}"
+        )
+    finally:
+        await client.agents.delete(agent.id)
 
-@skip_no_key
-@skip_no_agent
+
+@skip_no_server
+@skip_no_mcp
 @pytest.mark.asyncio
-async def test_client_tools_approval_flow() -> None:
-    """Test the client_tools + approval_request_message flow with existing agent."""
+async def test_mcp_server_registration() -> None:
+    """Test MCP server registration with Letta."""
     from letta_client import AsyncLetta
 
-    client = AsyncLetta(api_key=LETTA_API_KEY)
+    client_kwargs: dict[str, str] = {"base_url": LETTA_BASE_URL}
+    if LETTA_API_KEY:
+        client_kwargs["api_key"] = LETTA_API_KEY
 
-    client_tools = [
-        {
-            "name": "get_weather",
-            "description": "Get the current weather for a city",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "city": {"type": "string", "description": "City name"},
-                },
-                "required": ["city"],
-            },
-        }
-    ]
+    client = AsyncLetta(**client_kwargs)
 
-    response = await client.agents.messages.create(
-        agent_id=LETTA_AGENT_ID,
-        messages=[{"role": "user", "content": "What's the weather in Tokyo?"}],
-        client_tools=client_tools,
+    server = await client.mcp_servers.create(
+        server_name="thenvoi-test",
+        config={
+            "mcp_server_type": "sse",
+            "server_url": MCP_SERVER_URL,
+        },
+    )
+    assert server.id
+
+    try:
+        tools = await client.mcp_servers.tools.list(mcp_server_id=server.id)
+        tool_names = [t.name for t in tools]
+        assert len(tool_names) > 0, "MCP server should expose at least one tool"
+    finally:
+        # Clean up
+        try:
+            await client.mcp_servers.delete(server.id)
+        except Exception:
+            pass
+
+
+@skip_no_server
+@pytest.mark.asyncio
+async def test_conversations_api() -> None:
+    """Test the Conversations API for shared agent mode."""
+    from letta_client import AsyncLetta
+
+    client_kwargs: dict[str, str] = {"base_url": LETTA_BASE_URL}
+    if LETTA_API_KEY:
+        client_kwargs["api_key"] = LETTA_API_KEY
+
+    client = AsyncLetta(**client_kwargs)
+
+    # Create agent
+    agent = await client.agents.create(
+        memory_blocks=[{"label": "persona", "value": "You are a test assistant."}],
+        include_base_tools=True,
     )
 
-    # Check if we got an approval request
-    approval_msgs = [
-        m
-        for m in response.messages
-        if getattr(m, "message_type", None) == "approval_request_message"
-    ]
+    try:
+        # Create two conversations for the same agent
+        conv1 = await client.conversations.create(agent_id=agent.id)
+        conv2 = await client.conversations.create(agent_id=agent.id)
 
-    if approval_msgs:
-        # Send approval response
-        tool_call = approval_msgs[0].tool_call
-        response2 = await client.agents.messages.create(
-            agent_id=LETTA_AGENT_ID,
-            messages=[
-                {
-                    "type": "approval",
-                    "approvals": [
-                        {
-                            "type": "tool",
-                            "tool_call_id": tool_call.tool_call_id,
-                            "tool_return": '{"temperature": "15°C", "condition": "Cloudy"}',
-                            "status": "success",
-                        }
-                    ],
-                }
-            ],
-            client_tools=client_tools,
+        assert conv1.id != conv2.id
+
+        # Send messages to different conversations
+        resp1 = await client.agents.messages.create(
+            agent_id=agent.id,
+            messages=[{"role": "user", "content": "Hello from room 1"}],
+            conversation_id=conv1.id,
         )
-        assert response2.messages
+        resp2 = await client.agents.messages.create(
+            agent_id=agent.id,
+            messages=[{"role": "user", "content": "Hello from room 2"}],
+            conversation_id=conv2.id,
+        )
+
+        assert resp1.messages
+        assert resp2.messages
+    finally:
+        await client.agents.delete(agent.id)

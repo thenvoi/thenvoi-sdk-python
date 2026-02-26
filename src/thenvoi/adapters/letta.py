@@ -1,4 +1,4 @@
-"""Letta adapter using AsyncLetta SDK with client_tools pattern."""
+"""Letta adapter using AsyncLetta SDK with MCP tool execution."""
 
 from __future__ import annotations
 
@@ -7,9 +7,7 @@ import json
 import logging
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Any
-
-from pydantic import ValidationError
+from typing import Any, Literal
 
 from thenvoi.converters.letta import LettaHistoryConverter, LettaSessionState
 from thenvoi.core.protocols import AgentToolsProtocol
@@ -18,10 +16,6 @@ from thenvoi.core.types import PlatformMessage
 from thenvoi.runtime.prompts import render_system_prompt
 
 logger = logging.getLogger(__name__)
-
-# Maximum number of tool execution rounds before aborting. Prevents infinite loops
-# if Letta Cloud keeps returning approval_request_messages.
-_MAX_TOOL_ROUNDS: int = 50
 
 # Platform tools whose execution should not be reported as tool_call/tool_result
 # events — they already produce visible output (messages or events) on the platform.
@@ -34,12 +28,12 @@ _SILENT_REPORTING_TOOLS: frozenset[str] = frozenset(
 
 # Letta-specific preamble prepended to the system prompt when writing to the
 # agent's instruction block.  Letta models tend to respond with plain
-# assistant_message text instead of calling client_tools — this enforces
+# assistant_message text instead of calling MCP tools — this enforces
 # strict tool usage so messages actually reach the platform.
 _LETTA_TOOL_ENFORCEMENT = """\
 ## MANDATORY: You MUST use tools to communicate
 
-You are connected to a multi-agent chat platform via client tools.
+You are connected to a multi-agent chat platform via MCP tools.
 Your plain text responses (assistant_message) are NOT delivered to anyone.
 The ONLY way to communicate is by calling the provided tools.
 
@@ -65,8 +59,8 @@ class LettaAdapterConfig:
 
     agent_id: str | None = None
     model: str | None = None
-    api_key: str | None = None
-    base_url: str = "https://api.letta.com"
+    api_key: str | None = None  # Optional for self-hosted Letta
+    base_url: str = "http://localhost:8283"
     custom_section: str = ""
     include_base_instructions: bool = True
     enable_execution_reporting: bool = False
@@ -76,6 +70,14 @@ class LettaAdapterConfig:
     turn_timeout_s: float = 300.0
     memory_blocks: list[dict[str, str]] = field(default_factory=list)
     summary_max_length: int = 150
+
+    # MCP server configuration for tool execution
+    mcp_server_url: str = "http://localhost:8002/sse"
+    mcp_server_name: str = "thenvoi"
+
+    # Operating mode: per_room creates one Letta agent per room,
+    # shared uses one agent with per-room Conversations for isolation.
+    mode: Literal["per_room", "shared"] = "per_room"
 
 
 @dataclass
@@ -92,15 +94,21 @@ class LettaAdapter(SimpleAdapter[LettaSessionState]):
     """
     Letta adapter using the Letta Python SDK (letta-client).
 
-    Uses AsyncLetta REST API with client_tools for bidirectional tool execution.
-    When the Letta agent calls a platform tool, the adapter executes it locally
-    and returns the result via the approval_request_message pattern.
+    Uses MCP tools for platform tool execution — the Letta server calls the
+    thenvoi-mcp server directly, keeping the adapter out of the tool execution
+    path.  Supports two modes:
+
+    - **per_room** (default): Each room gets its own Letta agent with isolated
+      memory.
+    - **shared**: One Letta agent shared across all rooms, with per-room
+      isolation via the Conversations API.
 
     Example:
         adapter = LettaAdapter(
             config=LettaAdapterConfig(
                 model="openai/gpt-4o",
-                api_key="sk-let-...",
+                base_url="http://localhost:8283",
+                mcp_server_url="http://localhost:8002/sse",
             ),
         )
         agent = Agent.create(adapter=adapter, agent_id="...", api_key="...")
@@ -121,15 +129,23 @@ class LettaAdapter(SimpleAdapter[LettaSessionState]):
         # Per-room state
         self._rooms: dict[str, _RoomContext] = {}
 
-        # Concurrency
+        # Shared mode: single agent ID used across all rooms
+        self._shared_agent_id: str | None = None
+
+        # MCP server ID and tool IDs (populated in on_started)
+        self._mcp_server_id: str | None = None
+        self._mcp_tool_ids: list[str] = []
+
+        # Concurrency: only needed for per_room mode where we protect
+        # agent creation.  Shared mode uses Conversations API which is
+        # thread-safe for cross-room access.
         self._rpc_lock = asyncio.Lock()
 
         # Built during on_started
         self._system_prompt: str = ""
-        self._client_tools: list[dict[str, Any]] = []
 
     async def on_started(self, agent_name: str, agent_description: str) -> None:
-        """Build system prompt and create Letta SDK client."""
+        """Build system prompt, create Letta SDK client, register MCP server."""
         await super().on_started(agent_name, agent_description)
 
         self._system_prompt = render_system_prompt(
@@ -147,12 +163,55 @@ class LettaAdapter(SimpleAdapter[LettaSessionState]):
                 "Install with: pip install thenvoi-sdk[letta]"
             )
 
-        client_kwargs: dict[str, Any] = {"api_key": self.config.api_key}
-        if self.config.base_url != "https://api.letta.com":
-            client_kwargs["base_url"] = self.config.base_url
-        self._client = AsyncLetta(**client_kwargs)
+        self._client = AsyncLetta(
+            base_url=self.config.base_url,
+            api_key=self.config.api_key,
+        )
 
-        logger.info("Letta adapter started for agent: %s", agent_name)
+        # Register MCP server with Letta
+        await self._register_mcp_server()
+
+        logger.info(
+            "Letta adapter started for agent: %s (mode=%s)",
+            agent_name,
+            self.config.mode,
+        )
+
+    async def _register_mcp_server(self) -> None:
+        """Register the thenvoi-mcp server with Letta and discover available tools."""
+        try:
+            server = await self._client.mcp_servers.create(
+                server_name=self.config.mcp_server_name,
+                config={
+                    "mcp_server_type": "sse",
+                    "server_url": self.config.mcp_server_url,
+                },
+            )
+            self._mcp_server_id = server.id
+            logger.info(
+                "Registered MCP server %r (id=%s) at %s",
+                self.config.mcp_server_name,
+                server.id,
+                self.config.mcp_server_url,
+            )
+
+            # Discover available tools from the MCP server
+            tools = await self._client.mcp_servers.tools.list(
+                mcp_server_id=server.id,
+            )
+            self._mcp_tool_ids = [t.id for t in tools if getattr(t, "id", None)]
+            tool_names = [t.name for t in tools]
+            logger.info(
+                "Discovered %d MCP tools: %s",
+                len(self._mcp_tool_ids),
+                tool_names,
+            )
+        except Exception as e:
+            logger.error("Failed to register MCP server: %s", e)
+            raise RuntimeError(
+                f"MCP server registration failed. Ensure the thenvoi-mcp server "
+                f"is running at {self.config.mcp_server_url}: {e}"
+            ) from e
 
     async def on_message(
         self,
@@ -165,8 +224,27 @@ class LettaAdapter(SimpleAdapter[LettaSessionState]):
         is_session_bootstrap: bool,
         room_id: str,
     ) -> None:
-        """Handle incoming message via Letta API with client_tools."""
-        async with self._rpc_lock:
+        """Handle incoming message via Letta API with MCP tools."""
+        if self.config.mode == "per_room":
+            async with self._rpc_lock:
+                await self._handle_message(
+                    msg=msg,
+                    tools=tools,
+                    history=history,
+                    participants_msg=participants_msg,
+                    contacts_msg=contacts_msg,
+                    is_session_bootstrap=is_session_bootstrap,
+                    room_id=room_id,
+                )
+        else:
+            # Shared mode: Conversations API is thread-safe for cross-room,
+            # but we still need the lock for agent creation / conversation setup.
+            if room_id not in self._rooms:
+                async with self._rpc_lock:
+                    # Double-check after acquiring lock
+                    if room_id not in self._rooms:
+                        await self._ensure_agent(room_id, history, tools)
+
             await self._handle_message(
                 msg=msg,
                 tools=tools,
@@ -188,15 +266,11 @@ class LettaAdapter(SimpleAdapter[LettaSessionState]):
         is_session_bootstrap: bool,
         room_id: str,
     ) -> None:
-        """Inner message handler (called under lock)."""
+        """Inner message handler."""
         if not self._client:
             logger.error("Letta client not initialized, dropping message %s", msg.id)
             await self._report_error(tools, "Letta adapter not initialized")
             return
-
-        # Build client_tools from platform tool schemas (once, lazily)
-        if not self._client_tools:
-            self._client_tools = self._build_client_tools(tools)
 
         # Ensure Letta agent exists for this room
         agent_id = await self._ensure_agent(room_id, history, tools)
@@ -239,10 +313,10 @@ class LettaAdapter(SimpleAdapter[LettaSessionState]):
             agent_id,
         )
 
-        # Send message and handle tool execution loop
+        # Send message and observe tool events
         try:
             final_text_parts = await asyncio.wait_for(
-                self._send_and_handle_tools(
+                self._send_message(
                     agent_id=agent_id,
                     content=content,
                     tools=tools,
@@ -274,7 +348,7 @@ class LettaAdapter(SimpleAdapter[LettaSessionState]):
             logger.exception("Room %s: Error during Letta turn: %s", room_id, e)
             await self._report_error(tools, str(e))
 
-    async def _send_and_handle_tools(
+    async def _send_message(
         self,
         agent_id: str,
         content: str,
@@ -282,7 +356,11 @@ class LettaAdapter(SimpleAdapter[LettaSessionState]):
         room_id: str,
         reply_to_sender_id: str = "",
     ) -> list[str]:
-        """Send message to Letta and handle the tool execution loop.
+        """Send message to Letta and observe tool execution events.
+
+        With MCP tools, the Letta server calls the MCP server directly.
+        The adapter only observes tool_call_message / tool_return_message
+        events in the response for execution reporting and auto-relay detection.
 
         Returns the list of assistant text parts collected during the turn.
         """
@@ -290,169 +368,73 @@ class LettaAdapter(SimpleAdapter[LettaSessionState]):
         final_text_parts: list[str] = []
         used_send_message = False  # tracks if agent called thenvoi_send_message
 
-        for _round in range(_MAX_TOOL_ROUNDS):
+        room_ctx = self._rooms.get(room_id)
+
+        # Use Conversations API in shared mode, direct agent API in per_room mode
+        if self.config.mode == "shared" and room_ctx and room_ctx.conversation_id:
             response = await self._client.agents.messages.create(
                 agent_id=agent_id,
                 messages=messages,
-                client_tools=self._client_tools,
+                conversation_id=room_ctx.conversation_id,
+            )
+        else:
+            response = await self._client.agents.messages.create(
+                agent_id=agent_id,
+                messages=messages,
             )
 
-            has_approval_request = False
+        for resp_msg in response.messages:
+            msg_type = getattr(resp_msg, "message_type", None)
+            logger.debug("Room %s: Letta response message type=%s", room_id, msg_type)
 
-            for resp_msg in response.messages:
-                msg_type = getattr(resp_msg, "message_type", None)
+            if msg_type == "assistant_message":
+                text = getattr(resp_msg, "content", "") or ""
                 logger.debug(
-                    "Room %s: Letta response message type=%s", room_id, msg_type
+                    "Room %s: assistant_message content=%r", room_id, text[:200]
+                )
+                if text:
+                    final_text_parts.append(text)
+
+            elif msg_type == "tool_call_message":
+                # MCP tool call executed server-side — observe for reporting
+                tool_call = getattr(resp_msg, "tool_call", None)
+                tool_name = (
+                    getattr(tool_call, "name", "unknown") if tool_call else "unknown"
                 )
 
-                if msg_type == "assistant_message":
-                    text = getattr(resp_msg, "content", "") or ""
-                    logger.debug(
-                        "Room %s: assistant_message content=%r", room_id, text[:200]
-                    )
-                    if text:
-                        final_text_parts.append(text)
+                if tool_name == "thenvoi_send_message":
+                    used_send_message = True
 
-                elif msg_type == "tool_call_message":
-                    # Letta's internal tool calls (e.g. memory tools) — distinct from
-                    # client_tools which arrive as approval_request_message.
-                    # Report tool call if enabled
-                    if self.config.enable_execution_reporting:
-                        tool_name = getattr(
-                            getattr(resp_msg, "tool_call", None), "name", "unknown"
-                        )
-                        if tool_name not in _SILENT_REPORTING_TOOLS:
-                            await tools.send_event(
-                                content=json.dumps(
-                                    {
-                                        "name": tool_name,
-                                        "args": getattr(
-                                            getattr(resp_msg, "tool_call", None),
-                                            "arguments",
-                                            "{}",
-                                        ),
-                                    }
-                                ),
-                                message_type="tool_call",
-                            )
-
-                elif msg_type == "tool_return_message":
-                    # Report tool result if enabled
-                    if self.config.enable_execution_reporting:
-                        tool_name = getattr(resp_msg, "tool_name", "unknown")
-                        if tool_name not in _SILENT_REPORTING_TOOLS:
-                            await tools.send_event(
-                                content=json.dumps(
-                                    {
-                                        "name": tool_name,
-                                        "output": getattr(resp_msg, "tool_return", ""),
-                                    }
-                                ),
-                                message_type="tool_result",
-                            )
-
-                elif msg_type == "approval_request_message":
-                    has_approval_request = True
-                    tool_call = getattr(resp_msg, "tool_call", None)
-                    if not tool_call:
-                        logger.warning(
-                            "Room %s: approval_request_message without tool_call",
-                            room_id,
-                        )
-                        continue
-
-                    tool_name = getattr(tool_call, "name", "")
-                    tool_call_id = getattr(tool_call, "tool_call_id", "")
-                    raw_args = getattr(tool_call, "arguments", "{}")
-
-                    try:
-                        args = (
-                            json.loads(raw_args)
-                            if isinstance(raw_args, str)
-                            else raw_args
-                        )
-                    except json.JSONDecodeError:
-                        args = {}
-
-                    logger.debug(
-                        "Room %s: Executing tool %s with args %s",
-                        room_id,
-                        tool_name,
-                        args,
-                    )
-
-                    # Report tool call if enabled
-                    if self.config.enable_execution_reporting:
-                        if tool_name not in _SILENT_REPORTING_TOOLS:
-                            await tools.send_event(
-                                content=json.dumps({"name": tool_name, "args": args}),
-                                message_type="tool_call",
-                            )
-
-                    # Track if agent used send_message itself
-                    if tool_name == "thenvoi_send_message":
-                        used_send_message = True
-
-                    # Execute the tool
-                    try:
-                        result = await tools.execute_tool_call(tool_name, args)
-                        result_str = (
-                            json.dumps(result, default=str)
-                            if not isinstance(result, str)
-                            else result
-                        )
-                        status = "success"
-                    except ValidationError as e:
-                        errors = "; ".join(
-                            f"{err['loc'][0]}: {err['msg']}" for err in e.errors()
-                        )
-                        result_str = f"Invalid arguments for {tool_name}: {errors}"
-                        status = "error"
-                        logger.error("Validation error for tool %s: %s", tool_name, e)
-                    except Exception as e:
-                        result_str = f"Error: {e}"
-                        status = "error"
-                        logger.exception("Tool %s failed: %s", tool_name, e)
-
-                    # Report tool result if enabled
-                    if self.config.enable_execution_reporting:
-                        if tool_name not in _SILENT_REPORTING_TOOLS:
-                            await tools.send_event(
-                                content=json.dumps(
-                                    {"name": tool_name, "output": result_str}
-                                ),
-                                message_type="tool_result",
-                            )
-
-                    # Send approval result back to Letta
-                    messages = [
-                        {
-                            "type": "approval",
-                            "approvals": [
+                if self.config.enable_execution_reporting:
+                    if tool_name not in _SILENT_REPORTING_TOOLS:
+                        await tools.send_event(
+                            content=json.dumps(
                                 {
-                                    "type": "tool",
-                                    "tool_call_id": tool_call_id,
-                                    "tool_return": result_str,
-                                    "status": status,
+                                    "name": tool_name,
+                                    "args": getattr(tool_call, "arguments", "{}")
+                                    if tool_call
+                                    else "{}",
                                 }
-                            ],
-                        }
-                    ]
+                            ),
+                            message_type="tool_call",
+                        )
 
-            # If no approval request was found, we're done
-            if not has_approval_request:
-                break
-        else:
-            logger.error(
-                "Room %s: Exceeded %d tool execution rounds",
-                room_id,
-                _MAX_TOOL_ROUNDS,
-            )
-            raise RuntimeError(
-                f"Exceeded maximum tool execution rounds ({_MAX_TOOL_ROUNDS})"
-            )
+            elif msg_type == "tool_return_message":
+                # MCP tool result — observe for reporting
+                if self.config.enable_execution_reporting:
+                    tool_name = getattr(resp_msg, "tool_name", "unknown")
+                    if tool_name not in _SILENT_REPORTING_TOOLS:
+                        await tools.send_event(
+                            content=json.dumps(
+                                {
+                                    "name": tool_name,
+                                    "output": getattr(resp_msg, "tool_return", ""),
+                                }
+                            ),
+                            message_type="tool_result",
+                        )
 
-        # If the agent already called thenvoi_send_message via client_tools,
+        # If the agent already called thenvoi_send_message via MCP tools,
         # the message is on the platform — no auto-relay needed.  Otherwise
         # fall back to relaying the assistant_message text so the user still
         # sees a response.
@@ -486,6 +468,67 @@ class LettaAdapter(SimpleAdapter[LettaSessionState]):
         if room_id in self._rooms:
             return self._rooms[room_id].agent_id
 
+        if self.config.mode == "shared":
+            return await self._ensure_shared_agent(room_id, history, tools)
+        return await self._ensure_per_room_agent(room_id, history, tools)
+
+    async def _ensure_shared_agent(
+        self,
+        room_id: str,
+        history: LettaSessionState,
+        tools: AgentToolsProtocol,
+    ) -> str:
+        """Ensure a shared agent and per-room conversation exist."""
+        # Create or resume the shared agent (once)
+        if not self._shared_agent_id:
+            resume_agent_id = (
+                history.agent_id if history.has_agent() else self.config.agent_id
+            )
+            if resume_agent_id:
+                try:
+                    await self._client.agents.retrieve(resume_agent_id)
+                    self._shared_agent_id = resume_agent_id
+                    await self._update_instruction_block(resume_agent_id, room_id)
+                    await self._verify_mcp_tools_attached(resume_agent_id)
+                    logger.info("Shared mode: Resumed agent %s", resume_agent_id)
+                except Exception as e:
+                    logger.warning(
+                        "Failed to resume shared agent %s: %s", resume_agent_id, e
+                    )
+
+            if not self._shared_agent_id:
+                self._shared_agent_id = await self._create_agent()
+                logger.info("Shared mode: Created agent %s", self._shared_agent_id)
+
+        # Create a conversation for this room
+        conversation = await self._client.conversations.create(
+            agent_id=self._shared_agent_id,
+        )
+        conversation_id = conversation.id
+
+        self._rooms[room_id] = _RoomContext(
+            agent_id=self._shared_agent_id,
+            conversation_id=conversation_id,
+        )
+        logger.info(
+            "Room %s: Created conversation %s for shared agent %s",
+            room_id,
+            conversation_id,
+            self._shared_agent_id,
+        )
+
+        await self._emit_task_event(
+            tools, room_id, self._shared_agent_id, conversation_id
+        )
+        return self._shared_agent_id
+
+    async def _ensure_per_room_agent(
+        self,
+        room_id: str,
+        history: LettaSessionState,
+        tools: AgentToolsProtocol,
+    ) -> str:
+        """Ensure a per-room Letta agent exists."""
         # Try to resume: prefer history agent_id, fall back to config agent_id
         resume_agent_id = (
             history.agent_id if history.has_agent() else self.config.agent_id
@@ -498,10 +541,9 @@ class LettaAdapter(SimpleAdapter[LettaSessionState]):
                     conversation_id=history.conversation_id or None,
                 )
 
-                # Update an instruction block with the Thenvoi system prompt so
-                # the agent has tool-use instructions even when reusing a
-                # pre-existing agent.  Try common label names in priority order.
+                # Update instruction block and verify MCP tools
                 await self._update_instruction_block(resume_agent_id, room_id)
+                await self._verify_mcp_tools_attached(resume_agent_id)
 
                 logger.info("Room %s: Resumed Letta agent %s", room_id, resume_agent_id)
                 await self._emit_task_event(tools, room_id, resume_agent_id)
@@ -515,6 +557,16 @@ class LettaAdapter(SimpleAdapter[LettaSessionState]):
                 )
 
         # Create new agent
+        agent_id = await self._create_agent()
+
+        self._rooms[room_id] = _RoomContext(agent_id=agent_id)
+        logger.info("Room %s: Created Letta agent %s", room_id, agent_id)
+
+        await self._emit_task_event(tools, room_id, agent_id)
+        return agent_id
+
+    async def _create_agent(self) -> str:
+        """Create a new Letta agent with MCP tools attached."""
         memory_blocks = (
             list(self.config.memory_blocks) if self.config.memory_blocks else []
         )
@@ -534,11 +586,63 @@ class LettaAdapter(SimpleAdapter[LettaSessionState]):
         agent = await self._client.agents.create(**create_kwargs)
         agent_id = agent.id
 
-        self._rooms[room_id] = _RoomContext(agent_id=agent_id)
-        logger.info("Room %s: Created Letta agent %s", room_id, agent_id)
+        # Attach MCP tools to the agent
+        await self._attach_mcp_tools(agent_id)
 
-        await self._emit_task_event(tools, room_id, agent_id)
         return agent_id
+
+    async def _attach_mcp_tools(self, agent_id: str) -> None:
+        """Attach all discovered MCP tools to a Letta agent."""
+        for tool_id in self._mcp_tool_ids:
+            try:
+                await self._client.agents.tools.attach(
+                    agent_id=agent_id,
+                    tool_id=tool_id,
+                )
+            except Exception as e:
+                logger.warning(
+                    "Failed to attach MCP tool %s to agent %s: %s",
+                    tool_id,
+                    agent_id,
+                    e,
+                )
+        logger.debug(
+            "Attached %d MCP tools to agent %s",
+            len(self._mcp_tool_ids),
+            agent_id,
+        )
+
+    async def _verify_mcp_tools_attached(self, agent_id: str) -> None:
+        """Verify MCP tools are attached to an existing agent, re-attach if needed."""
+        try:
+            agent_tools_result = await self._client.agents.tools.list(agent_id=agent_id)
+            if isinstance(agent_tools_result, list):
+                agent_tools = agent_tools_result
+            elif hasattr(agent_tools_result, "items"):
+                agent_tools = list(agent_tools_result.items)
+            else:
+                agent_tools = [t async for t in agent_tools_result]
+
+            attached_ids = {
+                t.id for t in agent_tools if getattr(t, "id", None)
+            }
+            missing = [tid for tid in self._mcp_tool_ids if tid not in attached_ids]
+            if missing:
+                logger.info(
+                    "Agent %s missing %d MCP tools, re-attaching",
+                    agent_id,
+                    len(missing),
+                )
+                for tool_id in missing:
+                    try:
+                        await self._client.agents.tools.attach(
+                            agent_id=agent_id,
+                            tool_id=tool_id,
+                        )
+                    except Exception as e:
+                        logger.warning("Failed to re-attach tool %s: %s", tool_id, e)
+        except Exception as e:
+            logger.warning("Failed to verify MCP tools for agent %s: %s", agent_id, e)
 
     # Labels tried (in order) when injecting the system prompt into a
     # pre-existing agent's memory.  "persona" is the Letta default; others
@@ -601,13 +705,15 @@ class LettaAdapter(SimpleAdapter[LettaSessionState]):
         tools: AgentToolsProtocol,
         room_id: str,
         agent_id: str,
+        conversation_id: str | None = None,
     ) -> None:
         """Emit a task event with agent/room mapping metadata."""
         if not self.config.enable_task_events:
             return
         try:
-            room_ctx = self._rooms.get(room_id)
-            conversation_id = room_ctx.conversation_id if room_ctx else None
+            if conversation_id is None:
+                room_ctx = self._rooms.get(room_id)
+                conversation_id = room_ctx.conversation_id if room_ctx else None
             metadata: dict[str, Any] = {
                 "letta_agent_id": agent_id,
                 "letta_room_id": room_id,
@@ -658,23 +764,6 @@ class LettaAdapter(SimpleAdapter[LettaSessionState]):
             )
         except Exception as e:
             logger.warning("Room %s: Memory consolidation failed: %s", room_id, e)
-
-    def _build_client_tools(self, tools: AgentToolsProtocol) -> list[dict[str, Any]]:
-        """Build client_tools list from platform tool schemas."""
-        schemas = tools.get_openai_tool_schemas(
-            include_memory=self.config.enable_memory_tools
-        )
-        client_tools: list[dict[str, Any]] = []
-        for schema in schemas:
-            func = schema.get("function", {})
-            client_tools.append(
-                {
-                    "name": func.get("name", ""),
-                    "description": func.get("description", ""),
-                    "parameters": func.get("parameters", {}),
-                }
-            )
-        return client_tools
 
     @staticmethod
     def _format_time_ago(dt: datetime) -> str:
