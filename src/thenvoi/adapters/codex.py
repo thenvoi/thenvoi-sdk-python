@@ -37,8 +37,6 @@ logger = logging.getLogger(__name__)
 TransportKind = Literal["stdio", "ws"]
 ApprovalMode = Literal["auto_accept", "auto_decline", "manual"]
 ApprovalDecision = Literal["accept", "decline"]
-RoleProfile = Literal["coding", "planner", "reviewer"]
-
 _REASONING_EFFORTS = {"none", "minimal", "low", "medium", "high", "xhigh"}
 _REASONING_SUMMARIES = {"auto", "concise", "detailed", "none"}
 
@@ -81,13 +79,6 @@ class SetReasoningInput(BaseModel):
 # Hardcoded default — update when OpenAI rotates model IDs.
 # Override at runtime via CodexAdapterConfig.model or CODEX_MODEL env var.
 _DEFAULT_MODEL = "gpt-5.3-codex"
-
-_ROLE_SECTION: dict[RoleProfile, str] = {
-    "coding": "Primary mode: implement and validate code changes end-to-end.",
-    "planner": "Primary mode: produce execution plans, constraints, and phased delivery.",
-    "reviewer": "Primary mode: review behavior risks, regressions, and missing tests.",
-}
-
 
 class _CodexClientProtocol(Protocol):
     async def connect(self) -> None: ...
@@ -150,7 +141,6 @@ class CodexAdapterConfig:
     personality: Literal["friendly", "pragmatic", "none"] = "pragmatic"
     sandbox: str | None = None
     sandbox_policy: dict[str, Any] | None = None
-    role: RoleProfile = "coding"
     system_prompt: str | None = None
     custom_section: str = ""
     include_base_instructions: bool = True
@@ -279,7 +269,7 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
     def _log_startup_config(self, agent_name: str) -> None:
         logger.info(
             "Codex adapter started: agent=%s, transport=%s, model=%s, "
-            "sandbox=%s, approval_mode=%s, role=%s, "
+            "sandbox=%s, approval_mode=%s, "
             "execution_reporting=%s, self_config_tools=%s, "
             "task_events=%s, turn_markers=%s, thought_events=%s",
             agent_name,
@@ -287,7 +277,6 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
             self._selected_model or self.config.model or "auto",
             self.config.sandbox or "default",
             self.config.approval_mode,
-            self.config.role,
             self.config.enable_execution_reporting,
             self.config.enable_self_config_tools,
             self.config.enable_task_events,
@@ -1567,14 +1556,10 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
             self._system_prompt = self.config.system_prompt
             return
 
-        role_section = _ROLE_SECTION.get(self.config.role, "")
-        combined_custom = "\n".join(
-            section for section in (role_section, self.config.custom_section) if section
-        )
         self._system_prompt = render_system_prompt(
             agent_name=self.agent_name or "Agent",
             agent_description=self.agent_description or "An AI assistant",
-            custom_section=combined_custom,
+            custom_section=self.config.custom_section,
             include_base_instructions=self.config.include_base_instructions,
         )
 

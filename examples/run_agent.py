@@ -62,6 +62,7 @@ import argparse
 import asyncio
 import logging
 import os
+from pathlib import Path
 
 from dotenv import load_dotenv
 
@@ -466,7 +467,6 @@ async def run_codex_agent(
     codex_transport: str,
     codex_ws_url: str,
     codex_model: str | None,
-    codex_role: str,
     codex_personality: str,
     codex_approval_policy: str,
     codex_approval_mode: str,
@@ -485,7 +485,6 @@ async def run_codex_agent(
             transport=codex_transport,  # type: ignore[arg-type]  # str from CLI args, validated at runtime
             cwd=codex_cwd,
             model=codex_model,
-            role=codex_role,  # type: ignore[arg-type]  # str from CLI args, validated at runtime
             personality=codex_personality,  # type: ignore[arg-type]  # str from CLI args, validated at runtime
             approval_policy=codex_approval_policy,
             approval_mode=codex_approval_mode,  # type: ignore[arg-type]  # str from CLI args, validated at runtime
@@ -512,9 +511,8 @@ async def run_codex_agent(
     )
 
     logger.info(
-        "Starting Codex agent (transport=%s, role=%s, model=%s, cwd=%s)",
+        "Starting Codex agent (transport=%s, model=%s, cwd=%s)",
         codex_transport,
-        codex_role,
         codex_model or "auto",
         codex_cwd,
     )
@@ -915,9 +913,8 @@ Examples:
     )
     parser.add_argument(
         "--codex-role",
-        choices=["coding", "planner", "reviewer"],
-        default="coding",
-        help="Codex role profile (default: coding)",
+        default=None,
+        help="Role name; loads prompt from prompts/{role}.md into custom_section",
     )
     parser.add_argument(
         "--codex-personality",
@@ -1156,16 +1153,29 @@ Examples:
                 logger=logger,
             )
         elif args.example == "codex":
+            # Load role prompt from file if --codex-role is set
+            codex_custom = args.custom_section
+            if args.codex_role:
+                prompt_file = Path(__file__).parent / "codex" / "prompts" / f"{args.codex_role}.md"
+                if prompt_file.exists():
+                    codex_custom = prompt_file.read_text(encoding="utf-8")
+                    logger.info("Using role prompt from: %s", prompt_file)
+                else:
+                    logger.warning(
+                        "Role '%s' specified but no prompt file at %s",
+                        args.codex_role,
+                        prompt_file,
+                    )
+
             await run_codex_agent(
                 agent_id=agent_id,
                 api_key=api_key,
                 rest_url=rest_url,
                 ws_url=ws_url,
-                custom_section=args.custom_section,
+                custom_section=codex_custom,
                 codex_transport=args.codex_transport,
                 codex_ws_url=args.codex_ws_url,
                 codex_model=args.codex_model,
-                codex_role=args.codex_role,
                 codex_personality=args.codex_personality,
                 codex_approval_policy=args.codex_approval_policy,
                 codex_approval_mode=args.codex_approval_mode,

@@ -186,7 +186,6 @@ async def main() -> None:
     # Import here to allow early config validation
     from thenvoi import Agent
     from thenvoi.adapters import ClaudeSDKAdapter
-    from thenvoi.prompts import load_role_prompt
 
     # Extract config values
     agent_id = config["agent_id"]
@@ -205,15 +204,15 @@ async def main() -> None:
     # Build final prompt combining role and custom prompt
     config_dir = Path(config_path).parent
     prompt_dir = config_dir / "prompts"
-    final_prompt_parts = []
+    final_prompt_parts: list[str] = []
 
     if role:
-        role_prompt = load_role_prompt(
-            role, prompt_dir if prompt_dir.exists() else None
-        )
-        if role_prompt:
-            final_prompt_parts.append(role_prompt)
-            logger.info("Using role: %s", role)
+        prompt_file = prompt_dir / f"{role}.md"
+        if prompt_file.exists():
+            final_prompt_parts.append(prompt_file.read_text(encoding="utf-8"))
+            logger.info("Using role prompt from: %s", prompt_file)
+        else:
+            logger.warning("Role '%s' specified but no prompt file at %s", role, prompt_file)
 
     if custom_prompt:
         final_prompt_parts.append(custom_prompt)
