@@ -33,6 +33,9 @@ dependencies = [
 codex = [
     "websockets>=13.0",
 ]
+letta = [
+    "letta-client>=0.1.0",
+]
 pydantic-ai = [
     "pydantic-ai-slim>=1.0.0",
     "openai>=1.0.0",
