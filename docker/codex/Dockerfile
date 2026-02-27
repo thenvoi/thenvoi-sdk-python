@@ -62,9 +62,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends npm \
     && apt-get autoremove -y \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy entrypoint and runner.
+# Copy entrypoint, runner, and shared utilities.
 COPY docker/codex/entrypoint.sh /app/docker/codex/entrypoint.sh
 COPY docker/codex/runner.py /app/docker/codex/runner.py
+COPY docker/shared/repo_init.py /app/docker/codex/repo_init.py
 
 # Trust bind-mounted repo to avoid "dubious ownership" errors.
 # Additional dirs can be configured at runtime via GIT_SAFE_DIRS env var.
@@ -75,7 +76,7 @@ RUN codex --version \
     && codex app-server --help >/dev/null
 
 RUN useradd -m -u 1000 -s /bin/bash codex \
-    && mkdir -p /workspace/repo /workspace/notes /prompts /state /home/codex/.codex \
+    && mkdir -p /workspace/repo /workspace/notes /workspace/state /workspace/context /prompts /state /home/codex/.codex \
     && chown -R codex:codex /app /workspace /prompts /state /home/codex
 
 USER codex

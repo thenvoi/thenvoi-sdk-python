@@ -26,6 +26,7 @@ from typing import Any
 
 import yaml
 
+from repo_init import initialize_repo
 from thenvoi.config.loader import load_agent_config
 
 # Global flag for graceful shutdown
@@ -36,6 +37,7 @@ REQUIRED_MOUNTS = [
     "/workspace/repo",
     "/workspace/notes",
     "/workspace/state",
+    "/workspace/context",
 ]
 
 # Retry configuration for connection failures
@@ -162,10 +164,15 @@ async def main() -> None:
 
     logger.info("Loading config from: %s (key: %s)", config_path, agent_key)
     config = load_config(config_path, agent_key)
+    lock_timeout_s = float(os.environ.get("REPO_INIT_LOCK_TIMEOUT_S", "120"))
+    repo_init = initialize_repo(
+        config,
+        agent_key=agent_key,
+        lock_timeout_s=lock_timeout_s,
+    )
 
     from thenvoi import Agent
     from thenvoi.adapters import ClaudeSDKAdapter
-    from thenvoi.prompts import load_role_prompt
 
     agent_id = config["agent_id"]
     api_key = config["api_key"]
@@ -173,7 +180,9 @@ async def main() -> None:
     custom_prompt = config.get("prompt", "")
     thinking_tokens = config.get("thinking_tokens")
     tool_names = config.get("tools", [])
-    workspace = os.environ.get("WORKSPACE") or config.get("workspace")
+    workspace = (
+        os.environ.get("WORKSPACE") or config.get("workspace") or repo_init.repo_path
+    )
     role = os.environ.get("AGENT_ROLE") or config.get("role")
 
     # Build final prompt combining role and custom prompt
@@ -182,15 +191,20 @@ async def main() -> None:
     final_prompt_parts: list[str] = []
 
     if role:
-        role_prompt = load_role_prompt(
-            role, prompt_dir if prompt_dir.exists() else None
-        )
-        if role_prompt:
-            final_prompt_parts.append(role_prompt)
-            logger.info("Using role: %s", role)
+        prompt_file = prompt_dir / f"{role}.md"
+        if prompt_file.exists():
+            final_prompt_parts.append(prompt_file.read_text(encoding="utf-8"))
+            logger.info("Using role prompt from: %s", prompt_file)
+        else:
+            logger.warning(
+                "Role '%s' specified but no prompt file at %s", role, prompt_file
+            )
 
     if custom_prompt:
         final_prompt_parts.append(custom_prompt)
+
+    if repo_init.context_bundle:
+        final_prompt_parts.append(repo_init.context_bundle)
 
     if not final_prompt_parts:
         final_prompt_parts.append("You are a helpful assistant.")
@@ -231,6 +245,13 @@ async def main() -> None:
         logger.info("Workspace: %s", workspace)
     if thinking_tokens:
         logger.info("Extended thinking: %s tokens", thinking_tokens)
+    if repo_init.enabled:
+        logger.info(
+            "Repo init: cloned=%s indexed=%s path=%s",
+            repo_init.cloned,
+            repo_init.indexed,
+            repo_init.repo_path,
+        )
 
     retry_count = 0
     retry_delay = INITIAL_RETRY_DELAY

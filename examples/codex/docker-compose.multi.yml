@@ -30,6 +30,8 @@ services:
       - ${PHOENIX_CHANNELS_CLIENT_WHEEL_DIR:-/tmp/phoenix-client}:/opt/phoenix-client:ro
       - codex_state:/state
       - codex_prompts:/prompts
+      - codex_workspace_state:/workspace/state
+      - codex_workspace_context:/workspace/context
     extra_hosts:
       - "host.docker.internal:host-gateway"
     working_dir: /workspace/repo
@@ -83,6 +85,8 @@ services:
       - ${PHOENIX_CHANNELS_CLIENT_WHEEL_DIR:-/tmp/phoenix-client}:/opt/phoenix-client:ro
       - codex_state:/state
       - codex_prompts:/prompts
+      - codex_workspace_state:/workspace/state
+      - codex_workspace_context:/workspace/context
     extra_hosts:
       - "host.docker.internal:host-gateway"
     working_dir: /workspace/repo
@@ -111,3 +115,5 @@ volumes:
   codex_sessions:
   codex_state:
   codex_prompts:
+  codex_workspace_state:
+  codex_workspace_context:

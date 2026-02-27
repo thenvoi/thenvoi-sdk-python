@@ -496,29 +496,35 @@ class ThenvoiLink:
             List of PlatformMessage objects in processing state.
         """
         try:
-            response = await self.rest.agent_api_messages.list_agent_messages(
-                chat_id=room_id,
-                status="processing",
-                request_options=DEFAULT_REQUEST_OPTIONS,
-            )
-            if not response.data:
-                return []
-
             messages = []
-            for item in response.data:
-                messages.append(
-                    PlatformMessage(
-                        id=item.id,
-                        room_id=item.chat_room_id or room_id,
-                        content=item.content,
-                        sender_id=item.sender_id,
-                        sender_type=item.sender_type,
-                        sender_name=item.sender_name or "",
-                        message_type=item.message_type,
-                        metadata=item.metadata or {},
-                        created_at=item.inserted_at or datetime.now(timezone.utc),
-                    )
+            page = 1
+            while True:
+                response = await self.rest.agent_api_messages.list_agent_messages(
+                    chat_id=room_id,
+                    status="processing",
+                    page=page,
+                    request_options=DEFAULT_REQUEST_OPTIONS,
                 )
+                for item in response.data:
+                    messages.append(
+                        PlatformMessage(
+                            id=item.id,
+                            room_id=item.chat_room_id or room_id,
+                            content=item.content,
+                            sender_id=item.sender_id,
+                            sender_type=item.sender_type,
+                            sender_name=item.sender_name or "",
+                            message_type=item.message_type,
+                            metadata=item.metadata or {},
+                            created_at=item.inserted_at or datetime.now(timezone.utc),
+                        )
+                    )
+
+                total_pages = response.metadata.total_pages
+                if total_pages is None or page >= total_pages:
+                    break
+                page += 1
+
             return messages
         except Exception as e:
             logger.warning(

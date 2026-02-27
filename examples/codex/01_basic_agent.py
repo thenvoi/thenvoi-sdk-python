@@ -35,6 +35,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+from pathlib import Path
 
 from dotenv import load_dotenv
 
@@ -72,21 +73,29 @@ async def main() -> None:
     if codex_transport not in {"stdio", "ws"}:
         raise ValueError("CODEX_TRANSPORT must be 'stdio' or 'ws'")
 
-    codex_role = os.getenv("CODEX_ROLE", "coding")
-    if codex_role not in {"coding", "planner", "reviewer"}:
-        raise ValueError("CODEX_ROLE must be coding, planner, or reviewer")
+    # Load role prompt from file if CODEX_ROLE is set
+    codex_role = os.getenv("CODEX_ROLE")
+    custom_section = "You are a helpful assistant. Keep responses concise."
+    if codex_role:
+        prompt_file = Path(__file__).parent / "prompts" / f"{codex_role}.md"
+        if prompt_file.exists():
+            custom_section = prompt_file.read_text(encoding="utf-8")
+            logger.info("Using role prompt from: %s", prompt_file)
+        else:
+            logger.warning(
+                "Role '%s' specified but no prompt file at %s", codex_role, prompt_file
+            )
 
     adapter = CodexAdapter(
         config=CodexAdapterConfig(
             transport=codex_transport,  # type: ignore[arg-type]  # str from env, validated at runtime
             codex_ws_url=os.getenv("CODEX_WS_URL", "ws://127.0.0.1:8765"),
-            role=codex_role,  # type: ignore[arg-type]  # str from env, validated at runtime
             model=os.getenv("CODEX_MODEL") or None,
             cwd=os.getenv("CODEX_CWD", os.getcwd()),
             approval_policy=os.getenv("CODEX_APPROVAL_POLICY", "never"),
             approval_mode=os.getenv("CODEX_APPROVAL_MODE", "manual"),  # type: ignore[arg-type]  # str from env, validated at runtime
             personality="pragmatic",
-            custom_section="You are a helpful assistant. Keep responses concise.",
+            custom_section=custom_section,
             include_base_instructions=True,
             enable_task_events=True,
             emit_turn_task_markers=_env_bool("CODEX_TURN_TASK_MARKERS", False),
@@ -106,7 +115,7 @@ async def main() -> None:
         "Starting Codex agent: agent_key=%s transport=%s role=%s",
         agent_key,
         codex_transport,
-        codex_role,
+        codex_role or "none",
     )
     await agent.run()
 
