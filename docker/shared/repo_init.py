@@ -572,7 +572,8 @@ def _locked_file(path: Path, *, timeout_s: float) -> Iterator[None]:
 
 def _is_git_repo(path: Path) -> bool:
     git_dir = path / ".git"
-    return git_dir.exists() and git_dir.is_dir()
+    # Standard clones use a directory; worktrees and submodules use a file.
+    return git_dir.exists() and (git_dir.is_dir() or git_dir.is_file())
 
 
 def _git(cwd: Path | None, *args: str) -> str:

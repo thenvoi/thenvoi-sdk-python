@@ -118,6 +118,49 @@ def test_initialize_repo_skips_clone_for_existing_repo(
     assert result.indexed is False
 
 
+def test_initialize_repo_accepts_git_worktree_checkout(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repo_path = tmp_path / "repo"
+    repo_path.mkdir()
+    (repo_path / ".git").write_text(
+        "gitdir: /tmp/main-repo/.git/worktrees/repo\n", encoding="utf-8"
+    )
+    state_dir = tmp_path / "state"
+    context_dir = tmp_path / "context"
+
+    def fake_git(cwd: Path | None, *args: str) -> str:
+        if args == ("remote", "get-url", "origin"):
+            return "git@github.com:org/repo.git\n"
+        if args == ("rev-parse", "--abbrev-ref", "HEAD"):
+            return "main\n"
+        if args == ("rev-parse", "HEAD"):
+            return "abc123\n"
+        raise AssertionError(f"Unexpected git args: cwd={cwd} args={args}")
+
+    monkeypatch.setattr(repo_init, "_git", fake_git)
+    monkeypatch.setattr(repo_init, "_preflight_repo_auth", lambda _: None)
+
+    result = repo_init.initialize_repo(
+        {
+            "repo": {
+                "url": "https://github.com/org/repo.git",
+                "path": str(repo_path),
+                "branch": "main",
+                "index": False,
+            }
+        },
+        agent_key="reviewer",
+        state_dir=state_dir,
+        context_dir=context_dir,
+    )
+
+    assert result.enabled is True
+    assert result.cloned is False
+    assert result.indexed is False
+
+
 def test_initialize_repo_rejects_non_git_non_empty_directory(tmp_path: Path) -> None:
     repo_path = tmp_path / "repo"
     repo_path.mkdir()
