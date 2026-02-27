@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Create test agents for INT-169 E2E testing.
+"""Create test agents for E2E testing.
 
 Registers planner and reviewer agents via User API
 and writes their credentials to YAML config files.
@@ -24,8 +24,8 @@ logger = logging.getLogger(__name__)
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../.."))
 
 AGENTS = [
-    {"name": "INT-169 Planner", "role": "planner", "file": "planner.yaml"},
-    {"name": "INT-169 Reviewer", "role": "reviewer", "file": "reviewer.yaml"},
+    {"name": "Planner", "role": "planner", "file": "planner.yaml"},
+    {"name": "Reviewer", "role": "reviewer", "file": "reviewer.yaml"},
 ]
 
 

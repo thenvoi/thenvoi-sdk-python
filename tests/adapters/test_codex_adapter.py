@@ -3272,7 +3272,6 @@ class TestHistoryInjection:
                 model="gpt-5.3-codex",
                 sandbox="workspace-write",
                 approval_mode="manual",
-                role="reviewer",
             ),
             client_factory=lambda _config: fake_client,
         )
@@ -3290,7 +3289,6 @@ class TestHistoryInjection:
         assert "model=gpt-5.3-codex" in log_msg
         assert "sandbox=workspace-write" in log_msg
         assert "approval_mode=manual" in log_msg
-        assert "role=reviewer" in log_msg
 
     @pytest.mark.asyncio
     async def test_codex_error_emits_event_unconditionally(self) -> None:

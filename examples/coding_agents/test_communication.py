@@ -78,14 +78,14 @@ async def main() -> None:
     mentions = [
         ChatMessageRequestMentionsItem(
             id=reviewer["agent_id"],
-            name="INT-169 Reviewer",
+            name="Reviewer",
         ),
     ]
 
     msg_response = await client.agent_api_messages.create_agent_chat_message(
         chat_id=room_id,
         message=ChatMessageRequest(
-            content="Hello @INT-169 Reviewer! This is a test message from the planner. Please confirm you received this by saying 'acknowledged'.",
+            content="Hello @Reviewer! This is a test message from the planner. Please confirm you received this by saying 'acknowledged'.",
             mentions=mentions,
         ),
     )

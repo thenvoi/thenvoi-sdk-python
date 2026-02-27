@@ -173,7 +173,6 @@ async def main() -> None:
 
     from thenvoi import Agent
     from thenvoi.adapters import ClaudeSDKAdapter
-    from thenvoi.prompts import load_role_prompt
 
     agent_id = config["agent_id"]
     api_key = config["api_key"]
@@ -192,12 +191,14 @@ async def main() -> None:
     final_prompt_parts: list[str] = []
 
     if role:
-        role_prompt = load_role_prompt(
-            role, prompt_dir if prompt_dir.exists() else None
-        )
-        if role_prompt:
-            final_prompt_parts.append(role_prompt)
-            logger.info("Using role: %s", role)
+        prompt_file = prompt_dir / f"{role}.md"
+        if prompt_file.exists():
+            final_prompt_parts.append(prompt_file.read_text(encoding="utf-8"))
+            logger.info("Using role prompt from: %s", prompt_file)
+        else:
+            logger.warning(
+                "Role '%s' specified but no prompt file at %s", role, prompt_file
+            )
 
     if custom_prompt:
         final_prompt_parts.append(custom_prompt)

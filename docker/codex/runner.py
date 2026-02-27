@@ -10,7 +10,7 @@ Environment variables:
     CODEX_CWD                  Working directory for Codex (default: /workspace/repo)
     CODEX_TRANSPORT            Transport mode: stdio or ws (default: stdio)
     CODEX_MODEL                Model ID override
-    CODEX_ROLE                 Role: coding, planner, reviewer (default: coding)
+    CODEX_ROLE                 Role name; loads prompt from {config_dir}/prompts/{role}.md
     CODEX_SANDBOX              Sandbox mode (default: external-sandbox)
     CODEX_REASONING_EFFORT     Reasoning effort level
     CODEX_APPROVAL_MODE        Approval mode: manual, auto_accept, auto_decline
@@ -54,16 +54,10 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 CodexTransport = Literal["stdio", "ws"]
-CodexRole = Literal["coding", "planner", "reviewer"]
 CodexApprovalMode = Literal["manual", "auto_accept", "auto_decline"]
 CodexReasoningEffort = Literal["none", "minimal", "low", "medium", "high", "xhigh"]
 
 _TRANSPORTS: dict[str, CodexTransport] = {"stdio": "stdio", "ws": "ws"}
-_ROLES: dict[str, CodexRole] = {
-    "coding": "coding",
-    "planner": "planner",
-    "reviewer": "reviewer",
-}
 _APPROVAL_MODES: dict[str, CodexApprovalMode] = {
     "manual": "manual",
     "auto_accept": "auto_accept",
@@ -137,15 +131,6 @@ def _parse_transport(value: str) -> CodexTransport:
     if parsed is None:
         raise ValueError(
             f"CODEX_TRANSPORT must be one of {', '.join(sorted(_TRANSPORTS))}; got: {value}"
-        )
-    return parsed
-
-
-def _parse_role(value: str) -> CodexRole:
-    parsed = _ROLES.get(value.lower())
-    if parsed is None:
-        raise ValueError(
-            f"CODEX_ROLE must be one of {', '.join(sorted(_ROLES))}; got: {value}"
         )
     return parsed
 
@@ -234,11 +219,24 @@ async def main() -> None:
     codex_model = _optional_str(os.environ.get("CODEX_MODEL")) or _optional_str(
         config.get("model")
     )
-    codex_role = _parse_role(
-        _optional_str(os.environ.get("CODEX_ROLE"))
-        or _optional_str(config.get("role"))
-        or "coding"
+    codex_role = _optional_str(os.environ.get("CODEX_ROLE")) or _optional_str(
+        config.get("role")
     )
+
+    # Load role prompt from file if specified
+    config_dir = Path(config_path).parent
+    prompt_dir = config_dir / "prompts"
+    custom_section = ""
+    if codex_role:
+        prompt_file = prompt_dir / f"{codex_role}.md"
+        if prompt_file.exists():
+            custom_section = prompt_file.read_text(encoding="utf-8")
+            logger.info("Using role prompt from: %s", prompt_file)
+        else:
+            logger.warning(
+                "Role '%s' specified but no prompt file at %s", codex_role, prompt_file
+            )
+
     codex_sandbox = (
         _optional_str(os.environ.get("CODEX_SANDBOX"))
         or _optional_str(config.get("sandbox"))
@@ -260,14 +258,15 @@ async def main() -> None:
             transport=codex_transport,
             cwd=codex_cwd,
             model=codex_model,
-            role=codex_role,
             personality="pragmatic",
             approval_policy="never",
             approval_mode=codex_approval,
             sandbox=codex_sandbox,
             reasoning_effort=codex_reasoning,
             codex_ws_url=os.environ.get("CODEX_WS_URL", "ws://127.0.0.1:8765"),
-            custom_section=repo_init.context_bundle,
+            custom_section="\n\n".join(
+                part for part in (custom_section, repo_init.context_bundle) if part
+            ),
             include_base_instructions=True,
             enable_task_events=True,
             emit_turn_task_markers=codex_turn_markers,
@@ -288,12 +287,12 @@ async def main() -> None:
 
     logger.info("Starting Codex agent: %s", agent_id)
     logger.info(
-        "Codex config: transport=%s, role=%s, model=%s, cwd=%s, sandbox=%s",
+        "Codex config: transport=%s, model=%s, cwd=%s, sandbox=%s, role=%s",
         codex_transport,
-        codex_role,
         codex_model or "auto",
         codex_cwd,
         codex_sandbox,
+        codex_role or "none",
     )
     if repo_init.enabled:
         logger.info(
