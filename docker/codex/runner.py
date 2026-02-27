@@ -31,8 +31,8 @@ from typing import Any, Literal
 
 import yaml
 
+from repo_init import initialize_repo
 from thenvoi.config.loader import load_agent_config
-from thenvoi.runtime.repo_init import initialize_repo
 
 # Global flag for graceful shutdown
 _shutdown_event: asyncio.Event | None = None
