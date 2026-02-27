@@ -27,9 +27,10 @@ _SILENT_REPORTING_TOOLS: frozenset[str] = frozenset(
 )
 
 # Letta-specific preamble prepended to the system prompt when writing to the
-# agent's instruction block.  Letta models tend to respond with plain
-# assistant_message text instead of calling MCP tools — this enforces
-# strict tool usage so messages actually reach the platform.
+# agent's instruction block.  In practice, models routed through Letta
+# consistently skip tool calls entirely — likely because Letta injects its
+# own system prompt that conflicts with ours.  This aggressive enforcement
+# partially mitigates the issue but does not fully resolve it.
 _LETTA_TOOL_ENFORCEMENT = """\
 ## MANDATORY: You MUST use tools to communicate
 
@@ -624,9 +625,7 @@ class LettaAdapter(SimpleAdapter[LettaSessionState]):
             else:
                 agent_tools = [t async for t in agent_tools_result]
 
-            attached_ids = {
-                t.id for t in agent_tools if getattr(t, "id", None)
-            }
+            attached_ids = {t.id for t in agent_tools if getattr(t, "id", None)}
             missing = [tid for tid in self._mcp_tool_ids if tid not in attached_ids]
             if missing:
                 logger.info(

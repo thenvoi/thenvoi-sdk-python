@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime, timedelta, timezone
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -357,8 +358,6 @@ class TestLettaAdapterOnMessagePerRoom:
             await asyncio.sleep(1)
             return _make_letta_response()
 
-        import asyncio
-
         mock_client.agents.messages.create.side_effect = slow_response
 
         tools = FakeAgentTools()
@@ -492,8 +491,8 @@ class TestLettaAdapterSharedMode:
         mock_client.agents.create.return_value = mock_agent
         mock_conv = _make_mock_conversation("conv-room1")
         mock_client.conversations.create.return_value = mock_conv
-        mock_client.conversations.messages.create.return_value = _make_mock_async_stream(
-            _make_assistant_message("Hi from shared!")
+        mock_client.conversations.messages.create.return_value = (
+            _make_mock_async_stream(_make_assistant_message("Hi from shared!"))
         )
 
         tools = FakeAgentTools()
@@ -535,8 +534,8 @@ class TestLettaAdapterSharedMode:
 
         mock_conv2 = _make_mock_conversation("conv-room2")
         mock_client.conversations.create.return_value = mock_conv2
-        mock_client.conversations.messages.create.return_value = _make_mock_async_stream(
-            _make_assistant_message("Hi room 2!")
+        mock_client.conversations.messages.create.return_value = (
+            _make_mock_async_stream(_make_assistant_message("Hi room 2!"))
         )
 
         tools = FakeAgentTools()
@@ -574,8 +573,8 @@ class TestLettaAdapterSharedMode:
         mock_client.agents.tools.list.return_value = _make_mock_tool_page()
         mock_conv = _make_mock_conversation("conv-1")
         mock_client.conversations.create.return_value = mock_conv
-        mock_client.conversations.messages.create.return_value = _make_mock_async_stream(
-            _make_assistant_message("Resumed shared!")
+        mock_client.conversations.messages.create.return_value = (
+            _make_mock_async_stream(_make_assistant_message("Resumed shared!"))
         )
 
         tools = FakeAgentTools()
@@ -1003,8 +1002,8 @@ class TestTaskEvents:
         mock_client.agents.create.return_value = mock_agent
         mock_conv = _make_mock_conversation("conv-123")
         mock_client.conversations.create.return_value = mock_conv
-        mock_client.conversations.messages.create.return_value = _make_mock_async_stream(
-            _make_assistant_message("Hi!")
+        mock_client.conversations.messages.create.return_value = (
+            _make_mock_async_stream(_make_assistant_message("Hi!"))
         )
 
         tools = FakeAgentTools()
