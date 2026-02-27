@@ -799,6 +799,8 @@ Expected host mounts:
 - `~/.codex` for Codex OAuth session state
 - `~/.config/gh`, `~/.ssh`, `~/.gitconfig` for git/GitHub workflows
 - project repo mounted at `/workspace/repo` for clone/worktree/markdown operations
+- shared workspace state at `/workspace/state` for repo-init lock/metadata
+- shared context docs at `/workspace/context` when repo indexing is enabled
 
 Primary control files for identity/folders/permissions:
 - `agent_config.yaml`: maps agent identities/credentials (use different agent keys for different containers).
