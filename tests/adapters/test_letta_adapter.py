@@ -111,6 +111,20 @@ def _make_mock_tool_page(*tools: MagicMock) -> MagicMock:
     return page
 
 
+def _make_mock_async_stream(*messages: MagicMock) -> Any:
+    """Create a mock async stream yielding Letta messages."""
+
+    class _AsyncStream:
+        def __init__(self, stream_messages: list[MagicMock]) -> None:
+            self._messages = stream_messages
+
+        async def __aiter__(self) -> Any:
+            for stream_message in self._messages:
+                yield stream_message
+
+    return _AsyncStream(list(messages))
+
+
 # ──────────────────────────────────────────────────────────────────────
 # Initialization
 # ──────────────────────────────────────────────────────────────────────
@@ -478,7 +492,7 @@ class TestLettaAdapterSharedMode:
         mock_client.agents.create.return_value = mock_agent
         mock_conv = _make_mock_conversation("conv-room1")
         mock_client.conversations.create.return_value = mock_conv
-        mock_client.agents.messages.create.return_value = _make_letta_response(
+        mock_client.conversations.messages.create.return_value = _make_mock_async_stream(
             _make_assistant_message("Hi from shared!")
         )
 
@@ -502,8 +516,8 @@ class TestLettaAdapterSharedMode:
         mock_client.conversations.create.assert_called_once_with(
             agent_id="shared-agent",
         )
-        # Message sent with conversation_id
-        call_kwargs = mock_client.agents.messages.create.call_args.kwargs
+        # Message sent through room-scoped conversation endpoint
+        call_kwargs = mock_client.conversations.messages.create.call_args.kwargs
         assert call_kwargs["conversation_id"] == "conv-room1"
         assert adapter._shared_agent_id == "shared-agent"
 
@@ -521,7 +535,7 @@ class TestLettaAdapterSharedMode:
 
         mock_conv2 = _make_mock_conversation("conv-room2")
         mock_client.conversations.create.return_value = mock_conv2
-        mock_client.agents.messages.create.return_value = _make_letta_response(
+        mock_client.conversations.messages.create.return_value = _make_mock_async_stream(
             _make_assistant_message("Hi room 2!")
         )
 
@@ -560,7 +574,7 @@ class TestLettaAdapterSharedMode:
         mock_client.agents.tools.list.return_value = _make_mock_tool_page()
         mock_conv = _make_mock_conversation("conv-1")
         mock_client.conversations.create.return_value = mock_conv
-        mock_client.agents.messages.create.return_value = _make_letta_response(
+        mock_client.conversations.messages.create.return_value = _make_mock_async_stream(
             _make_assistant_message("Resumed shared!")
         )
 
@@ -844,11 +858,18 @@ class TestInstructionBlockUpdate:
         adapter._client = mock_client
 
         mock_client.agents.blocks.update.side_effect = Exception("not found")
+        mock_block = MagicMock()
+        mock_block.id = "block-1"
+        mock_client.blocks.create.return_value = mock_block
 
         await adapter._update_instruction_block("agent-1", "room-1")
 
-        mock_client.agents.blocks.create.assert_called_once()
-        assert mock_client.agents.blocks.create.call_args.kwargs["label"] == "persona"
+        mock_client.blocks.create.assert_called_once()
+        assert mock_client.blocks.create.call_args.kwargs["label"] == "persona"
+        mock_client.agents.blocks.attach.assert_called_once_with(
+            "block-1",
+            agent_id="agent-1",
+        )
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -982,7 +1003,7 @@ class TestTaskEvents:
         mock_client.agents.create.return_value = mock_agent
         mock_conv = _make_mock_conversation("conv-123")
         mock_client.conversations.create.return_value = mock_conv
-        mock_client.agents.messages.create.return_value = _make_letta_response(
+        mock_client.conversations.messages.create.return_value = _make_mock_async_stream(
             _make_assistant_message("Hi!")
         )
 

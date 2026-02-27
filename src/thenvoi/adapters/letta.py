@@ -372,18 +372,19 @@ class LettaAdapter(SimpleAdapter[LettaSessionState]):
 
         # Use Conversations API in shared mode, direct agent API in per_room mode
         if self.config.mode == "shared" and room_ctx and room_ctx.conversation_id:
-            response = await self._client.agents.messages.create(
-                agent_id=agent_id,
-                messages=messages,
+            conversation_stream = await self._client.conversations.messages.create(
                 conversation_id=room_ctx.conversation_id,
+                messages=messages,
             )
+            response_messages = [resp_msg async for resp_msg in conversation_stream]
         else:
             response = await self._client.agents.messages.create(
                 agent_id=agent_id,
                 messages=messages,
             )
+            response_messages = list(response.messages)
 
-        for resp_msg in response.messages:
+        for resp_msg in response_messages:
             msg_type = getattr(resp_msg, "message_type", None)
             logger.debug("Room %s: Letta response message type=%s", room_id, msg_type)
 
@@ -685,13 +686,18 @@ class LettaAdapter(SimpleAdapter[LettaSessionState]):
 
         # None of the known labels exist — create a "persona" block
         try:
-            await self._client.agents.blocks.create(
-                agent_id=agent_id,
+            block = await self._client.blocks.create(
                 label="persona",
                 value=value,
             )
+            await self._client.agents.blocks.attach(
+                block.id,
+                agent_id=agent_id,
+            )
             logger.debug(
-                "Room %s: Created persona block for agent %s", room_id, agent_id
+                "Room %s: Created and attached persona block for agent %s",
+                room_id,
+                agent_id,
             )
         except Exception as e:
             logger.warning(

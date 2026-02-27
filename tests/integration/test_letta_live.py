@@ -134,18 +134,18 @@ async def test_conversations_api() -> None:
         assert conv1.id != conv2.id
 
         # Send messages to different conversations
-        resp1 = await client.agents.messages.create(
-            agent_id=agent.id,
-            messages=[{"role": "user", "content": "Hello from room 1"}],
+        stream1 = await client.conversations.messages.create(
             conversation_id=conv1.id,
+            messages=[{"role": "user", "content": "Hello from room 1"}],
         )
-        resp2 = await client.agents.messages.create(
-            agent_id=agent.id,
-            messages=[{"role": "user", "content": "Hello from room 2"}],
+        stream2 = await client.conversations.messages.create(
             conversation_id=conv2.id,
+            messages=[{"role": "user", "content": "Hello from room 2"}],
         )
 
-        assert resp1.messages
-        assert resp2.messages
+        messages1 = [m async for m in stream1]
+        messages2 = [m async for m in stream2]
+        assert messages1
+        assert messages2
     finally:
         await client.agents.delete(agent.id)
