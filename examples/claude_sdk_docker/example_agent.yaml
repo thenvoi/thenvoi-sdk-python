@@ -9,6 +9,12 @@ api_key: "your-api-key"
 
 model: claude-sonnet-4-5-20250929
 
+# Optional: use a predefined role profile
+# Available roles: planner, reviewer
+# Can also be set via AGENT_ROLE environment variable
+# role: planner
+
+# Optional: custom prompt (combined with role if both specified)
 prompt: |
   You are a helpful assistant.
   Be concise and friendly.
@@ -17,6 +23,10 @@ prompt: |
 # tools:
 #   - calculator
 #   - get_time
+
+# Optional: working directory for the agent (default: /workspace/repo)
+# Can also be set via WORKSPACE environment variable
+# workspace: /workspace/repo
 
 # Optional: extended thinking
 # thinking_tokens: 10000

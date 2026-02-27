@@ -4,8 +4,11 @@ Tests for shared adapter behavior (initialization defaults, custom kwargs,
 history_converter, on_message callable, cleanup safety) live in
 tests/framework_conformance/test_adapter_conformance.py.
 This file contains ClaudeSDK-specific behavior: MCP server/session manager
-creation, room tools storage, SDK query invocation, and custom tools.
+creation, room tools storage, SDK query invocation, custom tools, and
+session persistence.
 """
+
+from __future__ import annotations
 
 from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -18,6 +21,7 @@ from thenvoi.adapters.claude_sdk import (
     THENVOI_BASE_TOOLS,
     THENVOI_MEMORY_TOOLS,
 )
+from thenvoi.converters.claude_sdk import ClaudeSDKSessionState
 from thenvoi.runtime.tools import ALL_TOOL_NAMES
 from thenvoi.core.types import PlatformMessage
 
@@ -119,7 +123,7 @@ class TestOnMessage:
             await adapter.on_message(
                 msg=sample_message,
                 tools=mock_tools,
-                history="",
+                history=ClaudeSDKSessionState(text=""),
                 participants_msg=None,
                 contacts_msg=None,
                 is_session_bootstrap=True,
@@ -159,7 +163,7 @@ class TestOnMessage:
             await adapter.on_message(
                 msg=sample_message,
                 tools=mock_tools,
-                history=prior_context,
+                history=ClaudeSDKSessionState(text=prior_context),
                 participants_msg=None,
                 contacts_msg=None,
                 is_session_bootstrap=True,
@@ -195,7 +199,7 @@ class TestOnMessage:
             await adapter.on_message(
                 msg=sample_message,
                 tools=mock_tools,
-                history="",
+                history=ClaudeSDKSessionState(text=""),
                 participants_msg=None,
                 contacts_msg=None,
                 is_session_bootstrap=True,
@@ -233,7 +237,7 @@ class TestErrorHandling:
                 await adapter.on_message(
                     msg=sample_message,
                     tools=mock_tools,
-                    history="",
+                    history=ClaudeSDKSessionState(text=""),
                     participants_msg=None,
                     contacts_msg=None,
                     is_session_bootstrap=True,
@@ -543,3 +547,174 @@ class TestCustomTools:
 
         name = get_custom_tool_name(CalculatorInput)
         assert name == "calculator"
+
+
+class TestSessionPersistence:
+    """Tests for session persistence via task events."""
+
+    @pytest.mark.asyncio
+    async def test_emits_task_event_after_session_id_capture(self, mock_tools):
+        """Should emit task event with session_id after ResultMessage."""
+        adapter = ClaudeSDKAdapter()
+
+        # Create a mock ResultMessage with session_id
+        mock_result_msg = MagicMock()
+        mock_result_msg.session_id = "sess-xyz-789"
+        mock_result_msg.duration_ms = 1500
+        mock_result_msg.total_cost_usd = 0.01
+
+        # Create mock client that yields the ResultMessage
+        mock_client = MagicMock()
+
+        async def mock_receive():
+            yield mock_result_msg
+
+        mock_client.receive_response = mock_receive
+
+        # Patch isinstance checks for ResultMessage
+        with patch("thenvoi.adapters.claude_sdk.ResultMessage", type(mock_result_msg)):
+            await adapter._process_response(mock_client, "room-123", mock_tools)
+
+        # Verify task event was emitted
+        mock_tools.send_event.assert_called_once_with(
+            content="Claude SDK session",
+            message_type="task",
+            metadata={"claude_sdk_session_id": "sess-xyz-789"},
+        )
+        # Verify in-memory cache was updated
+        assert adapter._session_ids["room-123"] == "sess-xyz-789"
+
+    @pytest.mark.asyncio
+    async def test_uses_history_session_id_for_resume(self, sample_message, mock_tools):
+        """Should use history.session_id for resume on bootstrap."""
+        adapter = ClaudeSDKAdapter()
+        mock_client = MagicMock()
+        mock_client.query = AsyncMock()
+        mock_manager = AsyncMock()
+        mock_manager.get_or_create_session = AsyncMock(return_value=mock_client)
+
+        with (
+            patch(
+                "thenvoi.adapters.claude_sdk.ClaudeSessionManager",
+                return_value=mock_manager,
+            ),
+            patch.object(adapter, "_process_response", new_callable=AsyncMock),
+        ):
+            await adapter.on_started(
+                agent_name="TestBot", agent_description="A test bot"
+            )
+            await adapter.on_message(
+                msg=sample_message,
+                tools=mock_tools,
+                history=ClaudeSDKSessionState(
+                    text="[Alice]: Hello", session_id="sess-from-history"
+                ),
+                participants_msg=None,
+                contacts_msg=None,
+                is_session_bootstrap=True,
+                room_id="room-123",
+            )
+
+            mock_manager.get_or_create_session.assert_awaited_once_with(
+                "room-123", resume_session_id="sess-from-history"
+            )
+
+    @pytest.mark.asyncio
+    async def test_no_resume_on_non_bootstrap(self, sample_message, mock_tools):
+        """Should not attempt resume on non-bootstrap messages."""
+        adapter = ClaudeSDKAdapter()
+        mock_client = MagicMock()
+        mock_client.query = AsyncMock()
+        mock_manager = AsyncMock()
+        mock_manager.get_or_create_session = AsyncMock(return_value=mock_client)
+
+        with (
+            patch(
+                "thenvoi.adapters.claude_sdk.ClaudeSessionManager",
+                return_value=mock_manager,
+            ),
+            patch.object(adapter, "_process_response", new_callable=AsyncMock),
+        ):
+            await adapter.on_started(
+                agent_name="TestBot", agent_description="A test bot"
+            )
+            await adapter.on_message(
+                msg=sample_message,
+                tools=mock_tools,
+                history=ClaudeSDKSessionState(
+                    text="", session_id="sess-should-not-use"
+                ),
+                participants_msg=None,
+                contacts_msg=None,
+                is_session_bootstrap=False,
+                room_id="room-123",
+            )
+
+            mock_manager.get_or_create_session.assert_awaited_once_with(
+                "room-123", resume_session_id=None
+            )
+
+    @pytest.mark.asyncio
+    async def test_falls_back_to_new_session_on_resume_failure(
+        self, sample_message, mock_tools
+    ):
+        """Should create new session if resume fails."""
+        adapter = ClaudeSDKAdapter()
+        mock_client = MagicMock()
+        mock_client.query = AsyncMock()
+        mock_manager = AsyncMock()
+        # First call (with resume) fails, second call (without) succeeds
+        mock_manager.get_or_create_session = AsyncMock(
+            side_effect=[Exception("Resume failed"), mock_client]
+        )
+
+        with (
+            patch(
+                "thenvoi.adapters.claude_sdk.ClaudeSessionManager",
+                return_value=mock_manager,
+            ),
+            patch.object(adapter, "_process_response", new_callable=AsyncMock),
+        ):
+            await adapter.on_started(
+                agent_name="TestBot", agent_description="A test bot"
+            )
+            # Should not raise — falls back to new session
+            await adapter.on_message(
+                msg=sample_message,
+                tools=mock_tools,
+                history=ClaudeSDKSessionState(text="", session_id="sess-broken"),
+                participants_msg=None,
+                contacts_msg=None,
+                is_session_bootstrap=True,
+                room_id="room-123",
+            )
+
+            assert mock_manager.get_or_create_session.await_count == 2
+            # Second call should be without resume
+            second_call = mock_manager.get_or_create_session.call_args_list[1]
+            assert second_call == (("room-123",), {"resume_session_id": None})
+
+    @pytest.mark.asyncio
+    async def test_task_event_failure_does_not_break_flow(self, mock_tools):
+        """Task event emission failure should not break the message flow."""
+        adapter = ClaudeSDKAdapter()
+        mock_tools.send_event = AsyncMock(side_effect=Exception("Network error"))
+
+        mock_result_msg = MagicMock()
+        mock_result_msg.session_id = "sess-xyz"
+        mock_result_msg.duration_ms = 100
+        mock_result_msg.total_cost_usd = 0.001
+
+        mock_client = MagicMock()
+
+        async def mock_receive():
+            yield mock_result_msg
+
+        mock_client.receive_response = mock_receive
+
+        with patch("thenvoi.adapters.claude_sdk.ResultMessage", type(mock_result_msg)):
+            # Should not raise despite send_event failure
+            await adapter._process_response(mock_client, "room-123", mock_tools)
+
+        # Session ID should still be captured in-memory
+        assert adapter._session_ids["room-123"] == "sess-xyz"

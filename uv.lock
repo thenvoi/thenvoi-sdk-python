@@ -5542,6 +5542,9 @@ bridge = [
 claude-sdk = [
     { name = "claude-agent-sdk" },
 ]
+codex = [
+    { name = "websockets" },
+]
 crewai = [
     { name = "crewai" },
     { name = "nest-asyncio" },
@@ -5659,8 +5662,9 @@ requires-dist = [
     { name = "uvicorn", marker = "extra == 'a2a-gateway'", specifier = ">=0.32.0" },
     { name = "uvicorn", marker = "extra == 'a2a-gateway-demo'", specifier = ">=0.32.0" },
     { name = "uvicorn", marker = "extra == 'dev'", specifier = ">=0.32.0" },
+    { name = "websockets", marker = "extra == 'codex'", specifier = ">=13.0" },
 ]
-provides-extras = ["pydantic-ai", "anthropic", "langgraph", "claude-sdk", "parlant", "crewai", "a2a", "a2a-gateway", "a2a-gateway-demo", "bridge", "dev"]
+provides-extras = ["codex", "pydantic-ai", "anthropic", "langgraph", "claude-sdk", "parlant", "crewai", "a2a", "a2a-gateway", "a2a-gateway-demo", "bridge", "dev"]
 
 [[package]]
 name = "thenvoi-testing-python"

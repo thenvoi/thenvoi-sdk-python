@@ -1,5 +1,7 @@
 """Unit tests for pure formatting functions."""
 
+from __future__ import annotations
+
 from thenvoi.runtime.formatters import (
     format_message_for_llm,
     format_history_for_llm,
@@ -160,12 +162,12 @@ class TestBuildParticipantsMessage:
         assert "User" in result
 
     def test_includes_mention_instruction(self):
-        participants = [{"id": "1", "name": "Test", "type": "User"}]
+        participants = [{"id": "1", "name": "Test", "type": "User", "handle": "test"}]
         result = build_participants_message(participants)
         assert "thenvoi_send_message" in result
-        # Instruction explains handle format for users and agents
+        # Instruction emphasizes using exact handles, not display names
         assert "handle" in result
-        assert "@<username>" in result
+        assert "NOT the display name" in result
 
     def test_handles_missing_fields(self):
         participants = [{"id": "1"}]  # Missing name and type

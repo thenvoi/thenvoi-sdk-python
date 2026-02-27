@@ -1,0 +1,30 @@
+# Agent credentials for all agents in this example.
+# Copy to agent_config.yaml and fill in values from the Thenvoi platform.
+# NEVER commit real credentials to version control.
+#
+# Keys must match:
+#   - AGENT_KEY env var for the Claude SDK planner (default: "planner")
+#   - REVIEWER_AGENT_KEY in .env (default: "reviewer")
+
+planner:
+  agent_id: ""    # Agent UUID from Thenvoi platform
+  api_key: ""     # Agent-specific Thenvoi API key
+  role: planner
+  repo:
+    # Supports either SSH or HTTPS:
+    #   git@github.com:org/repo.git
+    #   https://github.com/org/repo.git
+    url: "git@github.com:org/repo.git"
+    path: "/workspace/repo"
+    branch: "main"   # Optional
+    index: true      # Optional: generate /workspace/context/*.md
+
+reviewer:
+  agent_id: ""    # Agent UUID from Thenvoi platform
+  api_key: ""     # Agent-specific Thenvoi API key
+  repo:
+    # Keep this in sync with planner.repo so both containers target the same repo.
+    url: "git@github.com:org/repo.git"
+    path: "/workspace/repo"
+    branch: "main"   # Optional
+    index: true      # Optional: enabled by default in this example

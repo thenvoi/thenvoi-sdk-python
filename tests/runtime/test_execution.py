@@ -1,5 +1,7 @@
 """Tests for ExecutionContext."""
 
+from __future__ import annotations
+
 import asyncio
 from unittest.mock import AsyncMock, MagicMock
 
@@ -416,6 +418,7 @@ class TestCrashRecoverySync:
         link.mark_processed = AsyncMock()
         link.mark_failed = AsyncMock()
         link.get_next_message = AsyncMock(return_value=None)  # No backlog by default
+        link.get_stale_processing_messages = AsyncMock(return_value=[])  # No stale msgs
 
         return link
 
