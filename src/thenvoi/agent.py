@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 try:
     _SDK_VERSION = _get_version("thenvoi-sdk")
 except PackageNotFoundError:
-    _SDK_VERSION = "0.1.0"
+    _SDK_VERSION = "unknown"
 
 # Default graceful shutdown timeout in seconds
 DEFAULT_SHUTDOWN_TIMEOUT: float = 30.0
