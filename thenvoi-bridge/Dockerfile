@@ -4,7 +4,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends git \
     && rm -rf /var/lib/apt/lists/*
 
 # Convert SSH git URLs to HTTPS so submodules clone without SSH keys
-RUN git config --global url."https://github.com/".insteadOf "git@github.com:"
+RUN git config --global url."https://github.com/".insteadOf "git@github.com:" \
+    && git config --global safe.directory '*'
 
 # Install uv for reproducible dependency resolution
 COPY --from=ghcr.io/astral-sh/uv:0.8.22 /uv /usr/local/bin/uv

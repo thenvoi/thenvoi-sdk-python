@@ -28,8 +28,17 @@ from typing import Any
 
 import yaml
 
+from thenvoi.config.loader import load_agent_config
+
 # Global flag for graceful shutdown
 _shutdown_event: asyncio.Event | None = None
+
+# Required mount points per SRS NFR-007
+REQUIRED_MOUNTS = [
+    "/workspace/repo",
+    "/workspace/notes",
+    "/workspace/state",
+]
 
 # Retry configuration for connection failures
 MAX_RETRIES = 5
@@ -44,8 +53,29 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+def validate_mounts() -> None:
+    """Validate required mount points exist (NFR-007a).
+
+    Raises ValueError with actionable message if any required mount is missing.
+    """
+    missing = [m for m in REQUIRED_MOUNTS if not Path(m).is_dir()]
+    if missing:
+        raise ValueError(
+            f"Missing required mount points: {missing}. "
+            "Ensure docker-compose.yml mounts: "
+            f"{', '.join(f'{m} (rw)' for m in REQUIRED_MOUNTS)}. "
+            "See README.md for mount contract details."
+        )
+
+
 def load_config(config_path: str) -> dict[str, Any]:
-    """Load agent configuration from YAML file."""
+    """Load agent configuration from YAML file.
+
+    Credentials (agent_id, api_key) are validated via the SDK's
+    ``load_agent_config()`` so all examples follow a single path
+    for credential loading.  Additional fields (role, model, prompt,
+    etc.) are returned as-is for the runner to consume.
+    """
     path = Path(config_path).resolve()
     if not path.exists():
         raise ValueError(f"Config file not found: {config_path}")
@@ -61,11 +91,10 @@ def load_config(config_path: str) -> dict[str, Any]:
     if config is None:
         raise ValueError("Config file is empty")
 
-    # Validate required fields
-    required = ["agent_id", "api_key"]
-    missing = [field for field in required if not config.get(field)]
-    if missing:
-        raise ValueError(f"Missing required config fields: {missing}")
+    # Validate credentials via the SDK config loader (supports flat YAML format)
+    agent_id, api_key = load_agent_config("agent", config_path=path)
+    config["agent_id"] = agent_id
+    config["api_key"] = api_key
 
     return config
 
@@ -89,7 +118,8 @@ def load_custom_tools(tools_dir: Path, config_dir: Path, tool_names: list[str]) 
         resolved_tools_dir.relative_to(resolved_config_dir.parent)
     except ValueError:
         logger.warning(
-            f"Tools directory {resolved_tools_dir} is outside allowed path, skipping"
+            "Tools directory %s is outside allowed path, skipping",
+            resolved_tools_dir,
         )
         return []
 
@@ -111,13 +141,13 @@ def load_custom_tools(tools_dir: Path, config_dir: Path, tool_names: list[str]) 
         # Filter to only requested tools, return as list
         return [tool_registry[name] for name in tool_names if name in tool_registry]
     except Exception as e:
-        logger.warning(f"Could not load custom tools: {e}")
+        logger.warning("Could not load custom tools: %s", e)
         return []
 
 
 def _handle_signal(sig: signal.Signals) -> None:
     """Handle shutdown signals (SIGTERM, SIGINT)."""
-    logger.info(f"Received {sig.name}, initiating graceful shutdown...")
+    logger.info("Received %s, initiating graceful shutdown...", sig.name)
     if _shutdown_event:
         _shutdown_event.set()
 
@@ -141,13 +171,16 @@ async def main() -> None:
     ws_url = os.environ.get(
         "THENVOI_WS_URL", "wss://app.thenvoi.com/api/v1/socket/websocket"
     )
-    rest_url = os.environ.get("THENVOI_REST_URL", "https://app.thenvoi.com/")
+    rest_url = os.environ.get("THENVOI_REST_URL", "https://app.thenvoi.com")
     if not ws_url:
         raise ValueError("THENVOI_WS_URL environment variable is empty")
     if not rest_url:
         raise ValueError("THENVOI_REST_URL environment variable is empty")
 
-    logger.info(f"Loading config from: {config_path}")
+    # Validate required mount points (NFR-007a)
+    validate_mounts()
+
+    logger.info("Loading config from: %s", config_path)
     config = load_config(config_path)
 
     # Import here to allow early config validation
@@ -158,27 +191,57 @@ async def main() -> None:
     agent_id = config["agent_id"]
     api_key = config["api_key"]
     model = config.get("model", "claude-sonnet-4-5-20250929")
-    prompt = config.get("prompt", "You are a helpful assistant.")
+    custom_prompt = config.get("prompt", "")
     thinking_tokens = config.get("thinking_tokens")
     tool_names = config.get("tools", [])
+
+    # Working directory for Claude Code (env overrides config)
+    workspace = os.environ.get("WORKSPACE") or config.get("workspace")
+
+    # Get role from config or environment (env overrides config)
+    role = os.environ.get("AGENT_ROLE") or config.get("role")
+
+    # Build final prompt combining role and custom prompt
+    config_dir = Path(config_path).parent
+    prompt_dir = config_dir / "prompts"
+    final_prompt_parts: list[str] = []
+
+    if role:
+        prompt_file = prompt_dir / f"{role}.md"
+        if prompt_file.exists():
+            final_prompt_parts.append(prompt_file.read_text(encoding="utf-8"))
+            logger.info("Using role prompt from: %s", prompt_file)
+        else:
+            logger.warning(
+                "Role '%s' specified but no prompt file at %s", role, prompt_file
+            )
+
+    if custom_prompt:
+        final_prompt_parts.append(custom_prompt)
+
+    # Default prompt if nothing specified
+    if not final_prompt_parts:
+        final_prompt_parts.append("You are a helpful assistant.")
+
+    final_prompt = "\n\n".join(final_prompt_parts)
 
     # Load custom tools if specified
     custom_tools = []
     if tool_names:
-        config_dir = Path(config_path).parent
         tools_dir = config_dir / "tools"
         custom_tools = load_custom_tools(tools_dir, config_dir, tool_names)
         if custom_tools:
             tool_fn_names = [getattr(t, "_tool_name", t.__name__) for t in custom_tools]
-            logger.info(f"Loaded custom tools: {tool_fn_names}")
+            logger.info("Loaded custom tools: %s", tool_fn_names)
 
     # Create adapter
     adapter = ClaudeSDKAdapter(
         model=model,
-        custom_section=prompt,
+        custom_section=final_prompt,
         max_thinking_tokens=thinking_tokens,
         enable_execution_reporting=True,
         additional_tools=custom_tools if custom_tools else None,
+        cwd=workspace,
     )
 
     # Create agent
@@ -190,10 +253,14 @@ async def main() -> None:
         rest_url=rest_url,
     )
 
-    logger.info(f"Starting agent: {agent_id}")
-    logger.info(f"Model: {model}")
+    logger.info("Starting agent: %s", agent_id)
+    logger.info("Model: %s", model)
+    if role:
+        logger.info("Role: %s", role)
+    if workspace:
+        logger.info("Workspace: %s", workspace)
     if thinking_tokens:
-        logger.info(f"Extended thinking: {thinking_tokens} tokens")
+        logger.info("Extended thinking: %s tokens", thinking_tokens)
     logger.info("Press Ctrl+C to stop")
 
     retry_count = 0
@@ -233,12 +300,15 @@ async def main() -> None:
         except (ConnectionError, OSError) as e:
             retry_count += 1
             if retry_count > MAX_RETRIES:
-                logger.error(f"Max retries ({MAX_RETRIES}) exceeded, giving up")
+                logger.error("Max retries (%s) exceeded, giving up", MAX_RETRIES)
                 raise
 
             logger.warning(
-                f"Connection error: {e}. Retrying in {retry_delay:.1f}s "
-                f"(attempt {retry_count}/{MAX_RETRIES})"
+                "Connection error: %s. Retrying in %.1fs (attempt %s/%s)",
+                e,
+                retry_delay,
+                retry_count,
+                MAX_RETRIES,
             )
             await asyncio.sleep(retry_delay)
             # Exponential backoff with cap
@@ -253,7 +323,7 @@ async def main() -> None:
         if hasattr(agent, "close"):
             await agent.close()
     except Exception as e:
-        logger.warning(f"Error during agent cleanup: {e}")
+        logger.warning("Error during agent cleanup: %s", e)
     logger.info("Agent stopped")
 
 

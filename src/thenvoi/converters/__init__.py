@@ -1,7 +1,8 @@
 """Built-in history converters.
 
 Converters are lazily imported to avoid requiring all optional dependencies.
-Install the extra you need:
+Install the extra you need::
+
     uv add thenvoi-sdk[langgraph]
     uv add thenvoi-sdk[anthropic]
     uv add thenvoi-sdk[pydantic_ai]
@@ -9,7 +10,10 @@ Install the extra you need:
     uv add thenvoi-sdk[parlant]
     uv add thenvoi-sdk[crewai]
     uv add thenvoi-sdk[a2a]
+    uv add thenvoi-sdk[codex]
 """
+
+from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
@@ -44,6 +48,9 @@ if TYPE_CHECKING:
     from thenvoi.converters.a2a_gateway import (
         GatewayHistoryConverter as GatewayHistoryConverter,
     )
+    from thenvoi.converters.codex import (
+        CodexHistoryConverter as CodexHistoryConverter,
+    )
 
 __all__ = [
     "LangChainHistoryConverter",
@@ -59,10 +66,11 @@ __all__ = [
     "CrewAIMessages",
     "A2AHistoryConverter",
     "GatewayHistoryConverter",
+    "CodexHistoryConverter",
 ]
 
 
-def __getattr__(name: str):
+def __getattr__(name: str) -> type:
     """Lazy import converters to avoid loading optional dependencies."""
     if name in ("LangChainHistoryConverter", "LangChainMessages"):
         from thenvoi.converters.langchain import (
@@ -128,5 +136,9 @@ def __getattr__(name: str):
         from thenvoi.converters.a2a_gateway import GatewayHistoryConverter
 
         return GatewayHistoryConverter
+    elif name == "CodexHistoryConverter":
+        from thenvoi.converters.codex import CodexHistoryConverter
+
+        return CodexHistoryConverter
 
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

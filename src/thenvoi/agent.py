@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import logging
+from importlib.metadata import PackageNotFoundError
+from importlib.metadata import version as _get_version
 from types import TracebackType
 from typing import TYPE_CHECKING, cast
 
@@ -17,6 +19,11 @@ if TYPE_CHECKING:
     from thenvoi.runtime.execution import ExecutionContext
 
 logger = logging.getLogger(__name__)
+
+try:
+    _SDK_VERSION = _get_version("thenvoi-sdk")
+except PackageNotFoundError:
+    _SDK_VERSION = "unknown"
 
 # Default graceful shutdown timeout in seconds
 DEFAULT_SHUTDOWN_TIMEOUT: float = 30.0
@@ -173,7 +180,9 @@ class Agent:
         )
 
         self._started = True
-        logger.info("Agent started: %s", self._runtime.agent_name)
+        logger.info(
+            "Agent started: %s (thenvoi-sdk %s)", self._runtime.agent_name, _SDK_VERSION
+        )
 
     async def stop(self, timeout: float | None = None) -> bool:
         """

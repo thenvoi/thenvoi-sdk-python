@@ -2,15 +2,17 @@
 Agent configuration management utilities.
 
 This module provides functions to load agent credentials from a YAML
-configuration file at the project root. Agents must be created manually
-on the platform as external agents before use.
+configuration file. Agents must be created manually on the platform
+as external agents before use.
 """
+
+from __future__ import annotations
 
 import logging
 import os
-import yaml
 from pathlib import Path
-from typing import Tuple
+
+import yaml
 
 logger = logging.getLogger(__name__)
 
@@ -24,49 +26,77 @@ def get_config_path() -> Path:
     return Path(os.getcwd()) / "agent_config.yaml"
 
 
-def load_agent_config(agent_key: str) -> Tuple[str, str]:
+def load_agent_config(
+    agent_key: str,
+    *,
+    config_path: str | Path | None = None,
+) -> tuple[str, str]:
     """
-    Load agent credentials from YAML file at project root.
+    Load agent credentials from a YAML configuration file.
 
-    Agents must be created manually on the platform as external agents.
-    This function loads the agent_id and api_key for validation.
+    Supports two formats:
+
+    1. **Keyed format** (``agent_config.yaml``)::
+
+           planner:
+             agent_id: "..."
+             api_key: "..."
+
+       Looked up via *agent_key*.
+
+    2. **Flat format** (Docker runner YAML)::
+
+           agent_id: "..."
+           api_key: "..."
+           role: planner
+
+       When *agent_key* is not found as a top-level key **and**
+       ``agent_id`` exists at the top level, the file is treated as
+       a flat single-agent config.
 
     Args:
-        agent_key: The key identifying the agent in the config file
+        agent_key: The key identifying the agent in the config file.
+        config_path: Explicit path to the YAML file.  When *None*,
+            falls back to ``agent_config.yaml`` in the working directory.
 
     Returns:
-        Tuple of (agent_id, api_key)
+        Tuple of (agent_id, api_key).
 
     Raises:
-        FileNotFoundError: If agent_config.yaml doesn't exist
-        ValueError: If required fields (agent_id, api_key) are missing or empty
+        FileNotFoundError: If the config file doesn't exist.
+        ValueError: If required fields (agent_id, api_key) are missing or empty.
     """
-    config_path = get_config_path()
-    logger.debug("Loading config from: %s", config_path)
+    path = Path(config_path) if config_path is not None else get_config_path()
+    logger.debug("Loading config from: %s", path)
 
-    if not config_path.exists():
+    if not path.exists():
         raise FileNotFoundError(
-            f"agent_config.yaml not found at {config_path}. "
+            f"Config file not found at {path}. "
             "Copy agent_config.yaml.example to agent_config.yaml and configure your agents."
         )
 
     try:
-        with open(config_path, "r") as f:
+        with open(path, encoding="utf-8") as f:
             config = yaml.safe_load(f) or {}
 
+        # Try keyed lookup first
         agent_config = config.get(agent_key, {})
+
+        # Fall back to flat format (Docker runner YAMLs put agent_id at top level)
+        if not agent_config and "agent_id" in config:
+            agent_config = config
 
         if not agent_config:
             raise ValueError(
-                f"Agent '{agent_key}' not found in {config_path}. "
-                f"Please add the agent configuration."
+                f"Agent '{agent_key}' not found in {path}. "
+                "Please add the agent configuration."
             )
 
         # Require agent_id and api_key
         agent_id = agent_config.get("agent_id")
         api_key = agent_config.get("api_key")
 
-        missing_fields = []
+        missing_fields: list[str] = []
         if not agent_id:
             missing_fields.append("agent_id")
         if not api_key:
@@ -75,11 +105,11 @@ def load_agent_config(agent_key: str) -> Tuple[str, str]:
         if missing_fields:
             raise ValueError(
                 f"Missing required fields for agent '{agent_key}': {', '.join(missing_fields)}. "
-                f"Please create an external agent on the platform and add the credentials to {config_path}"
+                f"Please create an external agent on the platform and add the credentials to {path}"
             )
 
         return agent_id, api_key
-    except ValueError:
+    except (ValueError, FileNotFoundError):
         raise
     except Exception as e:
-        raise RuntimeError(f"Error loading agent config: {e}")
+        raise RuntimeError(f"Error loading agent config: {e}") from e
