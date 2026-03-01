@@ -85,7 +85,7 @@ bridge = [
 ]
 
 dev = [
-    "thenvoi-testing-python @ git+https://github.com/thenvoi/thenvoi-testing-python.git@thenvoi-testing-python-v0.1.1",
+    "thenvoi-testing-python>=0.1.2",
     "pytest>=7.0.0",
     "pytest-asyncio>=0.21.0",
     "pytest-mock>=3.10.0",

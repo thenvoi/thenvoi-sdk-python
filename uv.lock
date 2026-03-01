@@ -5658,7 +5658,7 @@ requires-dist = [
     { name = "starlette", marker = "extra == 'a2a-gateway-demo'", specifier = ">=0.40.0" },
     { name = "starlette", marker = "extra == 'dev'", specifier = ">=0.40.0" },
     { name = "thenvoi-client-rest", specifier = "==0.0.4" },
-    { name = "thenvoi-testing-python", marker = "extra == 'dev'", git = "https://github.com/thenvoi/thenvoi-testing-python.git?rev=thenvoi-testing-python-v0.1.1" },
+    { name = "thenvoi-testing-python", marker = "extra == 'dev'", specifier = ">=0.1.2" },
     { name = "uvicorn", marker = "extra == 'a2a-gateway'", specifier = ">=0.32.0" },
     { name = "uvicorn", marker = "extra == 'a2a-gateway-demo'", specifier = ">=0.32.0" },
     { name = "uvicorn", marker = "extra == 'dev'", specifier = ">=0.32.0" },
@@ -5668,13 +5668,17 @@ provides-extras = ["codex", "pydantic-ai", "anthropic", "langgraph", "claude-sdk
 
 [[package]]
 name = "thenvoi-testing-python"
-version = "0.1.1"
-source = { git = "https://github.com/thenvoi/thenvoi-testing-python.git?rev=thenvoi-testing-python-v0.1.1#916551e1c2b4c791366bccb64e67c41849365f00" }
+version = "0.1.2"
+source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "pydantic" },
     { name = "pydantic-settings" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/4b/da/1f80e5d38a53cda1b4befe091f64b39b75b65cec37d4cf61682b8a88971f/thenvoi_testing_python-0.1.2.tar.gz", hash = "sha256:9d7029908e9f1f12fe9578467dedda0ba14dad7f48be66f92904e5a9145ff8d0", size = 61010, upload-time = "2026-03-01T13:09:19.232Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/c2/0d/ec235b639439fef31933ca1e378e37012ad855c89e678d04ac56097062d0/thenvoi_testing_python-0.1.2-py3-none-any.whl", hash = "sha256:9bd340d2ab9775d6fcaf1a60db434626916e3d0fe3114a8a47f38f51023dcf0e", size = 25721, upload-time = "2026-03-01T13:09:17.811Z" },
 ]
 
 [[package]]
