@@ -7,6 +7,7 @@ Connect your AI agents to the Thenvoi collaborative platform.
 - **Pydantic AI** - Production ready
 - **Anthropic SDK** - Production ready (direct Claude integration)
 - **Claude Agent SDK** - Production ready (streaming, extended thinking)
+- **Codex App-Server** - Production ready (stdio/ws transport, OAuth)
 - **CrewAI** - Production ready (role-based agents with goals)
 - **Parlant** - Production ready (guideline-based behavior)
 - **A2A Adapter** - Call external A2A-compliant agents from Thenvoi
@@ -71,11 +72,14 @@ uv add "git+https://github.com/thenvoi/thenvoi-sdk-python.git[langgraph]"
 uv add "git+https://github.com/thenvoi/thenvoi-sdk-python.git[anthropic]"
 uv add "git+https://github.com/thenvoi/thenvoi-sdk-python.git[pydantic_ai]"
 uv add "git+https://github.com/thenvoi/thenvoi-sdk-python.git[claude_sdk]"
+uv add "git+https://github.com/thenvoi/thenvoi-sdk-python.git[codex]"
 uv add "git+https://github.com/thenvoi/thenvoi-sdk-python.git[crewai]"
 uv add "git+https://github.com/thenvoi/thenvoi-sdk-python.git[parlant]"
 ```
 
 > **Note for Claude Agent SDK:** Requires Node.js 20+ and Claude Code CLI: `npm install -g @anthropic-ai/claude-code`
+>
+> **Note for Codex:** Install Codex CLI and authenticate once with OAuth (`codex login`).
 
 ### Option 2: Run Examples from Repository
 
@@ -225,6 +229,54 @@ agent = Agent.create(
 await agent.run()
 ```
 
+### Codex App-Server
+
+```python
+from thenvoi import Agent
+from thenvoi.adapters.codex import CodexAdapter, CodexAdapterConfig
+
+adapter = CodexAdapter(
+    config=CodexAdapterConfig(
+        transport="stdio",  # or "ws"
+        role="coding",
+        approval_policy="never",
+        approval_mode="manual",
+        emit_turn_task_markers=False,  # Optional: avoid duplicate task noise
+        cwd=".",
+    )
+)
+
+agent = Agent.create(
+    adapter=adapter,
+    agent_id=agent_id,
+    api_key=api_key,
+)
+await agent.run()
+```
+
+Runtime chat commands (handled by adapter without starting a Codex turn):
+- `/status` - show transport/model/thread mapping and adapter status
+- `/model` or `/models` - show current selected/configured model
+- `/model list` or `/models list` - list visible models from `model/list`
+- `/model <id>` or `/models <id>` - set model override for subsequent turns
+- `/approvals` - list pending manual approvals
+- `/approve <id>` - accept pending approval
+- `/decline <id>` - decline pending approval
+- `/help` - show command help
+
+Current support matrix:
+- Attached folders: supported.
+- Local runtime: set `--codex-cwd` (or `CodexAdapterConfig.cwd`) to any host path Codex should work in.
+- Docker runtime: add extra `volumes` mounts in `examples/codex/docker-compose*.yml` and point `CODEX_CWD` (or `--codex-cwd`) to that mounted path.
+- Custom prompts: supported.
+- CLI-level custom prompt: `--custom-section "..."` (appended to the selected role profile prompt).
+- Programmatic full prompt override: `CodexAdapterConfig.system_prompt` (replaces generated base+role prompt).
+- Programmatic prompt composition control: `CodexAdapterConfig.include_base_instructions`.
+- Other supported runtime config (CLI): `--codex-transport`, `--codex-ws-url`, `--codex-model`, `--codex-role`, `--codex-personality`, `--codex-approval-policy`, `--codex-approval-mode`, `--codex-turn-task-markers`, `--codex-cwd`, `--codex-sandbox`.
+- Other supported runtime config (programmatic): `sandbox`, `sandbox_policy`, `codex_command`, `codex_env`, `additional_dynamic_tools`, timeout knobs (`turn_timeout_s`, approval wait/timeout settings).
+- Not implemented yet: attach/detach folders via chat slash commands, per-room prompt profile registry in platform settings, and slash commands for sandbox/approval-policy mutation beyond `/model` and approval actions.
+- Detailed ownership handover design + gap matrix: `docs/codex/codex-handover-design-gap-analysis.md`.
+
 ### CrewAI
 
 ```python
@@ -284,6 +336,7 @@ src/thenvoi/
 │   ├── anthropic.py           # AnthropicAdapter
 │   ├── pydantic_ai.py         # PydanticAIAdapter
 │   ├── claude_sdk.py          # ClaudeSDKAdapter
+│   ├── codex.py               # CodexAdapter
 │   ├── crewai.py              # CrewAIAdapter
 │   └── parlant.py             # ParlantAdapter
 │
@@ -323,6 +376,7 @@ src/thenvoi/
 │   ├── anthropic.py           # AnthropicHistoryConverter
 │   ├── pydantic_ai.py         # PydanticAIHistoryConverter
 │   ├── claude_sdk.py          # ClaudeSDKHistoryConverter
+│   ├── codex.py               # CodexHistoryConverter
 │   ├── crewai.py              # CrewAIHistoryConverter
 │   ├── parlant.py             # ParlantHistoryConverter
 │   ├── a2a.py                 # A2AHistoryConverter
@@ -341,6 +395,7 @@ examples/
 ├── pydantic_ai/               # Pydantic AI examples (01-02)
 ├── anthropic/                 # Anthropic SDK examples (01-02)
 ├── claude_sdk/                # Claude Agent SDK examples (01-02)
+├── codex/                     # Codex examples (01)
 ├── crewai/                    # CrewAI examples (01-04)
 ├── parlant/                   # Parlant examples (01-03)
 ├── a2a_bridge/                # A2A Adapter examples (call external A2A agents)
@@ -402,6 +457,18 @@ See [Contact Event Handling](docs/contact-events.md) for details.
 - Streaming responses via async iterator
 - Extended thinking support with `max_thinking_tokens`
 - MCP-based tool integration
+
+### Codex Examples (`examples/codex/`)
+
+| File | Description |
+|------|-------------|
+| `01_basic_agent.py` | **Minimal setup** - Runs `CodexAdapter` with room/thread mapping and dynamic Thenvoi tools. |
+
+**Prerequisites:**
+- `codex login` (OAuth)
+- `CODEX_TRANSPORT=stdio` (recommended) or `CODEX_TRANSPORT=ws` with `codex app-server --listen ws://127.0.0.1:8765`
+- `CODEX_APPROVAL_MODE=manual` (default) for in-chat approval flow
+- Optional: `CODEX_TURN_TASK_MARKERS=true` to emit synthetic `Codex turn started/completed` task events
 
 ### CrewAI Examples (`examples/crewai/`)
 
@@ -490,6 +557,21 @@ uv run python examples/run_agent.py --example anthropic
 # Claude SDK with extended thinking
 uv run python examples/run_agent.py --example claude_sdk --thinking
 
+# Codex App-Server adapter
+uv run python examples/run_agent.py --example codex --agent darter --codex-transport stdio
+
+# Codex adapter without synthetic turn task markers
+uv run python examples/run_agent.py --example codex --agent darter --codex-transport stdio --no-codex-turn-task-markers
+
+# Codex adapter with manual approvals (default)
+uv run python examples/run_agent.py --example codex --agent darter --codex-approval-mode manual
+
+# Codex adapter with explicit sandbox mode
+uv run python examples/run_agent.py --example codex --agent darter --codex-sandbox external-sandbox
+
+# Codex via WebSocket transport (dev/diagnostics)
+uv run python examples/run_agent.py --example codex --agent darter --codex-transport ws --codex-ws-url ws://127.0.0.1:8765
+
 # A2A Adapter (call external A2A agents from Thenvoi)
 uv run python examples/run_agent.py --example a2a --a2a-url http://localhost:10000
 
@@ -520,6 +602,9 @@ uv run python examples/anthropic/01_basic_agent.py
 
 # Claude SDK
 uv run python examples/claude_sdk/01_basic_agent.py
+
+# Codex
+uv run examples/codex/01_basic_agent.py
 
 # CrewAI
 uv run python examples/crewai/01_basic_agent.py
@@ -664,6 +749,112 @@ docker run --rm \
   thenvoi-sdk \
   uv run --extra langgraph python examples/langgraph/01_simple_agent.py
 ```
+
+### Codex Docker Worker (Phase 2)
+
+Use production image assets under `docker/codex/` and run via compose examples under `examples/codex/`.
+
+```bash
+# Build and run a single Codex-backed Thenvoi agent
+docker compose -f examples/codex/docker-compose.yml up --build codex-agent
+
+# One-off smoke check inside the running container
+docker compose -f examples/codex/docker-compose.yml exec codex-agent /app/docker/codex/smoke.sh
+```
+
+Dependency modes:
+- Default (portable): uses publishable dependencies in-container (`uv sync`), with phoenix channels fetched over HTTPS tarball (no SSH/submodule access).
+- Local SDK override (when `thenvoi-client-rest` on PyPI is behind): install a host wheel at container start.
+- Runtime execution uses `/app/.venv/bin/python` (not `uv run`) to avoid re-resolving host-local `tool.uv.sources` paths from mounted repo files.
+- Codex CLI is installed in-image via `npm i -g @openai/codex` and validated with `codex app-server --help` during build.
+- Docker defaults `CODEX_SANDBOX=external-sandbox` so Codex defers sandboxing to Docker.
+
+```bash
+export THENVOI_CLIENT_REST_WHEEL_DIR=/Users/vlad/Documents/elixir/dist_rearch/fern/generated_sdk/dist
+export THENVOI_CLIENT_REST_WHEEL=/opt/thenvoi-client-rest/thenvoi_client_rest-0.0.1.dev6-py3-none-any.whl
+docker compose -f examples/codex/docker-compose.yml up --build codex-agent
+```
+
+If you also need a local `phoenix-channels-python-client` build:
+
+```bash
+export PHOENIX_CHANNELS_CLIENT_WHEEL_DIR=/path/to/phoenix-client/dist
+export PHOENIX_CHANNELS_CLIENT_WHEEL=/opt/phoenix-client
+# (optional: use /opt/phoenix-client/<wheel-file>.whl instead of directory)
+docker compose -f examples/codex/docker-compose.yml up --build codex-agent
+```
+
+If you need both local wheels in one run:
+
+```bash
+export THENVOI_CLIENT_REST_WHEEL_DIR=/Users/vlad/Documents/elixir/dist_rearch/fern/generated_sdk/dist
+export THENVOI_CLIENT_REST_WHEEL=/opt/thenvoi-client-rest/thenvoi_client_rest-0.0.1.dev6-py3-none-any.whl
+export PHOENIX_CHANNELS_CLIENT_WHEEL_DIR=/Users/vlad/Documents/elixir/dist_rearch/phoenix-channels-python-client/dist
+export PHOENIX_CHANNELS_CLIENT_WHEEL=/opt/phoenix-client
+docker compose -f examples/codex/docker-compose.yml build --no-cache codex-agent
+docker compose -f examples/codex/docker-compose.yml up codex-agent
+```
+
+Expected host mounts:
+- `~/.codex` for Codex OAuth session state
+- `~/.config/gh`, `~/.ssh`, `~/.gitconfig` for git/GitHub workflows
+- project repo mounted at `/workspace/repo` for clone/worktree/markdown operations
+- shared workspace state at `/workspace/state` for repo-init lock/metadata
+- shared context docs at `/workspace/context` when repo indexing is enabled
+
+Primary control files for identity/folders/permissions:
+- `agent_config.yaml`: maps agent identities/credentials (use different agent keys for different containers).
+- `docker/codex/Dockerfile`: Codex runtime image.
+- `docker/codex/entrypoint.sh`: runtime setup and optional wheel installation.
+- `docker/codex/smoke.sh`: in-container smoke checks.
+- `examples/codex/docker-compose.yml`: single-agent Codex service.
+- `examples/codex/docker-compose.multi.yml`: ready-made dual-agent setup (`codex-darter` + `codex-reviewer`).
+- `examples/codex/docker-compose.plan-review.yml`: ready-made planner+reviewer setup (`codex-planner` + `codex-reviewer`) sharing the same repo and using plan/review-specific system instructions.
+- `examples/codex/.env.plan-review.example`: env template for planner/reviewer overrides.
+- `.env`: shared Thenvoi URLs and other environment defaults.
+
+Ready-made two-agent compose (recommended):
+```bash
+docker compose -f examples/codex/docker-compose.multi.yml up --build
+```
+
+Ready-made planner+reviewer compose:
+```bash
+cp examples/codex/.env.plan-review.example .env.codex.plan-review
+# edit .env.codex.plan-review if needed
+docker compose --env-file .env.codex.plan-review -f examples/codex/docker-compose.plan-review.yml up --build
+```
+
+Run only one service from the multi file:
+```bash
+docker compose -f examples/codex/docker-compose.multi.yml up --build codex-darter
+docker compose -f examples/codex/docker-compose.multi.yml up --build codex-reviewer
+```
+
+Override identities/folders/sandbox per service:
+```bash
+CODEX_DARTER_AGENT_KEY=darter CODEX_DARTER_CWD=/workspace/repo CODEX_DARTER_SANDBOX=external-sandbox \
+  CODEX_REVIEWER_AGENT_KEY=reviewer CODEX_REVIEWER_CWD=/workspace/repo CODEX_REVIEWER_SANDBOX=external-sandbox \
+  docker compose -f examples/codex/docker-compose.multi.yml up --build
+```
+
+Ad-hoc alternative (single-service compose with explicit project names):
+```bash
+CODEX_AGENT_KEY=darter CODEX_CWD=/workspace/repo CODEX_SANDBOX=external-sandbox \
+  docker compose -p codex-darter -f examples/codex/docker-compose.yml up --build codex-agent
+
+CODEX_AGENT_KEY=reviewer CODEX_CWD=/workspace/repo CODEX_SANDBOX=external-sandbox \
+  docker compose -p codex-reviewer -f examples/codex/docker-compose.yml up --build codex-agent
+```
+
+Networking note:
+- Inside Docker, `localhost` is the container, not your host.
+- Codex compose defaults to:
+  - `THENVOI_REST_URL=http://host.docker.internal:4000`
+  - `THENVOI_WS_URL=ws://host.docker.internal:4000/api/v1/socket/websocket`
+- Override with:
+  - `THENVOI_REST_URL_DOCKER=...`
+  - `THENVOI_WS_URL_DOCKER=...`
 
 ---
 

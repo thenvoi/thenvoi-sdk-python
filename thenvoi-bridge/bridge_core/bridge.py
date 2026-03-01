@@ -645,6 +645,7 @@ class ThenvoiBridge:
         self._processed_message_ids[message_id] = None
         if len(self._processed_message_ids) > self._DEDUP_MAX_SIZE:
             self._processed_message_ids.popitem(last=False)
+            logger.debug("Message ID dedup cache at max size, evicted oldest entry")
         return False
 
     async def _cache_room_participants(self, room_id: str) -> None:
@@ -709,6 +710,12 @@ async def main(handlers: dict[str, BaseHandler]) -> None:
         format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
     )
 
-    config = BridgeConfig.from_env()
+    logger = logging.getLogger(__name__)
+    try:
+        config = BridgeConfig.from_env()
+    except ValueError:
+        logger.exception("Bridge configuration error")
+        raise
+
     bridge = ThenvoiBridge(config=config, handlers=handlers)
     await bridge.run()

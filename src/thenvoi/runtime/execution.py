@@ -463,22 +463,26 @@ class ExecutionContext:
         """
         Hydrate conversation context for this room.
 
-        Called lazily on first event to load conversation history
-        and participant list.
+        Called lazily on first event to load participant list and
+        (optionally) conversation history.
 
-        If enable_context_hydration is False, skips API call and returns
-        empty context (useful for agents that manage their own state like Letta).
+        Participants are always loaded (lightweight, universally needed).
+        If enable_context_hydration is False, skips history loading
+        (useful for agents that manage their own state like Letta).
         """
         if self._context_hydrated:
             return
 
-        # Skip hydration if disabled
+        # Always load participants (lightweight, universally needed)
+        await self.load_participants()
+
+        # Skip history hydration if disabled
         if not self.config.enable_context_hydration:
-            logger.debug("Context hydration disabled for room: %s", self.room_id)
+            logger.debug("History hydration disabled for room: %s", self.room_id)
             self._context_cache = ConversationContext(
                 room_id=self.room_id,
                 messages=[],
-                participants=[],
+                participants=self._participants,
                 hydrated_at=datetime.now(timezone.utc),
             )
             self._context_hydrated = True
@@ -487,9 +491,6 @@ class ExecutionContext:
         logger.debug("Hydrating context for room: %s", self.room_id)
 
         try:
-            # Load participants first
-            await self.load_participants()
-
             # Load context from API
             context_response = (
                 await self.link.rest.agent_api_context.get_agent_chat_context(
@@ -536,7 +537,7 @@ class ExecutionContext:
             self._context_cache = ConversationContext(
                 room_id=self.room_id,
                 messages=[],
-                participants=[],
+                participants=self._participants,
                 hydrated_at=datetime.now(timezone.utc),
             )
             self._context_hydrated = True
@@ -650,18 +651,25 @@ class ExecutionContext:
         """
         Synchronize backlog via /next API until caught up with WebSocket.
 
+        First recovers any messages stuck in 'processing' state from a
+        previous crash, then processes pending messages via /next.
+
         Uses _first_ws_msg_id marker:
-        1. Call /next to get next unprocessed message
-        2. If None → no backlog, we're synced
-        3. Check if message ID matches _first_ws_msg_id (first WebSocket message)
-        4. If match → synced! Process this message, pop duplicate from queue
-        5. If no match → process /next message, repeat from step 1
+        1. Recover stale processing messages (crash recovery)
+        2. Call /next to get next unprocessed message
+        3. If None → no backlog, we're synced
+        4. Check if message ID matches _first_ws_msg_id (first WebSocket message)
+        5. If match → synced! Process this message, pop duplicate from queue
+        6. If no match → process /next message, repeat from step 1
         """
         logger.debug(
             "ExecutionContext %s: Starting /next synchronization", self.room_id
         )
 
         try:
+            # Recover messages stuck in 'processing' state from a previous crash.
+            # The /next endpoint skips these, so we must handle them explicitly.
+            await self._recover_stale_processing_messages()
             while True:  # Cancellation handles exit
                 next_msg = await self._get_next_message()
 
@@ -729,6 +737,40 @@ class ExecutionContext:
         logger.debug("ExecutionContext %s: Synchronization complete", self.room_id)
         self._sync_complete = True
 
+    async def _recover_stale_processing_messages(self) -> None:
+        """
+        Recover messages stuck in 'processing' state from a previous crash.
+
+        When an agent crashes mid-processing, the message stays in 'processing'
+        state on the server. The /next endpoint skips these messages, so the
+        agent would never pick them up again. This method finds such messages
+        and re-processes them by calling mark_processing (creates a new attempt).
+        """
+        stale_messages = await self.link.get_stale_processing_messages(self.room_id)
+        if not stale_messages:
+            return
+
+        logger.info(
+            "ExecutionContext %s: Recovering %d stale processing message(s)",
+            self.room_id,
+            len(stale_messages),
+        )
+
+        for msg in stale_messages:
+            logger.info(
+                "ExecutionContext %s: Re-processing stale message %s",
+                self.room_id,
+                msg.id,
+            )
+            try:
+                await self._process_backlog_message(msg)
+            except Exception:
+                logger.exception(
+                    "ExecutionContext %s: Failed to recover stale message %s",
+                    self.room_id,
+                    msg.id,
+                )
+
     async def _get_next_message(self) -> PlatformMessage | None:
         """
         Get next unprocessed message from REST API.
@@ -786,8 +828,9 @@ class ExecutionContext:
             # Mark as processing on server BEFORE we start
             await self.link.mark_processing(self.room_id, msg_id)
 
-            # Hydrate context on first message if enabled
-            if not self._context_hydrated and self.config.enable_context_hydration:
+            # Hydrate context on first message (loads participants always,
+            # history only if enable_context_hydration is True)
+            if not self._context_hydrated:
                 await self.hydrate()
 
             # Format timestamps for MessageCreatedPayload validation
@@ -952,8 +995,9 @@ class ExecutionContext:
             if isinstance(event, MessageEvent) and msg_id:
                 await self.link.mark_processing(self.room_id, msg_id)
 
-            # Hydrate context on first event if enabled
-            if not self._context_hydrated and self.config.enable_context_hydration:
+            # Hydrate context on first event (loads participants always,
+            # history only if enable_context_hydration is True)
+            if not self._context_hydrated:
                 await self.hydrate()
 
             # Handle participant events internally

@@ -1,0 +1,74 @@
+services:
+  codex-agent:
+    restart: unless-stopped
+    build:
+      context: ../..
+      dockerfile: docker/codex/Dockerfile
+    env_file:
+      - ../../.env
+    environment:
+      CODEX_TRANSPORT: stdio
+      CODEX_CWD: /workspace/repo
+      # Set to read-only/workspace-write/danger-full-access/external-sandbox as needed.
+      CODEX_SANDBOX: ${CODEX_SANDBOX:-external-sandbox}
+      # Agent key from /app/agent_config.yaml.
+      CODEX_AGENT_KEY: ${CODEX_AGENT_KEY:-darter}
+      CODEX_APPROVAL_MODE: manual
+      CODEX_TURN_TASK_MARKERS: "false"
+      PYTHONPATH: /workspace/repo/src
+      # Container must reach host Thenvoi services via host.docker.internal (not localhost).
+      # Override with THENVOI_REST_URL_DOCKER / THENVOI_WS_URL_DOCKER if needed.
+      THENVOI_REST_URL: ${THENVOI_REST_URL_DOCKER:-http://host.docker.internal:4000}
+      THENVOI_WS_URL: ${THENVOI_WS_URL_DOCKER:-ws://host.docker.internal:4000/api/v1/socket/websocket}
+      # Optional local override when PyPI thenvoi-client-rest is behind:
+      # Example:
+      #   THENVOI_CLIENT_REST_WHEEL_DIR=/Users/vlad/Documents/elixir/dist_rearch/fern/generated_sdk/dist
+      #   THENVOI_CLIENT_REST_WHEEL=/opt/thenvoi-client-rest/thenvoi_client_rest-0.0.1.dev6-py3-none-any.whl
+      THENVOI_CLIENT_REST_WHEEL: ${THENVOI_CLIENT_REST_WHEEL:-}
+      # Optional local override for phoenix channels client wheel:
+      #   PHOENIX_CHANNELS_CLIENT_WHEEL_DIR=/path/to/dist
+      #   PHOENIX_CHANNELS_CLIENT_WHEEL=/opt/phoenix-client
+      #   (or /opt/phoenix-client/<wheel-file>.whl)
+      PHOENIX_CHANNELS_CLIENT_WHEEL: ${PHOENIX_CHANNELS_CLIENT_WHEEL:-}
+    volumes:
+      - ../../agent_config.yaml:/app/agent_config.yaml:ro
+      - ../../:/workspace/repo  # rw: codex agents need write access for code changes
+      - ${HOME}/.codex:/home/codex/.codex:ro
+      - codex_sessions:/home/codex/.codex/sessions  # per-container session state
+      - ${HOME}/.config/gh:/home/codex/.config/gh:ro
+      - ${HOME}/.ssh:/home/codex/.ssh:ro
+      - ${HOME}/.gitconfig:/home/codex/.gitconfig:ro
+      - ${THENVOI_CLIENT_REST_WHEEL_DIR:-/tmp/thenvoi-client-rest}:/opt/thenvoi-client-rest:ro
+      - ${PHOENIX_CHANNELS_CLIENT_WHEEL_DIR:-/tmp/phoenix-client}:/opt/phoenix-client:ro
+      - codex_state:/state
+      - codex_prompts:/prompts
+      - codex_workspace_state:/workspace/state
+      - codex_workspace_context:/workspace/context
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    working_dir: /workspace/repo
+    command:
+      - /app/.venv/bin/python
+      - examples/run_agent.py
+      - --example
+      - codex
+      - --agent
+      - ${CODEX_AGENT_KEY:-darter}
+      - --codex-transport
+      - ${CODEX_TRANSPORT:-stdio}
+      - --codex-cwd
+      - ${CODEX_CWD:-/workspace/repo}
+      - --codex-sandbox
+      - ${CODEX_SANDBOX:-external-sandbox}
+      - --no-codex-turn-task-markers
+    stdin_open: true
+    tty: true
+
+# Named volumes persist after `docker compose down`.
+# Use `docker compose down -v` to remove them.
+volumes:
+  codex_sessions:
+  codex_state:
+  codex_prompts:
+  codex_workspace_state:
+  codex_workspace_context:
