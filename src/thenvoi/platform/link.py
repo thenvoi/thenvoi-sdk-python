@@ -14,6 +14,8 @@ from typing import TYPE_CHECKING
 
 from thenvoi.client.rest import AsyncRestClient, DEFAULT_REQUEST_OPTIONS
 from thenvoi.client.streaming import WebSocketClient
+from thenvoi.runtime.types import PlatformMessage
+from thenvoi_rest.core.api_error import ApiError
 
 from .event import (
     MessageEvent,
@@ -40,7 +42,6 @@ if TYPE_CHECKING:
         ContactAddedPayload,
         ContactRemovedPayload,
     )
-    from thenvoi.runtime.types import PlatformMessage
 
 logger = logging.getLogger(__name__)
 
@@ -439,7 +440,7 @@ class ThenvoiLink:
         except Exception as e:
             logger.warning("Failed to mark message %s as failed: %s", message_id, e)
 
-    async def get_next_message(self, room_id: str) -> "PlatformMessage | None":
+    async def get_next_message(self, room_id: str) -> PlatformMessage | None:
         """
         Get next unprocessed message for a room from the server.
 
@@ -449,9 +450,6 @@ class ThenvoiLink:
             PlatformMessage if there's an unprocessed message,
             None if no unprocessed messages (204 No Content) or on error.
         """
-        from thenvoi_rest.core.api_error import ApiError
-        from thenvoi.runtime.types import PlatformMessage
-
         logger.debug("Getting next message for room %s", room_id)
         try:
             response = await self.rest.agent_api_messages.get_agent_next_message(
@@ -483,3 +481,55 @@ class ThenvoiLink:
         except Exception as e:
             logger.warning("Failed to get next message: %s", e)
             return None
+
+    async def get_stale_processing_messages(
+        self, room_id: str
+    ) -> list[PlatformMessage]:
+        """
+        Get messages stuck in 'processing' state for a room.
+
+        On agent restart, messages that were being processed when the agent
+        crashed remain in 'processing' state. The /next endpoint skips them,
+        so we need to find and re-process them explicitly.
+
+        Returns:
+            List of PlatformMessage objects in processing state.
+        """
+        try:
+            messages = []
+            page = 1
+            while True:
+                response = await self.rest.agent_api_messages.list_agent_messages(
+                    chat_id=room_id,
+                    status="processing",
+                    page=page,
+                    request_options=DEFAULT_REQUEST_OPTIONS,
+                )
+                for item in response.data:
+                    messages.append(
+                        PlatformMessage(
+                            id=item.id,
+                            room_id=item.chat_room_id or room_id,
+                            content=item.content,
+                            sender_id=item.sender_id,
+                            sender_type=item.sender_type,
+                            sender_name=item.sender_name or "",
+                            message_type=item.message_type,
+                            metadata=item.metadata or {},
+                            created_at=item.inserted_at or datetime.now(timezone.utc),
+                        )
+                    )
+
+                total_pages = response.metadata.total_pages
+                if total_pages is None or page >= total_pages:
+                    break
+                page += 1
+
+            return messages
+        except Exception as e:
+            logger.warning(
+                "Failed to get stale processing messages for room %s: %s",
+                room_id,
+                e,
+            )
+            return []

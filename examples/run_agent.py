@@ -1,4 +1,14 @@
 #!/usr/bin/env python3
+# /// script
+# requires-python = ">=3.11"
+# dependencies = [
+#   "thenvoi-sdk[langgraph,anthropic,pydantic-ai,claude_sdk,parlant,crewai,a2a,codex]",
+#   "python-dotenv>=1.1.1",
+# ]
+#
+# [tool.uv.sources]
+# thenvoi-sdk = { git = "https://github.com/thenvoi/thenvoi-sdk-python.git" }
+# ///
 """
 Run Thenvoi SDK agents using the composition pattern.
 
@@ -21,6 +31,9 @@ Usage:
     uv run python examples/run_agent.py --example parlant
     uv run python examples/run_agent.py --example crewai
     uv run python examples/run_agent.py --example crewai --streaming  # Show tool calls
+    uv run python examples/run_agent.py --example codex
+    uv run python examples/run_agent.py --example codex --agent darter --codex-transport stdio
+    uv run python examples/run_agent.py --example codex --agent darter --codex-transport ws --codex-ws-url ws://127.0.0.1:8765
     uv run python examples/run_agent.py --example a2a --a2a-url http://localhost:10000  # A2A bridge
     uv run python examples/run_agent.py --example a2a_gateway              # A2A Gateway (exposes peers)
     uv run python examples/run_agent.py --example a2a_gateway --gateway-port 8080  # Custom port
@@ -43,10 +56,13 @@ Setup:
 4. For A2A Gateway example, the gateway exposes Thenvoi platform peers as A2A endpoints
 """
 
+from __future__ import annotations
+
 import argparse
 import asyncio
 import logging
 import os
+from pathlib import Path
 
 from dotenv import load_dotenv
 
@@ -147,6 +163,20 @@ CREWAI_DEFAULTS = {
     "complex topics into understandable insights.",
 }
 
+# When --model is left at the default "openai:gpt-4o", these examples override
+# it to a framework-appropriate model. The user can always pass --model
+# explicitly to bypass this.
+_DEFAULT_MODELS: dict[str, str] = {
+    "pydantic_ai_contacts": "anthropic:claude-sonnet-4-5",
+    "contacts_auto": "anthropic:claude-sonnet-4-5",
+    "contacts_hub": "anthropic:claude-sonnet-4-5",
+    "contacts_broadcast": "anthropic:claude-sonnet-4-5",
+    "anthropic": "claude-sonnet-4-5-20250929",
+    "claude_sdk": "claude-sonnet-4-5-20250929",
+    "parlant": "gpt-4o",
+    "crewai": "gpt-4o",
+}
+
 CONTACTS_INSTRUCTIONS = """
 ## Contact Management Assistant
 
@@ -196,7 +226,7 @@ async def run_langgraph_agent(
     ws_url: str,
     custom_section: str,
     logger: logging.Logger,
-):
+) -> None:
     """Run the LangGraph agent."""
     from langchain_openai import ChatOpenAI
     from langgraph.checkpoint.memory import InMemorySaver
@@ -231,7 +261,7 @@ async def run_pydantic_ai_agent(
     enable_streaming: bool,
     contact_config: ContactEventConfig | None,
     logger: logging.Logger,
-):
+) -> None:
     """Run the Pydantic AI agent."""
     from thenvoi.adapters import PydanticAIAdapter
 
@@ -287,7 +317,7 @@ async def run_anthropic_agent(
     enable_streaming: bool,
     contact_config: ContactEventConfig | None,
     logger: logging.Logger,
-):
+) -> None:
     """Run the Anthropic SDK agent."""
     from thenvoi.adapters import AnthropicAdapter
 
@@ -330,7 +360,7 @@ async def run_claude_sdk_agent(
     enable_streaming: bool,
     contact_config: ContactEventConfig | None,
     logger: logging.Logger,
-):
+) -> None:
     """Run the Claude Agent SDK agent."""
     from thenvoi.adapters import ClaudeSDKAdapter
 
@@ -371,7 +401,7 @@ async def run_parlant_agent(
     custom_section: str,
     enable_streaming: bool,
     logger: logging.Logger,
-):
+) -> None:
     """Run the Parlant agent."""
     from thenvoi.adapters import ParlantAdapter
 
@@ -403,7 +433,7 @@ async def run_crewai_agent(
     custom_section: str,
     enable_streaming: bool,
     logger: logging.Logger,
-):
+) -> None:
     """Run the CrewAI agent."""
     from thenvoi.adapters import CrewAIAdapter
 
@@ -428,6 +458,67 @@ async def run_crewai_agent(
     await agent.run()
 
 
+async def run_codex_agent(
+    agent_id: str,
+    api_key: str,
+    rest_url: str,
+    ws_url: str,
+    custom_section: str,
+    codex_transport: str,
+    codex_ws_url: str,
+    codex_model: str | None,
+    codex_personality: str,
+    codex_approval_policy: str,
+    codex_approval_mode: str,
+    codex_turn_task_markers: bool,
+    codex_cwd: str,
+    codex_sandbox: str | None,
+    codex_reasoning_effort: str | None,
+    logger: logging.Logger,
+) -> None:
+    """Run the Codex app-server adapter."""
+    from thenvoi.adapters import CodexAdapter
+    from thenvoi.adapters.codex import CodexAdapterConfig
+
+    adapter = CodexAdapter(
+        config=CodexAdapterConfig(
+            transport=codex_transport,  # type: ignore[arg-type]  # str from CLI args, validated at runtime
+            cwd=codex_cwd,
+            model=codex_model,
+            personality=codex_personality,  # type: ignore[arg-type]  # str from CLI args, validated at runtime
+            approval_policy=codex_approval_policy,
+            approval_mode=codex_approval_mode,  # type: ignore[arg-type]  # str from CLI args, validated at runtime
+            sandbox=codex_sandbox,
+            reasoning_effort=codex_reasoning_effort,  # type: ignore[arg-type]  # str from CLI args, validated at runtime
+            codex_ws_url=codex_ws_url,
+            custom_section=custom_section,
+            include_base_instructions=True,
+            enable_task_events=True,
+            emit_turn_task_markers=codex_turn_task_markers,
+            enable_execution_reporting=False,
+            emit_thought_events=False,
+            fallback_send_agent_text=True,
+            experimental_api=True,
+        )
+    )
+
+    agent = Agent.create(
+        adapter=adapter,
+        agent_id=agent_id,
+        api_key=api_key,
+        ws_url=ws_url,
+        rest_url=rest_url,
+    )
+
+    logger.info(
+        "Starting Codex agent (transport=%s, model=%s, cwd=%s)",
+        codex_transport,
+        codex_model or "auto",
+        codex_cwd,
+    )
+    await agent.run()
+
+
 async def run_pydantic_ai_contacts_agent(
     agent_id: str,
     api_key: str,
@@ -435,7 +526,7 @@ async def run_pydantic_ai_contacts_agent(
     ws_url: str,
     model: str,
     logger: logging.Logger,
-):
+) -> None:
     """Run Pydantic AI agent with contact management focus.
 
     This example demonstrates using contact tools via natural language:
@@ -473,7 +564,7 @@ async def run_contacts_auto_agent(
     ws_url: str,
     model: str,
     logger: logging.Logger,
-):
+) -> None:
     """Run agent with CALLBACK strategy that auto-approves contact requests.
 
     This example demonstrates:
@@ -482,10 +573,9 @@ async def run_contacts_auto_agent(
     - broadcast_changes=True to notify all rooms of contact updates
     """
     from thenvoi.adapters import PydanticAIAdapter
-    from thenvoi.platform.event import ContactRequestReceivedEvent, ContactEvent
-    from thenvoi.runtime.contact_tools import ContactTools
+    from thenvoi.platform.event import ContactRequestReceivedEvent
 
-    async def auto_approve(event: ContactEvent, tools: ContactTools) -> None:
+    async def auto_approve(event: "ContactEvent", tools: "ContactTools") -> None:
         """Auto-approve all contact requests."""
         if isinstance(event, ContactRequestReceivedEvent):
             if event.payload:
@@ -531,7 +621,7 @@ async def run_contacts_hub_agent(
     ws_url: str,
     model: str,
     logger: logging.Logger,
-):
+) -> None:
     """Run agent with HUB_ROOM strategy for LLM-driven contact decisions.
 
     This example demonstrates:
@@ -590,7 +680,7 @@ async def run_contacts_broadcast_agent(
     ws_url: str,
     model: str,
     logger: logging.Logger,
-):
+) -> None:
     """Run agent with broadcast-only contact notifications.
 
     This example demonstrates:
@@ -641,7 +731,7 @@ async def run_a2a_agent(
     a2a_url: str,
     enable_debug: bool,
     logger: logging.Logger,
-):
+) -> None:
     """Run the A2A bridge agent."""
     from thenvoi.adapters import A2AAdapter
 
@@ -675,7 +765,7 @@ async def run_a2a_gateway_agent(
     gateway_port: int,
     enable_debug: bool,
     logger: logging.Logger,
-):
+) -> None:
     """Run the A2A Gateway agent.
 
     The gateway connects to Thenvoi platform and exposes discovered peers
@@ -714,7 +804,7 @@ async def run_a2a_gateway_agent(
     await agent.run()
 
 
-async def main():
+async def main() -> None:
     parser = argparse.ArgumentParser(
         description="Run a Thenvoi SDK test agent",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -739,6 +829,10 @@ Examples:
   uv run python examples/run_agent.py --example parlant --streaming       # With tool visibility
   uv run python examples/run_agent.py --example crewai                    # CrewAI adapter
   uv run python examples/run_agent.py --example crewai --streaming        # With tool visibility
+  uv run python examples/run_agent.py --example codex                     # Codex app-server adapter
+  uv run python examples/run_agent.py --example codex --agent darter      # Run Codex as darter agent
+  uv run python examples/run_agent.py --example codex --codex-transport stdio
+  uv run python examples/run_agent.py --example codex --codex-transport ws --codex-ws-url ws://127.0.0.1:8765
   uv run python examples/run_agent.py --example a2a                       # A2A bridge (default: localhost:10000)
   uv run python examples/run_agent.py --example a2a --debug               # A2A with debug logging (context_id tracing)
   uv run python examples/run_agent.py --example a2a --a2a-url http://remote:8080  # A2A with custom URL
@@ -763,6 +857,7 @@ Examples:
             "claude_sdk",
             "parlant",
             "crewai",
+            "codex",
             "a2a",
             "a2a_gateway",
         ],
@@ -806,6 +901,70 @@ Examples:
         help="Enable tool call/result visibility for anthropic/claude_sdk/parlant/crewai (default: False)",
     )
     parser.add_argument(
+        "--codex-transport",
+        choices=["stdio", "ws"],
+        default="stdio",
+        help="Codex transport mode (default: stdio)",
+    )
+    parser.add_argument(
+        "--codex-ws-url",
+        default=os.getenv("CODEX_WS_URL", "ws://127.0.0.1:8765"),
+        help="Codex WebSocket URL when --codex-transport=ws",
+    )
+    parser.add_argument(
+        "--codex-role",
+        default=None,
+        help="Role name; loads prompt from prompts/{role}.md into custom_section",
+    )
+    parser.add_argument(
+        "--codex-personality",
+        choices=["friendly", "pragmatic", "none"],
+        default="pragmatic",
+        help="Codex personality (default: pragmatic)",
+    )
+    parser.add_argument(
+        "--codex-model",
+        default=None,
+        help="Codex model id override (default: auto-select via model/list)",
+    )
+    parser.add_argument(
+        "--codex-cwd",
+        default=os.getcwd(),
+        help="Working directory given to Codex app-server (default: current directory)",
+    )
+    parser.add_argument(
+        "--codex-reasoning-effort",
+        choices=["none", "minimal", "low", "medium", "high", "xhigh"],
+        default=None,
+        help="Codex reasoning effort level",
+    )
+    parser.add_argument(
+        "--codex-sandbox",
+        default=os.getenv("CODEX_SANDBOX", "external-sandbox"),
+        help=(
+            "Optional Codex sandbox override. "
+            "Examples: external-sandbox, workspace-write, danger-full-access, "
+            "or legacy aliases like workspaceWrite."
+        ),
+    )
+    parser.add_argument(
+        "--codex-approval-policy",
+        default="never",
+        help="Codex approvalPolicy value (default: never)",
+    )
+    parser.add_argument(
+        "--codex-approval-mode",
+        choices=["manual", "auto_accept", "auto_decline"],
+        default="manual",
+        help="How adapter answers Codex approval requests (default: manual)",
+    )
+    parser.add_argument(
+        "--codex-turn-task-markers",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="Emit synthetic Codex turn started/completed task events (default: False)",
+    )
+    parser.add_argument(
         "--a2a-url",
         default=os.getenv("A2A_AGENT_URL", "http://localhost:10000"),
         help="URL of the remote A2A agent (default: http://localhost:10000 or A2A_AGENT_URL env var)",
@@ -846,6 +1005,7 @@ Examples:
         "claude_sdk": "anthropic_agent",
         "parlant": "parlant_agent",
         "crewai": "crewai_agent",
+        "codex": "simple_agent",
         "a2a": "a2a_agent",
         "a2a_gateway": "a2a_gateway_agent",
     }
@@ -881,6 +1041,12 @@ Examples:
             contact_config.broadcast_changes,
         )
 
+    # Resolve model: override the CLI default when the user hasn't
+    # explicitly chosen a model and the example needs a different one.
+    model = args.model
+    if model == "openai:gpt-4o" and args.example in _DEFAULT_MODELS:
+        model = _DEFAULT_MODELS[args.example]
+
     try:
         if args.example == "langgraph":
             await run_langgraph_agent(
@@ -897,16 +1063,13 @@ Examples:
                 api_key=api_key,
                 rest_url=rest_url,
                 ws_url=ws_url,
-                model=args.model,
+                model=model,
                 custom_section=args.custom_section,
                 enable_streaming=args.streaming,
                 contact_config=contact_config,
                 logger=logger,
             )
         elif args.example == "pydantic_ai_contacts":
-            model = args.model
-            if model == "openai:gpt-4o":
-                model = "anthropic:claude-sonnet-4-5"
             await run_pydantic_ai_contacts_agent(
                 agent_id=agent_id,
                 api_key=api_key,
@@ -916,9 +1079,6 @@ Examples:
                 logger=logger,
             )
         elif args.example == "contacts_auto":
-            model = args.model
-            if model == "openai:gpt-4o":
-                model = "anthropic:claude-sonnet-4-5"
             await run_contacts_auto_agent(
                 agent_id=agent_id,
                 api_key=api_key,
@@ -928,9 +1088,6 @@ Examples:
                 logger=logger,
             )
         elif args.example == "contacts_hub":
-            model = args.model
-            if model == "openai:gpt-4o":
-                model = "anthropic:claude-sonnet-4-5"
             await run_contacts_hub_agent(
                 agent_id=agent_id,
                 api_key=api_key,
@@ -940,9 +1097,6 @@ Examples:
                 logger=logger,
             )
         elif args.example == "contacts_broadcast":
-            model = args.model
-            if model == "openai:gpt-4o":
-                model = "anthropic:claude-sonnet-4-5"
             await run_contacts_broadcast_agent(
                 agent_id=agent_id,
                 api_key=api_key,
@@ -952,10 +1106,6 @@ Examples:
                 logger=logger,
             )
         elif args.example == "anthropic":
-            # For Anthropic example, use claude model format if default model is still set
-            model = args.model
-            if model == "openai:gpt-4o":
-                model = "claude-sonnet-4-5-20250929"
             await run_anthropic_agent(
                 agent_id=agent_id,
                 api_key=api_key,
@@ -968,10 +1118,6 @@ Examples:
                 logger=logger,
             )
         elif args.example == "claude_sdk":
-            # For Claude SDK example, use claude model format if default model is still set
-            model = args.model
-            if model == "openai:gpt-4o":
-                model = "claude-sonnet-4-5-20250929"
             await run_claude_sdk_agent(
                 agent_id=agent_id,
                 api_key=api_key,
@@ -985,10 +1131,6 @@ Examples:
                 logger=logger,
             )
         elif args.example == "parlant":
-            # For Parlant example, use OpenAI model format
-            model = args.model
-            if model == "openai:gpt-4o":
-                model = "gpt-4o"
             await run_parlant_agent(
                 agent_id=agent_id,
                 api_key=api_key,
@@ -1000,10 +1142,6 @@ Examples:
                 logger=logger,
             )
         elif args.example == "crewai":
-            # For CrewAI example, use OpenAI model format
-            model = args.model
-            if model == "openai:gpt-4o":
-                model = "gpt-4o"
             await run_crewai_agent(
                 agent_id=agent_id,
                 api_key=api_key,
@@ -1012,6 +1150,44 @@ Examples:
                 model=model,
                 custom_section=args.custom_section,
                 enable_streaming=args.streaming,
+                logger=logger,
+            )
+        elif args.example == "codex":
+            # Load role prompt from file if --codex-role is set
+            codex_custom = args.custom_section
+            if args.codex_role:
+                prompt_file = (
+                    Path(__file__).parent
+                    / "codex"
+                    / "prompts"
+                    / f"{args.codex_role}.md"
+                )
+                if prompt_file.exists():
+                    codex_custom = prompt_file.read_text(encoding="utf-8")
+                    logger.info("Using role prompt from: %s", prompt_file)
+                else:
+                    logger.warning(
+                        "Role '%s' specified but no prompt file at %s",
+                        args.codex_role,
+                        prompt_file,
+                    )
+
+            await run_codex_agent(
+                agent_id=agent_id,
+                api_key=api_key,
+                rest_url=rest_url,
+                ws_url=ws_url,
+                custom_section=codex_custom,
+                codex_transport=args.codex_transport,
+                codex_ws_url=args.codex_ws_url,
+                codex_model=args.codex_model,
+                codex_personality=args.codex_personality,
+                codex_approval_policy=args.codex_approval_policy,
+                codex_approval_mode=args.codex_approval_mode,
+                codex_turn_task_markers=args.codex_turn_task_markers,
+                codex_cwd=args.codex_cwd,
+                codex_sandbox=args.codex_sandbox,
+                codex_reasoning_effort=args.codex_reasoning_effort,
                 logger=logger,
             )
         elif args.example == "a2a":

@@ -490,3 +490,88 @@ class TestMarkFailed:
 
         call_kwargs = link.rest.agent_api_messages.mark_agent_message_failed.call_args
         assert call_kwargs.kwargs["error"] == "connection reset"
+
+
+class TestGetStaleProcessingMessages:
+    """Tests for stale processing recovery pagination."""
+
+    @pytest.mark.asyncio
+    async def test_paginates_across_all_pages(self):
+        """get_stale_processing_messages should fetch every result page."""
+        link = ThenvoiLink(agent_id="agent-123", api_key="test-key")
+        link.rest = MagicMock()
+
+        msg_1 = MagicMock()
+        msg_1.id = "msg-1"
+        msg_1.chat_room_id = "room-1"
+        msg_1.content = "first"
+        msg_1.sender_id = "user-1"
+        msg_1.sender_type = "User"
+        msg_1.sender_name = "User One"
+        msg_1.message_type = "text"
+        msg_1.metadata = {}
+        msg_1.inserted_at = None
+
+        msg_2 = MagicMock()
+        msg_2.id = "msg-2"
+        msg_2.chat_room_id = "room-1"
+        msg_2.content = "second"
+        msg_2.sender_id = "user-2"
+        msg_2.sender_type = "User"
+        msg_2.sender_name = "User Two"
+        msg_2.message_type = "text"
+        msg_2.metadata = {}
+        msg_2.inserted_at = None
+
+        response_page_1 = MagicMock()
+        response_page_1.data = [msg_1]
+        response_page_1.metadata = MagicMock(page=1, total_pages=2)
+
+        response_page_2 = MagicMock()
+        response_page_2.data = [msg_2]
+        response_page_2.metadata = MagicMock(page=2, total_pages=2)
+
+        link.rest.agent_api_messages.list_agent_messages = AsyncMock(
+            side_effect=[response_page_1, response_page_2]
+        )
+
+        messages = await link.get_stale_processing_messages("room-1")
+
+        assert [message.id for message in messages] == ["msg-1", "msg-2"]
+        assert link.rest.agent_api_messages.list_agent_messages.await_count == 2
+        first_call = link.rest.agent_api_messages.list_agent_messages.await_args_list[0]
+        second_call = link.rest.agent_api_messages.list_agent_messages.await_args_list[
+            1
+        ]
+        assert first_call.kwargs["page"] == 1
+        assert second_call.kwargs["page"] == 2
+
+    @pytest.mark.asyncio
+    async def test_stops_after_first_page_when_total_pages_missing(self):
+        """Missing pagination metadata should safely return the first page."""
+        link = ThenvoiLink(agent_id="agent-123", api_key="test-key")
+        link.rest = MagicMock()
+
+        msg = MagicMock()
+        msg.id = "msg-1"
+        msg.chat_room_id = "room-1"
+        msg.content = "first"
+        msg.sender_id = "user-1"
+        msg.sender_type = "User"
+        msg.sender_name = "User One"
+        msg.message_type = "text"
+        msg.metadata = {}
+        msg.inserted_at = None
+
+        response_page_1 = MagicMock()
+        response_page_1.data = [msg]
+        response_page_1.metadata = MagicMock(total_pages=None)
+
+        link.rest.agent_api_messages.list_agent_messages = AsyncMock(
+            return_value=response_page_1
+        )
+
+        messages = await link.get_stale_processing_messages("room-1")
+
+        assert [message.id for message in messages] == ["msg-1"]
+        link.rest.agent_api_messages.list_agent_messages.assert_awaited_once()

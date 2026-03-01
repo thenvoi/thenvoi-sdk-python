@@ -262,6 +262,63 @@ class TestToolExecution:
         assert mock_tools.send_event.call_count == 2
 
     @pytest.mark.asyncio
+    async def test_send_event_403_does_not_crash_tool_execution(self, mock_tools):
+        """send_event 403 should not prevent tool from executing."""
+        from anthropic.types import ToolUseBlock
+
+        adapter = AnthropicAdapter(enable_execution_reporting=True)
+
+        mock_response = MagicMock()
+        mock_response.content = [
+            ToolUseBlock(
+                type="tool_use",
+                id="tool-1",
+                name="thenvoi_send_message",
+                input={"content": "Hello"},
+            )
+        ]
+
+        # Simulate 403 on event reporting
+        mock_tools.send_event.side_effect = Exception("403 Forbidden")
+        mock_tools.execute_tool_call.return_value = {"status": "sent"}
+
+        results = await adapter._process_tool_calls(mock_response, mock_tools)
+
+        # Tool should still have executed successfully
+        assert len(results) == 1
+        assert results[0]["is_error"] is False
+        assert "sent" in results[0]["content"]
+        mock_tools.execute_tool_call.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_send_event_failure_logs_warning(self, mock_tools, caplog):
+        """send_event failures should be logged as warnings."""
+        import logging
+
+        from anthropic.types import ToolUseBlock
+
+        adapter = AnthropicAdapter(enable_execution_reporting=True)
+
+        mock_response = MagicMock()
+        mock_response.content = [
+            ToolUseBlock(
+                type="tool_use",
+                id="tool-1",
+                name="thenvoi_send_message",
+                input={"content": "Hello"},
+            )
+        ]
+
+        mock_tools.send_event.side_effect = Exception("403 Forbidden")
+        mock_tools.execute_tool_call.return_value = {"status": "sent"}
+
+        with caplog.at_level(logging.WARNING):
+            await adapter._process_tool_calls(mock_response, mock_tools)
+
+        assert "Failed to send tool_call event: 403 Forbidden" in caplog.text
+        assert "Failed to send tool_result event: 403 Forbidden" in caplog.text
+
+    @pytest.mark.asyncio
     async def test_handles_tool_error(self, mock_tools):
         """Should handle tool execution errors gracefully."""
         from anthropic.types import ToolUseBlock

@@ -244,7 +244,7 @@ class MentionRouter:
             all_failed = len(errors) == len(dispatch_list)
             # Full details for platform operators (mark_failed) and logs
             internal_summaries = [
-                f"'{name}' (@{user}): {str(err)[:_MAX_ERR_LEN]}"
+                f"'{name}' (@{user}): {str(err)[:_MAX_ERR_LEN]}{'...' if len(str(err)) > _MAX_ERR_LEN else ''}"
                 for name, user, err in errors
             ]
             internal_message = "; ".join(internal_summaries)
