@@ -173,7 +173,12 @@ class Agent:
         )
 
         self._started = True
-        logger.info("Agent started: %s", self._runtime.agent_name)
+
+        from thenvoi import __version__
+
+        logger.info(
+            "Agent started: %s (thenvoi-sdk %s)", self._runtime.agent_name, __version__
+        )
 
     async def stop(self, timeout: float | None = None) -> bool:
         """
