@@ -8,25 +8,16 @@ gateway client, ensuring conversation continuity.
 from __future__ import annotations
 
 import os
-import sys
-from pathlib import Path
 from unittest.mock import AsyncMock
 
 import pytest
 
-# Add demo_orchestrator to path (from tests/example_agents/a2a_gateway/)
-demo_orchestrator_path = (
-    Path(__file__).parent.parent.parent.parent
-    / "examples"
-    / "a2a_gateway"
-    / "demo_orchestrator"
-)
-sys.path.insert(0, str(demo_orchestrator_path))
-
 # Set dummy OpenAI API key for testing (model won't be called)
 os.environ.setdefault("OPENAI_API_KEY", "test-key-for-unit-tests")
 
-from agent import call_peer_agent, set_gateway_client  # noqa: E402
+from thenvoi.integrations.a2a_gateway.orchestrator.agent import (
+    make_call_peer_agent_tool,
+)
 
 
 class TestOrchestratorContextId:
@@ -49,12 +40,12 @@ class TestOrchestratorContextId:
         - LangGraph passes thread_id in config["configurable"]["thread_id"]
         - call_peer_agent should extract this and pass it as context_id to call_peer
         """
-        set_gateway_client(mock_gateway_client)
+        call_peer_agent_tool = make_call_peer_agent_tool(mock_gateway_client)
 
         # LangGraph passes thread_id in config["configurable"]["thread_id"]
         config = {"configurable": {"thread_id": "ctx-user-123"}}
 
-        await call_peer_agent.ainvoke(
+        await call_peer_agent_tool.ainvoke(
             {"peer_id": "weather-agent", "message": "Hello"},
             config=config,
         )
@@ -72,15 +63,15 @@ class TestOrchestratorContextId:
         self, mock_gateway_client: AsyncMock
     ) -> None:
         """Multiple tool calls with same config should use same context_id."""
-        set_gateway_client(mock_gateway_client)
+        call_peer_agent_tool = make_call_peer_agent_tool(mock_gateway_client)
         config = {"configurable": {"thread_id": "ctx-session-456"}}
 
         # Simulate two tool calls in same conversation
-        await call_peer_agent.ainvoke(
+        await call_peer_agent_tool.ainvoke(
             {"peer_id": "weather-agent", "message": "First question"},
             config=config,
         )
-        await call_peer_agent.ainvoke(
+        await call_peer_agent_tool.ainvoke(
             {"peer_id": "data-agent", "message": "Second question"},
             config=config,
         )
@@ -98,10 +89,10 @@ class TestOrchestratorContextId:
         self, mock_gateway_client: AsyncMock
     ) -> None:
         """call_peer_agent should handle missing config gracefully."""
-        set_gateway_client(mock_gateway_client)
+        call_peer_agent_tool = make_call_peer_agent_tool(mock_gateway_client)
 
         # Call without config (context_id should be None)
-        await call_peer_agent.ainvoke(
+        await call_peer_agent_tool.ainvoke(
             {"peer_id": "weather-agent", "message": "Hello"},
         )
 
@@ -114,11 +105,11 @@ class TestOrchestratorContextId:
         self, mock_gateway_client: AsyncMock
     ) -> None:
         """call_peer_agent should handle config without thread_id."""
-        set_gateway_client(mock_gateway_client)
+        call_peer_agent_tool = make_call_peer_agent_tool(mock_gateway_client)
 
         # Call with config but no thread_id
         config = {"configurable": {}}
-        await call_peer_agent.ainvoke(
+        await call_peer_agent_tool.ainvoke(
             {"peer_id": "weather-agent", "message": "Hello"},
             config=config,
         )

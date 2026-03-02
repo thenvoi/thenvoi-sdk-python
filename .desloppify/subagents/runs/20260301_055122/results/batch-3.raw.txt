@@ -1,0 +1,150 @@
+{
+  "batch": "Abstractions & Dependencies",
+  "batch_index": 3,
+  "assessments": {
+    "abstraction_fitness": 74.0,
+    "dependency_health": 89.0,
+    "mid_level_elegance": 81.0,
+    "low_level_elegance": 83.0
+  },
+  "dimension_notes": {
+    "abstraction_fitness": {
+      "evidence": [
+        "`src/thenvoi/runtime/tools.py` defines tool input models as the stated single source of truth (`TOOL_MODELS`), but `src/thenvoi/adapters/claude_sdk.py` redefines `_MCP_TOOL_SCHEMAS` and explicit tool order tuples, and `src/thenvoi/adapters/crewai.py` redefines parallel Pydantic input models inside `_create_crewai_tools()`.",
+        "`src/thenvoi/adapters/pydantic_ai.py` hand-registers one wrapper function per tool, while `src/thenvoi/runtime/tool_bridge.py` already centralizes canonical ordering/normalization/dispatch. This creates parallel abstraction layers for the same tool contract.",
+        "Argument-shape drift is visible across layers: canonical `SendMessageInput.mentions` is `list[str]` in `src/thenvoi/runtime/tools.py`, but adapter-facing schemas accept strings and rely on `normalize_tool_arguments()` coercion in `src/thenvoi/runtime/tool_bridge.py`."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high",
+      "sub_axes": {
+        "abstraction_leverage": 69.0,
+        "indirection_cost": 72.0,
+        "interface_honesty": 71.0
+      }
+    },
+    "dependency_health": {
+      "evidence": [
+        "Optional-framework adapters (`src/thenvoi/adapters/claude_sdk.py`, `src/thenvoi/adapters/crewai.py`, `src/thenvoi/adapters/langgraph.py`) isolate framework-specific imports, which limits hard coupling in the core runtime.",
+        "No import-cycle evidence is present in the reviewed scope, and runtime-level tool contracts remain centralized in `src/thenvoi/runtime/tools.py` plus `src/thenvoi/runtime/tool_bridge.py`."
+      ],
+      "impact_scope": "module",
+      "fix_scope": "single_edit",
+      "confidence": "medium",
+      "issues_preventing_higher_score": "Framework adapters still carry duplicated per-framework contract definitions and coercion paths, increasing upgrade and compatibility maintenance cost even without direct dependency breakage."
+    },
+    "mid_level_elegance": {
+      "evidence": [
+        "`src/thenvoi/runtime/contact_handler.py` queues broadcast strings via `_on_broadcast` -> `PlatformRuntime._queue_broadcast()`.",
+        "In `src/thenvoi/runtime/platform_runtime.py`, `_on_contact_event()` only calls `_process_broadcasts()` in the `else` branch where no handler exists; in the normal path (handler exists), broadcasts are queued but not drained.",
+        "Tests validate broadcast creation in `tests/runtime/test_contact_handler.py` but there is no integration assertion in `tests/test_platform_runtime.py` that queued broadcasts are injected into active execution contexts after contact events."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "single_edit",
+      "confidence": "high"
+    },
+    "low_level_elegance": {
+      "evidence": [
+        "`src/thenvoi/adapters/crewai.py::_create_crewai_tools()` is a large monolithic method mixing nested schema class definitions, payload formatting rules, tool reporting, dynamic class generation, and registry assembly in one body.",
+        "The same method contains multiple local closures (`_format_success_payload`, `_report_result_payload`, `_build_tool_class`) plus many inline model classes, raising local cognitive load and making edge-case behavior hard to verify.",
+        "Adapter tests in `tests/adapters/test_crewai_adapter.py` mostly assert tool presence and high-level behavior, which leaves the dense internal branching in `_create_crewai_tools()` weakly constrained."
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "medium"
+    }
+  },
+  "findings": [
+    {
+      "dimension": "abstraction_fitness",
+      "identifier": "duplicated_tool_contract_layers",
+      "summary": "Tool contract abstractions are duplicated across adapters instead of reusing the canonical tool model layer.",
+      "related_files": [
+        "src/thenvoi/runtime/tools.py",
+        "src/thenvoi/adapters/claude_sdk.py",
+        "src/thenvoi/adapters/crewai.py",
+        "src/thenvoi/adapters/pydantic_ai.py"
+      ],
+      "evidence": [
+        "`src/thenvoi/runtime/tools.py` declares `TOOL_MODELS` as canonical schema source, yet `src/thenvoi/adapters/claude_sdk.py` defines `_MCP_TOOL_SCHEMAS` and per-adapter tool order constants.",
+        "`src/thenvoi/adapters/crewai.py` rebuilds many parallel tool input models inside `_create_crewai_tools()` rather than deriving from shared models.",
+        "`src/thenvoi/adapters/pydantic_ai.py` manually defines one wrapper function per tool, producing another hand-maintained contract layer."
+      ],
+      "suggestion": "Generate adapter-facing tool definitions from shared metadata in `runtime/tools.py` + `runtime/tool_bridge.py` (name, schema, normalization, success formatting), so each adapter only supplies framework binding mechanics.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "tool_contract_duplication"
+    },
+    {
+      "dimension": "abstraction_fitness",
+      "identifier": "cross_adapter_argument_shape_drift",
+      "summary": "Different adapters expose incompatible argument shapes and rely on hidden normalization to reconcile them.",
+      "related_files": [
+        "src/thenvoi/runtime/tools.py",
+        "src/thenvoi/runtime/tool_bridge.py",
+        "src/thenvoi/adapters/claude_sdk.py",
+        "src/thenvoi/adapters/crewai.py"
+      ],
+      "evidence": [
+        "Canonical `SendMessageInput` uses `mentions: list[str]` in `src/thenvoi/runtime/tools.py`, while `src/thenvoi/adapters/claude_sdk.py` exposes `mentions` as `str` in `_MCP_TOOL_SCHEMAS`.",
+        "`src/thenvoi/adapters/crewai.py` accepts `mentions` as a JSON string and rewrites aliases like `participant_name`/`memory_type`.",
+        "`src/thenvoi/runtime/tool_bridge.py` includes coercion logic (`_parse_mentions`, alias mapping) specifically to compensate for adapter-level shape drift."
+      ],
+      "suggestion": "Define one canonical argument surface for all adapters and move framework-specific parsing to explicit boundary adapters with generated mappings; remove alias/coercion paths that exist only due to internal contract divergence.",
+      "confidence": "medium",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "tool_contract_duplication"
+    },
+    {
+      "dimension": "mid_level_elegance",
+      "identifier": "contact_broadcast_queue_not_drained",
+      "summary": "Contact broadcast messages are queued but not processed on the normal contact-event path.",
+      "related_files": [
+        "src/thenvoi/runtime/platform_runtime.py",
+        "src/thenvoi/runtime/contact_handler.py",
+        "tests/test_platform_runtime.py",
+        "tests/runtime/test_contact_handler.py"
+      ],
+      "evidence": [
+        "`ContactEventHandler._maybe_broadcast()` invokes runtime callback for contact add/remove events.",
+        "`PlatformRuntime._queue_broadcast()` appends queued messages, but `_on_contact_event()` only calls `_process_broadcasts()` inside the `else` branch when no contact handler exists.",
+        "With a configured handler (normal case), queued messages are never flushed into active execution contexts."
+      ],
+      "suggestion": "Call `_process_broadcasts()` after successful `self._contact_handler.handle(event)` (or in a `finally` block) and add a runtime-level test asserting broadcasts are injected into active sessions after a contact event.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "low_level_elegance",
+      "identifier": "crewai_tool_factory_is_overloaded",
+      "summary": "CrewAI tool creation method is oversized and mixes unrelated concerns in one control block.",
+      "related_files": [
+        "src/thenvoi/adapters/crewai.py",
+        "tests/adapters/test_crewai_adapter.py"
+      ],
+      "evidence": [
+        "`_create_crewai_tools()` defines many local Pydantic classes, tool-order registries, payload-format policies, reporting behavior, and dynamic class generation in one method.",
+        "The function combines schema declaration, transport normalization, execution orchestration, and result serialization, making changes high-risk and difficult to reason about locally.",
+        "Tests mainly verify tool presence/high-level effects, leaving many internal branches and nested closures under-specified."
+      ],
+      "suggestion": "Split `_create_crewai_tools()` into small helpers: shared schema registry adapter, payload policy map, and a reusable tool-class builder; then add focused unit tests per helper for argument normalization and payload shape.",
+      "confidence": "medium",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "Framework adapters evolved with independent tool-binding implementations after shared tool primitives were introduced, leaving parallel contract layers in place.",
+      "Contact event pipeline has separated queueing and delivery responsibilities without an always-executed handoff point."
+    ],
+    "likely_symptoms": [
+      "cross_adapter_argument_shape_drift",
+      "crewai_tool_factory_is_overloaded"
+    ],
+    "possible_false_positives": []
+  }
+}

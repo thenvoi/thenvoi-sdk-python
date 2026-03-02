@@ -1,0 +1,143 @@
+{
+  "batch": "Architecture & Coupling",
+  "batch_index": 1,
+  "assessments": {
+    "cross_module_architecture": 70.0,
+    "high_level_elegance": 72.0
+  },
+  "dimension_notes": {
+    "cross_module_architecture": {
+      "evidence": [
+        "tests/integration/conftest.py is a re-export hub that forwards many names from tests.conftest_integration, creating an extra boundary layer for integration tests instead of direct ownership.",
+        "tests/runtime/test_presence.py and tests/runtime/test_runtime.py import helper constructors from tests/conftest.py, coupling runtime test modules to global pytest bootstrap internals.",
+        "examples/coding_agents/test_communication.py mutates sys.path at import time, creating environment-dependent module resolution that bypasses package boundaries."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    },
+    "high_level_elegance": {
+      "evidence": [
+        ".github/actions/GithubToken/generate_token.py performs env loading, JWT creation, network calls, and output side effects at module import scope with no composable entrypoint.",
+        "examples/a2a_bridge/02_with_auth.py and examples/a2a_gateway/01_basic_gateway.py execute setup_logging() at import time, making examples less predictable as importable modules.",
+        "Test support responsibilities are split across tests/conftest.py and tests/integration/conftest.py in a way that obscures ownership (fixture bootstrap vs reusable test helper library)."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "architectural_change",
+      "confidence": "high"
+    }
+  },
+  "findings": [
+    {
+      "dimension": "cross_module_architecture",
+      "identifier": "test_conftest_hub_coupling",
+      "summary": "Global pytest conftest is acting as a shared utility hub, coupling unrelated test modules through a bootstrap file.",
+      "related_files": [
+        "tests/conftest.py",
+        "tests/runtime/test_presence.py",
+        "tests/runtime/test_runtime.py"
+      ],
+      "evidence": [
+        "tests/runtime/test_presence.py imports make_message_event/make_room_added_event/make_room_removed_event from tests.conftest.",
+        "tests/runtime/test_runtime.py imports make_message_event from tests.conftest.",
+        "tests/conftest.py mixes pytest collection hook, fixtures, and event-constructor helpers, turning a test bootstrap module into a cross-module dependency surface."
+      ],
+      "suggestion": "Move reusable event-constructor helpers into a dedicated test support module (for example tests/helpers/events.py) and keep conftest files focused on pytest fixture/hook registration.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "test_boundary_blur"
+    },
+    {
+      "dimension": "cross_module_architecture",
+      "identifier": "integration_reexport_layer",
+      "summary": "Integration conftest adds a pass-through re-export layer that increases boundary indirection and maintenance overhead.",
+      "related_files": [
+        "tests/integration/conftest.py",
+        "tests/integration/test_smoke.py",
+        "tests/conftest.py"
+      ],
+      "evidence": [
+        "tests/integration/conftest.py re-exports many symbols from tests.conftest_integration via import list plus mirrored __all__.",
+        "tests/integration/test_smoke.py imports requires_api from tests.integration.conftest, relying on the alias layer rather than direct source ownership.",
+        "The dual maintenance of imported names and __all__ list creates drift risk for integration-test boundary contracts."
+      ],
+      "suggestion": "Collapse to a single integration fixture owner module (or plugin registration pattern) and remove pass-through symbol curation from tests/integration/conftest.py.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "test_boundary_blur"
+    },
+    {
+      "dimension": "cross_module_architecture",
+      "identifier": "import_path_boundary_bypass",
+      "summary": "Example communication test bypasses package boundaries with runtime sys.path mutation.",
+      "related_files": [
+        "examples/coding_agents/test_communication.py",
+        "examples/a2a_bridge/02_with_auth.py"
+      ],
+      "evidence": [
+        "examples/coding_agents/test_communication.py executes sys.path.insert(...) at module import time to resolve local imports.",
+        "This creates implicit path-coupling to repository layout instead of explicit package imports, making behavior dependent on execution location.",
+        "Other examples in the batch use direct package imports (thenvoi.*), showing inconsistent boundary handling."
+      ],
+      "suggestion": "Package shared example utilities under a proper module path and remove sys.path mutation; execute examples via module mode or uv script entrypoints.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "import_time_side_effects"
+    },
+    {
+      "dimension": "high_level_elegance",
+      "identifier": "module_scope_side_effectful_entrypoints",
+      "summary": "Multiple scripts run side effects at import scope, reducing composability and architectural clarity of entrypoints.",
+      "related_files": [
+        ".github/actions/GithubToken/generate_token.py",
+        "examples/a2a_bridge/02_with_auth.py",
+        "examples/a2a_gateway/01_basic_gateway.py",
+        "examples/coding_agents/test_communication.py"
+      ],
+      "evidence": [
+        ".github/actions/GithubToken/generate_token.py performs credential checks, JWT generation, HTTP request, and token output at module top level.",
+        "examples/a2a_bridge/02_with_auth.py and examples/a2a_gateway/01_basic_gateway.py call setup_logging() during import, not inside main().",
+        "examples/coding_agents/test_communication.py configures logging and mutates sys.path at import scope."
+      ],
+      "suggestion": "Adopt a strict entrypoint pattern: keep modules import-safe, move setup/network side effects under guarded main()/cli functions, and expose pure helpers for testability.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "architectural_change",
+      "root_cause_cluster": "import_time_side_effects"
+    },
+    {
+      "dimension": "high_level_elegance",
+      "identifier": "github_token_script_mixed_responsibilities",
+      "summary": "GitHub token generator combines configuration, auth construction, transport, and presentation in one unstructured top-level flow.",
+      "related_files": [
+        ".github/actions/GithubToken/generate_token.py",
+        "src/thenvoi/integrations/codex/stdio_client.py",
+        "src/thenvoi/integrations/codex/websocket_client.py"
+      ],
+      "evidence": [
+        "generate_token.py has no function boundaries for env parsing, JWT creation, HTTP request, and result formatting; all logic is module-global.",
+        "In contrast, codex clients separate lifecycle concerns into connect/close/send/read methods, highlighting the absence of compositional boundaries in generate_token.py.",
+        "The current script shape makes unit-level substitution (e.g., fake request transport) difficult without process-level execution."
+      ],
+      "suggestion": "Refactor generate_token.py into small functions (load_config, build_jwt, request_installation_token, emit_token) plus a guarded main(), allowing clear ownership and easier testing.",
+      "confidence": "medium",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "entrypoint_composition_gap"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "Entrypoint modules are not consistently treated as import-safe composition roots.",
+      "Pytest bootstrap files are absorbing reusable helper responsibilities, blurring boundaries."
+    ],
+    "likely_symptoms": [
+      "integration_reexport_layer",
+      "import_path_boundary_bypass"
+    ],
+    "possible_false_positives": []
+  }
+}

@@ -1,0 +1,90 @@
+{
+  "batch": "Testing & API",
+  "batch_index": 2,
+  "assessments": {
+    "test_strategy": 78.0
+  },
+  "dimension_notes": {
+    "test_strategy": {
+      "evidence": [
+        "`examples/common/bootstrap.py` is a high-fan-in entrypoint (16 importers in packet context), but `tests/test_example_bootstrap.py` validates it mostly through collaborator monkeypatching (`load_platform_urls`, `resolve_agent_credentials`, `Agent.create`, `load_runtime_config`, `create_agent_from_runtime`) rather than integrated behavior.",
+        "`src/thenvoi/integrations/a2a_bridge/session.py` contains TTL and activity-refresh logic (`_evict_expired`, `get_or_create` last_activity updates) that is exercised in isolated store tests, but there is no cross-module test proving router-driven traffic preserves/refreshes sessions under TTL pressure.",
+        "Bridge tests import compatibility shims (`from bridge_core.session import ...`) instead of canonical paths under `thenvoi.integrations.a2a_bridge`, creating coverage concentration on migration aliases rather than the intended public module surface."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "findings": [
+    {
+      "dimension": "test_strategy",
+      "identifier": "over_mocked_bootstrap_contract_tests",
+      "summary": "Bootstrap tests are over-mocked and provide weak confidence for a high-fan-in API path.",
+      "related_files": [
+        "examples/common/bootstrap.py",
+        "tests/test_example_bootstrap.py"
+      ],
+      "evidence": [
+        "`bootstrap_agent` behavior is asserted by patching both internal steps (`load_runtime_config` and `create_agent_from_runtime`) and checking call wiring, not real config-resolution behavior.",
+        "`load_runtime_config` and `create_agent_from_runtime` tests each replace core collaborators, so regressions in integration between URL resolution, credential resolution, and agent creation can pass unit tests.",
+        "Packet context flags this file as over-mocked (`15 mocks vs 13 assertions`) while the module is widely reused."
+      ],
+      "suggestion": "Add at least one integration-style contract test for `bootstrap_agent` that uses real `load_runtime_config` logic and controlled environment variables, mocking only external boundary effects (for example `Agent.create`) to assert end-to-end resolved runtime values passed into agent creation.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "coverage_skew_toward_mocked_units"
+    },
+    {
+      "dimension": "test_strategy",
+      "identifier": "missing_router_session_ttl_integration_test",
+      "summary": "No integration test verifies router dispatch behavior against session TTL/activity semantics.",
+      "related_files": [
+        "src/thenvoi/integrations/a2a_bridge/session.py",
+        "tests/bridge/test_router.py"
+      ],
+      "evidence": [
+        "`session.py` defines activity-sensitive eviction (`_evict_expired`) and refresh-on-access behavior in `get_or_create`.",
+        "Router flow in `src/thenvoi/integrations/a2a_bridge/router.py` depends on `await self._session_store.get_or_create(room_id)` during each routed message.",
+        "Existing tests split concerns (`tests/bridge/test_session.py` for store internals, `tests/bridge/test_router.py` for routing), but there is no test combining a TTL-configured store with router message flow to verify session survival/replacement behavior at module boundaries."
+      ],
+      "suggestion": "Add a cross-module async test that wires `MentionRouter` with `InMemorySessionStore(session_ttl=...)`, simulates activity/expiry transitions, and asserts routing updates session state as expected across consecutive messages.",
+      "confidence": "medium",
+      "impact_scope": "module",
+      "fix_scope": "single_edit",
+      "root_cause_cluster": "coverage_skew_toward_mocked_units"
+    },
+    {
+      "dimension": "test_strategy",
+      "identifier": "canonical_a2a_bridge_import_surface_not_directly_tested",
+      "summary": "Tests target deprecated `bridge_core` compatibility imports instead of canonical `a2a_bridge` imports.",
+      "related_files": [
+        "src/thenvoi/integrations/a2a_bridge/session.py",
+        "src/thenvoi/integrations/a2a_bridge/handler.py"
+      ],
+      "evidence": [
+        "Bridge tests import `InMemorySessionStore`/`SessionData` from `bridge_core.session`, not from `thenvoi.integrations.a2a_bridge.session`.",
+        "`thenvoi-bridge/bridge_core/session.py` and `handler.py` are compatibility shims using `make_registered_module_shim`.",
+        "Coverage through deprecated aliases can miss canonical import-surface regressions (package export/wiring errors) until runtime migration paths change."
+      ],
+      "suggestion": "Add canonical-path import tests (or migrate existing bridge tests) to assert `thenvoi.integrations.a2a_bridge.session` and `.handler` imports and symbol contracts directly, while keeping a minimal separate test for compatibility shims.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "coverage_skew_toward_mocked_units"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "Test suite emphasis is skewed toward unit isolation and compatibility-layer pathways rather than canonical cross-module behavior.",
+      "High-fan-in entrypoints rely on collaborator mocking patterns that reduce detection of integration regressions."
+    ],
+    "likely_symptoms": [
+      "over_mocked_bootstrap_contract_tests",
+      "missing_router_session_ttl_integration_test",
+      "canonical_a2a_bridge_import_surface_not_directly_tested"
+    ],
+    "possible_false_positives": []
+  }
+}

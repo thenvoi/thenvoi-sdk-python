@@ -23,35 +23,43 @@ Environment variables:
 from __future__ import annotations
 
 import asyncio
-import logging
 import os
-import signal
-from pathlib import Path
 from typing import Any, Literal
 
-import yaml
-
 from repo_init import initialize_repo
-from thenvoi.config.loader import load_agent_config
-
-# Global flag for graceful shutdown
-_shutdown_event: asyncio.Event | None = None
+from thenvoi.testing.runner_core import (
+    build_runner_execution_contract,
+    RunnerSpec,
+    compose_runner_prompt,
+    configure_runner_logging,
+    create_runner_agent,
+    create_shutdown_event,
+    get_agent_key,
+    get_lock_timeout_seconds,
+    get_platform_urls,
+    get_runner_config_path,
+    log_repo_init_status,
+    optional_text,
+    parse_choice,
+    read_bool_env,
+    run_agent_lifecycle,
+    run_runner_with_adapter,
+    validate_required_mounts,
+)
+from thenvoi.testing.config_loader import load_runner_config
 
 # Required mount points
 REQUIRED_MOUNTS = [
     "/workspace/repo",
 ]
 
-# Retry configuration for connection failures
-MAX_RETRIES = 5
-INITIAL_RETRY_DELAY = 1.0
-MAX_RETRY_DELAY = 60.0
-
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+RUNNER_SPEC = RunnerSpec(
+    required_mounts=tuple(REQUIRED_MOUNTS),
+    mount_hint="Ensure docker-compose.yml mounts /workspace/repo.",
+    agent_key_envs=("AGENT_KEY", "CODEX_AGENT_KEY"),
 )
-logger = logging.getLogger(__name__)
+
+logger = configure_runner_logging(__name__)
 
 CodexTransport = Literal["stdio", "ws"]
 CodexApprovalMode = Literal["manual", "auto_accept", "auto_decline"]
@@ -73,144 +81,70 @@ _REASONING_EFFORTS: dict[str, CodexReasoningEffort] = {
 }
 
 
-def validate_mounts() -> None:
-    """Validate required mount points exist."""
-    missing = [m for m in REQUIRED_MOUNTS if not Path(m).is_dir()]
-    if missing:
-        raise ValueError(
-            f"Missing required mount points: {missing}. "
-            "Ensure docker-compose.yml mounts /workspace/repo."
-        )
-
-
-def load_config(config_path: str, agent_key: str) -> dict[str, Any]:
-    """Load agent configuration from YAML file."""
-    path = Path(config_path).resolve()
-    if not path.exists():
-        raise ValueError(f"Config file not found: {config_path}")
-
-    try:
-        with open(path, encoding="utf-8") as f:
-            config = yaml.safe_load(f)
-    except yaml.YAMLError as e:
-        raise ValueError(f"Invalid YAML in config file: {e}") from e
-    except OSError as e:
-        raise ValueError(f"Failed to read config file: {e}") from e
-
-    if config is None:
-        raise ValueError("Config file is empty")
-
-    agent_id, api_key = load_agent_config(agent_key, config_path=path)
-
-    agent_section = config.get(agent_key, {})
-    result = dict(agent_section) if agent_section else dict(config)
-    result["agent_id"] = agent_id
-    result["api_key"] = api_key
-
-    return result
-
-
 def _env_bool(key: str, default: bool = False) -> bool:
     """Read a boolean from an environment variable."""
-    val = os.environ.get(key, "")
-    if not val:
-        return default
-    return val.lower() in ("1", "true", "yes")
+    return read_bool_env(key, default=default)
 
 
 def _optional_str(value: Any) -> str | None:
     """Return a stripped string or None for empty/missing values."""
-    if value is None:
-        return None
-    text = str(value).strip()
-    return text or None
+    return optional_text(value)
 
 
 def _parse_transport(value: str) -> CodexTransport:
-    parsed = _TRANSPORTS.get(value.lower())
-    if parsed is None:
-        raise ValueError(
-            f"CODEX_TRANSPORT must be one of {', '.join(sorted(_TRANSPORTS))}; got: {value}"
-        )
-    return parsed
+    return parse_choice(
+        value,
+        option_name="CODEX_TRANSPORT",
+        allowed_values=_TRANSPORTS,
+    )
 
 
 def _parse_approval_mode(value: str) -> CodexApprovalMode:
-    parsed = _APPROVAL_MODES.get(value.lower())
-    if parsed is None:
-        raise ValueError(
-            "CODEX_APPROVAL_MODE must be one of "
-            f"{', '.join(sorted(_APPROVAL_MODES))}; got: {value}"
-        )
-    return parsed
+    return parse_choice(
+        value,
+        option_name="CODEX_APPROVAL_MODE",
+        allowed_values=_APPROVAL_MODES,
+    )
 
 
 def _parse_reasoning_effort(value: str | None) -> CodexReasoningEffort | None:
     if value is None:
         return None
-    parsed = _REASONING_EFFORTS.get(value.lower())
-    if parsed is None:
-        raise ValueError(
-            "CODEX_REASONING_EFFORT must be one of "
-            f"{', '.join(sorted(_REASONING_EFFORTS))}; got: {value}"
-        )
-    return parsed
-
-
-def _handle_signal(sig: signal.Signals) -> None:
-    """Handle shutdown signals (SIGTERM, SIGINT)."""
-    logger.info("Received %s, initiating graceful shutdown...", sig.name)
-    if _shutdown_event:
-        _shutdown_event.set()
+    return parse_choice(
+        value,
+        option_name="CODEX_REASONING_EFFORT",
+        allowed_values=_REASONING_EFFORTS,
+    )
 
 
 async def main() -> None:
     """Run the Codex agent from YAML configuration."""
-    global _shutdown_event  # noqa: PLW0603 — module-level event for signal handlers
-    _shutdown_event = asyncio.Event()
+    context = build_runner_execution_contract(
+        RUNNER_SPEC,
+        logger=logger,
+        load_config=load_runner_config,
+        create_shutdown_event_fn=create_shutdown_event,
+        get_config_path=get_runner_config_path,
+        get_agent_key_fn=get_agent_key,
+        get_platform_urls_fn=get_platform_urls,
+        validate_mounts_fn=validate_required_mounts,
+        repo_initializer=initialize_repo,
+        get_lock_timeout_fn=get_lock_timeout_seconds,
+    ).unwrap(operation="Codex docker runner bootstrap")
+    config_path = context.bootstrap.config_path
+    config = context.bootstrap.config
+    repo_init = context.repo_init
 
-    loop = asyncio.get_running_loop()
-    for sig in (signal.SIGTERM, signal.SIGINT):
-        loop.add_signal_handler(sig, _handle_signal, sig)
-
-    config_path = os.environ.get("AGENT_CONFIG")
-    if not config_path:
-        raise ValueError("AGENT_CONFIG environment variable not set")
-
-    agent_key = os.environ.get("AGENT_KEY", os.environ.get("CODEX_AGENT_KEY", "agent"))
-
-    ws_url = os.environ.get(
-        "THENVOI_WS_URL", "wss://app.thenvoi.com/api/v1/socket/websocket"
-    )
-    rest_url = os.environ.get("THENVOI_REST_URL", "https://app.thenvoi.com")
-    if not ws_url:
-        raise ValueError("THENVOI_WS_URL environment variable is empty")
-    if not rest_url:
-        raise ValueError("THENVOI_REST_URL environment variable is empty")
-
-    validate_mounts()
-
-    logger.info("Loading config from: %s (key: %s)", config_path, agent_key)
-    config = load_config(config_path, agent_key)
-    lock_timeout_s = float(os.environ.get("REPO_INIT_LOCK_TIMEOUT_S", "120"))
-    repo_init = initialize_repo(
-        config,
-        agent_key=agent_key,
-        lock_timeout_s=lock_timeout_s,
-    )
-
-    from thenvoi import Agent
     from thenvoi.adapters import CodexAdapter
-    from thenvoi.adapters.codex import CodexAdapterConfig
+    from thenvoi.adapters.codex.adapter import CodexAdapterConfig
 
     agent_id = config["agent_id"]
-    api_key = config["api_key"]
 
     # Codex-specific config from environment (env overrides YAML)
     codex_cwd = (
         _optional_str(os.environ.get("CODEX_CWD"))
         or _optional_str(config.get("workspace"))
-        or repo_init.repo_path
+        or _optional_str(getattr(repo_init, "repo_path", None))
         or "/workspace/repo"
     )
     codex_transport = _parse_transport(
@@ -223,19 +157,13 @@ async def main() -> None:
         config.get("role")
     )
 
-    # Load role prompt from file if specified
-    config_dir = Path(config_path).parent
-    prompt_dir = config_dir / "prompts"
-    custom_section = ""
-    if codex_role:
-        prompt_file = prompt_dir / f"{codex_role}.md"
-        if prompt_file.exists():
-            custom_section = prompt_file.read_text(encoding="utf-8")
-            logger.info("Using role prompt from: %s", prompt_file)
-        else:
-            logger.warning(
-                "Role '%s' specified but no prompt file at %s", codex_role, prompt_file
-            )
+    custom_section = compose_runner_prompt(
+        config_path,
+        role=codex_role,
+        extra_sections=[getattr(repo_init, "context_bundle", "")],
+        default_prompt="",
+        logger=logger,
+    )
 
     codex_sandbox = (
         _optional_str(os.environ.get("CODEX_SANDBOX"))
@@ -264,9 +192,7 @@ async def main() -> None:
             sandbox=codex_sandbox,
             reasoning_effort=codex_reasoning,
             codex_ws_url=os.environ.get("CODEX_WS_URL", "ws://127.0.0.1:8765"),
-            custom_section="\n\n".join(
-                part for part in (custom_section, repo_init.context_bundle) if part
-            ),
+            custom_section=custom_section,
             include_base_instructions=True,
             enable_task_events=True,
             emit_turn_task_markers=codex_turn_markers,
@@ -277,85 +203,26 @@ async def main() -> None:
         )
     )
 
-    agent = Agent.create(
-        adapter=adapter,
-        agent_id=agent_id,
-        api_key=api_key,
-        ws_url=ws_url,
-        rest_url=rest_url,
-    )
-
-    logger.info("Starting Codex agent: %s", agent_id)
-    logger.info(
-        "Codex config: transport=%s, model=%s, cwd=%s, sandbox=%s, role=%s",
-        codex_transport,
-        codex_model or "auto",
-        codex_cwd,
-        codex_sandbox,
-        codex_role or "none",
-    )
-    if repo_init.enabled:
+    def _log_startup() -> None:
+        logger.info("Starting Codex agent: %s", agent_id)
         logger.info(
-            "Repo init: cloned=%s indexed=%s path=%s",
-            repo_init.cloned,
-            repo_init.indexed,
-            repo_init.repo_path,
+            "Codex config: transport=%s, model=%s, cwd=%s, sandbox=%s, role=%s",
+            codex_transport,
+            codex_model or "auto",
+            codex_cwd,
+            codex_sandbox,
+            codex_role or "none",
         )
+        log_repo_init_status(logger=logger, repo_init=repo_init)
 
-    retry_count = 0
-    retry_delay = INITIAL_RETRY_DELAY
-
-    while not _shutdown_event.is_set():
-        try:
-            agent_task = asyncio.create_task(agent.run())
-            shutdown_task = asyncio.create_task(_shutdown_event.wait())
-
-            done, pending = await asyncio.wait(
-                [agent_task, shutdown_task],
-                return_when=asyncio.FIRST_COMPLETED,
-            )
-
-            for task in pending:
-                task.cancel()
-                try:
-                    await task
-                except asyncio.CancelledError:
-                    pass
-
-            if agent_task in done:
-                agent_task.result()
-
-            retry_count = 0
-            retry_delay = INITIAL_RETRY_DELAY
-            break
-
-        except (ConnectionError, OSError) as e:
-            retry_count += 1
-            if retry_count > MAX_RETRIES:
-                logger.error("Max retries (%s) exceeded, giving up", MAX_RETRIES)
-                raise
-
-            logger.warning(
-                "Connection error: %s. Retrying in %.1fs (attempt %s/%s)",
-                e,
-                retry_delay,
-                retry_count,
-                MAX_RETRIES,
-            )
-            await asyncio.sleep(retry_delay)
-            retry_delay = min(retry_delay * 2, MAX_RETRY_DELAY)
-
-        except asyncio.CancelledError:
-            logger.info("Agent task cancelled")
-            break
-
-    logger.info("Shutting down...")
-    try:
-        if hasattr(agent, "close"):
-            await agent.close()
-    except Exception:
-        logger.exception("Error during agent cleanup")
-    logger.info("Agent stopped")
+    await run_runner_with_adapter(
+        context,
+        adapter=adapter,
+        logger=logger,
+        on_started=_log_startup,
+        create_agent_fn=create_runner_agent,
+        run_lifecycle_fn=run_agent_lifecycle,
+    )
 
 
 if __name__ == "__main__":

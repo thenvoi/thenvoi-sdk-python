@@ -7,8 +7,8 @@ from unittest.mock import AsyncMock, MagicMock, PropertyMock
 import pytest
 from aiohttp.test_utils import TestClient, TestServer
 
-from bridge_core.health import HealthServer
-from bridge_core.session import InMemorySessionStore
+from thenvoi.integrations.a2a_bridge.health import HealthServer
+from thenvoi.integrations.a2a_bridge.session import InMemorySessionStore
 
 
 @pytest.fixture
@@ -103,3 +103,5 @@ async def test_stop_handles_cleanup_error(mock_link: MagicMock) -> None:
     await server.stop()  # Should not raise
 
     assert server._runner is None
+    assert server.nonfatal_errors
+    assert server.nonfatal_errors[0]["operation"] == "health_server_cleanup"

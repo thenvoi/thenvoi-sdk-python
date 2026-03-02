@@ -435,3 +435,53 @@ async def test_websocket_client_raises_after_retry_limit(
         assert delays == [0.01]
     finally:
         await client.close()
+
+
+@pytest.mark.asyncio
+async def test_websocket_client_close_records_nonfatal_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class FailingCloseWebSocket(FakeCodexWebSocket):
+        async def close(self) -> None:
+            raise RuntimeError("close boom")
+
+    fake_ws = FailingCloseWebSocket(scenario="basic")
+
+    async def fake_connect(*_args: Any, **_kwargs: Any) -> FailingCloseWebSocket:
+        return fake_ws
+
+    monkeypatch.setattr("websockets.asyncio.client.connect", fake_connect)
+
+    client = CodexWebSocketClient(ws_url="ws://fake.local")
+    await client.connect()
+    await client.close()
+
+    assert client.nonfatal_errors
+    assert client.nonfatal_errors[0]["operation"] == "websocket_close"
+
+
+@pytest.mark.asyncio
+async def test_websocket_client_read_loop_records_nonfatal_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class FailingReadWebSocket(FakeCodexWebSocket):
+        async def __anext__(self) -> str:
+            raise RuntimeError("read boom")
+
+    fake_ws = FailingReadWebSocket(scenario="basic")
+
+    async def fake_connect(*_args: Any, **_kwargs: Any) -> FailingReadWebSocket:
+        return fake_ws
+
+    monkeypatch.setattr("websockets.asyncio.client.connect", fake_connect)
+
+    client = CodexWebSocketClient(ws_url="ws://fake.local")
+    await client.connect()
+    for _ in range(10):
+        if client.nonfatal_errors:
+            break
+        await asyncio.sleep(0)
+
+    assert client.nonfatal_errors
+    assert client.nonfatal_errors[0]["operation"] == "read_ws_loop"
+    await client.close()

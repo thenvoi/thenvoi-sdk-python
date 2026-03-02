@@ -1,0 +1,129 @@
+{
+  "batch": "Abstractions & Dependencies",
+  "batch_index": 1,
+  "assessments": {
+    "abstraction_fitness": 71.5
+  },
+  "dimension_notes": {
+    "abstraction_fitness": {
+      "evidence": [
+        "src/thenvoi/adapters/codex/adapter.py contains many thin forwarding methods (_prepare_turn, _consume_turn_events, _handle_server_request, _handle_local_command, _emit_turn_outcome, etc.) that primarily delegate to helper modules without adding policy.",
+        "Codex helper modules define Protocols (CodexTurnStateProtocol, CodexCommandStateProtocol, CodexToolingStateProtocol) that depend on many private adapter attributes and Any-typed config, indicating indirection without a stable boundary contract.",
+        "src/thenvoi/core/protocols.py composes a large protocol lattice with dict[str, Any]-heavy signatures, while src/thenvoi/runtime/tools.py provides one concrete AgentTools implementation and tests/core/test_protocols.py validates structural conformance broadly rather than distinct implementations.",
+        "src/thenvoi/core/simple_adapter.py and src/thenvoi/core/control_plane_adapter.py preserve dual entrypoints via legacy arg-bag compatibility wrappers, and multiple adapters remain decorated with legacy_chat_turn_compat, extending long-term dual-surface complexity.",
+        "src/thenvoi/testing/runner_core.py and src/thenvoi/testing/example_runners.py pass dict[str, Any]/dict[str, object] and many injected callables through bootstrap paths, creating implicit parameter bags rather than typed startup contracts."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high",
+      "sub_axes": {
+        "abstraction_leverage": 68.0,
+        "indirection_cost": 62.0,
+        "interface_honesty": 66.0
+      }
+    }
+  },
+  "findings": [
+    {
+      "dimension": "abstraction_fitness",
+      "identifier": "codex_wrapper_chain_facade",
+      "summary": "Codex adapter keeps a high-cost wrapper chain where adapter methods mostly relay to helper modules through private-state Protocol seams.",
+      "related_files": [
+        "src/thenvoi/adapters/codex/adapter.py",
+        "src/thenvoi/adapters/codex/adapter_turn_processing.py",
+        "src/thenvoi/adapters/codex/adapter_commands.py",
+        "src/thenvoi/adapters/codex/adapter_tooling.py"
+      ],
+      "evidence": [
+        "CodexAdapter defines many methods whose body is only `return await <helper>(self, ...)` or `return <helper>(...)`, creating multiple call hops per behavior.",
+        "Helper Protocols require access to many adapter internals (`_client`, `_room_threads`, `_pending_approvals`, `_prompt_injected_rooms`, config Any), so the seam is not truly decoupled.",
+        "Behavioral responsibilities are split across files but still coupled by adapter private fields, increasing indirection without reducing dependency surface."
+      ],
+      "suggestion": "Replace Protocol-plus-forwarder pattern with a concrete `CodexSessionCoordinator` (or similar) owning typed state and operations; move turn/command/tool workflows behind that object and keep adapter as lifecycle shell only.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "architectural_change",
+      "root_cause_cluster": "facade_over_fragmentation"
+    },
+    {
+      "dimension": "abstraction_fitness",
+      "identifier": "protocol_lattice_without_extension_pressure",
+      "summary": "The tool protocol lattice is broad and Any-heavy despite effectively one operational implementation, reducing interface honesty.",
+      "related_files": [
+        "src/thenvoi/core/protocols.py",
+        "src/thenvoi/runtime/tools.py",
+        "tests/core/test_protocols.py",
+        "src/thenvoi/core/types.py"
+      ],
+      "evidence": [
+        "Protocols compose multiple layers (Messaging/Participant/Contact/Memory/Schema/Dispatch/Agent) with many `dict[str, Any]` return and argument types.",
+        "AgentInput in core/types is typed to AgentToolsProtocol while runtime/tools provides one concrete AgentTools that mixes room/contact/memory/schema/dispatch responsibilities.",
+        "tests/core/test_protocols.py validates one dummy object against almost every protocol, signaling broad structural compatibility over focused boundary contracts."
+      ],
+      "suggestion": "Collapse to fewer capability interfaces that map to real extension points, introduce typed DTOs for high-traffic tool payloads, and keep internal-only operations concrete instead of protocolized.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "facade_over_fragmentation"
+    },
+    {
+      "dimension": "abstraction_fitness",
+      "identifier": "legacy_turn_argbag_persists",
+      "summary": "Legacy arg-bag compatibility keeps a dual on_message API shape active across adapters, increasing abstraction overhead and ambiguity.",
+      "related_files": [
+        "src/thenvoi/core/simple_adapter.py",
+        "src/thenvoi/core/control_plane_adapter.py",
+        "src/thenvoi/adapters/langgraph.py",
+        "src/thenvoi/adapters/crewai.py",
+        "src/thenvoi/adapters/claude_sdk.py",
+        "src/thenvoi/adapters/codex/adapter.py"
+      ],
+      "evidence": [
+        "legacy_chat_turn_compat and legacy_control_turn_compat accept mixed inputs (`turn`, `msg`, `history`, `tools`, optional flags) and normalize at runtime.",
+        "Multiple adapters still use the decorator, so both typed context and legacy argument-bag invocation paths remain part of normal behavior.",
+        "normalize_* methods perform runtime type resolution/required-arg checks that would be unnecessary with a single canonical turn contract."
+      ],
+      "suggestion": "Define and publish a removal timeline for legacy arg-bag invocation, migrate adapters/tests to context-only invocation, and delete normalize/decorator compatibility paths after cutoff.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "facade_over_fragmentation"
+    },
+    {
+      "dimension": "abstraction_fitness",
+      "identifier": "runner_bootstrap_param_bag",
+      "summary": "Runner bootstrap APIs rely on large callable injection surfaces and dict-based config bags, obscuring boundary contracts.",
+      "related_files": [
+        "src/thenvoi/testing/runner_core.py",
+        "src/thenvoi/testing/example_runners.py",
+        "src/thenvoi/example_support/bootstrap.py"
+      ],
+      "evidence": [
+        "runner_core exposes bootstrap/build functions with many injectable callables and `dict[str, Any]` config flow across RepoInitializer/RunnerAgentFactory/RunnerLifecycleFn seams.",
+        "example_runners builds heterogeneous `dict[str, object]` kwargs from flags, coupling call sites to string-key contracts instead of typed runner params.",
+        "bootstrap.py uses `adapter: Any` and generic factory hooks, reinforcing weakly typed startup boundaries."
+      ],
+      "suggestion": "Introduce typed runner request/plan dataclasses (per framework family) and narrow hook protocols to fewer explicit responsibilities; convert kwargs maps to typed constructor inputs.",
+      "confidence": "medium",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "implicit_parameter_bags"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "Compatibility-first layering preserved multiple temporary seams (legacy turn args, shim/protocol wrappers) beyond their short-term migration value.",
+      "Boundary abstractions are often structural (Protocol + forwarding) rather than behavioral (owned state + explicit policies).",
+      "Dict/Any payload contracts were favored for flexibility, but now act as implicit parameter bags across runtime and testing subsystems."
+    ],
+    "likely_symptoms": [
+      "codex_wrapper_chain_facade",
+      "protocol_lattice_without_extension_pressure",
+      "legacy_turn_argbag_persists",
+      "runner_bootstrap_param_bag"
+    ],
+    "possible_false_positives": [
+      "Some protocol breadth may be intentional for public SDK typing compatibility, but current evidence still shows abstraction cost exceeding extension benefit in this batch."
+    ]
+  }
+}

@@ -1,0 +1,92 @@
+{
+  "batch": "Testing & API",
+  "batch_index": 2,
+  "assessments": {
+    "test_strategy": 82.0
+  },
+  "dimension_notes": {
+    "test_strategy": {
+      "evidence": [
+        "`src/thenvoi/runtime/types.py` enforces only `on_event is not None` for CALLBACK mode, while `src/thenvoi/runtime/contacts/contact_handler.py` always `await`s it; current tests in `tests/runtime/contacts/test_contact_config.py` cover presence/absence but not non-async callback misuse.",
+        "`src/thenvoi/integrations/a2a_bridge/handler.py` models `HandlerResult.status` as a `Literal` only; downstream handling in `src/thenvoi/integrations/a2a_bridge/route_dispatch.py` treats unknown statuses as success, and `tests/bridge/test_router.py` covers only handled/ignored/error paths.",
+        "`src/thenvoi/runtime/types.py` includes `is_agent_sender_type`, used in execution/formatting/conversion paths, but `tests/runtime/test_types.py` currently covers `normalize_handle` and `format_for_llm` only, leaving this high-fanout helper without direct regression tests."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "findings": [
+    {
+      "dimension": "test_strategy",
+      "identifier": "callback_async_contract_untested",
+      "summary": "CALLBACK contract is only partially tested, missing non-async callback failure coverage",
+      "related_files": [
+        "src/thenvoi/runtime/types.py",
+        "src/thenvoi/runtime/contacts/contact_handler.py",
+        "tests/runtime/contacts/test_contact_config.py"
+      ],
+      "evidence": [
+        "`ContactEventConfig.__post_init__` checks only that `on_event` is present for CALLBACK strategy, not that it is awaitable.",
+        "`ContactEventHandler._handle_callback` unconditionally does `await self._config.on_event(...)`, so a sync callback fails at runtime.",
+        "Current tests validate missing callback raises and async callback works, but do not include sync/non-awaitable callback cases."
+      ],
+      "suggestion": "Add explicit async-contract validation (for example, reject non-coroutine callbacks in `ContactEventConfig`) and add tests for sync callback rejection plus runtime behavior when invalid callbacks slip through.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "permissive_runtime_contracts"
+    },
+    {
+      "dimension": "test_strategy",
+      "identifier": "handler_result_status_validation_gap",
+      "summary": "Handler result API allows invalid statuses and tests miss malformed-status behavior",
+      "related_files": [
+        "src/thenvoi/integrations/a2a_bridge/handler.py",
+        "src/thenvoi/integrations/a2a_bridge/route_dispatch.py",
+        "tests/bridge/test_router.py"
+      ],
+      "evidence": [
+        "`HandlerResult.status` is type-hinted as `Literal[...]`, but dataclass construction does not enforce this at runtime.",
+        "`execute_dispatch_targets` handles only `ignored` and `error`; any other status falls through as success.",
+        "Router tests verify `handled`, `ignored`, and `error` outcomes but do not test malformed statuses from custom handlers."
+      ],
+      "suggestion": "Enforce runtime status validity (Enum or `__post_init__` guard) and add negative tests proving malformed statuses are rejected or mapped to explicit failures instead of implicit success.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "permissive_runtime_contracts"
+    },
+    {
+      "dimension": "test_strategy",
+      "identifier": "sender_type_helper_direct_coverage_missing",
+      "summary": "High-impact sender-type normalization helper lacks direct unit tests",
+      "related_files": [
+        "src/thenvoi/runtime/types.py",
+        "src/thenvoi/runtime/formatters.py",
+        "tests/runtime/test_types.py"
+      ],
+      "evidence": [
+        "`is_agent_sender_type` in `runtime/types.py` controls case-insensitive agent detection logic.",
+        "This helper is consumed in message-to-role conversion paths (`runtime/formatters.py`) and execution flow, but no direct test references `is_agent_sender_type`.",
+        "`tests/runtime/test_types.py` currently exercises `normalize_handle` and `PlatformMessage.format_for_llm`, not sender-type normalization edge cases."
+      ],
+      "suggestion": "Add parameterized tests for sender type normalization (`None`, whitespace, mixed case, unknown types) and one behavior-level assertion in formatting/execution tests to lock downstream role-mapping behavior.",
+      "confidence": "medium",
+      "impact_scope": "module",
+      "fix_scope": "single_edit",
+      "root_cause_cluster": "utility_contract_test_gap"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "Public runtime contracts rely on type hints/doc intent but lack runtime guardrails, and tests mirror happy paths more than contract abuse.",
+      "Compatibility-oriented APIs (bridge handler outcomes, callback hooks) tolerate legacy behavior without dedicated regression tests for malformed inputs."
+    ],
+    "likely_symptoms": [
+      "callback_async_contract_untested",
+      "handler_result_status_validation_gap"
+    ],
+    "possible_false_positives": []
+  }
+}

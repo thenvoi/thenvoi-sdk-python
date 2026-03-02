@@ -126,6 +126,18 @@ class TestGracefulShutdownHandler:
 
         callback.assert_called_once_with(signal.SIGINT)
 
+    async def test_handle_signal_records_callback_exception(self, mock_agent):
+        """Callback exceptions should be recorded as non-fatal errors."""
+        callback = MagicMock(side_effect=RuntimeError("callback boom"))
+        shutdown = GracefulShutdown(mock_agent, on_signal=callback)
+        shutdown._shutdown_event = asyncio.Event()
+
+        with patch("asyncio.create_task"):
+            shutdown._handle_signal(signal.SIGINT)
+
+        assert shutdown.nonfatal_errors
+        assert shutdown.nonfatal_errors[0]["operation"] == "on_signal_callback"
+
     async def test_handle_signal_sets_shutdown_event(self, mock_agent):
         """_handle_signal should set shutdown event."""
         shutdown = GracefulShutdown(mock_agent)
@@ -151,6 +163,8 @@ class TestGracefulShutdownHandler:
 
         # Should not raise
         await shutdown._shutdown()
+        assert shutdown.nonfatal_errors
+        assert shutdown.nonfatal_errors[0]["operation"] == "agent_stop"
 
 
 class TestGracefulShutdownWaitForShutdown:
@@ -267,5 +281,11 @@ class TestRunWithGracefulShutdown:
 
         with patch.object(loop, "add_signal_handler", MagicMock()):
             with patch.object(loop, "remove_signal_handler", MagicMock()):
-                # Should not raise
-                await run_with_graceful_shutdown(mock_agent)
+                with patch.object(
+                    GracefulShutdown, "_record_nonfatal_error"
+                ) as mock_record_nonfatal:
+                    # Should not raise
+                    await run_with_graceful_shutdown(mock_agent)
+
+                    mock_record_nonfatal.assert_called_once()
+                    assert mock_record_nonfatal.call_args.args[0] == "run_cancelled"

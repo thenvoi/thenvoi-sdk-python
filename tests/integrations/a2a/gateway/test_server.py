@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import AsyncIterator
 from unittest.mock import AsyncMock
 
@@ -15,6 +16,7 @@ from a2a.types import (
 from starlette.testclient import TestClient
 
 from thenvoi.integrations.a2a.gateway.server import GatewayServer
+from thenvoi.integrations.a2a.gateway.peer_directory import PeerRef
 from thenvoi_rest import Peer
 
 
@@ -66,6 +68,50 @@ class TestGatewayServerInit:
         )
 
         assert server._app is None
+        assert server._server_task is None
+
+
+class TestGatewayServerLifecycle:
+    """Tests for GatewayServer start/stop lifecycle helpers."""
+
+    @pytest.mark.asyncio
+    async def test_stop_cancels_running_server_task(self) -> None:
+        server = GatewayServer(
+            peers={},
+            peers_by_uuid={},
+            gateway_url="http://localhost:10000",
+            port=10000,
+            on_request=AsyncMock(),
+        )
+
+        async def _run_forever() -> None:
+            await asyncio.sleep(10)
+
+        server._server_task = asyncio.create_task(_run_forever())
+
+        await server.stop()
+
+        assert server._server_task is None
+
+    @pytest.mark.asyncio
+    async def test_stop_handles_server_task_failure(self) -> None:
+        server = GatewayServer(
+            peers={},
+            peers_by_uuid={},
+            gateway_url="http://localhost:10000",
+            port=10000,
+            on_request=AsyncMock(),
+        )
+
+        async def _fail_fast() -> None:
+            raise RuntimeError("server failure")
+
+        task = asyncio.create_task(_fail_fast())
+        await asyncio.sleep(0)
+        server._server_task = task
+
+        await server.stop()
+
         assert server._server_task is None
 
 
@@ -260,12 +306,12 @@ class TestGatewayServerMessageStream:
         server, _ = server_with_callback
 
         # Track calls manually
-        calls: list[tuple[str, A2AMessage]] = []
+        calls: list[tuple[PeerRef, A2AMessage]] = []
 
         async def mock_callback(
-            peer_id: str, message: A2AMessage
+            peer_ref: PeerRef, message: A2AMessage
         ) -> AsyncIterator[TaskStatusUpdateEvent]:
-            calls.append((peer_id, message))
+            calls.append((peer_ref, message))
             yield TaskStatusUpdateEvent(
                 taskId="task-123",
                 contextId="ctx-123",
@@ -289,7 +335,8 @@ class TestGatewayServerMessageStream:
 
         # Callback should have been called with slug
         assert len(calls) == 1
-        assert calls[0][0] == "weather-agent"  # slug
+        assert calls[0][0].slug == "weather-agent"
+        assert calls[0][0].peer.id == "uuid-weather"
         assert isinstance(calls[0][1], A2AMessage)  # message
 
     def test_message_stream_returns_sse_content_type(

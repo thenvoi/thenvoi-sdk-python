@@ -18,28 +18,55 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from thenvoi.adapters.codex.adapter import (
+    CodexAdapter as CodexAdapter,
+    CodexAdapterConfig as CodexAdapterConfig,
+)
+from thenvoi.adapters.crewai import (
+    CrewAIAdapter as CrewAIAdapter,
+    CrewAIAdapterConfig as CrewAIAdapterConfig,
+)
+
 # Type-only imports for static analysis (pyrefly, mypy, etc.)
 if TYPE_CHECKING:
     from thenvoi.adapters.langgraph import LangGraphAdapter as LangGraphAdapter
-    from thenvoi.adapters.anthropic import AnthropicAdapter as AnthropicAdapter
-    from thenvoi.adapters.pydantic_ai import PydanticAIAdapter as PydanticAIAdapter
-    from thenvoi.adapters.claude_sdk import ClaudeSDKAdapter as ClaudeSDKAdapter
+    from thenvoi.adapters.anthropic import (
+        AnthropicAdapter as AnthropicAdapter,
+        AnthropicAdapterConfig as AnthropicAdapterConfig,
+    )
+    from thenvoi.adapters.pydantic_ai import (
+        PydanticAIAdapter as PydanticAIAdapter,
+        PydanticAIAdapterConfig as PydanticAIAdapterConfig,
+    )
+    from thenvoi.adapters.claude_sdk import (
+        ClaudeSDKAdapter as ClaudeSDKAdapter,
+        ClaudeSDKAdapterConfig as ClaudeSDKAdapterConfig,
+    )
     from thenvoi.adapters.parlant import ParlantAdapter as ParlantAdapter
     from thenvoi.adapters.crewai import CrewAIAdapter as CrewAIAdapter
-    from thenvoi.adapters.a2a import A2AAdapter as A2AAdapter
-    from thenvoi.adapters.a2a_gateway import A2AGatewayAdapter as A2AGatewayAdapter
-    from thenvoi.adapters.codex import CodexAdapter as CodexAdapter
+    from thenvoi.adapters.crewai import CrewAIAdapterConfig as CrewAIAdapterConfig
+    from thenvoi.integrations.a2a.adapter import A2AAdapter as A2AAdapter
+    from thenvoi.integrations.a2a.gateway.adapter import (
+        A2AGatewayAdapter as A2AGatewayAdapter,
+    )
+    from thenvoi.adapters.codex.adapter import CodexAdapter as CodexAdapter
+    from thenvoi.adapters.codex.adapter import CodexAdapterConfig as CodexAdapterConfig
 
 __all__ = [
     "LangGraphAdapter",
     "AnthropicAdapter",
+    "AnthropicAdapterConfig",
     "PydanticAIAdapter",
+    "PydanticAIAdapterConfig",
     "ClaudeSDKAdapter",
+    "ClaudeSDKAdapterConfig",
     "ParlantAdapter",
     "CrewAIAdapter",
+    "CrewAIAdapterConfig",
     "A2AAdapter",
     "A2AGatewayAdapter",
     "CodexAdapter",
+    "CodexAdapterConfig",
 ]
 
 
@@ -53,32 +80,44 @@ def __getattr__(name: str) -> type:
         from thenvoi.adapters.anthropic import AnthropicAdapter
 
         return AnthropicAdapter
+    elif name == "AnthropicAdapterConfig":
+        from thenvoi.adapters.anthropic import AnthropicAdapterConfig
+
+        return AnthropicAdapterConfig
     elif name == "PydanticAIAdapter":
         from thenvoi.adapters.pydantic_ai import PydanticAIAdapter
 
         return PydanticAIAdapter
+    elif name == "PydanticAIAdapterConfig":
+        from thenvoi.adapters.pydantic_ai import PydanticAIAdapterConfig
+
+        return PydanticAIAdapterConfig
     elif name == "ClaudeSDKAdapter":
         from thenvoi.adapters.claude_sdk import ClaudeSDKAdapter
 
         return ClaudeSDKAdapter
+    elif name == "ClaudeSDKAdapterConfig":
+        from thenvoi.adapters.claude_sdk import ClaudeSDKAdapterConfig
+
+        return ClaudeSDKAdapterConfig
     elif name == "ParlantAdapter":
         from thenvoi.adapters.parlant import ParlantAdapter
 
         return ParlantAdapter
     elif name == "CrewAIAdapter":
-        from thenvoi.adapters.crewai import CrewAIAdapter
-
         return CrewAIAdapter
+    elif name == "CrewAIAdapterConfig":
+        return CrewAIAdapterConfig
     elif name == "A2AAdapter":
-        from thenvoi.adapters.a2a import A2AAdapter
+        from thenvoi.integrations.a2a.adapter import A2AAdapter
 
         return A2AAdapter
     elif name == "A2AGatewayAdapter":
-        from thenvoi.adapters.a2a_gateway import A2AGatewayAdapter
+        from thenvoi.integrations.a2a.gateway.adapter import A2AGatewayAdapter
 
         return A2AGatewayAdapter
     elif name == "CodexAdapter":
-        from thenvoi.adapters.codex import CodexAdapter
-
         return CodexAdapter
+    elif name == "CodexAdapterConfig":
+        return CodexAdapterConfig
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

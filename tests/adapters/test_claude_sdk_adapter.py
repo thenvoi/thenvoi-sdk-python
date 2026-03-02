@@ -529,7 +529,7 @@ class TestCustomTools:
 
     def test_tool_name_derived_from_input_model(self):
         """Tool name should be derived from Pydantic model class name."""
-        from thenvoi.runtime.custom_tools import get_custom_tool_name
+        from thenvoi.runtime.tooling.custom_tools import get_custom_tool_name
         from pydantic import BaseModel
 
         class MyCustomToolInput(BaseModel):

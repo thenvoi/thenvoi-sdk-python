@@ -1,0 +1,139 @@
+{
+  "batch": "Architecture & Coupling",
+  "batch_index": 1,
+  "assessments": {
+    "cross_module_architecture": 66.0,
+    "high_level_elegance": 71.0
+  },
+  "dimension_notes": {
+    "cross_module_architecture": {
+      "evidence": [
+        "`.github/actions/GithubToken/generate_token.py` executes env validation, JWT creation, outbound HTTP, and output-file write at module import time (lines 10-56), so importing the module triggers external side effects.",
+        "`src/thenvoi/integrations/claude_sdk/session_manager.py` raises ImportError at module import if optional dependency is absent (lines 18-25), unlike `src/thenvoi/integrations/codex/websocket_client.py` which defers optional import to `connect()` (lines 40-45).",
+        "Test modules import helper APIs directly from conftest modules (`tests/runtime/test_presence.py` line 10, `tests/runtime/test_runtime.py` line 11, `tests/integration/test_smoke.py` line 8), coupling test files to central fixture hubs rather than local utilities."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "architectural_change",
+      "confidence": "high"
+    },
+    "high_level_elegance": {
+      "evidence": [
+        "Integration test entrypoint is a re-export facade (`tests/integration/conftest.py` lines 9-61) that exposes many symbols from another conftest module, expanding implicit public surface and making ownership boundaries unclear.",
+        "`tests/conftest.py` combines pytest collection policy (`pytest_ignore_collect`, lines 54-56), broad event factory surface (lines 64-190), and SDK agent/session fixtures (lines 198-258) in one high-fan-in module.",
+        "`examples/coding_agents/test_communication.py` mutates `sys.path` at import time (line 24) and embeds ad-hoc environment/config orchestration in one script, indicating boundary bypass instead of explicit package entrypoints."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "findings": [
+    {
+      "dimension": "cross_module_architecture",
+      "identifier": "import_time_side_effect_entrypoints",
+      "summary": "Multiple entrypoint-like modules execute side effects at import time, creating unsafe import boundaries and hidden execution coupling.",
+      "related_files": [
+        ".github/actions/GithubToken/generate_token.py",
+        "examples/a2a_bridge/02_with_auth.py",
+        "examples/a2a_gateway/01_basic_gateway.py",
+        "examples/coding_agents/test_communication.py"
+      ],
+      "evidence": [
+        "GitHub token script performs env validation, JWT signing, HTTP POST, and file write at top level (`generate_token.py` lines 10-56).",
+        "Example scripts call `setup_logging()` at module import (`02_with_auth.py` line 30, `01_basic_gateway.py` line 59).",
+        "Coding-agent script mutates interpreter import path at module import (`test_communication.py` line 24)."
+      ],
+      "suggestion": "Standardize all these files as explicit entrypoints with `main()`/`if __name__ == '__main__'` boundaries and keep top-level code import-safe (definitions only). Move IO/network/env validation into runtime functions.",
+      "confidence": "high",
+      "impact_scope": "codebase",
+      "fix_scope": "architectural_change",
+      "root_cause_cluster": "entrypoint_boundary_missing"
+    },
+    {
+      "dimension": "cross_module_architecture",
+      "identifier": "optional_dependency_import_boundary_violation",
+      "summary": "Claude integration hard-fails at module import when optional dependency is missing, violating optional-integration boundary isolation.",
+      "related_files": [
+        "src/thenvoi/integrations/claude_sdk/session_manager.py",
+        "src/thenvoi/integrations/codex/websocket_client.py"
+      ],
+      "evidence": [
+        "`session_manager.py` raises ImportError immediately during module import (lines 18-25).",
+        "`websocket_client.py` defers optional dependency import to connection-time (`connect()`, lines 40-45), allowing module import without package presence."
+      ],
+      "suggestion": "Mirror the Codex pattern: defer `claude_agent_sdk` import to runtime paths (`connect`/factory) and raise targeted runtime errors only when Claude integration is actually invoked.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "entrypoint_boundary_missing"
+    },
+    {
+      "dimension": "cross_module_architecture",
+      "identifier": "test_fixture_hub_coupling",
+      "summary": "Core runtime tests depend on a broad root conftest helper hub, amplifying blast radius for unrelated fixture changes.",
+      "related_files": [
+        "tests/conftest.py",
+        "tests/runtime/test_presence.py",
+        "tests/runtime/test_runtime.py"
+      ],
+      "evidence": [
+        "`tests/conftest.py` hosts heterogeneous concerns (collection behavior, event builders, and agent/session fixtures; lines 54-258).",
+        "`test_presence.py` and `test_runtime.py` import helper constructors directly from `tests.conftest` (line 10 and line 11 respectively), creating explicit module dependencies on the hub."
+      ],
+      "suggestion": "Extract event-builder helpers into a dedicated test utility module (e.g., `tests/helpers/events.py`) and import from that utility; keep root `conftest.py` focused on fixture registration only.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "test_support_surface_sprawl"
+    },
+    {
+      "dimension": "high_level_elegance",
+      "identifier": "integration_conftest_reexport_surface",
+      "summary": "Integration test setup uses a wide re-export facade that obscures ownership and creates an implicit API contract for tests.",
+      "related_files": [
+        "tests/integration/conftest.py",
+        "tests/integration/test_smoke.py",
+        "tests/conftest.py"
+      ],
+      "evidence": [
+        "`tests/integration/conftest.py` re-exports many fixtures/helpers via import list + `__all__` (lines 9-61).",
+        "`tests/integration/test_smoke.py` imports `requires_api` directly from that conftest facade (line 8), turning conftest into a consumed module API rather than discovery-only fixture registration."
+      ],
+      "suggestion": "Stop importing from conftest modules in tests; move reusable markers/helpers into explicit modules (e.g., `tests/integration/markers.py`) and keep `conftest.py` as thin pytest registration glue.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "architectural_change",
+      "root_cause_cluster": "test_support_surface_sprawl"
+    },
+    {
+      "dimension": "high_level_elegance",
+      "identifier": "adhoc_script_boundary_bypass",
+      "summary": "Coding-agent communication script bypasses package boundaries with runtime path injection and in-file orchestration, reducing structural clarity.",
+      "related_files": [
+        "examples/coding_agents/test_communication.py",
+        "examples/a2a_gateway/01_basic_gateway.py"
+      ],
+      "evidence": [
+        "`test_communication.py` modifies `sys.path` directly (line 24) to resolve imports.",
+        "It mixes config loading, REST orchestration, timing waits, and reporting in one top-level script flow (lines 29-111), unlike cleaner adapter-driven entrypoint structure in `01_basic_gateway.py`."
+      ],
+      "suggestion": "Package coding-agent example utilities as importable modules and run via `python -m ...`; remove `sys.path` mutation and split orchestration steps into reusable functions (`load_config`, `create_room`, `invite_participants`, `assert_delivery`).",
+      "confidence": "medium",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "entrypoint_boundary_missing"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "Entry-point boundaries are inconsistent: several files execute side effects during import instead of at explicit runtime boundaries.",
+      "Test support concerns are centralized into conftest hubs that are used as importable APIs, not just pytest wiring."
+    ],
+    "likely_symptoms": [
+      "optional_dependency_import_boundary_violation",
+      "integration_conftest_reexport_surface",
+      "adhoc_script_boundary_bypass"
+    ],
+    "possible_false_positives": []
+  }
+}

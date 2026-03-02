@@ -1,0 +1,120 @@
+{
+  "batch": "Design coherence — Mechanical Concern Signals",
+  "batch_index": 4,
+  "assessments": {
+    "design_coherence": 76.4
+  },
+  "dimension_notes": {
+    "design_coherence": {
+      "evidence": [
+        "Adapter configuration shape is inconsistent across sibling adapters: `CodexAdapter` takes `config: CodexAdapterConfig`, while `AnthropicAdapter`, `PydanticAIAdapter`, `CrewAIAdapter`, and `ClaudeSDKAdapter` define `*AdapterConfig` dataclasses but expose large parameter-list constructors instead of consuming those config objects.",
+        "System-update formatting exists in multiple parallel abstractions (`SimpleAdapter.build_metadata_updates` and `thenvoi.adapters.system_updates.build_system_update_messages`) with overlapping responsibility and near-identical behavior.",
+        "Codex adapter behavior is decomposed across multiple helper modules with many pass-through methods in `adapter.py` (`_prepare_turn`, `_consume_turn_events`, `_handle_tool_call_request`, `_handle_local_command`, etc.), increasing navigation cost and blurring ownership boundaries."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "findings": [
+    {
+      "dimension": "design_coherence",
+      "identifier": "adapter_config_contract_drift",
+      "summary": "Sibling adapters expose conflicting configuration patterns despite shared config dataclasses.",
+      "related_files": [
+        "src/thenvoi/adapters/codex/adapter.py",
+        "src/thenvoi/adapters/anthropic.py",
+        "src/thenvoi/adapters/pydantic_ai.py",
+        "src/thenvoi/adapters/crewai.py",
+        "src/thenvoi/adapters/claude_sdk.py",
+        "src/thenvoi/adapters/__init__.py"
+      ],
+      "evidence": [
+        "`CodexAdapter.__init__` accepts `config: CodexAdapterConfig | None` and uses `self.config` as the canonical settings object.",
+        "`AnthropicAdapterConfig`, `PydanticAIAdapterConfig`, `CrewAIAdapterConfig`, and `ClaudeSDKAdapterConfig` are defined/exported, but their adapters still use long keyword-heavy constructors and assign fields directly (`self.model`, `self.custom_section`, etc.) rather than accepting config objects.",
+        "Public exports in `adapters/__init__.py` suggest a unified config model, but runtime construction semantics differ by adapter family."
+      ],
+      "suggestion": "Standardize adapter construction around one contract: either (A) all adapters accept a `config` object as primary API with backward-compatible kwargs shim, or (B) remove/privatize unused config dataclasses. Prefer option A and migrate adapters incrementally with deprecation warnings for direct kwargs.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "incomplete_adapter_api_unification"
+    },
+    {
+      "dimension": "design_coherence",
+      "identifier": "duplicated_system_update_pipeline",
+      "summary": "System metadata injection is duplicated across base and helper layers.",
+      "related_files": [
+        "src/thenvoi/core/simple_adapter.py",
+        "src/thenvoi/adapters/system_updates.py",
+        "src/thenvoi/adapters/claude_sdk.py",
+        "src/thenvoi/adapters/crewai_processing.py"
+      ],
+      "evidence": [
+        "`SimpleAdapter` already implements `build_metadata_updates`/`apply_metadata_updates` with `[System]: ...` formatting.",
+        "`adapters/system_updates.py` re-implements equivalent update message construction and append/prepend helpers.",
+        "Adapters/processors mix usage patterns (e.g., Claude SDK uses `build_metadata_updates`, CrewAI processing uses `apply_metadata_updates`), leaving two canonical sources for the same policy."
+      ],
+      "suggestion": "Collapse to a single canonical system-update API owned by `SimpleAdapter` (or a dedicated shared utility, not both). Make all adapters call that API and remove duplicate helpers to avoid drift in prefixing/order semantics.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "incomplete_adapter_api_unification"
+    },
+    {
+      "dimension": "design_coherence",
+      "identifier": "codex_adapter_overfragmented_orchestration",
+      "summary": "Codex adapter splits one workflow across too many thin modules and pass-through methods.",
+      "related_files": [
+        "src/thenvoi/adapters/codex/adapter.py",
+        "src/thenvoi/adapters/codex/adapter_commands.py",
+        "src/thenvoi/adapters/codex/adapter_turn_processing.py",
+        "src/thenvoi/adapters/codex/adapter_tooling.py"
+      ],
+      "evidence": [
+        "`adapter.py` defines numerous thin wrappers that only delegate to helper functions (`prepare_turn`, `consume_turn_events`, approval handlers, command handlers, tooling handlers).",
+        "Helper modules depend on broad Protocols with private adapter internals (`_client`, `_pending_approvals`, `_prompt_injected_rooms`, etc.), so responsibilities are split physically but still tightly coupled logically.",
+        "Understanding a single turn path requires jumping across multiple files plus Protocol contracts, increasing indirection cost without clear boundary isolation."
+      ],
+      "suggestion": "Refactor Codex flow into explicit cohesive components (e.g., `TurnOrchestrator`, `ApprovalManager`, `ToolExecutor`) with narrow public state and concrete constructor dependencies, then remove pass-through wrappers in `adapter.py`.",
+      "confidence": "medium",
+      "impact_scope": "subsystem",
+      "fix_scope": "architectural_change",
+      "root_cause_cluster": "orchestration_fragmentation_without_boundary_hardening"
+    },
+    {
+      "dimension": "design_coherence",
+      "identifier": "nonfatal_error_pattern_divergence",
+      "summary": "Runtime error-recording pattern is duplicated instead of reused, creating inconsistent semantics.",
+      "related_files": [
+        "src/thenvoi/core/nonfatal.py",
+        "src/thenvoi/runtime/presence.py",
+        "src/thenvoi/runtime/execution.py"
+      ],
+      "evidence": [
+        "`NonFatalErrorRecorder` provides shared nonfatal storage and logging behavior and is used in `ExecutionContext`.",
+        "`RoomPresence` reimplements separate `_nonfatal_errors` storage and `_record_nonfatal_error` logic instead of reusing the shared mixin.",
+        "This creates divergent logging/detail behavior between runtime components that should follow one recoverable-error contract."
+      ],
+      "suggestion": "Adopt `NonFatalErrorRecorder` in `RoomPresence` and remove local duplicate machinery; centralize context formatting policy in the mixin so runtime components emit consistent nonfatal diagnostics.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "shared_runtime_patterns_not_centralized"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "Adapter families appear to be mid-migration toward shared base patterns, but convergence was incomplete (config API, metadata updates, orchestration boundaries).",
+      "Physical decomposition into helper modules was done before establishing strict ownership boundaries, producing indirection-heavy coupling.",
+      "Shared runtime patterns exist but are not consistently adopted by all components."
+    ],
+    "likely_symptoms": [
+      "adapter_config_contract_drift",
+      "duplicated_system_update_pipeline",
+      "codex_adapter_overfragmented_orchestration",
+      "nonfatal_error_pattern_divergence"
+    ],
+    "possible_false_positives": []
+  }
+}

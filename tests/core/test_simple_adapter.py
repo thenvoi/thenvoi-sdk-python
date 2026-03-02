@@ -5,7 +5,12 @@ from typing import Any
 
 from thenvoi.core.protocols import FrameworkAdapter, HistoryConverter
 from thenvoi.core.simple_adapter import SimpleAdapter
-from thenvoi.core.types import AgentInput, HistoryProvider, PlatformMessage
+from thenvoi.core.types import (
+    AgentInput,
+    ChatMessageTurnContext,
+    HistoryProvider,
+    PlatformMessage,
+)
 from thenvoi.testing import FakeAgentTools
 
 
@@ -33,24 +38,17 @@ class RecordingAdapter(SimpleAdapter[str]):
 
     async def on_message(
         self,
-        msg: PlatformMessage,
-        tools,
-        history,
-        participants_msg: str | None,
-        contacts_msg: str | None,
-        *,
-        is_session_bootstrap: bool,
-        room_id: str,
+        turn: ChatMessageTurnContext[str, FakeAgentTools],
     ) -> None:
         self.calls.append(
             {
-                "msg": msg,
-                "tools": tools,
-                "history": history,
-                "participants_msg": participants_msg,
-                "contacts_msg": contacts_msg,
-                "is_session_bootstrap": is_session_bootstrap,
-                "room_id": room_id,
+                "msg": turn.msg,
+                "tools": turn.tools,
+                "history": turn.history,
+                "participants_msg": turn.participants_msg,
+                "contacts_msg": turn.contacts_msg,
+                "is_session_bootstrap": turn.is_session_bootstrap,
+                "room_id": turn.room_id,
             }
         )
 
@@ -223,15 +221,8 @@ class TestOnCleanup:
         class MinimalAdapter(SimpleAdapter[str]):
             async def on_message(
                 self,
-                msg,
-                tools,
-                history,
-                participants_msg,
-                contacts_msg,
-                *,
-                is_session_bootstrap,
-                room_id,
-            ):
+                turn: ChatMessageTurnContext[str, FakeAgentTools],
+            ) -> None:
                 pass
 
         adapter = MinimalAdapter()
@@ -252,16 +243,9 @@ class TestAdapterSubclassing:
 
             async def on_message(
                 self,
-                msg,
-                tools,
-                history,
-                participants_msg,
-                contacts_msg,
-                *,
-                is_session_bootstrap,
-                room_id,
-            ):
-                self.received_history = history
+                turn: ChatMessageTurnContext[list[str], FakeAgentTools],
+            ) -> None:
+                self.received_history = turn.history
 
         adapter = ListAdapter()
         inp = make_agent_input(
@@ -282,16 +266,9 @@ class TestAdapterSubclassing:
 
             async def on_message(
                 self,
-                msg,
-                tools,
-                history,
-                participants_msg,
-                contacts_msg,
-                *,
-                is_session_bootstrap,
-                room_id,
-            ):
-                self.received_history = history
+                turn: ChatMessageTurnContext[HistoryProvider, FakeAgentTools],
+            ) -> None:
+                self.received_history = turn.history
 
         adapter = NoConverterAdapter()
         raw = [{"content": "Test"}]

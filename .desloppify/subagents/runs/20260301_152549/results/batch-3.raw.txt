@@ -1,0 +1,72 @@
+{
+  "batch": "Testing & API",
+  "batch_index": 3,
+  "assessments": {
+    "test_strategy": 79.0
+  },
+  "dimension_notes": {
+    "test_strategy": {
+      "evidence": [
+        "`src/thenvoi/integrations/a2a_bridge/handler.py` defines a public contract (`HandlerResult` status validation, factory constructors, and `BaseHandler.handle` return semantics) but coverage is mostly indirect through `tests/bridge/test_router.py` behavior tests.",
+        "No tests reference the legacy normalization sentinel path (`legacy_implicit_return`) used by dispatcher compatibility handling, despite `BaseHandler.handle` explicitly allowing `None` for backward compatibility.",
+        "The only direct constructor guard test in `tests/bridge/test_router.py` checks invalid status rejection; there is no focused test module that locks down `handled()/ignored()/error()` default semantics as API contract."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "findings": [
+    {
+      "dimension": "test_strategy",
+      "identifier": "a2a_handler_contract_indirectly_tested",
+      "summary": "Bridge handler contract is tested mostly via router flow, leaving core API invariants under-specified at unit level.",
+      "related_files": [
+        "src/thenvoi/integrations/a2a_bridge/handler.py",
+        "tests/bridge/test_router.py",
+        "src/thenvoi/integrations/a2a_bridge/route_dispatch.py"
+      ],
+      "evidence": [
+        "`handler.py` exposes `HandlerResult` as a standalone API with validation and convenience constructors, but tests are embedded in router-focused scenarios rather than dedicated contract tests.",
+        "`tests/bridge/test_router.py` exercises routing and lifecycle marking heavily; it does not comprehensively assert `HandlerResult` constructor/factory defaults as a stable API surface.",
+        "This creates coupling where handler contract regressions can be masked by unrelated router behavior changes."
+      ],
+      "suggestion": "Add a focused test module (for example `tests/bridge/test_handler_contract.py`) that directly validates `HandlerResult` statuses, default/detail behavior, and constructor/factory parity independent of routing side effects.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "handler_contract_test_gap"
+    },
+    {
+      "dimension": "test_strategy",
+      "identifier": "a2a_legacy_none_return_path_untested",
+      "summary": "Backward-compatible `None` return semantics declared in handler contract are not explicitly tested, despite being a critical dispatch compatibility path.",
+      "related_files": [
+        "src/thenvoi/integrations/a2a_bridge/handler.py",
+        "src/thenvoi/integrations/a2a_bridge/route_dispatch.py",
+        "tests/bridge/test_router.py"
+      ],
+      "evidence": [
+        "`BaseHandler.handle` return type in `handler.py` allows `HandlerResult | None` and documents `None` as backward-compatible implicit success.",
+        "`route_dispatch.py` contains explicit normalization logic for this (`if result is None: return HandlerResult.handled()` and fallback detail `legacy_implicit_return`).",
+        "Current bridge tests do not assert the `None`-return normalization behavior or the `legacy_implicit_return` compatibility branch."
+      ],
+      "suggestion": "Add an explicit test with a handler returning `None` and assert dispatch marks processed (not failed), plus a test for non-`HandlerResult` legacy return normalization to prevent silent compatibility regressions.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "single_edit",
+      "root_cause_cluster": "handler_contract_test_gap"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "Contract testing is concentrated at router integration level instead of being split into dedicated unit-level API contract tests for handler primitives.",
+      "Backward-compatibility behavior exists in code and type hints but lacks explicit test intent lock-in."
+    ],
+    "likely_symptoms": [
+      "a2a_handler_contract_indirectly_tested",
+      "a2a_legacy_none_return_path_untested"
+    ],
+    "possible_false_positives": []
+  }
+}

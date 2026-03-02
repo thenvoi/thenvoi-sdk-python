@@ -17,44 +17,51 @@ from thenvoi.runtime.types import SessionConfig
 
 def make_message_payload(
     *,
-    id: str = "msg-1",
-    content: str = "Hello",
-    sender_id: str = "user-1",
-    sender_type: str = "User",
-    room_id: str = "room-1",
-    message_type: str = "text",
+    metadata: MessageMetadata | None = None,
+    **overrides: object,
 ) -> MessageCreatedPayload:
     """Create test MessageCreatedPayload."""
-    return MessageCreatedPayload(
-        id=id,
-        content=content,
-        message_type=message_type,
-        metadata=MessageMetadata(mentions=[], status="sent"),
-        sender_id=sender_id,
-        sender_type=sender_type,
-        chat_room_id=room_id,
-        thread_id=None,
-        inserted_at="2024-01-01T00:00:00Z",
-        updated_at="2024-01-01T00:00:00Z",
-    )
+    payload_data: dict[str, object] = {
+        "id": "msg-1",
+        "content": "Hello",
+        "message_type": "text",
+        "metadata": metadata if metadata is not None else MessageMetadata(mentions=[], status="sent"),
+        "sender_id": "user-1",
+        "sender_type": "User",
+        "chat_room_id": "room-1",
+        "thread_id": None,
+        "inserted_at": "2024-01-01T00:00:00Z",
+        "updated_at": "2024-01-01T00:00:00Z",
+    }
+    unknown_keys: list[str] = []
+    for key, value in overrides.items():
+        canonical_key = "chat_room_id" if key == "room_id" else key
+        if canonical_key not in payload_data:
+            unknown_keys.append(key)
+            continue
+        payload_data[canonical_key] = value
+    if unknown_keys:
+        unknown = ", ".join(sorted(unknown_keys))
+        raise TypeError(f"make_message_payload() got unexpected keyword arguments: {unknown}")
+    if payload_data["metadata"] is None:
+        payload_data["metadata"] = MessageMetadata(mentions=[], status="sent")
+    return MessageCreatedPayload(**payload_data)
 
 
 def make_message_event(
     *,
     room_id: str = "room-1",
-    content: str = "Hello",
-    sender_id: str = "user-1",
-    sender_type: str = "User",
+    payload: MessageCreatedPayload | None = None,
+    **payload_overrides: object,
 ) -> MessageEvent:
     """Create test MessageEvent."""
+    event_payload = payload
+    if event_payload is None:
+        overrides = {"room_id": room_id, **payload_overrides}
+        event_payload = make_message_payload(**overrides)
     return MessageEvent(
         room_id=room_id,
-        payload=make_message_payload(
-            content=content,
-            sender_id=sender_id,
-            sender_type=sender_type,
-            room_id=room_id,
-        ),
+        payload=event_payload,
     )
 
 

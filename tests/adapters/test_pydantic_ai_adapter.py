@@ -1,11 +1,4 @@
-"""Tests for PydanticAIAdapter.
-
-Tests for shared adapter behavior (initialization defaults, custom kwargs,
-history_converter, on_message callable, cleanup safety) live in
-tests/framework_conformance/test_adapter_conformance.py.
-This file contains PydanticAI-specific behavior: agent creation, tool registration,
-stream event handling, execution reporting, and custom tools.
-"""
+"""PydanticAIAdapter-specific tests (shared adapter contract lives in framework_conformance)."""
 
 from datetime import datetime, timezone
 from typing import AsyncIterator
@@ -87,15 +80,10 @@ def sample_message():
 
 @pytest.fixture
 def mock_tools():
-    """Create mock AgentToolsProtocol (MagicMock base, AsyncMock methods)."""
+    """Create minimal tool surface required by PydanticAIAdapter tests."""
     tools = MagicMock()
-    tools.send_message = AsyncMock(return_value={"status": "sent"})
     tools.send_event = AsyncMock(return_value={"status": "sent"})
-    tools.add_participant = AsyncMock(return_value={"id": "user-1"})
-    tools.remove_participant = AsyncMock(return_value={"status": "removed"})
-    tools.lookup_peers = AsyncMock(return_value={"peers": []})
-    tools.get_participants = AsyncMock(return_value=[])
-    tools.create_chatroom = AsyncMock(return_value="new-room-123")
+    tools.execute_tool_call = AsyncMock(return_value={"status": "success"})
     return tools
 
 
@@ -596,6 +584,9 @@ class TestExecutionReporting:
 
         # History should still be updated
         assert "room-123" in adapter._message_history
+        assert len(adapter.nonfatal_errors) == 1
+        assert adapter.nonfatal_errors[0]["operation"] == "tool_call_event"
+        assert adapter.nonfatal_errors[0]["tool_name"] == "thenvoi_send_message"
 
 
 class TestCustomTools:

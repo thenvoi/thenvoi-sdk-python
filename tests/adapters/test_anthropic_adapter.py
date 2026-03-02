@@ -315,8 +315,11 @@ class TestToolExecution:
         with caplog.at_level(logging.WARNING):
             await adapter._process_tool_calls(mock_response, mock_tools)
 
-        assert "Failed to send tool_call event: 403 Forbidden" in caplog.text
-        assert "Failed to send tool_result event: 403 Forbidden" in caplog.text
+        assert "Non-fatal tool_call_event error" in caplog.text
+        assert "Non-fatal tool_result_event error" in caplog.text
+        assert len(adapter.nonfatal_errors) == 2
+        assert adapter.nonfatal_errors[0]["operation"] == "tool_call_event"
+        assert adapter.nonfatal_errors[1]["operation"] == "tool_result_event"
 
     @pytest.mark.asyncio
     async def test_handles_tool_error(self, mock_tools):

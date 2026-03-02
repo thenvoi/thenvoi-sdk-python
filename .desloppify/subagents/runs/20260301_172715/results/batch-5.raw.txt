@@ -1,0 +1,103 @@
+{
+  "batch": "Package Organization",
+  "batch_index": 5,
+  "assessments": {
+    "package_organization": 71.0,
+    "high_level_elegance": 74.0
+  },
+  "dimension_notes": {
+    "package_organization": {
+      "evidence": [
+        "holistic_context.structure.directory_profiles shows `tests/runtime/` has 20 files (>10 mixed-concern threshold) while contacts tests are split between `tests/runtime/` (`test_contact_handler.py`, `test_contact_tools.py`) and `tests/runtime/contacts/`.",
+        "`src/thenvoi/runtime/__init__.py` states the runtime root should expose core lifecycle APIs and that domain helpers belong in dedicated submodules, but `src/thenvoi/runtime/contact_tools.py` and `src/thenvoi/runtime/custom_tools.py` still occupy runtime root as compatibility-era modules.",
+        "`src/thenvoi/runtime/custom_tools.py` is flagged in holistic context as orphaned (zero importers), indicating stale placement debt remains in a high-visibility package path."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    },
+    "high_level_elegance": {
+      "evidence": [
+        "The declared top-level runtime ownership model in `src/thenvoi/runtime/__init__.py` (core-only surface) is contradicted by compatibility/stale modules in the same directory (`contact_tools.py`, `custom_tools.py`), which blurs architectural intent.",
+        "Test ownership for contacts behavior is split across two organizational patterns (`tests/runtime/test_contact_handler.py`, `tests/runtime/test_contact_tools.py` vs `tests/runtime/contacts/*`), so module boundaries are not consistently reflected in test topology.",
+        "`tests/test_agent.py` imports `thenvoi.runtime.types` directly instead of asserting through the runtime package surface, leaving the intended public boundary ambiguous for maintainers."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "findings": [
+    {
+      "dimension": "package_organization",
+      "identifier": "runtime_root_contains_compat_stragglers",
+      "summary": "Runtime root mixes core API surface with legacy compatibility modules, weakening folder ownership boundaries.",
+      "related_files": [
+        "src/thenvoi/runtime/__init__.py",
+        "src/thenvoi/runtime/contact_tools.py",
+        "src/thenvoi/runtime/custom_tools.py"
+      ],
+      "evidence": [
+        "`src/thenvoi/runtime/__init__.py` documents a core-only runtime surface and directs domain helpers to dedicated submodules.",
+        "`src/thenvoi/runtime/contact_tools.py` is explicitly a deprecated compatibility shim pointing elsewhere, yet remains at runtime root.",
+        "`src/thenvoi/runtime/custom_tools.py` remains in runtime root and is marked orphaned in holistic context, indicating lingering legacy placement."
+      ],
+      "suggestion": "Staged reorg plan: (1) Target folder: consolidate legacy shims under `src/thenvoi/runtime/compat/` (or `src/thenvoi/compat/runtime/`) and keep runtime root focused on core runtime contracts only. (2) Move order: first add new compat modules and wire shim registry; second update imports in code/tests from `thenvoi.runtime.contact_tools`/`thenvoi.runtime.custom_tools` to canonical modules (`thenvoi.runtime.contacts.contact_tools` and the chosen custom-tools home); third deprecate and remove root-level stragglers. (3) Import-update/validation commands: `rg -n \"thenvoi\\.runtime\\.(contact_tools|custom_tools)\" src tests`, then run `uv run pytest tests/runtime/test_contact_handler.py tests/runtime/test_contact_tools.py tests/runtime/test_custom_tools.py -v` and `uv run pytest tests/test_agent.py -v`.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "compatibility_migration_incomplete"
+    },
+    {
+      "dimension": "package_organization",
+      "identifier": "contacts_tests_split_across_two_layouts",
+      "summary": "Contacts-related tests are split between a flat runtime test directory and a dedicated contacts subpackage, reducing navigability and ownership clarity.",
+      "related_files": [
+        "tests/runtime/test_contact_handler.py",
+        "tests/runtime/test_contact_tools.py",
+        "tests/runtime/__init__.py"
+      ],
+      "evidence": [
+        "Assigned contacts tests live in `tests/runtime/` even though a dedicated `tests/runtime/contacts/` package exists.",
+        "holistic_context.structure reports `tests/runtime/` has 20 files (flat overload signal) while contacts-specific tests also exist in `tests/runtime/contacts/`.",
+        "Both assigned files import contacts-domain symbols (`thenvoi.runtime.contacts.*`), indicating affinity with the contacts test package."
+      ],
+      "suggestion": "Staged reorg plan: (1) Target folder: move `tests/runtime/test_contact_handler.py` and `tests/runtime/test_contact_tools.py` into `tests/runtime/contacts/` with names aligned to existing package conventions. (2) Move order: move one file at a time, keep temporary import compatibility where needed, then normalize local fixture imports in the moved tests. (3) Import-update/validation commands: `rg -n \"tests\\.runtime\\.test_contact_(handler|tools)|runtime/test_contact_(handler|tools)\" tests`, run `uv run pytest tests/runtime/contacts/ -k \"contact_handler or contact_tools\" -v`, then `uv run pytest tests/runtime/ -v`.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "compatibility_migration_incomplete"
+    },
+    {
+      "dimension": "high_level_elegance",
+      "identifier": "runtime_public_contract_not_enforced_by_neighboring_tests",
+      "summary": "The runtime package’s declared public contract is not consistently reinforced by nearby tests, leaving the intended architectural boundary implicit.",
+      "related_files": [
+        "src/thenvoi/runtime/__init__.py",
+        "tests/test_agent.py",
+        "tests/conftest.py"
+      ],
+      "evidence": [
+        "`src/thenvoi/runtime/__init__.py` defines a curated runtime surface via lazy exports.",
+        "`tests/test_agent.py` primarily imports concrete internals (`thenvoi.runtime.types`) rather than asserting boundary behavior through `thenvoi.runtime` surface.",
+        "`tests/conftest.py` wires broad shared plugins, but no package-boundary contract test is present among assigned files for runtime root exports/placement promises."
+      ],
+      "suggestion": "Staged reorg plan: (1) Target folders: keep contract tests in `tests/runtime/` and domain tests in `tests/runtime/contacts/`; add a dedicated runtime-surface contract test file under `tests/runtime/` to lock intended import boundary. (2) Move order: first add runtime-surface assertions (`thenvoi.runtime` exports and deprecation import paths), second relocate contacts behavior tests to contacts subfolder, third remove redundant direct-internal import assertions where boundary tests replace them. (3) Import-update/validation commands: `rg -n \"from thenvoi\\.runtime(\\.| import)\" tests`, then `uv run pytest tests/runtime/test_namespace.py tests/runtime/test_tools_direct_module.py tests/test_agent.py -v`.",
+      "confidence": "medium",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "boundary_contract_implicit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "Compatibility migration appears only partially completed, leaving legacy files in high-level package locations.",
+      "Test directory organization has drifted from production subpackage boundaries over time."
+    ],
+    "likely_symptoms": [
+      "runtime_root_contains_compat_stragglers",
+      "contacts_tests_split_across_two_layouts"
+    ],
+    "possible_false_positives": []
+  }
+}

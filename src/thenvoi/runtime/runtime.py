@@ -10,7 +10,9 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Awaitable, Callable
 
+from thenvoi.core.nonfatal import NonFatalErrorRecorder
 from thenvoi.platform.event import PlatformEvent
+from thenvoi.runtime.tools import ALL_TOOL_NAMES
 
 from .execution import Execution, ExecutionContext, ExecutionHandler
 from .presence import RoomPresence
@@ -25,7 +27,7 @@ logger = logging.getLogger(__name__)
 ExecutionFactory = Callable[[str, "ThenvoiLink"], Execution]
 
 
-class AgentRuntime:
+class AgentRuntime(NonFatalErrorRecorder):
     """
     Convenience wrapper: RoomPresence + Execution management.
 
@@ -83,6 +85,7 @@ class AgentRuntime:
             session_config: Configuration for ExecutionContext
             on_session_cleanup: Optional callback for session cleanup (receives room_id)
         """
+        self._init_nonfatal_errors()
         self.link = link
         self.agent_id = agent_id
         self._on_execute = on_execute
@@ -106,6 +109,10 @@ class AgentRuntime:
         """Get active execution contexts by room_id."""
         return self.executions.copy()
 
+    def get_execution(self, room_id: str) -> Execution | None:
+        """Return active execution context for a room, if present."""
+        return self.executions.get(room_id)
+
     async def start(self) -> None:
         """
         Start the agent runtime.
@@ -113,7 +120,11 @@ class AgentRuntime:
         1. Starts RoomPresence (connects link, subscribes to rooms)
         2. Creates execution contexts for existing rooms
         """
-        logger.info("Starting AgentRuntime for agent %s", self.agent_id)
+        logger.info(
+            "Starting AgentRuntime for agent %s (tool surface=%d)",
+            self.agent_id,
+            len(ALL_TOOL_NAMES),
+        )
         await self.presence.start()
 
     async def stop(self, timeout: float | None = None) -> bool:
@@ -225,7 +236,11 @@ class AgentRuntime:
             try:
                 await self._on_session_cleanup(room_id)
             except Exception as e:
-                logger.warning("Session cleanup callback failed for %s: %s", room_id, e)
+                self._record_nonfatal_error(
+                    "session_cleanup_callback",
+                    e,
+                    room_id=room_id,
+                )
 
         logger.debug("Destroyed execution for room %s", room_id)
         return graceful

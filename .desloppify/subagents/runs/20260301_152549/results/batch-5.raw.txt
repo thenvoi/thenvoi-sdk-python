@@ -1,0 +1,115 @@
+{
+  "batch": "Design coherence — Mechanical Concern Signals",
+  "batch_index": 5,
+  "assessments": {
+    "design_coherence": 73.0
+  },
+  "dimension_notes": {
+    "design_coherence": {
+      "evidence": [
+        "`ExecutionContext` combines queue orchestration, retry policy, sync/recovery, participant cache, context hydration, and message lifecycle handling in one class (`src/thenvoi/runtime/execution.py`).",
+        "`CodexAdapter` mixes transport lifecycle, command parsing, approval UX/state, sandbox normalization, model fallback, task-event formatting, and tool dispatch in a single 1955-line adapter (`src/thenvoi/adapters/codex.py`).",
+        "Tool wrapping/formatting/session access responsibilities are implemented independently across framework modules (`src/thenvoi/adapters/claude_sdk.py`, `src/thenvoi/integrations/claude_sdk/tools.py`, `src/thenvoi/integrations/parlant/tools.py`) despite a shared bridge existing in `src/thenvoi/runtime/tool_bridge.py`."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "findings": [
+    {
+      "dimension": "design_coherence",
+      "identifier": "execution_context_mixed_lifecycle_engine",
+      "summary": "ExecutionContext conflates multiple runtime responsibilities and duplicates message lifecycle logic.",
+      "related_files": [
+        "src/thenvoi/runtime/execution.py",
+        "src/thenvoi/runtime/platform_runtime.py"
+      ],
+      "evidence": [
+        "`_process_backlog_message` and `_process_event` both implement near-identical lifecycle steps (mark_processing -> hydrate -> execute -> mark_processed/mark_failed), with separate branching and error paths.",
+        "`ExecutionContext` also owns participant cache mutation, context hydration, dedupe/retry tracking, stale message recovery, and queue synchronization in the same class, increasing change blast radius.",
+        "`PlatformRuntime` directly injects broadcast/system events into execution internals, reinforcing tight coupling to one oversized execution implementation."
+      ],
+      "suggestion": "Extract a shared `MessageLifecycleProcessor` used by both backlog and websocket paths, and split `ExecutionContext` into focused collaborators (sync/recovery, participant/context cache, queue executor). Keep `PlatformRuntime` talking to a narrow execution interface instead of execution internals.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "architectural_change",
+      "root_cause_cluster": "runtime_orchestration_overload"
+    },
+    {
+      "dimension": "design_coherence",
+      "identifier": "adapter_orchestrator_god_objects",
+      "summary": "Large adapters bundle unrelated concerns (transport, policy, UX commands, and event formatting).",
+      "related_files": [
+        "src/thenvoi/adapters/codex.py",
+        "src/thenvoi/adapters/crewai.py",
+        "src/thenvoi/adapters/claude_sdk.py"
+      ],
+      "evidence": [
+        "`CodexAdapter` contains local slash-command UX (`_handle_local_command`), manual approval queueing (`_resolve_manual_approval`), sandbox normalization, model fallback, RPC request handling, and event formatting in one class.",
+        "`CrewAIAdapter` combines global event-loop patching (`nest_asyncio`), dynamic tool class generation, execution-reporting policy, and chat history/session orchestration in one adapter module.",
+        "`ClaudeSDKAdapter` builds MCP server/tool wrappers inline (`_create_mcp_server`) while also handling session management and message processing."
+      ],
+      "suggestion": "Refactor adapters into composition-based components: session/transport client, turn/event processor, approval-policy service, and tool-binding factory. Keep adapter classes as thin framework facades wiring these components together.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "architectural_change",
+      "root_cause_cluster": "runtime_orchestration_overload"
+    },
+    {
+      "dimension": "design_coherence",
+      "identifier": "tool_wrapper_boundary_fragmentation",
+      "summary": "Framework-specific tool wrappers re-implement bridge/session behavior, causing design drift.",
+      "related_files": [
+        "src/thenvoi/runtime/tool_bridge.py",
+        "src/thenvoi/adapters/claude_sdk.py",
+        "src/thenvoi/integrations/claude_sdk/tools.py",
+        "src/thenvoi/integrations/parlant/tools.py"
+      ],
+      "evidence": [
+        "`tool_bridge.py` centralizes normalization/dispatch/error contracts, but `ClaudeSDKAdapter._create_mcp_server` independently defines result/error formatting and room-tool lookup closures.",
+        "`integrations/claude_sdk/tools.py` duplicates similar MCP wrapper concerns (`_make_result`, `_make_error`, `_get_tools`) and custom descriptor mapping logic.",
+        "`integrations/parlant/tools.py` uses module-level session registries (`_session_tools`, `_session_message_sent`) and custom formatting flows, creating another tool-execution path shape."
+      ],
+      "suggestion": "Introduce a shared framework-agnostic `ToolBindingFactory` + `ToolSessionRegistry` abstraction and make Claude/Parlant wrappers consume it. Keep only framework-specific decorator syntax in integration modules.",
+      "confidence": "medium",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "tooling_surface_divergence"
+    },
+    {
+      "dimension": "design_coherence",
+      "identifier": "a2a_gateway_example_split_source_of_truth",
+      "summary": "Numbered gateway examples are thin wrappers over separate implementation files, inviting drift.",
+      "related_files": [
+        "examples/a2a_gateway/02_with_demo_agent.py",
+        "examples/a2a_gateway/with_demo_agent.py",
+        "examples/a2a_gateway/01_basic_gateway.py"
+      ],
+      "evidence": [
+        "`02_with_demo_agent.py` contains long usage/docs but delegates execution to `with_demo_agent.main`, while the real runtime logic lives elsewhere.",
+        "`01_basic_gateway.py` follows the same wrapper pattern (delegating to another module), so explanatory docs and executable behavior can diverge over time.",
+        "This creates duplicate entrypoint conventions (`NN_*.py` wrappers + non-numbered implementations) for one example family."
+      ],
+      "suggestion": "Use a single canonical executable file per example and keep numbered variants as minimal aliases generated from that source (or remove aliases). Store documentation in one shared location to avoid wrapper-doc drift.",
+      "confidence": "medium",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "example_entrypoint_duplication"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "Adapters and runtime classes are used as integration catch-alls instead of composition roots over smaller services.",
+      "Framework integrations evolved in parallel, creating multiple bespoke tool-wrapper layers around similar behavior.",
+      "Example packaging prioritizes user-facing numbered filenames, but without a single canonical implementation path."
+    ],
+    "likely_symptoms": [
+      "execution_context_mixed_lifecycle_engine",
+      "adapter_orchestrator_god_objects",
+      "tool_wrapper_boundary_fragmentation",
+      "a2a_gateway_example_split_source_of_truth"
+    ],
+    "possible_false_positives": []
+  }
+}

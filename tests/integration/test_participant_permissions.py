@@ -1,25 +1,4 @@
-"""
-Comprehensive participant permission tests using dynamically created agents.
-
-ALL agents used in these tests are:
-1. Created dynamically via user_api_client.human_api_agents.register_my_agent()
-2. Deleted after tests complete
-
-NO agents from .env.test are used or modified.
-
-Tests all permutations of:
-- Actor role: owner, admin, member
-- Target role: owner, admin, member
-- Target type: User, Agent
-- Actions: add, remove
-
-Expected behavior:
-- Owner: Can add/remove anyone except themselves (must transfer ownership first)
-- Admin: Can add/remove members, cannot touch owner/other admins
-- Member: Can add other members (as member role only), cannot remove anyone except self
-
-Run with: uv run pytest tests/integration/test_participant_permissions.py -v -s
-"""
+"""Role-based participant add/remove permission matrix integration tests."""
 
 import logging
 import uuid
@@ -32,12 +11,9 @@ from thenvoi_rest.types import (
     ParticipantRequest,
 )
 
-from tests.integration.conftest import (
-    get_base_url,
-    get_user_api_key,
-    is_no_clean_mode,
-    requires_user_api,
-)
+from tests.support.integration.contracts.cleanup import is_no_clean_mode
+from tests.support.integration.contracts.settings import get_test_settings
+from tests.support.integration.markers import requires_user_api
 
 logger = logging.getLogger(__name__)
 
@@ -82,7 +58,7 @@ class DynamicAgentManager:
         )
 
         self.created_agents.append(dynamic_agent)
-        logger.info("  Created agent: %s (ID: %s)", agent.name, agent.id)
+        logger.debug("  Created agent: %s (ID: %s)", agent.name, agent.id)
 
         return dynamic_agent
 
@@ -94,7 +70,7 @@ class DynamicAgentManager:
                     id=agent.agent_id,
                     force=True,
                 )
-                logger.info(
+                logger.debug(
                     f"  Deleted agent: {agent.agent_name} (ID: {agent.agent_id})"
                 )
             except Exception as e:
@@ -118,10 +94,11 @@ def event_loop():
 @pytest.fixture(scope="module")
 def module_user_api_client():
     """Create user API client for the module scope."""
-    api_key = get_user_api_key()
+    settings = get_test_settings()
+    api_key = settings.thenvoi_api_key_user or None
     if not api_key:
         return None
-    return AsyncRestClient(api_key=api_key, base_url=get_base_url())
+    return AsyncRestClient(api_key=api_key, base_url=settings.thenvoi_base_url)
 
 
 @pytest.fixture(scope="module")
@@ -145,16 +122,16 @@ async def agent_manager(module_user_api_client, request):
 
     manager = DynamicAgentManager(module_user_api_client)
 
-    logger.info("\n=== Creating dynamic agents for permission tests ===")
+    logger.debug("\n=== Creating dynamic agents for permission tests ===")
     yield manager
 
     # Cleanup: delete the agents (unless --no-clean mode)
     if not is_no_clean_mode(request):
-        logger.info("\n=== Cleaning up dynamic agents ===")
+        logger.debug("\n=== Cleaning up dynamic agents ===")
         await manager.cleanup_all()
     else:
         agent_names = [a.agent_name for a in manager.created_agents]
-        logger.info(
+        logger.debug(
             "[NO-CLEAN MODE] Skipping cleanup of %d agents: %s",
             len(agent_names),
             ", ".join(agent_names),
@@ -185,7 +162,11 @@ async def permission_agents(agent_manager: DynamicAgentManager):
 
 def get_agent_client(agent: DynamicAgent) -> AsyncRestClient:
     """Create a fresh REST client for an agent (avoids event loop issues)."""
-    return AsyncRestClient(api_key=agent.api_key, base_url=get_base_url())
+    settings = get_test_settings()
+    return AsyncRestClient(
+        api_key=agent.api_key,
+        base_url=settings.thenvoi_base_url,
+    )
 
 
 @requires_user_api
@@ -240,14 +221,14 @@ class TestParticipantRemovalPermissions:
             chat=ChatRoomRequest()
         )
         chat_id = response.data.id
-        logger.info("\n  Created test chat: %s", chat_id)
+        logger.debug("\n  Created test chat: %s", chat_id)
 
         # Add admin agent
         await owner_client.agent_api_participants.add_agent_chat_participant(
             chat_id,
             participant=ParticipantRequest(participant_id=admin.agent_id, role="admin"),
         )
-        logger.info("  Added admin: %s", admin.agent_name)
+        logger.debug("  Added admin: %s", admin.agent_name)
 
         # Add descriptive message (triggers auto-title)
         await owner_client.agent_api_messages.create_agent_chat_message(
@@ -265,7 +246,7 @@ class TestParticipantRemovalPermissions:
                 participant_id=member.agent_id, role="member"
             ),
         )
-        logger.info("  Added member: %s", member.agent_name)
+        logger.debug("  Added member: %s", member.agent_name)
 
         # Add agent's owner as member (for P4 protection rule test)
         agent_owner_member = None
@@ -283,7 +264,7 @@ class TestParticipantRemovalPermissions:
                 "role": "member",
                 "is_agent_owner": True,
             }
-            logger.info("  Added agent's owner as member: %s", agent_owner_user.name)
+            logger.debug("  Added agent's owner as member: %s", agent_owner_user.name)
 
         # Add non-owner User as member (for generic removal test)
         non_owner_member = None
@@ -301,7 +282,7 @@ class TestParticipantRemovalPermissions:
                 "role": "member",
                 "is_agent_owner": False,
             }
-            logger.info("  Added non-owner user member: %s", non_owner_user.name)
+            logger.debug("  Added non-owner user member: %s", non_owner_user.name)
 
         yield {
             "chat_id": chat_id,
@@ -347,7 +328,7 @@ class TestParticipantRemovalPermissions:
         result = await self._try_remove(
             client, chat["chat_id"], chat["member"].agent_id
         )
-        logger.info("Owner removes Member(Agent): %s", result)
+        logger.debug("Owner removes Member(Agent): %s", result)
         assert result == "success", (
             f"Owner should be able to remove member agent, got: {result}"
         )
@@ -361,7 +342,7 @@ class TestParticipantRemovalPermissions:
         result = await self._try_remove(
             client, chat["chat_id"], chat["member_user"]["id"]
         )
-        logger.info("Owner removes Member(User, non-owner): %s", result)
+        logger.debug("Owner removes Member(User, non-owner): %s", result)
         assert result == "success", (
             f"Owner should be able to remove non-owner user member, got: {result}"
         )
@@ -375,7 +356,7 @@ class TestParticipantRemovalPermissions:
         result = await self._try_remove(
             client, chat["chat_id"], chat["agent_owner_member"]["id"]
         )
-        logger.info("Agent removes own owner (P4): %s", result)
+        logger.debug("Agent removes own owner (P4): %s", result)
         assert result == "403", (
             f"Agent should NOT be able to remove its own owner (P4), got: {result}"
         )
@@ -385,7 +366,7 @@ class TestParticipantRemovalPermissions:
         chat = removal_test_chat
         client = get_agent_client(chat["owner"])
         result = await self._try_remove(client, chat["chat_id"], chat["admin"].agent_id)
-        logger.info("Owner removes Admin: %s", result)
+        logger.debug("Owner removes Admin: %s", result)
         assert result == "success", (
             f"Owner should be able to remove admin, got: {result}"
         )
@@ -395,9 +376,9 @@ class TestParticipantRemovalPermissions:
         chat = removal_test_chat
         client = get_agent_client(chat["owner"])
         result = await self._try_remove(client, chat["chat_id"], chat["owner"].agent_id)
-        logger.info("Owner removes Self: %s", result)
+        logger.debug("Owner removes Self: %s", result)
         # Owner cannot remove themselves without transferring ownership
-        logger.info("  -> Actual behavior: %s", result)
+        logger.debug("  -> Actual behavior: %s", result)
 
     # === Admin removal tests ===
 
@@ -408,8 +389,8 @@ class TestParticipantRemovalPermissions:
         result = await self._try_remove(
             client, chat["chat_id"], chat["member"].agent_id
         )
-        logger.info("Admin removes Member(Agent): %s", result)
-        logger.info("  -> Actual behavior: %s", result)
+        logger.debug("Admin removes Member(Agent): %s", result)
+        logger.debug("  -> Actual behavior: %s", result)
 
     async def test_admin_removes_member_user(self, removal_test_chat):
         """Admin removes Member (User who is NOT agent's owner) -> Expected: SUCCESS"""
@@ -420,15 +401,15 @@ class TestParticipantRemovalPermissions:
         result = await self._try_remove(
             client, chat["chat_id"], chat["member_user"]["id"]
         )
-        logger.info("Admin removes Member(User, non-owner): %s", result)
-        logger.info("  -> Actual behavior: %s", result)
+        logger.debug("Admin removes Member(User, non-owner): %s", result)
+        logger.debug("  -> Actual behavior: %s", result)
 
     async def test_admin_removes_owner(self, removal_test_chat):
         """Admin removes Owner (Agent) -> Expected: 403"""
         chat = removal_test_chat
         client = get_agent_client(chat["admin"])
         result = await self._try_remove(client, chat["chat_id"], chat["owner"].agent_id)
-        logger.info("Admin removes Owner: %s", result)
+        logger.debug("Admin removes Owner: %s", result)
         assert result == "403", (
             f"Admin should NOT be able to remove owner, got: {result}"
         )
@@ -438,8 +419,8 @@ class TestParticipantRemovalPermissions:
         chat = removal_test_chat
         client = get_agent_client(chat["admin"])
         result = await self._try_remove(client, chat["chat_id"], chat["admin"].agent_id)
-        logger.info("Admin removes Self: %s", result)
-        logger.info("  -> Actual behavior: %s", result)
+        logger.debug("Admin removes Self: %s", result)
+        logger.debug("  -> Actual behavior: %s", result)
 
     async def test_admin_removes_other_admin(
         self, removal_test_chat, permission_agents
@@ -455,13 +436,13 @@ class TestParticipantRemovalPermissions:
                 participant_id=extra_agent.agent_id, role="admin"
             ),
         )
-        logger.info("  Added second admin: %s", extra_agent.agent_name)
+        logger.debug("  Added second admin: %s", extra_agent.agent_name)
 
         # Now first admin tries to remove second admin
         client = get_agent_client(chat["admin"])
         result = await self._try_remove(client, chat["chat_id"], extra_agent.agent_id)
-        logger.info("Admin removes other Admin(Agent): %s", result)
-        logger.info("  -> Actual behavior: %s", result)
+        logger.debug("Admin removes other Admin(Agent): %s", result)
+        logger.debug("  -> Actual behavior: %s", result)
 
     # === Member removal tests ===
 
@@ -474,7 +455,7 @@ class TestParticipantRemovalPermissions:
         result = await self._try_remove(
             client, chat["chat_id"], chat["member_user"]["id"]
         )
-        logger.info("Member removes Member(User, non-owner): %s", result)
+        logger.debug("Member removes Member(User, non-owner): %s", result)
         assert result == "success", (
             f"Member should be able to remove other member users, got: {result}"
         )
@@ -493,12 +474,12 @@ class TestParticipantRemovalPermissions:
                 participant_id=extra_agent.agent_id, role="member"
             ),
         )
-        logger.info("  Added extra member: %s", extra_agent.agent_name)
+        logger.debug("  Added extra member: %s", extra_agent.agent_name)
 
         # Now member tries to remove other member agent
         client = get_agent_client(chat["member"])
         result = await self._try_remove(client, chat["chat_id"], extra_agent.agent_id)
-        logger.info("Member removes Member(Agent): %s", result)
+        logger.debug("Member removes Member(Agent): %s", result)
         assert result == "success", (
             f"Member should be able to remove other member agents, got: {result}"
         )
@@ -508,7 +489,7 @@ class TestParticipantRemovalPermissions:
         chat = removal_test_chat
         client = get_agent_client(chat["member"])
         result = await self._try_remove(client, chat["chat_id"], chat["admin"].agent_id)
-        logger.info("Member removes Admin: %s", result)
+        logger.debug("Member removes Admin: %s", result)
         assert result == "403", (
             f"Member should NOT be able to remove admin, got: {result}"
         )
@@ -518,7 +499,7 @@ class TestParticipantRemovalPermissions:
         chat = removal_test_chat
         client = get_agent_client(chat["member"])
         result = await self._try_remove(client, chat["chat_id"], chat["owner"].agent_id)
-        logger.info("Member removes Owner: %s", result)
+        logger.debug("Member removes Owner: %s", result)
         assert result == "403", (
             f"Member should NOT be able to remove owner, got: {result}"
         )
@@ -530,9 +511,9 @@ class TestParticipantRemovalPermissions:
         result = await self._try_remove(
             client, chat["chat_id"], chat["member"].agent_id
         )
-        logger.info("Member removes Self: %s", result)
+        logger.debug("Member removes Self: %s", result)
         # Members should be able to leave (remove themselves)
-        logger.info("  -> Actual behavior: %s", result)
+        logger.debug("  -> Actual behavior: %s", result)
 
 
 @requires_user_api
@@ -573,7 +554,7 @@ class TestParticipantAddPermissions:
             chat=ChatRoomRequest()
         )
         chat_id = response.data.id
-        logger.info("\n  Created test chat: %s", chat_id)
+        logger.debug("\n  Created test chat: %s", chat_id)
 
         # Add admin agent
         await owner_client.agent_api_participants.add_agent_chat_participant(
@@ -641,7 +622,7 @@ class TestParticipantAddPermissions:
         result = await self._try_add(
             client, chat["chat_id"], chat["available_user"].id, "member"
         )
-        logger.info("Owner adds User as member: %s", result)
+        logger.debug("Owner adds User as member: %s", result)
         assert result == "success", (
             f"Owner should be able to add user as member, got: {result}"
         )
@@ -655,7 +636,7 @@ class TestParticipantAddPermissions:
         result = await self._try_add(
             client, chat["chat_id"], chat["available_user_2"].id, "admin"
         )
-        logger.info("Owner adds User as admin: %s", result)
+        logger.debug("Owner adds User as admin: %s", result)
         assert result == "success", (
             f"Owner should be able to add user as admin, got: {result}"
         )
@@ -667,7 +648,7 @@ class TestParticipantAddPermissions:
         result = await self._try_add(
             client, chat["chat_id"], chat["extra_agent"].agent_id, "member"
         )
-        logger.info("Owner adds Agent as member: %s", result)
+        logger.debug("Owner adds Agent as member: %s", result)
         assert result == "success", (
             f"Owner should be able to add agent as member, got: {result}"
         )
@@ -681,7 +662,7 @@ class TestParticipantAddPermissions:
         result = await self._try_add(
             client, chat["chat_id"], chat["other_agent"].id, "admin"
         )
-        logger.info("Owner adds Agent as admin: %s", result)
+        logger.debug("Owner adds Agent as admin: %s", result)
         assert result == "success", (
             f"Owner should be able to add agent as admin, got: {result}"
         )
@@ -697,7 +678,7 @@ class TestParticipantAddPermissions:
         result = await self._try_add(
             client, chat["chat_id"], chat["available_user"].id, "member"
         )
-        logger.info("Admin adds User as member: %s", result)
+        logger.debug("Admin adds User as member: %s", result)
         assert result == "success", (
             f"Admin should be able to add user as member, got: {result}"
         )
@@ -709,7 +690,7 @@ class TestParticipantAddPermissions:
         result = await self._try_add(
             client, chat["chat_id"], chat["extra_agent"].agent_id, "member"
         )
-        logger.info("Admin adds Agent as member: %s", result)
+        logger.debug("Admin adds Agent as member: %s", result)
         assert result == "success", (
             f"Admin should be able to add agent as member, got: {result}"
         )
@@ -723,8 +704,8 @@ class TestParticipantAddPermissions:
         result = await self._try_add(
             client, chat["chat_id"], chat["available_user_2"].id, "admin"
         )
-        logger.info("Admin adds User as admin: %s", result)
-        logger.info("  -> Actual behavior: %s", result)
+        logger.debug("Admin adds User as admin: %s", result)
+        logger.debug("  -> Actual behavior: %s", result)
 
     # === Member add tests ===
 
@@ -737,7 +718,7 @@ class TestParticipantAddPermissions:
         result = await self._try_add(
             client, chat["chat_id"], chat["available_user"].id, "member"
         )
-        logger.info("Member adds User as member: %s", result)
+        logger.debug("Member adds User as member: %s", result)
         # Per user requirement: members should be able to add other members
         assert result == "success", (
             f"Member should be able to add user as member, got: {result}"
@@ -750,7 +731,7 @@ class TestParticipantAddPermissions:
         result = await self._try_add(
             client, chat["chat_id"], chat["extra_agent"].agent_id, "member"
         )
-        logger.info("Member adds Agent as member: %s", result)
+        logger.debug("Member adds Agent as member: %s", result)
         # Per user requirement: members should be able to add other members
         assert result == "success", (
             f"Member should be able to add agent as member, got: {result}"
@@ -765,7 +746,7 @@ class TestParticipantAddPermissions:
         result = await self._try_add(
             client, chat["chat_id"], chat["available_user"].id, "admin"
         )
-        logger.info("Member adds User as admin: %s", result)
+        logger.debug("Member adds User as admin: %s", result)
         # Members should only be able to add as member, not promote to admin
         assert result == "403", (
             f"Member should NOT be able to add user as admin, got: {result}"
@@ -778,7 +759,7 @@ class TestParticipantAddPermissions:
         result = await self._try_add(
             client, chat["chat_id"], chat["extra_agent"].agent_id, "admin"
         )
-        logger.info("Member adds Agent as admin: %s", result)
+        logger.debug("Member adds Agent as admin: %s", result)
         # Members should only be able to add as member, not promote to admin
         assert result == "403", (
             f"Member should NOT be able to add agent as admin, got: {result}"
@@ -799,9 +780,9 @@ class TestPermissionMatrix:
 
         Prints a matrix showing what's actually allowed by the API.
         """
-        logger.info("\n" + "=" * 80)
-        logger.info("PARTICIPANT REMOVAL PERMISSION MATRIX")
-        logger.info("=" * 80)
+        logger.debug("\n" + "=" * 80)
+        logger.debug("PARTICIPANT REMOVAL PERMISSION MATRIX")
+        logger.debug("=" * 80)
 
         owner = permission_agents["owner"]
         admin = permission_agents["admin"]
@@ -839,10 +820,10 @@ class TestPermissionMatrix:
             ("member", "self", "Agent"),
         ]
 
-        logger.info("\nREMOVAL PERMISSIONS:")
-        logger.info("-" * 60)
-        logger.info("%-12s %-20s %-15s", "Actor", "Target", "Result")
-        logger.info("-" * 60)
+        logger.debug("\nREMOVAL PERMISSIONS:")
+        logger.debug("-" * 60)
+        logger.debug("%-12s %-20s %-15s", "Actor", "Target", "Result")
+        logger.debug("-" * 60)
 
         for actor_role, target_role, target_type in scenarios:
             # Create fresh chat for each scenario
@@ -939,27 +920,27 @@ class TestPermissionMatrix:
                             result = "ERROR"
 
                 target_desc = f"{target_role}({target_type})"
-                logger.info("%-12s %-20s %-15s", actor_role, target_desc, result)
+                logger.debug("%-12s %-20s %-15s", actor_role, target_desc, result)
 
             except Exception as e:
-                logger.info(
+                logger.debug(
                     f"{actor_role:<12} {target_role}({target_type})  SETUP ERROR: {e}"
                 )
 
-        logger.info("-" * 60)
-        logger.info("\nLegend:")
-        logger.info("  SUCCESS      = Action allowed")
-        logger.info("  403 FORBIDDEN = Permission denied")
-        logger.info("  404 NOT FOUND = Target not in chat")
-        logger.info("=" * 80)
+        logger.debug("-" * 60)
+        logger.debug("\nLegend:")
+        logger.debug("  SUCCESS      = Action allowed")
+        logger.debug("  403 FORBIDDEN = Permission denied")
+        logger.debug("  404 NOT FOUND = Target not in chat")
+        logger.debug("=" * 80)
 
     async def test_full_add_permission_matrix(self, permission_agents):
         """
         Generate a complete add permission matrix.
         """
-        logger.info("\n" + "=" * 80)
-        logger.info("PARTICIPANT ADD PERMISSION MATRIX")
-        logger.info("=" * 80)
+        logger.debug("\n" + "=" * 80)
+        logger.debug("PARTICIPANT ADD PERMISSION MATRIX")
+        logger.debug("=" * 80)
 
         owner = permission_agents["owner"]
         admin = permission_agents["admin"]
@@ -1002,12 +983,12 @@ class TestPermissionMatrix:
             ("member", "User", "owner"),
         ]
 
-        logger.info("\nADD PERMISSIONS:")
-        logger.info("-" * 70)
-        logger.info(
+        logger.debug("\nADD PERMISSIONS:")
+        logger.debug("-" * 70)
+        logger.debug(
             "%-12s %-12s %-10s %-15s", "Actor", "Target Type", "Add As", "Result"
         )
-        logger.info("-" * 70)
+        logger.debug("-" * 70)
 
         for actor_role, target_type, add_as_role in scenarios:
             # Create fresh chat for each scenario
@@ -1068,18 +1049,18 @@ class TestPermissionMatrix:
                         else:
                             result = "ERROR"
 
-                logger.info(
+                logger.debug(
                     f"{actor_role:<12} {target_type:<12} {add_as_role:<10} {result:<15}"
                 )
 
             except Exception:
-                logger.info(
+                logger.debug(
                     f"{actor_role:<12} {target_type:<12} {add_as_role:<10} SETUP ERROR"
                 )
 
-        logger.info("-" * 70)
-        logger.info("\nLegend:")
-        logger.info("  SUCCESS      = Action allowed")
-        logger.info("  403 FORBIDDEN = Permission denied")
-        logger.info("  409 CONFLICT  = Already in chat")
-        logger.info("=" * 80)
+        logger.debug("-" * 70)
+        logger.debug("\nLegend:")
+        logger.debug("  SUCCESS      = Action allowed")
+        logger.debug("  403 FORBIDDEN = Permission denied")
+        logger.debug("  409 CONFLICT  = Already in chat")
+        logger.debug("=" * 80)

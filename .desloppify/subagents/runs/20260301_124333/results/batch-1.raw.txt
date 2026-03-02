@@ -1,0 +1,147 @@
+{
+  "batch": "Abstractions & Dependencies",
+  "batch_index": 1,
+  "assessments": {
+    "abstraction_fitness": 76.4
+  },
+  "dimension_notes": {
+    "abstraction_fitness": {
+      "evidence": [
+        "AgentToolsProtocol in src/thenvoi/core/protocols.py defines a single interface spanning room messaging, participant management, contact workflows, memory CRUD, schema generation, and dispatch, while adapters typically consume only slices of that surface.",
+        "src/thenvoi/runtime/tools.py keeps a large manual execute_tool_call dispatch table, while src/thenvoi/adapters/pydantic_ai.py builds tools from TOOL_BINDINGS/invoke_platform_tool and src/thenvoi/adapters/anthropic.py + src/thenvoi/adapters/codex.py call execute_tool_call directly, creating parallel dispatch abstractions.",
+        "Bootstrap/session scaffolding is repeated across src/thenvoi/adapters/anthropic.py, src/thenvoi/adapters/pydantic_ai.py, src/thenvoi/adapters/langgraph.py, and src/thenvoi/adapters/crewai.py (room history init, bootstrap hydration, participants/contacts injection).",
+        "src/thenvoi/integrations/a2a/gateway/adapter.py inherits SimpleAdapter but explicitly bypasses AgentToolsProtocol and owns a separate AsyncRestClient path; tests/integrations/a2a/gateway/test_adapter.py pass FakeAgentTools even though runtime behavior is REST-centric.",
+        "src/thenvoi/runtime/contacts/contact_handler.py includes compatibility-only wrappers (e.g., _hub_room_id, _cache_request_info, _fetch_request_details) and tests/runtime/test_contact_handler.py asserts private internals, indicating abstraction leakage toward tests."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "architectural_change",
+      "confidence": "high",
+      "sub_axes": {
+        "abstraction_leverage": 74.8,
+        "indirection_cost": 72.1,
+        "interface_honesty": 66.3
+      }
+    }
+  },
+  "findings": [
+    {
+      "dimension": "abstraction_fitness",
+      "identifier": "agenttools_protocol_not_segmented",
+      "summary": "A single kitchen-sink tools protocol forces unrelated capabilities into one dependency surface.",
+      "related_files": [
+        "src/thenvoi/core/protocols.py",
+        "src/thenvoi/runtime/tools.py",
+        "src/thenvoi/testing/fake_tools.py",
+        "tests/adapters/test_pydantic_ai_adapter.py"
+      ],
+      "evidence": [
+        "AgentToolsProtocol includes message, participant, contacts, memory, schema, and dispatch methods in one Protocol instead of bounded capability contracts.",
+        "FakeAgentTools must implement the same broad surface, including memory and contacts methods, to satisfy adapter tests.",
+        "Adapter tests build large mocks with many method stubs even when individual scenarios only need a few methods."
+      ],
+      "suggestion": "Split AgentToolsProtocol into smaller protocols (for example MessagingTools, ParticipantTools, ContactTools, MemoryTools, ToolSchemaProvider), then type each adapter and runtime path to the minimal protocol it actually needs; keep AgentTools as a concrete aggregate implementation.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "architectural_change",
+      "root_cause_cluster": "over_broad_tooling_contracts"
+    },
+    {
+      "dimension": "abstraction_fitness",
+      "identifier": "tool_dispatch_split_brain",
+      "summary": "Tool invocation logic is duplicated across incompatible dispatch abstractions.",
+      "related_files": [
+        "src/thenvoi/runtime/tools.py",
+        "src/thenvoi/adapters/pydantic_ai.py",
+        "src/thenvoi/adapters/anthropic.py",
+        "src/thenvoi/adapters/codex.py"
+      ],
+      "evidence": [
+        "AgentTools.execute_tool_call maintains a hand-written dispatch dictionary mapping tool names to lambdas.",
+        "PydanticAIAdapter generates tool functions from TOOL_BINDINGS and routes execution through invoke_platform_tool instead of execute_tool_call.",
+        "AnthropicAdapter and CodexAdapter call tools.execute_tool_call from their tool loops, so behavior depends on adapter path."
+      ],
+      "suggestion": "Consolidate all tool execution through one canonical dispatcher (preferably bindings-driven), and make adapter integrations call that shared path so adding/changing tools is single-source and behaviorally consistent.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "over_broad_tooling_contracts"
+    },
+    {
+      "dimension": "abstraction_fitness",
+      "identifier": "adapter_session_scaffolding_duplicated",
+      "summary": "Multiple adapters reimplement the same bootstrap/history/context choreography instead of sharing a reusable abstraction.",
+      "related_files": [
+        "src/thenvoi/adapters/anthropic.py",
+        "src/thenvoi/adapters/pydantic_ai.py",
+        "src/thenvoi/adapters/langgraph.py",
+        "src/thenvoi/adapters/crewai.py",
+        "tests/adapters/test_langgraph_adapter.py"
+      ],
+      "evidence": [
+        "Adapters each implement near-identical per-room history initialization for is_session_bootstrap and safety fallback when room state is missing.",
+        "Adapters repeat participants/contacts message injection patterns with provider-specific formatting differences, creating parallel logic branches.",
+        "Adapter test suites repeatedly validate the same lifecycle behavior (history bootstrap, metadata injection), reflecting duplicated contract logic in each implementation."
+      ],
+      "suggestion": "Move shared session lifecycle behavior into a reusable base/mixin (room state lifecycle + metadata injection policy hooks), leaving only provider-specific serialization and API calls in individual adapters.",
+      "confidence": "medium",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "adapter_lifecycle_duplication"
+    },
+    {
+      "dimension": "abstraction_fitness",
+      "identifier": "gateway_adapter_contract_mismatch",
+      "summary": "A2A GatewayAdapter inherits the generic adapter contract but operates through a separate REST-first control plane.",
+      "related_files": [
+        "src/thenvoi/integrations/a2a/gateway/adapter.py",
+        "src/thenvoi/core/simple_adapter.py",
+        "tests/integrations/a2a/gateway/test_adapter.py"
+      ],
+      "evidence": [
+        "Gateway adapter docstring explicitly states AgentToolsProtocol is not used for core operations; it instantiates and owns AsyncRestClient directly.",
+        "on_message includes a tools parameter but comments note it is intentionally unused because room operations are done via self._rest.",
+        "Tests pass FakeAgentTools to on_message but assertions focus on adapter-owned REST and pending-task state, showing the inherited tool contract is largely ceremonial."
+      ],
+      "suggestion": "Introduce a dedicated gateway/bridge adapter interface (or separate runtime path) that models HTTP-request-driven, REST-bound orchestration directly, instead of forcing it through SimpleAdapter’s room-tool contract.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "architectural_change",
+      "root_cause_cluster": "interface_honesty_gaps"
+    },
+    {
+      "dimension": "abstraction_fitness",
+      "identifier": "contact_handler_private_api_leakage",
+      "summary": "Contact handler preserves compatibility wrappers and private fields primarily for tests, leaking internals into the effective API surface.",
+      "related_files": [
+        "src/thenvoi/runtime/contacts/contact_handler.py",
+        "tests/runtime/test_contact_handler.py",
+        "tests/test_agent_contacts.py"
+      ],
+      "evidence": [
+        "contact_handler exposes compatibility aliases/wrappers such as _hub_room_id, _cache_request_info, _get_cached_request_info, and _fetch_request_details with comments indicating test/introspection compatibility.",
+        "Tests assert private internals (e.g., handler._processed_events size, handler._get_dedup_key output), coupling test stability to implementation details.",
+        "This creates pressure to retain legacy private structure even as collaborators (dedup cache/request info store) are extracted."
+      ],
+      "suggestion": "Replace private compatibility hooks with an explicit narrow diagnostics interface (or public stats DTO), migrate tests to public behavior assertions, and remove private wrapper methods once callers are updated.",
+      "confidence": "medium",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "interface_honesty_gaps"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "Core contracts grew by accretion (new capabilities added to existing abstractions) rather than interface segmentation.",
+      "Adapter implementations optimized independently, causing repeated lifecycle scaffolding and divergent tool dispatch paths.",
+      "Backward-compatibility with existing tests encouraged retention of private compatibility layers."
+    ],
+    "likely_symptoms": [
+      "agenttools_protocol_not_segmented",
+      "tool_dispatch_split_brain",
+      "adapter_session_scaffolding_duplicated",
+      "gateway_adapter_contract_mismatch",
+      "contact_handler_private_api_leakage"
+    ],
+    "possible_false_positives": []
+  }
+}

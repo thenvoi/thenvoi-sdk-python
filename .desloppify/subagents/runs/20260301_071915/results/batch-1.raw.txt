@@ -1,0 +1,93 @@
+{
+  "batch": "Architecture & Coupling",
+  "batch_index": 1,
+  "assessments": {
+    "cross_module_architecture": 78.4
+  },
+  "dimension_notes": {
+    "cross_module_architecture": {
+      "evidence": [
+        "Import-time side effects exist in shared modules: `examples/a2a_gateway/01_basic_gateway.py` calls `setup_logging()` at module import, and `tests/support/integration/config.py` constructs `test_settings = TestSettings()` at module import.",
+        "Test runtime/link wiring is duplicated across modules (`tests/runtime/test_presence.py`, `tests/runtime/test_runtime.py`, `tests/platform/test_link_contacts.py`) instead of using one shared boundary fixture/fake for link transport behavior.",
+        "Configuration ownership is split across parallel loaders: `examples/common/bootstrap.py` resolves runtime config, `docker/shared/config_loader.py` reimplements YAML+credential merge logic, and `examples/coding_agents/test_communication.py` adds a third YAML config path."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "architectural_change",
+      "confidence": "high"
+    }
+  },
+  "findings": [
+    {
+      "dimension": "cross_module_architecture",
+      "identifier": "import_time_bootstrap_side_effects",
+      "summary": "Shared modules perform startup work at import time, creating order-dependent coupling.",
+      "related_files": [
+        "examples/a2a_gateway/01_basic_gateway.py",
+        "tests/support/integration/config.py"
+      ],
+      "evidence": [
+        "`examples/a2a_gateway/01_basic_gateway.py` executes `setup_logging()` at module scope, so importing the module mutates process logging configuration.",
+        "`tests/support/integration/config.py` creates `test_settings = TestSettings()` at module scope, binding environment/file-derived config during import rather than fixture/runtime boundaries."
+      ],
+      "suggestion": "Move import-time initialization behind explicit functions/fixtures: call logging setup only inside `main()`, and replace module-global `test_settings` with a fixture or cached accessor initialized on first use.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "startup_order_coupling"
+    },
+    {
+      "dimension": "cross_module_architecture",
+      "identifier": "duplicated_link_test_boundary",
+      "summary": "Link/WebSocket contract mocking is duplicated across tests instead of centralized.",
+      "related_files": [
+        "tests/runtime/test_presence.py",
+        "tests/runtime/test_runtime.py",
+        "tests/platform/test_link_contacts.py",
+        "tests/support/events.py"
+      ],
+      "evidence": [
+        "`tests/runtime/test_presence.py` and `tests/runtime/test_runtime.py` each build large custom `mock_link` fixtures with overlapping async method stubs and iterator behavior.",
+        "`tests/platform/test_link_contacts.py` separately patches `WebSocketClient` and defines another transport contract mock pattern.",
+        "The same transport/event boundary is recreated in multiple files, increasing blast radius when link API shape changes."
+      ],
+      "suggestion": "Create a shared test boundary layer (e.g., `tests/support/fakes_link.py` + shared fixtures in `conftest.py`) that provides canonical `ThenvoiLink`/WebSocket test doubles; keep per-test customization minimal via overrides.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "missing_shared_test_boundary"
+    },
+    {
+      "dimension": "cross_module_architecture",
+      "identifier": "split_config_resolution_paths",
+      "summary": "Runtime config and credential resolution are fragmented into parallel loaders.",
+      "related_files": [
+        "examples/common/bootstrap.py",
+        "docker/shared/config_loader.py",
+        "examples/coding_agents/test_communication.py"
+      ],
+      "evidence": [
+        "`examples/common/bootstrap.py` implements env + agent config resolution (`load_platform_urls`, `load_runtime_config`).",
+        "`docker/shared/config_loader.py` separately parses YAML and injects credentials with its own merge semantics.",
+        "`examples/coding_agents/test_communication.py` adds another ad-hoc YAML loader (`load_agent_config`) that bypasses shared config-loading contracts."
+      ],
+      "suggestion": "Define one shared config-resolution module for scripts/examples (environment defaults, YAML parsing, credential injection, error policy) and have docker/example utilities depend on that boundary rather than re-implementing local loaders.",
+      "confidence": "high",
+      "impact_scope": "codebase",
+      "fix_scope": "architectural_change",
+      "root_cause_cluster": "configuration_boundary_fragmentation"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "Initialization responsibilities are not consistently isolated from import surfaces.",
+      "Test boundary contracts for link/transport behavior lack a single shared fake layer.",
+      "Operational script config logic evolved in parallel without a unified ownership boundary."
+    ],
+    "likely_symptoms": [
+      "import_time_bootstrap_side_effects",
+      "duplicated_link_test_boundary",
+      "split_config_resolution_paths"
+    ],
+    "possible_false_positives": []
+  }
+}

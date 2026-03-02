@@ -78,6 +78,35 @@ class TestGatewayHistoryConverter:
             "room-1": {"weather-agent", "servicenow-agent"}
         }
 
+    def test_sender_type_normalization_is_case_insensitive(
+        self, converter: GatewayHistoryConverter
+    ) -> None:
+        raw = [
+            {
+                "message_type": "text",
+                "sender_id": "agent-lower",
+                "sender_type": "agent",
+                "room_id": "room-1",
+            },
+            {
+                "message_type": "text",
+                "sender_id": "agent-upper",
+                "sender_type": "Agent",
+                "room_id": "room-1",
+            },
+            {
+                "message_type": "text",
+                "sender_id": "agent-mixed",
+                "sender_type": "AGENT",
+                "room_id": "room-1",
+            },
+        ]
+
+        result = converter.convert(raw)
+        assert result.room_participants == {
+            "room-1": {"agent-lower", "agent-upper", "agent-mixed"}
+        }
+
     def test_multiple_events_aggregates_all_contexts(
         self, converter: GatewayHistoryConverter
     ) -> None:

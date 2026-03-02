@@ -1,0 +1,155 @@
+{
+  "batch": "Abstractions & Dependencies",
+  "batch_index": 3,
+  "assessments": {
+    "abstraction_fitness": 74.0,
+    "dependency_health": 79.0,
+    "mid_level_elegance": 72.0,
+    "low_level_elegance": 88.0
+  },
+  "dimension_notes": {
+    "abstraction_fitness": {
+      "evidence": [
+        "Adapter entry seams keep both typed turn-context and legacy arg-bag calling paths alive: `legacy_chat_turn_compat`/`legacy_control_turn_compat` in `src/thenvoi/core/simple_adapter.py` and `src/thenvoi/core/control_plane_adapter.py`, plus direct widened `on_message` signature in `src/thenvoi/adapters/codex.py`.",
+        "Core tool abstraction is very broad: `AgentToolsProtocol` in `src/thenvoi/core/protocols.py` composes messaging, participants, contacts, memory, schemas, and dispatch, while adapters like `src/thenvoi/adapters/langgraph.py` only need a narrower slice (`MessagingDispatchToolsProtocol`).",
+        "Protocol conformance tests (`tests/core/test_protocols.py`) require a dummy tool object implementing the full composite surface, reinforcing coupling to a large abstraction even for scenarios that only need subsets."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high",
+      "sub_axes": {
+        "abstraction_leverage": 70.0,
+        "indirection_cost": 73.0,
+        "interface_honesty": 76.0
+      }
+    },
+    "dependency_health": {
+      "evidence": [
+        "Optional framework dependency handling is inconsistent across sibling adapters: `src/thenvoi/adapters/crewai.py` raises at import time if extras are missing, `src/thenvoi/adapters/langgraph.py` imports `langgraph` types eagerly, while `src/thenvoi/adapters/claude_sdk.py` degrades to placeholders and defers hard failure to runtime checks.",
+        "This inconsistency creates unpredictable import-time behavior for adapter modules and increases maintenance risk when evolving optional integration dependencies."
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "medium"
+    },
+    "mid_level_elegance": {
+      "evidence": [
+        "Tool execution seam uses mixed success/error channel semantics: `src/thenvoi/runtime/tools.py` returns error strings for validation/dispatch failures (e.g., `Unknown tool`, `Error executing ...`) instead of raising typed errors.",
+        "Caller treats returned strings as successful tool results: `src/thenvoi/adapters/codex.py` serializes any string result and responds with `success: true` in `_handle_server_request`, while only exceptions map to failure responses.",
+        "Tests in `tests/adapters/test_codex_adapter.py` focus on explicit `ValidationError` exception path, leaving string-error-as-success behavior effectively unguarded."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    },
+    "low_level_elegance": {
+      "evidence": [
+        "Several internals are generally direct and readable (e.g., dispatch/normalization helpers in `src/thenvoi/integrations/a2a_bridge/route_dispatch.py` and `src/thenvoi/core/simple_adapter.py`), but local complexity spikes remain in large adapter/runtime methods.",
+        "Local rough edges include broad exception handling and long control flows in hot paths (`src/thenvoi/adapters/langgraph.py`, `src/thenvoi/runtime/execution.py`, `src/thenvoi/adapters/codex.py`)."
+      ],
+      "impact_scope": "module",
+      "fix_scope": "single_edit",
+      "confidence": "medium",
+      "issues_preventing_higher_score": "Large event-processing methods still carry broad catch blocks and mixed responsibilities, which reduces precision and makes local reasoning harder than necessary."
+    }
+  },
+  "findings": [
+    {
+      "dimension": "abstraction_fitness",
+      "identifier": "legacy_turn_argbag_surface_persists",
+      "summary": "Legacy arg-bag compatibility keeps adapter boundary contracts wider than needed.",
+      "related_files": [
+        "src/thenvoi/core/simple_adapter.py",
+        "src/thenvoi/core/control_plane_adapter.py",
+        "src/thenvoi/adapters/codex.py",
+        "tests/adapters/test_codex_adapter.py",
+        "tests/adapters/test_langgraph_adapter.py",
+        "tests/integrations/a2a/gateway/test_adapter.py"
+      ],
+      "evidence": [
+        "`SimpleAdapter` and `ControlPlaneAdapter` normalize legacy arg-bag calls into turn-context objects, but `CodexAdapter.on_message` still publicly exposes the full legacy argument bag in its signature and manually normalizes.",
+        "Assigned tests actively call adapters with legacy-style parameter bags (`msg/tools/history/...`) rather than a single typed turn context, showing the wide seam is still in active use."
+      ],
+      "suggestion": "Introduce one canonical `on_message(turn=...)` contract for new code and confine arg-bag compatibility to thin adapters generated by a shared compatibility layer; migrate tests to typed turn contexts first, then deprecate direct arg-bag signatures (starting with `CodexAdapter`).",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "legacy_compat_surface"
+    },
+    {
+      "dimension": "abstraction_fitness",
+      "identifier": "tool_protocol_overbreadth_couples_adapters",
+      "summary": "Composite tool protocol is too broad for many adapter use cases.",
+      "related_files": [
+        "src/thenvoi/core/protocols.py",
+        "src/thenvoi/adapters/claude_sdk.py",
+        "src/thenvoi/adapters/crewai.py",
+        "src/thenvoi/runtime/tools.py",
+        "tests/core/test_protocols.py"
+      ],
+      "evidence": [
+        "`AgentToolsProtocol` combines chat, contacts, memory, schema export, and dispatch into one large surface.",
+        "Multiple adapters type against `AgentToolsProtocol` even when they primarily need message/event + tool dispatch behavior, while `LangGraphAdapter` demonstrates a narrower protocol (`MessagingDispatchToolsProtocol`) is viable.",
+        "Protocol runtime-check tests enforce full-surface implementations, increasing coupling and mock burden."
+      ],
+      "suggestion": "Split adapter dependencies to minimal capability protocols per integration path (for example: dispatch+messaging, contact-aware, memory-aware) and migrate adapters/tests to those slices; keep `AgentToolsProtocol` as a convenience aggregate, not the default dependency type.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "architectural_change",
+      "root_cause_cluster": "oversized_capability_interfaces"
+    },
+    {
+      "dimension": "dependency_health",
+      "identifier": "optional_dep_loading_policy_inconsistent",
+      "summary": "Optional integration dependencies use conflicting import/failure strategies.",
+      "related_files": [
+        "src/thenvoi/adapters/crewai.py",
+        "src/thenvoi/adapters/langgraph.py",
+        "src/thenvoi/adapters/claude_sdk.py"
+      ],
+      "evidence": [
+        "`crewai.py` imports optional packages in module scope and raises on import failure.",
+        "`langgraph.py` imports framework types at module import time without a deferred availability guard.",
+        "`claude_sdk.py` captures ImportError and defers hard failure through `_ensure_claude_sdk_available()`, creating a different operational contract from sibling adapters."
+      ],
+      "suggestion": "Standardize optional dependency policy across adapters: either uniformly defer failures to adapter construction/start with explicit guard helpers, or uniformly fail at import with documented behavior; implement one shared helper and apply it across all optional integrations.",
+      "confidence": "medium",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "mid_level_elegance",
+      "identifier": "tool_error_contract_mismatch_across_boundary",
+      "summary": "Tool-dispatch seam conflates failures with successful string payloads.",
+      "related_files": [
+        "src/thenvoi/runtime/tools.py",
+        "src/thenvoi/adapters/codex.py",
+        "tests/adapters/test_codex_adapter.py"
+      ],
+      "evidence": [
+        "`AgentTools.execute_tool_call()` returns error text strings for validation and dispatch failures instead of a typed failure result or raised exception.",
+        "`CodexAdapter._handle_server_request()` treats any returned string as normal output and sends `success: true`; only exception paths produce `success: false`.",
+        "Current tests verify exception-driven validation failure handling, but not the returned-error-string path, leaving this contract mismatch exposed."
+      ],
+      "suggestion": "Replace string-sentinel failures with a typed result (for example `ToolExecutionResult{ok,error,payload}`) or raise explicit exceptions from `execute_tool_call`; update adapter bridge code to map failures to `success: false` consistently and add tests for unknown-tool/dispatch-failure paths.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "error_contract_mismatch"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "Backward-compatibility paths are still first-class at runtime and in tests, preventing contraction to a cleaner boundary contract.",
+      "Capability interfaces grew as aggregate convenience types and became default dependencies, increasing coupling.",
+      "Integration modules evolved independent optional-dependency and error-channel policies without a shared contract."
+    ],
+    "likely_symptoms": [
+      "legacy_turn_argbag_surface_persists",
+      "tool_protocol_overbreadth_couples_adapters",
+      "optional_dep_loading_policy_inconsistent",
+      "tool_error_contract_mismatch_across_boundary"
+    ],
+    "possible_false_positives": []
+  }
+}

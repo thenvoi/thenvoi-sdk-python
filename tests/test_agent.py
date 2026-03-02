@@ -6,7 +6,7 @@ import pytest
 
 from thenvoi.agent import Agent, DEFAULT_SHUTDOWN_TIMEOUT
 from thenvoi.core.simple_adapter import SimpleAdapter
-from thenvoi.core.types import AgentInput
+from thenvoi.core.types import AgentInput, ChatMessageTurnContext
 from thenvoi.runtime.types import AgentConfig, SessionConfig
 from thenvoi.preprocessing.default import DefaultPreprocessor
 
@@ -405,14 +405,7 @@ class TestStartupRaceCondition:
 
             async def on_message(
                 self,
-                msg,
-                tools,
-                history,
-                participants_msg,
-                contacts_msg,
-                *,
-                is_session_bootstrap: bool,
-                room_id: str,
+                turn: ChatMessageTurnContext[object, object],
             ) -> None:
                 call_order.append("on_message")
                 # This MUST NOT be empty if on_started was called first

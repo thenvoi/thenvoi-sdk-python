@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections.abc import Awaitable, Callable
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
@@ -44,6 +45,65 @@ if TYPE_CHECKING:
     )
 
 logger = logging.getLogger(__name__)
+
+EventFactory = Callable[[str | None, object], PlatformEvent]
+
+
+def _make_room_added_event(room_id: str | None, payload: object) -> PlatformEvent:
+    return RoomAddedEvent(room_id=room_id, payload=payload)
+
+
+def _make_room_removed_event(room_id: str | None, payload: object) -> PlatformEvent:
+    return RoomRemovedEvent(room_id=room_id, payload=payload)
+
+
+def _make_message_event(room_id: str | None, payload: object) -> PlatformEvent:
+    return MessageEvent(room_id=room_id, payload=payload)
+
+
+def _make_participant_added_event(
+    room_id: str | None, payload: object
+) -> PlatformEvent:
+    return ParticipantAddedEvent(room_id=room_id, payload=payload)
+
+
+def _make_participant_removed_event(
+    room_id: str | None, payload: object
+) -> PlatformEvent:
+    return ParticipantRemovedEvent(room_id=room_id, payload=payload)
+
+
+def _make_contact_request_received_event(
+    room_id: str | None, payload: object
+) -> PlatformEvent:
+    return ContactRequestReceivedEvent(room_id=room_id, payload=payload)
+
+
+def _make_contact_request_updated_event(
+    room_id: str | None, payload: object
+) -> PlatformEvent:
+    return ContactRequestUpdatedEvent(room_id=room_id, payload=payload)
+
+
+def _make_contact_added_event(room_id: str | None, payload: object) -> PlatformEvent:
+    return ContactAddedEvent(room_id=room_id, payload=payload)
+
+
+def _make_contact_removed_event(room_id: str | None, payload: object) -> PlatformEvent:
+    return ContactRemovedEvent(room_id=room_id, payload=payload)
+
+
+_EVENT_FACTORIES: dict[str, EventFactory] = {
+    "room_added": _make_room_added_event,
+    "room_removed": _make_room_removed_event,
+    "message_created": _make_message_event,
+    "participant_added": _make_participant_added_event,
+    "participant_removed": _make_participant_removed_event,
+    "contact_request_received": _make_contact_request_received_event,
+    "contact_request_updated": _make_contact_request_updated_event,
+    "contact_added": _make_contact_added_event,
+    "contact_removed": _make_contact_removed_event,
+}
 
 
 class ThenvoiLink:
@@ -93,10 +153,37 @@ class ThenvoiLink:
 
         # Event queue for async iteration
         self._event_queue: asyncio.Queue[PlatformEvent] = asyncio.Queue(maxsize=1000)
+        # Non-fatal operational errors (best-effort operations that should not crash agent)
+        self._nonfatal_errors: list[dict[str, str]] = []
 
     @property
     def is_connected(self) -> bool:
         return self._is_connected
+
+    @property
+    def nonfatal_errors(self) -> list[dict[str, str]]:
+        """Return a snapshot of non-fatal link errors."""
+        return list(self._nonfatal_errors)
+
+    def _record_nonfatal_error(
+        self,
+        operation: str,
+        error: Exception,
+        **context: str,
+    ) -> None:
+        """Record non-fatal operation errors for diagnostics and retries."""
+        details = {
+            "operation": operation,
+            "error": str(error),
+        }
+        details.update({k: str(v) for k, v in context.items()})
+        self._nonfatal_errors.append(details)
+
+        if context:
+            context_str = ", ".join(f"{key}={value}" for key, value in context.items())
+            logger.warning("Non-fatal %s error (%s): %s", operation, context_str, error)
+            return
+        logger.warning("Non-fatal %s error: %s", operation, error)
 
     # --- Async iterator protocol ---
 
@@ -146,9 +233,13 @@ class ThenvoiLink:
 
         From ThenvoiAgent.run() lines 208-209.
         """
-        if not self._ws:
+        await self._require_ws().run_forever()
+
+    def _require_ws(self) -> WebSocketClient:
+        """Return connected WebSocket client or raise."""
+        if self._ws is None:
             raise RuntimeError("Not connected")
-        await self._ws.run_forever()
+        return self._ws
 
     # --- Subscription management (from ThenvoiAgent) ---
 
@@ -158,10 +249,7 @@ class ThenvoiLink:
 
         From ThenvoiAgent.start() lines 167-171.
         """
-        if not self._ws:
-            raise RuntimeError("Not connected")
-
-        await self._ws.join_agent_rooms_channel(
+        await self._require_ws().join_agent_rooms_channel(
             agent_id,
             on_room_added=self._on_room_added,
             on_room_removed=self._on_room_removed,
@@ -173,20 +261,19 @@ class ThenvoiLink:
 
         Extracted from ThenvoiAgent._subscribe_to_room() lines 724-746.
         """
-        if not self._ws:
-            raise RuntimeError("Not connected")
-
         if room_id in self._subscribed_rooms:
             return
 
+        ws = self._require_ws()
+
         # Subscribe to messages (from lines 733-736)
-        await self._ws.join_chat_room_channel(
+        await ws.join_chat_room_channel(
             room_id,
             on_message_created=lambda msg: self._on_message_created(room_id, msg),
         )
 
         # Subscribe to participant updates (from lines 739-743)
-        await self._ws.join_room_participants_channel(
+        await ws.join_room_participants_channel(
             room_id,
             on_participant_added=lambda p: self._on_participant_added(room_id, p),
             on_participant_removed=lambda p: self._on_participant_removed(room_id, p),
@@ -202,16 +289,26 @@ class ThenvoiLink:
         Events: contact_request_received, contact_request_updated,
                 contact_added, contact_removed
         """
-        if not self._ws:
-            raise RuntimeError("Not connected")
-
-        await self._ws.join_agent_contacts_channel(
+        await self._require_ws().join_agent_contacts_channel(
             agent_id,
             on_contact_request_received=self._on_contact_request_received,
             on_contact_request_updated=self._on_contact_request_updated,
             on_contact_added=self._on_contact_added,
             on_contact_removed=self._on_contact_removed,
         )
+
+    async def _unsubscribe_best_effort(
+        self,
+        *,
+        operation: str,
+        callback: Callable[[], Awaitable[object]],
+        context: dict[str, str],
+    ) -> None:
+        """Execute unsubscribe callback and capture non-fatal errors."""
+        try:
+            await callback()
+        except Exception as error:
+            self._record_nonfatal_error(operation, error, **context)
 
     async def unsubscribe_room(self, room_id: str) -> None:
         """
@@ -222,19 +319,19 @@ class ThenvoiLink:
         if not self._ws or room_id not in self._subscribed_rooms:
             return
 
+        ws = self._ws
         self._subscribed_rooms.discard(room_id)
 
-        try:
-            await self._ws.leave_chat_room_channel(room_id)
-        except Exception as e:
-            logger.warning("Error unsubscribing from chat_room:%s: %s", room_id, e)
-
-        try:
-            await self._ws.leave_room_participants_channel(room_id)
-        except Exception as e:
-            logger.warning(
-                "Error unsubscribing from room_participants:%s: %s", room_id, e
-            )
+        await self._unsubscribe_best_effort(
+            operation="unsubscribe_chat_room_channel",
+            callback=lambda: ws.leave_chat_room_channel(room_id),
+            context={"room_id": room_id},
+        )
+        await self._unsubscribe_best_effort(
+            operation="unsubscribe_room_participants_channel",
+            callback=lambda: ws.leave_room_participants_channel(room_id),
+            context={"room_id": room_id},
+        )
 
         logger.debug("Unsubscribed from room %s", room_id)
 
@@ -242,10 +339,12 @@ class ThenvoiLink:
         """Unsubscribe from agent contacts channel."""
         if not self._ws:
             return
-        try:
-            await self._ws.leave_agent_contacts_channel(self.agent_id)
-        except Exception as e:
-            logger.warning("Error unsubscribing from agent_contacts: %s", e)
+        ws = self._ws
+        await self._unsubscribe_best_effort(
+            operation="unsubscribe_agent_contacts_channel",
+            callback=lambda: ws.leave_agent_contacts_channel(self.agent_id),
+            context={"agent_id": self.agent_id},
+        )
 
     # --- Event handlers (from ThenvoiAgent, unified into PlatformEvent) ---
 
@@ -264,6 +363,17 @@ class ThenvoiLink:
         """Queue a synthetic event for processing (public API)."""
         self._queue_event(event)
 
+    def _queue_payload_event(
+        self,
+        event_type: str,
+        *,
+        payload: object,
+        room_id: str | None = None,
+    ) -> None:
+        """Create and queue a platform event using declarative factory mapping."""
+        factory = _EVENT_FACTORIES[event_type]
+        self._queue_event(factory(room_id, payload))
+
     async def _on_room_added(self, payload: "RoomAddedPayload") -> None:
         """
         Handle room_added from WebSocket.
@@ -271,11 +381,11 @@ class ThenvoiLink:
         From ThenvoiAgent._on_room_added() lines 619-630.
         Now creates RoomAddedEvent and queues it for async iteration.
         """
-        event = RoomAddedEvent(
+        self._queue_payload_event(
+            "room_added",
             room_id=payload.id,
             payload=payload,
         )
-        self._queue_event(event)
 
     async def _on_room_removed(self, payload: "RoomRemovedPayload") -> None:
         """
@@ -283,11 +393,11 @@ class ThenvoiLink:
 
         From ThenvoiAgent._on_room_removed() lines 632-643.
         """
-        event = RoomRemovedEvent(
+        self._queue_payload_event(
+            "room_removed",
             room_id=payload.id,
             payload=payload,
         )
-        self._queue_event(event)
 
     async def _on_message_created(
         self, room_id: str, payload: "MessageCreatedPayload"
@@ -298,11 +408,11 @@ class ThenvoiLink:
         From ThenvoiAgent._on_message_created() lines 645-682.
         Now creates MessageEvent and queues it for async iteration.
         """
-        event = MessageEvent(
+        self._queue_payload_event(
+            "message_created",
             room_id=room_id,
             payload=payload,
         )
-        self._queue_event(event)
 
     async def _on_participant_added(
         self, room_id: str, payload: "ParticipantAddedPayload"
@@ -313,11 +423,11 @@ class ThenvoiLink:
         From ThenvoiAgent._on_participant_added() lines 771-786.
         Payload is already validated by WebSocketClient._handle_events().
         """
-        event = ParticipantAddedEvent(
+        self._queue_payload_event(
+            "participant_added",
             room_id=room_id,
             payload=payload,
         )
-        self._queue_event(event)
 
     async def _on_participant_removed(
         self, room_id: str, payload: "ParticipantRemovedPayload"
@@ -328,11 +438,11 @@ class ThenvoiLink:
         From ThenvoiAgent._on_participant_removed() lines 788-805.
         Payload is already validated by WebSocketClient._handle_events().
         """
-        event = ParticipantRemovedEvent(
+        self._queue_payload_event(
+            "participant_removed",
             room_id=room_id,
             payload=payload,
         )
-        self._queue_event(event)
 
     async def _on_contact_request_received(
         self, payload: "ContactRequestReceivedPayload"
@@ -344,11 +454,10 @@ class ThenvoiLink:
             payload.from_handle,
             payload.id,
         )
-        event = ContactRequestReceivedEvent(
-            room_id=None,  # Contact events have no room context
+        self._queue_payload_event(
+            "contact_request_received",
             payload=payload,
         )
-        self._queue_event(event)
 
     async def _on_contact_request_updated(
         self, payload: "ContactRequestUpdatedPayload"
@@ -359,11 +468,10 @@ class ThenvoiLink:
             payload.id,
             payload.status,
         )
-        event = ContactRequestUpdatedEvent(
-            room_id=None,
+        self._queue_payload_event(
+            "contact_request_updated",
             payload=payload,
         )
-        self._queue_event(event)
 
     async def _on_contact_added(self, payload: "ContactAddedPayload") -> None:
         """Handle contact_added from WebSocket."""
@@ -373,20 +481,18 @@ class ThenvoiLink:
             payload.handle,
             payload.id,
         )
-        event = ContactAddedEvent(
-            room_id=None,
+        self._queue_payload_event(
+            "contact_added",
             payload=payload,
         )
-        self._queue_event(event)
 
     async def _on_contact_removed(self, payload: "ContactRemovedPayload") -> None:
         """Handle contact_removed from WebSocket."""
         logger.debug("WebSocket: contact_removed contact_id=%s", payload.id)
-        event = ContactRemovedEvent(
-            room_id=None,
+        self._queue_payload_event(
+            "contact_removed",
             payload=payload,
         )
-        self._queue_event(event)
 
     # --- Message lifecycle (SDK internal operations) ---
 
@@ -403,8 +509,13 @@ class ThenvoiLink:
                 id=message_id,
                 request_options=DEFAULT_REQUEST_OPTIONS,
             )
-        except Exception as e:
-            logger.warning("Failed to mark message %s as processing: %s", message_id, e)
+        except Exception as error:
+            self._record_nonfatal_error(
+                "mark_message_processing",
+                error,
+                room_id=room_id,
+                message_id=message_id,
+            )
 
     async def mark_processed(self, room_id: str, message_id: str) -> None:
         """
@@ -419,8 +530,13 @@ class ThenvoiLink:
                 id=message_id,
                 request_options=DEFAULT_REQUEST_OPTIONS,
             )
-        except Exception as e:
-            logger.warning("Failed to mark message %s as processed: %s", message_id, e)
+        except Exception as error:
+            self._record_nonfatal_error(
+                "mark_message_processed",
+                error,
+                room_id=room_id,
+                message_id=message_id,
+            )
 
     async def mark_failed(self, room_id: str, message_id: str, error: str) -> None:
         """
@@ -437,8 +553,13 @@ class ThenvoiLink:
                 error=error,
                 request_options=DEFAULT_REQUEST_OPTIONS,
             )
-        except Exception as e:
-            logger.warning("Failed to mark message %s as failed: %s", message_id, e)
+        except Exception as final_error:
+            self._record_nonfatal_error(
+                "mark_message_failed",
+                final_error,
+                room_id=room_id,
+                message_id=message_id,
+            )
 
     async def get_next_message(self, room_id: str) -> PlatformMessage | None:
         """

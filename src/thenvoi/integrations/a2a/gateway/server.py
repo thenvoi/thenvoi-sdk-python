@@ -21,12 +21,13 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse, StreamingResponse
 from starlette.routing import Route
 
+from thenvoi.integrations.a2a.gateway.peer_directory import PeerDirectory, PeerRef
 from thenvoi_rest import Peer
 
 logger = logging.getLogger(__name__)
 
 # Type alias for the on_request callback
-OnRequestCallback = Callable[[str, A2AMessage], AsyncIterator[TaskStatusUpdateEvent]]
+OnRequestCallback = Callable[[PeerRef, A2AMessage], AsyncIterator[TaskStatusUpdateEvent]]
 
 
 class GatewayServer:
@@ -38,8 +39,8 @@ class GatewayServer:
     Peers are addressed by slug (e.g., "weather-agent") with UUID fallback.
 
     Attributes:
-        peers: Dict mapping slug to Peer objects (primary lookup).
-        peers_by_uuid: Dict mapping UUID to Peer objects (fallback lookup).
+        peers: Projection mapping slug to Peer objects (primary lookup).
+        peers_by_uuid: Projection mapping UUID to Peer objects (fallback lookup).
         gateway_url: Base URL for the gateway (used in AgentCard URLs).
         port: Port to listen on.
         on_request: Callback invoked when an A2A message is received.
@@ -47,49 +48,58 @@ class GatewayServer:
 
     def __init__(
         self,
-        peers: dict[str, Peer],
-        peers_by_uuid: dict[str, Peer],
         gateway_url: str,
         port: int,
         on_request: OnRequestCallback,
+        peers: dict[str, Peer] | None = None,
+        peers_by_uuid: dict[str, Peer] | None = None,
+        peer_directory: PeerDirectory | None = None,
     ) -> None:
         """Initialize gateway server.
 
         Args:
-            peers: Dict of slug → Peer objects (primary lookup).
-            peers_by_uuid: Dict of UUID → Peer objects (fallback lookup).
             gateway_url: Base URL for AgentCard URLs (e.g., "http://localhost:10000").
             port: Port to listen on.
-            on_request: Async callback invoked with (peer_id, message) → events.
+            on_request: Async callback invoked with (peer_ref, message) → events.
+            peers: Optional slug → peer map (legacy constructor compatibility).
+            peers_by_uuid: Optional UUID → peer map (legacy constructor compatibility).
+            peer_directory: Optional prebuilt peer directory.
         """
-        self.peers = peers
-        self.peers_by_uuid = peers_by_uuid
+        if peer_directory is not None and (peers or peers_by_uuid):
+            raise ValueError(
+                "Provide either peer_directory or peers/peers_by_uuid, not both."
+            )
+
+        self.peer_directory = peer_directory or PeerDirectory(
+            peers=peers or {},
+            peers_by_uuid=peers_by_uuid or {},
+        )
         self.gateway_url = gateway_url
         self.port = port
         self.on_request = on_request
         self._app: Starlette | None = None
         self._server_task: asyncio.Task[Any] | None = None
 
-    def _resolve_peer(self, peer_id: str) -> tuple[str, Peer] | None:
+    @property
+    def peers(self) -> dict[str, Peer]:
+        """Projection of canonical peer directory keyed by slug."""
+        return self.peer_directory.peers
+
+    @property
+    def peers_by_uuid(self) -> dict[str, Peer]:
+        """Projection of canonical peer directory keyed by UUID aliases."""
+        return self.peer_directory.peers_by_uuid
+
+    def _resolve_peer(self, peer_id: str) -> PeerRef | None:
         """Resolve peer by slug or UUID.
 
         Args:
             peer_id: Peer slug or UUID from URL path.
 
         Returns:
-            Tuple of (slug, Peer) if found, None otherwise.
+            Resolved peer reference if found, None otherwise.
         """
-        # Try slug first (primary)
-        if peer_id in self.peers:
-            return peer_id, self.peers[peer_id]
-        # Try UUID fallback
-        if peer_id in self.peers_by_uuid:
-            peer = self.peers_by_uuid[peer_id]
-            # Find the slug for this peer
-            for slug, p in self.peers.items():
-                if p.id == peer.id:
-                    return slug, peer
-        return None
+        return self.peer_directory.resolve(peer_id)
 
     def _build_app(self) -> Starlette:
         """Build Starlette application with routes."""
@@ -142,7 +152,7 @@ class GatewayServer:
                 "name": peer.name,  # Display name
                 "description": peer.description or "",
             }
-            for slug, peer in self.peers.items()
+            for slug, peer in self.peer_directory.items()
         ]
         return JSONResponse({"peers": peers_list, "count": len(peers_list)})
 
@@ -160,7 +170,8 @@ class GatewayServer:
         if not resolved:
             return JSONResponse({"error": "Not found"}, status_code=404)
 
-        slug, peer = resolved
+        slug = resolved.slug
+        peer = resolved.peer
 
         card = AgentCard(
             name=peer.name,
@@ -197,7 +208,8 @@ class GatewayServer:
         if not resolved:
             return JSONResponse({"error": "Not found"}, status_code=404)  # type: ignore[return-value]
 
-        slug, peer = resolved
+        slug = resolved.slug
+        peer = resolved.peer
 
         body = await request.json()
         message = A2AMessage(**body)
@@ -212,8 +224,7 @@ class GatewayServer:
         async def event_stream() -> AsyncIterator[str]:
             """Generate SSE events from on_request callback."""
             try:
-                # Pass slug to callback (adapter resolves to peer)
-                async for event in self.on_request(slug, message):
+                async for event in self.on_request(resolved, message):
                     yield f"data: {event.model_dump_json()}\n\n"
             except Exception as e:
                 logger.exception("Error in A2A request handler: %s", e)
@@ -250,7 +261,8 @@ class GatewayServer:
                 status_code=404,
             )
 
-        slug, peer = resolved
+        slug = resolved.slug
+        peer = resolved.peer
         body = await request.json()
 
         # Extract JSON-RPC fields
@@ -268,9 +280,9 @@ class GatewayServer:
 
         # Route based on method
         if method == "message/send":
-            return await self._handle_jsonrpc_send(slug, params, request_id)
+            return await self._handle_jsonrpc_send(resolved, params, request_id)
         elif method == "message/stream":
-            return await self._handle_jsonrpc_stream(slug, params, request_id)
+            return await self._handle_jsonrpc_stream(resolved, params, request_id)
         else:
             return JSONResponse(
                 {
@@ -282,12 +294,12 @@ class GatewayServer:
             )
 
     async def _handle_jsonrpc_send(
-        self, slug: str, params: dict[str, Any], request_id: str | None
+        self, peer_ref: PeerRef, params: dict[str, Any], request_id: str | None
     ) -> JSONResponse:
         """Handle synchronous message/send JSON-RPC request.
 
         Args:
-            slug: Peer slug.
+            peer_ref: Resolved peer reference.
             params: JSON-RPC params containing message.
             request_id: JSON-RPC request ID.
 
@@ -301,7 +313,7 @@ class GatewayServer:
         # Collect all events until final
         final_event: TaskStatusUpdateEvent | None = None
         try:
-            async for event in self.on_request(slug, message):
+            async for event in self.on_request(peer_ref, message):
                 final_event = event
                 if event.final:
                     break
@@ -342,12 +354,12 @@ class GatewayServer:
             )
 
     async def _handle_jsonrpc_stream(
-        self, slug: str, params: dict[str, Any], request_id: str | None
+        self, peer_ref: PeerRef, params: dict[str, Any], request_id: str | None
     ) -> StreamingResponse:
         """Handle streaming message/stream JSON-RPC request.
 
         Args:
-            slug: Peer slug.
+            peer_ref: Resolved peer reference.
             params: JSON-RPC params containing message.
             request_id: JSON-RPC request ID.
 
@@ -361,7 +373,7 @@ class GatewayServer:
         async def event_stream() -> AsyncIterator[str]:
             """Generate SSE events in JSON-RPC format."""
             try:
-                async for event in self.on_request(slug, message):
+                async for event in self.on_request(peer_ref, message):
                     # Wrap event in JSON-RPC response
                     jsonrpc_response = {
                         "jsonrpc": "2.0",
@@ -400,7 +412,7 @@ class GatewayServer:
         logger.info(
             "Starting A2A Gateway server on port %d with %d peers",
             self.port,
-            len(self.peers),
+            len(self.peer_directory.peers),
         )
 
         # Run server in background task
@@ -410,9 +422,10 @@ class GatewayServer:
         """Stop the HTTP server."""
         if self._server_task:
             self._server_task.cancel()
-            try:
-                await self._server_task
-            except asyncio.CancelledError:
-                pass
+            result = (await asyncio.gather(self._server_task, return_exceptions=True))[0]
+            if isinstance(result, asyncio.CancelledError):
+                logger.debug("A2A Gateway server task cancelled")
+            elif isinstance(result, Exception):
+                logger.warning("A2A Gateway server task exited with error: %s", result)
             self._server_task = None
             logger.info("A2A Gateway server stopped")

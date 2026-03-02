@@ -1,0 +1,137 @@
+{
+  "batch": "Testing & API",
+  "batch_index": 4,
+  "assessments": {
+    "test_strategy": 68.0,
+    "mid_level_elegance": 64.0
+  },
+  "dimension_notes": {
+    "test_strategy": {
+      "evidence": [
+        "src/thenvoi/integrations/codex/rpc_base.py injects sleep for retries but still hard-codes random.uniform in OverloadRetryPolicy.backoff_seconds, so retry timing is nondeterministic in tests.",
+        "examples/a2a_gateway/demo_orchestrator/remote_agent.py directly constructs httpx.AsyncClient, A2ACardResolver, A2AClient, and uuid4 values inside call paths, forcing broad monkeypatching for isolated tests.",
+        "src/thenvoi/integrations/codex/rpc_base.py request/_request_once await pending futures with no timeout path, making failure scenarios hard to bound in automated tests."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    },
+    "mid_level_elegance": {
+      "evidence": [
+        "examples/a2a_gateway/demo_orchestrator/remote_agent.py mixes boundary failure semantics across sibling methods: list_peers returns [], discover_peer returns False, call_peer raises RuntimeError for the same network class of failures.",
+        "examples/a2a_gateway/demo_orchestrator/remote_agent.py _extract_response returns the literal success-typed string \"No response from peer\" instead of a typed empty/error state, blurring normal vs failure handoff.",
+        "src/thenvoi/integrations/codex/rpc_base.py drops unknown/non-JSON inbound payloads and keeps pending requests alive without timeout or correlation-level failure, creating surprising seam behavior for callers waiting on request()."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "architectural_change",
+      "confidence": "high"
+    }
+  },
+  "findings": [
+    {
+      "dimension": "test_strategy",
+      "identifier": "non_deterministic_retry_backoff",
+      "summary": "Retry timing remains nondeterministic because jitter randomness is not injectable.",
+      "related_files": [
+        "src/thenvoi/integrations/codex/rpc_base.py",
+        "examples/a2a_gateway/demo_orchestrator/remote_agent.py"
+      ],
+      "evidence": [
+        "OverloadRetryPolicy.backoff_seconds calls random.uniform directly, while BaseJsonRpcClient only injects sleep.",
+        "GatewayClient similarly embeds runtime-only dependencies (http client/resolvers/uuid generation), showing a repeated pattern of hard-coded collaborators that complicate deterministic tests."
+      ],
+      "suggestion": "Inject a randomness source/callable into OverloadRetryPolicy (or BaseJsonRpcClient), and add constructor injection points for remote_agent collaborators (client factory, resolver factory, UUID provider) so tests can run deterministically without invasive monkeypatching.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "hard_coded_boundary_dependencies"
+    },
+    {
+      "dimension": "test_strategy",
+      "identifier": "unbounded_async_wait_paths",
+      "summary": "Core request paths can wait indefinitely, making failure-path tests fragile and slow.",
+      "related_files": [
+        "src/thenvoi/integrations/codex/rpc_base.py",
+        "examples/a2a_gateway/demo_orchestrator/remote_agent.py"
+      ],
+      "evidence": [
+        "BaseJsonRpcClient._request_once awaits a pending future without timeout; malformed or dropped response paths can leave callers hanging until external teardown.",
+        "GatewayClient.call_peer relies on downstream async calls with no explicit per-call timeout boundary besides client-level timeout, but response extraction can still return fallback text instead of explicit failure signals."
+      ],
+      "suggestion": "Add explicit request-level timeout controls (configurable per call) and deterministic failure outcomes for timeout/malformed-response paths; include seam-level tests that assert bounded completion for each failure mode.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "implicit_failure_contracts"
+    },
+    {
+      "dimension": "mid_level_elegance",
+      "identifier": "inconsistent_gateway_error_contracts",
+      "summary": "Gateway methods use conflicting error handoffs, forcing callers to branch on method quirks.",
+      "related_files": [
+        "examples/a2a_gateway/demo_orchestrator/remote_agent.py",
+        "src/thenvoi/runtime/types.py"
+      ],
+      "evidence": [
+        "list_peers catches Exception and returns []; discover_peer catches Exception and returns False; call_peer catches Exception and raises RuntimeError.",
+        "This creates three different failure channels across one client interface (empty collection, boolean miss, exception), increasing orchestration complexity at integration seams."
+      ],
+      "suggestion": "Define one explicit gateway error policy (e.g., raise typed exceptions for transport failures, reserve False/[] for valid business empties) and apply it uniformly across all public methods.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "architectural_change",
+      "root_cause_cluster": "implicit_failure_contracts"
+    },
+    {
+      "dimension": "mid_level_elegance",
+      "identifier": "string_sentinel_blurs_response_semantics",
+      "summary": "Returning \"No response from peer\" as normal text hides protocol-level failure states.",
+      "related_files": [
+        "examples/a2a_gateway/demo_orchestrator/remote_agent.py",
+        "src/thenvoi/integrations/codex/rpc_base.py"
+      ],
+      "evidence": [
+        "GatewayClient._extract_response falls back to a plain text sentinel instead of signaling an absent/invalid payload via typed error or optional contract.",
+        "rpc_base models explicit protocol events/errors (RpcEvent, CodexJsonRpcError), highlighting mismatch with the gateway’s loosely typed success/failure handoff."
+      ],
+      "suggestion": "Replace string sentinel fallback with an explicit result contract (typed exception or structured Result-like payload) so callers can distinguish successful peer output from protocol absence.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "implicit_failure_contracts"
+    },
+    {
+      "dimension": "mid_level_elegance",
+      "identifier": "minimal_setup_facades_hide_integration_options",
+      "summary": "Thin setup wrappers expose no extension seam for integration-level behavior differences.",
+      "related_files": [
+        "examples/pydantic_ai/setup_logging.py",
+        "examples/prompts/characters.py"
+      ],
+      "evidence": [
+        "setup_logging.py exports setup_logging via direct assignment to build_logging_setup(\"pydantic_ai\") with no parameterization seam.",
+        "characters.py prompt generators embed multiple behavioral rules as fixed inline templates, so composition points for scenario-specific orchestration are not explicit."
+      ],
+      "suggestion": "Promote these example boundaries to explicit factory functions with optional parameters (e.g., logger profile/options and prompt policy fragments) so integration orchestration can vary behavior without copy-paste forks.",
+      "confidence": "medium",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "hard_coded_boundary_dependencies"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "Boundary contracts are implicit and inconsistent across related methods instead of encoded as one explicit policy.",
+      "Collaborators and variability points are hard-coded inside methods, reducing deterministic testability and seam clarity."
+    ],
+    "likely_symptoms": [
+      "non_deterministic_retry_backoff",
+      "unbounded_async_wait_paths",
+      "inconsistent_gateway_error_contracts",
+      "string_sentinel_blurs_response_semantics"
+    ],
+    "possible_false_positives": [
+      "minimal_setup_facades_hide_integration_options"
+    ]
+  }
+}

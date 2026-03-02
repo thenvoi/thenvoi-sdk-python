@@ -1,0 +1,118 @@
+{
+  "batch": "Design coherence — Mechanical Concern Signals",
+  "batch_index": 4,
+  "assessments": {
+    "design_coherence": 76.0
+  },
+  "dimension_notes": {
+    "design_coherence": {
+      "evidence": [
+        "Runner startup/orchestration flow is repeated with near-identical structure across docker and example entrypoints (env parsing, prompt composition, adapter construction, agent lifecycle) in docker/claude_sdk/runner.py, docker/codex/runner.py, and examples/claude_sdk_docker/runner.py.",
+        "Framework adapters repeat the same structural scaffolding (adapter-specific ToolsProtocol declarations and from_config pass-through constructors) across src/thenvoi/adapters/anthropic.py, src/thenvoi/adapters/pydantic_ai.py, src/thenvoi/adapters/langgraph.py, and src/thenvoi/adapters/claude_sdk.py.",
+        "Tool integration logic is split into multiple framework-specific wrapper builders while a shared dispatcher already exists, creating parallel representations of the same platform tool contract in src/thenvoi/runtime/tool_bridge.py, src/thenvoi/integrations/claude_sdk/tools.py, and src/thenvoi/integrations/parlant/tools.py.",
+        "The tool surface is concentrated in a broad object/protocol pair (src/thenvoi/runtime/tools.py + src/thenvoi/core/protocols.py) and mirrored in test fake implementation (src/thenvoi/testing/fake_tools.py), coupling unrelated responsibilities (messaging, participant management, contacts, memory, schema export, dispatch)."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "findings": [
+    {
+      "dimension": "design_coherence",
+      "identifier": "runner_entrypoint_duplication",
+      "summary": "Runner entrypoints duplicate orchestration flow, causing convention and behavior drift risk",
+      "related_files": [
+        "docker/claude_sdk/runner.py",
+        "docker/codex/runner.py",
+        "examples/claude_sdk_docker/runner.py",
+        "src/thenvoi/testing/runner_core.py"
+      ],
+      "evidence": [
+        "All three runner files perform the same high-level sequence (read config/env, compose prompt, create adapter, create agent, run lifecycle), but each maintains its own env contract and defaults.",
+        "docker/claude_sdk/runner.py and examples/claude_sdk_docker/runner.py are especially close structurally yet diverge in required mounts and role/workspace handling.",
+        "Shared helper functions exist in runner_core, but orchestration decisions remain hand-assembled per file, so changes to startup policy require synchronized edits across entrypoints."
+      ],
+      "suggestion": "Introduce a declarative `RunnerSpec` + single generic runner executor in `src/thenvoi/testing/runner_core.py` (adapter factory, env schema, mount policy, optional repo init hooks), and keep each entrypoint as thin configuration-only wiring.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "duplicated_entrypoint_orchestration"
+    },
+    {
+      "dimension": "design_coherence",
+      "identifier": "adapter_scaffold_replication",
+      "summary": "Adapter modules repeat the same protocol/config scaffolding instead of a shared adapter pattern",
+      "related_files": [
+        "src/thenvoi/adapters/anthropic.py",
+        "src/thenvoi/adapters/pydantic_ai.py",
+        "src/thenvoi/adapters/langgraph.py",
+        "src/thenvoi/adapters/claude_sdk.py"
+      ],
+      "evidence": [
+        "Multiple adapters define near-identical `*ToolsProtocol` classes that primarily restate messaging + tool dispatch requirements.",
+        "Multiple adapters include a `from_config` classmethod that is largely parameter forwarding to `__init__`, repeating boilerplate mapping logic per adapter.",
+        "The repeated structural template suggests one intended adapter lifecycle pattern, but the pattern is implemented manually in each module."
+      ],
+      "suggestion": "Create a shared adapter construction scaffold (e.g., typed config protocol + reusable config-to-init utility and common tool-contract aliases) so each adapter only defines framework-specific behavior rather than repeating setup shape.",
+      "confidence": "medium",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "adapter_template_not_centralized"
+    },
+    {
+      "dimension": "design_coherence",
+      "identifier": "parallel_tool_wrapper_layers",
+      "summary": "Framework-specific tool wrappers duplicate behavior already centralized in tool_bridge",
+      "related_files": [
+        "src/thenvoi/runtime/tool_bridge.py",
+        "src/thenvoi/integrations/claude_sdk/tools.py",
+        "src/thenvoi/integrations/parlant/tools.py"
+      ],
+      "evidence": [
+        "tool_bridge already normalizes args, dispatches tool calls, and builds consistent failure contracts.",
+        "claude_sdk/tools.py and parlant/tools.py still build separate per-tool wrapper functions (`_build_send_message_tool`, `_build_send_event_tool`, `_build_add_participant_tool`, etc.) with framework-local parsing/result shaping and error branches.",
+        "When platform tool semantics change, updates are needed in centralized bridge logic and multiple wrapper layers, increasing drift probability."
+      ],
+      "suggestion": "Define a single declarative tool descriptor table (name, arg schema adapter, response formatter) and generate framework-specific wrappers from that table while keeping dispatch and error semantics exclusively in `tool_bridge`.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "architectural_change",
+      "root_cause_cluster": "tool_contract_reimplemented_per_framework"
+    },
+    {
+      "dimension": "design_coherence",
+      "identifier": "god_tool_surface_coupling",
+      "summary": "AgentTools centralizes too many unrelated responsibilities behind one broad protocol",
+      "related_files": [
+        "src/thenvoi/core/protocols.py",
+        "src/thenvoi/runtime/tools.py",
+        "src/thenvoi/testing/fake_tools.py"
+      ],
+      "evidence": [
+        "`AgentToolsProtocol` combines messaging, participants, contacts, memory, schema export, and generic dispatch into one interface.",
+        "`AgentTools` implements all of these concerns in one class with many public async methods and internal helper responsibilities.",
+        "`FakeAgentTools` mirrors the same broad surface, forcing tests to carry large fake behavior even when only a narrow capability subset is required."
+      ],
+      "suggestion": "Split tool capabilities into composable service objects (messaging/participants/contacts/memory/schema-dispatch) and provide a thin aggregator only where required; migrate adapters to depend on the narrowest protocol slice they actually use.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "architectural_change",
+      "root_cause_cluster": "over_broad_tool_abstraction"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "A repeated pattern of local copy-and-specialize instead of promoting shared declarative scaffolds for adapters, runners, and tool wrappers.",
+      "Public integration surface evolved by accretion, producing broad interfaces and cross-cutting implementation objects."
+    ],
+    "likely_symptoms": [
+      "runner_entrypoint_duplication",
+      "adapter_scaffold_replication",
+      "parallel_tool_wrapper_layers"
+    ],
+    "possible_false_positives": [
+      "Some duplication in examples may be intentional for tutorial readability, but the same pattern appears in production Docker runners where drift cost is higher."
+    ]
+  }
+}

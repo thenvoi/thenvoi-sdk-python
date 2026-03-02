@@ -1,0 +1,33 @@
+{
+  "batch": "Testing & API",
+  "batch_index": 2,
+  "assessments": {
+    "test_strategy": 88.0
+  },
+  "dimension_notes": {
+    "test_strategy": {
+      "evidence": [
+        "`src/thenvoi/runtime/types.py` is primarily dataclasses, enums, constants, and two small normalization helpers, which lowers direct behavioral risk compared to stateful logic.",
+        "`ContactEventConfig.__post_init__` contains runtime validation branches (CALLBACK requires `on_event`; callback must be async), but this file does not embed executable checks/examples that verify edge callable shapes over time.",
+        "The module includes API-shaping helpers (`normalize_handle`, `is_agent_sender_type`, `PlatformMessage.format_for_llm`) that are simple but contract-sensitive for downstream behavior, so targeted contract tests are still valuable."
+      ],
+      "impact_scope": "module",
+      "fix_scope": "single_edit",
+      "confidence": "medium",
+      "issues_preventing_higher_score": "Validation and formatting contracts are present but not self-verifying in this module; adding explicit contract tests for callback validation and normalization/formatting edge cases would increase confidence.",
+      "sub_axes": {
+        "abstraction_leverage": 88.0,
+        "indirection_cost": 92.0,
+        "interface_honesty": 87.0
+      }
+    }
+  },
+  "findings": [],
+  "retrospective": {
+    "root_causes": [
+      "Lightweight runtime type modules can hide contract-risky behavior in seemingly simple helpers without nearby executable specification."
+    ],
+    "likely_symptoms": [],
+    "possible_false_positives": []
+  }
+}

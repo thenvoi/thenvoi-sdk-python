@@ -1,0 +1,302 @@
+{
+  "batch": "Full Codebase Sweep",
+  "batch_index": 9,
+  "assessments": {
+    "cross_module_architecture": 86.0,
+    "convention_outlier": 78.0,
+    "error_consistency": 76.0,
+    "abstraction_fitness": 74.0,
+    "dependency_health": 89.0,
+    "test_strategy": 88.0,
+    "ai_generated_debt": 79.0,
+    "package_organization": 73.0,
+    "high_level_elegance": 86.0,
+    "mid_level_elegance": 86.0,
+    "low_level_elegance": 86.0,
+    "design_coherence": 75.0
+  },
+  "dimension_notes": {
+    "cross_module_architecture": {
+      "evidence": [
+        "Adapter boundaries are mostly one-way: `src/thenvoi/adapters/*` depend on `core`, `converters`, and `runtime` rather than reversing those edges.",
+        "System update formatting was centralized into `src/thenvoi/adapters/system_updates.py` and reused by multiple adapters (`anthropic.py`, `langgraph.py`, `pydantic_ai.py`, `parlant.py`, `claude_sdk.py`).",
+        "No direct cycle signal appears in the provided coupling matrix among assigned production directories."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "medium",
+      "issues_preventing_higher_score": "Large framework adapters still act as boundary hubs (especially `src/thenvoi/adapters/codex.py`), increasing change blast radius."
+    },
+    "convention_outlier": {
+      "evidence": [
+        "Logging setup conventions diverge across sibling examples: centralized profile (`setup_logging_profile`) vs direct `logging.basicConfig` in `examples/run_agent.py`, `examples/coding_agents/create_agents.py`, and `examples/coding_agents/test_communication.py`.",
+        "Import style differs for adapters across equivalent examples: aggregate namespace imports (`from thenvoi.adapters import ...`) vs direct module imports (`examples/codex/basic_agent.py` imports `thenvoi.adapters.codex`).",
+        "Mixed script posture in examples (some strict reusable bootstrap flow, some bespoke ad-hoc startup) creates style islands."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    },
+    "error_consistency": {
+      "evidence": [
+        "`src/thenvoi/adapters/parlant.py` returns early on uninitialized app (`if not self._app: ... return`) while other adapters raise on equivalent invariant failures.",
+        "`src/thenvoi/adapters/langgraph.py` catches exceptions, attempts error event emission, then re-raises; `src/thenvoi/adapters/crewai_tooling.py` catches and converts failures into JSON error strings.",
+        "`.github/actions/GithubToken/generate_token.py` mixes `SystemExit` for HTTP failures and `ValueError` for response-shape failures in one flow."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    },
+    "abstraction_fitness": {
+      "evidence": [
+        "`docker/shared/config_loader.py` is a pure pass-through wrapper (`load_config` delegates directly to `thenvoi.testing.config_loader.load_runner_config`).",
+        "`src/thenvoi/adapters/codex.py` concentrates transport/session/approval/model-selection/event formatting concerns in one class/file (1837 LOC), indicating abstraction under-separation.",
+        "Parallel dynamic tool-wrapper stacks are reimplemented per adapter/runtime (`src/thenvoi/adapters/pydantic_ai.py` and `src/thenvoi/adapters/crewai_tooling.py`) instead of a shared bounded abstraction."
+      ],
+      "impact_scope": "codebase",
+      "fix_scope": "architectural_change",
+      "confidence": "high",
+      "sub_axes": {
+        "abstraction_leverage": 71.0,
+        "indirection_cost": 69.0,
+        "interface_honesty": 82.0
+      }
+    },
+    "dependency_health": {
+      "evidence": [
+        "Optional dependency loading is explicit and guarded in adapter code paths (`claude_sdk`, `crewai`) rather than implicit import-time crashes.",
+        "No clear duplicated-runtime-library conflict is evident in assigned files; framework-specific dependencies map to their adapters.",
+        "Network/process calls in script utilities generally include timeouts (`requests.post(..., timeout=30)`, subprocess timeout handling in `docker/shared/repo_init.py`)."
+      ],
+      "impact_scope": "module",
+      "fix_scope": "single_edit",
+      "confidence": "medium",
+      "issues_preventing_higher_score": "This batch does not include full lock/dependency manifests, so unresolved duplicate or stale dependency risk cannot be ruled out."
+    },
+    "test_strategy": {
+      "evidence": [
+        "Assigned production/example surfaces have dedicated test directories in holistic structure (`tests/adapters/`, `tests/docker/`, `tests/example_agents/`), indicating intentional coverage strategy.",
+        "Coupling matrix shows tests importing example directories (e.g., `tests/example_agents/langgraph/ → examples/langgraph/`: 3), suggesting executable examples are verified.",
+        "High-risk scripts and adapters in this batch are not purely untested from project-level evidence."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "medium",
+      "issues_preventing_higher_score": "Several example scripts remain operationally complex and may still rely on integration-style assertions rather than stable seam-level unit tests."
+    },
+    "ai_generated_debt": {
+      "evidence": [
+        "Framework example sets (`examples/anthropic`, `examples/claude_sdk`, `examples/crewai`, `examples/langgraph`, `examples/parlant`, `examples/pydantic_ai`) repeat nearly identical scenario scripts (`01_basic`, custom instructions, Tom/Jerry variants) with minor adapter deltas.",
+        "Boilerplate startup/config logic is copied across many example files instead of being data-driven from one scenario matrix.",
+        "Repeated instructional prose blocks and roleplay scaffolding increase maintenance cost for synchronized edits."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    },
+    "package_organization": {
+      "evidence": [
+        "`holistic_context.structure.directory_profiles['examples/langgraph/']` reports `file_count: 12` with all files in `script` zone, mixing simple examples and standalone utility apps in one flat folder.",
+        "`holistic_context.structure.directory_profiles['examples/']` mixes `production` and `script` zones at the same directory level.",
+        "`holistic_context.structure.directory_profiles['src/thenvoi/adapters/']` reports `file_count: 12` and `total_loc: 5322`; combined with `src/thenvoi/adapters/codex.py` size, this directory is overloaded as a broad catch-all integration surface."
+      ],
+      "impact_scope": "codebase",
+      "fix_scope": "architectural_change",
+      "confidence": "high"
+    },
+    "high_level_elegance": {
+      "evidence": [
+        "Top-level domains are mostly understandable (`adapters`, `runtime`, `converters`, `core`, `integrations`) and examples have shared bootstrap/prompt modules.",
+        "Public API exports in `src/thenvoi/__init__.py` are intentional and grouped by composition/platform/runtime roles.",
+        "Docker runners share a common `runner_core` lifecycle pattern, reducing top-level orchestration drift."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "medium",
+      "issues_preventing_higher_score": "Example and adapter growth is outpacing package decomposition, so ownership boundaries are becoming less crisp."
+    },
+    "mid_level_elegance": {
+      "evidence": [
+        "Most adapters follow a recognizable handoff seam (`on_started`/`on_message` + tool dispatch + cleanup), and `system_updates` helpers reduce one class of seam drift.",
+        "Runner scripts consistently use a bootstrap object then create adapter/agent lifecycle.",
+        "Shared runtime/bootstrap helpers in examples reduce repeated environment/credential resolution seams."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "medium",
+      "issues_preventing_higher_score": "Error and tool-reporting handoff semantics still diverge significantly between adapters."
+    },
+    "low_level_elegance": {
+      "evidence": [
+        "Multiple files use precise typing and dataclass/Pydantic modeling for configuration surfaces.",
+        "Common helper extraction exists for focused concerns (e.g., `system_updates`, `examples/common/bootstrap`).",
+        "Despite large files, many local functions retain descriptive names and explicit parameterization."
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "medium",
+      "issues_preventing_higher_score": "Very large adapter files (especially `codex.py`) increase local control-flow and mutation complexity."
+    },
+    "design_coherence": {
+      "evidence": [
+        "Adapter implementations duplicate the same high-level workflow (history staging, metadata injection, tool invocation/event reporting, error fallback) but diverge in policy and failure behavior.",
+        "Size concentration in single classes (`src/thenvoi/adapters/codex.py`, `src/thenvoi/adapters/parlant.py`, `src/thenvoi/adapters/claude_sdk.py`, `src/thenvoi/adapters/crewai.py`) indicates responsibilities are only partially separated.",
+        "Example layer mirrors this with many near-duplicate framework scripts rather than a coherent scenario-driven composition mechanism."
+      ],
+      "impact_scope": "codebase",
+      "fix_scope": "architectural_change",
+      "confidence": "high"
+    }
+  },
+  "findings": [
+    {
+      "dimension": "convention_outlier",
+      "identifier": "example_convention_drift",
+      "summary": "Sibling example entrypoints follow inconsistent logging/bootstrap/import conventions, creating style islands.",
+      "related_files": [
+        "examples/run_agent.py",
+        "examples/coding_agents/create_agents.py",
+        "examples/coding_agents/test_communication.py",
+        "examples/codex/basic_agent.py",
+        "examples/anthropic/01_basic_agent.py"
+      ],
+      "evidence": [
+        "`examples/run_agent.py` and coding scripts configure logging directly with `logging.basicConfig`, while many examples use shared logging profiles.",
+        "`examples/codex/basic_agent.py` imports adapter classes from `thenvoi.adapters.codex`, while peer examples use `from thenvoi.adapters import ...`.",
+        "Bootstrap flow is inconsistent across example families (shared `examples.common.bootstrap` in some, bespoke setup in others)."
+      ],
+      "suggestion": "Define and enforce one example-entrypoint contract: standardized logging helper, standardized adapter import path policy, and a shared bootstrap utility for credentials/platform URLs. Add a lightweight lint/test that validates example modules against this contract.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "example-template-fragmentation"
+    },
+    {
+      "dimension": "error_consistency",
+      "identifier": "adapter_error_contract_mismatch",
+      "summary": "Equivalent runtime failures are handled with incompatible strategies (raise, return, stringify), making caller behavior unpredictable.",
+      "related_files": [
+        "src/thenvoi/adapters/parlant.py",
+        "src/thenvoi/adapters/langgraph.py",
+        "src/thenvoi/adapters/crewai_tooling.py",
+        ".github/actions/GithubToken/generate_token.py"
+      ],
+      "evidence": [
+        "`ParlantAdapter.on_message` returns after logging when app is uninitialized instead of raising.",
+        "`LangGraphAdapter.on_message` emits an error event then re-raises exceptions.",
+        "`CrewAIToolRuntime.execute_tool` catches exceptions and returns JSON error payloads as normal string results.",
+        "`generate_token.py` mixes `SystemExit` and `ValueError` for related failure classes."
+      ],
+      "suggestion": "Create a shared error policy matrix by boundary (adapter internal, tool execution, script CLI) and implement common helpers: invariant failures should raise typed exceptions, user-visible failures should be emitted once with preserved context, and CLI scripts should normalize exit behavior through one exception-to-exit mapper.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "missing-unified-error-policy"
+    },
+    {
+      "dimension": "abstraction_fitness",
+      "identifier": "overloaded_adapter_and_wrapper_indirection",
+      "summary": "Abstractions are uneven: oversized adapter classes coexist with low-value forwarding wrappers.",
+      "related_files": [
+        "src/thenvoi/adapters/codex.py",
+        "src/thenvoi/adapters/crewai_tooling.py",
+        "src/thenvoi/adapters/pydantic_ai.py",
+        "docker/shared/config_loader.py"
+      ],
+      "evidence": [
+        "`src/thenvoi/adapters/codex.py` (1837 LOC) aggregates transport lifecycle, approval protocol, model fallback, tool dispatch, and event emission.",
+        "`docker/shared/config_loader.py` is a pass-through adapter to `thenvoi.testing.config_loader.load_runner_config` with no policy translation.",
+        "`crewai_tooling.py` and `pydantic_ai.py` both build dynamic tool wrappers with overlapping concerns instead of sharing a bounded abstraction."
+      ],
+      "suggestion": "Split `CodexAdapter` into focused collaborators (client lifecycle, approval manager, turn/event mapper, model policy). Remove/pass-inline no-policy wrappers like `docker/shared/config_loader.py`. Extract a common adapter-tool binding layer consumed by CrewAI and PydanticAI adapters.",
+      "confidence": "high",
+      "impact_scope": "codebase",
+      "fix_scope": "architectural_change",
+      "root_cause_cluster": "abstraction-surface-imbalance"
+    },
+    {
+      "dimension": "ai_generated_debt",
+      "identifier": "example_scenario_boilerplate_replication",
+      "summary": "Example scenarios are manually replicated across frameworks with minimal semantic differences.",
+      "related_files": [
+        "examples/anthropic/01_basic_agent.py",
+        "examples/claude_sdk/01_basic_agent.py",
+        "examples/crewai/01_basic_agent.py",
+        "examples/langgraph/01_simple_agent.py",
+        "examples/parlant/01_basic_agent.py",
+        "examples/pydantic_ai/01_basic_agent.py",
+        "examples/prompts/characters.py"
+      ],
+      "evidence": [
+        "Each framework keeps separate basic/custom/Tom/Jerry scripts with highly similar orchestration and only adapter-level substitutions.",
+        "Prompt and roleplay behaviors are centralized, but surrounding script scaffolding remains duplicated.",
+        "This duplication pattern is repeated for multiple scenario families, increasing synchronized-edit burden."
+      ],
+      "suggestion": "Adopt a scenario registry (scenario definition + framework adapter factory) that generates or dispatches framework variants from shared scenario definitions. Keep framework-specific deltas in small adapter hooks rather than full script copies.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "example-template-fragmentation"
+    },
+    {
+      "dimension": "package_organization",
+      "identifier": "flat_examples_and_adapter_overload",
+      "summary": "Directory layout shows objective overload in examples and adapters, reducing navigability and ownership clarity.",
+      "related_files": [
+        "examples/langgraph/01_simple_agent.py",
+        "examples/langgraph/standalone_rag.py",
+        "examples/run_agent.py",
+        "src/thenvoi/adapters/codex.py",
+        "src/thenvoi/adapters/__init__.py"
+      ],
+      "evidence": [
+        "`examples/langgraph/` has `file_count: 12` (all script zone) and mixes tutorial examples with standalone app-like utilities.",
+        "`examples/` directory profile contains mixed `production` and `script` zones, signaling blurred placement policy.",
+        "`src/thenvoi/adapters/` has `file_count: 12`, `total_loc: 5322`, with one dominant file (`codex.py`) acting as a structural hotspot."
+      ],
+      "suggestion": "Staged reorg plan: Stage 1 target folders: move standalone utilities into `examples/langgraph/standalone/` and numbered walkthroughs into `examples/langgraph/scenarios/`; move cross-framework scenario prompts into `examples/scenarios/prompts/`. Stage 2 move order: (1) create new folders and move passive modules (`prompts.py`, standalone files), (2) move numbered examples, (3) update `examples/run_agent.py` registry paths. Stage 3 adapter packaging: split `src/thenvoi/adapters/codex.py` into `src/thenvoi/adapters/codex/{adapter.py,approval.py,turns.py,events.py}` and keep `__init__.py` as facade. Stage 4 import and validation commands: `uv run ruff check . --fix`, `uv run ruff format .`, `uv run pyrefly check`, `uv run pytest tests/adapters/test_codex_adapter.py tests/example_agents/ -v`.",
+      "confidence": "high",
+      "impact_scope": "codebase",
+      "fix_scope": "architectural_change",
+      "root_cause_cluster": "package-growth-without-resegmentation"
+    },
+    {
+      "dimension": "design_coherence",
+      "identifier": "adapter_lifecycle_pattern_drift",
+      "summary": "A shared adapter lifecycle exists conceptually but is implemented with diverging per-framework policies and duplicated orchestration code.",
+      "related_files": [
+        "src/thenvoi/adapters/anthropic.py",
+        "src/thenvoi/adapters/langgraph.py",
+        "src/thenvoi/adapters/parlant.py",
+        "src/thenvoi/adapters/pydantic_ai.py",
+        "src/thenvoi/adapters/crewai.py",
+        "src/thenvoi/adapters/claude_sdk.py"
+      ],
+      "evidence": [
+        "All adapters perform similar steps (bootstrap metadata/history, inject system updates, invoke framework/tool loop, report/send errors), but each file hand-rolls these seams differently.",
+        "Shared helper scope is narrow (`system_updates` only), while lifecycle/error/reporting composition is duplicated across adapters.",
+        "Behavioral divergence appears in invariant checks and failure propagation style, indicating pattern drift rather than intentional specialization only."
+      ],
+      "suggestion": "Introduce a stricter adapter skeleton in core (template method hooks for history staging, metadata injection, tool reporting, and error propagation). Keep framework-specific calls in narrow hook methods and enforce conformance with shared adapter contract tests.",
+      "confidence": "high",
+      "impact_scope": "codebase",
+      "fix_scope": "architectural_change",
+      "root_cause_cluster": "missing-unified-adapter-template"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "Example growth favored copy/modify over scenario-driven composition.",
+      "Adapter ecosystem lacks a sufficiently opinionated shared lifecycle contract for error/reporting behavior.",
+      "Directory structure has not been re-segmented as integration count and file size increased."
+    ],
+    "likely_symptoms": [
+      "example_convention_drift",
+      "adapter_error_contract_mismatch",
+      "example_scenario_boilerplate_replication"
+    ],
+    "possible_false_positives": [
+      "Some convention differences may be intentional for pedagogical example variety rather than accidental drift."
+    ]
+  }
+}

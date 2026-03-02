@@ -1,0 +1,130 @@
+{
+  "batch": "Abstractions & Dependencies",
+  "batch_index": 2,
+  "assessments": {
+    "abstraction_fitness": 74.5
+  },
+  "dimension_notes": {
+    "abstraction_fitness": {
+      "evidence": [
+        "Tool execution abstraction is split across multiple paths: `AnthropicAdapter` calls `tools.execute_tool_call(...)` while `PydanticAIAdapter`, `CrewAIAdapter`, and `ClaudeSDKAdapter` bypass that protocol and call `invoke_platform_tool(...)` with framework-local wrappers.",
+        "Room/session state lifecycle is repeated per adapter (`_message_history`, `_room_tools`, `_session_context`, `_room_sessions`, `_room_customers`, bootstrap flags) even though `SimpleAdapter` already contains partial staging helpers.",
+        "The adapter callback contract carries a broad parameter bag (`msg`, `tools`, `history`, `participants_msg`, `contacts_msg`, `is_session_bootstrap`, `room_id`), and some adapters (for example A2A gateway) receive fields they do not use, indicating interface overbreadth.",
+        "Compatibility indirection remains active in runtime paths: deprecated symbol forwarding in `compat/shims.py`, passthrough aliases in `PlatformRuntime` (`_queue_broadcast`, `_inject_hub_event`, `_inject_hub_system_prompt`), and tests still importing deprecated paths."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high",
+      "sub_axes": {
+        "abstraction_leverage": 71.0,
+        "indirection_cost": 73.0,
+        "interface_honesty": 79.5
+      }
+    }
+  },
+  "findings": [
+    {
+      "dimension": "abstraction_fitness",
+      "identifier": "split_tool_dispatch_contract",
+      "summary": "Adapters use multiple incompatible tool-dispatch abstractions, duplicating glue logic and weakening the common tools interface.",
+      "related_files": [
+        "src/thenvoi/adapters/anthropic.py",
+        "src/thenvoi/adapters/pydantic_ai.py",
+        "src/thenvoi/adapters/crewai.py",
+        "src/thenvoi/adapters/claude_sdk.py",
+        "src/thenvoi/runtime/tools.py",
+        "src/thenvoi/core/protocols.py"
+      ],
+      "evidence": [
+        "`AnthropicAdapter` executes platform tools via `tools.execute_tool_call(tool_name, tool_input)`.",
+        "`PydanticAIAdapter` and `CrewAIAdapter` call `invoke_platform_tool(...)` directly and build framework-specific wrappers/signatures via `TOOL_BINDINGS`.",
+        "`ClaudeSDKAdapter` also routes through `invoke_platform_tool(...)` inside MCP handlers, bypassing the `ToolDispatchProtocol` path.",
+        "`AgentTools.execute_tool_call` still performs its own validation/dispatch path, so tool call policy and error-shaping are spread across adapter-local code and runtime tools."
+      ],
+      "suggestion": "Standardize on one dispatch contract. Prefer a single runtime-level `execute_tool_call` API with shared validation/error mapping and have all adapters call that surface (including MCP/SDK integrations), while `TOOL_BINDINGS` only describes schema shape.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "architectural_change",
+      "root_cause_cluster": "tool_surface_fragmentation"
+    },
+    {
+      "dimension": "abstraction_fitness",
+      "identifier": "repeated_room_state_management",
+      "summary": "Per-room/session state handling is reimplemented across adapters instead of being centralized, increasing lifecycle drift risk.",
+      "related_files": [
+        "src/thenvoi/core/simple_adapter.py",
+        "src/thenvoi/adapters/anthropic.py",
+        "src/thenvoi/adapters/pydantic_ai.py",
+        "src/thenvoi/adapters/claude_sdk.py",
+        "src/thenvoi/adapters/parlant.py",
+        "src/thenvoi/adapters/langgraph.py"
+      ],
+      "evidence": [
+        "SimpleAdapter provides `stage_room_state`, `stage_room_history`, and cleanup helpers, but adapters still manage multiple custom room registries (`_message_history`, `_room_tools`, `_session_context`, `_session_ids`, `_room_sessions`, `_room_customers`, `_bootstrapped_rooms`).",
+        "Claude SDK stores multiple correlated dictionaries keyed by room (`_room_tools`, `_session_context`, `_session_ids`) with bespoke init/cleanup behavior.",
+        "Parlant tracks both session and customer mappings per room with adapter-specific lifecycle logic.",
+        "LangGraph carries separate bootstrap tracking set to prevent duplicate prompt injection, another room-lifecycle variant."
+      ],
+      "suggestion": "Introduce a shared room-session state manager abstraction (typed state container + bootstrap/cleanup policy hooks) and migrate adapters to register state schemas instead of each adapter hand-rolling room dictionaries.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "adapter_state_lifecycle_duplication"
+    },
+    {
+      "dimension": "abstraction_fitness",
+      "identifier": "overbroad_on_message_contract",
+      "summary": "The adapter `on_message` signature acts as a parameter bag, forcing all adapters to accept cross-cutting fields even when not relevant.",
+      "related_files": [
+        "src/thenvoi/core/simple_adapter.py",
+        "src/thenvoi/integrations/a2a/gateway/adapter.py",
+        "tests/core/test_simple_adapter.py",
+        "src/thenvoi/core/protocols.py"
+      ],
+      "evidence": [
+        "`SimpleAdapter.on_message` requires seven message-context arguments/flags (`msg`, `tools`, `history`, `participants_msg`, `contacts_msg`, `is_session_bootstrap`, `room_id`).",
+        "A2A gateway adapter receives this full signature but ignores participant/contact broadcast fields in its control-plane flow.",
+        "Tests construct full `AgentInput` payloads with many optional cross-cutting fields, confirming a broad generalized contract even for simpler handlers."
+      ],
+      "suggestion": "Replace the multi-parameter callback with a typed context object (for example `MessageTurnContext`) exposing optional facets, and split separate adapter base contracts for room-bound chat adapters vs control-plane adapters.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "architectural_change",
+      "root_cause_cluster": "adapter_interface_overgeneralization"
+    },
+    {
+      "dimension": "abstraction_fitness",
+      "identifier": "active_compat_wrapper_layer",
+      "summary": "Compatibility wrappers remain in active runtime/test paths, adding pass-through indirection without clear enforcement of sunset.",
+      "related_files": [
+        "src/thenvoi/compat/shims.py",
+        "src/thenvoi/runtime/platform_runtime.py",
+        "tests/runtime/test_contact_handler.py"
+      ],
+      "evidence": [
+        "A large forwarding registry in `compat/shims.py` still maps old module symbols (including runtime contact and bridge surfaces) through dynamic `__getattr__` forwarding.",
+        "`PlatformRuntime` keeps private alias wrappers that only forward (`_queue_broadcast`, `_inject_hub_event`, `_inject_hub_system_prompt`) alongside canonical methods.",
+        "Tests still import deprecated path `thenvoi.runtime.contact_tools`, demonstrating compatibility indirection remains a first-class dependency, not just legacy edge support."
+      ],
+      "suggestion": "Create and execute a compatibility retirement plan: track shim call sites, migrate tests/importers to canonical modules, add CI guardrails for new deprecated-path imports, and remove passthrough aliases once coverage confirms no active callers.",
+      "confidence": "medium",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "compatibility_layer_persistence"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "Abstraction boundaries grew framework-by-framework, causing duplicate adapter-local orchestration instead of a single runtime contract.",
+      "Backward-compatibility paths were preserved without a strict deprecation enforcement loop, increasing long-lived indirection.",
+      "The base adapter API optimized for one generic path, then accumulated control-plane and metadata concerns into the same callback shape."
+    ],
+    "likely_symptoms": [
+      "split_tool_dispatch_contract",
+      "repeated_room_state_management",
+      "overbroad_on_message_contract",
+      "active_compat_wrapper_layer"
+    ],
+    "possible_false_positives": []
+  }
+}

@@ -1,0 +1,151 @@
+{
+  "batch": "Abstractions & Dependencies",
+  "batch_index": 3,
+  "assessments": {
+    "abstraction_fitness": 71.0,
+    "dependency_health": 86.0,
+    "mid_level_elegance": 74.0,
+    "low_level_elegance": 70.0
+  },
+  "dimension_notes": {
+    "abstraction_fitness": {
+      "evidence": [
+        "Tool-surface wrappers are re-implemented per integration instead of being generated from one shared abstraction: `PydanticAIAdapter._create_agent()` defines many `thenvoi_*` wrappers, `langchain_tools.agent_tools_to_langchain()` defines the same wrappers again, and `ClaudeSDKAdapter._create_mcp_server()` defines another parallel set.",
+        "`AgentToolsProtocol` methods advertise structured returns, but adapter wrapper layers normalize failures into ad-hoc strings (`dict | str`), creating interface-honesty drift across adapter boundaries.",
+        "Gateway seam has parallel peer-resolution abstractions in both `A2AGatewayAdapter._resolve_peer()` and `GatewayServer._resolve_peer()` with duplicated slug/UUID fallback behavior."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "architectural_change",
+      "confidence": "high",
+      "sub_axes": {
+        "abstraction_leverage": 66.0,
+        "indirection_cost": 73.0,
+        "interface_honesty": 68.0
+      }
+    },
+    "dependency_health": {
+      "evidence": [
+        "No hard import cycle is directly visible in the reviewed files, but runtime and integration boundaries still show coupling pressure (e.g., function-scoped imports in execution path and duplicated gateway resolution logic).",
+        "Large integration-specific dependencies are isolated by adapter modules, but boundary contracts between runtime/tools/adapters are duplicated rather than centralized, raising maintenance cost when dependency APIs change."
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "medium",
+      "issues_preventing_higher_score": "Boundary coupling remains higher than necessary due to duplicated cross-module seam logic and contract duplication between adapter-specific tool wrappers."
+    },
+    "mid_level_elegance": {
+      "evidence": [
+        "Error handoff semantics across integration seams are inconsistent: wrappers in `langchain_tools.py`, `pydantic_ai.py`, and `claude_sdk.py` convert exceptions into strings, while runtime paths (`execution.py`, `platform_runtime.py`) use exception-driven control and server mark-failed flows.",
+        "Gateway request path splits responsibility across server and adapter with mirrored peer resolution and request interpretation, so input/output translation is not localized to one seam."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    },
+    "low_level_elegance": {
+      "evidence": [
+        "Broad catch-and-continue patterns are frequent in hot paths (`execution.py`, `langgraph.py`, `contact_handler.py`, `claude_sdk.py`), often degrading errors to strings or logs and continuing without typed recovery behavior.",
+        "Large methods combine orchestration, translation, lifecycle, and failure policy in single blocks (`ExecutionContext._process_backlog_message`, `ExecutionContext._process_event`, `PydanticAIAdapter._create_agent` wrapper block), increasing local reasoning cost."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "findings": [
+    {
+      "dimension": "abstraction_fitness",
+      "identifier": "duplicated_tool_wrapper_abstraction",
+      "summary": "Adapter tool wrappers are duplicated across integrations, creating low-leverage abstraction layers.",
+      "related_files": [
+        "src/thenvoi/adapters/pydantic_ai.py",
+        "src/thenvoi/integrations/langgraph/langchain_tools.py",
+        "src/thenvoi/adapters/claude_sdk.py",
+        "src/thenvoi/runtime/tools.py"
+      ],
+      "evidence": [
+        "`PydanticAIAdapter._create_agent()` defines many `thenvoi_*` wrapper coroutines that mostly forward to `ctx.deps.*` with identical try/except-to-string behavior.",
+        "`agent_tools_to_langchain()` rebuilds the same platform wrapper set (`send_message`, participant/contact/memory tools) with the same error-shaping pattern.",
+        "`ClaudeSDKAdapter._create_mcp_server()` defines another wrapper layer for the same tool surface instead of reusing a shared binding primitive."
+      ],
+      "suggestion": "Introduce a single tool-binding registry (driven by canonical tool metadata in runtime/tools) that can emit framework-specific adapters (PydanticAI, LangChain, Claude MCP) from one source, and delete per-framework hand-written forwarding wrappers.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "architectural_change",
+      "root_cause_cluster": "tool_wrapper_duplication"
+    },
+    {
+      "dimension": "abstraction_fitness",
+      "identifier": "protocol_contract_drift_error_channel",
+      "summary": "Tool protocol contracts drift because wrapper layers encode failures as plain strings.",
+      "related_files": [
+        "src/thenvoi/core/protocols.py",
+        "src/thenvoi/adapters/pydantic_ai.py",
+        "src/thenvoi/integrations/langgraph/langchain_tools.py"
+      ],
+      "evidence": [
+        "`AgentToolsProtocol` methods are typed as structured return payloads, but multiple wrappers widen to `dict | str` and return formatted error strings on exceptions.",
+        "This makes tool-call consumers depend on string parsing conventions instead of a stable error contract, reducing interface honesty across adapters."
+      ],
+      "suggestion": "Define a shared typed result envelope (e.g., `{status, data, error}` or typed `ToolResult` model) and enforce it in AgentToolsProtocol plus all adapter wrapper emitters; keep exceptions or structured errors, but remove raw string error returns.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "architectural_change",
+      "root_cause_cluster": "tool_wrapper_duplication"
+    },
+    {
+      "dimension": "mid_level_elegance",
+      "identifier": "gateway_seam_split_brain_resolution",
+      "summary": "A2A gateway seam duplicates peer-resolution and request-shaping logic across server and adapter.",
+      "related_files": [
+        "src/thenvoi/integrations/a2a/gateway/adapter.py",
+        "src/thenvoi/integrations/a2a/gateway/server.py",
+        "tests/integrations/a2a/gateway/test_adapter.py"
+      ],
+      "evidence": [
+        "`A2AGatewayAdapter` and `GatewayServer` each implement slug/UUID peer resolution and both participate in path-level request interpretation.",
+        "Server resolves and passes slug, then adapter resolves again; this split seam increases choreography complexity and makes behavior changes require edits in both modules and associated tests."
+      ],
+      "suggestion": "Move peer resolution and request normalization to one boundary (preferably server ingress), pass a canonical peer identity to adapter callbacks, and keep adapter focused on Thenvoi room/task orchestration only.",
+      "confidence": "medium",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "seam_ownership_blur"
+    },
+    {
+      "dimension": "low_level_elegance",
+      "identifier": "defensive_broad_except_sprawl",
+      "summary": "Broad exception handling in hot paths creates defensive sprawl and obscures failure intent.",
+      "related_files": [
+        "src/thenvoi/runtime/execution.py",
+        "src/thenvoi/adapters/langgraph.py",
+        "src/thenvoi/runtime/contact_handler.py",
+        "src/thenvoi/adapters/claude_sdk.py"
+      ],
+      "evidence": [
+        "Execution and adapter hot paths repeatedly use `except Exception` with heterogeneous behaviors (log-only, convert-to-string, best-effort event send, or swallow secondary errors).",
+        "`LangGraphAdapter.on_message()` catches all exceptions, emits tool error best-effort with nested broad except, then re-raises; other wrappers catch broadly and do not re-raise, producing inconsistent local control flow semantics.",
+        "This pattern increases local branch complexity and makes error paths harder to reason about and test."
+      ],
+      "suggestion": "Narrow exception classes at boundary calls, centralize fallback/error-shaping logic in shared helpers, and enforce one policy per layer (runtime marks failure with typed reason; adapters map framework errors to structured tool/runtime errors consistently).",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "error_policy_fragmentation"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "Tool integration strategy is framework-first rather than contract-first, so each adapter redefines the same forwarding/error behavior.",
+      "Boundary ownership is blurred in gateway/runtime seams, causing duplicated translation and lifecycle logic.",
+      "Error policy is not centralized, so local broad-except patterns proliferate."
+    ],
+    "likely_symptoms": [
+      "duplicated_tool_wrapper_abstraction",
+      "protocol_contract_drift_error_channel",
+      "gateway_seam_split_brain_resolution",
+      "defensive_broad_except_sprawl"
+    ],
+    "possible_false_positives": []
+  }
+}

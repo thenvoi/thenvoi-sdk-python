@@ -12,13 +12,15 @@ import signal
 from types import TracebackType
 from typing import TYPE_CHECKING, Any, Callable
 
+from thenvoi.core.nonfatal import NonFatalErrorRecorder
+
 if TYPE_CHECKING:
     from thenvoi.agent import Agent
 
 logger = logging.getLogger(__name__)
 
 
-class GracefulShutdown:
+class GracefulShutdown(NonFatalErrorRecorder):
     """
     Manages graceful shutdown of a Thenvoi agent via signal handling.
 
@@ -131,6 +133,7 @@ class GracefulShutdown:
             False  # Guard against race between signal check and task creation
         )
         self._shutdown_task: asyncio.Task[None] | None = None
+        self._init_nonfatal_errors()
 
     def register_signals(self) -> None:
         """
@@ -175,8 +178,12 @@ class GracefulShutdown:
         for sig in list(self._original_handlers.keys()):
             try:
                 loop.remove_signal_handler(sig)
-            except (ValueError, NotImplementedError):
-                pass  # Signal handler was already removed or not supported
+            except (ValueError, NotImplementedError) as error:
+                logger.debug(
+                    "Could not remove signal handler for %s: %s",
+                    signal.Signals(sig).name,
+                    error,
+                )
 
         self._original_handlers.clear()
         self._registered = False
@@ -197,7 +204,11 @@ class GracefulShutdown:
             try:
                 self.on_signal(signum)
             except Exception as e:
-                logger.warning("Error in on_signal callback: %s", e)
+                self._record_nonfatal_error(
+                    "on_signal_callback",
+                    e,
+                    signal=signum,
+                )
 
         # Set shutdown event to unblock any waiters
         if self._shutdown_event:
@@ -233,7 +244,7 @@ class GracefulShutdown:
             else:
                 logger.warning("Agent shut down with processing interrupted")
         except Exception as e:
-            logger.error("Error during shutdown: %s", e, exc_info=True)
+            self._record_nonfatal_error("agent_stop", e, timeout=self.timeout)
 
     async def wait_for_shutdown(self) -> None:
         """
@@ -292,6 +303,10 @@ async def run_with_graceful_shutdown(
     async with shutdown:
         try:
             await agent.run(shutdown_timeout=timeout)
-        except asyncio.CancelledError:
-            # Normal shutdown via signal
-            pass
+        except asyncio.CancelledError as error:
+            shutdown._record_nonfatal_error(  # noqa: SLF001
+                "run_cancelled",
+                error,
+                timeout=timeout,
+                log_level=logging.DEBUG,
+            )

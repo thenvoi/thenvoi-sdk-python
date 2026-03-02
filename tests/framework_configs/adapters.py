@@ -243,7 +243,7 @@ def _parlant_factory(**kw: Any) -> Any:
 
 
 def _codex_factory(**kw: Any) -> Any:
-    from thenvoi.adapters.codex import CodexAdapter
+    from thenvoi.adapters.codex.adapter import CodexAdapter
 
     return CodexAdapter(**kw)
 
@@ -450,7 +450,7 @@ def _build_parlant_config() -> AdapterConfig:
 
 
 def _build_codex_config() -> AdapterConfig:
-    from thenvoi.adapters.codex import CodexAdapterConfig
+    from thenvoi.adapters.codex.adapter import CodexAdapterConfig
 
     return AdapterConfig(
         framework_id="codex",

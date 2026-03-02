@@ -26,12 +26,9 @@ from dataclasses import dataclass
 import pytest
 from thenvoi_rest import AsyncRestClient, ChatRoomRequest
 
-from tests.integration.conftest import (
-    get_base_url,
-    get_user_api_key,
-    is_no_clean_mode,
-    requires_user_api,
-)
+from tests.support.integration.contracts.cleanup import is_no_clean_mode
+from tests.support.integration.contracts.settings import get_test_settings
+from tests.support.integration.markers import requires_user_api
 
 logger = logging.getLogger(__name__)
 
@@ -63,10 +60,11 @@ def event_loop():
 @pytest.fixture(scope="module")
 def module_user_api_client():
     """Create user API client for the module scope."""
-    api_key = get_user_api_key()
+    settings = get_test_settings()
+    api_key = settings.thenvoi_api_key_user or None
     if not api_key:
         return None
-    return AsyncRestClient(api_key=api_key, base_url=get_base_url())
+    return AsyncRestClient(api_key=api_key, base_url=settings.thenvoi_base_url)
 
 
 @pytest.fixture(scope="module")
@@ -140,9 +138,10 @@ async def dynamic_agent(module_user_api_client, request):
 @pytest.fixture
 def dynamic_agent_client(dynamic_agent: DynamicAgent) -> AsyncRestClient:
     """Create API client using the dynamically created agent's API key."""
+    settings = get_test_settings()
     return AsyncRestClient(
         api_key=dynamic_agent.api_key,
-        base_url=get_base_url(),
+        base_url=settings.thenvoi_base_url,
     )
 
 

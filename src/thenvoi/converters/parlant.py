@@ -63,7 +63,7 @@ class ParlantHistoryConverter(HistoryConverter[ParlantMessages]):
             role = hist.get("role", "user")
             content = hist.get("content", "")
             sender_name = hist.get("sender_name", "")
-            sender_type = hist.get("sender_type", "User")
+            sender_type = hist.get("type") or hist.get("sender_type", "User")
 
             if not content:
                 continue

@@ -2,39 +2,34 @@
 
 from __future__ import annotations
 
-import asyncio
 import logging
 import re
 from collections.abc import AsyncIterator
-from uuid import uuid4
 
 from a2a.types import (
     Message as A2AMessage,
-    Part,
-    Role,
-    Task,
-    TaskState,
-    TaskStatus,
     TaskStatusUpdateEvent,
-    TextPart,
 )
 from a2a.utils import get_message_text
 
 from thenvoi.client.rest import (
     AsyncRestClient,
-    ChatEventRequest,
     ChatMessageRequest,
     ChatMessageRequestMentionsItem,
-    ChatRoomRequest,
     DEFAULT_REQUEST_OPTIONS,
-    ParticipantRequest,
 )
+from thenvoi.config.defaults import DEFAULT_REST_URL
 from thenvoi.converters.a2a_gateway import GatewayHistoryConverter
-from thenvoi.core.protocols import AgentToolsProtocol
-from thenvoi.core.simple_adapter import SimpleAdapter
-from thenvoi.core.types import PlatformMessage
+from thenvoi.core.control_plane_adapter import (
+    ControlPlaneAdapter,
+    legacy_control_turn_compat,
+)
+from thenvoi.core.types import ControlMessageTurnContext
+from thenvoi.integrations.a2a.gateway.peer_directory import PeerDirectory, PeerRef
+from thenvoi.integrations.a2a.gateway.session_manager import GatewaySessionManager
 from thenvoi.integrations.a2a.gateway.server import GatewayServer
-from thenvoi.integrations.a2a.gateway.types import GatewaySessionState, PendingA2ATask
+from thenvoi.integrations.a2a.gateway.task_correlator import GatewayTaskCorrelator
+from thenvoi.integrations.a2a.gateway.types import GatewaySessionState
 from thenvoi_rest import Peer
 
 logger = logging.getLogger(__name__)
@@ -54,7 +49,7 @@ def slugify(name: str) -> str:
     return slug.strip("-")  # Remove leading/trailing dashes
 
 
-class A2AGatewayAdapter(SimpleAdapter[GatewaySessionState]):
+class A2AGatewayAdapter(ControlPlaneAdapter[GatewaySessionState]):
     """Gateway adapter exposing Thenvoi peers as A2A endpoints.
 
     This adapter enables external A2A agents to interact with Thenvoi platform
@@ -64,10 +59,9 @@ class A2AGatewayAdapter(SimpleAdapter[GatewaySessionState]):
     - Sends messages to peers via REST API
     - Streams responses back via SSE
 
-    Uses direct REST client (not AgentToolsProtocol) because:
-    - AgentToolsProtocol is room-bound (passed in on_message with room context)
-    - Gateway receives HTTP requests outside of on_message() context
-    - Gateway needs to send messages to SPECIFIC rooms
+    Uses a control-plane adapter contract because gateway requests are initiated
+    through HTTP and resolved through REST-bound orchestration, not room-bound
+    `AgentToolsProtocol` calls.
 
     Example:
         from thenvoi import Agent
@@ -89,7 +83,7 @@ class A2AGatewayAdapter(SimpleAdapter[GatewaySessionState]):
 
     def __init__(
         self,
-        rest_url: str = "https://app.thenvoi.com",
+        rest_url: str = DEFAULT_REST_URL,
         api_key: str = "",
         gateway_url: str = "http://localhost:10000",
         port: int = 10000,
@@ -109,17 +103,28 @@ class A2AGatewayAdapter(SimpleAdapter[GatewaySessionState]):
         # Direct REST client for room/message operations
         self._rest = AsyncRestClient(base_url=rest_url, api_key=api_key)
 
-        # Peers keyed by slug (primary) and UUID (fallback)
-        self._peers: dict[str, Peer] = {}  # slug → Peer
-        self._peers_by_uuid: dict[str, Peer] = {}  # uuid → Peer
+        # Canonical peer state (slug + UUID aliases resolved by one directory).
+        self._peer_directory = PeerDirectory()
         self._server: GatewayServer | None = None
 
-        # Session state (rehydrated from history)
-        self._context_to_room: dict[str, str] = {}
-        self._room_participants: dict[str, set[str]] = {}
+        # Dedicated gateway collaborators (adapter acts as composition root).
+        self._session_manager = GatewaySessionManager(self._rest)
+        self._task_correlator = GatewayTaskCorrelator()
 
-        # Request/response correlation
-        self._pending_tasks: dict[str, PendingA2ATask] = {}  # room_id → task
+    @property
+    def session_manager(self) -> GatewaySessionManager:
+        """Gateway session/context manager (public for diagnostics/testing)."""
+        return self._session_manager
+
+    @property
+    def task_correlator(self) -> GatewayTaskCorrelator:
+        """Gateway task correlator (public for diagnostics/testing)."""
+        return self._task_correlator
+
+    @property
+    def peer_directory(self) -> PeerDirectory:
+        """Canonical peer directory used for slug/UUID peer resolution."""
+        return self._peer_directory
 
     async def on_started(self, agent_name: str, agent_description: str) -> None:
         """Fetch peers via REST and start HTTP server.
@@ -148,18 +153,17 @@ class A2AGatewayAdapter(SimpleAdapter[GatewaySessionState]):
                 break
             page += 1
 
-        # Build slug and UUID mappings
-        for peer in all_peers:
-            slug = slugify(peer.name)
-            self._peers[slug] = peer
-            self._peers_by_uuid[peer.id] = peer
+        # Build canonical peer directory.
+        self._peer_directory.replace_from_peers(all_peers, slugify=slugify)
 
-        logger.info("Discovered %d peers for gateway", len(self._peers))
+        logger.info(
+            "Discovered %d peers for gateway",
+            len(self._peer_directory.peers),
+        )
 
         # Create and start HTTP server with peer routes
         self._server = GatewayServer(
-            peers=self._peers,
-            peers_by_uuid=self._peers_by_uuid,
+            peer_directory=self._peer_directory,
             gateway_url=self.gateway_url,
             port=self.port,
             on_request=self._handle_a2a_request,
@@ -168,48 +172,32 @@ class A2AGatewayAdapter(SimpleAdapter[GatewaySessionState]):
 
         logger.info("Gateway HTTP server started on port %d", self.port)
 
+    @legacy_control_turn_compat
     async def on_message(
         self,
-        msg: PlatformMessage,
-        tools: AgentToolsProtocol,
-        history: GatewaySessionState,
-        participants_msg: str | None,
-        contacts_msg: str | None,
-        *,
-        is_session_bootstrap: bool,
-        room_id: str,
+        turn: ControlMessageTurnContext[GatewaySessionState],
     ) -> None:
         """Receive Thenvoi response, correlate with pending A2A task.
 
         This is called when a peer responds in a room. We correlate the
         response with the pending A2A task and stream it back via SSE.
 
-        Note: We don't use `tools` here - all operations use self._rest.
-        The tools parameter is room-bound and we need room-specific operations.
-
         Args:
-            msg: Platform message from peer.
-            tools: Agent tools (not used - we use REST client).
-            history: Converted history as GatewaySessionState.
-            participants_msg: Participants update message, or None.
-            contacts_msg: Contact changes broadcast message, or None.
-            is_session_bootstrap: True if this is first message from room.
-            room_id: The room identifier.
+            turn: Canonical control-plane turn context for this room message.
         """
+        msg = turn.msg
+        history = turn.history
+        is_session_bootstrap = turn.is_session_bootstrap
+        room_id = turn.room_id
+
         # Rehydrate on bootstrap
         if is_session_bootstrap and history:
-            self._rehydrate(history)
+            self._session_manager.rehydrate(history)
 
-        # Find pending task for this room
-        pending = self._pending_tasks.get(room_id)
-        if pending:
-            # Convert to A2A event and push to SSE queue
-            event = self._translate_to_a2a(msg, pending.task)
-            await pending.sse_queue.put(event)
-
-            # Clean up on terminal state
-            if event.final:
-                del self._pending_tasks[room_id]
+        await self._task_correlator.ingest_platform_message(
+            room_id=room_id,
+            message=msg,
+        )
 
     async def on_cleanup(self, room_id: str) -> None:
         """Clean up resources for a room.
@@ -217,8 +205,7 @@ class A2AGatewayAdapter(SimpleAdapter[GatewaySessionState]):
         Args:
             room_id: The room identifier.
         """
-        # Clean up pending task if exists
-        self._pending_tasks.pop(room_id, None)
+        self._task_correlator.pop_room(room_id)
         logger.debug("Cleaned up gateway resources for room %s", room_id)
 
     async def stop(self) -> None:
@@ -228,60 +215,37 @@ class A2AGatewayAdapter(SimpleAdapter[GatewaySessionState]):
             self._server = None
         logger.info("Gateway adapter stopped")
 
-    def _resolve_peer(self, peer_id: str) -> Peer | None:
-        """Resolve peer by slug or UUID.
-
-        Args:
-            peer_id: Peer slug or UUID.
-
-        Returns:
-            Peer if found, None otherwise.
-        """
-        # Try slug first (primary)
-        if peer_id in self._peers:
-            return self._peers[peer_id]
-        # Try UUID fallback
-        return self._peers_by_uuid.get(peer_id)
-
     async def _handle_a2a_request(
-        self, peer_id: str, message: A2AMessage
+        self, peer_ref: PeerRef, message: A2AMessage
     ) -> AsyncIterator[TaskStatusUpdateEvent]:
         """Handle incoming A2A request from external agent.
 
         Args:
-            peer_id: Target peer slug or UUID.
+            peer_ref: Resolved target peer reference.
             message: A2A message from external agent.
 
         Yields:
             TaskStatusUpdateEvent for SSE streaming.
         """
-        # Resolve peer from slug or UUID
-        peer = self._resolve_peer(peer_id)
-        if not peer:
-            logger.error("Peer not found: %s", peer_id)
-            return
+        peer = peer_ref.peer
 
         # Use the peer's actual UUID for Thenvoi API calls
         peer_uuid = peer.id
 
         # Get or create room for context
-        room_id, context_id = await self._get_or_create_room(
-            message.context_id, peer_uuid
+        room_id, context_id = await self._session_manager.get_or_create_room(
+            context_id=message.context_id,
+            target_peer_id=peer_uuid,
         )
 
-        # Create A2A task
-        task = self._create_task(context_id)
-
-        # Register pending task with SSE queue
-        sse_queue: asyncio.Queue[TaskStatusUpdateEvent] = asyncio.Queue()
-        self._pending_tasks[room_id] = PendingA2ATask(
-            task=task,
-            sse_queue=sse_queue,
+        pending = self._task_correlator.register_pending(
+            room_id=room_id,
+            context_id=context_id,
             peer_id=peer_uuid,
         )
 
         # Emit task event to track context mapping in history
-        await self._emit_context_event(room_id, context_id)
+        await self._session_manager.emit_context_event(room_id, context_id)
 
         # Send message to Thenvoi via REST client
         content = get_message_text(message) or ""
@@ -299,182 +263,17 @@ class A2AGatewayAdapter(SimpleAdapter[GatewaySessionState]):
         )
 
         logger.debug(
-            "Sent message to peer %s (%s) in room %s (context=%s)",
+            "Sent message to peer %s (%s, slug=%s) in room %s (context=%s)",
             peer_name,
             peer_uuid,
+            peer_ref.slug,
             room_id,
             context_id,
         )
 
         # Stream events from queue (populated by on_message())
         while True:
-            event = await sse_queue.get()
+            event = await pending.sse_queue.get()
             yield event
             if event.final:
                 break
-
-    async def _get_or_create_room(
-        self, context_id: str | None, target_peer_id: str
-    ) -> tuple[str, str]:
-        """Get existing room for context or create a new one.
-
-        Args:
-            context_id: A2A context ID (may be None for new conversations).
-            target_peer_id: Target peer to add to room.
-
-        Returns:
-            Tuple of (room_id, context_id).
-        """
-        # New or None context_id → create new room
-        if context_id is None or context_id not in self._context_to_room:
-            # Create new room via REST
-            response = await self._rest.agent_api_chats.create_agent_chat(
-                chat=ChatRoomRequest(),
-                request_options=DEFAULT_REQUEST_OPTIONS,
-            )
-            room_id = response.data.id
-
-            # Add target peer to room
-            await self._rest.agent_api_participants.add_agent_chat_participant(
-                chat_id=room_id,
-                participant=ParticipantRequest(
-                    participant_id=target_peer_id, role="member"
-                ),
-                request_options=DEFAULT_REQUEST_OPTIONS,
-            )
-
-            context_id = context_id or str(uuid4())
-            self._context_to_room[context_id] = room_id
-            self._room_participants[room_id] = {target_peer_id}
-
-            logger.info(
-                "Created new room %s for context %s with peer %s",
-                room_id,
-                context_id,
-                target_peer_id,
-            )
-        else:
-            # Existing context → use existing room
-            room_id = self._context_to_room[context_id]
-
-            # Same context, different peer → add to room (multi-agent conversation)
-            if target_peer_id not in self._room_participants.get(room_id, set()):
-                await self._rest.agent_api_participants.add_agent_chat_participant(
-                    chat_id=room_id,
-                    participant=ParticipantRequest(
-                        participant_id=target_peer_id, role="member"
-                    ),
-                    request_options=DEFAULT_REQUEST_OPTIONS,
-                )
-                self._room_participants.setdefault(room_id, set()).add(target_peer_id)
-
-                logger.info(
-                    "Added peer %s to existing room %s (context=%s)",
-                    target_peer_id,
-                    room_id,
-                    context_id,
-                )
-
-        return room_id, context_id
-
-    def _rehydrate(self, history: GatewaySessionState) -> None:
-        """Restore session state from history.
-
-        Args:
-            history: Session state extracted from platform history.
-        """
-        # Restore context → room mappings
-        for context_id, room_id in history.context_to_room.items():
-            if context_id not in self._context_to_room:
-                self._context_to_room[context_id] = room_id
-                logger.debug("Restored context mapping: %s → %s", context_id, room_id)
-
-        # Restore room participants
-        for room_id, participants in history.room_participants.items():
-            existing = self._room_participants.get(room_id, set())
-            self._room_participants[room_id] = existing | participants
-
-        logger.info(
-            "Rehydrated gateway state: %d contexts, %d rooms",
-            len(self._context_to_room),
-            len(self._room_participants),
-        )
-
-    def _create_task(self, context_id: str) -> Task:
-        """Create a new A2A Task for tracking.
-
-        Args:
-            context_id: A2A context ID.
-
-        Returns:
-            New Task instance.
-        """
-        return Task(
-            id=str(uuid4()),
-            context_id=context_id,
-            status=TaskStatus(state=TaskState.working),
-        )
-
-    def _translate_to_a2a(
-        self, msg: PlatformMessage, task: Task
-    ) -> TaskStatusUpdateEvent:
-        """Convert platform message to A2A TaskStatusUpdateEvent.
-
-        Args:
-            msg: Platform message from peer.
-            task: Associated A2A task.
-
-        Returns:
-            TaskStatusUpdateEvent for SSE streaming.
-        """
-        # Determine task state based on message type
-        message_type = getattr(msg, "message_type", "text")
-
-        if message_type == "error":
-            state = TaskState.failed
-            final = True
-        elif message_type in ("thought", "tool_call", "tool_result"):
-            state = TaskState.working
-            final = False
-        else:
-            # Regular text message = completed response
-            state = TaskState.completed
-            final = True
-
-        # Update task status
-        task.status = TaskStatus(
-            state=state,
-            message=A2AMessage(
-                role=Role.agent,
-                message_id=str(uuid4()),
-                parts=[Part(root=TextPart(text=msg.content))],
-            ),
-        )
-
-        return TaskStatusUpdateEvent(
-            task_id=task.id,
-            context_id=task.context_id,
-            status=task.status,
-            final=final,
-        )
-
-    async def _emit_context_event(self, room_id: str, context_id: str) -> None:
-        """Emit a task event to persist context mapping in history.
-
-        This enables session rehydration when the agent rejoins.
-
-        Args:
-            room_id: The room ID.
-            context_id: The A2A context ID.
-        """
-        await self._rest.agent_api_events.create_agent_chat_event(
-            chat_id=room_id,
-            event=ChatEventRequest(
-                content="A2A gateway context",
-                message_type="task",
-                metadata={
-                    "gateway_context_id": context_id,
-                    "gateway_room_id": room_id,
-                },
-            ),
-        )

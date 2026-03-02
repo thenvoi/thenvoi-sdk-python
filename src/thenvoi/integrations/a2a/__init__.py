@@ -1,33 +1,28 @@
-"""A2A protocol integration for Thenvoi SDK.
+"""A2A protocol integration public namespace."""
 
-This module provides integration with A2A (Agent-to-Agent) protocol, allowing
-remote A2A-compliant agents to participate in Thenvoi chat rooms as peers.
+from __future__ import annotations
 
-Example:
-    from thenvoi import Agent
-    from thenvoi.integrations.a2a import A2AAdapter, A2AAuth
+import importlib
+from typing import Any
 
-    # Basic usage
-    adapter = A2AAdapter(
-        remote_url="https://currency-agent.example.com",
-    )
+__all__ = ("A2AAdapter", "A2AAuth", "A2ASessionState")
 
-    # With authentication
-    adapter = A2AAdapter(
-        remote_url="https://currency-agent.example.com",
-        auth=A2AAuth(api_key="my-secret-key"),
-    )
+_EXPORT_MODULES: dict[str, str] = {
+    "A2AAdapter": "thenvoi.integrations.a2a.adapter",
+    "A2AAuth": "thenvoi.integrations.a2a.types",
+    "A2ASessionState": "thenvoi.integrations.a2a.types",
+}
 
-    # Create agent and run
-    agent = Agent.create(
-        adapter=adapter,
-        agent_id="currency-bot",
-        api_key="your-thenvoi-api-key",
-    )
-    await agent.run()
-"""
 
-from thenvoi.integrations.a2a.adapter import A2AAdapter
-from thenvoi.integrations.a2a.types import A2AAuth, A2ASessionState
+def __getattr__(name: str) -> Any:
+    module_name = _EXPORT_MODULES.get(name)
+    if module_name is None:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    module = importlib.import_module(module_name)
+    value = getattr(module, name)
+    globals()[name] = value
+    return value
 
-__all__ = ["A2AAdapter", "A2AAuth", "A2ASessionState"]
+
+def __dir__() -> list[str]:
+    return sorted(set(globals()) | set(__all__))

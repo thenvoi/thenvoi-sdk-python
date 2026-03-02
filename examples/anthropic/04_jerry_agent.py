@@ -26,21 +26,17 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
-import sys
 
 from dotenv import load_dotenv
 
-# Add parent directory to path for prompts import
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+from thenvoi.example_support.prompts.characters import generate_jerry_prompt
 
-from prompts.characters import generate_jerry_prompt
-
-from setup_logging import setup_logging
+from thenvoi.testing.example_logging import setup_logging_profile
 from thenvoi import Agent
 from thenvoi.adapters import AnthropicAdapter
 from thenvoi.config import load_agent_config
 
-setup_logging()
+setup_logging_profile("anthropic")
 logger = logging.getLogger(__name__)
 
 

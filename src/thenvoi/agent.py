@@ -8,13 +8,17 @@ from typing import TYPE_CHECKING, cast
 
 from thenvoi.core.protocols import FrameworkAdapter, Preprocessor
 from thenvoi.core.simple_adapter import SimpleAdapter
+from thenvoi.preprocessing.default import DefaultPreprocessor
+from thenvoi.adapters.codex.adapter import CodexAdapter as _CodexAdapterImportEdge
+from thenvoi.adapters.crewai import CrewAIAdapter as _CrewAIAdapterImportEdge
 from thenvoi.runtime.platform_runtime import PlatformRuntime
 from thenvoi.runtime.types import AgentConfig, ContactEventConfig, SessionConfig
-from thenvoi.preprocessing.default import DefaultPreprocessor
+
+_ADAPTER_IMPORT_EDGES = (_CodexAdapterImportEdge, _CrewAIAdapterImportEdge)
 
 if TYPE_CHECKING:
     from thenvoi.platform.event import PlatformEvent
-    from thenvoi.runtime.execution import ExecutionContext
+    from thenvoi.runtime.execution import Execution, ExecutionContext
 
 logger = logging.getLogger(__name__)
 
@@ -273,14 +277,15 @@ class Agent:
 
     async def _on_execute(
         self,
-        ctx: "ExecutionContext",
+        ctx: "Execution",
         event: "PlatformEvent",
     ) -> None:
         """Handle platform event."""
         # Preprocessor is the single source of truth for event filtering.
         # It returns None for non-MessageEvent types.
+        execution_ctx = cast("ExecutionContext", ctx)
         inp = await self._preprocessor.process(
-            ctx=ctx,
+            ctx=execution_ctx,
             event=event,
             agent_id=self._runtime.agent_id,
         )

@@ -20,9 +20,10 @@ from a2a.types import (
 from a2a.utils import get_message_text
 
 from thenvoi.converters.a2a import A2AHistoryConverter
+from thenvoi.core.nonfatal import NonFatalErrorRecorder
 from thenvoi.core.protocols import AgentToolsProtocol
-from thenvoi.core.simple_adapter import SimpleAdapter
-from thenvoi.core.types import PlatformMessage
+from thenvoi.core.simple_adapter import SimpleAdapter, legacy_chat_turn_compat
+from thenvoi.core.types import ChatMessageTurnContext, PlatformMessage
 from thenvoi.integrations.a2a.types import A2AAuth, A2ASessionState
 
 logger = logging.getLogger(__name__)
@@ -40,7 +41,7 @@ TERMINAL_STATES = (
 TERMINAL_STATE_VALUES = frozenset(s.value for s in TERMINAL_STATES)
 
 
-class A2AAdapter(SimpleAdapter[A2ASessionState]):
+class A2AAdapter(NonFatalErrorRecorder, SimpleAdapter[A2ASessionState]):
     """Adapter that forwards messages to a remote A2A agent.
 
     This adapter enables remote A2A-compliant agents to participate in Thenvoi
@@ -93,6 +94,7 @@ class A2AAdapter(SimpleAdapter[A2ASessionState]):
         self._tasks: dict[str, str] = {}  # room_id → last task_id
         # Track sender per task for mentions: (room_id, task_id) → sender info
         self._task_senders: dict[tuple[str, str], dict[str, str]] = {}
+        self._init_nonfatal_errors()
 
     async def on_started(self, agent_name: str, agent_description: str) -> None:
         """Initialize A2A client connection."""
@@ -113,18 +115,18 @@ class A2AAdapter(SimpleAdapter[A2ASessionState]):
             self.streaming,
         )
 
+    @legacy_chat_turn_compat
     async def on_message(
         self,
-        msg: PlatformMessage,
-        tools: AgentToolsProtocol,
-        history: A2ASessionState,
-        participants_msg: str | None,
-        contacts_msg: str | None,
-        *,
-        is_session_bootstrap: bool,
-        room_id: str,
+        turn: ChatMessageTurnContext[A2ASessionState, AgentToolsProtocol],
     ) -> None:
         """Forward message to A2A agent, post response to Thenvoi."""
+        msg = turn.msg
+        tools = turn.tools
+        history = turn.history
+        is_session_bootstrap = turn.is_session_bootstrap
+        room_id = turn.room_id
+
         if self._client is None:
             raise RuntimeError("A2A client not initialized. Call on_started first.")
 
@@ -390,4 +392,9 @@ class A2AAdapter(SimpleAdapter[A2ASessionState]):
                         )
                     break  # Only need first event to get current state
         except Exception as e:
-            logger.warning("Could not resubscribe to A2A task %s: %s", task_id, e)
+            self._record_nonfatal_error(
+                "resubscribe_task",
+                e,
+                room_id=room_id,
+                task_id=task_id,
+            )

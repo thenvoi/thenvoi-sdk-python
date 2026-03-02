@@ -8,23 +8,9 @@ from thenvoi.platform.link import ThenvoiLink
 
 
 @pytest.fixture
-def mock_ws_client():
+def mock_ws_client(ws_client_mock_factory):
     """Mock WebSocketClient for testing ThenvoiLink."""
-    ws = AsyncMock()
-
-    # Async context manager support
-    ws.__aenter__ = AsyncMock(return_value=ws)
-    ws.__aexit__ = AsyncMock(return_value=None)
-
-    # Mock channel operations
-    ws.join_chat_room_channel = AsyncMock()
-    ws.leave_chat_room_channel = AsyncMock()
-    ws.join_agent_rooms_channel = AsyncMock()
-    ws.join_room_participants_channel = AsyncMock()
-    ws.leave_room_participants_channel = AsyncMock()
-    ws.run_forever = AsyncMock()
-
-    return ws
+    return ws_client_mock_factory()
 
 
 @pytest.fixture
@@ -284,6 +270,8 @@ class TestThenvoiLinkSubscriptions:
 
         # Room should still be removed from tracking
         assert "room-123" not in link._subscribed_rooms
+        assert link.nonfatal_errors
+        assert link.nonfatal_errors[0]["operation"] == "unsubscribe_chat_room_channel"
 
     async def test_unsubscribe_room_noop_when_not_subscribed(self):
         """unsubscribe_room() should be no-op for unsubscribed room."""
@@ -298,7 +286,7 @@ class TestThenvoiLinkEventQueue:
 
     def test_queue_event_adds_to_queue(self):
         """_queue_event() should add event to queue."""
-        from tests.conftest import make_message_event
+        from tests.support.events import make_message_event
 
         link = ThenvoiLink(agent_id="agent-123", api_key="test-key")
 
@@ -309,7 +297,7 @@ class TestThenvoiLinkEventQueue:
 
     async def test_async_iteration_gets_events(self):
         """async for should yield events from queue."""
-        from tests.conftest import make_message_event
+        from tests.support.events import make_message_event
 
         link = ThenvoiLink(agent_id="agent-123", api_key="test-key")
 
@@ -322,7 +310,7 @@ class TestThenvoiLinkEventQueue:
 
     def test_queue_drops_when_full(self):
         """Queue should drop events when full (no blocking)."""
-        from tests.conftest import make_message_event
+        from tests.support.events import make_message_event
 
         link = ThenvoiLink(agent_id="agent-123", api_key="test-key")
 
@@ -490,6 +478,53 @@ class TestMarkFailed:
 
         call_kwargs = link.rest.agent_api_messages.mark_agent_message_failed.call_args
         assert call_kwargs.kwargs["error"] == "connection reset"
+
+    @pytest.mark.asyncio
+    async def test_records_nonfatal_error_when_mark_failed_call_raises(self):
+        """mark_failed should capture API exceptions as non-fatal diagnostics."""
+        link = ThenvoiLink(agent_id="agent-123", api_key="test-key")
+        link.rest = MagicMock()
+        link.rest.agent_api_messages.mark_agent_message_failed = AsyncMock(
+            side_effect=RuntimeError("downstream unavailable")
+        )
+
+        await link.mark_failed("room-1", "msg-1", "error")
+
+        assert link.nonfatal_errors
+        assert link.nonfatal_errors[0]["operation"] == "mark_message_failed"
+        assert link.nonfatal_errors[0]["message_id"] == "msg-1"
+
+
+class TestMarkingErrors:
+    """Tests for non-fatal mark_processing/mark_processed failures."""
+
+    @pytest.mark.asyncio
+    async def test_records_nonfatal_error_when_mark_processing_raises(self):
+        link = ThenvoiLink(agent_id="agent-123", api_key="test-key")
+        link.rest = MagicMock()
+        link.rest.agent_api_messages.mark_agent_message_processing = AsyncMock(
+            side_effect=RuntimeError("processing call failed")
+        )
+
+        await link.mark_processing("room-1", "msg-1")
+
+        assert link.nonfatal_errors
+        assert link.nonfatal_errors[0]["operation"] == "mark_message_processing"
+        assert link.nonfatal_errors[0]["room_id"] == "room-1"
+
+    @pytest.mark.asyncio
+    async def test_records_nonfatal_error_when_mark_processed_raises(self):
+        link = ThenvoiLink(agent_id="agent-123", api_key="test-key")
+        link.rest = MagicMock()
+        link.rest.agent_api_messages.mark_agent_message_processed = AsyncMock(
+            side_effect=RuntimeError("processed call failed")
+        )
+
+        await link.mark_processed("room-1", "msg-1")
+
+        assert link.nonfatal_errors
+        assert link.nonfatal_errors[0]["operation"] == "mark_message_processed"
+        assert link.nonfatal_errors[0]["message_id"] == "msg-1"
 
 
 class TestGetStaleProcessingMessages:

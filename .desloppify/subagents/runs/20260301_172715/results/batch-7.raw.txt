@@ -1,0 +1,164 @@
+{
+  "batch": "Design coherence — Mechanical Concern Signals",
+  "batch_index": 7,
+  "assessments": {
+    "design_coherence": 72.8
+  },
+  "dimension_notes": {
+    "design_coherence": {
+      "evidence": [
+        "Adapter entrypoints carry dual contracts (typed turn context plus legacy arg-bag compatibility), with normalization logic in base classes and mixed adoption in concrete adapters.",
+        "Core runtime classes are oversized and multi-purpose: `ExecutionContext` mixes lifecycle, queueing, hydration, dedupe, retries, and sync recovery; `AgentTools` mixes tool models, schema export, platform API calls, and dispatch behavior.",
+        "Tool invocation behavior is duplicated across layers (`normalize_tool_arguments`, `dispatch_platform_tool_call`, and `AgentTools.execute_tool_call`), increasing drift risk and indirection cost."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "architectural_change",
+      "confidence": "high"
+    }
+  },
+  "findings": [
+    {
+      "dimension": "design_coherence",
+      "identifier": "adapter_contract_duality",
+      "summary": "Adapter API is split between legacy arg-bag and typed turn-context contracts.",
+      "related_files": [
+        "src/thenvoi/core/simple_adapter.py",
+        "src/thenvoi/core/control_plane_adapter.py",
+        "src/thenvoi/adapters/codex.py",
+        "src/thenvoi/adapters/crewai.py",
+        "src/thenvoi/adapters/anthropic.py",
+        "src/thenvoi/adapters/langgraph.py",
+        "src/thenvoi/adapters/pydantic_ai.py"
+      ],
+      "evidence": [
+        "`SimpleAdapter.normalize_chat_turn()` and `ControlPlaneAdapter.normalize_control_turn()` both accept either context objects or legacy parameter bags.",
+        "Most adapters use `@legacy_chat_turn_compat` with context-only signatures, but `CodexAdapter.on_message()` still directly exposes union/optional legacy parameters and performs manual normalization.",
+        "This keeps two call styles alive simultaneously and leaks compatibility mechanics into business handlers."
+      ],
+      "suggestion": "Define one canonical adapter entrypoint (`on_message(turn_context)`), move legacy compatibility into a temporary boundary wrapper outside adapter implementations, and enforce the canonical signature across all adapters.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "architectural_change",
+      "root_cause_cluster": "adapter_surface_fragmentation"
+    },
+    {
+      "dimension": "design_coherence",
+      "identifier": "runtime_god_objects",
+      "summary": "Runtime orchestration and tool execution are concentrated into oversized multi-role classes.",
+      "related_files": [
+        "src/thenvoi/runtime/execution.py",
+        "src/thenvoi/runtime/tools.py",
+        "src/thenvoi/core/protocols.py"
+      ],
+      "evidence": [
+        "`ExecutionContext` (978 LOC) owns room state, queue/process loop, participant tracking, dedupe cache, retry strategy, sync reconciliation, and shutdown/idle signaling in one class.",
+        "`AgentTools` (1159 LOC) contains Pydantic input models, tool schema rendering for providers, business operations, and dispatch/error translation in one implementation.",
+        "Protocols are split into granular interfaces, but concrete runtime wiring collapses them back into broad single classes, reducing leverage of those boundaries."
+      ],
+      "suggestion": "Split runtime into focused components (e.g., message loop coordinator, participant state service, history hydration service, tool schema provider, tool dispatcher), then compose them behind thin facades.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "concentrated_runtime_responsibility"
+    },
+    {
+      "dimension": "design_coherence",
+      "identifier": "tool_dispatch_logic_duplicated",
+      "summary": "Tool argument/default logic is duplicated across bridge and runtime dispatch layers.",
+      "related_files": [
+        "src/thenvoi/runtime/tool_bridge.py",
+        "src/thenvoi/runtime/tools.py",
+        "src/thenvoi/runtime/tool_binding_factory.py"
+      ],
+      "evidence": [
+        "`tool_bridge.py` has both `normalize_tool_arguments()` and `dispatch_platform_tool_call()` with repeated per-tool defaulting/shape logic.",
+        "`AgentTools.execute_tool_call()` performs its own validation/normalization path before delegating to bridge dispatch, creating overlapping responsibility.",
+        "There is already visible duplication noise (`thenvoi_send_event` sets `metadata` default twice in `normalize_tool_arguments()`), indicating drift risk from parallel logic tables."
+      ],
+      "suggestion": "Create one authoritative tool contract registry (arguments, defaults, dispatcher binding, error formatting) and have `AgentTools`, bridge dispatch, and binding factories consume that registry instead of re-encoding behavior.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "tool_contract_scatter"
+    },
+    {
+      "dimension": "design_coherence",
+      "identifier": "adapter_error_reporting_boilerplate",
+      "summary": "Error event reporting pattern is copy-pasted across adapters instead of centralized.",
+      "related_files": [
+        "src/thenvoi/adapters/anthropic.py",
+        "src/thenvoi/adapters/claude_sdk.py",
+        "src/thenvoi/adapters/crewai.py",
+        "src/thenvoi/adapters/parlant.py",
+        "src/thenvoi/adapters/langgraph.py"
+      ],
+      "evidence": [
+        "Multiple adapters implement nearly identical `_report_error()` logic (`tools.send_event('Error: ...', 'error')` + broad exception fallback).",
+        "LangGraph repeats the same best-effort error-event block inline inside `on_message()` instead of using a shared helper.",
+        "This duplicates failure semantics and increases chance of subtle divergence in nonfatal handling."
+      ],
+      "suggestion": "Extract a shared adapter error-reporting utility/mixin that standardizes error event payloads and nonfatal recording, then remove per-adapter bespoke copies.",
+      "confidence": "medium",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "adapter_surface_fragmentation"
+    },
+    {
+      "dimension": "design_coherence",
+      "identifier": "runner_bootstrap_pattern_repeated",
+      "summary": "Runner entrypoints reimplement the same bootstrap/prompt/agent lifecycle skeleton.",
+      "related_files": [
+        "docker/codex/runner.py",
+        "docker/claude_sdk/runner.py",
+        "examples/claude_sdk_docker/runner.py",
+        "examples/run_agent.py",
+        "src/thenvoi/testing/runner_core.py"
+      ],
+      "evidence": [
+        "Each runner builds similar flow: bootstrap config, resolve role/prompt, instantiate adapter, create runner agent, log startup, run lifecycle.",
+        "Small variant differences are mixed into full copies of the same lifecycle logic, especially between Claude runner variants.",
+        "`examples/run_agent.py` carries another parallel runner-spec/kwargs composition path rather than reusing one runner composition abstraction."
+      ],
+      "suggestion": "Move to a single declarative runner template API in `runner_core` where adapter-specific options are provided as data/hooks, not copied `main()` flows.",
+      "confidence": "medium",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "runner_composition_duplication"
+    },
+    {
+      "dimension": "design_coherence",
+      "identifier": "integration_test_modules_overloaded",
+      "summary": "Large integration test files mix provisioning, orchestration, and assertion concerns.",
+      "related_files": [
+        "tests/adapters/test_codex_adapter.py",
+        "tests/integration/test_participant_permissions.py",
+        "tests/integration/test_multi_agent.py",
+        "tests/integration/test_history_converters.py",
+        "tests/adapters/test_crewai_adapter.py"
+      ],
+      "evidence": [
+        "`test_codex_adapter.py` concentrates fake transport implementation, schema helpers, setup utilities, and a very large behavior matrix in one module.",
+        "`test_participant_permissions.py` combines dynamic resource lifecycle management, multiple fixtures, and two broad matrix suites in a single file.",
+        "`test_multi_agent.py` and `test_history_converters.py` include heavy scenario setup plus assertions together, increasing cognitive load and reducing focused test intent."
+      ],
+      "suggestion": "Split scenario families into focused modules, move reusable provisioning/fake clients into shared test support packages, and isolate matrix generation from assertion logic.",
+      "confidence": "medium",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "test_harness_concentration"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "Backward-compatibility layers were kept inside primary runtime paths instead of isolated at edges.",
+      "Capabilities were modeled as protocols but implemented via broad concrete classes, collapsing intended boundaries.",
+      "Feature growth favored copy-and-specialize patterns (adapters/runners/tests) over shared compositional primitives."
+    ],
+    "likely_symptoms": [
+      "adapter_contract_duality",
+      "adapter_error_reporting_boilerplate",
+      "runner_bootstrap_pattern_repeated"
+    ],
+    "possible_false_positives": []
+  }
+}

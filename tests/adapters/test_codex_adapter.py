@@ -6,19 +6,35 @@ import asyncio
 import json
 from collections import deque
 from datetime import datetime
-from typing import Any
+from typing import Any, cast
 from uuid import uuid4
 
 import pytest
 
 from pydantic import BaseModel
 
-from thenvoi.adapters.codex import CodexAdapter, CodexAdapterConfig
+from thenvoi.adapters.codex.adapter import CodexAdapter, CodexAdapterConfig
+from thenvoi.core.protocols import ToolSchemaProviderProtocol
 from thenvoi.core.types import AgentInput, HistoryProvider, PlatformMessage
 from thenvoi.integrations.codex import CodexJsonRpcError, RpcEvent
 from thenvoi.integrations.codex.types import CodexSessionState
-from thenvoi.runtime.custom_tools import CustomToolDef
+from thenvoi.runtime.tooling.custom_tools import CustomToolDef
+from thenvoi.runtime.tools import TOOL_MODELS
 from thenvoi.testing import FakeAgentTools
+
+
+def _openai_function_schema(tool_name: str) -> dict[str, Any]:
+    model = TOOL_MODELS[tool_name]
+    schema = model.model_json_schema()
+    schema.pop("title", None)
+    return {
+        "type": "function",
+        "function": {
+            "name": tool_name,
+            "description": (model.__doc__ or "").strip(),
+            "parameters": schema,
+        },
+    }
 
 
 def make_platform_message(
@@ -38,41 +54,15 @@ def make_platform_message(
 
 
 class ToolSchemaFakeTools(FakeAgentTools):
-    def get_openai_tool_schemas(self) -> list[dict[str, Any]]:
+    def get_openai_tool_schemas(
+        self,
+        *,
+        include_memory: bool = False,
+    ) -> list[dict[str, Any]]:
+        _ = include_memory
         return [
-            {
-                "type": "function",
-                "function": {
-                    "name": "thenvoi_send_message",
-                    "description": "Send a message",
-                    "parameters": {
-                        "type": "object",
-                        "properties": {
-                            "content": {"type": "string"},
-                            "mentions": {
-                                "type": "array",
-                                "items": {"type": "string"},
-                            },
-                        },
-                        "required": ["content", "mentions"],
-                    },
-                },
-            },
-            {
-                "type": "function",
-                "function": {
-                    "name": "thenvoi_send_event",
-                    "description": "Send an event",
-                    "parameters": {
-                        "type": "object",
-                        "properties": {
-                            "content": {"type": "string"},
-                            "message_type": {"type": "string"},
-                        },
-                        "required": ["content", "message_type"],
-                    },
-                },
-            },
+            _openai_function_schema("thenvoi_send_message"),
+            _openai_function_schema("thenvoi_send_event"),
         ]
 
 
@@ -203,6 +193,14 @@ def _event_request(request_id: int, method: str, params: dict[str, Any]) -> RpcE
 
 
 class TestCodexAdapter:
+    def test_tool_schema_fake_tools_matches_protocol_contract(self) -> None:
+        provider = cast(ToolSchemaProviderProtocol, ToolSchemaFakeTools())
+
+        schemas = provider.get_openai_tool_schemas(include_memory=False)
+
+        assert schemas
+        assert schemas[0]["type"] == "function"
+
     def test_config_defaults_are_low_noise_and_manual_approval(self) -> None:
         config = CodexAdapterConfig()
         assert config.emit_turn_task_markers is False
@@ -589,6 +587,8 @@ class TestCodexAdapter:
         response_id, payload = fake_client.responses[0]
         assert response_id == 7
         assert payload["decision"] == "decline"
+        assert adapter.nonfatal_errors
+        assert adapter.nonfatal_errors[0]["operation"] == "approval_policy_notification"
 
     @pytest.mark.asyncio
     async def test_manual_approval_responds_with_decline_if_notification_fails(

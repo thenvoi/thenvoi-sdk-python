@@ -1,23 +1,15 @@
-"""Conftest for bridge tests — adds thenvoi-bridge to sys.path and shared fixtures."""
+"""Conftest for bridge tests with canonical a2a_bridge imports."""
 
 from __future__ import annotations
 
-import os
-import sys
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-# Add thenvoi-bridge directory to sys.path so we can import bridge_core.* and handlers.*
-# Use os.path.abspath for the check and insertion to avoid duplicates from
-# different relative representations of the same path.
-_bridge_dir = os.path.abspath(
-    os.path.join(os.path.dirname(__file__), "..", "..", "thenvoi-bridge")
-)
-if _bridge_dir not in sys.path:
-    sys.path.insert(0, _bridge_dir)
+from thenvoi.integrations.a2a_bridge.bridge import BridgeConfig, ThenvoiBridge
+from thenvoi.integrations.a2a_bridge.handler import HandlerResult
 
-from bridge_core.bridge import BridgeConfig, ThenvoiBridge  # noqa: E402
+pytestmark = pytest.mark.contract_gate
 
 
 @pytest.fixture
@@ -31,21 +23,22 @@ def bridge_config() -> BridgeConfig:
 
 
 @pytest.fixture
-def bridge_with_mock_link(bridge_config: BridgeConfig) -> ThenvoiBridge:
+def bridge_with_mock_link(
+    bridge_config: BridgeConfig, link_mock_factory
+) -> ThenvoiBridge:
     """Bridge instance with a mocked link and handler."""
     handler = AsyncMock()
+    handler.handle.return_value = HandlerResult.handled()
     b = ThenvoiBridge(config=bridge_config, handlers={"handler_a": handler})
-    mock_link = MagicMock()
-    mock_link.subscribe_room = AsyncMock()
-    mock_link.unsubscribe_room = AsyncMock()
-    mock_link.rest = MagicMock()
-    b._link = mock_link
-    b._router._link = mock_link
+    mock_link = link_mock_factory()
+    b.set_link(mock_link)
     return b
 
 
 @pytest.fixture
-def bridge_with_full_mock(bridge_config: BridgeConfig) -> ThenvoiBridge:
+def bridge_with_full_mock(
+    bridge_config: BridgeConfig, link_mock_factory
+) -> ThenvoiBridge:
     """Bridge with all link methods mocked (superset of bridge_with_mock_link).
 
     Covers connect, disconnect, subscribe/unsubscribe, lifecycle marks,
@@ -53,19 +46,11 @@ def bridge_with_full_mock(bridge_config: BridgeConfig) -> ThenvoiBridge:
     connect-and-consume tests.
     """
     handler = AsyncMock()
+    handler.handle.return_value = HandlerResult.handled()
     b = ThenvoiBridge(config=bridge_config, handlers={"handler_a": handler})
-    mock_link = MagicMock()
-    mock_link.connect = AsyncMock()
-    mock_link.disconnect = AsyncMock()
-    mock_link.subscribe_room = AsyncMock()
-    mock_link.unsubscribe_room = AsyncMock()
-    mock_link.subscribe_agent_rooms = AsyncMock()
-    mock_link.mark_processing = AsyncMock()
-    mock_link.mark_processed = AsyncMock()
-    mock_link.rest = MagicMock()
+    mock_link = link_mock_factory()
     mock_link.rest.agent_api_chats.list_agent_chats = AsyncMock(
         return_value=MagicMock(data=None)
     )
-    b._link = mock_link
-    b._router._link = mock_link
+    b.set_link(mock_link)
     return b

@@ -1,0 +1,93 @@
+{
+  "batch": "Governance & Contracts",
+  "batch_index": 3,
+  "assessments": {
+    "test_strategy": 78.4
+  },
+  "dimension_notes": {
+    "test_strategy": {
+      "evidence": [
+        "README.md states contract-gate coverage for bootstrap and prompt contracts, but the contract mechanism exposed in scope is only a single pytest marker (`contract_gate`) in pyproject.toml without file-level mapping or enforceable manifest for those contract areas.",
+        "examples/prompts/characters.py encodes large behavioral contracts as free-form prompt text; this creates high regression surface where minor wording edits can change behavior but there is no in-file assertion scaffold, schema, or stable contract artifact.",
+        "tests/support/integration/config.py relies on live polling windows (`settle_timeout_s=5.0`, `asyncio.sleep(poll_interval_s)`) and optional best-effort cleanup (`THENVOI_TEST_BEST_EFFORT_CLEANUP`) that can convert cleanup failures into warnings, weakening failure signal for integration reliability."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "findings": [
+    {
+      "dimension": "test_strategy",
+      "identifier": "contract_gate_scope_not_enforceable",
+      "summary": "Quality-gate claims are broader than enforceable contracts visible in repo governance config",
+      "related_files": [
+        "README.md",
+        "pyproject.toml",
+        "examples/common/bootstrap.py",
+        "examples/prompts/characters.py"
+      ],
+      "evidence": [
+        "README.md declares required contract checks for bootstrap contracts and prompt contracts.",
+        "pyproject.toml defines a `contract_gate` marker string but no explicit governance map tying those claims to concrete target files/contracts.",
+        "High-importer contract-sensitive files (`examples/common/bootstrap.py`, `examples/prompts/characters.py`) do not expose a versioned contract artifact or manifest in scope that CI can verify for completeness."
+      ],
+      "suggestion": "Add a contract manifest (for example `tests/contracts/manifest.yaml`) that explicitly maps each claimed contract area to concrete test modules and covered files, and add a CI check that fails if README quality-gate claims and manifest entries drift.",
+      "confidence": "high",
+      "impact_scope": "codebase",
+      "fix_scope": "architectural_change",
+      "root_cause_cluster": "contract_governance_drift"
+    },
+    {
+      "dimension": "test_strategy",
+      "identifier": "integration_cleanup_can_mask_failures",
+      "summary": "Integration cleanup strategy can hide real failures and increase flaky outcomes",
+      "related_files": [
+        "tests/support/integration/config.py",
+        "README.md"
+      ],
+      "evidence": [
+        "cleanup_contact_state in `tests/support/integration/config.py` records recoverable failures and, when best-effort is enabled, logs a warning then returns instead of failing the test run.",
+        "The same fixture layer uses bounded polling (`settle_timeout_s=5.0`) and repeated sleep-based retries for eventual consistency, which is environment-sensitive.",
+        "README.md presents this cleanup as a stability policy, but current behavior allows partial cleanup failure to pass, reducing confidence in isolation guarantees."
+      ],
+      "suggestion": "Split cleanup outcomes into strict vs advisory modes at marker level: keep best-effort only for explicitly labeled stress tests, and make default integration paths fail on any cleanup failure with structured diagnostics for each failed step.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "contract_governance_drift"
+    },
+    {
+      "dimension": "test_strategy",
+      "identifier": "marker_policy_has_drift_risk",
+      "summary": "Integration marker policy depends on duplicated declarations with no sync guard",
+      "related_files": [
+        "tests/support/integration/markers.py",
+        "pyproject.toml",
+        "README.md"
+      ],
+      "evidence": [
+        "`tests/support/integration/markers.py` composes runtime skip decorators from `INTEGRATION_MARKER_SPECS` and specific env-var assumptions (including first-item indexing for single-env markers).",
+        "`pyproject.toml` separately declares marker taxonomy (`requires_api`, `requires_multi_agent`, `requires_user_api`, `contract_gate`).",
+        "README.md claims integration marker policy is part of required quality gates, but no in-scope guard proves marker declarations and runtime skip policy remain synchronized."
+      ],
+      "suggestion": "Add a contract-gate test that imports marker decorators and asserts one-to-one parity with `pyproject.toml` marker definitions plus expected env requirements, so marker naming or requirement drift fails CI immediately.",
+      "confidence": "medium",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "contract_governance_drift"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "Governance contracts are documented at policy level but not represented as machine-verifiable, file-scoped contract artifacts.",
+      "Integration reliability policy mixes correctness guarantees with optional best-effort behavior, weakening the default safety signal."
+    ],
+    "likely_symptoms": [
+      "contract_gate_scope_not_enforceable",
+      "marker_policy_has_drift_risk",
+      "integration_cleanup_can_mask_failures"
+    ],
+    "possible_false_positives": []
+  }
+}

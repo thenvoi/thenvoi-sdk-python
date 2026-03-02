@@ -62,7 +62,42 @@ jobs:
       run: uv sync --extra dev
 
     - name: Run tests
-      run: uv run pytest
+      run: uv run pytest tests/ -m "not integration" -v
+
+    - name: Run integration tests (when API secrets are available)
+      if: ${{ secrets.THENVOI_API_KEY != '' && secrets.THENVOI_API_KEY_2 != '' && secrets.THENVOI_API_KEY_USER != '' }}
+      env:
+        THENVOI_API_KEY: ${{ secrets.THENVOI_API_KEY }}
+        THENVOI_API_KEY_2: ${{ secrets.THENVOI_API_KEY_2 }}
+        THENVOI_API_KEY_USER: ${{ secrets.THENVOI_API_KEY_USER }}
+      run: uv run pytest tests/integration/ -m integration -v
+
+
+  contract-checks:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v6
+
+    - name: Configure git to use HTTPS for GitHub
+      run: git config --global url."https://github.com/".insteadOf "git@github.com:"
+
+    - name: Install uv
+      uses: astral-sh/setup-uv@v7
+      with:
+        enable-cache: true
+        cache-dependency-glob: "**/pyproject.toml"
+
+    - name: Set up Python
+      uses: actions/setup-python@v6
+      with:
+        python-version: '3.12'
+
+    - name: Install dependencies
+      run: uv sync --extra dev
+
+    - name: Run contract quality gates
+      run: uv run thenvoi-quality-gates
 
 
   packaging:

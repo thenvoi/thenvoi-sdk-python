@@ -1,0 +1,159 @@
+{
+  "batch": "Conventions & Errors",
+  "batch_index": 2,
+  "assessments": {
+    "convention_outlier": 74.0,
+    "error_consistency": 67.0,
+    "mid_level_elegance": 71.0
+  },
+  "dimension_notes": {
+    "convention_outlier": {
+      "evidence": [
+        "Example logging helpers share the same name (`setup_logging`) but use conflicting root logger policies and formats: root WARNING + namespace override in `examples/a2a_bridge/setup_logging.py` and `examples/claude_sdk/setup_logging.py` vs root set directly to caller level in `examples/a2a_gateway/setup_logging.py` and `examples/codex/setup_logging.py`.",
+        "`examples/a2a_gateway/demo_orchestrator/__init__.py` uses try/except dual import fallback while sibling package `__init__.py` files are simple docstrings/re-exports, creating a style island for package loading behavior.",
+        "Two example tool packages are near-identical copies (`examples/claude_sdk_docker/tools/example_tools.py` and `examples/coding_agents/tools/example_tools.py`), which indicates convention drift in how reusable example scaffolding is organized."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    },
+    "error_consistency": {
+      "evidence": [
+        "`src/thenvoi/integrations/langgraph/langchain_tools.py` catches broad exceptions in nearly every wrapper and returns plain error strings (e.g., `\"Error ...\"`), while `src/thenvoi/integrations/langgraph/graph_tools.py` explicitly lets subgraph errors bubble.",
+        "`src/thenvoi/integrations/parlant/tools.py` reports failures as `ToolResult(data=...)` and logs exceptions, creating a third failure contract for the same conceptual tool surface.",
+        "Demo gateway path mixes raise-and-wrap with string-error returns: `examples/a2a_gateway/demo_orchestrator/remote_agent.py` raises `RuntimeError`, `agent.py` catches it and returns an error string, and `agent_executor.py` separately maps exceptions to `ServerError`."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "architectural_change",
+      "confidence": "high"
+    },
+    "mid_level_elegance": {
+      "evidence": [
+        "The orchestrator handoff uses untyped dict payloads (`is_task_complete`, `require_user_input`, `content`) between `agent.py` and `agent_executor.py`, requiring fragile key-based choreography instead of a typed seam.",
+        "Tool-layer boundaries are inconsistent about whether failures are control-flow exceptions or successful string payloads, so orchestration code cannot rely on a single contract when composing integrations.",
+        "Large blocks of repetitive wrapper code in `langchain_tools.py` and repeated example tool modules indicate missing shared boundary abstractions for common tool-adapter handoffs."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "medium"
+    }
+  },
+  "findings": [
+    {
+      "dimension": "error_consistency",
+      "identifier": "mixed_tool_error_contracts",
+      "summary": "Tool adapters expose three incompatible failure contracts (exception, string error, ToolResult error).",
+      "related_files": [
+        "src/thenvoi/integrations/langgraph/langchain_tools.py",
+        "src/thenvoi/integrations/langgraph/graph_tools.py",
+        "src/thenvoi/integrations/parlant/tools.py"
+      ],
+      "evidence": [
+        "LangChain wrappers catch `Exception` and return text like `\"Error sending message: ...\"` as normal tool output.",
+        "`graph_as_tool` documents and implements bubble-up exceptions instead of stringifying failures.",
+        "Parlant wrappers convert errors into `ToolResult(data=...)` while also logging, producing a separate contract shape."
+      ],
+      "suggestion": "Define a single cross-integration error envelope (for example `{ok: bool, data: ..., error: {code, message}}`) and adapt each integration to emit/consume that envelope consistently; only convert to framework-specific types at the outermost boundary.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "architectural_change",
+      "root_cause_cluster": "error_surface_fragmentation"
+    },
+    {
+      "dimension": "error_consistency",
+      "identifier": "orchestrator_stringifies_runtime_errors",
+      "summary": "Gateway call failures are downgraded to plain response text, obscuring real execution failure state.",
+      "related_files": [
+        "examples/a2a_gateway/demo_orchestrator/remote_agent.py",
+        "examples/a2a_gateway/demo_orchestrator/agent.py",
+        "examples/a2a_gateway/demo_orchestrator/agent_executor.py"
+      ],
+      "evidence": [
+        "`remote_agent.py` raises `RuntimeError` on call failure.",
+        "`agent.py` catches broad exception in `call_peer_agent` and returns `\"Error calling peer ...\"` string.",
+        "`agent_executor.py` treats only raised exceptions as protocol failures (`ServerError`), so many runtime failures become ordinary model-visible text."
+      ],
+      "suggestion": "Keep transport/runtime failures as structured exceptions through the tool seam and map them once in the executor to protocol-level error states; reserve normal string content for successful peer responses.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "error_surface_fragmentation"
+    },
+    {
+      "dimension": "mid_level_elegance",
+      "identifier": "ad_hoc_orchestrator_handoff_shape",
+      "summary": "Executor-agent seam relies on ad-hoc dict keys instead of a typed response contract.",
+      "related_files": [
+        "examples/a2a_gateway/demo_orchestrator/agent.py",
+        "examples/a2a_gateway/demo_orchestrator/agent_executor.py"
+      ],
+      "evidence": [
+        "`OrchestratorAgent.stream()` yields raw dicts with string keys (`is_task_complete`, `require_user_input`, `content`).",
+        "`OrchestratorAgentExecutor.execute()` indexes those keys directly and branches control flow on them.",
+        "A typo or shape change would fail at runtime and is not protected by a shared typed model."
+      ],
+      "suggestion": "Introduce a shared typed payload model/dataclass for stream events (status enum + content + optional metadata) and use that model in both producer and consumer to make handoffs explicit and safer.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "untyped_seam_contracts"
+    },
+    {
+      "dimension": "convention_outlier",
+      "identifier": "example_logging_policy_islands",
+      "summary": "Same helper name (`setup_logging`) implements conflicting root logger conventions across examples.",
+      "related_files": [
+        "examples/a2a_bridge/setup_logging.py",
+        "examples/a2a_gateway/setup_logging.py",
+        "examples/claude_sdk/setup_logging.py",
+        "examples/codex/setup_logging.py",
+        "examples/parlant/setup_logging.py"
+      ],
+      "evidence": [
+        "Some modules pin root logger to WARNING and then tune package loggers (`a2a_bridge`, `claude_sdk`, `parlant`).",
+        "Others set root logger directly from function argument (`a2a_gateway`, `codex`) with different formatting and stream behavior.",
+        "This makes identical `setup_logging()` calls behave differently depending on example family."
+      ],
+      "suggestion": "Create one shared example logging helper (or documented policy) with explicit extension points per framework and have each example call that shared helper instead of defining local variants.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "example_scaffold_drift"
+    },
+    {
+      "dimension": "convention_outlier",
+      "identifier": "duplicated_example_tool_packages",
+      "summary": "Two tool packages are duplicated verbatim, creating convention drift risk from copy-based reuse.",
+      "related_files": [
+        "examples/claude_sdk_docker/tools/example_tools.py",
+        "examples/coding_agents/tools/example_tools.py",
+        "examples/claude_sdk_docker/tools/__init__.py",
+        "examples/coding_agents/tools/__init__.py"
+      ],
+      "evidence": [
+        "The calculator/time/random tool implementations and registry structure are effectively duplicated across both directories.",
+        "Future fixes to one example tool set can easily diverge from the other because there is no shared source of truth."
+      ],
+      "suggestion": "Extract shared example tools into a single reusable module and import from both example packages, or generate both from one template to enforce synchronized conventions.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "example_scaffold_drift"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "No canonical cross-integration error contract for tool adapters, causing each adapter to invent its own failure semantics.",
+      "Example scaffolding is copy-driven rather than centralized, which creates convention islands over time.",
+      "Integration seams rely on loosely typed dictionaries and string sentinels instead of shared typed boundary models."
+    ],
+    "likely_symptoms": [
+      "mixed_tool_error_contracts",
+      "orchestrator_stringifies_runtime_errors",
+      "ad_hoc_orchestrator_handoff_shape",
+      "example_logging_policy_islands",
+      "duplicated_example_tool_packages"
+    ],
+    "possible_false_positives": []
+  }
+}

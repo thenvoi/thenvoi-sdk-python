@@ -13,27 +13,33 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
-import sys
 from pathlib import Path
 
-import yaml
+from thenvoi.testing.config_loader import load_runner_config
+from thenvoi.testing.example_logging import setup_logging_profile
 
-logging.basicConfig(level=logging.INFO, format="%(message)s")
 logger = logging.getLogger(__name__)
-
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../.."))
 
 SCRIPT_DIR = Path(__file__).parent
 
 
-def load_agent_config(filename: str) -> dict:
-    """Load agent config from YAML file."""
-    path = SCRIPT_DIR / filename
-    with open(path) as f:
-        return yaml.safe_load(f)
+def configure_logging() -> None:
+    """Configure script logging."""
+    setup_logging_profile("codex")
+
+
+def load_agent_runtime(filename: str) -> dict[str, str]:
+    """Load flat runner config and validated credentials from YAML."""
+    config = load_runner_config(SCRIPT_DIR / filename, agent_key="agent")
+    return {
+        "agent_id": str(config["agent_id"]),
+        "api_key": str(config["api_key"]),
+    }
 
 
 async def main() -> None:
+    configure_logging()
+
     from thenvoi_rest import AsyncRestClient
     from thenvoi_rest.types import (
         ChatMessageRequest,
@@ -43,8 +49,8 @@ async def main() -> None:
     )
 
     # Load agent configs
-    planner = load_agent_config("planner.yaml")
-    reviewer = load_agent_config("reviewer.yaml")
+    planner = load_agent_runtime("planner.yaml")
+    reviewer = load_agent_runtime("reviewer.yaml")
 
     base_url = os.environ.get("THENVOI_REST_URL", "https://app.thenvoi.com")
 

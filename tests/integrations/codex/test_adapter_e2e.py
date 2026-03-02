@@ -11,9 +11,10 @@ from typing import Any
 
 import pytest
 
-from thenvoi.adapters.codex import CodexAdapter, CodexAdapterConfig
+from thenvoi.adapters.codex.adapter import CodexAdapter, CodexAdapterConfig
 from thenvoi.core.types import AgentInput, HistoryProvider, PlatformMessage
 from thenvoi.integrations.codex import CodexJsonRpcError, RpcEvent
+from thenvoi.runtime.tools import TOOL_MODELS
 from thenvoi.testing import FakeAgentTools
 
 
@@ -51,17 +52,22 @@ def _agent_input(
 
 
 class _ToolSchemaFakeTools(FakeAgentTools):
-    def get_openai_tool_schemas(self) -> list[dict[str, Any]]:
+    def get_openai_tool_schemas(
+        self,
+        *,
+        include_memory: bool = False,
+    ) -> list[dict[str, Any]]:
+        _ = include_memory
+        model = TOOL_MODELS["thenvoi_send_message"]
+        schema = model.model_json_schema()
+        schema.pop("title", None)
         return [
             {
                 "type": "function",
                 "function": {
                     "name": "thenvoi_send_message",
-                    "description": "Send a message",
-                    "parameters": {
-                        "type": "object",
-                        "properties": {"content": {"type": "string"}},
-                    },
+                    "description": (model.__doc__ or "").strip(),
+                    "parameters": schema,
                 },
             }
         ]

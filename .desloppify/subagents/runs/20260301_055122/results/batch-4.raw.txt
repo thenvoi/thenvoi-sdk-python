@@ -1,0 +1,120 @@
+{
+  "batch": "Testing & API",
+  "batch_index": 4,
+  "assessments": {
+    "test_strategy": 63.0,
+    "mid_level_elegance": 58.0
+  },
+  "dimension_notes": {
+    "test_strategy": {
+      "evidence": [
+        "examples/a2a_gateway/demo_orchestrator/remote_agent.py constructs A2ACardResolver and A2AClient directly inside call paths (discover_peer/call_peer), which makes critical network/error branches hard to isolate in unit tests without patch-heavy setup.",
+        "examples/a2a_gateway/demo_orchestrator/remote_agent.py has multiple behavior branches with silent fallbacks (list_peers returns [], discover_peer returns False, _extract_response returns \"No response from peer\"), but the module exposes no explicit contract hooks to verify which failure path occurred.",
+        "examples/a2a_gateway/demo_orchestrator/agent.py relies on module-global mutable state (_gateway_client) for the tool path, increasing test-order sensitivity and reducing deterministic isolation across orchestrator instances.",
+        "thenvoi-bridge/bridge_core/handler.py defines a wide argument-level protocol surface, while src/thenvoi/runtime/types.py already provides structured message types; this encourages seam testing at the wrong granularity (kwargs shape) instead of stable contract objects."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    },
+    "mid_level_elegance": {
+      "evidence": [
+        "examples/a2a_gateway/demo_orchestrator/agent.py uses a module-global gateway client setter/getter pattern for tool execution, creating hidden cross-instance coupling rather than explicit orchestration wiring.",
+        "examples/a2a_gateway/demo_orchestrator/agent.py and remote_agent.py expose inconsistent boundary failure semantics: call_peer raises RuntimeError, call_peer_agent converts exceptions to user-visible strings, while list_peers/discover_peer degrade to []/False and _extract_response can return a synthetic success-like string.",
+        "thenvoi-bridge/bridge_core/handler.py passes many scalar message fields across the seam, while src/thenvoi/runtime/types.py already models message payload shape (PlatformMessage), indicating duplicated boundary translation responsibility."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "architectural_change",
+      "confidence": "high"
+    }
+  },
+  "findings": [
+    {
+      "dimension": "mid_level_elegance",
+      "identifier": "global_gateway_client_hidden_coupling",
+      "summary": "Tool-to-client handoff is hidden behind mutable module-global state, making orchestration seams implicit and cross-instance behavior fragile.",
+      "related_files": [
+        "examples/a2a_gateway/demo_orchestrator/agent.py",
+        "examples/a2a_gateway/demo_orchestrator/remote_agent.py"
+      ],
+      "evidence": [
+        "examples/a2a_gateway/demo_orchestrator/agent.py stores gateway dependency in module global `_gateway_client` and mutates it via `set_gateway_client`.",
+        "OrchestratorAgent.__init__ sets this global as a side effect, so later agent instances can overwrite dependency used by existing tool call paths.",
+        "call_peer_agent reads the global directly instead of receiving dependency through explicit object/context wiring."
+      ],
+      "suggestion": "Remove module-global gateway state. Bind the tool to an OrchestratorAgent instance (or injectable context object) so each agent has isolated dependencies and deterministic seams for both runtime behavior and tests.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "architectural_change",
+      "root_cause_cluster": "boundary_contract_fragmentation"
+    },
+    {
+      "dimension": "mid_level_elegance",
+      "identifier": "error_contract_drift_across_orchestrator_boundary",
+      "summary": "Gateway boundary mixes exception, sentinel, and string-encoded error contracts, forcing upstream orchestration to infer failure semantics.",
+      "related_files": [
+        "examples/a2a_gateway/demo_orchestrator/remote_agent.py",
+        "examples/a2a_gateway/demo_orchestrator/agent.py"
+      ],
+      "evidence": [
+        "remote_agent.py: `list_peers` catches `Exception` and returns `[]`, `discover_peer` catches `Exception` and returns `False`, `call_peer` raises `RuntimeError`, and `_extract_response` returns \"No response from peer\" sentinel text.",
+        "agent.py: `call_peer_agent` catches broad exceptions and returns formatted error strings instead of a typed failure envelope.",
+        "These mixed patterns create ambiguous handoffs where callers cannot reliably distinguish transport failure, unavailable peer, and valid-but-empty peer response."
+      ],
+      "suggestion": "Define one typed boundary result model (e.g., success/error union with machine-readable codes) and apply it consistently across `GatewayClient` and `call_peer_agent`; reserve user-facing string rendering for the outermost response formatter.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "boundary_contract_fragmentation"
+    },
+    {
+      "dimension": "test_strategy",
+      "identifier": "critical_gateway_paths_not_designed_for_targeted_testing",
+      "summary": "Critical network and parsing paths are coupled to concrete SDK clients and broad exception handling, reducing precise coverage of failure modes.",
+      "related_files": [
+        "examples/a2a_gateway/demo_orchestrator/remote_agent.py",
+        "examples/a2a_gateway/demo_orchestrator/agent.py"
+      ],
+      "evidence": [
+        "remote_agent.py instantiates `A2ACardResolver` and `A2AClient` inline, which pushes tests toward monkeypatching internals instead of exercising stable injected seams.",
+        "Broad catch-all branches in `list_peers`, `discover_peer`, and `call_peer` collapse diverse failures into generic outcomes, making branch-level assertions weak or absent.",
+        "agent.py tool behavior depends on module-global setup, which introduces shared mutable state into tests and increases order/cross-test coupling risk."
+      ],
+      "suggestion": "Introduce explicit collaborator injection points (resolver factory/client factory) and typed error outcomes, then add focused unit tests per branch: resolver failure, send failure, empty artifacts/status fallback, and global-state isolation regressions.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "boundary_contract_fragmentation"
+    },
+    {
+      "dimension": "mid_level_elegance",
+      "identifier": "handler_signature_duplicated_message_shape",
+      "summary": "Bridge handler seam passes decomposed message scalars despite existing structured runtime message types, increasing translation entropy.",
+      "related_files": [
+        "thenvoi-bridge/bridge_core/handler.py",
+        "src/thenvoi/runtime/types.py"
+      ],
+      "evidence": [
+        "handler.py `BaseHandler.handle` requires many parallel parameters (`content`, `room_id`, `thread_id`, `message_id`, `sender_*`, `mentioned_agent`, `tools`).",
+        "runtime/types.py already defines `PlatformMessage` with overlapping sender/content identity fields and shared semantics.",
+        "Maintaining both scalar argument contracts and structured message models increases drift risk at module boundaries and complicates integration choreography."
+      ],
+      "suggestion": "Refactor handler protocol to accept one structured message object (or a bridge-specific dataclass) plus minimal routing metadata, and centralize scalar extraction in one adapter layer.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "boundary_contract_fragmentation"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "Boundary contracts are defined in multiple incompatible forms (exceptions, booleans/lists, sentinel strings, scalar argument bags) instead of one explicit typed seam.",
+      "Integration code favors convenience globals and inline construction over dependency-injected collaborators, which weakens both orchestration clarity and test isolation."
+    ],
+    "likely_symptoms": [
+      "error_contract_drift_across_orchestrator_boundary",
+      "critical_gateway_paths_not_designed_for_targeted_testing"
+    ],
+    "possible_false_positives": []
+  }
+}

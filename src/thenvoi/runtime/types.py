@@ -6,6 +6,7 @@ Extracted from core/types.py - data structures used across the runtime layer.
 
 from __future__ import annotations
 
+import inspect
 from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
@@ -51,16 +52,28 @@ def normalize_handle(handle: str | None) -> str | None:
     Returns:
         Handle with @ prefix, or None if input is None/empty
     """
-    if not handle:
+    if handle is None:
         return None
-    return handle if handle.startswith("@") else f"@{handle}"
+
+    normalized = handle.strip()
+    if not normalized:
+        return None
+
+    return normalized if normalized.startswith("@") else f"@{normalized}"
+
+
+def is_agent_sender_type(sender_type: str | None) -> bool:
+    """Return True when sender_type denotes an agent, case-insensitively."""
+    if sender_type is None:
+        return False
+    return sender_type.strip().lower() == "agent"
 
 
 if TYPE_CHECKING:
+    from thenvoi.core.protocols import AgentToolsProtocol
     from thenvoi.platform.event import ContactEvent
 
     from .contact_tools import ContactTools
-    from .tools import AgentTools
 
 
 @dataclass
@@ -98,6 +111,7 @@ class PlatformMessage:
     message_type: str
     metadata: dict[str, Any]
     created_at: datetime
+    thread_id: str | None = None
 
     def format_for_llm(self) -> str:
         """
@@ -105,7 +119,7 @@ class PlatformMessage:
 
         Returns string in format: [SENDER_NAME]: message content
         """
-        sender = self.sender_name or self.sender_type
+        sender = self.sender_name or self.sender_type or "Unknown"
         return f"[{sender}]: {self.content}"
 
 
@@ -124,8 +138,8 @@ class ConversationContext:
     hydrated_at: datetime
 
 
-# Callback type - receives AgentTools, NOT ThenvoiAgent
-MessageHandler = Callable[["PlatformMessage", "AgentTools"], Awaitable[None]]
+# Callback type - receives tools via protocol, not a concrete implementation.
+MessageHandler = Callable[["PlatformMessage", "AgentToolsProtocol"], Awaitable[None]]
 
 
 # --- Contact Event Configuration ---
@@ -197,3 +211,9 @@ class ContactEventConfig:
         """Validate configuration after initialization."""
         if self.strategy == ContactEventStrategy.CALLBACK and self.on_event is None:
             raise ValueError("CALLBACK strategy requires on_event callback")
+        if (
+            self.strategy == ContactEventStrategy.CALLBACK
+            and self.on_event is not None
+            and not inspect.iscoroutinefunction(self.on_event)
+        ):
+            raise ValueError("CALLBACK strategy requires async on_event callback")

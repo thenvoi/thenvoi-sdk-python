@@ -4,7 +4,14 @@ from datetime import datetime, timezone
 
 import pytest
 
-from thenvoi.core.types import AgentInput, HistoryProvider, PlatformMessage
+from thenvoi.core.types import (
+    AgentInput,
+    ChatMessageTurnContext,
+    ControlMessageTurnContext,
+    HistoryProvider,
+    PlatformMessage,
+    resolve_platform_message,
+)
 from thenvoi.testing import FakeAgentTools
 
 
@@ -229,3 +236,66 @@ class TestAgentInput:
 
         with pytest.raises(Exception):  # FrozenInstanceError
             inp.room_id = "modified"
+
+
+class TestTurnContextFactories:
+    """Tests for shared turn-context helper factories."""
+
+    def _make_msg(self) -> PlatformMessage:
+        return PlatformMessage(
+            id="msg-1",
+            room_id="room-1",
+            content="Hello",
+            sender_id="user-1",
+            sender_type="User",
+            sender_name="Alice",
+            message_type="text",
+            metadata={},
+            created_at=datetime.now(timezone.utc),
+        )
+
+    def test_resolve_platform_message_prefers_explicit_msg(self) -> None:
+        msg = self._make_msg()
+        resolved = resolve_platform_message(
+            "ignored-turn",
+            msg=msg,
+            expected_context_name="ChatMessageTurnContext",
+        )
+        assert resolved is msg
+
+    def test_chat_turn_context_from_message_defaults_room_id(self) -> None:
+        msg = self._make_msg()
+
+        turn = ChatMessageTurnContext.from_message(
+            msg=msg,
+            tools=FakeAgentTools(),
+            history=["one"],
+            participants_msg="joined",
+            contacts_msg="contact update",
+            is_session_bootstrap=True,
+        )
+
+        assert turn.msg is msg
+        assert turn.history == ["one"]
+        assert turn.room_id == "room-1"
+        assert turn.is_session_bootstrap is True
+
+    def test_control_turn_context_from_agent_input_maps_fields(self) -> None:
+        msg = self._make_msg()
+        inp = AgentInput(
+            msg=msg,
+            tools=FakeAgentTools(),
+            history=HistoryProvider(raw=[]),
+            participants_msg="joined",
+            contacts_msg="contact update",
+            is_session_bootstrap=True,
+            room_id="room-xyz",
+        )
+
+        turn = ControlMessageTurnContext.from_agent_input(inp=inp, history=["two"])
+
+        assert turn.msg is msg
+        assert turn.history == ["two"]
+        assert turn.participants_msg == "joined"
+        assert turn.contacts_msg == "contact update"
+        assert turn.room_id == "room-xyz"

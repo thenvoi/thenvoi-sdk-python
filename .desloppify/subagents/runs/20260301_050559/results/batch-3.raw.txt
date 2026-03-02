@@ -1,0 +1,136 @@
+{
+  "batch": "Design coherence — Mechanical Concern Signals",
+  "batch_index": 3,
+  "assessments": {
+    "design_coherence": 74.0
+  },
+  "dimension_notes": {
+    "design_coherence": {
+      "evidence": [
+        "Contact-management methods are duplicated almost verbatim between src/thenvoi/runtime/tools.py (list_contacts/add_contact/remove_contact/list_contact_requests/respond_contact_request at lines ~731-952) and src/thenvoi/runtime/contact_tools.py (same method set at lines ~55-276).",
+        "Docker runner lifecycle logic is repeated across docker/claude_sdk/runner.py, docker/codex/runner.py, and examples/claude_sdk_docker/runner.py: same shutdown-event pattern, env validation, mount validation, retry loop, and agent-run orchestration.",
+        "Character/example agents repeat the same bootstrapping flow (sys.path mutation, load_dotenv, THENVOI_WS_URL/THENVOI_REST_URL validation, load_agent_config, Agent.create) across multiple files such as examples/anthropic/03_tom_agent.py, examples/claude_sdk/03_tom_agent.py, examples/pydantic_ai/03_tom_agent.py, and examples/langgraph/08_jerry_agent.py.",
+        "thenvoi-bridge/bridge_core/bridge.py is 721 LOC and combines config parsing, reconnect policy, signal/shutdown handling, room participant caching, dedupe, and message dispatch orchestration in one class."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "findings": [
+    {
+      "dimension": "design_coherence",
+      "identifier": "duplicated_contact_tool_surface",
+      "summary": "Contact operations are implemented twice with near-identical flow, splitting one responsibility across two classes.",
+      "related_files": [
+        "src/thenvoi/runtime/tools.py",
+        "src/thenvoi/runtime/contact_tools.py",
+        "tests/integration/test_contact_tools.py"
+      ],
+      "evidence": [
+        "Both classes define the same five contact methods with matching parameter shapes and response shaping logic (list/add/remove/list_requests/respond).",
+        "Both implementations build dynamic kwargs for nullable identifiers and duplicate metadata mapping logic for received/sent contact requests.",
+        "This creates two behavior sources for the same API contract, increasing drift risk when contact payloads evolve."
+      ],
+      "suggestion": "Extract a shared `ContactService` (or mixin/composition helper) that owns all contact API calls and response mapping, then have `AgentTools` and `ContactTools` delegate to it with only context-specific wrapping.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "contact_api_duplication"
+    },
+    {
+      "dimension": "design_coherence",
+      "identifier": "integration_cleanup_logic_copied",
+      "summary": "Contact-state cleanup workflow is copy-pasted across integration suites instead of centralized.",
+      "related_files": [
+        "tests/integration/test_contact_tools.py",
+        "tests/integration/test_callback_strategy.py",
+        "tests/integration/test_contact_websocket.py"
+      ],
+      "evidence": [
+        "Each file defines its own `cleanup_contact_state(api_client, api_client_2)` with the same multi-step sequence: remove contacts, cancel outgoing requests, reject incoming pending requests, sleep for state settling.",
+        "The duplicated helpers are repeatedly invoked throughout each suite, multiplying maintenance cost for any contact-state policy change."
+      ],
+      "suggestion": "Move cleanup orchestration into a shared fixture/helper module (for example tests/integration/contact_state.py or conftest fixture) and parameterize the small behavioral differences, so all suites consume one canonical cleanup contract.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "contact_api_duplication"
+    },
+    {
+      "dimension": "design_coherence",
+      "identifier": "example_bootstrap_pattern_repeated",
+      "summary": "Example agents repeatedly embed the same startup choreography instead of using a shared bootstrap layer.",
+      "related_files": [
+        "examples/anthropic/03_tom_agent.py",
+        "examples/claude_sdk/04_jerry_agent.py",
+        "examples/pydantic_ai/03_tom_agent.py",
+        "examples/langgraph/08_jerry_agent.py"
+      ],
+      "evidence": [
+        "Across these scripts, `main()` repeats identical setup steps: `load_dotenv()`, env URL retrieval/validation, credentials loading, adapter init, `Agent.create(...)`, and `agent.run()`.",
+        "Multiple scripts also mutate import paths with `sys.path.insert(...)` to reach shared prompt modules, indicating shared example infrastructure is missing."
+      ],
+      "suggestion": "Introduce a shared example bootstrap utility (e.g., `examples/common/bootstrap.py`) that returns normalized runtime config and agent factory inputs; keep each example focused on adapter-specific deltas and scenario behavior.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "missing_shared_bootstrap_layer"
+    },
+    {
+      "dimension": "design_coherence",
+      "identifier": "runner_lifecycle_duplicated_across_entrypoints",
+      "summary": "Runner entrypoints duplicate orchestration logic, coupling operational policy to each adapter script.",
+      "related_files": [
+        "docker/claude_sdk/runner.py",
+        "docker/codex/runner.py",
+        "examples/claude_sdk_docker/runner.py",
+        "docker/shared/repo_init.py"
+      ],
+      "evidence": [
+        "All runner files define the same structural components: module-level shutdown event, signal handlers, AGENT_CONFIG and THENVOI URL validation, mount validation, retry counters, and `while not _shutdown_event.is_set()` loops.",
+        "Behavioral policy (retry semantics, shutdown choreography, env precedence) is encoded in each runner, so reliability fixes must be applied in several places."
+      ],
+      "suggestion": "Create a shared runner core that owns lifecycle orchestration (signals, retries, shutdown, env checks), and keep adapter-specific runners as thin config/build hooks.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "architectural_change",
+      "root_cause_cluster": "missing_shared_bootstrap_layer"
+    },
+    {
+      "dimension": "design_coherence",
+      "identifier": "bridge_orchestrator_overloaded",
+      "summary": "ThenvoiBridge concentrates too many responsibilities, making behavioral changes high-risk.",
+      "related_files": [
+        "thenvoi-bridge/bridge_core/bridge.py",
+        "thenvoi-bridge/bridge_core/router.py",
+        "src/thenvoi/platform/link.py"
+      ],
+      "evidence": [
+        "thenvoi-bridge/bridge_core/bridge.py is 721 LOC and includes env/config parsing (`BridgeConfig.from_env`), reconnect strategy, signal/shutdown control, room discovery, dedup cache handling, participant caching, and message routing integration.",
+        "The class combines lifecycle management and message-domain behavior, forcing unrelated changes (e.g., reconnection tuning vs routing logic) through one large control surface."
+      ],
+      "suggestion": "Split `ThenvoiBridge` into focused components (configuration loader, connection supervisor, room state/cache manager, dispatch coordinator) and keep bridge.py as composition/root wiring only.",
+      "confidence": "medium",
+      "impact_scope": "subsystem",
+      "fix_scope": "architectural_change",
+      "root_cause_cluster": "orchestrator_overload"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "Missing shared internal APIs for repeated startup/contact orchestration patterns.",
+      "Boundary placement favors convenience wrappers and script-local orchestration over reusable composition layers.",
+      "Operational lifecycle and domain logic are co-located in large orchestrator modules."
+    ],
+    "likely_symptoms": [
+      "duplicated_contact_tool_surface",
+      "integration_cleanup_logic_copied",
+      "example_bootstrap_pattern_repeated",
+      "runner_lifecycle_duplicated_across_entrypoints"
+    ],
+    "possible_false_positives": [
+      "Some example-script duplication may be partially intentional for tutorial readability, but repeated `sys.path` and env/bootstrap code indicates maintainability debt beyond pedagogical duplication."
+    ]
+  }
+}

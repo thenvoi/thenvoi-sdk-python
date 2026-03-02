@@ -1,6 +1,6 @@
 """Tests for RoomPresence contact event routing."""
 
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -24,19 +24,9 @@ from thenvoi.runtime.presence import RoomPresence
 
 
 @pytest.fixture
-def mock_link():
+def mock_link(link_mock_factory):
     """Mock ThenvoiLink for testing."""
-    link = MagicMock()
-    link.agent_id = "agent-123"
-    link.is_connected = True
-    link.rest = MagicMock()
-    link.rest.agent_api_chats = MagicMock()
-    link.rest.agent_api_chats.list_agent_chats = AsyncMock(
-        return_value=MagicMock(data=[])
-    )
-    link.subscribe_agent_rooms = AsyncMock()
-    link.subscribe_room = AsyncMock()
-    return link
+    return link_mock_factory(is_connected=True)
 
 
 @pytest.fixture

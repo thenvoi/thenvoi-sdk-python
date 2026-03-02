@@ -1,0 +1,67 @@
+{
+  "batch": "Testing & API",
+  "batch_index": 2,
+  "assessments": {
+    "test_strategy": 83.0
+  },
+  "dimension_notes": {
+    "test_strategy": {
+      "evidence": [
+        "src/thenvoi/integrations/a2a_bridge/session.py adds stateful operational behavior in _evict_expired() (_HIGH_SESSION_THRESHOLD warning gate and _high_session_warned toggle), but the session tests only exercise CRUD/TTL semantics and do not verify warning emission/reset behavior.",
+        "src/thenvoi/integrations/a2a_bridge/handler.py defines a strict async handler contract, but tests for bridge routing rely heavily on generic AsyncMock handlers, which do not enforce real signature compatibility for concrete handler implementations."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "findings": [
+    {
+      "dimension": "test_strategy",
+      "identifier": "session_warning_path_untested",
+      "summary": "Session-store observability and threshold-reset logic is untested, leaving a high-cardinality operational path unvalidated.",
+      "related_files": [
+        "src/thenvoi/integrations/a2a_bridge/session.py",
+        "src/thenvoi/integrations/a2a_bridge/handler.py"
+      ],
+      "evidence": [
+        "InMemorySessionStore._evict_expired() mutates _high_session_warned and conditionally emits logger.warning when count >= 10_000, with a separate reset branch when count falls below threshold.",
+        "This branch is operationally significant (log-noise control and alert behavior) but current coverage focuses on CRUD/TTL outcomes and does not assert warning-once / reset-on-recovery behavior."
+      ],
+      "suggestion": "Add focused unit tests that populate the store across the threshold and back below it, asserting warning emission count and reset semantics; isolate logger with caplog or a patched logger to verify behavior deterministically.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "single_edit",
+      "root_cause_cluster": "contract_and_operational_branch_gaps"
+    },
+    {
+      "dimension": "test_strategy",
+      "identifier": "handler_contract_not_enforced_by_tests",
+      "summary": "The BaseHandler API contract lacks contract-level tests with concrete implementations, so signature drift can pass tests and fail at runtime.",
+      "related_files": [
+        "src/thenvoi/integrations/a2a_bridge/handler.py",
+        "src/thenvoi/integrations/a2a_bridge/session.py"
+      ],
+      "evidence": [
+        "BaseHandler.handle() requires (message, mentioned_agent, tools) and is the core router integration contract.",
+        "Routing tests commonly use AsyncMock handlers, which accept arbitrary kwargs and therefore do not fail when concrete handler signatures diverge from the protocol contract."
+      ],
+      "suggestion": "Introduce contract tests using minimal concrete handler classes (not generic AsyncMock) and run them through routing dispatch, including at least one intentionally malformed handler to verify failures are surfaced predictably.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "contract_and_operational_branch_gaps"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "Coverage is strong for happy-path data semantics but thinner for operational/observability branches.",
+      "Mock-heavy tests validate orchestration flow but under-validate strict callable contracts."
+    ],
+    "likely_symptoms": [
+      "session_warning_path_untested",
+      "handler_contract_not_enforced_by_tests"
+    ],
+    "possible_false_positives": []
+  }
+}

@@ -1,13 +1,13 @@
 """Tests for RoomPresence."""
 
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import MagicMock
 
 import pytest
 
 from thenvoi.runtime.presence import RoomPresence
 
 # Import test helpers from conftest
-from tests.conftest import (
+from tests.support.events import (
     make_message_event,
     make_room_added_event,
     make_room_removed_event,
@@ -15,33 +15,9 @@ from tests.conftest import (
 
 
 @pytest.fixture
-def mock_link():
+def mock_link(link_mock_factory):
     """Mock ThenvoiLink for testing RoomPresence."""
-    link = MagicMock()
-    link.agent_id = "agent-123"
-    link.is_connected = False
-
-    # Async methods
-    link.connect = AsyncMock()
-    link.subscribe_agent_rooms = AsyncMock()
-    link.subscribe_room = AsyncMock()
-    link.unsubscribe_room = AsyncMock()
-
-    # REST client mock
-    link.rest = MagicMock()
-    link.rest.agent_api_chats = MagicMock()
-    link.rest.agent_api_chats.list_agent_chats = AsyncMock(
-        return_value=MagicMock(data=[])
-    )
-
-    # Make link iterable for async for (returns empty iterator by default)
-    async def empty_aiter():
-        return
-        yield  # Make it a generator
-
-    link.__aiter__ = lambda self: empty_aiter()
-
-    return link
+    return link_mock_factory()
 
 
 class TestRoomPresenceConstruction:
@@ -377,3 +353,54 @@ class TestRoomPresenceEventRouting:
         assert received == ["message_created"]
 
         await presence.stop()
+
+
+class TestRoomPresenceNonfatalErrors:
+    """Tests for structured non-fatal error recording."""
+
+    async def test_records_on_room_joined_callback_error(self, mock_link):
+        presence = RoomPresence(mock_link, auto_subscribe_existing=False)
+        await presence.start()
+
+        async def bad_joined(_room_id, _payload):
+            raise RuntimeError("join callback failed")
+
+        presence.on_room_joined = bad_joined
+
+        await presence._handle_room_added(make_room_added_event(room_id="room-123"))
+
+        assert presence.nonfatal_errors
+        assert presence.nonfatal_errors[0]["operation"] == "on_room_joined_callback"
+        assert presence.nonfatal_errors[0]["room_id"] == "room-123"
+
+        await presence.stop()
+
+    async def test_records_on_room_event_callback_error(self, mock_link):
+        presence = RoomPresence(mock_link, auto_subscribe_existing=False)
+        await presence.start()
+        presence.rooms.add("room-123")
+
+        async def bad_event(_room_id, _event):
+            raise RuntimeError("room event callback failed")
+
+        presence.on_room_event = bad_event
+        await presence._handle_room_event(make_message_event(room_id="room-123"))
+
+        assert presence.nonfatal_errors
+        assert presence.nonfatal_errors[0]["operation"] == "on_room_event_callback"
+        assert presence.nonfatal_errors[0]["room_id"] == "room-123"
+
+        await presence.stop()
+
+    async def test_records_existing_room_subscription_failure(self, mock_link):
+        mock_link.rest.agent_api_chats.list_agent_chats.side_effect = RuntimeError(
+            "api unavailable"
+        )
+        presence = RoomPresence(mock_link, auto_subscribe_existing=False)
+
+        await presence._subscribe_to_existing_rooms()
+
+        assert presence.nonfatal_errors
+        assert (
+            presence.nonfatal_errors[0]["operation"] == "subscribe_to_existing_rooms"
+        )

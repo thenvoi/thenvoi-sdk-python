@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+from typing import Any
+
+from thenvoi.runtime.types import is_agent_sender_type
+
 
 def replace_uuid_mentions(content: str, participants: list[dict]) -> str:
     """
@@ -31,27 +35,39 @@ def format_message_for_llm(msg: dict, participants: list[dict] | None = None) ->
     Map platform message to LLM format.
 
     Args:
-        msg: Platform message dict with sender_type, content, sender_name
+        msg: Platform message dict with type/sender_type, content, sender_name
         participants: Optional list of participants for UUID mention replacement
 
     Returns:
-        Dict with role, content, sender_name, sender_type, message_type, metadata
+        Dict with role, content, sender_name, sender_type, message_type, metadata.
+        Includes compatibility "type" when source message uses that field.
     """
-    sender_type = msg.get("sender_type", "")
+    sender_type = msg.get("type") or msg.get("sender_type") or ""
     sender_name = msg.get("sender_name") or msg.get("name") or sender_type
 
     content = msg.get("content", "")
     if participants:
         content = replace_uuid_mentions(content, participants)
 
-    return {
-        "role": "assistant" if sender_type == "Agent" else "user",
+    metadata = msg.get("metadata") or {}
+    if not isinstance(metadata, dict):
+        metadata = {}
+
+    # Normalize to a single canonical history schema for converters.
+    formatted: dict[str, Any] = {
+        "role": "assistant" if is_agent_sender_type(sender_type) else "user",
         "content": content,
         "sender_name": sender_name,
-        "sender_type": sender_type,
         "message_type": msg.get("message_type", "text"),
-        "metadata": msg.get("metadata", {}),
     }
+    formatted["sender_type"] = sender_type
+    formatted["metadata"] = metadata
+
+    # Backward compatibility alias for converters still reading "type".
+    if "type" in msg:
+        formatted["type"] = sender_type
+
+    return formatted
 
 
 def format_history_for_llm(

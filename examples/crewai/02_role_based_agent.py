@@ -23,12 +23,12 @@ import os
 
 from dotenv import load_dotenv
 
-from setup_logging import setup_logging
+from thenvoi.testing.example_logging import setup_logging_profile
 from thenvoi import Agent
 from thenvoi.adapters import CrewAIAdapter
 from thenvoi.config import load_agent_config
 
-setup_logging()
+setup_logging_profile("crewai")
 logger = logging.getLogger(__name__)
 
 

@@ -1,0 +1,98 @@
+{
+  "batch": "Testing & API",
+  "batch_index": 4,
+  "assessments": {
+    "test_strategy": 76.5,
+    "mid_level_elegance": 79.0
+  },
+  "dimension_notes": {
+    "test_strategy": {
+      "evidence": [
+        "src/thenvoi/integrations/codex/rpc_base.py has multiple defensive branches in _dispatch_rpc_message (non-JSON payload, non-object payload, queue-full drops, unknown payload path) but codex transport tests focus on lifecycle/happy-path request flows and overload retry behavior.",
+        "thenvoi-bridge/bridge_core/handler.py defines the core handler API contract, but repository tests validate router forwarding behavior rather than the protocol surface itself; no direct contract tests guard future signature/semantic drift at this seam."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    },
+    "mid_level_elegance": {
+      "evidence": [
+        "thenvoi-bridge/bridge_core/handler.py exposes handle(...) with many primitive parameters (content, room/thread/message IDs, sender fields, mentioned agent, tools), creating a wide seam that couples router internals to every handler.",
+        "thenvoi-bridge/bridge_core/router.py must manually assemble and pass each field into handler.handle(...), so boundary evolution requires synchronized edits across protocol docs, router wiring, and all handler implementations."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "findings": [
+    {
+      "dimension": "test_strategy",
+      "identifier": "rpc_base_edge_paths_untested",
+      "summary": "Critical JSON-RPC edge branches in rpc_base are not explicitly exercised by tests.",
+      "related_files": [
+        "src/thenvoi/integrations/codex/rpc_base.py",
+        "tests/integrations/codex/test_stdio_client.py",
+        "tests/integrations/codex/test_websocket_client.py"
+      ],
+      "evidence": [
+        "BaseJsonRpcClient._dispatch_rpc_message contains branch-specific behavior for malformed JSON, non-dict payloads, queue overflow drops, and unknown payloads.",
+        "Current codex transport tests emphasize initialize/request/notify/respond flows and overload retries; they do not target malformed input or queue saturation handling paths."
+      ],
+      "suggestion": "Add focused unit tests around BaseJsonRpcClient dispatch/failure behavior (malformed JSON, non-object payloads, queue-full for notifications/requests, unknown payload logging path) using a lightweight test subclass to inject messages deterministically.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "boundary_contract_fragility"
+    },
+    {
+      "dimension": "test_strategy",
+      "identifier": "handler_protocol_contract_not_tested",
+      "summary": "BaseHandler contract lacks direct tests, leaving protocol drift detection to integration behavior.",
+      "related_files": [
+        "thenvoi-bridge/bridge_core/handler.py",
+        "thenvoi-bridge/bridge_core/router.py",
+        "tests/bridge/test_router.py"
+      ],
+      "evidence": [
+        "BaseHandler is the canonical protocol surface for bridge integrations.",
+        "Router tests verify forwarded kwargs and routing outcomes, but there is no dedicated contract test suite validating protocol-level invariants/documented semantics in handler.py."
+      ],
+      "suggestion": "Create explicit protocol contract tests for the bridge handler seam (required fields, semantic expectations for sender/thread metadata, and compatibility checks for handler implementations) so API changes fail fast before runtime integration tests.",
+      "confidence": "medium",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "boundary_contract_fragility"
+    },
+    {
+      "dimension": "mid_level_elegance",
+      "identifier": "handler_seam_uses_primitive_parameter_bag",
+      "summary": "Handler boundary is a wide primitive parameter bag, increasing glue-code entropy.",
+      "related_files": [
+        "thenvoi-bridge/bridge_core/handler.py",
+        "thenvoi-bridge/bridge_core/router.py",
+        "thenvoi-bridge/bridge_core/bridge.py"
+      ],
+      "evidence": [
+        "BaseHandler.handle currently requires many scalar fields plus tools, rather than a cohesive request/context object.",
+        "MentionRouter.route constructs and forwards each field manually, binding transport/message schema details directly into the handler call seam."
+      ],
+      "suggestion": "Introduce a typed `MentionContext` (or equivalent Pydantic/dataclass model) that encapsulates message metadata and sender identity, and update `BaseHandler.handle` to accept `(context, tools)` to centralize boundary translation and reduce synchronized call-site churn.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "architectural_change",
+      "root_cause_cluster": "boundary_contract_fragility"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "Boundary contracts are encoded as loosely coordinated primitives and integration behavior instead of a single strongly-typed seam plus dedicated contract tests."
+    ],
+    "likely_symptoms": [
+      "rpc_base_edge_paths_untested",
+      "handler_protocol_contract_not_tested",
+      "handler_seam_uses_primitive_parameter_bag"
+    ],
+    "possible_false_positives": []
+  }
+}

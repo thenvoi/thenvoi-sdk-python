@@ -1,0 +1,148 @@
+{
+  "batch": "Abstractions & Dependencies",
+  "batch_index": 3,
+  "assessments": {
+    "abstraction_fitness": 71.0,
+    "dependency_health": 74.0,
+    "mid_level_elegance": 73.0,
+    "low_level_elegance": 77.0
+  },
+  "dimension_notes": {
+    "abstraction_fitness": {
+      "evidence": [
+        "Platform tool wrappers are re-implemented per framework instead of composed from one adapter-agnostic abstraction: `PydanticAIAdapter._create_agent()` defines many `thenvoi_*` wrappers, `langchain_tools.agent_tools_to_langchain()` defines parallel wrappers, and `ClaudeSDKAdapter._create_mcp_server()` defines another full wrapper set.",
+        "Room-session lifecycle logic is repeated across adapters (`_message_history` bootstrap/init/inject/cleanup patterns in `anthropic.py`, `pydantic_ai.py`, and `crewai.py`) rather than shared through a reusable session-state component."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "architectural_change",
+      "confidence": "high",
+      "sub_axes": {
+        "abstraction_leverage": 66.0,
+        "indirection_cost": 72.0,
+        "interface_honesty": 75.0
+      }
+    },
+    "dependency_health": {
+      "evidence": [
+        "`A2AGatewayAdapter` directly depends on REST client internals (`AsyncRestClient`, request DTOs) and manages room/context state itself rather than reusing runtime tool boundaries, creating a separate dependency path from the rest of adapters.",
+        "Peer resolution and mapping concerns are duplicated in both `A2AGatewayAdapter._resolve_peer` and `GatewayServer._resolve_peer`, so model/route changes require synchronized edits across modules.",
+        "Tests heavily assert private adapter state (`_context_to_room`, `_room_participants`, `_pending_tasks`) in gateway tests, indicating dependency on implementation details rather than stable seams."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    },
+    "mid_level_elegance": {
+      "evidence": [
+        "Boundary handoff contract for tool invocation differs per adapter (`StructuredTool` wrappers, Pydantic `agent.tool(...)`, Claude SDK MCP `@tool` wrappers), each embedding its own argument/error translation behavior.",
+        "The same cross-cutting choreography (participants/contacts injection + history bootstrap + per-room cleanup) is implemented independently in multiple adapters, increasing seam friction when runtime semantics evolve."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    },
+    "low_level_elegance": {
+      "evidence": [
+        "`PydanticAIAdapter._create_agent()` and `langchain_tools.agent_tools_to_langchain()` contain long repetitive blocks of nearly identical wrapper functions, reducing local signal-to-noise and making targeted edits error-prone.",
+        "`ClaudeSDKAdapter._create_mcp_server()` similarly contains a large monolithic run of tool wrapper declarations with repeated parsing/error/result formatting boilerplate."
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "findings": [
+    {
+      "dimension": "abstraction_fitness",
+      "identifier": "fragmented_tool_wrapper_abstraction",
+      "summary": "Tool-surface abstraction is fragmented across adapters with repeated wrapper logic.",
+      "related_files": [
+        "src/thenvoi/adapters/pydantic_ai.py",
+        "src/thenvoi/integrations/langgraph/langchain_tools.py",
+        "src/thenvoi/adapters/claude_sdk.py",
+        "src/thenvoi/adapters/crewai.py"
+      ],
+      "evidence": [
+        "Each file defines its own `thenvoi_*` wrapper set that maps framework callback signatures to `AgentToolsProtocol` and catches exceptions into string/error payloads.",
+        "The wrapper sets duplicate behavior (argument extraction/defaulting, error formatting, tool description binding) but are implemented separately per framework."
+      ],
+      "suggestion": "Introduce a shared tool-binding factory (e.g., canonical tool spec + per-framework renderer) so each adapter only supplies framework-specific registration primitives; centralize error/result mapping in one reusable layer.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "architectural_change",
+      "root_cause_cluster": "tool_surface_fragmentation"
+    },
+    {
+      "dimension": "dependency_health",
+      "identifier": "gateway_bypasses_core_runtime_boundary",
+      "summary": "A2A gateway path creates a parallel dependency stack and duplicated peer-resolution logic.",
+      "related_files": [
+        "src/thenvoi/integrations/a2a/gateway/adapter.py",
+        "src/thenvoi/integrations/a2a/gateway/server.py",
+        "tests/integrations/a2a/gateway/test_adapter.py",
+        "tests/integration/test_a2a_gateway_context.py"
+      ],
+      "evidence": [
+        "`A2AGatewayAdapter` directly uses REST DTOs/clients and room bookkeeping instead of reusing runtime tool/session boundaries.",
+        "Both adapter and server implement their own peer resolution logic (`_resolve_peer`) over the same slug/UUID maps.",
+        "Gateway tests assert private state maps directly, showing call-site dependency on internal storage shape."
+      ],
+      "suggestion": "Extract a shared `GatewayDirectory`/`GatewaySessionStore` boundary used by both adapter and server, and expose testable public methods for context mapping so tests stop coupling to private dicts.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "gateway_parallel_stack"
+    },
+    {
+      "dimension": "mid_level_elegance",
+      "identifier": "duplicated_room_session_choreography",
+      "summary": "Room bootstrap/injection/cleanup choreography is repeated across adapters.",
+      "related_files": [
+        "src/thenvoi/adapters/anthropic.py",
+        "src/thenvoi/adapters/pydantic_ai.py",
+        "src/thenvoi/adapters/crewai.py",
+        "src/thenvoi/adapters/langgraph.py"
+      ],
+      "evidence": [
+        "Multiple adapters implement near-identical flow: initialize per-room history on bootstrap, inject participants/contacts as synthetic user/system messages, append current message, then cleanup per room.",
+        "Differences are incidental (message container types), but lifecycle policy is duplicated, which risks drift when session semantics change."
+      ],
+      "suggestion": "Add a shared session-lifecycle helper in `SimpleAdapter` (or a mixin) that standardizes bootstrap, metadata injection, and cleanup hooks, with adapters only providing framework-specific message constructors.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "tool_surface_fragmentation"
+    },
+    {
+      "dimension": "low_level_elegance",
+      "identifier": "monolithic_tool_registration_blocks",
+      "summary": "Large monolithic tool-registration functions create local complexity and edit risk.",
+      "related_files": [
+        "src/thenvoi/adapters/pydantic_ai.py",
+        "src/thenvoi/adapters/claude_sdk.py",
+        "src/thenvoi/integrations/langgraph/langchain_tools.py"
+      ],
+      "evidence": [
+        "`_create_agent()` and `_create_mcp_server()` contain long sequences of mostly repetitive closures with duplicated try/except and schema/doc wiring.",
+        "Small behavioral changes to one tool family require touching many nearly identical blocks, increasing inconsistent edits."
+      ],
+      "suggestion": "Refactor to table-driven registration: declare tool metadata and target `AgentToolsProtocol` method once, then generate wrappers/registrations in loops with shared error handling helpers.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "tool_surface_fragmentation"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "No single canonical framework-agnostic tool binding pipeline, causing per-adapter wrapper reimplementation.",
+      "Gateway integration evolved as a parallel runtime path, bypassing shared lifecycle abstractions."
+    ],
+    "likely_symptoms": [
+      "fragmented_tool_wrapper_abstraction",
+      "duplicated_room_session_choreography",
+      "monolithic_tool_registration_blocks"
+    ],
+    "possible_false_positives": []
+  }
+}

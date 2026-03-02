@@ -54,19 +54,19 @@ await agent.run()
 
 | File | Description |
 |------|-------------|
-| `01_simple_agent.py` | **Minimal setup** - Just LLM + platform tools. Great starting point. |
-| `02_custom_tools.py` | **Custom tools** - Built-in agent + calculator and weather tools using `additional_tools`. |
-| `03_custom_personality.py` | **Custom personality** - Built-in agent + pirate personality using `custom_instructions`. |
+| `scenarios/01_simple_agent.py` | **Minimal setup** - Just LLM + platform tools. Great starting point. |
+| `scenarios/02_custom_tools.py` | **Custom tools** - Built-in agent + calculator and weather tools using `additional_tools`. |
+| `scenarios/03_custom_personality.py` | **Custom personality** - Built-in agent + pirate personality using `custom_instructions`. |
 
 ### Advanced: Delegating to Sub-Agents
 
 | File | Description |
 |------|-------------|
-| `04_calculator_as_tool.py` | **Calculator sub-graph** - Delegates math to calculator sub-graph using `graph_as_tool()`. |
-| `05_rag_as_tool.py` | **RAG sub-graph** - Delegates research to RAG sub-graph with vector search. |
-| `06_delegate_to_sql_agent.py` | **SQL sub-agent** - Delegates database queries to SQL expert. |
+| `scenarios/04_calculator_as_tool.py` | **Calculator sub-graph** - Delegates math to calculator sub-graph using `graph_as_tool()`. |
+| `scenarios/05_rag_as_tool.py` | **RAG sub-graph** - Delegates research to RAG sub-graph with vector search. |
+| `scenarios/06_delegate_to_sql_agent.py` | **SQL sub-agent** - Delegates database queries to SQL expert. |
 
-**Supporting files:** `standalone_calculator.py`, `standalone_rag.py`, `standalone_sql_agent.py`
+**Supporting files:** `standalone/calculator.py`, `standalone/rag.py`, `standalone/sql_agent.py`
 
 ---
 
@@ -154,22 +154,22 @@ All LangGraph agents automatically have access to:
 **From repository:**
 ```bash
 # Simple agent
-uv run --extra langgraph python examples/langgraph/01_simple_agent.py
+uv run --extra langgraph python examples/langgraph/scenarios/01_simple_agent.py
 
 # Agent with custom tools
-uv run --extra langgraph python examples/langgraph/02_custom_tools.py
+uv run --extra langgraph python examples/langgraph/scenarios/02_custom_tools.py
 
 # Agent with custom personality
-uv run --extra langgraph python examples/langgraph/03_custom_personality.py
+uv run --extra langgraph python examples/langgraph/scenarios/03_custom_personality.py
 
 # Calculator sub-graph
-uv run --extra langgraph python examples/langgraph/04_calculator_as_tool.py
+uv run --extra langgraph python examples/langgraph/scenarios/04_calculator_as_tool.py
 
 # RAG sub-graph
-uv run --extra langgraph python examples/langgraph/05_rag_as_tool.py
+uv run --extra langgraph python examples/langgraph/scenarios/05_rag_as_tool.py
 
 # SQL sub-agent
-uv run --extra langgraph python examples/langgraph/06_delegate_to_sql_agent.py
+uv run --extra langgraph python examples/langgraph/scenarios/06_delegate_to_sql_agent.py
 ```
 
 **Using as external library:**
@@ -206,7 +206,7 @@ agent_id, api_key = load_agent_config("simple_agent")
 
 ## Need Help?
 
-- **Start simple:** Try `01_simple_agent.py` first
-- **Add tools:** Use `02_custom_tools.py` as a template
-- **Sub-agents:** See `04_calculator_as_tool.py` for delegation patterns
+- **Start simple:** Try `scenarios/01_simple_agent.py` first
+- **Add tools:** Use `scenarios/02_custom_tools.py` as a template
+- **Sub-agents:** See `scenarios/04_calculator_as_tool.py` for delegation patterns
 - **Main docs:** See [README](../../README.md) for full documentation

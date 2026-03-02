@@ -1,0 +1,115 @@
+{
+  "batch": "Governance & Contracts",
+  "batch_index": 3,
+  "assessments": {
+    "test_strategy": 72.0
+  },
+  "dimension_notes": {
+    "test_strategy": {
+      "evidence": [
+        "README.md declares multiple integrations as \"Production ready\" (LangGraph, Pydantic AI, Anthropic SDK, Claude Agent SDK, Codex, CrewAI, Parlant, A2A variants), but pyproject.toml test defaults run `-m 'not integration'`, so the highest-risk cross-system paths are excluded by default.",
+        "tests/support/integration/config.py implements strict live-fixture policy enforcement and real API fixtures, but that policy only executes when integration tests are explicitly selected; default test posture does not enforce these runtime contracts.",
+        "tests/support/integration/config.py fixture logic depends on ambient external state (e.g., selecting `peers_response.data[0]` and environment-driven cleanup modes), which increases fragility and reduces deterministic repeatability of governance-level contract checks.",
+        "Blind packet architecture context marks examples/common/bootstrap.py and examples/prompts/characters.py as high-importer surfaces (16 and 13 importers), but this batch shows no explicit test-contract harness tied to those docs-facing behavior contracts."
+      ],
+      "impact_scope": "codebase",
+      "fix_scope": "architectural_change",
+      "confidence": "high"
+    }
+  },
+  "findings": [
+    {
+      "dimension": "test_strategy",
+      "identifier": "prod_ready_quality_gate_mismatch",
+      "summary": "Production-readiness claims are broader than the default quality gate coverage for integration contracts.",
+      "related_files": [
+        "README.md",
+        "pyproject.toml",
+        "tests/support/integration/config.py"
+      ],
+      "evidence": [
+        "README.md labels many framework adapters as \"Production ready\".",
+        "pyproject.toml sets pytest `addopts = \"-v -m 'not integration'\"`, which excludes live integration checks by default.",
+        "tests/support/integration/config.py contains real API fixtures and policy enforcement intended for integration-mode runs."
+      ],
+      "suggestion": "Introduce a required CI contract matrix that runs integration suites (or targeted smoke contracts) per supported adapter extra, and align README production claims to that matrix (including explicit pass criteria and cadence).",
+      "confidence": "high",
+      "impact_scope": "codebase",
+      "fix_scope": "architectural_change",
+      "root_cause_cluster": "contract_governance_gap"
+    },
+    {
+      "dimension": "test_strategy",
+      "identifier": "integration_policy_opt_in_only",
+      "summary": "Live fixture marker policy is robust but opt-in, leaving frequent test runs blind to integration contract regressions.",
+      "related_files": [
+        "pyproject.toml",
+        "tests/support/integration/markers.py",
+        "tests/support/integration/config.py"
+      ],
+      "evidence": [
+        "tests/support/integration/config.py enforces marker discipline in `pytest_runtest_setup` for live fixtures.",
+        "tests/support/integration/markers.py defines required marker decorators for env-gated integration tests.",
+        "pyproject.toml defaults to `not integration`, so these governance checks are bypassed unless explicitly enabled."
+      ],
+      "suggestion": "Add a mandatory lightweight integration contract stage (e.g., nightly/PR label-triggered) and fail builds when integration-marker policy violations exist, instead of relying on local opt-in execution.",
+      "confidence": "high",
+      "impact_scope": "codebase",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "contract_governance_gap"
+    },
+    {
+      "dimension": "test_strategy",
+      "identifier": "live_fixture_nondeterminism",
+      "summary": "Integration fixtures depend on external ordering/state, increasing flake risk for contract validation.",
+      "related_files": [
+        "tests/support/integration/config.py",
+        "README.md"
+      ],
+      "evidence": [
+        "In `test_chat`, fixture behavior chooses the first peer from `list_agent_peers()` (`peers_response.data[0]`) when available.",
+        "In `test_peer_id`, fixture falls back to first peer if filtering cannot exclude owner.",
+        "README.md promotes broad framework usage, but this state-dependent selection weakens repeatable governance checks across environments."
+      ],
+      "suggestion": "Create deterministic fixture setup for integration tests (dedicated seeded peers/agents per run ID, explicit selection predicates, and fail-fast when preconditions are not met) to reduce environmental flakiness.",
+      "confidence": "medium",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "stateful_integration_fragility"
+    },
+    {
+      "dimension": "test_strategy",
+      "identifier": "docs_runtime_contracts_lack_explicit_tests",
+      "summary": "Docs-facing runtime contracts in heavily reused example modules are not paired with explicit contract tests in this governance slice.",
+      "related_files": [
+        "examples/common/bootstrap.py",
+        "examples/prompts/characters.py",
+        "tests/support/events.py"
+      ],
+      "evidence": [
+        "examples/common/bootstrap.py defines shared bootstrap behavior for runtime credentials/endpoints.",
+        "examples/prompts/characters.py encodes strict behavioral rules (message limits, mission flow, tool usage constraints).",
+        "tests/support/events.py provides event factories that could support behavior-contract verification, but no explicit prompt/bootstrap contract assertions are present in this batch."
+      ],
+      "suggestion": "Add focused contract tests for example bootstrap and prompt invariants (credential resolution, endpoint precedence, required prompt sections/limits) and wire them into the default non-integration suite.",
+      "confidence": "medium",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "contract_governance_gap"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "Governance policy is split across docs, pytest defaults, and integration helpers without a single enforced contract matrix.",
+      "Integration validation relies on opt-in execution and environment state rather than deterministic, always-on gates."
+    ],
+    "likely_symptoms": [
+      "prod_ready_quality_gate_mismatch",
+      "integration_policy_opt_in_only",
+      "docs_runtime_contracts_lack_explicit_tests"
+    ],
+    "possible_false_positives": [
+      "If CI outside this file scope already enforces per-adapter integration matrices, severity of coverage-gap findings would be reduced."
+    ]
+  }
+}

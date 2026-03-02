@@ -19,7 +19,7 @@ from thenvoi.client.streaming import (
     MessageCreatedPayload,
     RoomAddedPayload,
 )
-from tests.integration.conftest import requires_api, requires_multi_agent
+from tests.support.integration.markers import requires_api, requires_multi_agent
 
 logger = logging.getLogger(__name__)
 
@@ -39,35 +39,35 @@ class TestWebSocketNotifications:
         3. Agent 2 sends message @mentioning Agent 1
         4. Agent 1 should receive the message via WebSocket
         """
-        logger.info("\n" + "=" * 60)
-        logger.info("Testing: WebSocket message_created notification (multi-agent)")
-        logger.info("=" * 60)
+        logger.debug("\n" + "=" * 60)
+        logger.debug("Testing: WebSocket message_created notification (multi-agent)")
+        logger.debug("=" * 60)
 
         # Get Agent 1 info (receiver, will subscribe to WebSocket)
         response = await api_client.agent_api_identity.get_agent_me()
         agent1_id = response.data.id
         agent1_name = response.data.name
-        logger.info("Agent 1 (receiver): %s (ID: %s)", agent1_name, agent1_id)
+        logger.debug("Agent 1 (receiver): %s (ID: %s)", agent1_name, agent1_id)
 
         # Get Agent 2 info (sender)
         response = await api_client_2.agent_api_identity.get_agent_me()
         agent2_id = response.data.id
         agent2_name = response.data.name
-        logger.info("Agent 2 (sender): %s (ID: %s)", agent2_name, agent2_id)
+        logger.debug("Agent 2 (sender): %s (ID: %s)", agent2_name, agent2_id)
 
         # Agent 1 creates a chat
         response = await api_client.agent_api_chats.create_agent_chat(
             chat=ChatRoomRequest()
         )
         chat_id = response.data.id
-        logger.info("Created chat: %s", chat_id)
+        logger.debug("Created chat: %s", chat_id)
 
         # Add Agent 2 to the chat
         await api_client.agent_api_participants.add_agent_chat_participant(
             chat_id,
             participant=ParticipantRequest(participant_id=agent2_id, role="member"),
         )
-        logger.info("Added Agent 2 to chat: %s", agent2_name)
+        logger.debug("Added Agent 2 to chat: %s", agent2_name)
 
         # Add descriptive message (triggers auto-title)
         await api_client.agent_api_messages.create_agent_chat_message(
@@ -83,7 +83,7 @@ class TestWebSocketNotifications:
         message_received = asyncio.Event()
 
         async def on_message_created(payload: MessageCreatedPayload):
-            logger.info("  [WS] Agent 1 received message_created: %s", payload.id)
+            logger.debug("  [WS] Agent 1 received message_created: %s", payload.id)
             received_messages.append(payload)
             message_received.set()
 
@@ -96,7 +96,7 @@ class TestWebSocketNotifications:
 
         async with ws:
             await ws.join_chat_room_channel(chat_id, on_message_created)
-            logger.info("Agent 1 subscribed to chat_room:%s", chat_id)
+            logger.debug("Agent 1 subscribed to chat_room:%s", chat_id)
 
             # Small delay to ensure subscription is active
             await asyncio.sleep(0.2)
@@ -111,14 +111,14 @@ class TestWebSocketNotifications:
                 ),
             )
             sent_message_id = response.data.id
-            logger.info("Agent 2 sent message via REST: %s", sent_message_id)
+            logger.debug("Agent 2 sent message via REST: %s", sent_message_id)
 
             # Wait for Agent 1's WebSocket to receive the message
             try:
                 await asyncio.wait_for(message_received.wait(), timeout=5.0)
-                logger.info("Agent 1's WebSocket received the message!")
+                logger.debug("Agent 1's WebSocket received the message!")
             except asyncio.TimeoutError:
-                logger.info("Timeout waiting for WebSocket message")
+                logger.debug("Timeout waiting for WebSocket message")
 
         # Verify Agent 1 received the message
         assert len(received_messages) > 0, (
@@ -139,36 +139,36 @@ class TestWebSocketNotifications:
         assert "WebSocket multi-agent test!" in our_message.content, (
             f"Message should contain expected text, got: {our_message.content}"
         )
-        logger.info("Verified message content: '%s...'", our_message.content[:50])
+        logger.debug("Verified message content: '%s...'", our_message.content[:50])
 
-        logger.info("\nWebSocket message_created test passed!")
+        logger.debug("\nWebSocket message_created test passed!")
 
     @requires_api
     async def test_receives_room_added_event(self, api_client, integration_settings):
         """Test that WebSocket receives room_added when agent is added to a new chat."""
-        logger.info("\n" + "=" * 60)
-        logger.info("Testing: WebSocket room_added notification")
-        logger.info("=" * 60)
+        logger.debug("\n" + "=" * 60)
+        logger.debug("Testing: WebSocket room_added notification")
+        logger.debug("=" * 60)
 
         # Get agent info
         response = await api_client.agent_api_identity.get_agent_me()
         agent_id = response.data.id
         agent_name = response.data.name
-        logger.info("Agent: %s (ID: %s)", agent_name, agent_id)
+        logger.debug("Agent: %s (ID: %s)", agent_name, agent_id)
 
         # Track received room events
         received_rooms: list[RoomAddedPayload] = []
         room_added = asyncio.Event()
 
         async def on_room_added(payload: RoomAddedPayload):
-            logger.info(
+            logger.debug(
                 "  [WS] Received room_added: %s - %s", payload.id, payload.title
             )
             received_rooms.append(payload)
             room_added.set()
 
         async def on_room_removed(payload):
-            logger.info("  [WS] Received room_removed: %s", payload.id)
+            logger.debug("  [WS] Received room_removed: %s", payload.id)
 
         # Connect WebSocket and subscribe to agent rooms channel
         ws = WebSocketClient(
@@ -179,7 +179,7 @@ class TestWebSocketNotifications:
 
         async with ws:
             await ws.join_agent_rooms_channel(agent_id, on_room_added, on_room_removed)
-            logger.info("Subscribed to agent_rooms:%s", agent_id)
+            logger.debug("Subscribed to agent_rooms:%s", agent_id)
 
             # Small delay to ensure subscription is active
             await asyncio.sleep(0.2)
@@ -189,7 +189,7 @@ class TestWebSocketNotifications:
                 chat=ChatRoomRequest()
             )
             created_chat_id = response.data.id
-            logger.info("Created chat via REST: %s", created_chat_id)
+            logger.debug("Created chat via REST: %s", created_chat_id)
 
             # Get a peer to add to the room so we can send a descriptive message
             peers_response = await api_client.agent_api_peers.list_agent_peers()
@@ -214,9 +214,9 @@ class TestWebSocketNotifications:
             # Wait for WebSocket to receive the room_added event
             try:
                 await asyncio.wait_for(room_added.wait(), timeout=5.0)
-                logger.info("WebSocket received the room_added event!")
+                logger.debug("WebSocket received the room_added event!")
             except asyncio.TimeoutError:
-                logger.info("Timeout waiting for room_added event")
+                logger.debug("Timeout waiting for room_added event")
 
         # Verify we received the room event
         assert len(received_rooms) > 0, (
@@ -229,6 +229,6 @@ class TestWebSocketNotifications:
             f"Should have received room_added for {created_chat_id}"
         )
         assert our_room.title is not None, "Room should have a title"
-        logger.info("Verified room title: '%s'", our_room.title)
+        logger.debug("Verified room title: '%s'", our_room.title)
 
-        logger.info("\nWebSocket room_added test passed!")
+        logger.debug("\nWebSocket room_added test passed!")

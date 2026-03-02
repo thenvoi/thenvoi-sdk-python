@@ -1,44 +1,4 @@
-"""
-Thenvoi SDK - Connect AI agents to the Thenvoi platform.
-
-Platform Layer:
-    ThenvoiLink: WebSocket + REST transport
-    PlatformEvent: Typed events from the platform
-
-Runtime Layer:
-    AgentRuntime: Convenience wrapper (RoomPresence + Execution)
-    RoomPresence: Cross-room lifecycle management
-    ExecutionContext: Per-room context accumulation
-    AgentTools: Platform tools bound to a room (send_message, add_participant, etc.)
-    PlatformMessage: Message data structure
-
-Configuration:
-    AgentConfig: Agent-level configuration
-    SessionConfig: Per-session configuration
-
-Example (SDK-heavy pattern):
-    from thenvoi import ThenvoiLink, AgentRuntime, ExecutionContext, AgentTools
-    from thenvoi.platform import PlatformEvent
-
-    async def handle_event(ctx: ExecutionContext, event: PlatformEvent):
-        tools = AgentTools.from_context(ctx)
-        # Your LLM logic here
-        await tools.send_message("Hello!", mentions=["@john"])
-
-    link = ThenvoiLink(agent_id="...", api_key="...", ws_url="...", rest_url="...")
-    runtime = AgentRuntime(link, agent_id="...", on_execute=handle_event)
-    await runtime.run()
-
-Example (Framework-light pattern):
-    from thenvoi import ThenvoiLink, RoomPresence
-
-    link = ThenvoiLink(agent_id="...", api_key="...", ws_url="...", rest_url="...")
-    presence = RoomPresence(link)
-    presence.on_room_joined = my_join_handler
-    presence.on_room_event = my_event_handler
-    await presence.start()
-    await link.run_forever()
-"""
+"""Public Thenvoi SDK exports for platform, runtime, and composition APIs."""
 
 from importlib.metadata import version as _get_version, PackageNotFoundError
 
@@ -46,39 +6,56 @@ from importlib.metadata import version as _get_version, PackageNotFoundError
 from .agent import Agent
 
 # Platform layer
-from .platform import ThenvoiLink, PlatformEvent
+from .platform.event import PlatformEvent
+from .platform.link import ThenvoiLink
 
 # Runtime layer
-from .runtime import (
-    AgentRuntime,
-    RoomPresence,
-    Execution,
-    ExecutionContext,
-    ExecutionHandler,
-    AgentTools,
-    PlatformMessage,
+from .runtime.execution import Execution, ExecutionContext, ExecutionHandler
+from .runtime.presence import RoomPresence
+from .runtime.runtime import AgentRuntime
+from .runtime.types import (
     AgentConfig,
-    SessionConfig,
     ConversationContext,
-    render_system_prompt,
-    TOOL_MODELS,
+    PlatformMessage,
+    SessionConfig,
+)
+from .runtime.formatters import (
+    build_participants_message,
+    format_history_for_llm,
+    format_message_for_llm,
+)
+from .runtime.participant_tracker import ParticipantTracker
+from .runtime.prompts import render_system_prompt
+from .runtime.retry_tracker import MessageRetryTracker
+from .runtime.shutdown import GracefulShutdown, run_with_graceful_shutdown
+from .runtime.tools import (
     ALL_TOOL_NAMES,
     BASE_TOOL_NAMES,
     CHAT_TOOL_NAMES,
     CONTACT_TOOL_NAMES,
-    MEMORY_TOOL_NAMES,
     MCP_TOOL_PREFIX,
+    MEMORY_TOOL_NAMES,
+    TOOL_MODELS,
+    AgentTools,
     mcp_tool_names,
-    # Formatters
-    format_message_for_llm,
-    format_history_for_llm,
-    build_participants_message,
-    # Trackers
-    ParticipantTracker,
-    MessageRetryTracker,
-    # Shutdown
-    GracefulShutdown,
-    run_with_graceful_shutdown,
+)
+
+# Establish stable import-graph edges for optional adapters without forcing
+# hard runtime dependency requirements for users who don't install those extras.
+try:
+    from .adapters.codex.adapter import CodexAdapter as _CodexAdapterImportEdge
+except ImportError:
+    _CodexAdapterImportEdge = None
+
+from .adapters.crewai import CrewAIAdapter as _CrewAIAdapterImportEdge
+from .integrations.claude_sdk.session_manager import (
+    ClaudeSessionManager as _ClaudeSessionManagerImportEdge,
+)
+
+_ADAPTER_IMPORT_EDGES = (
+    _CodexAdapterImportEdge,
+    _CrewAIAdapterImportEdge,
+    _ClaudeSessionManagerImportEdge,
 )
 
 __all__ = [

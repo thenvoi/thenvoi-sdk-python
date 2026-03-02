@@ -1,0 +1,122 @@
+{
+  "batch": "Abstractions & Dependencies",
+  "batch_index": 1,
+  "assessments": {
+    "abstraction_fitness": 69.0
+  },
+  "dimension_notes": {
+    "abstraction_fitness": {
+      "evidence": [
+        "Adapter tool contracts are inconsistently scoped: `AgentToolsProtocol` aggregates messaging/participants/contacts/memory/schema/dispatch in `src/thenvoi/core/protocols.py`, while multiple adapters still type `tools` as the full protocol (`src/thenvoi/adapters/anthropic.py`, `src/thenvoi/adapters/langgraph.py`, `src/thenvoi/adapters/parlant.py`) even when they only exercise smaller subsets.",
+        "Adapter initialization surfaces drift by framework: `CodexAdapter` centralizes options in `CodexAdapterConfig` (`src/thenvoi/adapters/codex.py`) while other adapters expose long optional-argument constructors (`src/thenvoi/adapters/anthropic.py`, `src/thenvoi/adapters/claude_sdk.py`, `src/thenvoi/adapters/crewai.py`, `src/thenvoi/adapters/pydantic_ai.py`).",
+        "A concrete contract break exists between helper abstractions and runtime adapters: `run_parlant_agent` passes `model/guidelines/enable_execution_reporting` to `ParlantAdapter` (`src/thenvoi/testing/example_runners.py`), but `ParlantAdapter.__init__` requires `server` and `parlant_agent` and does not accept those kwargs (`src/thenvoi/adapters/parlant.py`).",
+        "Test doubles drift from the declared protocol: `ToolSchemaProviderProtocol.get_openai_tool_schemas(..., include_memory=False)` is keyword-only in `src/thenvoi/core/protocols.py`, but codex test fakes implement no `include_memory` parameter (`tests/adapters/test_codex_adapter.py`, `tests/integrations/codex/test_adapter_e2e.py`)."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "architectural_change",
+      "confidence": "high",
+      "sub_axes": {
+        "abstraction_leverage": 71.0,
+        "indirection_cost": 67.0,
+        "interface_honesty": 58.0
+      }
+    }
+  },
+  "findings": [
+    {
+      "dimension": "abstraction_fitness",
+      "identifier": "parlant_runner_api_drift",
+      "summary": "Example runner abstraction is incompatible with ParlantAdapter’s actual constructor contract.",
+      "related_files": [
+        "src/thenvoi/testing/example_runners.py",
+        "src/thenvoi/adapters/parlant.py"
+      ],
+      "evidence": [
+        "`run_parlant_agent` constructs `ParlantAdapter(model=..., guidelines=..., enable_execution_reporting=...)` in `src/thenvoi/testing/example_runners.py`.",
+        "`ParlantAdapter.__init__` in `src/thenvoi/adapters/parlant.py` requires `server` and `parlant_agent` and has no `model`, `guidelines`, or `enable_execution_reporting` parameters."
+      ],
+      "suggestion": "Unify the public adapter contract: either (a) update `run_parlant_agent` to instantiate a real Parlant server/agent and pass `server`/`parlant_agent`, or (b) introduce a supported factory/wrapper in the adapter layer that accepts model-level config and internally provisions Parlant objects. Keep one canonical initialization path and remove stale kwargs.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "adapter_surface_drift"
+    },
+    {
+      "dimension": "abstraction_fitness",
+      "identifier": "overbroad_tools_protocol_coupling",
+      "summary": "Full `AgentToolsProtocol` is used where narrower tool contracts would reduce coupling.",
+      "related_files": [
+        "src/thenvoi/core/protocols.py",
+        "src/thenvoi/adapters/anthropic.py",
+        "src/thenvoi/adapters/langgraph.py",
+        "src/thenvoi/adapters/parlant.py",
+        "src/thenvoi/adapters/pydantic_ai.py"
+      ],
+      "evidence": [
+        "`AgentToolsProtocol` composes six independent capabilities (messaging, participants, contacts, memory, schema export, dispatch) in `src/thenvoi/core/protocols.py`.",
+        "Adapters like Anthropic/LangGraph/Parlant type `tools` as full `AgentToolsProtocol` in `on_message`, forcing dependency on unrelated capabilities.",
+        "`PydanticAIAdapter` already demonstrates a narrower contract via `PydanticAIToolsProtocol` (messaging + dispatch), showing this decoupling is viable but inconsistently applied."
+      ],
+      "suggestion": "Define and adopt minimal per-adapter tool protocols (e.g., Messaging+Dispatch, Messaging+Schema, etc.) and update adapter signatures/tests/fakes to those slices. Keep `AgentToolsProtocol` only as a maximal implementation contract, not the default dependency type.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "adapter_surface_drift"
+    },
+    {
+      "dimension": "abstraction_fitness",
+      "identifier": "tool_schema_protocol_signature_drift_in_tests",
+      "summary": "Codex test doubles violate the tool-schema protocol signature, weakening interface guarantees.",
+      "related_files": [
+        "src/thenvoi/core/protocols.py",
+        "tests/adapters/test_codex_adapter.py",
+        "tests/integrations/codex/test_adapter_e2e.py",
+        "src/thenvoi/testing/fake_tools.py"
+      ],
+      "evidence": [
+        "`ToolSchemaProviderProtocol.get_openai_tool_schemas` is declared as keyword-only `include_memory` in `src/thenvoi/core/protocols.py`.",
+        "`ToolSchemaFakeTools.get_openai_tool_schemas(self)` in `tests/adapters/test_codex_adapter.py` and `_ToolSchemaFakeTools.get_openai_tool_schemas(self)` in `tests/integrations/codex/test_adapter_e2e.py` omit that parameter.",
+        "`FakeAgentTools` in `src/thenvoi/testing/fake_tools.py` follows the full signature, so codex-specific fakes are inconsistent with the shared contract."
+      ],
+      "suggestion": "Align all test doubles to the protocol signature (`*, include_memory: bool = False`) and add a small protocol-conformance test for codex fakes so signature drift is caught before behavior tests run.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "single_edit",
+      "root_cause_cluster": "adapter_surface_drift"
+    },
+    {
+      "dimension": "abstraction_fitness",
+      "identifier": "adapter_configuration_surface_sprawl",
+      "summary": "Adapter configuration abstractions are inconsistent, creating high-entropy constructor APIs.",
+      "related_files": [
+        "src/thenvoi/adapters/codex.py",
+        "src/thenvoi/adapters/anthropic.py",
+        "src/thenvoi/adapters/claude_sdk.py",
+        "src/thenvoi/adapters/crewai.py",
+        "src/thenvoi/adapters/pydantic_ai.py"
+      ],
+      "evidence": [
+        "`CodexAdapter` encapsulates options in `CodexAdapterConfig` (many fields but one bounded object) in `src/thenvoi/adapters/codex.py`.",
+        "Anthropic/ClaudeSDK/CrewAI/PydanticAI adapters expose many optional constructor args directly, mixing feature toggles, compatibility knobs, and provider settings in each class.",
+        "`CrewAIAdapter` still carries deprecated `system_prompt` compatibility behavior in constructor path, further widening and aging the surface."
+      ],
+      "suggestion": "Standardize on per-adapter typed config objects (Pydantic/dataclass) plus thin constructor overloads for backward compatibility; move deprecated aliases into explicit migration shims. This keeps adapter constructors stable and makes extension pressure explicit.",
+      "confidence": "medium",
+      "impact_scope": "subsystem",
+      "fix_scope": "architectural_change",
+      "root_cause_cluster": "adapter_config_sprawl"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "Adapter interfaces evolved independently without a single enforced contract strategy for tool capability slicing and configuration shape.",
+      "Test-specific helper abstractions were allowed to diverge from core protocols, so interface drift is not detected early.",
+      "Backward-compat additions (deprecated params/shims) were absorbed directly into adapter constructors rather than isolated at compatibility boundaries."
+    ],
+    "likely_symptoms": [
+      "parlant_runner_api_drift",
+      "tool_schema_protocol_signature_drift_in_tests"
+    ],
+    "possible_false_positives": []
+  }
+}

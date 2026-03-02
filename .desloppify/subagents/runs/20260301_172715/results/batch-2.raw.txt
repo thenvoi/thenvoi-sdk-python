@@ -1,0 +1,138 @@
+{
+  "batch": "Conventions & Errors",
+  "batch_index": 2,
+  "assessments": {
+    "convention_outlier": 74.0,
+    "error_consistency": 68.0,
+    "mid_level_elegance": 72.0
+  },
+  "dimension_notes": {
+    "convention_outlier": {
+      "evidence": [
+        "Import style drifts inside sibling example entrypoints: examples/a2a_bridge/01_basic_agent.py uses `from setup_logging import setup_logging` while examples/a2a_gateway/01_basic_gateway.py and 02_with_demo_agent.py use package-qualified imports.",
+        "examples and docker runners implement near-identical startup choreography with local variation (docker/claude_sdk/runner.py vs examples/claude_sdk_docker/runner.py), creating multiple conventions for the same role.",
+        "tests/example_agents/conftest.py mutates sys.path to import examples instead of relying on package/module boundaries."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    },
+    "error_consistency": {
+      "evidence": [
+        "examples/a2a_gateway/basic_gateway.py catches broad Exception from load_runtime_config and rethrows ValueError, collapsing distinct failure causes into one user-facing error.",
+        "examples/langgraph/standalone_sql_agent.py catches broad Exception during DB download and silently switches to fallback DB creation, turning transport/runtime failures into implicit success-path behavior.",
+        "src/thenvoi/integrations/parlant/tools.py translates heterogeneous failures into string payloads (`tool_result_type(data=...)`) instead of typed errors, while other modules raise exceptions directly."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "architectural_change",
+      "confidence": "high"
+    },
+    "mid_level_elegance": {
+      "evidence": [
+        "Boundary error contracts vary by seam: raised exceptions (examples/a2a_gateway/basic_gateway.py), in-band dict error fields (examples/langgraph/standalone_calculator.py), and tool result text payload errors (src/thenvoi/integrations/parlant/tools.py).",
+        "Runner boundary composition is duplicated across docker/claude_sdk/runner.py and examples/claude_sdk_docker/runner.py with divergent mount/prompt behavior, which increases seam drift risk.",
+        "The compatibility pass-through docker/shared/config_loader.py adds another seam layer without policy/translation, increasing handoff surface with no behavior normalization."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "architectural_change",
+      "confidence": "medium"
+    }
+  },
+  "findings": [
+    {
+      "dimension": "convention_outlier",
+      "identifier": "examples_import_style_island",
+      "summary": "Example entrypoints mix package imports, bare local imports, and sys.path mutation.",
+      "related_files": [
+        "examples/a2a_bridge/01_basic_agent.py",
+        "examples/a2a_gateway/01_basic_gateway.py",
+        "tests/example_agents/conftest.py"
+      ],
+      "evidence": [
+        "examples/a2a_bridge/01_basic_agent.py imports `setup_logging` via `from setup_logging import setup_logging` instead of package-qualified import.",
+        "examples/a2a_gateway/01_basic_gateway.py imports `main` from `examples.a2a_gateway.basic_gateway` using package-qualified style.",
+        "tests/example_agents/conftest.py injects example directories into sys.path to make imports work."
+      ],
+      "suggestion": "Standardize example import conventions around package-qualified imports and run examples as modules (`python -m ...`/`uv run -m ...`); remove sys.path mutation by making examples importable through a stable package boundary.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "entrypoint_convention_drift"
+    },
+    {
+      "dimension": "convention_outlier",
+      "identifier": "runner_pattern_duplication",
+      "summary": "Runner startup logic is duplicated with divergent conventions across docker and examples.",
+      "related_files": [
+        "docker/claude_sdk/runner.py",
+        "examples/claude_sdk_docker/runner.py",
+        "docker/shared/config_loader.py"
+      ],
+      "evidence": [
+        "docker/claude_sdk/runner.py and examples/claude_sdk_docker/runner.py both orchestrate bootstrap_runner, prompt composition, adapter creation, and run lifecycle with mostly parallel code paths.",
+        "The two files diverge on required mounts and prompt composition inputs (repo init/context only in docker variant), despite serving the same runner role.",
+        "docker/shared/config_loader.py is a pure pass-through alias to thenvoi.testing.config_loader.load_runner_config, adding another convention surface without behavior."
+      ],
+      "suggestion": "Extract a single shared runner composition function/module and keep environment-specific differences as explicit config data (mounts, repo-init flag, prompt extras), then collapse pass-through wrappers that add no policy.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "entrypoint_convention_drift"
+    },
+    {
+      "dimension": "error_consistency",
+      "identifier": "mixed_failure_contracts_at_integrations",
+      "summary": "Integration boundaries mix exception propagation, in-band error payloads, and silent fallback.",
+      "related_files": [
+        "examples/a2a_gateway/basic_gateway.py",
+        "examples/langgraph/standalone_sql_agent.py",
+        "src/thenvoi/integrations/parlant/tools.py",
+        "examples/langgraph/standalone_calculator.py"
+      ],
+      "evidence": [
+        "examples/a2a_gateway/basic_gateway.py catches Exception and re-raises ValueError for runtime loading failures.",
+        "examples/langgraph/standalone_sql_agent.py catches Exception from download and silently creates an unrelated fallback DB schema.",
+        "src/thenvoi/integrations/parlant/tools.py converts failures to `tool_result_type(data=...)` text errors rather than raising typed failures.",
+        "examples/langgraph/standalone_calculator.py reports errors via `{\"result\": None, \"error\": ...}` return shape instead of exception or typed result object."
+      ],
+      "suggestion": "Define one integration error contract (typed exception hierarchy or typed result object) and apply it uniformly at seams; only convert to human-readable strings at final UI/output boundaries.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "architectural_change",
+      "root_cause_cluster": "error_contract_fragmentation"
+    },
+    {
+      "dimension": "mid_level_elegance",
+      "identifier": "seam_contract_fragmentation",
+      "summary": "Module handoffs rely on ad-hoc seam contracts instead of one explicit boundary protocol.",
+      "related_files": [
+        "docker/shared/config_loader.py",
+        "docker/claude_sdk/runner.py",
+        "examples/claude_sdk_docker/runner.py",
+        "src/thenvoi/integrations/parlant/tools.py"
+      ],
+      "evidence": [
+        "docker/shared/config_loader.py is a pass-through seam with no translation/policy, while runners still own orchestration and validation details.",
+        "docker/claude_sdk/runner.py and examples/claude_sdk_docker/runner.py duplicate seam choreography with subtle differences, indicating missing shared boundary abstraction.",
+        "src/thenvoi/integrations/parlant/tools.py builds a separate ad-hoc error/result transport protocol (`tool_result_type(data=...)`) that is not shared by neighboring integrations."
+      ],
+      "suggestion": "Introduce a shared seam contract for runner/tool integrations (common bootstrap spec + typed boundary result/error model), then refactor entrypoints to compose that contract rather than re-implementing handoffs per module.",
+      "confidence": "medium",
+      "impact_scope": "subsystem",
+      "fix_scope": "architectural_change",
+      "root_cause_cluster": "error_contract_fragmentation"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "Entrypoint logic evolved via copy/adapt across examples and docker instead of one canonical seam module.",
+      "No single cross-integration error contract, so each boundary chose local conventions (raise, return dict error, or stringify failures)."
+    ],
+    "likely_symptoms": [
+      "examples_import_style_island",
+      "runner_pattern_duplication",
+      "mixed_failure_contracts_at_integrations"
+    ],
+    "possible_false_positives": []
+  }
+}

@@ -18,6 +18,7 @@ import pytest
 from pydantic import BaseModel, Field
 
 from thenvoi.core.types import PlatformMessage
+from thenvoi.runtime.tool_bridge import dispatch_platform_tool_call
 
 if TYPE_CHECKING:
     from thenvoi.adapters.crewai import CrewAIAdapter as CrewAIAdapterType
@@ -85,7 +86,6 @@ def mock_tools():
     tools.get_openai_tool_schemas = MagicMock(return_value=[])
     tools.send_message = AsyncMock(return_value={"status": "sent"})
     tools.send_event = AsyncMock(return_value={"status": "sent"})
-    tools.execute_tool_call = AsyncMock(return_value={"status": "success"})
     tools.add_participant = AsyncMock(
         return_value={"id": "123", "name": "Test", "status": "added"}
     )
@@ -107,6 +107,11 @@ def mock_tools():
         }
     )
     tools.create_chatroom = AsyncMock(return_value="new-room-123")
+
+    async def _execute_tool_call(tool_name: str, arguments: dict[str, object]):
+        return await dispatch_platform_tool_call(tools, tool_name, arguments)
+
+    tools.execute_tool_call = AsyncMock(side_effect=_execute_tool_call)
     return tools
 
 
@@ -360,6 +365,33 @@ class TestErrorHandling:
         mock_tools.send_event.assert_called()
 
     @pytest.mark.asyncio
+    async def test_records_nonfatal_when_error_event_fails(
+        self, CrewAIAdapter, sample_message, mock_crewai_agent
+    ):
+        mock_crewai_agent.kickoff_async.side_effect = Exception("Agent Error")
+
+        adapter = CrewAIAdapter()
+        await adapter.on_started("TestBot", "Test bot")
+        adapter._crewai_agent = mock_crewai_agent
+
+        failing_tools = MagicMock()
+        failing_tools.send_event = AsyncMock(side_effect=Exception("event failed"))
+
+        with pytest.raises(Exception, match="Agent Error"):
+            await adapter.on_message(
+                msg=sample_message,
+                tools=failing_tools,
+                history=[],
+                participants_msg=None,
+                contacts_msg=None,
+                is_session_bootstrap=True,
+                room_id="room-123",
+            )
+
+        assert adapter.nonfatal_errors
+        assert adapter.nonfatal_errors[0]["operation"] == "error_event"
+
+    @pytest.mark.asyncio
     async def test_raises_error_when_agent_not_initialized(
         self, CrewAIAdapter, sample_message, mock_tools
     ):
@@ -492,7 +524,7 @@ class TestToolExecution:
         send_message_tool = next(t for t in tools if t.name == "thenvoi_send_message")
 
         # Call tool without setting context variable (simulates call outside message handling)
-        result = send_message_tool._run(content="Hello!", mentions="[]")
+        result = send_message_tool._run(content="Hello!", mentions=[])
 
         result_data = json.loads(result)
         assert result_data["status"] == "error"
@@ -517,19 +549,19 @@ class TestToolExecution:
         assert "content" in schema_fields
         assert "mentions" in schema_fields
 
-        # thenvoi_add_participant should have participant_name and role, but NOT room_id
+        # thenvoi_add_participant should have name and role, but NOT room_id
         add_participant = next(t for t in tools if t.name == "thenvoi_add_participant")
         schema_fields = add_participant.args_schema.model_fields
         assert "room_id" not in schema_fields
-        assert "participant_name" in schema_fields
+        assert "name" in schema_fields
         assert "role" in schema_fields
 
-        # thenvoi_lookup_peers should have no user-facing parameters (pagination is hardcoded)
+        # thenvoi_lookup_peers should expose canonical pagination parameters.
         lookup_peers = next(t for t in tools if t.name == "thenvoi_lookup_peers")
         schema_fields = lookup_peers.args_schema.model_fields
         assert "room_id" not in schema_fields
-        assert "page" not in schema_fields
-        assert "page_size" not in schema_fields
+        assert "page" in schema_fields
+        assert "page_size" in schema_fields
 
     @pytest.mark.asyncio
     async def test_send_event_message_type_validation(
@@ -625,7 +657,7 @@ class TestExecutionReporting:
         send_message_tool = next(t for t in tools if t.name == "thenvoi_send_message")
 
         with room_context("room-123"):
-            send_message_tool._run(content="Hello!", mentions="[]")
+            send_message_tool._run(content="Hello!", mentions=[])
 
         assert mock_tools.send_event.call_count >= 2
 
@@ -754,7 +786,7 @@ class TestRunAsync:
 
 class TestMentionsValidator:
     @pytest.mark.asyncio
-    async def test_mentions_list_converted_to_json(self, CrewAIAdapter, crewai_mocks):
+    async def test_mentions_list_preserved(self, CrewAIAdapter, crewai_mocks):
         crewai_mocks.Agent.reset_mock()
 
         adapter = CrewAIAdapter()
@@ -771,10 +803,10 @@ class TestMentionsValidator:
             mentions=["Alice", "Bob"],
         )
 
-        assert instance.mentions == '["Alice", "Bob"]'
+        assert instance.mentions == ["Alice", "Bob"]
 
     @pytest.mark.asyncio
-    async def test_mentions_string_kept_as_is(self, CrewAIAdapter, crewai_mocks):
+    async def test_mentions_string_rejected(self, CrewAIAdapter, crewai_mocks):
         crewai_mocks.Agent.reset_mock()
 
         adapter = CrewAIAdapter()
@@ -786,18 +818,17 @@ class TestMentionsValidator:
 
         input_model = send_message_tool.args_schema
 
-        instance = input_model(
-            content="Hello!",
-            mentions='["Alice"]',
-        )
-
-        assert instance.mentions == '["Alice"]'
+        with pytest.raises(Exception):
+            input_model(
+                content="Hello!",
+                mentions='["Alice"]',
+            )
 
     @pytest.mark.asyncio
-    async def test_mentions_none_converted_to_empty_array(
+    async def test_mentions_none_normalized_to_empty_list(
         self, CrewAIAdapter, crewai_mocks
     ):
-        """None mentions should be normalized to empty JSON array string."""
+        """None mentions should be normalized to an empty list."""
         crewai_mocks.Agent.reset_mock()
 
         adapter = CrewAIAdapter()
@@ -814,7 +845,7 @@ class TestMentionsValidator:
             mentions=None,
         )
 
-        assert instance.mentions == "[]"
+        assert instance.mentions == []
 
 
 class TestPlatformInstructionsConstant:

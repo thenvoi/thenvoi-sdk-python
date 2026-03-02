@@ -29,62 +29,31 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import os
-import sys
 
-from dotenv import load_dotenv
-
-# Add examples directory to path for imports
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-
-from setup_logging import setup_logging
-from thenvoi import Agent
+from thenvoi.testing.example_logging import setup_logging_profile
+from thenvoi.example_support.bootstrap import bootstrap_agent
+from thenvoi.example_support.scenarios import (
+    basic_adapter_kwargs,
+    basic_agent_key,
+    basic_startup_message,
+)
 from thenvoi.adapters import ClaudeSDKAdapter
-from thenvoi.config import load_agent_config
 
-setup_logging()
+setup_logging_profile("claude_sdk")
 logger = logging.getLogger(__name__)
 
 
 async def main() -> None:
     """Run the basic Claude SDK agent."""
-    load_dotenv()
-
-    ws_url = os.getenv("THENVOI_WS_URL")
-    rest_url = os.getenv("THENVOI_REST_URL")
-
-    if not ws_url:
-        raise ValueError("THENVOI_WS_URL environment variable is required")
-    if not rest_url:
-        raise ValueError("THENVOI_REST_URL environment variable is required")
-
-    # Load credentials from agent_config.yaml
-    agent_id, api_key = load_agent_config("claude_sdk_agent")
-
-    # Create adapter with Claude SDK settings
-    adapter = ClaudeSDKAdapter(
-        model="claude-sonnet-4-5-20250929",
-        custom_section="You are a helpful assistant. Be concise and friendly.",
-        enable_execution_reporting=True,
+    session = bootstrap_agent(
+        agent_key=basic_agent_key("claude_sdk"),
+        adapter=ClaudeSDKAdapter(**basic_adapter_kwargs("claude_sdk")),
     )
 
-    # Create and start agent
-    agent = Agent.create(
-        adapter=adapter,
-        agent_id=agent_id,
-        api_key=api_key,
-        ws_url=ws_url,
-        rest_url=rest_url,
-    )
-
-    logger.info("Starting Claude SDK agent...")
-    logger.info("Agent ID: %s", agent_id)
+    logger.info(basic_startup_message("claude_sdk"))
+    logger.info("Agent ID: %s", session.runtime.agent_id)
     logger.info("Press Ctrl+C to stop")
-
-    try:
-        await agent.run()
-    except KeyboardInterrupt:
-        logger.info("Shutting down...")
+    await session.agent.run()
 
 
 if __name__ == "__main__":

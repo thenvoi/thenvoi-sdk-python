@@ -15,16 +15,36 @@ import logging
 from dataclasses import dataclass
 from typing import Any
 
+from thenvoi.core.nonfatal import NonFatalErrorRecorder
+from thenvoi.integrations.lifecycle import AsyncIntegrationLifecycle
+from thenvoi.integrations.claude_sdk.session_workflow import (
+    do_cleanup_all,
+    do_cleanup_session,
+    do_create_session,
+    fail_pending_commands,
+    run_session_loop,
+)
+
+_CLAUDE_SDK_IMPORT_ERROR: ImportError | None = None
+
 try:
     from claude_agent_sdk import ClaudeSDKClient, ClaudeAgentOptions
 except ImportError as e:
-    raise ImportError(
-        "claude-agent-sdk is required for Claude SDK examples.\n"
-        "Install with: pip install claude-agent-sdk\n"
-        "Or: uv add claude-agent-sdk"
-    ) from e
+    _CLAUDE_SDK_IMPORT_ERROR = e
+    ClaudeSDKClient = Any
+    ClaudeAgentOptions = Any
 
 logger = logging.getLogger(__name__)
+
+
+def _ensure_claude_sdk_available() -> None:
+    """Raise a runtime error if optional Claude SDK dependency is missing."""
+    if _CLAUDE_SDK_IMPORT_ERROR is not None:
+        raise ImportError(
+            "claude-agent-sdk is required for Claude SDK integrations.\n"
+            "Install with: pip install claude-agent-sdk\n"
+            "Or: uv add claude-agent-sdk"
+        ) from _CLAUDE_SDK_IMPORT_ERROR
 
 
 @dataclass
@@ -37,7 +57,7 @@ class _SessionCommand:
     result_future: asyncio.Future[Any] | None = None
 
 
-class ClaudeSessionManager:
+class ClaudeSessionManager(NonFatalErrorRecorder):
     """
     Manages ClaudeSDKClient instances per chat room.
 
@@ -79,11 +99,19 @@ class ClaudeSessionManager:
             base_options: Base ClaudeAgentOptions to use for all clients.
                           These options are shared across all room sessions.
         """
+        _ensure_claude_sdk_available()
         self.base_options = base_options
         self._sessions: dict[str, ClaudeSDKClient] = {}
         self._command_queue: asyncio.Queue[_SessionCommand] = asyncio.Queue()
-        self._task: asyncio.Task[None] | None = None
+        self._task: asyncio.Task[Any] | None = None
+        self._lifecycle = AsyncIntegrationLifecycle(
+            owner="ClaudeSessionManager",
+            logger=logger,
+            on_task_error=self._on_lifecycle_task_error,
+            fail_pending_operations=self._fail_pending_commands,
+        )
         self._started = False
+        self._init_nonfatal_errors()
         logger.info("ClaudeSessionManager initialized")
 
     async def start(self) -> None:
@@ -91,7 +119,10 @@ class ClaudeSessionManager:
         if self._started:
             return
 
-        self._task = asyncio.create_task(self._run_session_loop())
+        self._task = self._lifecycle.spawn_task(
+            "session_loop",
+            self._run_session_loop(),
+        )
         self._started = True
         logger.info("ClaudeSessionManager background task started")
 
@@ -109,142 +140,57 @@ class ClaudeSessionManager:
         # Wait for cleanup to complete
         await stop_future
 
-        if self._task:
-            self._task.cancel()
-            try:
-                await self._task
-            except asyncio.CancelledError:
-                pass
-            self._task = None
+        await self._lifecycle.shutdown(
+            fail_pending_reason="Claude session manager stopped"
+        )
+        self._task = None
 
         self._started = False
         logger.info("ClaudeSessionManager background task stopped")
 
     async def _run_session_loop(self) -> None:
         """Background task that processes all session commands."""
-        logger.debug("Session loop started")
+        await run_session_loop(self)
 
-        while True:
-            cmd: _SessionCommand | None = None
-            try:
-                cmd = await self._command_queue.get()
+    def _on_lifecycle_task_error(self, task_name: str, error: Exception) -> None:
+        """Record lifecycle task shutdown failures as nonfatal errors."""
+        self._record_nonfatal_error(
+            "session_manager_task",
+            error,
+            task=task_name,
+        )
 
-                if cmd.action == "create":
-                    client = await self._do_create_session(
-                        cmd.room_id, cmd.resume_session_id
-                    )
-                    if cmd.result_future:
-                        cmd.result_future.set_result(client)
-
-                elif cmd.action == "cleanup":
-                    await self._do_cleanup_session(cmd.room_id)
-                    if cmd.result_future:
-                        cmd.result_future.set_result(None)
-
-                elif cmd.action == "cleanup_all":
-                    await self._do_cleanup_all()
-                    if cmd.result_future:
-                        cmd.result_future.set_result(None)
-
-                elif cmd.action == "stop":
-                    await self._do_cleanup_all()
-                    if cmd.result_future:
-                        cmd.result_future.set_result(None)
-                    break
-
-                self._command_queue.task_done()
-
-            except asyncio.CancelledError:
-                logger.debug("Session loop cancelled")
-                break
-            except Exception as e:
-                logger.error("Error in session loop: %s", e, exc_info=True)
-                if cmd and cmd.result_future and not cmd.result_future.done():
-                    cmd.result_future.set_exception(e)
-
-        logger.debug("Session loop exited")
+    def _fail_pending_commands(self, reason: str) -> None:
+        """Fail queued command futures when lifecycle stops unexpectedly."""
+        fail_pending_commands(self, reason)
 
     async def _do_create_session(
         self, room_id: str | None, resume_session_id: str | None
     ) -> ClaudeSDKClient:
         """Create or get session (runs in background task)."""
-        if not room_id:
-            raise ValueError("room_id is required")
-
-        if room_id not in self._sessions:
-            # Build options, optionally with resume
-            if resume_session_id:
-                logger.info(
-                    "Resuming session %s for room: %s", resume_session_id, room_id
-                )
-                # Create options with resume set
-                options = ClaudeAgentOptions(
-                    model=self.base_options.model,
-                    system_prompt=self.base_options.system_prompt,
-                    mcp_servers=self.base_options.mcp_servers,
-                    allowed_tools=self.base_options.allowed_tools,
-                    permission_mode=self.base_options.permission_mode,
-                    resume=resume_session_id,
-                )
-                # Copy max_thinking_tokens if set
-                if hasattr(self.base_options, "max_thinking_tokens"):
-                    options.max_thinking_tokens = self.base_options.max_thinking_tokens
-            else:
-                logger.info(
-                    "Creating new ClaudeSDKClient session for room: %s", room_id
-                )
-                options = self.base_options
-
-            # Create new client with options
-            client = ClaudeSDKClient(options=options)
-
-            # Connect the client (establishes session with Claude)
-            await client.connect()
-
-            # Store for reuse
-            self._sessions[room_id] = client
-
-            logger.info(
-                "Session created for room %s (total sessions: %s)",
-                room_id,
-                len(self._sessions),
-            )
-        else:
-            logger.debug("Reusing existing session for room: %s", room_id)
-
-        return self._sessions[room_id]
+        return await do_create_session(
+            room_id=room_id,
+            resume_session_id=resume_session_id,
+            base_options=self.base_options,
+            sessions=self._sessions,
+            options_type=ClaudeAgentOptions,
+            client_type=ClaudeSDKClient,
+        )
 
     async def _do_cleanup_session(self, room_id: str | None) -> None:
         """Cleanup single session (runs in background task)."""
-        if not room_id or room_id not in self._sessions:
-            logger.debug("No session to cleanup for room: %s", room_id)
-            return
-
-        logger.info("Cleaning up session for room: %s", room_id)
-
-        try:
-            await self._sessions[room_id].disconnect()
-            logger.debug("Disconnected client for room %s", room_id)
-        except Exception as e:
-            logger.warning("Error disconnecting session for room %s: %s", room_id, e)
-
-        del self._sessions[room_id]
-
-        logger.info(
-            "Session cleaned up for room %s (remaining sessions: %s)",
-            room_id,
-            len(self._sessions),
+        await do_cleanup_session(
+            room_id=room_id,
+            sessions=self._sessions,
+            record_nonfatal_error=self._record_nonfatal_error,
         )
 
     async def _do_cleanup_all(self) -> None:
         """Cleanup all sessions (runs in background task)."""
-        logger.info("Cleaning up all sessions (count: %s)", len(self._sessions))
-
-        room_ids = list(self._sessions.keys())
-        for room_id in room_ids:
-            await self._do_cleanup_session(room_id)
-
-        logger.info("All sessions cleaned up")
+        await do_cleanup_all(
+            sessions=self._sessions,
+            cleanup_session=self._do_cleanup_session,
+        )
 
     async def get_or_create_session(
         self, room_id: str, resume_session_id: str | None = None

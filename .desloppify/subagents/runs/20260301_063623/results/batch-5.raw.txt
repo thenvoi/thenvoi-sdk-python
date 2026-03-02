@@ -1,0 +1,104 @@
+{
+  "batch": "Package Organization",
+  "batch_index": 5,
+  "assessments": {
+    "package_organization": 72.0,
+    "high_level_elegance": 76.0
+  },
+  "dimension_notes": {
+    "package_organization": {
+      "evidence": [
+        "holistic_context.structure.directory_profiles shows `src/thenvoi/runtime/` has 17 files, indicating flat-package overload above the >10 mixed-concern threshold.",
+        "`src/thenvoi/runtime/` mixes distinct concerns in one directory (`execution.py`, `presence.py`, `runtime.py`, `shutdown.py`, `tools.py`, `contact_handler.py`, `contact_service.py`) instead of purpose-driven subfolders.",
+        "holistic_context.structure.directory_profiles shows `tests/runtime/` also has 16 files in one flat package; assigned files (`test_broadcast_changes.py`, `test_contact_config.py`) are contact-domain tests co-located with all other runtime tests rather than a contact-focused test subpackage."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    },
+    "high_level_elegance": {
+      "evidence": [
+        "`src/thenvoi/runtime/__init__.py` re-exports a very broad surface (execution, presence, runtime wrapper, tools constants, prompt templates, trackers, shutdown), which weakens clear ownership boundaries for the runtime package.",
+        "The package facade exports low-level constants (`BASE_INSTRUCTIONS`, `TEMPLATES`, tool-name sets) alongside high-level runtime types, signaling unclear top-level role segmentation.",
+        "Assigned tests directly import internals (`thenvoi.runtime.contact_handler`, `thenvoi.runtime.types`) rather than a narrow domain entry point, reflecting a package shape that does not guide consumers toward stable, role-based APIs."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "architectural_change",
+      "confidence": "high"
+    }
+  },
+  "findings": [
+    {
+      "dimension": "package_organization",
+      "identifier": "runtime_flat_package_overload",
+      "summary": "The runtime package is a flat 17-file directory with mixed domains, reducing navigability and ownership clarity.",
+      "related_files": [
+        "src/thenvoi/runtime/__init__.py",
+        "src/thenvoi/runtime/contact_handler.py",
+        "src/thenvoi/runtime/contact_service.py"
+      ],
+      "evidence": [
+        "Directory profile for `src/thenvoi/runtime/` reports `file_count: 17` (over the prompt’s >10 mixed-concern threshold).",
+        "`contact_handler.py` and `contact_service.py` are contact-domain files in the same level as unrelated runtime orchestration files (`execution.py`, `presence.py`, `shutdown.py` per directory profile).",
+        "`__init__.py` has to aggregate many imports because concerns are not packaged by domain."
+      ],
+      "suggestion": "Staged reorg plan: (1) create `src/thenvoi/runtime/contact/` and move `contact_handler.py` -> `contact/handler.py`, `contact_service.py` -> `contact/service.py` (and later related contact modules); (2) keep temporary compatibility shims in original paths that re-export moved symbols; (3) narrow `src/thenvoi/runtime/__init__.py` to high-level runtime API only; (4) after callsites migrate, remove shims. Import-update/validation commands: `rg -n \"thenvoi\\.runtime\\.(contact_handler|contact_service)\" src tests`, update imports, then run `uv run pytest tests/runtime/test_broadcast_changes.py tests/runtime/test_contact_config.py -v` and `uv run ruff check .`.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "runtime_domain_not_partitioned"
+    },
+    {
+      "dimension": "package_organization",
+      "identifier": "contact_tests_not_packaged_by_domain",
+      "summary": "Contact-focused runtime tests are embedded in a broad flat `tests/runtime/` package, mirroring the production flatness and increasing discovery cost.",
+      "related_files": [
+        "tests/runtime/test_broadcast_changes.py",
+        "tests/runtime/test_contact_config.py",
+        "src/thenvoi/runtime/contact_handler.py"
+      ],
+      "evidence": [
+        "`tests/runtime/` profile shows `file_count: 16` with mixed runtime concerns in one directory.",
+        "Assigned tests are contact-domain specific (`test_broadcast_changes.py`, `test_contact_config.py`) but there is no domain subfolder, despite a non-trivial contact subsystem in runtime code.",
+        "The same contact domain appears in both runtime and integration test layers (`tests/integration/` includes multiple contact-related files in profile), suggesting a cross-layer domain that would benefit from clearer package boundaries."
+      ],
+      "suggestion": "Staged reorg plan: (1) create `tests/runtime/contact/`; (2) move `test_broadcast_changes.py` and `test_contact_config.py` into it first; (3) adjust imports/pytest discovery and keep `tests/runtime/__init__.py` minimal; (4) continue moving remaining contact runtime tests in follow-up commits. Import-update/validation commands: `rg -n \"tests\\.runtime\\.test_(broadcast_changes|contact_config)\" tests`, update module references if any, then run `uv run pytest tests/runtime/contact/ -v` and `uv run pytest tests/runtime/ -k contact -v`.",
+      "confidence": "medium",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "runtime_domain_not_partitioned"
+    },
+    {
+      "dimension": "high_level_elegance",
+      "identifier": "runtime_facade_overexposes_internals",
+      "summary": "The runtime top-level facade exports low-level implementation details, blurring subsystem contracts and top-level ownership.",
+      "related_files": [
+        "src/thenvoi/runtime/__init__.py",
+        "tests/runtime/test_broadcast_changes.py",
+        "tests/runtime/test_contact_config.py"
+      ],
+      "evidence": [
+        "`__init__.py` exports both high-level runtime components and low-level constants/helpers (`BASE_INSTRUCTIONS`, `TEMPLATES`, multiple tool-name constants, formatter functions, trackers).",
+        "This broad export surface mixes public contract with internals from several subdomains, making it unclear what the canonical runtime API is.",
+        "Tests import deep modules directly (`thenvoi.runtime.contact_handler`, `thenvoi.runtime.types`), indicating the facade does not provide a clear, constrained contract boundary."
+      ],
+      "suggestion": "Define a layered public API: keep `thenvoi.runtime` for top-level runtime orchestration types only, expose contact-domain symbols from a dedicated `thenvoi.runtime.contact` namespace, and keep prompt/tool constants in internal modules unless explicitly public. Migration order: (1) define target API map, (2) add new namespace exports, (3) migrate imports in tests and internal callers, (4) deprecate/remove broad re-exports in `__init__.py`. Validate with `rg -n \"from thenvoi\\.runtime import\" src tests`, then `uv run pytest tests/runtime/test_broadcast_changes.py tests/runtime/test_contact_config.py -v` and `uv run ruff check .`.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "architectural_change",
+      "root_cause_cluster": "runtime_domain_not_partitioned"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "Runtime concerns are organized as a single flat package rather than bounded domain subpackages.",
+      "Top-level package facade is being used as an omnibus export surface instead of a contract-focused boundary."
+    ],
+    "likely_symptoms": [
+      "runtime_flat_package_overload",
+      "contact_tests_not_packaged_by_domain",
+      "runtime_facade_overexposes_internals"
+    ],
+    "possible_false_positives": []
+  }
+}

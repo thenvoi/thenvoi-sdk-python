@@ -23,19 +23,16 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
-import sys
 
 from dotenv import load_dotenv
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
-
-from prompts.characters import generate_tom_prompt
-from setup_logging import setup_logging
+from thenvoi.example_support.prompts.characters import generate_tom_prompt
+from thenvoi.testing.example_logging import setup_logging_profile
 from thenvoi import Agent
 from thenvoi.adapters import PydanticAIAdapter
 from thenvoi.config import load_agent_config
 
-setup_logging()
+setup_logging_profile("pydantic_ai")
 logger = logging.getLogger(__name__)
 
 

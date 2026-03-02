@@ -20,7 +20,7 @@ from thenvoi.integrations.a2a.gateway import A2AGatewayAdapter
 from thenvoi_rest import AsyncRestClient, ChatMessageRequest, Peer
 from thenvoi_rest.types import ChatMessageRequestMentionsItem as Mention
 
-from .conftest import requires_api
+from tests.support.integration.markers import requires_api
 
 
 class TestA2AGatewayContextIdFlow:
@@ -45,8 +45,10 @@ class TestA2AGatewayContextIdFlow:
             is_contact=False,
             source="registry",
         )
-        adapter._peers = {"weather-agent": weather_peer}
-        adapter._peers_by_uuid = {"uuid-weather": weather_peer}
+        adapter.peer_directory.load(
+            peers={"weather-agent": weather_peer},
+            peers_by_uuid={"uuid-weather": weather_peer},
+        )
 
         # Track room creation
         rooms_created: list[str] = []
@@ -130,8 +132,10 @@ class TestA2AGatewayContextIdFlow:
             is_contact=False,
             source="registry",
         )
-        adapter._peers["data-agent"] = data_peer
-        adapter._peers_by_uuid["uuid-data"] = data_peer
+        adapter.peer_directory.load(
+            peers={**adapter.peer_directory.peers, "data-agent": data_peer},
+            peers_by_uuid={**adapter.peer_directory.peers_by_uuid, "uuid-data": data_peer},
+        )
 
         # First peer
         room_1, _ = await adapter._get_or_create_room("ctx-multi", "uuid-weather")
@@ -193,8 +197,10 @@ class TestA2AGatewayContextIdWithPlatform:
             gateway_url="http://localhost:10000",
             port=10000,
         )
-        adapter._peers = {peer.name.lower().replace(" ", "-"): peer}
-        adapter._peers_by_uuid = {peer.id: peer}
+        adapter.peer_directory.load(
+            peers={peer.name.lower().replace(" ", "-"): peer},
+            peers_by_uuid={peer.id: peer},
+        )
 
         # ===== Step 1: First request with context_id =====
         context_id = f"e2e-context-{agent_id[:8]}"
@@ -277,8 +283,10 @@ class TestA2AGatewayContextIdWithPlatform:
             gateway_url="http://localhost:10000",
             port=10000,
         )
-        adapter._peers = {peer.name.lower().replace(" ", "-"): peer}
-        adapter._peers_by_uuid = {peer.id: peer}
+        adapter.peer_directory.load(
+            peers={peer.name.lower().replace(" ", "-"): peer},
+            peers_by_uuid={peer.id: peer},
+        )
 
         # ===== Context A: Create room, send message =====
         context_a = f"e2e-ctx-a-{agent_id[:8]}"
@@ -366,11 +374,13 @@ class TestA2AGatewayContextIdWithPlatform:
             gateway_url="http://localhost:10000",
             port=10000,
         )
-        adapter._peers = {
-            peer_1.name.lower().replace(" ", "-"): peer_1,
-            peer_2.name.lower().replace(" ", "-"): peer_2,
-        }
-        adapter._peers_by_uuid = {peer_1.id: peer_1, peer_2.id: peer_2}
+        adapter.peer_directory.load(
+            peers={
+                peer_1.name.lower().replace(" ", "-"): peer_1,
+                peer_2.name.lower().replace(" ", "-"): peer_2,
+            },
+            peers_by_uuid={peer_1.id: peer_1, peer_2.id: peer_2},
+        )
 
         # Same context, first peer
         context_id = f"e2e-multi-peer-{agent_id[:8]}"

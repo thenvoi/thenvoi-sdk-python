@@ -10,12 +10,18 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any
 
-from thenvoi.core.protocols import AgentToolsProtocol
-from thenvoi.core.simple_adapter import SimpleAdapter
-from thenvoi.core.types import PlatformMessage
+from thenvoi.core.protocols import MessagingDispatchToolsProtocol
+from thenvoi.core.room_state import RoomStateStore
+from thenvoi.core.simple_adapter import (
+    SimpleAdapter,
+    legacy_chat_turn_compat,
+    prepend_metadata_updates_to_message,
+)
+from thenvoi.core.types import ChatMessageTurnContext
+from thenvoi.core.nonfatal import NonFatalErrorRecorder
 from thenvoi.converters.parlant import ParlantHistoryConverter, ParlantMessages
-from thenvoi.integrations.parlant.tools import set_session_tools, was_message_sent
-from thenvoi.runtime.custom_tools import CustomToolDef
+from thenvoi.integrations.parlant import set_session_tools, was_message_sent
+from thenvoi.runtime.tooling.custom_tools import CustomToolDef
 from thenvoi.runtime.prompts import render_system_prompt
 
 if TYPE_CHECKING:
@@ -30,7 +36,10 @@ logger = logging.getLogger(__name__)
 PARLANT_PREAMBLE_TAG = "__preamble__"
 
 
-class ParlantAdapter(SimpleAdapter[ParlantMessages]):
+class ParlantAdapter(
+    NonFatalErrorRecorder,
+    SimpleAdapter[ParlantMessages, MessagingDispatchToolsProtocol],
+):
     """
     Parlant adapter using the official Parlant SDK directly.
 
@@ -91,16 +100,17 @@ class ParlantAdapter(SimpleAdapter[ParlantMessages]):
         self._app: Application | None = None
 
         # Per-room session mapping (room_id -> parlant session_id)
-        self._room_sessions: dict[str, SessionId] = {}
+        self._room_sessions = RoomStateStore[str]()
 
         # Per-room customer mapping (room_id -> parlant customer_id)
-        self._room_customers: dict[str, str] = {}
+        self._room_customers = RoomStateStore[str]()
 
         # Rendered system prompt (set after start)
         self._system_prompt: str = ""
 
         # Custom tools (user-provided) - stored for API compatibility
         self._custom_tools: list[CustomToolDef] = additional_tools or []
+        self._init_nonfatal_errors()
 
     async def on_started(self, agent_name: str, agent_description: str) -> None:
         """Initialize after agent metadata is fetched."""
@@ -127,22 +137,24 @@ class ParlantAdapter(SimpleAdapter[ParlantMessages]):
             logger.error("Failed to get Parlant Application: %s", e, exc_info=True)
             raise
 
+    @legacy_chat_turn_compat
     async def on_message(
         self,
-        msg: PlatformMessage,
-        tools: AgentToolsProtocol,
-        history: ParlantMessages,
-        participants_msg: str | None,
-        contacts_msg: str | None,
-        *,
-        is_session_bootstrap: bool,
-        room_id: str,
+        turn: ChatMessageTurnContext[ParlantMessages, MessagingDispatchToolsProtocol],
     ) -> None:
         """
         Handle incoming message using the Parlant SDK directly.
 
         Uses Parlant's internal Application for session and message management.
         """
+        msg = turn.msg
+        tools = turn.tools
+        history = turn.history
+        participants_msg = turn.participants_msg
+        contacts_msg = turn.contacts_msg
+        is_session_bootstrap = turn.is_session_bootstrap
+        room_id = turn.room_id
+
         logger.debug("Handling message %s in room %s", msg.id, room_id)
 
         if not self._app:
@@ -157,7 +169,11 @@ class ParlantAdapter(SimpleAdapter[ParlantMessages]):
             session_id = await self._get_or_create_session(room_id, sender_name)
         except Exception as e:
             logger.error("Failed to get/create session for room %s: %s", room_id, e)
-            await self._report_error(tools, f"Session initialization failed: {e}")
+            await self.report_adapter_error(
+                tools,
+                error=f"Session initialization failed: {e}",
+                operation="error_event",
+            )
             return
         session_id_str = str(session_id)
 
@@ -170,14 +186,14 @@ class ParlantAdapter(SimpleAdapter[ParlantMessages]):
             injected = await self._inject_history(session_id, history)
             logger.info("Room %s: Injected %s messages from history", room_id, injected)
 
-        # Build user message, prepending updates if present
-        user_message = msg.format_for_llm()
-        if participants_msg:
-            user_message = f"[System Update]: {participants_msg}\n\n{user_message}"
-            logger.info("Room %s: Included participants update in message", room_id)
-        if contacts_msg:
-            user_message = f"[System Update]: {contacts_msg}\n\n{user_message}"
-            logger.info("Room %s: Included contacts broadcast in message", room_id)
+        # Build user message with canonical system-update prefix semantics.
+        user_message = prepend_metadata_updates_to_message(
+            msg.format_for_llm(),
+            participants_msg=participants_msg,
+            contacts_msg=contacts_msg,
+        )
+        if participants_msg or contacts_msg:
+            logger.info("Room %s: Included metadata updates in message", room_id)
         logger.info(
             "Room %s: Sending message to Parlant: %s...",
             room_id,
@@ -215,7 +231,11 @@ class ParlantAdapter(SimpleAdapter[ParlantMessages]):
 
         except Exception as e:
             logger.error("Error processing message: %s", e, exc_info=True)
-            await self._report_error(tools, str(e))
+            await self.report_adapter_error(
+                tools,
+                error=e,
+                operation="error_event",
+            )
             raise
         finally:
             # Clear tools after message processing
@@ -363,7 +383,12 @@ class ParlantAdapter(SimpleAdapter[ParlantMessages]):
                     )
                     count += 1
             except Exception as e:
-                logger.warning("Failed to inject history message (%s): %s", role, e)
+                self._record_nonfatal_error(
+                    "inject_history_message",
+                    e,
+                    role=role,
+                    session_id=session_id,
+                )
 
         return count
 
@@ -372,7 +397,7 @@ class ParlantAdapter(SimpleAdapter[ParlantMessages]):
         session_id: SessionId,
         room_id: str,
         min_offset: int,
-        tools: AgentToolsProtocol,
+        tools: MessagingDispatchToolsProtocol,
         sender_name: str,
     ) -> None:
         """Wait for and process agent response events.
@@ -470,84 +495,16 @@ class ParlantAdapter(SimpleAdapter[ParlantMessages]):
                 )
                 return
 
-            # Process events and track if we got a non-preamble message
-            got_final_message = False
-
-            for event in events:
-                logger.debug(
-                    "Room %s: Event kind=%s, source=%s, data=%s",
-                    room_id,
-                    event.kind,
-                    event.source,
-                    event.data,
-                )
-
-                # Update offset for next iteration
-                if hasattr(event, "offset") and event.offset > current_offset:
-                    current_offset = event.offset
-
-                if (
-                    event.kind == EventKind.MESSAGE
-                    and event.source == EventSource.AI_AGENT
-                ):
-                    data = event.data
-                    message_content = ""
-                    tags = []
-
-                    if isinstance(data, dict):
-                        message_content = str(data.get("message", ""))
-                        tags = data.get("tags", [])
-                    elif isinstance(data, str):
-                        message_content = data
-
-                    # Check if this is a preamble message
-                    is_preamble = PARLANT_PREAMBLE_TAG in tags
-
-                    if is_preamble:
-                        logger.info(
-                            "Room %s: Skipping preamble message: %s...",
-                            room_id,
-                            message_content[:50],
-                        )
-                        continue
-
-                    # Check if message was already sent via the send_message tool
-                    # If so, don't send Parlant's response (would be duplicate/empty)
-                    # Also don't mark as final - Parlant may still have more tool calls
-                    if was_message_sent(session_id_str):
-                        logger.info(
-                            "Room %s: Message already sent via tool, skipping Parlant response: %s...",
-                            room_id,
-                            message_content[:50],
-                        )
-                        continue
-
-                    # This is a final message (Parlant generated a response, not via tool)
-                    got_final_message = True
-
-                    if message_content:
-                        logger.info(
-                            "Room %s: Sending agent response to platform: %s...",
-                            room_id,
-                            message_content[:100],
-                        )
-                        try:
-                            await tools.send_message(
-                                message_content, mentions=[sender_name]
-                            )
-                            logger.info("Room %s: Message sent successfully", room_id)
-                        except Exception as e:
-                            logger.error(
-                                "Room %s: Error sending message: %s",
-                                room_id,
-                                e,
-                                exc_info=True,
-                            )
-                    else:
-                        logger.warning(
-                            "Room %s: Empty message content in event",
-                            room_id,
-                        )
+            current_offset, got_final_message = await self._process_agent_events(
+                events=events,
+                current_offset=current_offset,
+                room_id=room_id,
+                session_id_str=session_id_str,
+                tools=tools,
+                sender_name=sender_name,
+                event_kind=EventKind,
+                event_source=EventSource,
+            )
 
             # If we got a final (non-preamble) message, we're done
             if got_final_message:
@@ -581,21 +538,96 @@ class ParlantAdapter(SimpleAdapter[ParlantMessages]):
                 max_iterations,
             )
 
+    @staticmethod
+    def _extract_parlant_message_payload(data: Any) -> tuple[str, list[str]]:
+        """Extract message content and tags from a Parlant event payload."""
+        if isinstance(data, dict):
+            raw_tags = data.get("tags", [])
+            tags = [str(tag) for tag in raw_tags] if isinstance(raw_tags, list) else []
+            return str(data.get("message", "")), tags
+        if isinstance(data, str):
+            return data, []
+        return "", []
+
+    async def _process_agent_events(
+        self,
+        *,
+        events: list[Any],
+        current_offset: int,
+        room_id: str,
+        session_id_str: str,
+        tools: MessagingDispatchToolsProtocol,
+        sender_name: str,
+        event_kind: Any,
+        event_source: Any,
+    ) -> tuple[int, bool]:
+        """Process Parlant AI-agent events and return new offset + completion flag."""
+        got_final_message = False
+
+        for event in events:
+            logger.debug(
+                "Room %s: Event kind=%s, source=%s, data=%s",
+                room_id,
+                event.kind,
+                event.source,
+                event.data,
+            )
+
+            if hasattr(event, "offset") and event.offset > current_offset:
+                current_offset = event.offset
+
+            if not (
+                event.kind == event_kind.MESSAGE
+                and event.source == event_source.AI_AGENT
+            ):
+                continue
+
+            message_content, tags = self._extract_parlant_message_payload(event.data)
+            if PARLANT_PREAMBLE_TAG in tags:
+                logger.info(
+                    "Room %s: Skipping preamble message: %s...",
+                    room_id,
+                    message_content[:50],
+                )
+                continue
+
+            if was_message_sent(session_id_str):
+                logger.info(
+                    "Room %s: Message already sent via tool, skipping Parlant response: %s...",
+                    room_id,
+                    message_content[:50],
+                )
+                continue
+
+            got_final_message = True
+            if not message_content:
+                logger.warning("Room %s: Empty message content in event", room_id)
+                continue
+
+            logger.info(
+                "Room %s: Sending agent response to platform: %s...",
+                room_id,
+                message_content[:100],
+            )
+            try:
+                await tools.send_message(message_content, mentions=[sender_name])
+                logger.info("Room %s: Message sent successfully", room_id)
+            except Exception as e:
+                self._record_nonfatal_error(
+                    "send_message_event",
+                    e,
+                    room_id=room_id,
+                    sender_name=sender_name,
+                )
+
+        return current_offset, got_final_message
+
     async def on_cleanup(self, room_id: str) -> None:
         """Clean up session when agent leaves a room."""
-        if room_id in self._room_sessions:
-            del self._room_sessions[room_id]
-        if room_id in self._room_customers:
-            del self._room_customers[room_id]
+        self._room_sessions.discard(room_id)
+        self._room_customers.discard(room_id)
 
         logger.debug("Room %s: Cleaned up Parlant session", room_id)
-
-    async def _report_error(self, tools: AgentToolsProtocol, error: str) -> None:
-        """Send error event (best effort)."""
-        try:
-            await tools.send_event(content=f"Error: {error}", message_type="error")
-        except Exception:
-            pass
 
     async def cleanup_all(self) -> None:
         """Cleanup all sessions (call on stop)."""

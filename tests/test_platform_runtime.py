@@ -9,13 +9,9 @@ from thenvoi.runtime.types import AgentConfig, SessionConfig
 
 
 @pytest.fixture
-def mock_link():
+def mock_link(link_mock_factory):
     """Create mock ThenvoiLink."""
-    link = MagicMock()
-    link.rest = MagicMock()
-    link.rest.agent_api_identity = MagicMock()
-    link.disconnect = AsyncMock()
-    link.run_forever = AsyncMock()
+    link = link_mock_factory()
 
     # Mock agent metadata response
     mock_agent = MagicMock()
@@ -404,3 +400,28 @@ class TestNoopCleanup:
     async def test_noop_cleanup_does_nothing(self):
         """The noop cleanup should not raise."""
         await PlatformRuntime._noop_cleanup("room-123")
+
+
+class TestContactBroadcasts:
+    """Tests broadcast flushing after contact events."""
+
+    @pytest.mark.asyncio
+    async def test_flushes_broadcasts_after_handler_event(self):
+        """Queued broadcasts should be injected even when a handler is configured."""
+        runtime = PlatformRuntime(agent_id="agent-123", api_key="test-key")
+
+        execution = MagicMock()
+        runtime._runtime = MagicMock()
+        runtime._runtime.active_sessions = {"room-1": execution}
+
+        async def _handle(_: object) -> None:
+            runtime.queue_contact_broadcast("alice (Alice) is now a contact")
+
+        runtime._contact_handler = MagicMock()
+        runtime._contact_handler.handle = AsyncMock(side_effect=_handle)
+
+        await runtime._on_contact_event(MagicMock())
+
+        execution.inject_system_message.assert_called_once_with(
+            "[Contacts]: alice (Alice) is now a contact"
+        )

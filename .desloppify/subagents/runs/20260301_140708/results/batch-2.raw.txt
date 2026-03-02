@@ -1,0 +1,90 @@
+{
+  "batch": "Testing & API",
+  "batch_index": 2,
+  "assessments": {
+    "test_strategy": 68.0
+  },
+  "dimension_notes": {
+    "test_strategy": {
+      "evidence": [
+        "`examples/common/bootstrap.py` hard-codes environment loading (`load_dotenv()`), credential resolution, and `Agent.create(...)` in one path, leaving no injectable seams for isolated tests.",
+        "`src/thenvoi/integrations/a2a_bridge/session.py` computes TTL with direct `datetime.now(timezone.utc)` calls inside store methods, which pushes tests toward timing/sleep-based assertions.",
+        "`src/thenvoi/integrations/a2a_bridge/handler.py` defines only a side-effecting `handle(...)->None` protocol, so behavior is typically verified indirectly through mocked tool calls rather than stable output contracts."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "findings": [
+    {
+      "dimension": "test_strategy",
+      "identifier": "missing_test_seams_bootstrap_flow",
+      "summary": "Bootstrap path couples env loading, credential lookup, and agent construction, making critical setup behavior hard to unit test deterministically.",
+      "related_files": [
+        "examples/common/bootstrap.py",
+        "src/thenvoi/integrations/a2a_bridge/session.py"
+      ],
+      "evidence": [
+        "`load_platform_urls()` conditionally calls `load_dotenv()` directly, tying behavior to process environment state.",
+        "`load_runtime_config()` always calls `resolve_agent_credentials(agent_key)` with no injected resolver.",
+        "`create_agent_from_runtime()` directly invokes `Agent.create(...)`, requiring heavy patching to test creation failure/success branches."
+      ],
+      "suggestion": "Introduce injectable collaborators (env loader, credential resolver, agent factory) via parameters with defaults; then add focused unit tests for each failure/success branch without monkeypatching global functions.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "insufficient_testability_seams"
+    },
+    {
+      "dimension": "test_strategy",
+      "identifier": "time_dependent_session_eviction_fragility",
+      "summary": "Session expiration logic depends on wall-clock reads in method bodies, which encourages brittle timing-dependent tests for TTL behavior.",
+      "related_files": [
+        "src/thenvoi/integrations/a2a_bridge/session.py",
+        "examples/common/bootstrap.py"
+      ],
+      "evidence": [
+        "`_evict_expired()` and `get_or_create()` both call `datetime.now(timezone.utc)` inline.",
+        "Eviction is opportunistic (runs on access methods), so tests must orchestrate call ordering and time progression to assert expiry.",
+        "No clock abstraction or overridable time source exists to make expiration scenarios deterministic."
+      ],
+      "suggestion": "Inject a clock callable (defaulting to UTC now) into `InMemorySessionStore` and centralize time acquisition through it; write deterministic tests by supplying a fake clock and explicit timestamps.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "single_edit",
+      "root_cause_cluster": "insufficient_testability_seams"
+    },
+    {
+      "dimension": "test_strategy",
+      "identifier": "handler_contract_forces_mock_heavy_tests",
+      "summary": "Handler API exposes only side effects and no outcome contract, increasing coupling and making tests assert implementation details.",
+      "related_files": [
+        "src/thenvoi/integrations/a2a_bridge/handler.py",
+        "src/thenvoi/integrations/a2a_bridge/session.py"
+      ],
+      "evidence": [
+        "`BaseHandler.handle(...)` returns `None`, so tests cannot assert structured routing/processing results.",
+        "The only observable output implied by the protocol is behavior through `AgentTools`, which usually requires mocks/spies and call-order assertions.",
+        "No standardized result/error object is defined to validate behavior independently of concrete tool invocation details."
+      ],
+      "suggestion": "Define a small handler result contract (e.g., handled/ignored/error metadata) and update implementations/tests to assert result semantics first, with tool-call assertions only where integration behavior is required.",
+      "confidence": "medium",
+      "impact_scope": "subsystem",
+      "fix_scope": "architectural_change",
+      "root_cause_cluster": "insufficient_testability_seams"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "Core paths prioritize runtime convenience over injectable seams, which reduces deterministic unit-testability.",
+      "API contracts in bridge handling are side-effect-centric rather than outcome-centric."
+    ],
+    "likely_symptoms": [
+      "missing_test_seams_bootstrap_flow",
+      "time_dependent_session_eviction_fragility",
+      "handler_contract_forces_mock_heavy_tests"
+    ],
+    "possible_false_positives": []
+  }
+}

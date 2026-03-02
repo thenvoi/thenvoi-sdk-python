@@ -1,0 +1,144 @@
+{
+  "batch": "Design coherence — Mechanical Concern Signals",
+  "batch_index": 7,
+  "assessments": {
+    "design_coherence": 74.0
+  },
+  "dimension_notes": {
+    "design_coherence": {
+      "evidence": [
+        "Character/demo example scripts repeat nearly identical startup orchestration (load env, read credentials, construct adapter, create Agent, run) across multiple files, e.g. examples/anthropic/03_tom_agent.py, examples/claude_sdk/03_tom_agent.py, examples/crewai/05_tom_agent.py, examples/langgraph/07_tom_agent.py.",
+        "Several example files mutate import paths at module import time (`sys.path.insert(...)`) to compensate for layout coupling, e.g. examples/anthropic/04_jerry_agent.py, examples/claude_sdk/04_jerry_agent.py, examples/langgraph/07_tom_agent.py, examples/pydantic_ai/04_jerry_agent.py.",
+        "Large orchestration modules mix configuration parsing, lifecycle/reconnect loops, participant caching, event consumption, deduplication, and routing in one place, especially src/thenvoi/integrations/a2a_bridge/bridge.py and src/thenvoi/runtime/contacts/contact_handler.py.",
+        "Runner entrypoints duplicate the same config-load/prompt-assembly/tool-load/startup pipeline with drift across docker/claude_sdk/runner.py, examples/claude_sdk_docker/runner.py, and docker/codex/runner.py.",
+        "Compatibility shims use inconsistent migration patterns (deprecation-on-access vs silent re-export), e.g. src/thenvoi/adapters/a2a.py and src/thenvoi/adapters/a2a_gateway.py vs thenvoi-bridge/bridge_core/*.py and src/thenvoi/runtime/contact_handler.py."
+      ],
+      "impact_scope": "codebase",
+      "fix_scope": "architectural_change",
+      "confidence": "high"
+    }
+  },
+  "findings": [
+    {
+      "dimension": "design_coherence",
+      "identifier": "example_startup_flow_duplication",
+      "summary": "Example agent startup flow is duplicated across frameworks instead of using one composition path.",
+      "related_files": [
+        "examples/anthropic/03_tom_agent.py",
+        "examples/claude_sdk/03_tom_agent.py",
+        "examples/crewai/05_tom_agent.py",
+        "examples/langgraph/07_tom_agent.py",
+        "examples/pydantic_ai/04_jerry_agent.py"
+      ],
+      "evidence": [
+        "Each file repeats the same structural sequence: `load_dotenv()` -> read `THENVOI_WS_URL`/`THENVOI_REST_URL` -> `load_agent_config(...)` -> instantiate framework adapter -> `Agent.create(...)` -> `await agent.run()`.",
+        "Differences are mostly adapter class and prompt function, while control flow and error handling are copy-pasted.",
+        "The duplication already caused per-file drift (some include KeyboardInterrupt handling and extra logging, others do not)."
+      ],
+      "suggestion": "Introduce a shared example runner helper that accepts adapter factory + agent key + optional prompt supplier, and migrate these scripts to thin wrappers. Keep framework-specific behavior in small adapter builder functions.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "example_runner_fragmentation"
+    },
+    {
+      "dimension": "design_coherence",
+      "identifier": "sys_path_coupling_in_examples",
+      "summary": "Multiple examples rely on `sys.path` mutation, indicating packaging/layout and execution-mode coupling.",
+      "related_files": [
+        "examples/anthropic/04_jerry_agent.py",
+        "examples/claude_sdk/04_jerry_agent.py",
+        "examples/crewai/06_jerry_agent.py",
+        "examples/langgraph/07_tom_agent.py",
+        "examples/langgraph/08_jerry_agent.py",
+        "examples/pydantic_ai/04_jerry_agent.py"
+      ],
+      "evidence": [
+        "These files call `sys.path.insert(...)` at import time before loading shared prompt/setup modules.",
+        "Sibling scripts in the same example families use package-style imports instead, creating two different execution conventions.",
+        "Path mutation pushes environment/bootstrap concerns into every script instead of a coherent package/module entrypoint."
+      ],
+      "suggestion": "Make `examples` consistently importable (package execution via `python -m`/`uv run -m`) and remove `sys.path` mutations. Add a single shared import strategy for prompt/setup modules.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "example_runner_fragmentation"
+    },
+    {
+      "dimension": "design_coherence",
+      "identifier": "bridge_orchestrator_overloaded",
+      "summary": "A2A bridge orchestration mixes too many responsibilities in single modules/classes.",
+      "related_files": [
+        "src/thenvoi/integrations/a2a_bridge/bridge.py",
+        "src/thenvoi/integrations/a2a_bridge/router.py",
+        "src/thenvoi/runtime/contacts/contact_handler.py"
+      ],
+      "evidence": [
+        "`ThenvoiBridge` in `bridge.py` combines env/config parsing, reconnect policy, signal/shutdown lifecycle, event loop consumption, participant cache management, message deduplication, and dispatch setup.",
+        "`MentionRouter.route()` handles filtering, dedup of mentions, lifecycle marking, platform-message normalization, session tracking, fan-out dispatch, and failure collation in one long method.",
+        "`ContactEventHandler` similarly combines strategy routing, callback/hub delivery, enrichment, dedup cache, persistence, and broadcast concerns."
+      ],
+      "suggestion": "Split orchestration into focused collaborators: configuration loader, connection supervisor, room/participant cache service, and message dispatch pipeline. Keep top-level classes as coordinators that compose these parts.",
+      "confidence": "high",
+      "impact_scope": "codebase",
+      "fix_scope": "architectural_change",
+      "root_cause_cluster": "orchestrator_god_objects"
+    },
+    {
+      "dimension": "design_coherence",
+      "identifier": "runner_pipeline_duplicated_with_drift",
+      "summary": "Runner entrypoints duplicate setup pipelines, creating maintainability drift across environments.",
+      "related_files": [
+        "docker/claude_sdk/runner.py",
+        "examples/claude_sdk_docker/runner.py",
+        "docker/codex/runner.py",
+        "src/thenvoi/testing/runner_core.py"
+      ],
+      "evidence": [
+        "Both Claude runners implement near-identical sequences: load config, resolve role prompt files, combine prompt sections, load custom tools, construct adapter, create agent, run with retry, and cleanup.",
+        "Codex runner mirrors the same orchestration structure with separate helper parsing, producing parallel but divergent setup code paths.",
+        "Shared runner helpers exist (`runner_core.py`) but core composition logic is still repeated in entrypoint modules."
+      ],
+      "suggestion": "Extract a reusable runner composition layer (config normalization + prompt assembly + tool loading + lifecycle wiring) and keep each runner file focused on adapter-specific parameter mapping only.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "runner_composition_duplication"
+    },
+    {
+      "dimension": "design_coherence",
+      "identifier": "compat_shim_migration_contract_inconsistent",
+      "summary": "Compatibility shims use inconsistent migration semantics, obscuring deprecation expectations.",
+      "related_files": [
+        "src/thenvoi/adapters/a2a.py",
+        "src/thenvoi/adapters/a2a_gateway.py",
+        "thenvoi-bridge/bridge_core/bridge.py",
+        "thenvoi-bridge/bridge_core/router.py",
+        "src/thenvoi/runtime/contact_handler.py"
+      ],
+      "evidence": [
+        "Adapter shims implement lazy `__getattr__` plus deprecation warnings and explicit removal version.",
+        "Bridge/runtime shims are silent direct re-exports with no warning/removal metadata.",
+        "Consumers of similarly named legacy modules get different migration behavior depending on subsystem."
+      ],
+      "suggestion": "Standardize shim policy through one shared deprecation shim utility (warning behavior, removal metadata, import forwarding) and apply it uniformly across adapters, bridge_core, and runtime shims.",
+      "confidence": "medium",
+      "impact_scope": "codebase",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "migration_shim_inconsistency"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "Example and runner entrypoints evolved by copy/modify rather than through a shared composition API.",
+      "Long-lived transition periods introduced shim layers without a single deprecation contract.",
+      "Orchestrator modules absorbed adjacent concerns instead of extracting stable service boundaries."
+    ],
+    "likely_symptoms": [
+      "example_startup_flow_duplication",
+      "sys_path_coupling_in_examples",
+      "runner_pipeline_duplicated_with_drift"
+    ],
+    "possible_false_positives": []
+  }
+}

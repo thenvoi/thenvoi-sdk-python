@@ -1,0 +1,123 @@
+{
+  "batch": "Conventions & Errors",
+  "batch_index": 1,
+  "assessments": {
+    "convention_outlier": 71.8
+  },
+  "dimension_notes": {
+    "convention_outlier": {
+      "evidence": [
+        "Error handling conventions diverge across sibling integration layers: `src/thenvoi/integrations/langgraph/langchain_tools.py` catches broad `Exception` and returns error strings from wrappers, while `examples/a2a_gateway/demo_orchestrator/remote_agent.py` raises `RuntimeError` and `docker/shared/config_loader.py` raises `ValueError` for operational failures.",
+        "Package surface conventions are inconsistent: `src/thenvoi/__init__.py` and `src/thenvoi/runtime/__init__.py` expose very large re-export APIs, while sibling integration packages like `src/thenvoi/integrations/anthropic/__init__.py`, `src/thenvoi/integrations/parlant/__init__.py`, and `src/thenvoi/integrations/pydantic_ai/__init__.py` export nothing (`__all__ = []`).",
+        "Example module conventions drift: `examples/a2a_gateway/demo_orchestrator/__init__.py` uses broad `try/except ImportError` fallback import style, while sibling example packages use simple static exports/docstring-only init files."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "findings": [
+    {
+      "dimension": "convention_outlier",
+      "identifier": "mixed_error_contracts_in_adapters",
+      "summary": "Sibling adapter/tool layers use conflicting error contracts (string-return, typed exception, and wrapped RuntimeError), creating behavioral outliers.",
+      "related_files": [
+        "src/thenvoi/integrations/langgraph/langchain_tools.py",
+        "src/thenvoi/integrations/parlant/tools.py",
+        "examples/a2a_gateway/demo_orchestrator/remote_agent.py",
+        "docker/shared/config_loader.py"
+      ],
+      "evidence": [
+        "`agent_tools_to_langchain()` wrappers in `langchain_tools.py` catch broad `Exception` and return string payloads like `\"Error sending message: ...\"` instead of propagating exceptions.",
+        "`create_parlant_tools()` in `parlant/tools.py` similarly catches broad exceptions and returns `ToolResult(data=\"Error: ...\")` for operational failures.",
+        "`GatewayClient.call_peer()` in `remote_agent.py` catches generic exceptions, logs, and raises `RuntimeError`, while `config_loader.py` raises `ValueError` for YAML/file I/O failures."
+      ],
+      "suggestion": "Define one cross-integration error policy for tool boundaries (for example: raise typed domain exceptions internally and normalize only at outer transport boundary), then refactor wrapper/tool modules to follow it consistently.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "architectural_change",
+      "root_cause_cluster": "error_strategy_fragmentation"
+    },
+    {
+      "dimension": "convention_outlier",
+      "identifier": "import_fallback_masks_real_failures",
+      "summary": "Broad `ImportError` fallback import pattern in demo orchestrator is a style island that can hide genuine dependency/import failures.",
+      "related_files": [
+        "examples/a2a_gateway/demo_orchestrator/__init__.py",
+        "examples/a2a_gateway/demo_orchestrator/agent.py",
+        "examples/a2a_gateway/demo_orchestrator/agent_executor.py",
+        "examples/a2a_gateway/demo_orchestrator/remote_agent.py"
+      ],
+      "evidence": [
+        "`examples/a2a_gateway/demo_orchestrator/__init__.py` wraps relative imports in `try/except ImportError` and falls back to bare imports (`from agent import ...`).",
+        "Sibling modules (`agent.py`, `agent_executor.py`) use bare intra-directory imports (`from remote_agent import GatewayClient`, `from agent import OrchestratorAgent`) rather than a single consistent package-relative convention.",
+        "Catching `ImportError` broadly here can also catch transitive import errors from dependencies, not only package-vs-script import mode."
+      ],
+      "suggestion": "Use one explicit import convention for this package (prefer package-relative imports) and avoid broad fallback except clauses; if dual-mode execution is required, gate it with explicit `__package__` checks or launcher entrypoints.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "import_mode_ambiguity"
+    },
+    {
+      "dimension": "convention_outlier",
+      "identifier": "inconsistent_public_api_surfaces",
+      "summary": "Public API exposure strategy in `__init__.py` files is inconsistent, with oversized re-export hubs alongside empty integration package surfaces.",
+      "related_files": [
+        "src/thenvoi/__init__.py",
+        "src/thenvoi/runtime/__init__.py",
+        "src/thenvoi/integrations/anthropic/__init__.py",
+        "src/thenvoi/integrations/parlant/__init__.py",
+        "src/thenvoi/integrations/pydantic_ai/__init__.py",
+        "src/thenvoi/integrations/claude_sdk/__init__.py"
+      ],
+      "evidence": [
+        "`src/thenvoi/__init__.py` and `src/thenvoi/runtime/__init__.py` expose large, multi-concern symbol lists via `__all__`.",
+        "Integration sibling packages use diverging export behavior: some export internal utilities (`integrations/claude_sdk/__init__.py`), others force empty API (`__all__ = []`).",
+        "This creates non-uniform discoverability/import patterns across adjacent modules in the same subsystem."
+      ],
+      "suggestion": "Adopt a package-surface convention document (thin stable facades vs internal-only packages), then normalize `__init__.py` exports across integration and runtime packages to match that convention.",
+      "confidence": "medium",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "api_surface_drift"
+    },
+    {
+      "dimension": "convention_outlier",
+      "identifier": "example_logging_pattern_drift",
+      "summary": "Example logging setup modules duplicate the same helper wrapper but diverge in options and naming/documentation conventions without a shared policy.",
+      "related_files": [
+        "examples/a2a_bridge/setup_logging.py",
+        "examples/a2a_gateway/setup_logging.py",
+        "examples/codex/setup_logging.py",
+        "examples/langgraph/setup_logging.py",
+        "examples/parlant/setup_logging.py",
+        "examples/pydantic_ai/setup_logging.py"
+      ],
+      "evidence": [
+        "All modules define similarly named `setup_logging` wrappers around `setup_example_logging`, but parameterization differs ad hoc (`root_level`, `warning_loggers`, `stream_stdout`, custom formats, `extra_level_loggers`).",
+        "Docstring intent is inconsistent for nearly identical wrappers (some detailed rationale, others minimal), making sibling behavior harder to predict.",
+        "No shared convention layer exists for per-framework logging profiles despite repeating the same structure."
+      ],
+      "suggestion": "Centralize example logging profiles (e.g., per-framework config map) and keep each example setup module as a thin declarative profile selector to remove drift and enforce consistent conventions.",
+      "confidence": "medium",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "example_scaffold_duplication"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "No enforced cross-integration contract for error normalization vs exception propagation.",
+      "Example/demo code evolved with copy-modify scaffolding but without shared structural conventions for imports and logging.",
+      "Public API boundary policy for `__init__.py` modules appears undocumented or inconsistently applied."
+    ],
+    "likely_symptoms": [
+      "example_logging_pattern_drift",
+      "inconsistent_public_api_surfaces"
+    ],
+    "possible_false_positives": [
+      "Some `__all__ = []` integration packages may be intentionally non-public during migration, though this still reads as convention drift against neighboring modules."
+    ]
+  }
+}

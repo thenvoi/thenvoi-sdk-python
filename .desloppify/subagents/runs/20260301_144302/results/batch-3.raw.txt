@@ -1,0 +1,88 @@
+{
+  "batch": "Governance & Contracts",
+  "batch_index": 3,
+  "assessments": {
+    "test_strategy": 84.0
+  },
+  "dimension_notes": {
+    "test_strategy": {
+      "evidence": [
+        "README.md declares PR-required \"contract checks\" and live integration contract execution, but these governance rules are documented prose and not represented as an executable contract in the reviewed files.",
+        "tests/support/integration/config.py implements integration-mode detection with substring checks on `-m` expressions (`\"integration\" in compact_expression`), which is a brittle gate for fixture policy enforcement.",
+        "tests/support/events.py uses mixed default timestamp eras across event factories (2024 for message/room helpers vs 2026 for contact helpers), increasing risk of ordering-sensitive test behavior when factories are combined."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "findings": [
+    {
+      "dimension": "test_strategy",
+      "identifier": "non_executable_quality_gate_contract",
+      "summary": "Quality-gate governance is documented but not enforced as a single executable contract.",
+      "related_files": [
+        "README.md",
+        "pyproject.toml",
+        "tests/support/integration/config.py"
+      ],
+      "evidence": [
+        "README.md states CI-required contract checks (bridge routing, bootstrap contracts, prompt contracts, integration marker policy).",
+        "pyproject.toml defines pytest defaults/markers, but there is no contract declaration that asserts README governance claims remain aligned with test configuration.",
+        "tests/support/integration/config.py repeats integration execution semantics in docstrings and policy code, creating multiple drift points for governance behavior."
+      ],
+      "suggestion": "Introduce one governance contract test module that parses/validates the README quality-gate section against canonical constants from test configuration (marker policy, integration command shape, required contract suites), and source README snippets from those constants where possible.",
+      "confidence": "high",
+      "impact_scope": "codebase",
+      "fix_scope": "architectural_change",
+      "root_cause_cluster": "governance_rules_not_canonicalized"
+    },
+    {
+      "dimension": "test_strategy",
+      "identifier": "fragile_mark_expression_detection",
+      "summary": "Integration-mode detection relies on substring matching of `-m` expression text.",
+      "related_files": [
+        "tests/support/integration/config.py",
+        "pyproject.toml"
+      ],
+      "evidence": [
+        "In `_is_integration_mode`, integration detection is based on text checks (`\"notintegration\"` and `\"integration\"` substring membership after whitespace removal) rather than marker-token semantics.",
+        "pyproject.toml default `addopts = \"-v -m 'not integration'\"` makes this parser path central to policy behavior; expression variants can be misclassified by substring heuristics."
+      ],
+      "suggestion": "Replace substring logic with marker-aware evaluation (parse mark expression tokens or derive integration mode from collected test items/markers), and add targeted tests for mixed expressions to prevent false positives/negatives.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "governance_rules_not_canonicalized"
+    },
+    {
+      "dimension": "test_strategy",
+      "identifier": "inconsistent_event_fixture_time_baselines",
+      "summary": "Test event factories use inconsistent default timestamp baselines across event types.",
+      "related_files": [
+        "tests/support/events.py",
+        "README.md"
+      ],
+      "evidence": [
+        "`make_message_event`/room helpers default to `2024-01-01...` while contact-related helpers default to `2026-01-01...`.",
+        "README.md positions contract checks as PR quality gates, but this shared fixture module introduces avoidable chronology skew that can mask ordering assumptions in cross-event tests."
+      ],
+      "suggestion": "Standardize all default fixture timestamps to one canonical baseline constant (or require explicit timestamps in ordering-sensitive tests) and add a small contract test asserting factory defaults remain coherent.",
+      "confidence": "medium",
+      "impact_scope": "module",
+      "fix_scope": "single_edit",
+      "root_cause_cluster": "shared_test_fixtures_lack_canonical_contract"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "Governance/test-policy rules are duplicated across docs and helper code instead of being canonicalized in one executable contract.",
+      "Shared fixture defaults are maintained ad hoc without invariant checks for cross-module composition."
+    ],
+    "likely_symptoms": [
+      "fragile_mark_expression_detection",
+      "inconsistent_event_fixture_time_baselines"
+    ],
+    "possible_false_positives": []
+  }
+}

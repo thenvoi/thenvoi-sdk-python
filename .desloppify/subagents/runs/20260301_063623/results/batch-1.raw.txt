@@ -1,0 +1,99 @@
+{
+  "batch": "Architecture & Coupling",
+  "batch_index": 1,
+  "assessments": {
+    "cross_module_architecture": 78.0,
+    "high_level_elegance": 81.0
+  },
+  "dimension_notes": {
+    "cross_module_architecture": {
+      "evidence": [
+        "tests/support/integration/config.py instantiates `test_settings = TestSettings()` at module import time, which loads `.env.test` and binds global configuration before fixture resolution.",
+        "examples/a2a_gateway/01_basic_gateway.py executes `setup_logging()` at module import time rather than in `main()`, creating side effects for any importer/test harness.",
+        "tests/runtime/test_presence.py and tests/runtime/test_runtime.py import helper constructors from tests/conftest.py, making one conftest module a shared dependency hub across otherwise separate runtime test modules."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    },
+    "high_level_elegance": {
+      "evidence": [
+        "examples/common/bootstrap.py provides a clean bootstrap abstraction, but examples/a2a_gateway/01_basic_gateway.py partially bypasses it with custom API key/agent_id fallback logic and inline recovery flow.",
+        "examples/a2a_bridge/02_with_auth.py and examples/a2a_gateway/01_basic_gateway.py follow different entrypoint lifecycle patterns for logging/config initialization (in-function vs import-time), reducing predictability of example ownership boundaries.",
+        "tests/support/integration/config.py combines plugin option registration, environment-policy decisions, REST cleanup orchestration, and client fixtures in one file, blurring boundary between test infra policy and runtime interaction helpers."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "architectural_change",
+      "confidence": "medium"
+    }
+  },
+  "findings": [
+    {
+      "dimension": "cross_module_architecture",
+      "identifier": "import_time_state_init",
+      "summary": "Import-time initialization in shared config/entry modules creates hidden side effects across test and example boundaries.",
+      "related_files": [
+        "tests/support/integration/config.py",
+        "examples/a2a_gateway/01_basic_gateway.py"
+      ],
+      "evidence": [
+        "`tests/support/integration/config.py` constructs `TestSettings()` as a module global (`test_settings = TestSettings()`), so env/file loading happens during import rather than fixture execution.",
+        "`examples/a2a_gateway/01_basic_gateway.py` calls `setup_logging()` at top level, causing process-wide logging mutation whenever the module is imported."
+      ],
+      "suggestion": "Move side-effectful setup behind explicit functions: lazily construct test settings via a fixture/factory and invoke logging setup only inside `main()` entrypoints. Keep import surfaces pure so tests and tooling can import modules without mutating global state.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "implicit_global_bootstrap"
+    },
+    {
+      "dimension": "cross_module_architecture",
+      "identifier": "test_conftest_hub_coupling",
+      "summary": "A central test conftest acts as a cross-module utility hub, increasing blast radius for test infrastructure changes.",
+      "related_files": [
+        "tests/conftest.py",
+        "tests/runtime/test_presence.py",
+        "tests/runtime/test_runtime.py"
+      ],
+      "evidence": [
+        "Both runtime test modules import helper constructors (`make_message_event`, `make_room_added_event`, `make_room_removed_event`) directly from `tests.conftest`.",
+        "`tests/conftest.py` aggregates many unrelated event builders/fixtures; changing shared helper signatures can ripple through multiple runtime suites."
+      ],
+      "suggestion": "Extract reusable event-builder helpers into a dedicated support module (e.g., `tests/support/events.py`) and keep `tests/conftest.py` focused on fixture registration. This preserves fixture discovery while reducing hub-style architectural coupling.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "test_infra_hub"
+    },
+    {
+      "dimension": "high_level_elegance",
+      "identifier": "example_bootstrap_boundary_drift",
+      "summary": "Example entrypoints diverge from a single ownership model for bootstrap/configuration, weakening top-level architectural clarity.",
+      "related_files": [
+        "examples/common/bootstrap.py",
+        "examples/a2a_gateway/01_basic_gateway.py",
+        "examples/a2a_bridge/02_with_auth.py"
+      ],
+      "evidence": [
+        "`examples/common/bootstrap.py` defines shared runtime/bootstrap abstractions, but gateway example duplicates credential fallback and runtime shaping logic inline.",
+        "A2A bridge example performs setup in `main()`, while gateway example performs logging setup at import time and config branching in entrypoint body, producing inconsistent architecture contracts for examples."
+      ],
+      "suggestion": "Define one canonical example bootstrap contract (config loading, logging setup, runtime creation) in `examples/common/bootstrap.py` and have entrypoints provide only adapter-specific parameters. Move gateway-specific branching into named helper(s) under common bootstrap to preserve consistent ownership boundaries.",
+      "confidence": "medium",
+      "impact_scope": "subsystem",
+      "fix_scope": "architectural_change",
+      "root_cause_cluster": "implicit_global_bootstrap"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "Implicit global bootstrap steps (env/logging/config) are allowed in import surfaces.",
+      "Test support utilities and fixture wiring are co-located, creating a central dependency magnet."
+    ],
+    "likely_symptoms": [
+      "import_time_state_init",
+      "example_bootstrap_boundary_drift"
+    ],
+    "possible_false_positives": []
+  }
+}

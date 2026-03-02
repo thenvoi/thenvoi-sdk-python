@@ -3,14 +3,15 @@
 from __future__ import annotations
 
 import logging
-from typing import Callable, Awaitable
+from collections.abc import Awaitable, Callable
 
 from thenvoi.client.rest import DEFAULT_REQUEST_OPTIONS
 from thenvoi.platform.link import ThenvoiLink
-from thenvoi.platform.event import ContactEvent, MessageEvent, PlatformEvent
-from thenvoi.runtime.contact_handler import ContactEventHandler
+from thenvoi.platform.event import ContactEvent, MessageEvent
+from thenvoi.runtime.contacts.contact_handler import ContactEventHandler
+from thenvoi.runtime.contacts.sink import RuntimeContactEventSink
+from thenvoi.runtime.execution import ExecutionHandler
 from thenvoi.runtime.runtime import AgentRuntime
-from thenvoi.runtime.execution import ExecutionContext
 from thenvoi.runtime.types import (
     AgentConfig,
     ContactEventConfig,
@@ -127,7 +128,7 @@ class PlatformRuntime:
 
     async def start(
         self,
-        on_execute: Callable[[ExecutionContext, PlatformEvent], Awaitable[None]],
+        on_execute: ExecutionHandler,
         on_cleanup: Callable[[str], Awaitable[None]] | None = None,
     ) -> None:
         """
@@ -226,24 +227,10 @@ class PlatformRuntime:
         assert self._link is not None
         assert self._runtime is not None
 
-        # Create handler with broadcast callback if enabled
-        broadcast_fn = None
-        if self._contact_config.broadcast_changes:
-            broadcast_fn = self._queue_broadcast
-
-        # Create hub event callbacks for HUB_ROOM strategy
-        hub_event_fn = None
-        hub_init_fn = None
-        if self._contact_config.strategy == ContactEventStrategy.HUB_ROOM:
-            hub_event_fn = self._inject_hub_event
-            hub_init_fn = self._inject_hub_system_prompt
-
         self._contact_handler = ContactEventHandler(
             config=self._contact_config,
             link=self._link,
-            on_broadcast=broadcast_fn,
-            on_hub_event=hub_event_fn,
-            on_hub_init=hub_init_fn,
+            sink=RuntimeContactEventSink(self),
         )
 
         # Set up contact event callback on presence
@@ -274,11 +261,14 @@ class PlatformRuntime:
             await self._contact_handler.handle(event)
         else:
             logger.warning("Contact event received but no handler configured")
+        await self._process_broadcasts()
 
-            # Process any pending broadcasts
-            await self._process_broadcasts()
+    @property
+    def hub_contact_events_enabled(self) -> bool:
+        """Whether runtime currently supports hub-room event injection."""
+        return self._contact_config.strategy == ContactEventStrategy.HUB_ROOM
 
-    def _queue_broadcast(self, message: str) -> None:
+    def queue_contact_broadcast(self, message: str) -> None:
         """Queue a broadcast message for injection into all sessions."""
         self._pending_broadcasts.append(message)
 
@@ -301,7 +291,11 @@ class PlatformRuntime:
                         "Failed to inject broadcast into room %s: %s", room_id, e
                     )
 
-    async def _inject_hub_event(self, hub_room_id: str, event: MessageEvent) -> None:
+    async def inject_contact_hub_event(
+        self,
+        hub_room_id: str,
+        event: MessageEvent,
+    ) -> None:
         """
         Inject a MessageEvent into the hub room's ExecutionContext.
 
@@ -313,7 +307,7 @@ class PlatformRuntime:
             raise RuntimeError("Runtime not started")
 
         # Get ExecutionContext (should exist since hub room created at startup)
-        execution = self._runtime.executions.get(hub_room_id)
+        execution = self._runtime.get_execution(hub_room_id)
         if not execution:
             raise RuntimeError(f"ExecutionContext not found for hub room {hub_room_id}")
 
@@ -326,7 +320,7 @@ class PlatformRuntime:
         await execution.on_event(event)
         logger.debug("Event injected into hub room %s", hub_room_id)
 
-    async def _inject_hub_system_prompt(self, hub_room_id: str, prompt: str) -> None:
+    async def initialize_contact_hub_room(self, hub_room_id: str, prompt: str) -> None:
         """
         Inject a system prompt into the hub room's ExecutionContext.
 

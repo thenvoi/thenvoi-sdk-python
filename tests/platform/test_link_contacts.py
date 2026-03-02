@@ -1,63 +1,61 @@
 """Unit tests for ThenvoiLink contact subscription."""
 
-import pytest
-from unittest.mock import AsyncMock, patch
+from __future__ import annotations
 
-from thenvoi.platform.link import ThenvoiLink
-from thenvoi.platform.event import (
-    ContactRequestReceivedEvent,
-    ContactRequestUpdatedEvent,
-    ContactAddedEvent,
-    ContactRemovedEvent,
-)
+from unittest.mock import patch
+
+import pytest
+
 from thenvoi.client.streaming import (
-    ContactRequestReceivedPayload,
-    ContactRequestUpdatedPayload,
     ContactAddedPayload,
     ContactRemovedPayload,
+    ContactRequestReceivedPayload,
+    ContactRequestUpdatedPayload,
 )
+from thenvoi.platform.event import (
+    ContactAddedEvent,
+    ContactRemovedEvent,
+    ContactRequestReceivedEvent,
+    ContactRequestUpdatedEvent,
+)
+from thenvoi.platform.link import ThenvoiLink
 
 
 @pytest.fixture
-def mock_ws_client():
+def mock_ws_client(ws_client_mock_factory):
     """Mock WebSocketClient for testing."""
-    ws = AsyncMock()
-    ws.__aenter__ = AsyncMock(return_value=ws)
-    ws.__aexit__ = AsyncMock(return_value=None)
-    ws.join_agent_contacts_channel = AsyncMock()
-    ws.leave_agent_contacts_channel = AsyncMock()
-    ws.run_forever = AsyncMock()
-    return ws
+    return ws_client_mock_factory()
+
+
+@pytest.fixture
+async def connected_link(
+    mock_ws_client,
+):
+    """Connected ThenvoiLink using shared websocket fake boundary."""
+    with patch("thenvoi.platform.link.WebSocketClient", return_value=mock_ws_client):
+        link = ThenvoiLink(agent_id="agent-123", api_key="test-key")
+        await link.connect()
+        yield link
 
 
 class TestContactSubscription:
     """Tests for contact channel subscription."""
 
-    @patch("thenvoi.platform.link.WebSocketClient")
     async def test_subscribe_agent_contacts_joins_channel(
-        self, mock_ws_class, mock_ws_client
-    ):
+        self, connected_link: ThenvoiLink, mock_ws_client
+    ) -> None:
         """subscribe_agent_contacts() should join agent contacts channel."""
-        mock_ws_class.return_value = mock_ws_client
-
-        link = ThenvoiLink(agent_id="agent-123", api_key="test-key")
-        await link.connect()
-        await link.subscribe_agent_contacts("agent-123")
+        await connected_link.subscribe_agent_contacts("agent-123")
 
         mock_ws_client.join_agent_contacts_channel.assert_called_once()
         call_args = mock_ws_client.join_agent_contacts_channel.call_args
         assert call_args[0][0] == "agent-123"  # agent_id
 
-    @patch("thenvoi.platform.link.WebSocketClient")
     async def test_subscribe_agent_contacts_passes_all_handlers(
-        self, mock_ws_class, mock_ws_client
-    ):
+        self, connected_link: ThenvoiLink, mock_ws_client
+    ) -> None:
         """subscribe_agent_contacts() should pass all 4 event handlers."""
-        mock_ws_class.return_value = mock_ws_client
-
-        link = ThenvoiLink(agent_id="agent-123", api_key="test-key")
-        await link.connect()
-        await link.subscribe_agent_contacts("agent-123")
+        await connected_link.subscribe_agent_contacts("agent-123")
 
         call_kwargs = mock_ws_client.join_agent_contacts_channel.call_args[1]
         assert "on_contact_request_received" in call_kwargs
@@ -65,49 +63,35 @@ class TestContactSubscription:
         assert "on_contact_added" in call_kwargs
         assert "on_contact_removed" in call_kwargs
 
-    @patch("thenvoi.platform.link.WebSocketClient")
     async def test_subscribe_agent_contacts_requires_connection(
-        self, mock_ws_class, mock_ws_client
-    ):
+        self, mock_ws_client
+    ) -> None:
         """subscribe_agent_contacts() should raise when not connected."""
-        mock_ws_class.return_value = mock_ws_client
+        with patch("thenvoi.platform.link.WebSocketClient", return_value=mock_ws_client):
+            link = ThenvoiLink(agent_id="agent-123", api_key="test-key")
+            with pytest.raises(RuntimeError, match="Not connected"):
+                await link.subscribe_agent_contacts("agent-123")
 
-        link = ThenvoiLink(agent_id="agent-123", api_key="test-key")
-        # Not connected
-
-        with pytest.raises(RuntimeError, match="Not connected"):
-            await link.subscribe_agent_contacts("agent-123")
-
-    @patch("thenvoi.platform.link.WebSocketClient")
     async def test_unsubscribe_agent_contacts_leaves_channel(
-        self, mock_ws_class, mock_ws_client
-    ):
+        self, connected_link: ThenvoiLink, mock_ws_client
+    ) -> None:
         """unsubscribe_agent_contacts() should leave agent contacts channel."""
-        mock_ws_class.return_value = mock_ws_client
-
-        link = ThenvoiLink(agent_id="agent-123", api_key="test-key")
-        await link.connect()
-        await link.unsubscribe_agent_contacts()
+        await connected_link.unsubscribe_agent_contacts()
 
         mock_ws_client.leave_agent_contacts_channel.assert_called_once_with("agent-123")
 
-    @patch("thenvoi.platform.link.WebSocketClient")
     async def test_unsubscribe_agent_contacts_handles_errors(
-        self, mock_ws_class, mock_ws_client
-    ):
+        self, connected_link: ThenvoiLink, mock_ws_client
+    ) -> None:
         """unsubscribe_agent_contacts() should handle errors gracefully."""
-        mock_ws_class.return_value = mock_ws_client
         mock_ws_client.leave_agent_contacts_channel.side_effect = Exception(
             "Leave failed"
         )
 
-        link = ThenvoiLink(agent_id="agent-123", api_key="test-key")
-        await link.connect()
-
         # Should not raise
-        await link.unsubscribe_agent_contacts()
+        await connected_link.unsubscribe_agent_contacts()
 
-    async def test_unsubscribe_agent_contacts_noop_when_not_connected(self):
+    async def test_unsubscribe_agent_contacts_noop_when_not_connected(self) -> None:
         """unsubscribe_agent_contacts() should be no-op when not connected."""
         link = ThenvoiLink(agent_id="agent-123", api_key="test-key")
         # Should not raise
@@ -117,16 +101,10 @@ class TestContactSubscription:
 class TestContactEventHandlers:
     """Tests for contact event handlers."""
 
-    @patch("thenvoi.platform.link.WebSocketClient")
     async def test_on_contact_request_received_queues_event(
-        self, mock_ws_class, mock_ws_client
-    ):
+        self, connected_link: ThenvoiLink
+    ) -> None:
         """_on_contact_request_received() should queue ContactRequestReceivedEvent."""
-        mock_ws_class.return_value = mock_ws_client
-
-        link = ThenvoiLink(agent_id="agent-123", api_key="test-key")
-        await link.connect()
-
         payload = ContactRequestReceivedPayload(
             id="req-123",
             from_handle="john_doe",
@@ -134,42 +112,32 @@ class TestContactEventHandlers:
             status="pending",
             inserted_at="2026-02-09T10:30:00Z",
         )
-        await link._on_contact_request_received(payload)
+        await connected_link._on_contact_request_received(payload)
 
-        event = await link._event_queue.get()
+        event = await connected_link._event_queue.get()
         assert isinstance(event, ContactRequestReceivedEvent)
         assert event.payload.id == "req-123"
         assert event.room_id is None
 
-    @patch("thenvoi.platform.link.WebSocketClient")
     async def test_on_contact_request_updated_queues_event(
-        self, mock_ws_class, mock_ws_client
-    ):
+        self, connected_link: ThenvoiLink
+    ) -> None:
         """_on_contact_request_updated() should queue ContactRequestUpdatedEvent."""
-        mock_ws_class.return_value = mock_ws_client
-
-        link = ThenvoiLink(agent_id="agent-123", api_key="test-key")
-        await link.connect()
-
         payload = ContactRequestUpdatedPayload(
             id="req-123",
             status="approved",
         )
-        await link._on_contact_request_updated(payload)
+        await connected_link._on_contact_request_updated(payload)
 
-        event = await link._event_queue.get()
+        event = await connected_link._event_queue.get()
         assert isinstance(event, ContactRequestUpdatedEvent)
         assert event.payload.status == "approved"
         assert event.room_id is None
 
-    @patch("thenvoi.platform.link.WebSocketClient")
-    async def test_on_contact_added_queues_event(self, mock_ws_class, mock_ws_client):
+    async def test_on_contact_added_queues_event(
+        self, connected_link: ThenvoiLink
+    ) -> None:
         """_on_contact_added() should queue ContactAddedEvent."""
-        mock_ws_class.return_value = mock_ws_client
-
-        link = ThenvoiLink(agent_id="agent-123", api_key="test-key")
-        await link.connect()
-
         payload = ContactAddedPayload(
             id="contact-123",
             handle="jane_smith",
@@ -177,25 +145,21 @@ class TestContactEventHandlers:
             type="User",
             inserted_at="2026-02-09T10:35:00Z",
         )
-        await link._on_contact_added(payload)
+        await connected_link._on_contact_added(payload)
 
-        event = await link._event_queue.get()
+        event = await connected_link._event_queue.get()
         assert isinstance(event, ContactAddedEvent)
         assert event.payload.name == "Jane Smith"
         assert event.room_id is None
 
-    @patch("thenvoi.platform.link.WebSocketClient")
-    async def test_on_contact_removed_queues_event(self, mock_ws_class, mock_ws_client):
+    async def test_on_contact_removed_queues_event(
+        self, connected_link: ThenvoiLink
+    ) -> None:
         """_on_contact_removed() should queue ContactRemovedEvent."""
-        mock_ws_class.return_value = mock_ws_client
-
-        link = ThenvoiLink(agent_id="agent-123", api_key="test-key")
-        await link.connect()
-
         payload = ContactRemovedPayload(id="contact-123")
-        await link._on_contact_removed(payload)
+        await connected_link._on_contact_removed(payload)
 
-        event = await link._event_queue.get()
+        event = await connected_link._event_queue.get()
         assert isinstance(event, ContactRemovedEvent)
         assert event.payload.id == "contact-123"
         assert event.room_id is None
@@ -204,14 +168,8 @@ class TestContactEventHandlers:
 class TestPublicQueueMethod:
     """Tests for public queue_event() method."""
 
-    @patch("thenvoi.platform.link.WebSocketClient")
-    async def test_queue_event_public_method(self, mock_ws_class, mock_ws_client):
+    async def test_queue_event_public_method(self, connected_link: ThenvoiLink) -> None:
         """queue_event() should add event to queue (public API)."""
-        mock_ws_class.return_value = mock_ws_client
-
-        link = ThenvoiLink(agent_id="agent-123", api_key="test-key")
-        await link.connect()
-
         event = ContactAddedEvent(
             payload=ContactAddedPayload(
                 id="contact-123",
@@ -221,12 +179,12 @@ class TestPublicQueueMethod:
                 inserted_at="2026-01-01T00:00:00Z",
             )
         )
-        link.queue_event(event)
+        connected_link.queue_event(event)
 
-        queued = await link._event_queue.get()
+        queued = await connected_link._event_queue.get()
         assert queued is event
 
-    def test_queue_event_works_without_connection(self):
+    def test_queue_event_works_without_connection(self) -> None:
         """queue_event() should work even when not connected."""
         link = ThenvoiLink(agent_id="agent-123", api_key="test-key")
 

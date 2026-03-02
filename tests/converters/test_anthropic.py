@@ -1,10 +1,4 @@
-"""Tests for AnthropicHistoryConverter.
-
-Tests for shared converter behavior (user messages, agent filtering, empty
-history, edge cases, output shape) live in
-tests/framework_conformance/test_converter_conformance.py.
-This file contains Anthropic-specific tool event conversion and integration tests.
-"""
+"""AnthropicHistoryConverter-specific tests (shared converter contract lives in framework_conformance)."""
 
 from thenvoi.converters.anthropic import AnthropicHistoryConverter
 

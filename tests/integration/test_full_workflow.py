@@ -12,7 +12,7 @@ from thenvoi_rest.types import (
     ParticipantRequest,
 )
 
-from tests.integration.conftest import get_test_agent_id, requires_api
+from tests.support.integration.markers import requires_api
 
 logger = logging.getLogger(__name__)
 
@@ -40,7 +40,7 @@ class TestFullWorkflow:
         logger.info("Agent: %s (ID: %s)", agent_name, agent_id)
 
         # Verify against expected test agent if configured
-        expected_agent_id = get_test_agent_id()
+        expected_agent_id = integration_settings.test_agent_id or None
         if expected_agent_id:
             assert agent_id == expected_agent_id, f"Expected agent {expected_agent_id}"
 

@@ -1,0 +1,521 @@
+{
+  "assessments": {
+    "abstraction_fitness": {
+      "score": 47.5,
+      "components": [
+        "Abstraction Leverage",
+        "Indirection Cost",
+        "Interface Honesty"
+      ],
+      "component_scores": {
+        "Abstraction Leverage": 68.0,
+        "Indirection Cost": 62.0,
+        "Interface Honesty": 66.0
+      }
+    },
+    "design_coherence": 53.6,
+    "package_organization": 58.7
+  },
+  "dimension_notes": {
+    "abstraction_fitness": {
+      "evidence": [
+        "src/thenvoi/adapters/codex/adapter.py contains many thin forwarding methods (_prepare_turn, _consume_turn_events, _handle_server_request, _handle_local_command, _emit_turn_outcome, etc.) that primarily delegate to helper modules without adding policy.",
+        "Codex helper modules define Protocols (CodexTurnStateProtocol, CodexCommandStateProtocol, CodexToolingStateProtocol) that depend on many private adapter attributes and Any-typed config, indicating indirection without a stable boundary contract.",
+        "src/thenvoi/core/protocols.py composes a large protocol lattice with dict[str, Any]-heavy signatures, while src/thenvoi/runtime/tools.py provides one concrete AgentTools implementation and tests/core/test_protocols.py validates structural conformance broadly rather than distinct implementations.",
+        "src/thenvoi/core/simple_adapter.py and src/thenvoi/core/control_plane_adapter.py preserve dual entrypoints via legacy arg-bag compatibility wrappers, and multiple adapters remain decorated with legacy_chat_turn_compat, extending long-term dual-surface complexity.",
+        "src/thenvoi/testing/runner_core.py and src/thenvoi/testing/example_runners.py pass dict[str, Any]/dict[str, object] and many injected callables through bootstrap paths, creating implicit parameter bags rather than typed startup contracts."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high",
+      "issues_preventing_higher_score": "",
+      "sub_axes": {
+        "abstraction_leverage": 68.0,
+        "indirection_cost": 62.0,
+        "interface_honesty": 66.0
+      }
+    },
+    "package_organization": {
+      "evidence": [
+        "`tests/support/integration/config.py` is named as config but acts as a broad compatibility barrel: it re-exports fixtures, policy helpers, selection internals, cleanup errors, and cleanup orchestration in one module.",
+        "Holistic structure signals show `tests/support/integration/` as a high-traffic boundary (`avg_fan_in` 4.5; coupling edges from `tests/integration/` -> `tests/support/integration/` = 16), so ambiguous placement in this directory has subsystem-wide navigation impact.",
+        "`examples/common/scenario_registry.py` is a shared contract module imported across multiple example framework directories and test directories, but it lives under `examples/` (script-oriented namespace), which mixes executable example surface with reusable governance/configuration surface."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high",
+      "issues_preventing_higher_score": ""
+    },
+    "design_coherence": {
+      "evidence": [
+        "Adapter configuration shape is inconsistent across sibling adapters: `CodexAdapter` takes `config: CodexAdapterConfig`, while `AnthropicAdapter`, `PydanticAIAdapter`, `CrewAIAdapter`, and `ClaudeSDKAdapter` define `*AdapterConfig` dataclasses but expose large parameter-list constructors instead of consuming those config objects.",
+        "System-update formatting exists in multiple parallel abstractions (`SimpleAdapter.build_metadata_updates` and `thenvoi.adapters.system_updates.build_system_update_messages`) with overlapping responsibility and near-identical behavior.",
+        "Codex adapter behavior is decomposed across multiple helper modules with many pass-through methods in `adapter.py` (`_prepare_turn`, `_consume_turn_events`, `_handle_tool_call_request`, `_handle_local_command`, etc.), increasing navigation cost and blurring ownership boundaries."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high",
+      "issues_preventing_higher_score": ""
+    }
+  },
+  "findings": [
+    {
+      "dimension": "abstraction_fitness",
+      "identifier": "codex_wrapper_chain_facade",
+      "summary": "Codex adapter keeps a high-cost wrapper chain where adapter methods mostly relay to helper modules through private-state Protocol seams.",
+      "related_files": [
+        "src/thenvoi/adapters/codex/adapter.py",
+        "src/thenvoi/adapters/codex/adapter_turn_processing.py",
+        "src/thenvoi/adapters/codex/adapter_commands.py",
+        "src/thenvoi/adapters/codex/adapter_tooling.py"
+      ],
+      "evidence": [
+        "CodexAdapter defines many methods whose body is only `return await <helper>(self, ...)` or `return <helper>(...)`, creating multiple call hops per behavior.",
+        "Helper Protocols require access to many adapter internals (`_client`, `_room_threads`, `_pending_approvals`, `_prompt_injected_rooms`, config Any), so the seam is not truly decoupled.",
+        "Behavioral responsibilities are split across files but still coupled by adapter private fields, increasing indirection without reducing dependency surface."
+      ],
+      "suggestion": "Replace Protocol-plus-forwarder pattern with a concrete `CodexSessionCoordinator` (or similar) owning typed state and operations; move turn/command/tool workflows behind that object and keep adapter as lifecycle shell only.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "architectural_change",
+      "root_cause_cluster": "facade_over_fragmentation"
+    },
+    {
+      "dimension": "abstraction_fitness",
+      "identifier": "protocol_lattice_without_extension_pressure",
+      "summary": "The tool protocol lattice is broad and Any-heavy despite effectively one operational implementation, reducing interface honesty.",
+      "related_files": [
+        "src/thenvoi/core/protocols.py",
+        "src/thenvoi/runtime/tools.py",
+        "tests/core/test_protocols.py",
+        "src/thenvoi/core/types.py"
+      ],
+      "evidence": [
+        "Protocols compose multiple layers (Messaging/Participant/Contact/Memory/Schema/Dispatch/Agent) with many `dict[str, Any]` return and argument types.",
+        "AgentInput in core/types is typed to AgentToolsProtocol while runtime/tools provides one concrete AgentTools that mixes room/contact/memory/schema/dispatch responsibilities.",
+        "tests/core/test_protocols.py validates one dummy object against almost every protocol, signaling broad structural compatibility over focused boundary contracts."
+      ],
+      "suggestion": "Collapse to fewer capability interfaces that map to real extension points, introduce typed DTOs for high-traffic tool payloads, and keep internal-only operations concrete instead of protocolized.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "facade_over_fragmentation"
+    },
+    {
+      "dimension": "abstraction_fitness",
+      "identifier": "legacy_turn_argbag_persists",
+      "summary": "Legacy arg-bag compatibility keeps a dual on_message API shape active across adapters, increasing abstraction overhead and ambiguity.",
+      "related_files": [
+        "src/thenvoi/core/simple_adapter.py",
+        "src/thenvoi/core/control_plane_adapter.py",
+        "src/thenvoi/adapters/langgraph.py",
+        "src/thenvoi/adapters/crewai.py",
+        "src/thenvoi/adapters/claude_sdk.py",
+        "src/thenvoi/adapters/codex/adapter.py"
+      ],
+      "evidence": [
+        "legacy_chat_turn_compat and legacy_control_turn_compat accept mixed inputs (`turn`, `msg`, `history`, `tools`, optional flags) and normalize at runtime.",
+        "Multiple adapters still use the decorator, so both typed context and legacy argument-bag invocation paths remain part of normal behavior.",
+        "normalize_* methods perform runtime type resolution/required-arg checks that would be unnecessary with a single canonical turn contract."
+      ],
+      "suggestion": "Define and publish a removal timeline for legacy arg-bag invocation, migrate adapters/tests to context-only invocation, and delete normalize/decorator compatibility paths after cutoff.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "facade_over_fragmentation"
+    },
+    {
+      "dimension": "abstraction_fitness",
+      "identifier": "runner_bootstrap_param_bag",
+      "summary": "Runner bootstrap APIs rely on large callable injection surfaces and dict-based config bags, obscuring boundary contracts.",
+      "related_files": [
+        "src/thenvoi/testing/runner_core.py",
+        "src/thenvoi/testing/example_runners.py",
+        "src/thenvoi/example_support/bootstrap.py"
+      ],
+      "evidence": [
+        "runner_core exposes bootstrap/build functions with many injectable callables and `dict[str, Any]` config flow across RepoInitializer/RunnerAgentFactory/RunnerLifecycleFn seams.",
+        "example_runners builds heterogeneous `dict[str, object]` kwargs from flags, coupling call sites to string-key contracts instead of typed runner params.",
+        "bootstrap.py uses `adapter: Any` and generic factory hooks, reinforcing weakly typed startup boundaries."
+      ],
+      "suggestion": "Introduce typed runner request/plan dataclasses (per framework family) and narrow hook protocols to fewer explicit responsibilities; convert kwargs maps to typed constructor inputs.",
+      "confidence": "medium",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "implicit_parameter_bags"
+    },
+    {
+      "dimension": "package_organization",
+      "identifier": "runtime_root_shim_leakage",
+      "summary": "Runtime root package still contains domain-specific compatibility shims that contradict the declared core-only boundary.",
+      "related_files": [
+        "src/thenvoi/runtime/__init__.py",
+        "src/thenvoi/runtime/contact_tools.py",
+        "src/thenvoi/runtime/custom_tools.py",
+        "tests/runtime/test_custom_tools.py"
+      ],
+      "evidence": [
+        "src/thenvoi/runtime/__init__.py docstring states domain helpers should come from dedicated submodules, but contact_tools.py and custom_tools.py remain in the runtime root namespace.",
+        "Both shim files explicitly redirect to deeper packages (thenvoi.runtime.contacts.contact_tools and thenvoi.runtime.tooling.custom_tools), showing root-level placement is now compatibility residue rather than ownership.",
+        "tests/runtime/test_custom_tools.py already uses canonical subpackage import (thenvoi.runtime.tooling.custom_tools), indicating callers have moved while root shims persist."
+      ],
+      "suggestion": "Stage 1: add a dedicated legacy boundary package (for example `src/thenvoi/runtime/compat/legacy_modules/`) and move compatibility shim ownership there while leaving temporary import stubs at current paths. Stage 2: update shim registration maps and any remaining imports to canonical modules (`thenvoi.runtime.contacts.*`, `thenvoi.runtime.tooling.*`). Stage 3: remove root stubs after deprecation window. Validate with `uv run ruff check .`, `uv run pyrefly check`, and `uv run pytest tests/runtime/test_custom_tools.py -v`.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "legacy_surface_not_isolated"
+    },
+    {
+      "dimension": "package_organization",
+      "identifier": "global_test_boundary_drift",
+      "summary": "Repository-root test config owns integration-specific plugin wiring, blurring test package boundaries.",
+      "related_files": [
+        "tests/conftest.py",
+        "tests/runtime/test_execution.py",
+        "tests/test_agent.py"
+      ],
+      "evidence": [
+        "tests/conftest.py globally loads tests.support.integration.plugin and tests.support.integration.fixtures at root scope.",
+        "tests/runtime/test_execution.py and tests/test_agent.py are non-integration suites under different concerns, but root plugin loading couples them to integration package initialization.",
+        "The root conftest function also applies integration collection filtering, reinforcing that integration concerns currently sit in the top-level test boundary instead of an integration-scoped boundary."
+      ],
+      "suggestion": "Stage 1: split `tests/conftest.py` into root-only shared hooks and `tests/integration/conftest.py` for integration plugins/guards. Stage 2: keep only truly global fixtures in root and move integration plugin registration to integration scope. Stage 3: run `uv run pytest tests/test_agent.py tests/runtime/test_execution.py -v` and `uv run pytest tests/integration/ -v --collect-only` to verify boundary behavior, then run `uv run ruff check .` to catch stale imports.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "legacy_surface_not_isolated"
+    },
+    {
+      "dimension": "package_organization",
+      "identifier": "integration_config_barrel_misplaced",
+      "summary": "Integration governance contracts are concentrated in a misnamed compatibility barrel (`config.py`).",
+      "related_files": [
+        "tests/support/integration/config.py",
+        "pyproject.toml",
+        "tests/support/integration/markers.py",
+        "tests/integration/history_converters/support.py"
+      ],
+      "evidence": [
+        "`tests/support/integration/config.py` re-exports unrelated concerns (fixtures, policy enforcement, selection internals, cleanup exceptions/functions) and adds wrapper indirection; this is broader than a config module boundary.",
+        "`pyproject.toml` defines integration marker policy at repo level (`integration`, `requires_api`, `requires_multi_agent`, `requires_user_api`), while marker composition lives separately in `tests/support/integration/markers.py`; consumers still route through `config.py` for many non-config contracts.",
+        "History-converter integration helpers (`tests/integration/history_converters/support.py`) also define integration lifecycle helpers (`no_clean`, chat setup/cleanup), indicating contract ownership is not centralized by concern."
+      ],
+      "suggestion": "Staged reorg plan: (1) create `tests/support/integration/contracts/` with focused modules `markers.py`, `cleanup.py`, `settings.py`, `selection.py`; (2) move integration-lifecycle helpers from `tests/integration/history_converters/support.py` into `tests/support/integration/contracts/history.py` and keep payload builders in a test-local helper if domain-specific; (3) replace `tests/support/integration/config.py` with a thin deprecated facade that only re-exports from `contracts/*` and add a removal timeline docstring; (4) update imports with `rg -l \"tests\\.support\\.integration\\.config\" tests | xargs sed -i '' 's/tests\\.support\\.integration\\.config/tests.support.integration.contracts.<module>/g'` (module-specific); (5) validate with `uv run pytest tests/test_integration_policy_contract.py tests/test_integration_cleanup_policy.py tests/integration/ -m integration -v` and `uv run thenvoi-quality-gates`.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "integration_contracts_boundary_blur"
+    },
+    {
+      "dimension": "package_organization",
+      "identifier": "shared_example_registry_in_script_namespace",
+      "summary": "Reusable scenario contract data is placed under `examples/`, conflating script and shared package roles.",
+      "related_files": [
+        "examples/common/scenario_registry.py",
+        "README.md",
+        "pyproject.toml"
+      ],
+      "evidence": [
+        "`examples/common/scenario_registry.py` defines canonical cross-framework keys/messages/adapter kwargs used by multiple framework example directories and by tests, but its location under `examples/` implies script/demo ownership rather than shared contract ownership.",
+        "`README.md` presents framework coverage and quality-gate governance as repository-level contracts; the scenario registry participates in that contract but is not in a governance/test-support package.",
+        "Holistic structure shows `examples/common/` imported by multiple sibling example directories and tests (broad reuse), which is a placement signal for a dedicated shared-support package rather than a script tree."
+      ],
+      "suggestion": "Staged reorg plan: (1) add `src/thenvoi/example_support/scenarios.py` (or `tests/support/examples/scenario_registry.py` if strictly test/example scope) as the canonical shared registry location; (2) move registry constants/functions from `examples/common/scenario_registry.py` to the new target; (3) keep `examples/common/scenario_registry.py` as temporary shim importing from the new path; (4) update imports in example and test modules (`rg -l \"examples\\.common\\.scenario_registry\" examples tests`) to the new module; (5) validate with `uv run pytest tests/example_agents/ -v tests/docs/test_readme_package_structure.py` and `uv run thenvoi-quality-gates`.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "integration_contracts_boundary_blur"
+    },
+    {
+      "dimension": "design_coherence",
+      "identifier": "adapter_config_contract_drift",
+      "summary": "Sibling adapters expose conflicting configuration patterns despite shared config dataclasses.",
+      "related_files": [
+        "src/thenvoi/adapters/codex/adapter.py",
+        "src/thenvoi/adapters/anthropic.py",
+        "src/thenvoi/adapters/pydantic_ai.py",
+        "src/thenvoi/adapters/crewai.py",
+        "src/thenvoi/adapters/claude_sdk.py",
+        "src/thenvoi/adapters/__init__.py"
+      ],
+      "evidence": [
+        "`CodexAdapter.__init__` accepts `config: CodexAdapterConfig | None` and uses `self.config` as the canonical settings object.",
+        "`AnthropicAdapterConfig`, `PydanticAIAdapterConfig`, `CrewAIAdapterConfig`, and `ClaudeSDKAdapterConfig` are defined/exported, but their adapters still use long keyword-heavy constructors and assign fields directly (`self.model`, `self.custom_section`, etc.) rather than accepting config objects.",
+        "Public exports in `adapters/__init__.py` suggest a unified config model, but runtime construction semantics differ by adapter family."
+      ],
+      "suggestion": "Standardize adapter construction around one contract: either (A) all adapters accept a `config` object as primary API with backward-compatible kwargs shim, or (B) remove/privatize unused config dataclasses. Prefer option A and migrate adapters incrementally with deprecation warnings for direct kwargs.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "incomplete_adapter_api_unification"
+    },
+    {
+      "dimension": "design_coherence",
+      "identifier": "duplicated_system_update_pipeline",
+      "summary": "System metadata injection is duplicated across base and helper layers.",
+      "related_files": [
+        "src/thenvoi/core/simple_adapter.py",
+        "src/thenvoi/adapters/system_updates.py",
+        "src/thenvoi/adapters/claude_sdk.py",
+        "src/thenvoi/adapters/crewai_processing.py"
+      ],
+      "evidence": [
+        "`SimpleAdapter` already implements `build_metadata_updates`/`apply_metadata_updates` with `[System]: ...` formatting.",
+        "`adapters/system_updates.py` re-implements equivalent update message construction and append/prepend helpers.",
+        "Adapters/processors mix usage patterns (e.g., Claude SDK uses `build_metadata_updates`, CrewAI processing uses `apply_metadata_updates`), leaving two canonical sources for the same policy."
+      ],
+      "suggestion": "Collapse to a single canonical system-update API owned by `SimpleAdapter` (or a dedicated shared utility, not both). Make all adapters call that API and remove duplicate helpers to avoid drift in prefixing/order semantics.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "incomplete_adapter_api_unification"
+    },
+    {
+      "dimension": "design_coherence",
+      "identifier": "codex_adapter_overfragmented_orchestration",
+      "summary": "Codex adapter splits one workflow across too many thin modules and pass-through methods.",
+      "related_files": [
+        "src/thenvoi/adapters/codex/adapter.py",
+        "src/thenvoi/adapters/codex/adapter_commands.py",
+        "src/thenvoi/adapters/codex/adapter_turn_processing.py",
+        "src/thenvoi/adapters/codex/adapter_tooling.py"
+      ],
+      "evidence": [
+        "`adapter.py` defines numerous thin wrappers that only delegate to helper functions (`prepare_turn`, `consume_turn_events`, approval handlers, command handlers, tooling handlers).",
+        "Helper modules depend on broad Protocols with private adapter internals (`_client`, `_pending_approvals`, `_prompt_injected_rooms`, etc.), so responsibilities are split physically but still tightly coupled logically.",
+        "Understanding a single turn path requires jumping across multiple files plus Protocol contracts, increasing indirection cost without clear boundary isolation."
+      ],
+      "suggestion": "Refactor Codex flow into explicit cohesive components (e.g., `TurnOrchestrator`, `ApprovalManager`, `ToolExecutor`) with narrow public state and concrete constructor dependencies, then remove pass-through wrappers in `adapter.py`.",
+      "confidence": "medium",
+      "impact_scope": "subsystem",
+      "fix_scope": "architectural_change",
+      "root_cause_cluster": "orchestration_fragmentation_without_boundary_hardening"
+    },
+    {
+      "dimension": "design_coherence",
+      "identifier": "nonfatal_error_pattern_divergence",
+      "summary": "Runtime error-recording pattern is duplicated instead of reused, creating inconsistent semantics.",
+      "related_files": [
+        "src/thenvoi/core/nonfatal.py",
+        "src/thenvoi/runtime/presence.py",
+        "src/thenvoi/runtime/execution.py"
+      ],
+      "evidence": [
+        "`NonFatalErrorRecorder` provides shared nonfatal storage and logging behavior and is used in `ExecutionContext`.",
+        "`RoomPresence` reimplements separate `_nonfatal_errors` storage and `_record_nonfatal_error` logic instead of reusing the shared mixin.",
+        "This creates divergent logging/detail behavior between runtime components that should follow one recoverable-error contract."
+      ],
+      "suggestion": "Adopt `NonFatalErrorRecorder` in `RoomPresence` and remove local duplicate machinery; centralize context formatting policy in the mixin so runtime components emit consistent nonfatal diagnostics.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "shared_runtime_patterns_not_centralized"
+    }
+  ],
+  "review_quality": {
+    "batch_count": 4,
+    "dimension_coverage": 0.333,
+    "evidence_density": 1.125,
+    "high_score_missing_issue_note": 0,
+    "finding_pressure": 28.734,
+    "dimensions_with_findings": 3
+  },
+  "review_scope": {
+    "reviewed_files_count": 116,
+    "successful_batch_count": 4,
+    "full_sweep_included": false,
+    "total_files": 520,
+    "imported_dimensions": [
+      "abstraction_fitness",
+      "design_coherence",
+      "package_organization"
+    ]
+  },
+  "reviewed_files": [
+    "src/thenvoi/adapters/langgraph.py",
+    "tests/adapters/test_crewai_adapter.py",
+    "tests/integrations/a2a/gateway/test_adapter.py",
+    "tests/bridge/test_bridge.py",
+    "tests/integrations/a2a_bridge/test_support_modules.py",
+    "tests/example_agents/a2a_gateway/test_orchestrator_executor.py",
+    "tests/bridge/test_session.py",
+    "tests/platform/test_link.py",
+    "tests/adapters/test_parlant_adapter.py",
+    "src/thenvoi/compat/shims.py",
+    "src/thenvoi/runtime/execution.py",
+    "tests/test_platform_runtime.py",
+    "tests/adapters/test_pydantic_ai_adapter.py",
+    "tests/integration/test_a2a_gateway_context.py",
+    "src/thenvoi/integrations/a2a_bridge/bridge.py",
+    "tests/adapters/test_langgraph_adapter.py",
+    "tests/integrations/a2a/test_adapter.py",
+    "tests/test_agent_contacts.py",
+    "src/thenvoi/runtime/contacts/contact_handler.py",
+    "src/thenvoi/runtime/platform_runtime.py",
+    "tests/runtime/contacts/test_handler.py",
+    "src/thenvoi/adapters/claude_sdk.py",
+    "src/thenvoi/testing/example_runners.py",
+    "src/thenvoi/adapters/codex/adapter.py",
+    "src/thenvoi/adapters/codex/adapter_tooling.py",
+    "src/thenvoi/testing/runner_core.py",
+    "src/thenvoi/adapters/codex/adapter_turn_processing.py",
+    "src/thenvoi/core/simple_adapter.py",
+    "src/thenvoi/adapters/codex/adapter_commands.py",
+    "src/thenvoi/runtime/tool_binding_factory.py",
+    "tests/support/events.py",
+    "src/thenvoi/adapters/crewai.py",
+    "src/thenvoi/integrations/codex/model_selection.py",
+    "src/thenvoi/core/protocols.py",
+    "src/thenvoi/core/types.py",
+    "src/thenvoi/example_support/bootstrap.py",
+    "src/thenvoi/runtime/tools.py",
+    "src/thenvoi/adapters/crewai_processing.py",
+    "src/thenvoi/client/streaming/client.py",
+    "src/thenvoi/core/control_plane_adapter.py",
+    "tests/core/test_protocols.py",
+    "tests/__init__.py",
+    "tests/conftest.py",
+    "tests/test_agent.py",
+    "tests/runtime/__init__.py",
+    "tests/runtime/test_custom_tools.py",
+    "tests/runtime/test_execution.py",
+    "src/thenvoi/runtime/__init__.py",
+    "src/thenvoi/runtime/contact_tools.py",
+    "src/thenvoi/runtime/custom_tools.py",
+    "README.md",
+    "pyproject.toml",
+    "tests/support/integration/markers.py",
+    "tests/support/integration/config.py",
+    "examples/common/scenario_registry.py",
+    "tests/integration/history_converters/support.py",
+    ".github/actions/GithubToken/generate_token.py",
+    "examples/a2a_bridge/01_basic_agent.py",
+    "examples/a2a_bridge/02_with_auth.py",
+    "examples/coding_agents/create_agents.py",
+    "examples/langgraph/scenarios/02_custom_tools.py",
+    "examples/langgraph/standalone/rag.py",
+    "examples/pydantic_ai/02_custom_instructions.py",
+    "examples/run_agent.py",
+    "src/thenvoi/adapters/pydantic_ai.py",
+    "src/thenvoi/config/loader.py",
+    "src/thenvoi/converters/a2a.py",
+    "src/thenvoi/converters/a2a_gateway.py",
+    "src/thenvoi/core/adapter_base.py",
+    "src/thenvoi/integrations/a2a/gateway/adapter.py",
+    "src/thenvoi/integrations/claude_sdk/session_workflow.py",
+    "src/thenvoi/integrations/claude_sdk/tool_state.py",
+    "src/thenvoi/integrations/claude_sdk/tools.py",
+    "src/thenvoi/integrations/codex/rpc_base.py",
+    "src/thenvoi/integrations/codex/stdio_client.py",
+    "src/thenvoi/integrations/codex/websocket_client.py",
+    "src/thenvoi/integrations/langgraph/graph_tools.py",
+    "src/thenvoi/integrations/langgraph/langchain_tools.py",
+    "src/thenvoi/preprocessing/default.py",
+    "src/thenvoi/preprocessing/participants.py",
+    "src/thenvoi/runtime/presence.py",
+    "src/thenvoi/runtime/shutdown.py",
+    "src/thenvoi/runtime/tool_dispatcher.py",
+    "src/thenvoi/testing/example_logging.py",
+    "src/thenvoi/testing/fake_tools.py",
+    "tests/adapters/test_codex_adapter.py",
+    "tests/integration/test_dynamic_agent.py",
+    "tests/integration/test_hub_room_strategy.py",
+    "tests/integration/test_participant_permissions.py",
+    "docker/claude_sdk/runner.py",
+    "examples/a2a_gateway/with_demo_agent.py",
+    "examples/crewai/02_role_based_agent.py",
+    "examples/crewai/03_coordinator_agent.py",
+    "examples/langgraph/scenarios/03_custom_personality.py",
+    "examples/langgraph/scenarios/04_calculator_as_tool.py",
+    "examples/langgraph/scenarios/06_delegate_to_sql_agent.py",
+    "examples/langgraph/scenarios/08_jerry_agent.py",
+    "examples/parlant/02_with_guidelines.py",
+    "examples/parlant/04_tom_agent.py",
+    "src/thenvoi/adapters/system_updates.py",
+    "src/thenvoi/core/__init__.py",
+    "src/thenvoi/core/nonfatal.py",
+    "src/thenvoi/runtime/compat/__init__.py",
+    "src/thenvoi/runtime/contacts/service.py",
+    "thenvoi-bridge/bridge_core/__init__.py",
+    "docker/shared/repo_init.py",
+    "examples/anthropic/02_custom_instructions.py",
+    "examples/anthropic/04_jerry_agent.py",
+    "src/thenvoi/adapters/anthropic.py",
+    "src/thenvoi/adapters/crewai_tooling.py",
+    "src/thenvoi/adapters/parlant.py",
+    "src/thenvoi/integrations/a2a/adapter.py",
+    "src/thenvoi/integrations/a2a/gateway/server.py",
+    "src/thenvoi/integrations/parlant/tools.py",
+    "src/thenvoi/platform/link.py",
+    "src/thenvoi/runtime/memory_service.py"
+  ],
+  "provenance": {
+    "kind": "blind_review_batch_import",
+    "blind": true,
+    "runner": "codex",
+    "run_stamp": "20260302_162256",
+    "created_at": "2026-03-02T16:25:08+00:00",
+    "batch_count": 4,
+    "batch_indexes": [
+      1,
+      2,
+      3,
+      4
+    ],
+    "packet_path": "/Users/pp/thenvoi/thenvoi-sdk-python/.desloppify/review_packet_blind.json",
+    "packet_sha256": "9d0b11474ef2b91b2c29764f35c9ec82e1570320cfed36a2630a0996cad66ba1"
+  },
+  "assessment_coverage": {
+    "scored_dimensions": [
+      "naming_quality",
+      "logic_clarity",
+      "type_safety",
+      "contract_coherence",
+      "error_consistency",
+      "abstraction_fitness",
+      "ai_generated_debt",
+      "high_level_elegance",
+      "mid_level_elegance",
+      "low_level_elegance",
+      "cross_module_architecture",
+      "initialization_coupling",
+      "convention_outlier",
+      "dependency_health",
+      "test_strategy",
+      "api_surface_coherence",
+      "authorization_consistency",
+      "incomplete_migration",
+      "package_organization",
+      "design_coherence"
+    ],
+    "selected_dimensions": [
+      "package_organization",
+      "design_coherence",
+      "abstraction_fitness"
+    ],
+    "imported_dimensions": [
+      "abstraction_fitness",
+      "design_coherence",
+      "package_organization"
+    ],
+    "missing_dimensions": [
+      "naming_quality",
+      "logic_clarity",
+      "type_safety",
+      "contract_coherence",
+      "error_consistency",
+      "ai_generated_debt",
+      "high_level_elegance",
+      "mid_level_elegance",
+      "low_level_elegance",
+      "cross_module_architecture",
+      "initialization_coupling",
+      "convention_outlier",
+      "dependency_health",
+      "test_strategy",
+      "api_surface_coherence",
+      "authorization_consistency",
+      "incomplete_migration"
+    ]
+  }
+}

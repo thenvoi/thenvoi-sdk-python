@@ -1,0 +1,95 @@
+{
+  "batch": "Governance & Contracts",
+  "batch_index": 3,
+  "assessments": {
+    "test_strategy": 76.0
+  },
+  "dimension_notes": {
+    "test_strategy": {
+      "evidence": [
+        "pyproject.toml sets default pytest addopts to \"-v -m 'not integration'\", so the default quality gate skips all integration-marked tests.",
+        "README.md documents many adapters as \"Production ready\" and provides broad framework support, but its test section only describes running unit tests separately from opt-in integration tests, with no documented required matrix per adapter/extra.",
+        "tests/support/integration/config.py includes live-environment fixtures that leave resources behind (\"We can't delete chats via agent API, so just leave it\") and uses a fixed settle delay in cleanup_contact_state(settle_delay_s=0.3), increasing non-determinism risk in repeated runs.",
+        "tests/support/integration/markers.py exposes manual decorators (requires_api/requires_multi_agent/requires_user_api), but tests/support/integration/config.py fixtures can still execute real API calls when credentials are present, with no central guard enforcing integration-only usage."
+      ],
+      "impact_scope": "codebase",
+      "fix_scope": "architectural_change",
+      "confidence": "high"
+    }
+  },
+  "findings": [
+    {
+      "dimension": "test_strategy",
+      "identifier": "default_gate_excludes_high_risk_integration_paths",
+      "summary": "Default test gate excludes integration coverage for production-ready adapter contracts.",
+      "related_files": [
+        "pyproject.toml",
+        "README.md",
+        "examples/common/bootstrap.py",
+        "examples/prompts/characters.py"
+      ],
+      "evidence": [
+        "pyproject.toml default addopts uses \"-m 'not integration'\", so integration checks are not part of default test execution.",
+        "README.md labels many frameworks/adapters as production ready, but integration execution is documented as a separate, optional step.",
+        "examples/common/bootstrap.py and examples/prompts/characters.py are high-importer example surfaces used as cross-module entry points, yet they are outside pytest testpaths and not part of a documented required contract suite."
+      ],
+      "suggestion": "Define and enforce a mandatory contract test matrix per supported adapter in the default CI gate (or a required secondary gate), and document it in README alongside the support matrix so production-ready claims are backed by required cross-module verification.",
+      "confidence": "high",
+      "impact_scope": "codebase",
+      "fix_scope": "architectural_change",
+      "root_cause_cluster": "missing_test_governance_policy"
+    },
+    {
+      "dimension": "test_strategy",
+      "identifier": "integration_fixtures_allow_stateful_leakage_and_timing_fragility",
+      "summary": "Integration fixtures encode persistent state and timing assumptions that reduce repeatability.",
+      "related_files": [
+        "tests/support/integration/config.py",
+        "README.md",
+        "tests/support/integration/markers.py"
+      ],
+      "evidence": [
+        "tests/support/integration/config.py test_chat fixture explicitly does not clean up chats after yielding, causing resource accumulation across runs.",
+        "cleanup_contact_state in tests/support/integration/config.py relies on a fixed sleep (settle_delay_s=0.3), which is susceptible to environment timing variance.",
+        "README.md promotes repeated integration runs and also documents no-clean behavior, but there is no corresponding deterministic isolation strategy described for accumulated server-side state."
+      ],
+      "suggestion": "Introduce deterministic test isolation primitives (unique resource namespaces per test run, robust polling/assertion for eventual consistency instead of fixed sleep, and periodic cleanup tooling for undeletable resources) and codify this policy in integration test docs.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "missing_test_governance_policy"
+    },
+    {
+      "dimension": "test_strategy",
+      "identifier": "manual_marker_discipline_not_enforced_for_live_api_fixtures",
+      "summary": "Live API fixture usage depends on per-test discipline instead of centralized enforcement.",
+      "related_files": [
+        "tests/support/integration/markers.py",
+        "tests/support/integration/config.py",
+        "pyproject.toml"
+      ],
+      "evidence": [
+        "tests/support/integration/markers.py provides reusable decorators, but adoption is voluntary at call sites.",
+        "tests/support/integration/config.py fixtures create real AsyncRestClient instances and perform network operations without asserting integration marking context.",
+        "With pyproject.toml default marker filtering, a test that forgets integration marking can still run in default suites if credentials are present, creating accidental external coupling."
+      ],
+      "suggestion": "Add a central pytest guard (e.g., in plugin/hooks) that fails tests using integration fixtures unless explicitly marked integration/requires_* and run under integration mode, so policy is enforced mechanically rather than by convention.",
+      "confidence": "medium",
+      "impact_scope": "codebase",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "missing_test_governance_policy"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "Test governance is convention-driven (docs + manual markers) rather than enforced by default quality gates and fixture-level policy.",
+      "Integration strategy mixes real external-state testing with weak isolation controls, creating durability and repeatability risk."
+    ],
+    "likely_symptoms": [
+      "default_gate_excludes_high_risk_integration_paths",
+      "integration_fixtures_allow_stateful_leakage_and_timing_fragility",
+      "manual_marker_discipline_not_enforced_for_live_api_fixtures"
+    ],
+    "possible_false_positives": []
+  }
+}

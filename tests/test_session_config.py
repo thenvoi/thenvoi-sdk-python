@@ -9,13 +9,13 @@ Tests cover:
 
 import pytest
 from datetime import datetime, timezone
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import MagicMock
 
 from thenvoi.runtime.types import SessionConfig
 from thenvoi.runtime.execution import ExecutionContext
 
 # Import test helpers from conftest
-from tests.conftest import make_message_event
+from tests.support.events import make_message_event
 
 
 class TestSessionConfigDefaults:
@@ -41,23 +41,9 @@ class TestGetHistoryForLLMHydrationDisabled:
     """Test get_history_for_llm() when hydration is disabled."""
 
     @pytest.fixture
-    def mock_link(self):
+    def mock_link(self, link_mock_factory):
         """Create a mock ThenvoiLink."""
-        link = MagicMock()
-        link.rest = MagicMock()
-        link.rest.agent_api_participants = MagicMock()
-        link.rest.agent_api_context = MagicMock()
-        link.rest.agent_api_participants.list_agent_chat_participants = AsyncMock(
-            return_value=MagicMock(data=[])
-        )
-        link.rest.agent_api_context.get_agent_chat_context = AsyncMock(
-            return_value=MagicMock(data=[])
-        )
-        link.get_next_message = AsyncMock(return_value=None)
-        link.mark_processing = AsyncMock()
-        link.mark_processed = AsyncMock()
-        link.mark_failed = AsyncMock()
-        return link
+        return link_mock_factory()
 
     @pytest.fixture
     def dummy_handler(self):
@@ -103,16 +89,8 @@ class TestGetHistoryForLLMHydrationEnabled:
     """Test get_history_for_llm() when hydration is enabled (default)."""
 
     @pytest.fixture
-    def mock_link(self):
+    def mock_link(self, link_mock_factory):
         """Create a mock ThenvoiLink with context data."""
-        link = MagicMock()
-        link.rest = MagicMock()
-        link.rest.agent_api_participants = MagicMock()
-        link.rest.agent_api_context = MagicMock()
-        link.rest.agent_api_participants.list_agent_chat_participants = AsyncMock(
-            return_value=MagicMock(data=[])
-        )
-
         # Mock context response
         mock_msg1 = MagicMock()
         mock_msg1.id = "msg-1"
@@ -132,14 +110,9 @@ class TestGetHistoryForLLMHydrationEnabled:
         mock_msg2.message_type = "text"
         mock_msg2.inserted_at = datetime.now(timezone.utc).isoformat()
 
-        link.rest.agent_api_context.get_agent_chat_context = AsyncMock(
-            return_value=MagicMock(data=[mock_msg1, mock_msg2])
+        return link_mock_factory(
+            context_messages=[mock_msg1, mock_msg2],
         )
-        link.get_next_message = AsyncMock(return_value=None)
-        link.mark_processing = AsyncMock()
-        link.mark_processed = AsyncMock()
-        link.mark_failed = AsyncMock()
-        return link
 
     @pytest.fixture
     def dummy_handler(self):
@@ -180,23 +153,9 @@ class TestProcessEventHydration:
     """Test _process_event() hydration behavior."""
 
     @pytest.fixture
-    def mock_link(self):
+    def mock_link(self, link_mock_factory):
         """Create a mock ThenvoiLink."""
-        link = MagicMock()
-        link.rest = MagicMock()
-        link.rest.agent_api_participants = MagicMock()
-        link.rest.agent_api_context = MagicMock()
-        link.rest.agent_api_participants.list_agent_chat_participants = AsyncMock(
-            return_value=MagicMock(data=[])
-        )
-        link.rest.agent_api_context.get_agent_chat_context = AsyncMock(
-            return_value=MagicMock(data=[])
-        )
-        link.get_next_message = AsyncMock(return_value=None)
-        link.mark_processing = AsyncMock()
-        link.mark_processed = AsyncMock()
-        link.mark_failed = AsyncMock()
-        return link
+        return link_mock_factory()
 
     @pytest.fixture
     def sample_event(self):

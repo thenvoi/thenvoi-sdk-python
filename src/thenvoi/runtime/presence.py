@@ -9,9 +9,10 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import Awaitable, Callable, Set
+from typing import Awaitable, Callable
 
 from thenvoi.client.rest import DEFAULT_REQUEST_OPTIONS
+from thenvoi.core.nonfatal import NonFatalErrorRecorder
 from thenvoi.platform.event import (
     RoomAddedEvent,
     RoomRemovedEvent,
@@ -30,7 +31,7 @@ ContactEventHandler = Callable[[ContactEvent], Awaitable[None]]
 logger = logging.getLogger(__name__)
 
 
-class RoomPresence:
+class RoomPresence(NonFatalErrorRecorder):
     """
     Manages agent's presence across rooms.
 
@@ -83,7 +84,7 @@ class RoomPresence:
         self.auto_subscribe_existing = auto_subscribe_existing
 
         # Track rooms we're present in
-        self.rooms: Set[str] = set()
+        self.rooms: set[str] = set()
 
         # Callbacks (set by user or AgentRuntime)
         self.on_room_joined: Callable[[str, dict], Awaitable[None]] | None = None
@@ -95,6 +96,7 @@ class RoomPresence:
 
         # Internal task for consuming events from link
         self._event_task: asyncio.Task | None = None
+        self._init_nonfatal_errors()
 
     async def start(self) -> None:
         """
@@ -128,8 +130,9 @@ class RoomPresence:
                 await self._on_platform_event(event)
         except asyncio.CancelledError:
             logger.debug("Event consumer task cancelled")
-        except Exception as e:
-            logger.error("Error in event consumer: %s", e, exc_info=True)
+            raise
+        except Exception as error:
+            self._record_nonfatal_error("consume_events", error)
 
     async def stop(self) -> None:
         """
@@ -141,10 +144,11 @@ class RoomPresence:
         # Cancel event consumer task
         if self._event_task and not self._event_task.done():
             self._event_task.cancel()
-            try:
-                await self._event_task
-            except asyncio.CancelledError:
-                pass
+            result = (await asyncio.gather(self._event_task, return_exceptions=True))[0]
+            if isinstance(result, asyncio.CancelledError):
+                logger.debug("RoomPresence event task cancelled during stop")
+            elif isinstance(result, Exception):
+                self._record_nonfatal_error("event_task_shutdown", result)
             self._event_task = None
 
         # Notify left for all rooms
@@ -152,8 +156,12 @@ class RoomPresence:
             if self.on_room_left:
                 try:
                     await self.on_room_left(room_id)
-                except Exception as e:
-                    logger.warning("on_room_left error for %s: %s", room_id, e)
+                except Exception as error:
+                    self._record_nonfatal_error(
+                        "on_room_left_callback",
+                        error,
+                        room_id=room_id,
+                    )
 
         self.rooms.clear()
         logger.info("RoomPresence stopped")
@@ -209,9 +217,11 @@ class RoomPresence:
         if self.on_room_joined:
             try:
                 await self.on_room_joined(room_id, payload)
-            except Exception as e:
-                logger.error(
-                    "on_room_joined error for %s: %s", room_id, e, exc_info=True
+            except Exception as error:
+                self._record_nonfatal_error(
+                    "on_room_joined_callback",
+                    error,
+                    room_id=room_id,
                 )
 
         logger.info("Agent joined room: %s", room_id)
@@ -237,8 +247,12 @@ class RoomPresence:
         if self.on_room_left:
             try:
                 await self.on_room_left(room_id)
-            except Exception as e:
-                logger.error("on_room_left error for %s: %s", room_id, e, exc_info=True)
+            except Exception as error:
+                self._record_nonfatal_error(
+                    "on_room_left_callback",
+                    error,
+                    room_id=room_id,
+                )
 
         logger.info("Agent left room: %s", room_id)
 
@@ -260,9 +274,11 @@ class RoomPresence:
         if self.on_room_event:
             try:
                 await self.on_room_event(room_id, event)
-            except Exception as e:
-                logger.error(
-                    "on_room_event error for %s: %s", room_id, e, exc_info=True
+            except Exception as error:
+                self._record_nonfatal_error(
+                    "on_room_event_callback",
+                    error,
+                    room_id=room_id,
                 )
 
     async def _handle_contact_event(self, event: ContactEvent) -> None:
@@ -275,12 +291,11 @@ class RoomPresence:
         if self.on_contact_event:
             try:
                 await self.on_contact_event(event)
-            except Exception as e:
-                logger.error(
-                    "on_contact_event error for %s: %s",
-                    type(event).__name__,
-                    e,
-                    exc_info=True,
+            except Exception as error:
+                self._record_nonfatal_error(
+                    "on_contact_event_callback",
+                    error,
+                    event_type=type(event).__name__,
                 )
 
     async def _subscribe_to_existing_rooms(self) -> None:
@@ -318,15 +333,14 @@ class RoomPresence:
                 if self.on_room_joined:
                     try:
                         await self.on_room_joined(room_id, payload)
-                    except Exception as e:
-                        logger.error(
-                            "on_room_joined error for %s: %s",
-                            room_id,
-                            e,
-                            exc_info=True,
+                    except Exception as error:
+                        self._record_nonfatal_error(
+                            "on_room_joined_callback",
+                            error,
+                            room_id=room_id,
                         )
 
             logger.info("Subscribed to %s existing rooms", len(self.rooms))
 
-        except Exception as e:
-            logger.warning("Failed to subscribe to existing rooms: %s", e)
+        except Exception as error:
+            self._record_nonfatal_error("subscribe_to_existing_rooms", error)

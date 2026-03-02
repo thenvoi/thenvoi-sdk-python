@@ -28,6 +28,11 @@ class TestFormatMessageForLlm:
         result = format_message_for_llm(msg)
         assert result["role"] == "user"
 
+    def test_mixed_case_agent_sender_maps_to_assistant(self):
+        msg = {"sender_type": "aGeNt", "content": "Hello"}
+        result = format_message_for_llm(msg)
+        assert result["role"] == "assistant"
+
     def test_fallback_sender_name_to_type(self):
         # Falls back to sender_type if no name
         msg = {"sender_type": "Agent", "content": ""}
@@ -44,6 +49,13 @@ class TestFormatMessageForLlm:
         msg = {"sender_type": "Agent", "content": "Test", "sender_name": "Bot"}
         result = format_message_for_llm(msg)
         assert result["sender_type"] == "Agent"
+        assert "type" not in result
+
+    def test_supports_canonical_type_input(self):
+        msg = {"type": "Agent", "content": "Test", "sender_name": "Bot"}
+        result = format_message_for_llm(msg)
+        assert result["sender_type"] == "Agent"
+        assert result["type"] == "Agent"
 
     def test_preserves_message_type(self):
         # text message
@@ -102,6 +114,12 @@ class TestFormatMessageForLlm:
     def test_defaults_metadata_to_empty_dict(self):
         """Should default metadata to empty dict if missing."""
         msg = {"sender_type": "Agent", "content": "Hello"}
+        result = format_message_for_llm(msg)
+        assert result["metadata"] == {}
+
+    def test_normalizes_none_metadata_to_empty_dict(self):
+        """None metadata should normalize to empty dict for converter safety."""
+        msg = {"sender_type": "Agent", "content": "Hello", "metadata": None}
         result = format_message_for_llm(msg)
         assert result["metadata"] == {}
 

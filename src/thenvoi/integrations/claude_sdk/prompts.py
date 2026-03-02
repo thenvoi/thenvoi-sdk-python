@@ -10,28 +10,7 @@ from __future__ import annotations
 from claude_agent_sdk.types import SystemPromptPreset
 
 
-def generate_claude_sdk_agent_prompt(
-    agent_name: str,
-    agent_description: str = "An AI assistant",
-    custom_section: str | None = None,
-) -> SystemPromptPreset:
-    """
-    Generate system prompt for Claude SDK agent on Thenvoi platform.
-
-    Args:
-        agent_name: Name of the agent
-        agent_description: Description of the agent
-        custom_section: Optional custom instructions to append
-
-    Returns:
-        System prompt configuration dict
-    """
-
-    custom_text = (
-        f"\n\n## Custom Instructions\n\n{custom_section}" if custom_section else ""
-    )
-
-    thenvoi_instructions = f"""
+_THENVOI_INSTRUCTIONS_TEMPLATE = """
 
 ## Thenvoi Platform Integration
 
@@ -161,6 +140,48 @@ Action: mcp__thenvoi__thenvoi_send_message
 {custom_text}
 """
 
+
+def _format_custom_section(custom_section: str | None) -> str:
+    if not custom_section:
+        return ""
+    return f"\n\n## Custom Instructions\n\n{custom_section}"
+
+
+def _build_thenvoi_instructions(
+    agent_name: str,
+    agent_description: str,
+    custom_section: str | None,
+) -> str:
+    return _THENVOI_INSTRUCTIONS_TEMPLATE.format(
+        agent_name=agent_name,
+        agent_description=agent_description,
+        custom_text=_format_custom_section(custom_section),
+    )
+
+
+def generate_claude_sdk_agent_prompt(
+    agent_name: str,
+    agent_description: str = "An AI assistant",
+    custom_section: str | None = None,
+) -> SystemPromptPreset:
+    """
+    Generate system prompt for Claude SDK agent on Thenvoi platform.
+
+    Args:
+        agent_name: Name of the agent
+        agent_description: Description of the agent
+        custom_section: Optional custom instructions to append
+
+    Returns:
+        System prompt configuration dict
+    """
+
     return SystemPromptPreset(
-        type="preset", preset="claude_code", append=thenvoi_instructions
+        type="preset",
+        preset="claude_code",
+        append=_build_thenvoi_instructions(
+            agent_name=agent_name,
+            agent_description=agent_description,
+            custom_section=custom_section,
+        ),
     )

@@ -8,11 +8,12 @@ from typing import Any
 
 from thenvoi.core.protocols import Preprocessor
 from thenvoi.core.types import AgentInput, HistoryProvider, PlatformMessage
+from thenvoi.preprocessing.participants import check_and_format_participants
 from thenvoi.platform.event import MessageEvent, PlatformEvent
 from thenvoi.runtime.execution import ExecutionContext
-from thenvoi.runtime.tools import AgentTools
 from thenvoi.runtime.formatters import format_history_for_llm
-from thenvoi.integrations.base import check_and_format_participants
+from thenvoi.runtime.tools import AgentTools
+from thenvoi.runtime.types import is_agent_sender_type
 
 logger = logging.getLogger(__name__)
 
@@ -53,7 +54,10 @@ class DefaultPreprocessor(Preprocessor):
             return None
 
         # Skip messages from self
-        if msg_data.sender_type == "Agent" and msg_data.sender_id == agent_id:
+        if (
+            is_agent_sender_type(msg_data.sender_type)
+            and msg_data.sender_id == agent_id
+        ):
             logger.debug("Room %s: Skipping own message %s", room_id, msg_data.id)
             return None
 

@@ -1,0 +1,125 @@
+{
+  "batch": "Conventions & Errors",
+  "batch_index": 2,
+  "assessments": {
+    "convention_outlier": 72.5,
+    "error_consistency": 74.0
+  },
+  "dimension_notes": {
+    "convention_outlier": {
+      "evidence": [
+        "Config-loading logic is split between `docker/shared/config_loader.py` and a second local implementation in `examples/claude_sdk_docker/runner.py`, with near-duplicate YAML/error handling and slightly different config-shaping behavior.",
+        "Sibling integration `__init__.py` files expose inconsistent public surfaces: some re-export concrete symbols (`src/thenvoi/integrations/langgraph/__init__.py`, `src/thenvoi/integrations/claude_sdk/__init__.py`, `src/thenvoi/integrations/a2a/__init__.py`) while others intentionally export nothing with `__all__: list[str] = []` (`src/thenvoi/integrations/anthropic/__init__.py`, `src/thenvoi/integrations/parlant/__init__.py`, `src/thenvoi/integrations/pydantic_ai/__init__.py`).",
+        "Example orchestrator modules are pure compatibility shims (`examples/a2a_gateway/demo_orchestrator/*.py`) while package-level orchestrator exports also exist in `src/thenvoi/integrations/a2a_gateway/orchestrator/__init__.py`, creating layered but uneven organization expectations across sibling examples."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    },
+    "error_consistency": {
+      "evidence": [
+        "`src/thenvoi/integrations/langgraph/graph_tools.py` explicitly lets subgraph errors bubble to callers, while `src/thenvoi/integrations/parlant/tools.py` catches broad exceptions in `_run_tool()` and converts failures into `ToolResult(data=...)` strings.",
+        "Runner/config paths normalize YAML/read failures to `ValueError` (`docker/shared/config_loader.py`, `examples/claude_sdk_docker/runner.py`), but prompt loading in runners (`Path.read_text()` in `docker/claude_sdk/runner.py` and `examples/claude_sdk_docker/runner.py`) is not normalized and can leak raw filesystem exceptions.",
+        "Example tool flows therefore expose mixed failure contracts in adjacent integration paths (raise vs string error payload), making caller-level handling less predictable."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "findings": [
+    {
+      "dimension": "convention_outlier",
+      "identifier": "duplicated_runner_config_path",
+      "summary": "Runner config loading convention diverged into duplicated implementations.",
+      "related_files": [
+        "docker/shared/config_loader.py",
+        "examples/claude_sdk_docker/runner.py",
+        "docker/claude_sdk/runner.py"
+      ],
+      "evidence": [
+        "`docker/shared/config_loader.py` and `examples/claude_sdk_docker/runner.py:load_config()` both perform near-identical YAML parsing and ValueError wrapping.",
+        "The shared loader supports keyed sections (`agent_key`) and copies either section/global config into a new dict, while example runner hardcodes `agent` and mutates the loaded config in place.",
+        "`docker/claude_sdk/runner.py` uses the shared loader, but example runner keeps a local variant, creating two conventions for the same responsibility."
+      ],
+      "suggestion": "Consolidate runner config loading to one shared function (prefer `docker/shared/config_loader.py`), parameterize key selection for all runners, and remove the duplicate loader in `examples/claude_sdk_docker/runner.py`.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "runner_config_duplication"
+    },
+    {
+      "dimension": "convention_outlier",
+      "identifier": "inconsistent_integration_exports",
+      "summary": "Sibling integration packages use conflicting export conventions.",
+      "related_files": [
+        "src/thenvoi/integrations/langgraph/__init__.py",
+        "src/thenvoi/integrations/claude_sdk/__init__.py",
+        "src/thenvoi/integrations/anthropic/__init__.py",
+        "src/thenvoi/integrations/parlant/__init__.py",
+        "src/thenvoi/integrations/pydantic_ai/__init__.py"
+      ],
+      "evidence": [
+        "Some integration packages expose utility symbols via `__all__` and direct imports (langgraph, claude_sdk, a2a), while others publish empty surfaces (`__all__: list[str] = []`).",
+        "This is not just naming variation; it changes whether sibling packages behave like importable facades or documentation-only placeholders.",
+        "The pattern forces users to remember package-specific import rules instead of relying on one integration package convention."
+      ],
+      "suggestion": "Define and enforce a single integration package policy (facade exports or internal-only modules), document it, then align all `src/thenvoi/integrations/*/__init__.py` files to that policy.",
+      "confidence": "medium",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "public_surface_policy_drift"
+    },
+    {
+      "dimension": "error_consistency",
+      "identifier": "mixed_tool_failure_contracts",
+      "summary": "Tool integrations mix exception bubbling and in-band string errors.",
+      "related_files": [
+        "src/thenvoi/integrations/langgraph/graph_tools.py",
+        "src/thenvoi/integrations/parlant/tools.py",
+        "examples/langgraph/standalone_calculator.py"
+      ],
+      "evidence": [
+        "`graph_as_tool()` states and implements bubble-up behavior for subgraph errors (`await graph.ainvoke(...)` without catch).",
+        "`parlant/tools.py` catches broad `Exception` in `_run_tool()` and returns `ToolResult(data=format_tool_error(...))`, converting failures into normal tool return values.",
+        "`examples/langgraph/standalone_calculator.py` raises `ValueError` for invalid operations/divide-by-zero, which propagates through the LangGraph path but would be converted to string payloads in the Parlant path."
+      ],
+      "suggestion": "Adopt one cross-integration failure contract (typed exception mapping or structured error result object) and implement adapters that normalize errors before returning to framework-specific tool layers.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "architectural_change",
+      "root_cause_cluster": "integration_error_contract_drift"
+    },
+    {
+      "dimension": "error_consistency",
+      "identifier": "runner_prompt_read_error_leak",
+      "summary": "Runner prompt-file reads bypass the loaders’ normalized error strategy.",
+      "related_files": [
+        "docker/claude_sdk/runner.py",
+        "examples/claude_sdk_docker/runner.py",
+        "docker/shared/config_loader.py"
+      ],
+      "evidence": [
+        "Both runners normalize config read/parse failures via ValueError in loader code paths.",
+        "Both runners read role prompt files with `prompt_file.read_text(...)` without local exception normalization.",
+        "A missing/unreadable prompt file in an existing path context can surface raw `OSError` while nearby config errors are wrapped uniformly, producing inconsistent boundary behavior."
+      ],
+      "suggestion": "Wrap prompt-file reads in the same normalization strategy used for config loading (e.g., catch `OSError` and raise a typed config/runtime setup error with path context).",
+      "confidence": "medium",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "runner_config_duplication"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "No single owner for runner/bootstrap behavior across docker and examples led to duplicated conventions.",
+      "Integration packages evolved with different public-surface and failure-contract assumptions without a shared policy."
+    ],
+    "likely_symptoms": [
+      "duplicated_runner_config_path",
+      "runner_prompt_read_error_leak"
+    ],
+    "possible_false_positives": []
+  }
+}

@@ -1,0 +1,103 @@
+{
+  "batch": "Architecture & Coupling",
+  "batch_index": 1,
+  "assessments": {
+    "cross_module_architecture": 74.0,
+    "high_level_elegance": 77.0
+  },
+  "dimension_notes": {
+    "cross_module_architecture": {
+      "evidence": [
+        "`tests/support/integration/contracts/cleanup.py` is a compatibility shim that re-exports private symbols (`_error_detail`, `_iter_contact_handles`, `_iter_pending_counterparty_requests`, `_is_contact_state_settled`) from `tests/support/integration/cleanup.py` and wraps calls only to preserve monkeypatch points.",
+        "`tests/integration/history_converters/support.py` imports `create_test_chat`/`no_clean` from `tests/support/integration/contracts/history.py`, adding another contract indirection layer for lifecycle helpers.",
+        "Test boundary interaction is tightly coupled to concrete internals: `tests/platform/test_link_contacts.py` patches `thenvoi.platform.link.WebSocketClient` directly and asserts via private handlers/queues, while `tests/support/fakes_link.py` mirrors a wide `ThenvoiLink` surface."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "architectural_change",
+      "confidence": "high"
+    },
+    "high_level_elegance": {
+      "evidence": [
+        "Integration support ownership is split across `tests/support/integration/cleanup.py`, `tests/support/integration/contracts/cleanup.py`, `tests/support/integration/contracts/history.py`, and `tests/integration/history_converters/support.py`, with overlapping responsibilities and re-exported APIs.",
+        "`src/thenvoi/testing/config_loader.py` mixes runtime config resolution with compatibility aliases (`resolve_platform_urls`, `load_config`), while `src/thenvoi/testing/quality_gates.py` is a CLI runner; this blurs whether `thenvoi.testing` is test-only helpers or executable tooling.",
+        "The architecture relies on compatibility wrappers rather than one canonical boundary, so consumers can import multiple equivalent entrypoints with different monkeypatch behavior."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "findings": [
+    {
+      "dimension": "cross_module_architecture",
+      "identifier": "integration_contract_shim_sprawl",
+      "summary": "Compatibility contract modules create dual APIs and private-symbol coupling in integration support.",
+      "related_files": [
+        "tests/support/integration/contracts/cleanup.py",
+        "tests/support/integration/cleanup.py",
+        "tests/support/integration/contracts/history.py",
+        "tests/integration/history_converters/support.py"
+      ],
+      "evidence": [
+        "`tests/support/integration/contracts/cleanup.py` imports `cleanup` as `cleanup_module`, re-exports multiple private helpers from that module, and adds wrapper functions explicitly to preserve monkeypatch points.",
+        "`tests/integration/history_converters/support.py` consumes `create_test_chat` and `no_clean` through `tests/support/integration/contracts/history.py` instead of a single canonical helper module.",
+        "The same integration lifecycle concerns are represented through both `contracts/*` and non-contract modules, creating parallel import paths and broader change blast radius."
+      ],
+      "suggestion": "Collapse to one canonical integration helper boundary (for example `tests/support/integration/cleanup.py` and `tests/support/integration/history.py`), expose only public helpers, and migrate callers off `contracts/*`; if monkeypatch seams are required, define explicit injectable hooks in the canonical modules rather than re-exporting private internals.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "architectural_change",
+      "root_cause_cluster": "integration_test_boundary_fragmentation"
+    },
+    {
+      "dimension": "cross_module_architecture",
+      "identifier": "test_double_surface_leaks_link_internals",
+      "summary": "Test support mocks and tests are coupled to ThenvoiLink internals instead of a narrow collaboration boundary.",
+      "related_files": [
+        "tests/support/fakes_link.py",
+        "tests/platform/test_link_contacts.py",
+        "tests/bridge/conftest.py"
+      ],
+      "evidence": [
+        "`tests/support/fakes_link.py` constructs a broad MagicMock surface spanning lifecycle, REST clients, queueing, and async iteration, mirroring many concrete attributes of `ThenvoiLink`.",
+        "`tests/platform/test_link_contacts.py` patches `thenvoi.platform.link.WebSocketClient` and validates behavior through private methods/fields such as `_on_contact_request_received` and `_event_queue`.",
+        "`tests/bridge/conftest.py` composes bridge fixtures against these concrete link mocks, reinforcing a cross-module dependency on implementation shape rather than a stable protocol."
+      ],
+      "suggestion": "Introduce a small typed test protocol for link interactions (public methods/events only), implement dedicated fakes against that protocol, and update tests to assert via public behavior instead of private handlers/queues; keep one shared fake per boundary to avoid parallel mock surfaces.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "integration_test_boundary_fragmentation"
+    },
+    {
+      "dimension": "high_level_elegance",
+      "identifier": "testing_package_owns_mixed_runtime_tooling",
+      "summary": "The `thenvoi.testing` package mixes compatibility facades and executable tooling, obscuring package purpose.",
+      "related_files": [
+        "src/thenvoi/testing/config_loader.py",
+        "src/thenvoi/testing/quality_gates.py"
+      ],
+      "evidence": [
+        "`src/thenvoi/testing/config_loader.py` imports runtime config resolution from `thenvoi.config.runtime` and re-exports compatibility aliases (`resolve_platform_urls`, `load_config`) for external runner modules.",
+        "`src/thenvoi/testing/quality_gates.py` is a subprocess-driven CLI entrypoint for repository quality gates, not a pure test helper module.",
+        "Together these modules make `thenvoi.testing` function as both compatibility API surface and command tooling, which weakens ownership clarity at package level."
+      ],
+      "suggestion": "Split package responsibilities: keep test helper APIs in `thenvoi.testing`, move command/runner entrypoints to a dedicated CLI/tooling package (or scripts module), and replace compatibility aliases with a single explicit public API plus deprecation path.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "integration_test_boundary_fragmentation"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "Compatibility shims were retained as long-lived architecture rather than temporary migration edges.",
+      "Test design prioritizes expedient patchability of concrete classes over explicit boundary interfaces."
+    ],
+    "likely_symptoms": [
+      "integration_contract_shim_sprawl",
+      "test_double_surface_leaks_link_internals"
+    ],
+    "possible_false_positives": []
+  }
+}

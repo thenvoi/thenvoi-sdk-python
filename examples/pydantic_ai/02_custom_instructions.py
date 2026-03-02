@@ -18,16 +18,12 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import os
 
-from dotenv import load_dotenv
-
-from setup_logging import setup_logging
-from thenvoi import Agent
+from thenvoi.example_support.bootstrap import bootstrap_agent
+from thenvoi.testing.example_logging import setup_logging_profile
 from thenvoi.adapters import PydanticAIAdapter
-from thenvoi.config import load_agent_config
 
-setup_logging()
+setup_logging_profile("pydantic_ai")
 logger = logging.getLogger(__name__)
 
 
@@ -49,36 +45,16 @@ When helping users:
 
 
 async def main() -> None:
-    load_dotenv()
-
-    ws_url = os.getenv("THENVOI_WS_URL")
-    rest_url = os.getenv("THENVOI_REST_URL")
-
-    if not ws_url:
-        raise ValueError("THENVOI_WS_URL environment variable is required")
-    if not rest_url:
-        raise ValueError("THENVOI_REST_URL environment variable is required")
-
-    # Load agent credentials from agent_config.yaml
-    agent_id, api_key = load_agent_config("support_agent")
-
-    # Create adapter with custom instructions
-    adapter = PydanticAIAdapter(
-        model="anthropic:claude-3-5-sonnet-latest",
-        custom_section=CUSTOM_PROMPT,
-    )
-
-    # Create and start agent
-    agent = Agent.create(
-        adapter=adapter,
-        agent_id=agent_id,
-        api_key=api_key,
-        ws_url=ws_url,
-        rest_url=rest_url,
+    session = bootstrap_agent(
+        agent_key="support_agent",
+        adapter=PydanticAIAdapter(
+            model="anthropic:claude-3-5-sonnet-latest",
+            custom_section=CUSTOM_PROMPT,
+        ),
     )
 
     logger.info("Starting support agent...")
-    await agent.run()
+    await session.agent.run()
 
 
 if __name__ == "__main__":

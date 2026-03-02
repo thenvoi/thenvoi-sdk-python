@@ -129,7 +129,7 @@ To run multiple agents, repeat steps 2-3 for each agent:
 
 ## Custom Tools
 
-Edit `tools/example_tools.py` to add your own tools:
+Edit `tools/__init__.py` (or import from another module) to add your own tools:
 
 ```python
 @tool("my_tool", "Description", {"param": str})

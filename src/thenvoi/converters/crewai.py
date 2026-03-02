@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from thenvoi.core.protocols import HistoryConverter
+from thenvoi.converters.normalized_events import TextHistoryEvent, normalize_history_events
 
 # Type alias for CrewAI messages (simple dict format)
 CrewAIMessages = list[dict[str, Any]]
@@ -47,29 +48,21 @@ class CrewAIHistoryConverter(HistoryConverter[CrewAIMessages]):
         """Convert platform history to CrewAI format."""
         messages: CrewAIMessages = []
 
-        for hist in raw:
-            message_type = hist.get("message_type", "text")
-
-            # Only convert text messages
-            if message_type != "text":
+        for event in normalize_history_events(raw):
+            if not isinstance(event, TextHistoryEvent):
                 continue
 
-            role = hist.get("role", "user")
-            content = hist.get("content", "")
-            sender_name = hist.get("sender_name", "")
-            sender_type = hist.get("sender_type", "User")
-
-            if role == "assistant" and sender_name == self._agent_name:
+            if event.role == "assistant" and event.sender_name == self._agent_name:
                 # Skip THIS agent's text (redundant with CrewAI state)
                 continue
-            elif role == "assistant":
+            elif event.role == "assistant":
                 # Other agents' messages
                 messages.append(
                     {
                         "role": "assistant",
-                        "content": content,
-                        "sender": sender_name,
-                        "sender_type": sender_type,
+                        "content": event.content,
+                        "sender": event.sender_name,
+                        "sender_type": event.sender_type,
                     }
                 )
             else:
@@ -77,11 +70,11 @@ class CrewAIHistoryConverter(HistoryConverter[CrewAIMessages]):
                 messages.append(
                     {
                         "role": "user",
-                        "content": f"[{sender_name}]: {content}"
-                        if sender_name
-                        else content,
-                        "sender": sender_name,
-                        "sender_type": sender_type,
+                        "content": f"[{event.sender_name}]: {event.content}"
+                        if event.sender_name
+                        else event.content,
+                        "sender": event.sender_name,
+                        "sender_type": event.sender_type,
                     }
                 )
 

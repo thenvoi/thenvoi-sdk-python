@@ -1,0 +1,121 @@
+{
+  "batch": "Testing & API",
+  "batch_index": 4,
+  "assessments": {
+    "test_strategy": 72.0,
+    "mid_level_elegance": 76.0
+  },
+  "dimension_notes": {
+    "test_strategy": {
+      "evidence": [
+        "src/thenvoi/integrations/codex/rpc_base.py has explicit edge-case branches for queue saturation (`except asyncio.QueueFull` in both `_dispatch_rpc_message` and `_fail_pending`) that are critical to runtime behavior but are not covered by assertions in the codex transport test suites.",
+        "src/thenvoi/integrations/codex/rpc_base.py includes malformed-input handling branches (`JSONDecodeError`, non-dict payload) that silently drop messages; these behaviors are not validated by contract tests, leaving parser behavior under malformed server payloads unspecified.",
+        "thenvoi-bridge/bridge_core/handler.py defines a broad protocol seam but has no executable contract checks in the file, so correctness of handler shape and domain constraints is deferred to downstream runtime failures."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    },
+    "mid_level_elegance": {
+      "evidence": [
+        "src/thenvoi/integrations/codex/rpc_base.py multiplexes server requests and notifications into one bounded queue (`maxsize=10_000`) and drops messages on saturation, creating lossy seam behavior at integration boundaries.",
+        "When a server request is dropped on queue saturation in `_dispatch_rpc_message`, no JSON-RPC error response is emitted, so boundary behavior is not protocol-honest for request/response handoff.",
+        "thenvoi-bridge/bridge_core/handler.py exposes unconstrained string-heavy boundary parameters (`sender_type: str`, `mentioned_agent: str`) while docs imply narrower semantics, which weakens API explicitness at module handoff seams."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "architectural_change",
+      "confidence": "high"
+    }
+  },
+  "findings": [
+    {
+      "dimension": "mid_level_elegance",
+      "identifier": "lossy_event_seam_shared_queue",
+      "summary": "A single bounded queue with drop-on-full semantics creates lossy integration handoffs for codex protocol events.",
+      "related_files": [
+        "src/thenvoi/integrations/codex/rpc_base.py",
+        "thenvoi-bridge/bridge_core/handler.py"
+      ],
+      "evidence": [
+        "BaseJsonRpcClient stores all non-response traffic in `_events = asyncio.Queue(maxsize=10_000)`.",
+        "`_dispatch_rpc_message` catches `asyncio.QueueFull` for both request and notification paths and drops messages after logging warnings.",
+        "This makes seam behavior depend on runtime pressure rather than explicit policy (backpressure/prioritization/retry), which is inconsistent for a protocol boundary."
+      ],
+      "suggestion": "Split control-plane server requests from notifications (separate queues or priority queue), define explicit overflow policy, and guarantee non-lossy handling for request-type messages.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "architectural_change",
+      "root_cause_cluster": "lossy_boundary_contracts"
+    },
+    {
+      "dimension": "mid_level_elegance",
+      "identifier": "dropped_server_request_without_error_response",
+      "summary": "Dropped server-initiated requests are not answered with JSON-RPC errors, violating predictable boundary behavior.",
+      "related_files": [
+        "src/thenvoi/integrations/codex/rpc_base.py",
+        "thenvoi-bridge/bridge_core/handler.py"
+      ],
+      "evidence": [
+        "In `_dispatch_rpc_message`, request messages (`method` + `id`) are enqueued via `put_nowait` and dropped on `QueueFull`.",
+        "On this drop path, the client only logs (`dropping server request`) and returns; it does not call `respond_error` for the corresponding request id.",
+        "At integration seams, this can leave the remote peer waiting indefinitely for a response to a valid request."
+      ],
+      "suggestion": "On request-queue overflow, immediately emit a JSON-RPC error response (e.g., overload/busy), and add bounded retries or backpressure signaling so request/response lifecycle remains explicit.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "lossy_boundary_contracts"
+    },
+    {
+      "dimension": "test_strategy",
+      "identifier": "missing_coverage_for_overflow_and_parse_edges",
+      "summary": "Critical protocol edge branches (queue overflow and malformed payload handling) are present but not contract-tested.",
+      "related_files": [
+        "src/thenvoi/integrations/codex/rpc_base.py",
+        "thenvoi-bridge/bridge_core/handler.py"
+      ],
+      "evidence": [
+        "`rpc_base.py` has explicit branches for `JSONDecodeError`, non-object JSON payloads, and event-queue overflow in two methods.",
+        "These branches govern failure semantics (drop vs surface) but are not directly asserted in transport test behavior, making regressions likely in high-load or malformed-input scenarios.",
+        "The handler seam in `handler.py` is protocol-only with no built-in executable contract checks, increasing reliance on tests to enforce boundary expectations."
+      ],
+      "suggestion": "Add focused tests that force `_events` saturation and malformed frames, assert exact behavior for each branch, and add seam-level contract tests validating expected handler boundary semantics (including invalid implementations).",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "insufficient_boundary_contract_tests"
+    },
+    {
+      "dimension": "mid_level_elegance",
+      "identifier": "stringly_typed_boundary_contracts",
+      "summary": "Public seam contracts are overly stringly/dynamic, reducing interface honesty and increasing integration ambiguity.",
+      "related_files": [
+        "thenvoi-bridge/bridge_core/handler.py",
+        "src/thenvoi/integrations/codex/rpc_base.py"
+      ],
+      "evidence": [
+        "BaseHandler `handle` accepts many unconstrained primitives (`sender_type: str`, `mentioned_agent: str`) while docs imply a small closed set for sender type.",
+        "BaseJsonRpcClient uses broad `dict[str, Any]` payload/result signatures across request/notify/respond paths without typed boundary objects.",
+        "Together, seam contracts encode behavior in docs/comments rather than enforced types or validated schemas."
+      ],
+      "suggestion": "Introduce typed boundary models/enums for stable seam fields (e.g., sender type literals/enums and typed RPC message/result models), and validate at ingress points before dispatching to handlers.",
+      "confidence": "medium",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "untyped_boundary_contracts"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "Protocol seams rely on lossy queueing and logging instead of explicit lifecycle guarantees.",
+      "Boundary contracts are under-typed and under-validated, pushing correctness checks into incidental runtime paths.",
+      "Edge-case behavior in core transport logic outpaces focused contract-level test coverage."
+    ],
+    "likely_symptoms": [
+      "lossy_event_seam_shared_queue",
+      "dropped_server_request_without_error_response",
+      "stringly_typed_boundary_contracts"
+    ],
+    "possible_false_positives": []
+  }
+}

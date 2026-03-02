@@ -29,6 +29,9 @@ dependencies = [
     "claude-agent-sdk>=0.1.16",
 ]
 
+[project.scripts]
+thenvoi-quality-gates = "thenvoi.testing.quality_gates:main"
+
 [project.optional-dependencies]
 codex = [
     "websockets>=13.0",
@@ -137,7 +140,14 @@ include-package-data = true
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
-addopts = "-v"
+addopts = "-v -m 'not integration'"
+markers = [
+    "integration: marks tests that exercise real external systems or end-to-end flows",
+    "requires_api: integration tests requiring THENVOI_API_KEY",
+    "requires_multi_agent: integration tests requiring THENVOI_API_KEY and THENVOI_API_KEY_2",
+    "requires_user_api: integration tests requiring THENVOI_API_KEY_USER",
+    "contract_gate: repository quality-gate contract checks required in CI",
+]
 
 [tool.pyrefly]
 project_includes = [

@@ -8,52 +8,13 @@ from thenvoi.runtime.execution import ExecutionContext
 from thenvoi.runtime.runtime import AgentRuntime
 
 # Import test helpers from conftest
-from tests.conftest import make_message_event
+from tests.support.events import make_message_event
 
 
 @pytest.fixture
-def mock_link():
+def mock_link(link_mock_factory):
     """Mock ThenvoiLink for testing AgentRuntime."""
-    link = MagicMock()
-    link.agent_id = "agent-123"
-    link.is_connected = False
-
-    # Async methods
-    link.connect = AsyncMock()
-    link.run_forever = AsyncMock()
-    link.subscribe_agent_rooms = AsyncMock()
-    link.subscribe_room = AsyncMock()
-    link.unsubscribe_room = AsyncMock()
-
-    # REST client mock
-    link.rest = MagicMock()
-    link.rest.agent_api_chats = MagicMock()
-    link.rest.agent_api_participants = MagicMock()
-    link.rest.agent_api_context = MagicMock()
-    link.rest.agent_api_chats.list_agent_chats = AsyncMock(
-        return_value=MagicMock(data=[])
-    )
-
-    # Message lifecycle methods
-    link.get_next_message = AsyncMock(return_value=None)
-    link.mark_processing = AsyncMock()
-    link.mark_processed = AsyncMock()
-    link.mark_failed = AsyncMock()
-
-    # Make link iterable for async for
-    async def empty_aiter():
-        return
-        yield
-
-    link.__aiter__ = lambda self: empty_aiter()
-    link.rest.agent_api_participants.list_agent_chat_participants = AsyncMock(
-        return_value=MagicMock(data=[])
-    )
-    link.rest.agent_api_context.get_agent_chat_context = AsyncMock(
-        return_value=MagicMock(data=[])
-    )
-
-    return link
+    return link_mock_factory()
 
 
 @pytest.fixture
@@ -144,6 +105,25 @@ class TestAgentRuntimeLifecycle:
         await runtime.stop()
 
         assert set(cleanup_rooms) == {"room-1", "room-2"}
+
+    async def test_stop_records_nonfatal_when_cleanup_callback_fails(
+        self, mock_link, mock_handler
+    ) -> None:
+        """Cleanup callback failures should be recorded as nonfatal errors."""
+
+        async def on_cleanup(_room_id: str) -> None:
+            raise RuntimeError("cleanup failed")
+
+        runtime = AgentRuntime(
+            mock_link, "agent-123", mock_handler, on_session_cleanup=on_cleanup
+        )
+        await runtime._create_execution("room-1")
+
+        await runtime.stop()
+
+        assert runtime.nonfatal_errors
+        assert runtime.nonfatal_errors[0]["operation"] == "session_cleanup_callback"
+        assert runtime.nonfatal_errors[0]["room_id"] == "room-1"
 
 
 class TestAgentRuntimeExecutionManagement:

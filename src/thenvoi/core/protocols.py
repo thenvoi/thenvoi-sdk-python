@@ -29,7 +29,7 @@ class HistoryConverter(Protocol[T]):
 
         Args:
             raw: Platform history from format_history_for_llm()
-                 Each dict has: role, content, sender_name, sender_type, message_type
+                 Each dict has: role, content, sender_name, type/sender_type, message_type
 
         Returns:
             Framework-specific history type
@@ -38,17 +38,8 @@ class HistoryConverter(Protocol[T]):
 
 
 @runtime_checkable
-class AgentToolsProtocol(Protocol):
-    """
-    Interface for Thenvoi platform tools.
-
-    Enables:
-    - Testable adapters via fake implementations
-    - Type-safe contracts for custom implementations
-    - Clear documentation of tool methods
-
-    Implementations: AgentTools (default), FakeAgentTools (testing)
-    """
+class MessagingToolsProtocol(Protocol):
+    """Outbound messaging/event tools needed by most adapters."""
 
     async def send_message(
         self, content: str, mentions: list[str] | list[dict[str, str]] | None = None
@@ -64,6 +55,11 @@ class AgentToolsProtocol(Protocol):
     ) -> dict[str, Any]:
         """Send an event (tool_call, tool_result, thought, error, task)."""
         ...
+
+
+@runtime_checkable
+class ParticipantToolsProtocol(Protocol):
+    """Participant/room orchestration tools."""
 
     async def add_participant(self, name: str, role: str = "member") -> dict[str, Any]:
         """Add a participant to the current room by name."""
@@ -85,29 +81,20 @@ class AgentToolsProtocol(Protocol):
         """Create a new chat room."""
         ...
 
-    def get_tool_schemas(
-        self, format: str, *, include_memory: bool = False
-    ) -> list[dict[str, Any]] | list["ToolParam"]:
-        """Get tool schemas in provider-specific format (openai/anthropic)."""
-        ...
 
-    def get_anthropic_tool_schemas(
-        self, *, include_memory: bool = False
-    ) -> list["ToolParam"]:
-        """Get tool schemas in Anthropic format (strongly typed)."""
-        ...
+@runtime_checkable
+class ChatToolsProtocol(
+    MessagingToolsProtocol,
+    ParticipantToolsProtocol,
+    Protocol,
+):
+    """Room-scoped chat operations: messaging + participant management."""
 
-    def get_openai_tool_schemas(
-        self, *, include_memory: bool = False
-    ) -> list[dict[str, Any]]:
-        """Get tool schemas in OpenAI format (strongly typed)."""
-        ...
 
-    async def execute_tool_call(self, tool_name: str, arguments: dict[str, Any]) -> Any:
-        """Execute a tool call by name with validated arguments."""
-        ...
+@runtime_checkable
+class ContactToolsProtocol(Protocol):
+    """Contact-management API tools."""
 
-    # Contact management tools
     async def list_contacts(self, page: int = 1, page_size: int = 50) -> dict[str, Any]:
         """List agent's contacts with pagination."""
         ...
@@ -142,7 +129,11 @@ class AgentToolsProtocol(Protocol):
         """Respond to a contact request (approve, reject, or cancel)."""
         ...
 
-    # Memory management tools (enterprise only)
+
+@runtime_checkable
+class MemoryToolsProtocol(Protocol):
+    """Enterprise memory tools."""
+
     async def list_memories(
         self,
         subject_id: str | None = None,
@@ -182,6 +173,88 @@ class AgentToolsProtocol(Protocol):
     async def archive_memory(self, memory_id: str) -> dict[str, Any]:
         """Archive a memory (hide but preserve)."""
         ...
+
+
+@runtime_checkable
+class PlatformToolOperationsProtocol(
+    ChatToolsProtocol,
+    ContactToolsProtocol,
+    MemoryToolsProtocol,
+    Protocol,
+):
+    """Operational tool methods used by runtime dispatch."""
+
+
+@runtime_checkable
+class ToolSchemaProviderProtocol(Protocol):
+    """Provider-specific tool schema export surface."""
+
+    def get_tool_schemas(
+        self, format: str, *, include_memory: bool = False
+    ) -> list[dict[str, Any]] | list["ToolParam"]:
+        """Get tool schemas in provider-specific format (openai/anthropic)."""
+        ...
+
+    def get_anthropic_tool_schemas(
+        self, *, include_memory: bool = False
+    ) -> list["ToolParam"]:
+        """Get tool schemas in Anthropic format (strongly typed)."""
+        ...
+
+    def get_openai_tool_schemas(
+        self, *, include_memory: bool = False
+    ) -> list[dict[str, Any]]:
+        """Get tool schemas in OpenAI format (strongly typed)."""
+        ...
+
+
+@runtime_checkable
+class ToolDispatchProtocol(Protocol):
+    """Minimal dispatch contract for adapter tool execution."""
+
+    async def execute_tool_call(self, tool_name: str, arguments: dict[str, Any]) -> Any:
+        """Execute a tool call by name with validated arguments."""
+        ...
+
+
+@runtime_checkable
+class MessagingDispatchToolsProtocol(
+    MessagingToolsProtocol,
+    ToolDispatchProtocol,
+    Protocol,
+):
+    """Common minimal tool surface for adapters that message + dispatch tools."""
+
+
+@runtime_checkable
+class AnthropicSchemaToolsProtocol(
+    MessagingDispatchToolsProtocol,
+    Protocol,
+):
+    """Common Anthropic tool surface: messaging + dispatch + Anthropic schemas."""
+
+    def get_anthropic_tool_schemas(
+        self,
+        *,
+        include_memory: bool = False,
+    ) -> list["ToolParam"]:
+        """Return Anthropic tool schemas."""
+        ...
+
+
+@runtime_checkable
+class AgentToolsProtocol(
+    PlatformToolOperationsProtocol,
+    ToolSchemaProviderProtocol,
+    ToolDispatchProtocol,
+    Protocol,
+):
+    """
+    Full Thenvoi platform tool surface.
+
+    Most adapters should type against smaller protocol slices where possible.
+    Implementations: AgentTools (default), FakeAgentTools (testing compatibility).
+    """
 
 
 @runtime_checkable

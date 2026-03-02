@@ -1,11 +1,4 @@
-"""Tests for PydanticAIHistoryConverter.
-
-Tests for shared converter behavior (user messages, agent filtering, empty
-history, edge cases) live in tests/framework_conformance/test_converter_conformance.py.
-This file contains PydanticAI-specific tool event conversion (batching,
-ModelRequest/ModelResponse types, RetryPromptPart for errors) and mixed
-history integration tests.
-"""
+"""PydanticAIHistoryConverter-specific tests (shared converter contract lives in framework_conformance)."""
 
 from pydantic_ai.messages import (
     ModelRequest,

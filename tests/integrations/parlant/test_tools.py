@@ -1,5 +1,6 @@
 """Tests for Parlant tools module."""
 
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -13,6 +14,35 @@ from thenvoi.integrations.parlant.tools import (
     set_session_tools,
     was_message_sent,
 )
+
+
+def _attach_execute_tool_call(tools: MagicMock) -> MagicMock:
+    async def _execute_tool_call(tool_name: str, args: dict[str, Any]) -> Any:
+        if tool_name == "thenvoi_send_message":
+            return await tools.send_message(args["content"], args.get("mentions"))
+        if tool_name == "thenvoi_send_event":
+            return await tools.send_event(
+                args["content"],
+                args["message_type"],
+                args.get("metadata"),
+            )
+        if tool_name == "thenvoi_add_participant":
+            return await tools.add_participant(args["name"], args.get("role", "member"))
+        if tool_name == "thenvoi_remove_participant":
+            return await tools.remove_participant(args["name"])
+        if tool_name == "thenvoi_lookup_peers":
+            return await tools.lookup_peers(
+                page=args["page"],
+                page_size=args["page_size"],
+            )
+        if tool_name == "thenvoi_get_participants":
+            return await tools.get_participants()
+        if tool_name == "thenvoi_create_chatroom":
+            return await tools.create_chatroom(args.get("task_id"))
+        raise ValueError(f"Unknown tool: {tool_name}")
+
+    tools.execute_tool_call = AsyncMock(side_effect=_execute_tool_call)
+    return tools
 
 
 class TestSessionToolsRegistry:
@@ -240,7 +270,7 @@ class TestParlantToolFunctions:
             return_value=[{"name": "User1", "type": "User"}]
         )
         tools.create_chatroom = AsyncMock(return_value="new-room-123")
-        return tools
+        return _attach_execute_tool_call(tools)
 
     @pytest.fixture
     def mock_context(self):

@@ -1,0 +1,97 @@
+{
+  "batch": "Cross-cutting Sweep",
+  "batch_index": 8,
+  "assessments": {
+    "ai_generated_debt": 74.0
+  },
+  "dimension_notes": {
+    "ai_generated_debt": {
+      "evidence": [
+        "Near-duplicate runner scaffolding appears in docker/claude_sdk/runner.py and examples/claude_sdk_docker/runner.py (same bootstrap flow, env extraction, prompt/tool loading, adapter construction, and lifecycle orchestration).",
+        "Integration tests include repeated narrative banners and step-by-step commentary/logging that restates test code behavior (tests/integration/test_multi_agent.py, tests/integration/test_websocket.py, tests/integration/test_participant_permissions.py).",
+        "Multiple adapter/converter test modules use nearly identical long preambles describing where shared tests live, with low incremental signal per file (tests/adapters/test_parlant_adapter.py, tests/adapters/test_pydantic_ai_adapter.py, tests/converters/test_anthropic.py, tests/converters/test_parlant.py, tests/converters/test_pydantic_ai.py)."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "findings": [
+    {
+      "dimension": "ai_generated_debt",
+      "identifier": "duplicated_runner_scaffold",
+      "summary": "Claude SDK runner flow is copy-pasted across production and example runners with only small parameter differences.",
+      "related_files": [
+        "docker/claude_sdk/runner.py",
+        "examples/claude_sdk_docker/runner.py",
+        "src/thenvoi/testing/config_loader.py",
+        "docker/shared/config_loader.py"
+      ],
+      "evidence": [
+        "Both runner files perform the same sequence: bootstrap config, derive model/prompt/tools/workspace/role, instantiate ClaudeSDKAdapter, create runner agent, log startup fields, and call run_agent_lifecycle().",
+        "Differences are mostly mount list and optional repo_init wiring, indicating duplication of orchestration template rather than distinct domain logic.",
+        "A compatibility wrapper (docker/shared/config_loader.py) also re-exports thin config-loading behavior, reinforcing shallow layering around duplicated runner scaffolding."
+      ],
+      "suggestion": "Extract one shared runner-template builder in thenvoi.testing.runner_core (or a dedicated runner module) that accepts a small dataclass of overrides (mounts, extra prompt sections, repo init hook), and keep docker/example entrypoints as minimal declarative specs.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "template_copy_without_composition"
+    },
+    {
+      "dimension": "ai_generated_debt",
+      "identifier": "integration_narrative_logging_bloat",
+      "summary": "Several integration tests contain excessive narration and decorative logging that duplicates executable assertions.",
+      "related_files": [
+        "tests/integration/test_multi_agent.py",
+        "tests/integration/test_websocket.py",
+        "tests/integration/test_participant_permissions.py",
+        "tests/integration/test_smoke.py"
+      ],
+      "evidence": [
+        "Tests repeatedly emit separator banners and procedural logs (\"Testing:\", repeated agent identity logs, scenario narration) before/after assertions.",
+        "Large block comments and docstrings restate what the test method body already encodes step-by-step.",
+        "Signal-to-noise is reduced in failures because many log lines are descriptive prose rather than unique diagnostic context."
+      ],
+      "suggestion": "Adopt a lean integration-test logging convention: keep only failure-relevant IDs/state snapshots, remove banner prose, and move scenario explanations to short class/module docstrings or parametrized test names.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "narrative_over_specification"
+    },
+    {
+      "dimension": "ai_generated_debt",
+      "identifier": "repeated_test_preamble_templates",
+      "summary": "Adapter/converter tests repeat long boilerplate preambles that provide little per-file specificity.",
+      "related_files": [
+        "tests/adapters/test_parlant_adapter.py",
+        "tests/adapters/test_pydantic_ai_adapter.py",
+        "tests/converters/test_anthropic.py",
+        "tests/converters/test_parlant.py",
+        "tests/converters/test_pydantic_ai.py"
+      ],
+      "evidence": [
+        "Each file starts with a similarly structured paragraph explaining that shared behavior lives elsewhere and this file contains framework-specific checks.",
+        "The repeated template text is long relative to unique content and changes rarely, creating synchronization drift risk across files.",
+        "The pattern suggests generated boilerplate propagation instead of a single canonical test documentation location."
+      ],
+      "suggestion": "Replace repeated per-file preambles with a short one-liner and centralize shared testing policy in one helper module or docs page referenced from each file.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "narrative_over_specification"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "Template-first authoring favored rapid file creation but promoted copy-paste orchestration and repetitive prose.",
+      "Lack of a single canonical documentation anchor for test intent encouraged per-file restatement."
+    ],
+    "likely_symptoms": [
+      "duplicated_runner_scaffold",
+      "integration_narrative_logging_bloat",
+      "repeated_test_preamble_templates"
+    ],
+    "possible_false_positives": []
+  }
+}

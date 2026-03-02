@@ -2,17 +2,30 @@
 
 from __future__ import annotations
 
-import json
 import logging
 from typing import TYPE_CHECKING, Any, Callable, List
 
-from langgraph.pregel import Pregel
+from thenvoi.adapters.optional_dependencies import ensure_optional_dependency
 
-from thenvoi.core.protocols import AgentToolsProtocol
-from thenvoi.core.simple_adapter import SimpleAdapter
-from thenvoi.core.types import PlatformMessage
+from thenvoi.core.nonfatal import NonFatalErrorRecorder
+from thenvoi.core.protocols import MessagingDispatchToolsProtocol
+from thenvoi.core.room_state import RoomFlagStore
+from thenvoi.core.simple_adapter import SimpleAdapter, legacy_chat_turn_compat
+from thenvoi.core.types import ChatMessageTurnContext
 from thenvoi.converters.langchain import LangChainHistoryConverter, LangChainMessages
 from thenvoi.runtime.prompts import render_system_prompt
+
+_LANGGRAPH_IMPORT_ERROR: ImportError | None = None
+_LANGGRAPH_INSTALL_COMMANDS = (
+    "pip install 'thenvoi-sdk[langgraph]'",
+    "uv add langgraph langchain-core",
+)
+
+try:
+    from langgraph.pregel import Pregel
+except ImportError as exc:
+    _LANGGRAPH_IMPORT_ERROR = exc
+    Pregel = Any
 
 if TYPE_CHECKING:
     from langchain_core.language_models import BaseChatModel
@@ -24,7 +37,20 @@ logger = logging.getLogger(__name__)
 _BOOTSTRAP_TRACKING_WARN_THRESHOLD = 1000
 
 
-class LangGraphAdapter(SimpleAdapter[LangChainMessages]):
+def _ensure_langgraph_available() -> None:
+    """Raise a consistent runtime error when LangGraph extras are missing."""
+    ensure_optional_dependency(
+        _LANGGRAPH_IMPORT_ERROR,
+        package="langgraph",
+        integration="LangGraph",
+        install_commands=_LANGGRAPH_INSTALL_COMMANDS,
+    )
+
+
+class LangGraphAdapter(
+    NonFatalErrorRecorder,
+    SimpleAdapter[LangChainMessages, MessagingDispatchToolsProtocol],
+):
     """
     LangGraph adapter using SimpleAdapter pattern.
 
@@ -71,6 +97,8 @@ class LangGraphAdapter(SimpleAdapter[LangChainMessages]):
         history_converter: LangChainHistoryConverter | None = None,
         recursion_limit: int = 50,
     ):
+        _ensure_langgraph_available()
+
         # Use default LangChain converter if not provided
         super().__init__(
             history_converter=history_converter or LangChainHistoryConverter()
@@ -78,7 +106,16 @@ class LangGraphAdapter(SimpleAdapter[LangChainMessages]):
 
         # Simple pattern: create graph_factory from llm + checkpointer
         if llm is not None and graph_factory is None and graph is None:
-            from langgraph.prebuilt import create_react_agent
+            try:
+                from langgraph.prebuilt import create_react_agent
+            except ImportError as exc:
+                ensure_optional_dependency(
+                    exc,
+                    package="langgraph.prebuilt",
+                    integration="LangGraph",
+                    install_commands=_LANGGRAPH_INSTALL_COMMANDS,
+                )
+                raise AssertionError("unreachable")
 
             additional = additional_tools or []
 
@@ -111,7 +148,8 @@ class LangGraphAdapter(SimpleAdapter[LangChainMessages]):
         # Track rooms that have already been bootstrapped to avoid injecting
         # duplicate system prompts when the checkpointer retains state across
         # reconnections (on_cleanup doesn't clear checkpointer state).
-        self._bootstrapped_rooms: set[str] = set()
+        self._bootstrapped_rooms = RoomFlagStore()
+        self._init_nonfatal_errors()
 
     async def on_started(self, agent_name: str, agent_description: str) -> None:
         """Render system prompt after agent metadata is fetched."""
@@ -124,18 +162,20 @@ class LangGraphAdapter(SimpleAdapter[LangChainMessages]):
         )
         logger.info("LangGraph adapter started for agent: %s", agent_name)
 
+    @legacy_chat_turn_compat
     async def on_message(
         self,
-        msg: PlatformMessage,
-        tools: AgentToolsProtocol,
-        history: LangChainMessages,  # Fully typed!
-        participants_msg: str | None,
-        contacts_msg: str | None,
-        *,
-        is_session_bootstrap: bool,
-        room_id: str,
+        turn: ChatMessageTurnContext[LangChainMessages, MessagingDispatchToolsProtocol],
     ) -> None:
         """Handle message with LangGraph."""
+        msg = turn.msg
+        tools = turn.tools
+        history = turn.history
+        participants_msg = turn.participants_msg
+        contacts_msg = turn.contacts_msg
+        is_session_bootstrap = turn.is_session_bootstrap
+        room_id = turn.room_id
+
         from thenvoi.integrations.langgraph.langchain_tools import (
             agent_tools_to_langchain,
         )
@@ -166,9 +206,12 @@ class LangGraphAdapter(SimpleAdapter[LangChainMessages]):
         # Only inject the system prompt once per room to avoid duplicate system
         # messages when the checkpointer retains state across reconnections.
         if is_session_bootstrap:
-            if self.graph_factory and room_id not in self._bootstrapped_rooms:
+            if self.graph_factory and self.mark_bootstrap_room(
+                self._bootstrapped_rooms,
+                room_id=room_id,
+                is_session_bootstrap=is_session_bootstrap,
+            ):
                 messages.append(("system", self._system_prompt))
-                self._bootstrapped_rooms.add(room_id)
                 if len(self._bootstrapped_rooms) == _BOOTSTRAP_TRACKING_WARN_THRESHOLD:
                     logger.warning(
                         "Bootstrap tracking has %d rooms; "
@@ -178,15 +221,15 @@ class LangGraphAdapter(SimpleAdapter[LangChainMessages]):
             if history:
                 messages.extend(history)  # Already converted by history_converter
 
-        # Inject metadata updates as user messages with [System]: prefix.
-        # Many LLM providers (including Anthropic) require a single system
-        # message at the start; additional system messages scattered through
-        # the conversation cause errors and kill provider cache savings.
-        if participants_msg:
-            messages.append(("user", f"[System]: {participants_msg}"))
-
-        if contacts_msg:
-            messages.append(("user", f"[System]: {contacts_msg}"))
+        # Inject metadata updates as user messages with canonical [System]: prefix.
+        # Many providers require a single system message at the start; additional
+        # updates are modeled as user-role metadata events.
+        self.apply_metadata_updates(
+            messages,
+            participants_msg=participants_msg,
+            contacts_msg=contacts_msg,
+            make_entry=lambda update: ("user", update),
+        )
 
         messages.append(("user", msg.format_for_llm()))
 
@@ -207,17 +250,19 @@ class LangGraphAdapter(SimpleAdapter[LangChainMessages]):
 
         except Exception as e:
             logger.error("Error processing message %s: %s", msg.id, e, exc_info=True)
-            try:
-                await tools.send_event(content=f"Error: {e}", message_type="error")
-            except Exception:
-                pass
+            await self.report_adapter_error(
+                tools,
+                error=e,
+                operation="report_error_event",
+                room_id=room_id,
+            )
             raise
 
     async def _handle_stream_event(
         self,
         event: Any,
         room_id: str,
-        tools: AgentToolsProtocol,
+        tools: MessagingDispatchToolsProtocol,
     ) -> None:
         """Handle streaming events from LangGraph."""
         event_type = event.get("event")
@@ -225,24 +270,22 @@ class LangGraphAdapter(SimpleAdapter[LangChainMessages]):
         if event_type == "on_tool_start":
             tool_name = event.get("name", "unknown")
             logger.info("[STREAM] on_tool_start: %s", tool_name)
-            try:
-                await tools.send_event(
-                    content=json.dumps(event, default=str),
-                    message_type="tool_call",
-                )
-            except Exception as e:
-                logger.warning("Failed to send tool_call event: %s", e)
+            await self.send_tool_call_event(
+                tools,
+                payload=event,
+                room_id=room_id,
+                tool_name=tool_name,
+            )
 
         elif event_type == "on_tool_end":
             tool_name = event.get("name", "unknown")
             logger.info("[STREAM] on_tool_end: %s", tool_name)
-            try:
-                await tools.send_event(
-                    content=json.dumps(event, default=str),
-                    message_type="tool_result",
-                )
-            except Exception as e:
-                logger.warning("Failed to send tool_result event: %s", e)
+            await self.send_tool_result_event(
+                tools,
+                payload=event,
+                room_id=room_id,
+                tool_name=tool_name,
+            )
 
     async def on_cleanup(self, room_id: str) -> None:
         """Clean up LangGraph state for a room."""

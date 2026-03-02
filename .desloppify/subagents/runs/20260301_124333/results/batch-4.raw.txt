@@ -1,0 +1,127 @@
+{
+  "batch": "Design coherence — Mechanical Concern Signals",
+  "batch_index": 4,
+  "assessments": {
+    "design_coherence": 78.0
+  },
+  "dimension_notes": {
+    "design_coherence": {
+      "evidence": [
+        "Adapter message-flow logic is repeatedly reimplemented with slight behavioral drift: `src/thenvoi/adapters/anthropic.py`, `src/thenvoi/adapters/pydantic_ai.py`, `src/thenvoi/adapters/crewai.py`, and `src/thenvoi/adapters/codex.py` each maintain per-room bootstrap/history state and contacts/participants injection independently.",
+        "System-update injection semantics are inconsistent across adapters: `src/thenvoi/adapters/parlant.py` prepends `[System Update]: ...` into the user message body, while `src/thenvoi/adapters/langgraph.py`, `src/thenvoi/adapters/anthropic.py`, and `src/thenvoi/adapters/pydantic_ai.py` emit separate pseudo-user `[System]: ...` messages.",
+        "Compatibility-layer files duplicate the same forwarding/deprecation structure and removal metadata across multiple packages (`src/thenvoi/adapters/a2a.py`, `src/thenvoi/adapters/a2a_gateway.py`, `src/thenvoi/runtime/compat/contact_handler.py`, `src/thenvoi/runtime/compat/contact_service.py`, `thenvoi-bridge/bridge_core/*.py`), increasing migration-path maintenance overhead.",
+        "`src/thenvoi/integrations/a2a/gateway/adapter.py` combines peer discovery, room lifecycle/context mapping, pending-task correlation, REST transport orchestration, and server lifecycle control, while `src/thenvoi/integrations/a2a/gateway/server.py` duplicates request-shape branching (SSE + JSON-RPC methods), indicating a broad responsibility boundary."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "findings": [
+    {
+      "dimension": "design_coherence",
+      "identifier": "adapter_bootstrap_pipeline_drift",
+      "summary": "Framework adapters reimplement the same session-bootstrap/history pipeline with divergent control flow, creating behavior drift and hard-to-apply cross-adapter fixes.",
+      "related_files": [
+        "src/thenvoi/adapters/anthropic.py",
+        "src/thenvoi/adapters/pydantic_ai.py",
+        "src/thenvoi/adapters/crewai.py",
+        "src/thenvoi/adapters/codex.py",
+        "src/thenvoi/core/simple_adapter.py"
+      ],
+      "evidence": [
+        "Each adapter manually performs `is_session_bootstrap` handling and room-scoped history initialization (`_message_history`/similar) instead of delegating to a shared lifecycle helper.",
+        "Each adapter has separate fallback behavior when room state is missing on non-bootstrap paths (e.g., initialize empty history), so consistency depends on many independent implementations.",
+        "Cross-cutting concerns (history injection, participants/contacts handling, cleanup expectations) are duplicated in adapter-local logic rather than centralized policy."
+      ],
+      "suggestion": "Extract a shared adapter session pipeline (e.g., in `SimpleAdapter`) that owns room-state initialization, bootstrap hydration policy, and system-message staging; keep framework adapters focused on provider-specific request/response translation only.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "architectural_change",
+      "root_cause_cluster": "missing_shared_adapter_pipeline"
+    },
+    {
+      "dimension": "design_coherence",
+      "identifier": "system_update_semantics_inconsistent",
+      "summary": "System metadata updates are encoded differently across adapters, producing inconsistent conversational semantics across frameworks.",
+      "related_files": [
+        "src/thenvoi/adapters/parlant.py",
+        "src/thenvoi/adapters/langgraph.py",
+        "src/thenvoi/adapters/anthropic.py",
+        "src/thenvoi/adapters/pydantic_ai.py",
+        "src/thenvoi/adapters/claude_sdk.py"
+      ],
+      "evidence": [
+        "`ParlantAdapter` rewrites the main user message by prepending `[System Update]: ...` blocks.",
+        "`LangGraphAdapter`, `AnthropicAdapter`, `PydanticAIAdapter`, and `ClaudeSDKAdapter` append separate `[System]: ...` messages/events instead.",
+        "The same platform signal (`participants_msg`/`contacts_msg`) therefore changes ordering and role semantics depending on adapter choice."
+      ],
+      "suggestion": "Define one canonical system-update contract (ordering, role, and prefix format) in shared integration utilities and reuse it in every adapter via a single helper.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "missing_shared_adapter_pipeline"
+    },
+    {
+      "dimension": "design_coherence",
+      "identifier": "compat_shim_sprawl",
+      "summary": "Deprecation compatibility shims are manually duplicated across many modules, creating a brittle migration surface with high drift risk.",
+      "related_files": [
+        "src/thenvoi/adapters/a2a.py",
+        "src/thenvoi/adapters/a2a_gateway.py",
+        "src/thenvoi/runtime/compat/__init__.py",
+        "src/thenvoi/runtime/compat/contact_handler.py",
+        "src/thenvoi/runtime/compat/contact_service.py",
+        "thenvoi-bridge/bridge_core/__init__.py",
+        "thenvoi-bridge/bridge_core/bridge.py",
+        "thenvoi-bridge/bridge_core/router.py",
+        "thenvoi-bridge/bridge_core/session.py",
+        "thenvoi-bridge/bridge_core/handler.py"
+      ],
+      "evidence": [
+        "Multiple shim modules repeat the same pattern (`REMOVAL_VERSION`, `_FORWARD_MAP`, `make_deprecated_getattr`) with package-specific manual string maps.",
+        "Canonical-path mapping knowledge is distributed across many files instead of a single migration manifest.",
+        "Removal-version updates and symbol moves require synchronized edits in many shim files, increasing chance of stale forwards."
+      ],
+      "suggestion": "Consolidate shims behind a central deprecation registry (or generated shim module) so forward maps and removal policy are defined once and consumed by package-level facades.",
+      "confidence": "high",
+      "impact_scope": "codebase",
+      "fix_scope": "architectural_change",
+      "root_cause_cluster": "manual_compatibility_layer_management"
+    },
+    {
+      "dimension": "design_coherence",
+      "identifier": "a2a_gateway_boundary_blur",
+      "summary": "A2A gateway orchestration mixes transport, routing, context persistence, and task correlation responsibilities in one adapter boundary.",
+      "related_files": [
+        "src/thenvoi/integrations/a2a/gateway/adapter.py",
+        "src/thenvoi/integrations/a2a/gateway/server.py",
+        "examples/a2a_gateway/01_basic_gateway.py",
+        "examples/a2a_gateway/02_with_demo_agent.py"
+      ],
+      "evidence": [
+        "`A2AGatewayAdapter` owns peer discovery, room/context mapping, pending-task state, REST messaging, and HTTP server startup/shutdown.",
+        "`GatewayServer` also carries protocol branching and serialization concerns for both legacy SSE and JSON-RPC endpoints, tightly coupled to adapter callback behavior.",
+        "Examples instantiate the adapter as the integration entrypoint, so this broad surface becomes the default extension point and raises modification risk for unrelated changes."
+      ],
+      "suggestion": "Split gateway responsibilities into explicit components (peer discovery, room-context/session manager, task correlator, transport endpoint layer) and keep `A2AGatewayAdapter` as a thin composition root.",
+      "confidence": "medium",
+      "impact_scope": "subsystem",
+      "fix_scope": "architectural_change",
+      "root_cause_cluster": "gateway_orchestration_coupling"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "Cross-framework behavior is implemented per adapter instead of through a shared message/session policy layer.",
+      "Deprecation and compatibility strategy is file-local and manual rather than registry-driven.",
+      "Gateway integration lacks a strict orchestration-vs-transport boundary."
+    ],
+    "likely_symptoms": [
+      "system_update_semantics_inconsistent",
+      "adapter_bootstrap_pipeline_drift",
+      "compat_shim_sprawl"
+    ],
+    "possible_false_positives": []
+  }
+}

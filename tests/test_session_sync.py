@@ -10,14 +10,14 @@ Tests cover:
 from __future__ import annotations
 
 import pytest
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock
 from datetime import datetime, timezone
 
 from thenvoi.runtime.execution import ExecutionContext
 from thenvoi.runtime.types import PlatformMessage, SessionConfig
 
 # Import test helpers from conftest
-from tests.conftest import make_message_event
+from tests.support.events import make_message_event
 
 
 def make_message(msg_id: str, room_id: str = "room-123") -> PlatformMessage:
@@ -36,24 +36,9 @@ def make_message(msg_id: str, room_id: str = "room-123") -> PlatformMessage:
 
 
 @pytest.fixture
-def mock_link():
+def mock_link(link_mock_factory):
     """Create mock ThenvoiLink with all required async endpoints."""
-    link = MagicMock()
-    link.rest = MagicMock()
-    link.rest.agent_api_participants = MagicMock()
-    link.rest.agent_api_context = MagicMock()
-    link.rest.agent_api_participants.list_agent_chat_participants = AsyncMock(
-        return_value=MagicMock(data=[])
-    )
-    link.rest.agent_api_context.get_agent_chat_context = AsyncMock(
-        return_value=MagicMock(data=[])
-    )
-    link.get_next_message = AsyncMock(return_value=None)
-    link.mark_processing = AsyncMock()
-    link.mark_processed = AsyncMock()
-    link.mark_failed = AsyncMock()
-    link.get_stale_processing_messages = AsyncMock(return_value=[])
-    return link
+    return link_mock_factory()
 
 
 class TestFirstWsMessageIdMarker:

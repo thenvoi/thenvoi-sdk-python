@@ -3,15 +3,20 @@
 Connect your AI agents to the Thenvoi collaborative platform.
 
 **Supported Frameworks:**
-- **LangGraph** - Production ready
-- **Pydantic AI** - Production ready
-- **Anthropic SDK** - Production ready (direct Claude integration)
-- **Claude Agent SDK** - Production ready (streaming, extended thinking)
-- **Codex App-Server** - Production ready (stdio/ws transport, OAuth)
-- **CrewAI** - Production ready (role-based agents with goals)
-- **Parlant** - Production ready (guideline-based behavior)
+- **LangGraph** - Production ready (see quality gate matrix below)
+- **Pydantic AI** - Production ready (see quality gate matrix below)
+- **Anthropic SDK** - Production ready (direct Claude integration; see quality gate matrix below)
+- **Claude Agent SDK** - Production ready (streaming, extended thinking; see quality gate matrix below)
+- **Codex App-Server** - Production ready (stdio/ws transport, OAuth; see quality gate matrix below)
+- **CrewAI** - Production ready (role-based agents with goals; see quality gate matrix below)
+- **Parlant** - Production ready (guideline-based behavior; see quality gate matrix below)
 - **A2A Adapter** - Call external A2A-compliant agents from Thenvoi
 - **A2A Gateway** - Expose Thenvoi peers as A2A protocol endpoints
+
+**Quality Gate Matrix (CI):**
+- Required on every PR: linting/format checks, unit test suite (`-m "not integration"`), and contract checks (bridge routing, bootstrap contracts, prompt contracts, integration marker policy).
+- Contract checks command (canonical): `uv run thenvoi-quality-gates`
+- Live integration contracts: executed in CI when integration secrets are configured, and runnable locally via `uv run pytest tests/integration/ -m integration -v`.
 
 ---
 
@@ -70,7 +75,7 @@ uv add "git+https://github.com/thenvoi/thenvoi-sdk-python.git"
 # Or install with specific framework support
 uv add "git+https://github.com/thenvoi/thenvoi-sdk-python.git[langgraph]"
 uv add "git+https://github.com/thenvoi/thenvoi-sdk-python.git[anthropic]"
-uv add "git+https://github.com/thenvoi/thenvoi-sdk-python.git[pydantic_ai]"
+uv add "git+https://github.com/thenvoi/thenvoi-sdk-python.git[pydantic-ai]"
 uv add "git+https://github.com/thenvoi/thenvoi-sdk-python.git[claude_sdk]"
 uv add "git+https://github.com/thenvoi/thenvoi-sdk-python.git[codex]"
 uv add "git+https://github.com/thenvoi/thenvoi-sdk-python.git[crewai]"
@@ -331,28 +336,50 @@ await agent.run()
 src/thenvoi/
 ├── agent.py                    # Agent compositor with create() factory
 │
-├── adapters/                   # Framework adapters (composition pattern)
+├── adapters/                   # Framework adapter entrypoints
+│   ├── __init__.py            # Lazy adapter export facade
 │   ├── langgraph.py           # LangGraphAdapter
 │   ├── anthropic.py           # AnthropicAdapter
 │   ├── pydantic_ai.py         # PydanticAIAdapter
 │   ├── claude_sdk.py          # ClaudeSDKAdapter
 │   ├── codex.py               # CodexAdapter
 │   ├── crewai.py              # CrewAIAdapter
+│   ├── a2a.py                 # A2AAdapter compatibility shim
+│   ├── a2a_gateway.py         # A2AGatewayAdapter compatibility shim
 │   └── parlant.py             # ParlantAdapter
 │
 ├── platform/                   # Transport layer
 │   ├── link.py                # ThenvoiLink - WebSocket + REST client
-│   └── events.py              # PlatformEvent - typed events
+│   └── event.py               # Platform event models
 │
 ├── runtime/                    # Runtime layer
-│   ├── agent_runtime.py       # AgentRuntime - convenience wrapper
-│   ├── room_presence.py       # RoomPresence - cross-room lifecycle
+│   ├── platform_runtime.py    # PlatformRuntime orchestrator
+│   ├── runtime.py             # AgentRuntime convenience wrapper
+│   ├── presence.py            # RoomPresence - cross-room lifecycle
 │   ├── execution.py           # Execution + ExecutionContext
-│   ├── agent_tools.py         # AgentTools - platform operations
+│   ├── tools.py               # AgentTools - platform operations
+│   ├── tool_bridge.py         # Shared adapter tool argument normalization
+│   ├── contacts/              # Contact subsystem (canonical implementation)
+│   │   ├── contact_handler.py # Contact event strategy routing
+│   │   ├── contact_tools.py   # Contact tools (callback strategy)
+│   │   ├── service.py         # Shared contact API service
+│   │   ├── request_cache.py   # Request enrichment cache
+│   │   └── formatting.py      # Contact/broadcast formatting
+│   ├── contact_tools.py       # Compatibility facade for contact operations
+│   ├── compat/                # Backward-compatible runtime shims
+│   │   ├── contact_handler.py # Shim -> runtime.contacts.contact_handler
+│   │   └── contact_service.py # Shim -> runtime.contacts.service
 │   ├── types.py               # PlatformMessage, configs
 │   ├── prompts.py             # System prompt rendering
 │   ├── formatters.py          # Message formatting utilities
-│   └── trackers.py            # Participant + retry tracking
+│   ├── participant_tracker.py # Participant change tracking
+│   ├── retry_tracker.py       # Retry state tracking
+│   └── shutdown.py            # Graceful runtime shutdown helpers
+│
+├── core/                       # Adapter/runtime shared protocols + types
+│   ├── protocols.py
+│   ├── simple_adapter.py
+│   └── types.py
 │
 ├── integrations/               # Framework-specific utilities
 │   ├── langgraph/
@@ -364,6 +391,22 @@ src/thenvoi/
 │   ├── claude_sdk/
 │   │   ├── session_manager.py # Per-room session management
 │   │   └── prompts.py         # Claude-specific prompts
+│   ├── codex/                 # Codex transport clients + types
+│   │   ├── stdio_client.py
+│   │   ├── websocket_client.py
+│   │   ├── rpc_base.py
+│   │   └── types.py
+│   ├── a2a_bridge/            # Bridge runtime (moved from thenvoi-bridge/)
+│   │   ├── bridge.py
+│   │   ├── router.py
+│   │   ├── session.py
+│   │   ├── handler.py
+│   │   └── health.py
+│   ├── a2a_gateway/
+│   │   └── orchestrator/      # Demo orchestrator runtime components
+│   │       ├── remote_agent.py
+│   │       ├── agent.py
+│   │       └── agent_executor.py
 │   └── a2a/
 │       ├── adapter.py         # A2AAdapter (call external A2A agents)
 │       ├── types.py           # A2A types
@@ -373,38 +416,51 @@ src/thenvoi/
 │           └── types.py       # GatewaySessionState
 │
 ├── converters/                 # History conversion utilities
-│   ├── anthropic.py           # AnthropicHistoryConverter
-│   ├── pydantic_ai.py         # PydanticAIHistoryConverter
-│   ├── claude_sdk.py          # ClaudeSDKHistoryConverter
-│   ├── codex.py               # CodexHistoryConverter
-│   ├── crewai.py              # CrewAIHistoryConverter
-│   ├── parlant.py             # ParlantHistoryConverter
-│   ├── a2a.py                 # A2AHistoryConverter
-│   └── a2a_gateway.py         # GatewayHistoryConverter
+│   ├── anthropic.py
+│   ├── pydantic_ai.py
+│   ├── claude_sdk.py
+│   ├── codex.py
+│   ├── crewai.py
+│   ├── parlant.py
+│   ├── langchain.py
+│   ├── a2a.py
+│   ├── a2a_gateway.py
+│   └── _tool_parsing.py
 │
 ├── client/                     # Low-level WebSocket client
 │   └── streaming/
 │       └── client.py
 │
-└── config/                     # Configuration utilities
-    └── loader.py
+├── config/                     # Configuration utilities
+│   └── loader.py
+│
+└── testing/                    # Shared test/example infrastructure
+    ├── example_runners.py
+    ├── example_tools.py
+    ├── example_logging.py
+    ├── runner_core.py
+    ├── tool_loading.py
+    └── fake_tools.py
 
 examples/
+├── common/                    # Shared example bootstrap helpers
+│   ├── __init__.py
+│   └── bootstrap.py
 ├── run_agent.py               # Quick-start script for any framework
-├── langgraph/                 # LangGraph examples (01-06)
-├── pydantic_ai/               # Pydantic AI examples (01-02)
-├── anthropic/                 # Anthropic SDK examples (01-02)
-├── claude_sdk/                # Claude Agent SDK examples (01-02)
+├── langgraph/                 # LangGraph examples
+├── pydantic_ai/               # Pydantic AI examples
+├── anthropic/                 # Anthropic SDK examples
+├── claude_sdk/                # Claude Agent SDK examples
 ├── codex/                     # Codex examples (01)
-├── crewai/                    # CrewAI examples (01-04)
-├── parlant/                   # Parlant examples (01-03)
+├── crewai/                    # CrewAI examples
+├── parlant/                   # Parlant examples
 ├── a2a_bridge/                # A2A Adapter examples (call external A2A agents)
 │   ├── 01_basic_agent.py      # Basic bridge setup
 │   └── 02_with_auth.py        # Bridge with authentication
 └── a2a_gateway/               # A2A Gateway examples (expose peers)
     ├── 01_basic_gateway.py    # Basic gateway setup
     ├── 02_with_demo_agent.py  # Gateway + orchestrator
-    └── demo_orchestrator/     # LangGraph orchestrator agent
+    └── demo_orchestrator/     # Compatibility wrappers for orchestrator runtime
 ```
 
 ---
@@ -915,7 +971,7 @@ uv add --optional langgraph package-name
 Unit tests run without any external dependencies:
 
 ```bash
-uv run pytest tests/ --ignore=tests/integration/
+uv run pytest tests/ -m "not integration" -v
 ```
 
 #### Integration Tests
@@ -959,21 +1015,29 @@ THENVOI_API_KEY_USER=<your-user-api-key>
 
 ```bash
 # Run all integration tests
-uv run pytest tests/integration/ -v
+uv run pytest tests/integration/ -m integration -v
 
 # Run specific test files
-uv run pytest tests/integration/test_smoke.py -v           # Basic connectivity
-uv run pytest tests/integration/test_multi_agent.py -v     # Multi-agent scenarios
-uv run pytest tests/integration/test_dynamic_agent.py -v   # Dynamic agent creation
+uv run pytest tests/integration/test_smoke.py -m integration -v           # Basic connectivity
+uv run pytest tests/integration/test_multi_agent.py -m integration -v     # Multi-agent scenarios
+uv run pytest tests/integration/test_dynamic_agent.py -m integration -v   # Dynamic agent creation
 
 # Run with output visible
-uv run pytest tests/integration/ -v -s
+uv run pytest tests/integration/ -m integration -v -s
 ```
+
+**Isolation and repeatability policy:**
+
+- Integration fixtures are run-tagged so repeated runs do not share ambiguous artifacts.  
+  Set `THENVOI_TEST_RUN_ID=<your-run-id>` to provide a deterministic namespace.
+- `test_chat` fixtures are cleaned up after each test by default (unless `--no-clean` / `THENVOI_TEST_NO_CLEAN=1` is set).
+- Contact-state cleanup uses bounded polling for eventual consistency instead of fixed sleeps, which reduces timing flakiness across environments.
 
 **3. Run all tests (unit + integration):**
 
 ```bash
-uv run pytest tests/ -v
+uv run pytest tests/ -m "not integration" -v
+uv run pytest tests/integration/ -m integration -v
 ```
 
 Tests will automatically skip if required credentials are not configured.

@@ -1,0 +1,132 @@
+{
+  "batch": "Governance & Contracts",
+  "batch_index": 3,
+  "assessments": {
+    "cross_module_architecture": 68.0
+  },
+  "dimension_notes": {
+    "cross_module_architecture": {
+      "evidence": [
+        "README install instructions use extra `pydantic_ai` (`uv add \"...git[pydantic_ai]\"`) while `pyproject.toml` defines `pydantic-ai` under `[project.optional-dependencies]`, creating a documented-vs-runtime package contract mismatch.",
+        "README package map documents `platform/events.py`, but the actual module in the codebase is `src/thenvoi/platform/event.py`, so documented architecture boundaries do not match import/runtime boundaries.",
+        "`pyproject.toml` excludes `examples/**` and `thenvoi-bridge/**` from pyrefly checks, while README presents A2A Gateway/bridge paths as first-class workflows, leaving marketed cross-module integration surfaces outside typed quality gates.",
+        "`examples/a2a_gateway/demo_orchestrator/agent.py` uses process-global mutable `_gateway_client` for the tool function, creating hidden cross-instance coupling across orchestrator objects that should be isolated by instance boundary."
+      ],
+      "impact_scope": "codebase",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "findings": [
+    {
+      "dimension": "cross_module_architecture",
+      "identifier": "extras_contract_name_drift",
+      "summary": "README documents an optional dependency key that does not exist in package metadata, breaking the install contract across modules.",
+      "related_files": [
+        "README.md",
+        "pyproject.toml"
+      ],
+      "evidence": [
+        "README installation commands include `git+https://github.com/thenvoi/thenvoi-sdk-python.git[pydantic_ai]`.",
+        "`pyproject.toml` defines the extra as `pydantic-ai` (hyphen), not `pydantic_ai` (underscore).",
+        "This mismatch makes docs-driven installs fail or select the wrong dependency target."
+      ],
+      "suggestion": "Normalize extra naming to one canonical form and enforce it with a CI docs-check (e.g., script validating README extras against `[project.optional-dependencies]` keys) so package and documentation contracts cannot drift.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "single_edit",
+      "root_cause_cluster": "contract_governance_drift"
+    },
+    {
+      "dimension": "cross_module_architecture",
+      "identifier": "architecture_map_vs_runtime_drift",
+      "summary": "README’s package topology references modules that differ from runtime paths, reducing trust in documented boundaries.",
+      "related_files": [
+        "README.md",
+        "tests/conftest.py"
+      ],
+      "evidence": [
+        "README package structure lists `platform/events.py`.",
+        "Tests import event types from `thenvoi.platform.event` (singular), matching runtime module `src/thenvoi/platform/event.py`.",
+        "The public architecture map is therefore inconsistent with actual import boundaries used by code."
+      ],
+      "suggestion": "Generate or validate the package-structure section from real filesystem/import paths in CI so docs reflect actual module boundaries and avoid stale architecture contracts.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "contract_governance_drift"
+    },
+    {
+      "dimension": "cross_module_architecture",
+      "identifier": "quality_gate_boundary_gap",
+      "summary": "Cross-module surfaces presented as production workflows are excluded from type-check quality gates.",
+      "related_files": [
+        "README.md",
+        "pyproject.toml",
+        "thenvoi-bridge/bridge_core/session.py",
+        "examples/a2a_gateway/demo_orchestrator/agent.py"
+      ],
+      "evidence": [
+        "README marks multiple integrations as production-ready and documents A2A bridge/gateway workflows.",
+        "`pyproject.toml` pyrefly config excludes `examples/**` and `thenvoi-bridge/**` entirely.",
+        "Assigned bridge/orchestrator modules therefore sit outside static typing gates despite being key cross-module contract demonstrations."
+      ],
+      "suggestion": "Split demo-only scripts from contract-bearing integration modules, then include contract-bearing paths (at least `thenvoi-bridge/bridge_core/**` and orchestrator library modules) in a separate strict type-check job.",
+      "confidence": "high",
+      "impact_scope": "codebase",
+      "fix_scope": "architectural_change",
+      "root_cause_cluster": "contract_governance_drift"
+    },
+    {
+      "dimension": "cross_module_architecture",
+      "identifier": "global_gateway_client_coupling",
+      "summary": "The orchestrator tool layer is bound to a process-global gateway client, creating hidden cross-instance coupling and boundary leakage.",
+      "related_files": [
+        "examples/a2a_gateway/demo_orchestrator/agent.py",
+        "examples/a2a_gateway/demo_orchestrator/remote_agent.py"
+      ],
+      "evidence": [
+        "`agent.py` defines module-global `_gateway_client` and mutates it in `set_gateway_client()` during each `OrchestratorAgent` initialization.",
+        "`call_peer_agent` uses that global instead of instance state, so multiple orchestrators in one process share/overwrite transport target implicitly.",
+        "`remote_agent.py` models `GatewayClient` as an instance object, but the tool binding bypasses instance encapsulation."
+      ],
+      "suggestion": "Eliminate module-global tool state by binding tool functions per agent instance (closure or class-bound tool factory) so each orchestrator owns its own `GatewayClient` and concurrency isolation is explicit.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "architectural_change",
+      "root_cause_cluster": "stateful_boundary_leakage"
+    },
+    {
+      "dimension": "cross_module_architecture",
+      "identifier": "implicit_lifecycle_dependency_for_eviction",
+      "summary": "Bridge session eviction depends on an external healthcheck loop, but that lifecycle dependency is only implicit in code comments.",
+      "related_files": [
+        "thenvoi-bridge/bridge_core/session.py",
+        "README.md"
+      ],
+      "evidence": [
+        "`InMemorySessionStore` performs TTL eviction only on `list_sessions()`/`count()`, not on `get()`/`get_or_create()` hot paths.",
+        "Docstring states production behavior relies on Docker healthcheck polling `/health` every 30s to trigger eviction.",
+        "README does not define this as a required runtime contract for bridge deployments, so module boundary responsibilities are implicit rather than enforced."
+      ],
+      "suggestion": "Make eviction lifecycle explicit in architecture contracts by either adding an internal background eviction task in bridge runtime or documenting/enforcing healthcheck requirements in bridge setup docs and deployment checks.",
+      "confidence": "medium",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "stateful_boundary_leakage"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "No automated contract check between documentation and packaging/runtime module map.",
+      "Boundary ownership is blurred between demo code and production-signaled integration surfaces.",
+      "State lifecycle assumptions are encoded in comments rather than enforceable runtime architecture."
+    ],
+    "likely_symptoms": [
+      "extras_contract_name_drift",
+      "architecture_map_vs_runtime_drift",
+      "quality_gate_boundary_gap"
+    ],
+    "possible_false_positives": []
+  }
+}

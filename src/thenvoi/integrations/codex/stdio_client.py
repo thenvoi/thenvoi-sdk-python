@@ -10,6 +10,8 @@ import shutil
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from typing import Any
 
+from thenvoi.integrations.lifecycle import AsyncIntegrationLifecycle
+
 from .rpc_base import BaseJsonRpcClient, OverloadRetryPolicy
 
 logger = logging.getLogger(__name__)
@@ -39,8 +41,14 @@ class CodexStdioClient(BaseJsonRpcClient):
             self.env = merged_env
 
         self._proc: asyncio.subprocess.Process | None = None
-        self._reader_task: asyncio.Task[None] | None = None
-        self._stderr_task: asyncio.Task[None] | None = None
+        self._reader_task: asyncio.Task[Any] | None = None
+        self._stderr_task: asyncio.Task[Any] | None = None
+        self._lifecycle = AsyncIntegrationLifecycle(
+            owner="Codex stdio client",
+            logger=logger,
+            on_task_error=self._on_lifecycle_task_error,
+            fail_pending_operations=self._fail_pending,
+        )
 
     @staticmethod
     def _default_codex_command() -> tuple[str, str, str, str]:
@@ -76,8 +84,14 @@ class CodexStdioClient(BaseJsonRpcClient):
                 "Install Codex CLI or configure CodexAdapterConfig.codex_command."
             ) from exc
         self._connected = True
-        self._reader_task = asyncio.create_task(self._read_stdout_loop())
-        self._stderr_task = asyncio.create_task(self._read_stderr_loop())
+        self._reader_task = self._lifecycle.spawn_task(
+            "stdout_reader",
+            self._read_stdout_loop(),
+        )
+        self._stderr_task = self._lifecycle.spawn_task(
+            "stderr_reader",
+            self._read_stderr_loop(),
+        )
 
     async def close(self) -> None:
         """Stop read loops and terminate process."""
@@ -85,13 +99,11 @@ class CodexStdioClient(BaseJsonRpcClient):
             return
         self._connected = False
 
-        for task in (self._reader_task, self._stderr_task):
-            if task is not None:
-                task.cancel()
-                try:
-                    await task
-                except asyncio.CancelledError:
-                    pass
+        await self._lifecycle.shutdown(
+            fail_pending_reason="Codex stdio client closed",
+        )
+        self._reader_task = None
+        self._stderr_task = None
 
         if self._proc and self._proc.stdin:
             self._proc.stdin.close()
@@ -103,7 +115,12 @@ class CodexStdioClient(BaseJsonRpcClient):
                 self._proc.kill()
                 await self._proc.wait()
 
-        self._fail_pending("Codex stdio client closed")
+    def _on_lifecycle_task_error(self, task_name: str, error: Exception) -> None:
+        logger.warning(
+            "Codex stdio background task '%s' exited with error during shutdown: %s",
+            task_name,
+            error,
+        )
 
     async def _send_json(self, payload: dict[str, Any]) -> None:
         if not self._proc or not self._proc.stdin:
@@ -147,3 +164,4 @@ class CodexStdioClient(BaseJsonRpcClient):
             raise
         except Exception:
             logger.exception("Codex stderr loop failed")
+            self._fail_pending("Codex stderr loop failed")

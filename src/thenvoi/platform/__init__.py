@@ -1,15 +1,19 @@
-"""
-Thenvoi Platform Layer - Wire-level connection to Thenvoi platform.
+"""Thenvoi platform namespace with lazy compatibility exports."""
 
-Components:
-    ThenvoiLink: WebSocket connection + event dispatch (REST via .rest)
-    PlatformEvent: Single event type for all platform events
-"""
+from __future__ import annotations
 
-from .event import PlatformEvent
-from .link import ThenvoiLink
+from typing import Any
 
-__all__ = [
-    "ThenvoiLink",
-    "PlatformEvent",
-]
+__all__ = ["ThenvoiLink", "PlatformEvent"]
+
+
+def __getattr__(name: str) -> Any:
+    if name == "ThenvoiLink":
+        from .link import ThenvoiLink
+
+        return ThenvoiLink
+    if name == "PlatformEvent":
+        from .event import PlatformEvent
+
+        return PlatformEvent
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

@@ -1,0 +1,94 @@
+{
+  "batch": "Package Organization",
+  "batch_index": 5,
+  "assessments": {
+    "package_organization": 78.0
+  },
+  "dimension_notes": {
+    "package_organization": {
+      "evidence": [
+        "The runtime package keeps legacy entry points `src/thenvoi/runtime/contact_handler.py` and `src/thenvoi/runtime/contact_service.py` as compatibility shims while canonical implementations live under `src/thenvoi/runtime/contacts/`, creating two valid locations for the same contact domain.",
+        "`tests/runtime/test_broadcast_changes.py` imports `thenvoi.runtime.contact_handler` (shim path), while production wiring in `src/thenvoi/runtime/platform_runtime.py` (from holistic context) imports `thenvoi.runtime.contacts.contact_handler`, showing split import affinity for one subsystem.",
+        "Holistic structure signals show flat overload in `tests/runtime/` (16 files), and assigned files `tests/runtime/test_broadcast_changes.py` and `tests/runtime/test_contact_config.py` are contact-domain tests that are not colocated with a contact-focused subfolder.",
+        "`src/thenvoi/runtime/__init__.py` exposes a broad barrel surface across multiple concerns (execution, tools, prompts, trackers, shutdown) but contact domain is separately nested under `runtime/contacts`, which weakens directory boundary clarity for runtime subdomains."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "findings": [
+    {
+      "dimension": "package_organization",
+      "identifier": "runtime_contact_dual_home",
+      "summary": "Contact runtime functionality is split between canonical package and root-level compatibility shims.",
+      "related_files": [
+        "src/thenvoi/runtime/contact_handler.py",
+        "src/thenvoi/runtime/contact_service.py",
+        "tests/runtime/test_broadcast_changes.py"
+      ],
+      "evidence": [
+        "`src/thenvoi/runtime/contact_handler.py` and `src/thenvoi/runtime/contact_service.py` contain only re-exports to `thenvoi.runtime.contacts.*` but still provide first-class import paths.",
+        "Tests continue importing the shim path (`from thenvoi.runtime.contact_handler import ContactEventHandler`) instead of canonical `thenvoi.runtime.contacts.contact_handler`.",
+        "This creates import-affinity drift inside one domain: both legacy and canonical paths are active, obscuring ownership boundaries."
+      ],
+      "suggestion": "Stage reorg in three steps: (1) create `src/thenvoi/runtime/compat/` and move shim modules there (`contact_handler.py`, `contact_service.py`) to make compatibility explicit; (2) update internal/test imports to canonical paths first (`thenvoi.runtime.contacts.contact_handler` / `.service`) using `rg -n \"thenvoi\\.runtime\\.contact_(handler|service)\" src tests`; (3) keep temporary forwarding imports only in `runtime/compat` and remove root-level shims after one release. Validate with `uv run pytest tests/runtime/test_broadcast_changes.py tests/runtime/test_contact_config.py -q` and re-check imports with `rg -n \"thenvoi\\.runtime\\.contact_(handler|service)\" src tests`.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "contacts_migration_boundary_blur"
+    },
+    {
+      "dimension": "package_organization",
+      "identifier": "runtime_tests_not_mirroring_contact_subpackage",
+      "summary": "Contact-domain runtime tests are stored in a flat runtime test folder instead of a contact-focused subtree.",
+      "related_files": [
+        "tests/runtime/test_broadcast_changes.py",
+        "tests/runtime/test_contact_config.py",
+        "src/thenvoi/runtime/contact_handler.py"
+      ],
+      "evidence": [
+        "Both assigned runtime tests target contact-event behavior/config but live directly under `tests/runtime/`.",
+        "Holistic structure reports `tests/runtime/` has 16 files, exceeding the flat-directory overload threshold and mixing multiple runtime concerns.",
+        "Because contact code is now explicitly nested under `src/thenvoi/runtime/contacts/`, flat test placement weakens navigability and owner mapping."
+      ],
+      "suggestion": "Stage reorg: (1) create `tests/runtime/contacts/` with `__init__.py`; (2) move `test_broadcast_changes.py` then `test_contact_config.py` into that folder; (3) normalize imports in moved files to canonical contact paths and keep only test-layer fixtures in parent runtime folder. Run `uv run pytest tests/runtime/contacts -q` and `uv run pytest tests/runtime -q` to validate no discovery regressions.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "contacts_migration_boundary_blur"
+    },
+    {
+      "dimension": "package_organization",
+      "identifier": "runtime_barrel_masks_subdomain_boundaries",
+      "summary": "Large `runtime/__init__.py` barrel blends multiple runtime concerns and weakens package boundary discoverability.",
+      "related_files": [
+        "src/thenvoi/runtime/__init__.py",
+        "src/thenvoi/runtime/contact_handler.py",
+        "src/thenvoi/runtime/contact_service.py"
+      ],
+      "evidence": [
+        "`src/thenvoi/runtime/__init__.py` re-exports many symbols spanning execution, tools, formatting, prompts, trackers, and shutdown.",
+        "At the same time, contact functionality is split into dedicated subpackage plus root shim files, so the top-level package surface no longer maps cleanly to directory ownership.",
+        "New contributors can discover multiple valid entry points (`runtime.*`, `runtime.contacts.*`, shim modules), increasing boundary ambiguity."
+      ],
+      "suggestion": "Use a staged package-surface reorg: (1) restrict `src/thenvoi/runtime/__init__.py` to stable runtime-core exports only; (2) create explicit subpackage facades (`src/thenvoi/runtime/contacts/__init__.py`) for contact-domain APIs; (3) route legacy imports through `runtime/compat` and document sunset. Validate by running `rg -n \"from thenvoi\\.runtime import\" src tests` to update callers, then `uv run pytest tests/runtime/test_broadcast_changes.py tests/runtime/test_contact_config.py tests/integration/test_hub_room_strategy.py -q`.",
+      "confidence": "medium",
+      "impact_scope": "subsystem",
+      "fix_scope": "architectural_change",
+      "root_cause_cluster": "contacts_migration_boundary_blur"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "Incomplete packaging migration for contact runtime components left compatibility paths colocated with canonical paths.",
+      "Runtime test layout remained flat while production code introduced deeper subdomain structure."
+    ],
+    "likely_symptoms": [
+      "runtime_contact_dual_home",
+      "runtime_tests_not_mirroring_contact_subpackage",
+      "runtime_barrel_masks_subdomain_boundaries"
+    ],
+    "possible_false_positives": []
+  }
+}

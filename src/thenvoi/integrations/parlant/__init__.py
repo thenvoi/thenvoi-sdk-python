@@ -1,32 +1,23 @@
-"""
-Parlant SDK integration for Thenvoi SDK.
+"""Parlant integration internals used by the Parlant adapter."""
 
-This module provides the integration with the official Parlant SDK
-(https://github.com/emcie-co/parlant) for building guideline-based
-conversational AI agents.
+from __future__ import annotations
 
-Usage:
-    import parlant.sdk as p
-    from thenvoi import Agent
-    from thenvoi.adapters import ParlantAdapter
+from thenvoi.integrations.parlant.tools import (
+    create_parlant_tools,
+    get_current_tools,
+    get_session_tools,
+    mark_message_sent,
+    set_current_tools,
+    set_session_tools,
+    was_message_sent,
+)
 
-    async with p.Server() as server:
-        agent = await server.create_agent(
-            name="Assistant",
-            description="A helpful assistant",
-        )
-
-        adapter = ParlantAdapter(
-            server=server,
-            parlant_agent=agent,
-        )
-
-        thenvoi_agent = Agent.create(
-            adapter=adapter,
-            agent_id="...",
-            api_key="...",
-        )
-        await thenvoi_agent.run()
-"""
-
-__all__: list[str] = []
+__all__: tuple[str, ...] = (
+    "create_parlant_tools",
+    "get_current_tools",
+    "get_session_tools",
+    "mark_message_sent",
+    "set_current_tools",
+    "set_session_tools",
+    "was_message_sent",
+)

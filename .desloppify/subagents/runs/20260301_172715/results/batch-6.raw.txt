@@ -1,0 +1,143 @@
+{
+  "batch": "Governance & Contracts",
+  "batch_index": 6,
+  "assessments": {
+    "cross_module_architecture": 78.0,
+    "high_level_elegance": 74.0,
+    "test_strategy": 76.0,
+    "package_organization": 72.0
+  },
+  "dimension_notes": {
+    "cross_module_architecture": {
+      "evidence": [
+        "`tests/support/integration/config.py` reaches into private plugin internals via `_enforce_live_fixture_policy`, `_is_integration_mode`, `_is_truthy_env` imported from `tests.support.integration.plugin`.",
+        "The same integration gating concern is split across `tests/support/integration/markers.py` decorators and fixture-time behavior in `tests/support/integration/config.py`, creating multiple boundary entry points for the same policy."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    },
+    "high_level_elegance": {
+      "evidence": [
+        "`README.md` states PR-required quality gates including contract checks, but `pyproject.toml` default pytest `addopts = \"-v -m 'not integration'\"` does not encode contract-gate execution, so governance is not self-describing in local defaults.",
+        "Governance-critical reusable contracts (`examples/common/bootstrap.py`, `examples/prompts/characters.py`) live under `examples/` while being treated as shared contract surfaces by tests and docs, blurring whether they are demos or maintained API-like assets."
+      ],
+      "impact_scope": "codebase",
+      "fix_scope": "architectural_change",
+      "confidence": "medium"
+    },
+    "test_strategy": {
+      "evidence": [
+        "`tests/support/integration/markers.py` defines explicit integration decorators, but `tests/support/integration/config.py` also performs fixture-time `pytest.skip(...)` based on env keys, enabling accidental unmarked integration tests to report as skipped instead of failing policy.",
+        "`tests/support/integration/config.py` is a large multi-responsibility fixture module (settings, cleanup policy, peer selection, resource lifecycle), increasing chance of policy regressions without focused tests on each policy boundary."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    },
+    "package_organization": {
+      "evidence": [
+        "Holistic structure signals show `examples/common/` (avg fan-in 8.0) and `examples/prompts/` (avg fan-in 6.5) as high-reuse hubs imported by many example directories and tests, yet both are placed under `examples/` (script-oriented area).",
+        "Import graph top-imported files include `examples/common/bootstrap.py` (16 importers) and `examples/prompts/characters.py` (13 importers), indicating these are de facto shared library modules, not one-off example leaves.",
+        "Coupling matrix shows repeated edges from many example directories into these hubs, reinforcing a package role mismatch between location and ownership."
+      ],
+      "impact_scope": "codebase",
+      "fix_scope": "architectural_change",
+      "confidence": "high"
+    }
+  },
+  "findings": [
+    {
+      "dimension": "cross_module_architecture",
+      "identifier": "private_plugin_contract_leak",
+      "summary": "Integration config depends on private plugin symbols, creating fragile cross-module contracts.",
+      "related_files": [
+        "tests/support/integration/config.py",
+        "tests/support/integration/plugin.py",
+        "tests/support/integration/markers.py"
+      ],
+      "evidence": [
+        "`tests/support/integration/config.py` binds `_enforce_live_fixture_policy`, `_is_integration_mode`, and `_is_truthy_env` from `tests.support.integration.plugin` using private-name imports.",
+        "Private-name reach-in bypasses explicit module contracts and increases break risk when plugin internals change.",
+        "Marker and fixture policy logic are split across multiple modules, increasing boundary ambiguity."
+      ],
+      "suggestion": "Promote a public policy API in `tests/support/integration/plugin.py` (for example `integration_policy.py` exports), update `config.py` and `markers.py` to consume only public functions/constants, and add a small contract test asserting policy API behavior and import stability.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "contract_governance_fragmentation"
+    },
+    {
+      "dimension": "high_level_elegance",
+      "identifier": "quality_gate_policy_not_self_enforced",
+      "summary": "README governance promises are not encoded in repository-local default execution paths.",
+      "related_files": [
+        "README.md",
+        "pyproject.toml",
+        "tests/support/integration/markers.py"
+      ],
+      "evidence": [
+        "`README.md` says contract checks are required on every PR and points to `uv run pytest -m contract_gate -v`.",
+        "`pyproject.toml` default pytest options are `-m 'not integration'` and do not include `contract_gate`, so default local test runs can miss declared required contracts.",
+        "Policy intent exists in docs and marker definitions, but execution defaults do not force/compose the policy."
+      ],
+      "suggestion": "Make governance executable: add a dedicated test alias/script (for example `test:quality-gates`) in project tooling, include `contract_gate` in that canonical command, and reference exactly one authoritative command in README and CI so docs/runtime policy cannot drift.",
+      "confidence": "medium",
+      "impact_scope": "codebase",
+      "fix_scope": "architectural_change",
+      "root_cause_cluster": "contract_governance_fragmentation"
+    },
+    {
+      "dimension": "test_strategy",
+      "identifier": "integration_gating_is_split_and_bypassable",
+      "summary": "Integration test admission policy is duplicated between markers and fixture-time skips.",
+      "related_files": [
+        "tests/support/integration/markers.py",
+        "tests/support/integration/config.py"
+      ],
+      "evidence": [
+        "Marker decorators (`requires_api`, `requires_multi_agent`, `requires_user_api`) encode env requirements.",
+        "Fixtures in `config.py` independently call `pytest.skip(...)` when env vars are absent, allowing tests without required markers to still pass as skipped.",
+        "This creates two policy layers with different enforcement points, weakening detection of mis-marked tests."
+      ],
+      "suggestion": "Centralize admission in one layer: enforce marker presence for live fixtures (hard-fail on missing marker in integration mode), keep env-check logic in a shared policy function, and reserve fixture skips only for explicitly marked integration tests.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "contract_governance_fragmentation"
+    },
+    {
+      "dimension": "package_organization",
+      "identifier": "shared_contract_modules_live_under_examples",
+      "summary": "High-fan-in reusable modules are located in `examples/`, obscuring ownership boundaries.",
+      "related_files": [
+        "examples/common/bootstrap.py",
+        "examples/prompts/characters.py",
+        "README.md",
+        "pyproject.toml"
+      ],
+      "evidence": [
+        "`examples/common/bootstrap.py` and `examples/prompts/characters.py` are among top-imported files (16 and 13 importers respectively), used across multiple framework examples and tests.",
+        "Holistic directory profiles classify `examples/prompts/` as script zone while these files behave like shared contracts.",
+        "Current placement implies demo scope even though repo governance treats them as contract-check targets."
+      ],
+      "suggestion": "Staged reorg plan: 1) create `src/thenvoi/example_support/bootstrap.py` and `src/thenvoi/example_support/prompts/characters.py`; 2) move logic there while leaving thin compatibility shims in old `examples/` paths; 3) update imports in framework examples and tests to new package paths; 4) remove shims after one release cycle. Validate with `uv run ruff check . --fix`, `uv run pyrefly check`, `uv run pytest tests/ --ignore=tests/integration/ -v`, and `uv run pytest -m contract_gate -v`.",
+      "confidence": "high",
+      "impact_scope": "codebase",
+      "fix_scope": "architectural_change",
+      "root_cause_cluster": "contract_governance_fragmentation"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "Governance rules are distributed across docs, markers, and fixtures instead of one executable policy surface.",
+      "Reusable contract artifacts are placed in example-oriented directories, causing ownership and boundary ambiguity."
+    ],
+    "likely_symptoms": [
+      "private_plugin_contract_leak",
+      "integration_gating_is_split_and_bypassable",
+      "shared_contract_modules_live_under_examples"
+    ],
+    "possible_false_positives": []
+  }
+}

@@ -1,0 +1,455 @@
+{
+  "assessments": {
+    "convention_outlier": 50.0,
+    "cross_module_architecture": 46.8
+  },
+  "dimension_notes": {
+    "cross_module_architecture": {
+      "evidence": [
+        ".github/actions/GithubToken/generate_token.py executes env reads, JWT generation, network I/O (`requests.post`), and file writes at module import time (lines 10-56), making import side effects unavoidable.",
+        "examples/a2a_bridge/02_with_auth.py and examples/a2a_gateway/01_basic_gateway.py call `setup_logging()` at module import time (lines 30 and 59), so importing these scripts mutates global logging configuration outside explicit entrypoint control.",
+        "tests/integration/conftest.py is a re-export hub importing many fixtures/markers from another module (lines 9-34), while tests/integration/test_smoke.py imports from that conftest module (line 8), coupling test modules to pytest wiring internals.",
+        "tests/runtime/test_presence.py, tests/runtime/test_runtime.py, and tests/integration/test_smoke.py import helpers/markers from shared conftest modules (tests.conftest and tests.integration.conftest), concentrating cross-test dependencies into central hubs.",
+        "examples/coding_agents/test_communication.py mutates `sys.path` (line 24) and relies on ad-hoc runtime import topology, bypassing package boundaries and creating path-order dependency."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high",
+      "issues_preventing_higher_score": ""
+    },
+    "convention_outlier": {
+      "evidence": [
+        "Error-handling conventions diverge across sibling integrations: `src/thenvoi/integrations/langgraph/langchain_tools.py` catches broad exceptions in nearly every wrapper and returns error strings, while `examples/a2a_gateway/demo_orchestrator/remote_agent.py` and `docker/shared/config_loader.py` convert failures into raised exceptions (`RuntimeError`/`ValueError`).",
+        "Package export conventions are inconsistent at the top-level API boundary: `src/thenvoi/__init__.py` and `src/thenvoi/runtime/__init__.py` expose very large re-export surfaces, while sibling integration packages like `src/thenvoi/integrations/anthropic/__init__.py`, `src/thenvoi/integrations/parlant/__init__.py`, and `src/thenvoi/integrations/pydantic_ai/__init__.py` export empty `__all__`.",
+        "Example logging modules implement divergent setup contracts for the same role (`setup_logging`): `examples/codex/setup_logging.py` customizes root logger, stream target, and format, while most sibling modules only pass a level and optional extra logger names.",
+        "Near-duplicate tool package initializers use different registration idioms without a shared convention (`examples/claude_sdk_docker/tools/__init__.py` uses tuple-to-dict staging while `examples/coding_agents/tools/__init__.py` uses direct literal registry)."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high",
+      "issues_preventing_higher_score": ""
+    }
+  },
+  "findings": [
+    {
+      "dimension": "cross_module_architecture",
+      "identifier": "import_time_side_effect_entrypoints",
+      "summary": "Entrypoint modules perform heavy side effects at import time, creating order-dependent coupling and unsafe reuse as libraries.",
+      "related_files": [
+        ".github/actions/GithubToken/generate_token.py",
+        "examples/a2a_bridge/02_with_auth.py",
+        "examples/a2a_gateway/01_basic_gateway.py"
+      ],
+      "evidence": [
+        ".github/actions/GithubToken/generate_token.py executes external HTTP (`requests.post`) and writes `GITHUB_OUTPUT` during module import (lines 39-54), with no `main()` guard.",
+        "examples/a2a_bridge/02_with_auth.py and examples/a2a_gateway/01_basic_gateway.py call `setup_logging()` at top-level (lines 30 and 59), applying process-global config on import."
+      ],
+      "suggestion": "Move all side effects behind explicit `main()`/`run()` entrypoints, keep top-level code declaration-only, and gate execution with `if __name__ == \"__main__\":` for script paths; expose callable functions for reuse and testing.",
+      "confidence": "high",
+      "impact_scope": "codebase",
+      "fix_scope": "architectural_change",
+      "root_cause_cluster": "entrypoint_import_side_effects"
+    },
+    {
+      "dimension": "cross_module_architecture",
+      "identifier": "conftest_hub_coupling",
+      "summary": "Tests depend directly on conftest modules as shared APIs, turning pytest wiring files into cross-module dependency hubs.",
+      "related_files": [
+        "tests/integration/conftest.py",
+        "tests/integration/test_smoke.py",
+        "tests/runtime/test_presence.py",
+        "tests/runtime/test_runtime.py",
+        "tests/conftest.py"
+      ],
+      "evidence": [
+        "tests/integration/test_smoke.py imports `requires_api` from `tests.integration.conftest` (line 8), coupling test logic to pytest config module internals.",
+        "tests/runtime/test_presence.py and tests/runtime/test_runtime.py import helper constructors from `tests.conftest` (lines 10-14 and line 11), using conftest as a utility library rather than fixture registration boundary.",
+        "tests/integration/conftest.py re-exports a broad symbol set (lines 9-34 and `__all__` lines 36-61), reinforcing a central hub pattern with large blast radius."
+      ],
+      "suggestion": "Extract reusable test helpers/markers into dedicated utility modules (e.g., `tests/helpers/events.py`, `tests/helpers/markers.py`) and keep `conftest.py` focused on fixture/plugin registration only.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "test_boundary_blur"
+    },
+    {
+      "dimension": "cross_module_architecture",
+      "identifier": "path_manipulation_boundary_bypass",
+      "summary": "Example test script bypasses package boundaries via direct `sys.path` mutation, making module resolution environment-dependent.",
+      "related_files": [
+        "examples/coding_agents/test_communication.py",
+        "examples/a2a_bridge/02_with_auth.py",
+        "examples/a2a_gateway/01_basic_gateway.py"
+      ],
+      "evidence": [
+        "examples/coding_agents/test_communication.py inserts a relative repo path into `sys.path` (line 24), creating implicit import coupling to local filesystem layout.",
+        "Other examples rely on module imports without path mutation, causing inconsistent cross-module bootstrapping behavior across scripts."
+      ],
+      "suggestion": "Package example dependencies properly and import via stable package paths; if needed, run examples through `uv run -m ...` entrypoints rather than mutating `sys.path` in code.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "entrypoint_import_side_effects"
+    },
+    {
+      "dimension": "cross_module_architecture",
+      "identifier": "transport_lifecycle_duplication",
+      "summary": "Codex stdio and websocket clients duplicate lifecycle/read-loop responsibilities, increasing boundary drift risk between transports.",
+      "related_files": [
+        "src/thenvoi/integrations/codex/stdio_client.py",
+        "src/thenvoi/integrations/codex/websocket_client.py",
+        "src/thenvoi/integrations/claude_sdk/session_manager.py"
+      ],
+      "evidence": [
+        "Both transport clients independently implement connect/close/read-loop task orchestration and pending-failure semantics (`_connected`, `_reader_task`, `_fail_pending`) with similar but separate logic.",
+        "Stdio client adds stderr loop/process termination behavior while websocket client has its own close/disconnect path, making transport lifecycle guarantees distributed instead of centrally enforced."
+      ],
+      "suggestion": "Introduce a shared transport lifecycle abstraction in the integration layer (task management, state transitions, pending-failure contract), and keep each client responsible only for transport-specific send/receive primitives.",
+      "confidence": "medium",
+      "impact_scope": "subsystem",
+      "fix_scope": "architectural_change",
+      "root_cause_cluster": "transport_contract_fragmentation"
+    },
+    {
+      "dimension": "convention_outlier",
+      "identifier": "mixed_tool_error_contracts",
+      "summary": "Tool-layer failures are surfaced with incompatible contracts (string-returned errors vs raised exceptions) across adjacent integrations.",
+      "related_files": [
+        "src/thenvoi/integrations/langgraph/langchain_tools.py",
+        "src/thenvoi/integrations/parlant/tools.py",
+        "examples/a2a_gateway/demo_orchestrator/remote_agent.py",
+        "docker/shared/config_loader.py"
+      ],
+      "evidence": [
+        "`agent_tools_to_langchain` wrappers catch `Exception` and return strings like `\"Error ...\"` for send/add/remove/contact/memory operations.",
+        "`create_parlant_tools` similarly catches exceptions and returns `ToolResult(data=\"Error ...\")` instead of propagating typed failures.",
+        "`GatewayClient.call_peer` catches and re-raises as `RuntimeError`, and `load_config` raises `ValueError` for file/YAML errors, creating a different failure protocol for callers."
+      ],
+      "suggestion": "Define a single cross-integration tool error convention (for example: structured error object with code/message/details, or always raise typed domain exceptions at adapter boundaries) and refactor LangGraph/Parlant/A2A helper layers to follow it consistently.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "architectural_change",
+      "root_cause_cluster": "error_contract_fragmentation"
+    },
+    {
+      "dimension": "convention_outlier",
+      "identifier": "init_export_surface_drift",
+      "summary": "Public package `__init__` files follow conflicting export philosophies, making API discovery inconsistent.",
+      "related_files": [
+        "src/thenvoi/__init__.py",
+        "src/thenvoi/runtime/__init__.py",
+        "src/thenvoi/integrations/anthropic/__init__.py",
+        "src/thenvoi/integrations/parlant/__init__.py",
+        "src/thenvoi/integrations/pydantic_ai/__init__.py"
+      ],
+      "evidence": [
+        "`src/thenvoi/__init__.py` re-exports a broad mixed surface (composition/platform/runtime/types/tools/formatters/trackers/shutdown helpers).",
+        "`src/thenvoi/runtime/__init__.py` repeats another broad aggregator pattern, while multiple sibling integration packages expose empty `__all__` and no symbols.",
+        "The result is that similar package levels do not follow a predictable import contract (facade-heavy vs intentionally empty)."
+      ],
+      "suggestion": "Standardize `__init__` policy by package tier (e.g., thin facades with curated stable symbols, no deep internal re-exports, and explicit rationale for empty facades) and apply it consistently across core/runtime/integrations.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "public_api_convention_drift"
+    },
+    {
+      "dimension": "convention_outlier",
+      "identifier": "example_logging_contract_drift",
+      "summary": "Sibling example modules expose the same `setup_logging` entry point but with materially different behavior and options.",
+      "related_files": [
+        "examples/codex/setup_logging.py",
+        "examples/langgraph/setup_logging.py",
+        "examples/a2a_gateway/setup_logging.py",
+        "examples/claude_sdk/setup_logging.py",
+        "examples/a2a_bridge/setup_logging.py"
+      ],
+      "evidence": [
+        "`examples/codex/setup_logging.py` configures root level, stdout streaming, custom format/date handling, and warning logger suppression.",
+        "`examples/a2a_gateway/setup_logging.py` sets `root_level` and warning logger overrides, while `examples/langgraph/setup_logging.py` passes only level with default behavior.",
+        "`examples/a2a_bridge/setup_logging.py` adds an extra boolean (`a2a_debug`) absent in other siblings, creating multiple incompatible invocation conventions."
+      ],
+      "suggestion": "Introduce a shared example logging profile abstraction (named presets plus consistent function signature) and have each example module call that profile instead of ad-hoc per-directory contracts.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "example_module_contract_drift"
+    },
+    {
+      "dimension": "convention_outlier",
+      "identifier": "duplicated_tool_registry_patterns",
+      "summary": "Two example tool packages implement nearly identical registries with different structure, creating avoidable style islands.",
+      "related_files": [
+        "examples/claude_sdk_docker/tools/__init__.py",
+        "examples/coding_agents/tools/__init__.py",
+        "examples/claude_sdk_docker/tools/example_tools.py",
+        "examples/coding_agents/tools/example_tools.py"
+      ],
+      "evidence": [
+        "Both packages re-export the same tool set (`calculator`, `get_time`, `random_number`) and both example_tools modules are identical namespace re-exports from `thenvoi.testing.example_tools`.",
+        "Registry assembly differs (`_TOOLS` tuple then `dict(_TOOLS)` vs direct dict literal), without any behavioral reason indicated in code comments/docs."
+      ],
+      "suggestion": "Extract a single shared registry builder (or one shared tools package) and have both example directories import it to remove convention drift and reduce duplicate maintenance surfaces.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "example_module_contract_drift"
+    },
+    {
+      "dimension": "cross_module_architecture",
+      "identifier": "extras_contract_name_drift",
+      "summary": "README documents an optional dependency key that does not exist in package metadata, breaking the install contract across modules.",
+      "related_files": [
+        "README.md",
+        "pyproject.toml"
+      ],
+      "evidence": [
+        "README installation commands include `git+https://github.com/thenvoi/thenvoi-sdk-python.git[pydantic_ai]`.",
+        "`pyproject.toml` defines the extra as `pydantic-ai` (hyphen), not `pydantic_ai` (underscore).",
+        "This mismatch makes docs-driven installs fail or select the wrong dependency target."
+      ],
+      "suggestion": "Normalize extra naming to one canonical form and enforce it with a CI docs-check (e.g., script validating README extras against `[project.optional-dependencies]` keys) so package and documentation contracts cannot drift.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "single_edit",
+      "root_cause_cluster": "contract_governance_drift"
+    },
+    {
+      "dimension": "cross_module_architecture",
+      "identifier": "architecture_map_vs_runtime_drift",
+      "summary": "README\u2019s package topology references modules that differ from runtime paths, reducing trust in documented boundaries.",
+      "related_files": [
+        "README.md",
+        "tests/conftest.py"
+      ],
+      "evidence": [
+        "README package structure lists `platform/events.py`.",
+        "Tests import event types from `thenvoi.platform.event` (singular), matching runtime module `src/thenvoi/platform/event.py`.",
+        "The public architecture map is therefore inconsistent with actual import boundaries used by code."
+      ],
+      "suggestion": "Generate or validate the package-structure section from real filesystem/import paths in CI so docs reflect actual module boundaries and avoid stale architecture contracts.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "contract_governance_drift"
+    },
+    {
+      "dimension": "cross_module_architecture",
+      "identifier": "quality_gate_boundary_gap",
+      "summary": "Cross-module surfaces presented as production workflows are excluded from type-check quality gates.",
+      "related_files": [
+        "README.md",
+        "pyproject.toml",
+        "thenvoi-bridge/bridge_core/session.py",
+        "examples/a2a_gateway/demo_orchestrator/agent.py"
+      ],
+      "evidence": [
+        "README marks multiple integrations as production-ready and documents A2A bridge/gateway workflows.",
+        "`pyproject.toml` pyrefly config excludes `examples/**` and `thenvoi-bridge/**` entirely.",
+        "Assigned bridge/orchestrator modules therefore sit outside static typing gates despite being key cross-module contract demonstrations."
+      ],
+      "suggestion": "Split demo-only scripts from contract-bearing integration modules, then include contract-bearing paths (at least `thenvoi-bridge/bridge_core/**` and orchestrator library modules) in a separate strict type-check job.",
+      "confidence": "high",
+      "impact_scope": "codebase",
+      "fix_scope": "architectural_change",
+      "root_cause_cluster": "contract_governance_drift"
+    },
+    {
+      "dimension": "cross_module_architecture",
+      "identifier": "global_gateway_client_coupling",
+      "summary": "The orchestrator tool layer is bound to a process-global gateway client, creating hidden cross-instance coupling and boundary leakage.",
+      "related_files": [
+        "examples/a2a_gateway/demo_orchestrator/agent.py",
+        "examples/a2a_gateway/demo_orchestrator/remote_agent.py"
+      ],
+      "evidence": [
+        "`agent.py` defines module-global `_gateway_client` and mutates it in `set_gateway_client()` during each `OrchestratorAgent` initialization.",
+        "`call_peer_agent` uses that global instead of instance state, so multiple orchestrators in one process share/overwrite transport target implicitly.",
+        "`remote_agent.py` models `GatewayClient` as an instance object, but the tool binding bypasses instance encapsulation."
+      ],
+      "suggestion": "Eliminate module-global tool state by binding tool functions per agent instance (closure or class-bound tool factory) so each orchestrator owns its own `GatewayClient` and concurrency isolation is explicit.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "architectural_change",
+      "root_cause_cluster": "stateful_boundary_leakage"
+    },
+    {
+      "dimension": "cross_module_architecture",
+      "identifier": "implicit_lifecycle_dependency_for_eviction",
+      "summary": "Bridge session eviction depends on an external healthcheck loop, but that lifecycle dependency is only implicit in code comments.",
+      "related_files": [
+        "thenvoi-bridge/bridge_core/session.py",
+        "README.md"
+      ],
+      "evidence": [
+        "`InMemorySessionStore` performs TTL eviction only on `list_sessions()`/`count()`, not on `get()`/`get_or_create()` hot paths.",
+        "Docstring states production behavior relies on Docker healthcheck polling `/health` every 30s to trigger eviction.",
+        "README does not define this as a required runtime contract for bridge deployments, so module boundary responsibilities are implicit rather than enforced."
+      ],
+      "suggestion": "Make eviction lifecycle explicit in architecture contracts by either adding an internal background eviction task in bridge runtime or documenting/enforcing healthcheck requirements in bridge setup docs and deployment checks.",
+      "confidence": "medium",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "stateful_boundary_leakage"
+    }
+  ],
+  "review_quality": {
+    "batch_count": 3,
+    "dimension_coverage": 0.5,
+    "evidence_density": 1.017,
+    "high_score_missing_issue_note": 0,
+    "finding_pressure": 34.23,
+    "dimensions_with_findings": 2
+  },
+  "review_scope": {
+    "reviewed_files_count": 72,
+    "successful_batch_count": 3,
+    "full_sweep_included": false,
+    "total_files": 282,
+    "imported_dimensions": [
+      "convention_outlier",
+      "cross_module_architecture"
+    ]
+  },
+  "reviewed_files": [
+    "tests/integration/conftest.py",
+    "tests/conftest.py",
+    ".github/actions/GithubToken/generate_token.py",
+    "docker/shared/config_loader.py",
+    "examples/a2a_bridge/02_with_auth.py",
+    "examples/a2a_gateway/01_basic_gateway.py",
+    "examples/coding_agents/test_communication.py",
+    "src/thenvoi/integrations/claude_sdk/session_manager.py",
+    "src/thenvoi/integrations/codex/stdio_client.py",
+    "src/thenvoi/integrations/codex/websocket_client.py",
+    "tests/framework_conformance/conftest.py",
+    "tests/integration/test_smoke.py",
+    "tests/platform/test_link_contacts.py",
+    "tests/runtime/test_presence.py",
+    "tests/runtime/test_runtime.py",
+    "docker/claude_sdk/runner.py",
+    "examples/a2a_bridge/__init__.py",
+    "examples/a2a_gateway/__init__.py",
+    "examples/a2a_gateway/demo_orchestrator/__init__.py",
+    "examples/claude_sdk/__init__.py",
+    "examples/langgraph/prompts.py",
+    "examples/langgraph/standalone_calculator.py",
+    "examples/langgraph/standalone_rag.py",
+    "examples/langgraph/standalone_sql_agent.py",
+    "examples/prompts/__init__.py",
+    "examples/prompts/characters.py",
+    "examples/claude_sdk_docker/tools/__init__.py",
+    "examples/claude_sdk_docker/tools/example_tools.py",
+    "examples/coding_agents/tools/__init__.py",
+    "examples/coding_agents/tools/example_tools.py",
+    "examples/a2a_bridge/setup_logging.py",
+    "examples/a2a_gateway/demo_orchestrator/agent.py",
+    "examples/a2a_gateway/demo_orchestrator/agent_executor.py",
+    "examples/a2a_gateway/demo_orchestrator/remote_agent.py",
+    "examples/a2a_gateway/setup_logging.py",
+    "examples/anthropic/setup_logging.py",
+    "examples/claude_sdk/setup_logging.py",
+    "examples/codex/setup_logging.py",
+    "examples/crewai/setup_logging.py",
+    "examples/langgraph/setup_logging.py",
+    "examples/parlant/setup_logging.py",
+    "examples/pydantic_ai/setup_logging.py",
+    "examples/a2a_bridge/01_basic_agent.py",
+    "src/thenvoi/__init__.py",
+    "src/thenvoi/adapters/a2a.py",
+    "src/thenvoi/adapters/a2a_gateway.py",
+    "src/thenvoi/client/__init__.py",
+    "src/thenvoi/client/rest/__init__.py",
+    "src/thenvoi/client/streaming/__init__.py",
+    "src/thenvoi/config/__init__.py",
+    "src/thenvoi/core/__init__.py",
+    "src/thenvoi/integrations/__init__.py",
+    "src/thenvoi/integrations/a2a/__init__.py",
+    "src/thenvoi/integrations/a2a/gateway/__init__.py",
+    "src/thenvoi/integrations/anthropic/__init__.py",
+    "src/thenvoi/integrations/claude_sdk/__init__.py",
+    "src/thenvoi/integrations/langgraph/__init__.py",
+    "src/thenvoi/integrations/langgraph/graph_tools.py",
+    "src/thenvoi/integrations/langgraph/langchain_tools.py",
+    "src/thenvoi/integrations/langgraph/message_formatters.py",
+    "src/thenvoi/integrations/parlant/__init__.py",
+    "src/thenvoi/integrations/parlant/tools.py",
+    "src/thenvoi/integrations/pydantic_ai/__init__.py",
+    "src/thenvoi/platform/__init__.py",
+    "src/thenvoi/preprocessing/__init__.py",
+    "src/thenvoi/runtime/__init__.py",
+    "src/thenvoi/testing/__init__.py",
+    "tests/__init__.py",
+    "tests/conftest_integration.py",
+    "README.md",
+    "pyproject.toml",
+    "thenvoi-bridge/bridge_core/session.py"
+  ],
+  "provenance": {
+    "kind": "blind_review_batch_import",
+    "blind": true,
+    "runner": "codex",
+    "run_stamp": "20260301_052628",
+    "created_at": "2026-03-01T05:28:13+00:00",
+    "batch_count": 3,
+    "batch_indexes": [
+      1,
+      2,
+      3
+    ],
+    "packet_path": "/Users/pp/thenvoi/thenvoi-sdk-python/.desloppify/review_packet_blind.json",
+    "packet_sha256": "e0163984e04de448fb99f2996a8f0bd1684b3964f185c2a94385680becd1bafd"
+  },
+  "assessment_coverage": {
+    "scored_dimensions": [
+      "naming_quality",
+      "logic_clarity",
+      "type_safety",
+      "contract_coherence",
+      "error_consistency",
+      "abstraction_fitness",
+      "ai_generated_debt",
+      "high_level_elegance",
+      "mid_level_elegance",
+      "low_level_elegance",
+      "cross_module_architecture",
+      "initialization_coupling",
+      "convention_outlier",
+      "dependency_health",
+      "test_strategy",
+      "api_surface_coherence",
+      "authorization_consistency",
+      "incomplete_migration",
+      "package_organization",
+      "design_coherence"
+    ],
+    "selected_dimensions": [
+      "convention_outlier",
+      "cross_module_architecture"
+    ],
+    "imported_dimensions": [
+      "convention_outlier",
+      "cross_module_architecture"
+    ],
+    "missing_dimensions": [
+      "naming_quality",
+      "logic_clarity",
+      "type_safety",
+      "contract_coherence",
+      "error_consistency",
+      "abstraction_fitness",
+      "ai_generated_debt",
+      "high_level_elegance",
+      "mid_level_elegance",
+      "low_level_elegance",
+      "initialization_coupling",
+      "dependency_health",
+      "test_strategy",
+      "api_surface_coherence",
+      "authorization_consistency",
+      "incomplete_migration",
+      "package_organization",
+      "design_coherence"
+    ]
+  }
+}

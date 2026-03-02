@@ -1,0 +1,126 @@
+{
+  "batch": "Abstractions & Dependencies",
+  "batch_index": 1,
+  "assessments": {
+    "abstraction_fitness": 74.5
+  },
+  "dimension_notes": {
+    "abstraction_fitness": {
+      "evidence": [
+        "All major adapters keep a dual `on_message` surface (`ChatMessageTurnContext` plus legacy arg-bag fields) and immediately normalize/unpack (`src/thenvoi/core/simple_adapter.py`, `src/thenvoi/adapters/langgraph.py`, `src/thenvoi/adapters/pydantic_ai.py`, `src/thenvoi/adapters/anthropic.py`, `src/thenvoi/adapters/parlant.py`, `src/thenvoi/adapters/crewai.py`, `src/thenvoi/adapters/claude_sdk.py`).",
+        "`src/thenvoi/core/protocols.py` defines many layered tool protocols, while conformance testing in `tests/core/test_protocols.py` validates one monolithic dummy against nearly all protocol variants, indicating high interface fan-out without independent implementer pressure.",
+        "A2A gateway keeps parallel peer abstractions (`_peer_directory`, `_peers`, `_peers_by_uuid`) and tests mutate private backing maps directly (`src/thenvoi/integrations/a2a/gateway/adapter.py`, `tests/integration/test_a2a_gateway_context.py`), showing leakage of internal storage choices into usage/testing."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high",
+      "sub_axes": {
+        "abstraction_leverage": 72.0,
+        "indirection_cost": 68.5,
+        "interface_honesty": 70.0
+      }
+    }
+  },
+  "findings": [
+    {
+      "dimension": "abstraction_fitness",
+      "identifier": "dual_on_message_contract_drift",
+      "summary": "Adapters preserve two `on_message` contracts at once, forcing repetitive normalization/unpacking and weakening a single honest interface.",
+      "related_files": [
+        "src/thenvoi/core/simple_adapter.py",
+        "src/thenvoi/adapters/langgraph.py",
+        "src/thenvoi/adapters/pydantic_ai.py",
+        "src/thenvoi/adapters/anthropic.py",
+        "src/thenvoi/adapters/parlant.py",
+        "src/thenvoi/adapters/crewai.py",
+        "src/thenvoi/adapters/claude_sdk.py",
+        "src/thenvoi/integrations/a2a/gateway/adapter.py"
+      ],
+      "evidence": [
+        "`SimpleAdapter.normalize_chat_turn` explicitly supports both context-style and legacy arg-bag invocation.",
+        "Each adapter `on_message` starts with `turn = self.normalize_chat_turn(...)` then repeats `msg = turn.msg`, `tools = turn.tools`, `history = turn.history` unpack boilerplate.",
+        "The same compatibility shape appears across framework adapters rather than being isolated to a migration boundary."
+      ],
+      "suggestion": "Move to a single `ChatMessageTurnContext`/`ControlMessageTurnContext` entrypoint, keep legacy support in one compatibility shim/decorator with a time-boxed deprecation plan, and remove per-adapter unpack scaffolding after callers/tests are migrated.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "interface_compatibility_overhang"
+    },
+    {
+      "dimension": "abstraction_fitness",
+      "identifier": "protocol_surface_oversegmentation",
+      "summary": "Tool protocol hierarchy is over-segmented relative to observed usage, increasing type indirection and maintenance without clear extension payoff.",
+      "related_files": [
+        "src/thenvoi/core/protocols.py",
+        "tests/core/test_protocols.py",
+        "src/thenvoi/adapters/anthropic.py",
+        "src/thenvoi/adapters/pydantic_ai.py",
+        "src/thenvoi/adapters/langgraph.py"
+      ],
+      "evidence": [
+        "`core/protocols.py` defines multiple layered protocols (`MessagingToolsProtocol`, `ParticipantToolsProtocol`, `ChatToolsProtocol`, `ContactToolsProtocol`, `MemoryToolsProtocol`, `PlatformToolOperationsProtocol`, `ToolSchemaProviderProtocol`, `ToolDispatchProtocol`, and composed variants).",
+        "`tests/core/test_protocols.py` uses one `_DummyTools` implementation and asserts conformance to almost all protocol layers, suggesting weak independent boundaries.",
+        "Adapters typically type against broad composed protocols anyway (`MessagingDispatchToolsProtocol`, `AnthropicSchemaToolsProtocol`), so many intermediary layers add conceptual hops more than isolation."
+      ],
+      "suggestion": "Collapse protocol layers to a smaller set aligned to real adapter seams (e.g., dispatch-only, dispatch+schema, full tools), and keep narrower interfaces only where a distinct implementation/caller pair exists.",
+      "confidence": "medium",
+      "impact_scope": "subsystem",
+      "fix_scope": "architectural_change",
+      "root_cause_cluster": "interface_compatibility_overhang"
+    },
+    {
+      "dimension": "abstraction_fitness",
+      "identifier": "gateway_peer_state_alias_leak",
+      "summary": "A2A gateway exposes multiple peer state representations, and tests depend on private map mutation, indicating abstraction leakage and dual source-of-truth risk.",
+      "related_files": [
+        "src/thenvoi/integrations/a2a/gateway/adapter.py",
+        "tests/integration/test_a2a_gateway_context.py",
+        "tests/integrations/a2a/gateway/test_adapter.py"
+      ],
+      "evidence": [
+        "Adapter stores peer data in `_peer_directory` and also mirrors to `_peers` and `_peers_by_uuid`.",
+        "State is reassigned from directory (`self._peers = self._peer_directory.peers`, `self._peers_by_uuid = self._peer_directory.peers_by_uuid`) but tests directly set `_peers_by_uuid` private state.",
+        "Direct private-map coupling in tests shows callers are forced to know storage details instead of using a stable query API."
+      ],
+      "suggestion": "Make `PeerDirectory` the sole peer store, expose explicit read methods for test/runtime use, and remove mutable mirror maps (or make them read-only views) so consumers cannot bypass the canonical directory.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "state_ownership_blur"
+    },
+    {
+      "dimension": "abstraction_fitness",
+      "identifier": "example_runner_wrapper_sprawl",
+      "summary": "Example bootstrap/runner helpers form a broad wrapper surface that mostly forwards configuration to `Agent.create`, creating indirection without strong domain policy.",
+      "related_files": [
+        "examples/common/bootstrap.py",
+        "src/thenvoi/testing/example_runners.py"
+      ],
+      "evidence": [
+        "`bootstrap.py` chains thin wrappers (`load_runtime_config` -> `create_agent_from_runtime` -> `bootstrap_agent`) around URL/credential resolution and `Agent.create`.",
+        "`example_runners.py` repeats near-identical adapter construction and `Agent.create` orchestration across many `run_*_agent` functions with minor parameter variation.",
+        "Most wrappers are pass-through composition points rather than bounded behavior units, increasing maintenance touchpoints when runtime creation contracts change."
+      ],
+      "suggestion": "Introduce a small declarative runner spec (adapter factory + per-framework option transform) and one generic launch path; keep only truly framework-specific pre/post hooks as dedicated functions.",
+      "confidence": "medium",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "wrapper_surface_growth"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "Long-lived backward compatibility (legacy call signatures) was embedded into core abstractions instead of isolated at boundaries.",
+      "Interface decomposition grew faster than distinct implementations, producing protocol fan-out with limited leverage.",
+      "Internal state was exposed for convenience in tests/examples, which fed back into abstraction leakage."
+    ],
+    "likely_symptoms": [
+      "dual_on_message_contract_drift",
+      "protocol_surface_oversegmentation",
+      "gateway_peer_state_alias_leak",
+      "example_runner_wrapper_sprawl"
+    ],
+    "possible_false_positives": []
+  }
+}

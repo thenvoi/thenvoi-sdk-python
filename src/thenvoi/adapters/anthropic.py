@@ -8,27 +8,49 @@ from __future__ import annotations
 
 import json
 import logging
+from dataclasses import dataclass
 from typing import Any, cast
 
 from anthropic import AsyncAnthropic
 from anthropic.types import Message, MessageParam, ToolParam, ToolUseBlock
 
-from thenvoi.core.protocols import AgentToolsProtocol
-from thenvoi.core.simple_adapter import SimpleAdapter
-from thenvoi.core.types import PlatformMessage
+from thenvoi.core.nonfatal import NonFatalErrorRecorder
+from thenvoi.core.protocols import AnthropicSchemaToolsProtocol
+from thenvoi.core.room_state import RoomStateStore
+from thenvoi.core.simple_adapter import SimpleAdapter, legacy_chat_turn_compat
+from thenvoi.core.types import ChatMessageTurnContext, PlatformMessage
 from thenvoi.converters.anthropic import AnthropicHistoryConverter, AnthropicMessages
-from thenvoi.runtime.custom_tools import (
+from thenvoi.runtime.tooling.custom_tools import (
     CustomToolDef,
     custom_tools_to_schemas,
     execute_custom_tool,
     find_custom_tool,
 )
 from thenvoi.runtime.prompts import render_system_prompt
+from thenvoi.runtime.tool_bridge import format_tool_error, invoke_platform_tool
 
 logger = logging.getLogger(__name__)
 
 
-class AnthropicAdapter(SimpleAdapter[AnthropicMessages]):
+@dataclass(frozen=True)
+class AnthropicAdapterConfig:
+    """Typed configuration surface for AnthropicAdapter."""
+
+    model: str = "claude-sonnet-4-5-20250929"
+    anthropic_api_key: str | None = None
+    system_prompt: str | None = None
+    custom_section: str | None = None
+    max_tokens: int = 4096
+    enable_execution_reporting: bool = False
+    enable_memory_tools: bool = False
+    history_converter: AnthropicHistoryConverter | None = None
+    additional_tools: list[CustomToolDef] | None = None
+
+
+class AnthropicAdapter(
+    NonFatalErrorRecorder,
+    SimpleAdapter[AnthropicMessages, AnthropicSchemaToolsProtocol],
+):
     """
     Anthropic SDK adapter using SimpleAdapter pattern.
 
@@ -71,11 +93,12 @@ class AnthropicAdapter(SimpleAdapter[AnthropicMessages]):
         self.client = AsyncAnthropic(api_key=anthropic_api_key)
 
         # Per-room conversation history (Anthropic SDK is stateless)
-        self._message_history: dict[str, list[dict[str, Any]]] = {}
+        self._message_history = RoomStateStore[list[dict[str, Any]]]()
         # Rendered system prompt (set after start)
         self._system_prompt: str = ""
         # Custom tools (user-provided)
         self._custom_tools: list[CustomToolDef] = additional_tools or []
+        self._init_nonfatal_errors()
 
     # --- Copied from ThenvoiAnthropicAgent._on_started ---
     async def on_started(self, agent_name: str, agent_description: str) -> None:
@@ -89,16 +112,10 @@ class AnthropicAdapter(SimpleAdapter[AnthropicMessages]):
         logger.info("Anthropic adapter started for agent: %s", agent_name)
 
     # --- Adapted from ThenvoiAnthropicAgent._handle_message ---
+    @legacy_chat_turn_compat
     async def on_message(
         self,
-        msg: PlatformMessage,
-        tools: AgentToolsProtocol,
-        history: AnthropicMessages,  # Already converted by SimpleAdapter
-        participants_msg: str | None,
-        contacts_msg: str | None,
-        *,
-        is_session_bootstrap: bool,
-        room_id: str,
+        turn: ChatMessageTurnContext[AnthropicMessages, AnthropicSchemaToolsProtocol],
     ) -> None:
         """
         Handle incoming message.
@@ -110,56 +127,104 @@ class AnthropicAdapter(SimpleAdapter[AnthropicMessages]):
         - Contact changes injected when broadcast
         - Tool loop runs until no more tool_use blocks
         """
-        logger.debug("Handling message %s in room %s", msg.id, room_id)
+        msg = turn.msg
+        tools = turn.tools
+        history = turn.history
+        participants_msg = turn.participants_msg
+        contacts_msg = turn.contacts_msg
+        is_session_bootstrap = turn.is_session_bootstrap
+        room_id = turn.room_id
 
-        # Initialize history for this room on first message
-        # Note: history is already converted by SimpleAdapter via history_converter
+        logger.debug("Handling message %s in room %s", msg.id, room_id)
+        room_history = self._prepare_room_history(
+            room_id=room_id,
+            history=history,
+            is_session_bootstrap=is_session_bootstrap,
+            participants_msg=participants_msg,
+            contacts_msg=contacts_msg,
+        )
+        self._append_user_message(room_history, msg)
+        self._log_message_count(
+            room_id=room_id,
+            total_messages=len(room_history),
+            is_session_bootstrap=is_session_bootstrap,
+        )
+
+        tool_schemas = self._build_tool_schemas(tools)
+        await self._run_tool_loop(
+            room_id=room_id,
+            room_history=room_history,
+            tool_schemas=tool_schemas,
+            tools=tools,
+        )
+
+        logger.debug(
+            "Message %s processed successfully (history now has %s messages)",
+            msg.id,
+            len(room_history),
+        )
+
+    def _prepare_room_history(
+        self,
+        *,
+        room_id: str,
+        history: AnthropicMessages,
+        is_session_bootstrap: bool,
+        participants_msg: str | None,
+        contacts_msg: str | None,
+    ) -> list[dict[str, Any]]:
+        """Stage per-room history and inject system updates."""
+        room_history, system_update_count = self.stage_room_history_with_updates(
+            self._message_history,
+            room_id=room_id,
+            is_session_bootstrap=is_session_bootstrap,
+            hydrated_history=list(history) if history else None,
+            participants_msg=participants_msg,
+            contacts_msg=contacts_msg,
+            make_update_entry=lambda update: {
+                "role": "user",
+                "content": update,
+            },
+        )
+
         if is_session_bootstrap:
             if history:
-                self._message_history[room_id] = list(history)
                 logger.info(
                     "Room %s: Loaded %s historical messages",
                     room_id,
                     len(history),
                 )
             else:
-                self._message_history[room_id] = []
                 logger.info("Room %s: No historical messages found", room_id)
-        elif room_id not in self._message_history:
-            # Safety: ensure history exists even if not first message
-            self._message_history[room_id] = []
 
-        # Inject participants message if changed
-        if participants_msg:
-            self._message_history[room_id].append(
-                {
-                    "role": "user",
-                    "content": f"[System]: {participants_msg}",
-                }
+        if system_update_count:
+            logger.info(
+                "Room %s: Injected %d system updates",
+                room_id,
+                system_update_count,
             )
-            logger.info("Room %s: Participants updated", room_id)
+        return room_history
 
-        # Inject contacts message if present
-        if contacts_msg:
-            self._message_history[room_id].append(
-                {
-                    "role": "user",
-                    "content": f"[System]: {contacts_msg}",
-                }
-            )
-            logger.info("Room %s: Contacts broadcast received", room_id)
-
-        # Add current message
-        user_message = msg.format_for_llm()
-        self._message_history[room_id].append(
+    @staticmethod
+    def _append_user_message(
+        room_history: list[dict[str, Any]],
+        msg: PlatformMessage,
+    ) -> None:
+        """Append current user message to staged history."""
+        room_history.append(
             {
                 "role": "user",
-                "content": user_message,
+                "content": msg.format_for_llm(),
             }
         )
 
-        # Log message count
-        total_messages = len(self._message_history[room_id])
+    @staticmethod
+    def _log_message_count(
+        *,
+        room_id: str,
+        total_messages: int,
+        is_session_bootstrap: bool,
+    ) -> None:
         logger.info(
             "Room %s: Calling Anthropic with %s messages (first_msg=%s)",
             room_id,
@@ -167,34 +232,48 @@ class AnthropicAdapter(SimpleAdapter[AnthropicMessages]):
             is_session_bootstrap,
         )
 
-        # Get tool schemas in Anthropic format (typed helper)
+    def _build_tool_schemas(
+        self,
+        tools: AnthropicSchemaToolsProtocol,
+    ) -> list[ToolParam]:
+        """Merge platform tool schemas with optional custom Anthropic schemas."""
         tool_schemas = tools.get_anthropic_tool_schemas(
             include_memory=self.enable_memory_tools
         )
-        # Merge custom tool schemas
         if self._custom_tools:
-            tool_schemas = list(tool_schemas)  # Make mutable copy
+            tool_schemas = list(tool_schemas)
             custom_schemas = custom_tools_to_schemas(self._custom_tools, "anthropic")
             tool_schemas.extend(cast(list[ToolParam], custom_schemas))
+        return tool_schemas
 
-        # Tool loop - let LLM decide when to stop
+    async def _run_tool_loop(
+        self,
+        *,
+        room_id: str,
+        room_history: list[dict[str, Any]],
+        tool_schemas: list[ToolParam],
+        tools: AnthropicSchemaToolsProtocol,
+    ) -> None:
+        """Run Anthropic tool loop until stop_reason is not tool_use."""
         while True:
             try:
                 response = await self._call_anthropic(
-                    messages=self._message_history[room_id],
+                    messages=room_history,
                     tools=tool_schemas,
                 )
-            except Exception as e:
-                logger.error("Error calling Anthropic: %s", e, exc_info=True)
-                await self._report_error(tools, str(e))
-                raise  # Re-raise so message is marked as failed
+            except Exception as error:
+                logger.error("Error calling Anthropic: %s", error, exc_info=True)
+                await self.report_adapter_error(
+                    tools,
+                    error=error,
+                    operation="report_error_event",
+                )
+                raise
 
-            # Check for tool use
             if response.stop_reason != "tool_use":
-                # No more tool calls - extract text content if any
                 text_content = self._extract_text_content(response.content)
                 if text_content:
-                    self._message_history[room_id].append(
+                    room_history.append(
                         {
                             "role": "assistant",
                             "content": text_content,
@@ -205,39 +284,27 @@ class AnthropicAdapter(SimpleAdapter[AnthropicMessages]):
                     room_id,
                     response.stop_reason,
                 )
-                break
+                return
 
-            # Add assistant response with tool_use blocks to history
             serialized_content = self._serialize_content_blocks(response.content)
-            self._message_history[room_id].append(
+            room_history.append(
                 {
                     "role": "assistant",
                     "content": serialized_content,
                 }
             )
-
-            # Process tool calls
             tool_results = await self._process_tool_calls(response, tools)
-
-            # Add tool results to history
-            self._message_history[room_id].append(
+            room_history.append(
                 {
                     "role": "user",
                     "content": tool_results,
                 }
             )
 
-        logger.debug(
-            "Message %s processed successfully (history now has %s messages)",
-            msg.id,
-            len(self._message_history[room_id]),
-        )
-
     # --- Copied from ThenvoiAnthropicAgent._cleanup_session ---
     async def on_cleanup(self, room_id: str) -> None:
         """Clean up message history when agent leaves a room."""
-        if room_id in self._message_history:
-            del self._message_history[room_id]
+        if self.cleanup_room_state(self._message_history, room_id=room_id):
             logger.debug("Room %s: Cleaned up message history", room_id)
 
     # --- Copied from ThenvoiAnthropicAgent._call_anthropic ---
@@ -303,14 +370,16 @@ class AnthropicAdapter(SimpleAdapter[AnthropicMessages]):
 
     # --- Copied from ThenvoiAnthropicAgent._process_tool_calls ---
     async def _process_tool_calls(
-        self, response: Message, tools: AgentToolsProtocol
+        self,
+        response: Message,
+        tools: AnthropicSchemaToolsProtocol,
     ) -> list[dict[str, Any]]:
         """
         Process tool_use blocks from response and execute tools.
 
         Args:
             response: Anthropic Message with tool_use blocks
-            tools: AgentToolsProtocol instance for execution
+            tools: AnthropicSchemaToolsProtocol instance for execution
 
         Returns:
             List of tool_result content blocks for next API call
@@ -330,22 +399,15 @@ class AnthropicAdapter(SimpleAdapter[AnthropicMessages]):
             # Report tool call if enabled (JSON format with tool_call_id for linking)
             # Best-effort: event reporting must never crash tool execution
             if self.enable_execution_reporting:
-                try:
-                    await tools.send_event(
-                        content=json.dumps(
-                            {
-                                "name": tool_name,
-                                "args": tool_input,
-                                "tool_call_id": tool_use_id,
-                            }
-                        ),
-                        message_type="tool_call",
-                    )
-                except Exception as e:
-                    logger.warning(
-                        "Failed to send tool_call event: %s",
-                        e,
-                    )
+                await self.send_tool_call_event(
+                    tools,
+                    payload={
+                        "name": tool_name,
+                        "args": tool_input,
+                        "tool_call_id": tool_use_id,
+                    },
+                    tool_name=tool_name,
+                )
 
             # Execute tool (check custom tools first, then platform tools)
             try:
@@ -353,7 +415,7 @@ class AnthropicAdapter(SimpleAdapter[AnthropicMessages]):
                 if custom_tool:
                     result = await execute_custom_tool(custom_tool, tool_input)
                 else:
-                    result = await tools.execute_tool_call(tool_name, tool_input)
+                    result = await invoke_platform_tool(tools, tool_name, tool_input)
                 result_str = (
                     json.dumps(result, default=str)
                     if not isinstance(result, str)
@@ -361,29 +423,22 @@ class AnthropicAdapter(SimpleAdapter[AnthropicMessages]):
                 )
                 is_error = False
             except Exception as e:
-                result_str = f"Error: {e}"
+                result_str = format_tool_error(tool_name, tool_input, e)
                 is_error = True
                 logger.error("Tool %s failed: %s", tool_name, e)
 
             # Report tool result if enabled (JSON format with tool_call_id for linking)
             # Best-effort: event reporting must never crash tool execution
             if self.enable_execution_reporting:
-                try:
-                    await tools.send_event(
-                        content=json.dumps(
-                            {
-                                "name": tool_name,
-                                "output": result_str,
-                                "tool_call_id": tool_use_id,
-                            }
-                        ),
-                        message_type="tool_result",
-                    )
-                except Exception as e:
-                    logger.warning(
-                        "Failed to send tool_result event: %s",
-                        e,
-                    )
+                await self.send_tool_result_event(
+                    tools,
+                    payload={
+                        "name": tool_name,
+                        "output": result_str,
+                        "tool_call_id": tool_use_id,
+                    },
+                    tool_name=tool_name,
+                )
 
             tool_results.append(
                 {
@@ -395,11 +450,3 @@ class AnthropicAdapter(SimpleAdapter[AnthropicMessages]):
             )
 
         return tool_results
-
-    # --- Copied from BaseFrameworkAgent._report_error ---
-    async def _report_error(self, tools: AgentToolsProtocol, error: str) -> None:
-        """Send error event (best effort)."""
-        try:
-            await tools.send_event(content=f"Error: {error}", message_type="error")
-        except Exception as e:
-            logger.warning("Failed to send error event: %s", e)

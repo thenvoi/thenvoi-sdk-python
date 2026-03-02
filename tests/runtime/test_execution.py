@@ -11,7 +11,7 @@ from thenvoi.runtime.execution import Execution, ExecutionContext, _error_label
 from thenvoi.runtime.types import SessionConfig
 
 # Import test helpers from conftest
-from tests.conftest import (
+from tests.support.events import (
     make_message_event,
     make_participant_added_event,
     make_participant_removed_event,
@@ -19,15 +19,9 @@ from tests.conftest import (
 
 
 @pytest.fixture
-def mock_link():
+def mock_link(link_mock_factory):
     """Mock ThenvoiLink for testing ExecutionContext."""
-    link = MagicMock()
-    link.agent_id = "agent-123"
-
-    # REST client mock
-    link.rest = MagicMock()
-    link.rest.agent_api_participants = MagicMock()
-    link.rest.agent_api_context = MagicMock()
+    link = link_mock_factory()
 
     # Mock list_agent_chat_participants
     participant1 = MagicMock()
@@ -50,12 +44,6 @@ def mock_link():
     link.rest.agent_api_context.get_agent_chat_context = AsyncMock(
         return_value=MagicMock(data=[msg1])
     )
-
-    # Mock message lifecycle methods (new in ThenvoiLink)
-    link.mark_processing = AsyncMock()
-    link.mark_processed = AsyncMock()
-    link.mark_failed = AsyncMock()
-    link.get_next_message = AsyncMock(return_value=None)  # No backlog by default
 
     return link
 
@@ -152,6 +140,27 @@ class TestExecutionContextLifecycle:
         await ctx.stop()  # Should not raise
 
         assert ctx.is_running is False
+
+    async def test_process_loop_records_nonfatal_on_unexpected_error(
+        self, mock_link, mock_handler
+    ) -> None:
+        """Unexpected process-loop failures should be recorded as nonfatal errors."""
+        ctx = ExecutionContext("room-123", mock_link, mock_handler)
+        ctx._synchronize_with_next = AsyncMock(return_value=None)  # type: ignore[method-assign]
+        ctx._process_event = AsyncMock(  # type: ignore[method-assign]
+            side_effect=RuntimeError("process loop boom")
+        )
+
+        await ctx.start()
+        await ctx.on_event(make_message_event(room_id="room-123", msg_id="msg-1"))
+        await asyncio.sleep(0.05)
+
+        assert ctx.nonfatal_errors
+        assert ctx.nonfatal_errors[0]["operation"] == "process_loop"
+        assert ctx.nonfatal_errors[0]["room_id"] == "room-123"
+        assert ctx.is_running is False
+
+        await ctx.stop()
 
 
 class TestExecutionContextEvents:
@@ -397,13 +406,9 @@ class TestCrashRecoverySync:
     """Test crash recovery sync mechanism."""
 
     @pytest.fixture
-    def mock_link_with_next(self):
+    def mock_link_with_next(self, link_mock_factory):
         """Mock ThenvoiLink with message lifecycle methods."""
-        link = MagicMock()
-        link.agent_id = "agent-123"
-        link.rest = MagicMock()
-        link.rest.agent_api_participants = MagicMock()
-        link.rest.agent_api_context = MagicMock()
+        link = link_mock_factory()
 
         # Default: no messages
         link.rest.agent_api_participants.list_agent_chat_participants = AsyncMock(
@@ -412,13 +417,6 @@ class TestCrashRecoverySync:
         link.rest.agent_api_context.get_agent_chat_context = AsyncMock(
             return_value=MagicMock(data=[])
         )
-
-        # Message lifecycle methods (new in ThenvoiLink)
-        link.mark_processing = AsyncMock()
-        link.mark_processed = AsyncMock()
-        link.mark_failed = AsyncMock()
-        link.get_next_message = AsyncMock(return_value=None)  # No backlog by default
-        link.get_stale_processing_messages = AsyncMock(return_value=[])  # No stale msgs
 
         return link
 

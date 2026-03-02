@@ -1,0 +1,123 @@
+{
+  "batch": "Architecture & Coupling",
+  "batch_index": 1,
+  "assessments": {
+    "cross_module_architecture": 68.5,
+    "high_level_elegance": 73.0
+  },
+  "dimension_notes": {
+    "cross_module_architecture": {
+      "evidence": [
+        "tests/integration/conftest.py re-exports a large symbol set from tests.conftest_integration and mirrors it in __all__ (lines 9-34, 36-61), creating a hub module that downstream tests import from directly (tests/integration/test_smoke.py line 8).",
+        ".github/actions/GithubToken/generate_token.py executes environment validation, JWT creation, HTTP POST, and file output at import time (lines 10-55), so importing the module triggers network and filesystem side effects.",
+        "examples/coding_agents/test_communication.py mutates interpreter import resolution at module import via sys.path.insert (line 24), creating cross-module coupling to repository layout."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "architectural_change",
+      "confidence": "high"
+    },
+    "high_level_elegance": {
+      "evidence": [
+        "tests/conftest.py combines CI collection policy (pytest_ignore_collect at lines 54-56), event model factories (lines 64-190), and SDK agent/session mock fixtures (lines 198-258) in one file, blending multiple ownership concerns.",
+        "examples/a2a_bridge/02_with_auth.py and examples/a2a_gateway/01_basic_gateway.py both duplicate full bootstrap orchestration (dotenv loading, env parsing, credentials resolution, Agent.create, run) with variant-specific branching (02_with_auth lines 35-81; 01_basic_gateway lines 64-115).",
+        "docker/shared/config_loader.py adds a third configuration-loading path parallel to example-local loading patterns, increasing top-level entrypoint variance instead of a single startup composition pattern."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "medium"
+    }
+  },
+  "findings": [
+    {
+      "dimension": "cross_module_architecture",
+      "identifier": "integration_fixture_reexport_hub",
+      "summary": "Integration tests depend on a re-export hub that amplifies coupling and obscures true fixture ownership.",
+      "related_files": [
+        "tests/integration/conftest.py",
+        "tests/integration/test_smoke.py",
+        "tests/conftest.py"
+      ],
+      "evidence": [
+        "tests/integration/conftest.py imports and re-exports ~20 names from tests.conftest_integration (lines 9-34) and duplicates the same list in __all__ (lines 36-61).",
+        "tests/integration/test_smoke.py imports requires_api from this facade (line 8), making tests depend on forwarding structure rather than source ownership.",
+        "The blind packet already flagged tests/integration/conftest.py as a god module; current code still exhibits that hub pattern."
+      ],
+      "suggestion": "Replace broad re-exporting with a narrow test plugin boundary: define a dedicated marker/fixture module (for example tests/integration/markers.py), load integration fixtures via pytest plugin registration, and update tests to import from concrete owners only when necessary.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "test_infra_boundary_blur"
+    },
+    {
+      "dimension": "cross_module_architecture",
+      "identifier": "import_time_side_effect_entrypoints",
+      "summary": "Multiple entrypoint modules perform irreversible side effects at import time, making module boundaries unsafe.",
+      "related_files": [
+        ".github/actions/GithubToken/generate_token.py",
+        "examples/coding_agents/test_communication.py",
+        "examples/a2a_bridge/02_with_auth.py"
+      ],
+      "evidence": [
+        ".github/actions/GithubToken/generate_token.py performs env validation (line 15), JWT generation (line 27), HTTP request (line 40), and output file write (line 53) at module top level.",
+        "examples/coding_agents/test_communication.py configures global logging at import (line 21) and mutates sys.path (line 24).",
+        "examples/a2a_bridge/02_with_auth.py runs setup_logging() at import (line 30), so importing it changes global logging state."
+      ],
+      "suggestion": "Move all operational behavior behind explicit `main()`/callable entrypoints and keep import-time code limited to definitions; isolate path setup and logging initialization inside guarded runtime paths (`if __name__ == '__main__'`) or dedicated launcher wrappers.",
+      "confidence": "high",
+      "impact_scope": "codebase",
+      "fix_scope": "architectural_change",
+      "root_cause_cluster": "import_time_side_effects"
+    },
+    {
+      "dimension": "high_level_elegance",
+      "identifier": "test_conftest_mixed_ownership",
+      "summary": "tests/conftest.py acts as a multi-role utility bucket instead of a coherent test-boundary module.",
+      "related_files": [
+        "tests/conftest.py",
+        "tests/runtime/test_presence.py",
+        "tests/runtime/test_runtime.py"
+      ],
+      "evidence": [
+        "tests/conftest.py mixes collection policy (`pytest_ignore_collect`, lines 54-56), domain event factory helpers (lines 64-190), and heavyweight mock fixtures (lines 198-258).",
+        "tests/runtime/test_presence.py and tests/runtime/test_runtime.py import event builders from tests.conftest (lines 10-14 and line 11), tightly coupling runtime tests to a global catch-all module."
+      ],
+      "suggestion": "Split test infrastructure by responsibility: keep pytest hooks in root conftest, move event factories to a dedicated test support module, and move mock-agent fixtures to domain-specific fixture files imported explicitly where needed.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "test_infra_boundary_blur"
+    },
+    {
+      "dimension": "high_level_elegance",
+      "identifier": "example_bootstrap_pattern_drift",
+      "summary": "Example entrypoints duplicate startup orchestration with inconsistent credential and configuration flows.",
+      "related_files": [
+        "examples/a2a_bridge/02_with_auth.py",
+        "examples/a2a_gateway/01_basic_gateway.py",
+        "docker/shared/config_loader.py"
+      ],
+      "evidence": [
+        "Both examples perform near-identical startup skeletons (dotenv load, env reads, agent creation, run) but diverge in credential precedence and error flow (02_with_auth lines 35-81 vs 01_basic_gateway lines 64-115).",
+        "docker/shared/config_loader.py introduces another credential/config loading path (lines 13-35), reinforcing parallel bootstrapping idioms rather than one compositional entrypoint contract."
+      ],
+      "suggestion": "Create a shared startup composition layer for examples/runners (environment resolution, credential loading, Agent construction) and keep each example focused on only adapter-specific wiring.",
+      "confidence": "medium",
+      "impact_scope": "subsystem",
+      "fix_scope": "architectural_change",
+      "root_cause_cluster": "entrypoint_bootstrap_duplication"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "Test infrastructure boundaries are blurred by convenience re-exports and global conftest accumulation.",
+      "Script-style entrypoints prioritize direct execution convenience over import-safe module contracts.",
+      "Startup/config logic is duplicated across examples and runner utilities without a shared composition boundary."
+    ],
+    "likely_symptoms": [
+      "integration_fixture_reexport_hub",
+      "test_conftest_mixed_ownership",
+      "example_bootstrap_pattern_drift"
+    ],
+    "possible_false_positives": []
+  }
+}

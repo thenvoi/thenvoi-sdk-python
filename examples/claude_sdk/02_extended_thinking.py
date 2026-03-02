@@ -36,19 +36,15 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
-import sys
 
 from dotenv import load_dotenv
 
-# Add examples directory to path for imports
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-
-from setup_logging import setup_logging
+from thenvoi.testing.example_logging import setup_logging_profile
 from thenvoi import Agent
 from thenvoi.adapters import ClaudeSDKAdapter
 from thenvoi.config import load_agent_config
 
-setup_logging()
+setup_logging_profile("claude_sdk")
 logger = logging.getLogger(__name__)
 
 
@@ -91,13 +87,9 @@ complex problem-solving. When faced with challenging questions:
 
     logger.info("Starting Claude SDK agent with extended thinking...")
     logger.info("Agent ID: %s", agent_id)
-    logger.info("Max thinking tokens: 10000")
+    logger.info("Thinking budget: 10000")
     logger.info("Press Ctrl+C to stop")
-
-    try:
-        await agent.run()
-    except KeyboardInterrupt:
-        logger.info("Shutting down...")
+    await agent.run()
 
 
 if __name__ == "__main__":

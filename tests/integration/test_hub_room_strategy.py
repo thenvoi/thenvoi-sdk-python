@@ -18,80 +18,13 @@ from thenvoi.platform.event import (
 from thenvoi.client.streaming import (
     ContactRequestReceivedPayload,
 )
-from thenvoi.runtime.contact_handler import ContactEventHandler
-from thenvoi.runtime.contact_tools import ContactTools
+from thenvoi.runtime.contacts.contact_handler import ContactEventHandler
+from thenvoi.runtime.contacts.contact_tools import ContactTools
 from thenvoi.runtime.types import ContactEventConfig, ContactEventStrategy
-from tests.integration.conftest import requires_api, requires_multi_agent
+from tests.support.integration.contracts.cleanup import cleanup_contact_state
+from tests.support.integration.markers import requires_api, requires_multi_agent
 
 logger = logging.getLogger(__name__)
-
-
-async def cleanup_contact_state(api_client, api_client_2):
-    """Clean up any existing contact state between the two agents."""
-    response1 = await api_client.agent_api_identity.get_agent_me()
-    agent1_handle = response1.data.handle
-
-    response2 = await api_client_2.agent_api_identity.get_agent_me()
-    agent2_handle = response2.data.handle
-
-    logger.info(
-        "Cleaning up contact state between %s and %s", agent1_handle, agent2_handle
-    )
-
-    # Remove contacts
-    try:
-        await api_client.agent_api_contacts.remove_agent_contact(handle=agent2_handle)
-    except Exception:
-        pass
-
-    try:
-        await api_client_2.agent_api_contacts.remove_agent_contact(handle=agent1_handle)
-    except Exception:
-        pass
-
-    # Cancel/reject pending requests
-    try:
-        await api_client.agent_api_contacts.respond_to_agent_contact_request(
-            action="cancel", handle=agent2_handle
-        )
-    except Exception:
-        pass
-
-    try:
-        await api_client_2.agent_api_contacts.respond_to_agent_contact_request(
-            action="cancel", handle=agent1_handle
-        )
-    except Exception:
-        pass
-
-    # Reject received requests
-    try:
-        response = await api_client.agent_api_contacts.list_agent_contact_requests()
-        received = getattr(response.data, "received", []) or []
-        for req in received:
-            from_handle = getattr(req, "from_handle", None)
-            status = getattr(req, "status", None)
-            if from_handle == agent2_handle and status == "pending":
-                await api_client.agent_api_contacts.respond_to_agent_contact_request(
-                    action="reject", request_id=req.id
-                )
-    except Exception:
-        pass
-
-    try:
-        response = await api_client_2.agent_api_contacts.list_agent_contact_requests()
-        received = getattr(response.data, "received", []) or []
-        for req in received:
-            from_handle = getattr(req, "from_handle", None)
-            status = getattr(req, "status", None)
-            if from_handle == agent1_handle and status == "pending":
-                await api_client_2.agent_api_contacts.respond_to_agent_contact_request(
-                    action="reject", request_id=req.id
-                )
-    except Exception:
-        pass
-
-    await asyncio.sleep(0.3)
 
 
 @requires_api
@@ -128,8 +61,8 @@ class TestHubRoomReceivesEvents:
         await handler.handle(event)
 
         # Verify hub room was created
-        assert handler._hub_room_id is not None
-        hub_room_id = handler._hub_room_id
+        assert handler.hub_room_id is not None
+        hub_room_id = handler.hub_room_id
         logger.info("Hub room created: %s", hub_room_id)
 
         # Verify room exists by checking it appears in the chat list
@@ -225,7 +158,7 @@ class TestHubRoomAgentActions:
             )
             await handler.handle(event)
 
-            hub_room_id = handler._hub_room_id
+            hub_room_id = handler.hub_room_id
             logger.info("Event routed to hub room: %s", hub_room_id)
 
             # Simulate agent deciding to approve (LLM response)
@@ -316,7 +249,7 @@ class TestHubRoomAgentActions:
                 )
             )
             await handler.handle(event)
-            hub_room_id = handler._hub_room_id
+            hub_room_id = handler.hub_room_id
 
             # Agent rejects
             tools = ContactTools(api_client)
@@ -381,7 +314,7 @@ class TestHubRoomPersistence:
         )
         await handler1.handle(event1)
 
-        first_room_id = handler1._hub_room_id
+        first_room_id = handler1.hub_room_id
         logger.info("First handler created room: %s", first_room_id)
 
         # Second handler (simulating reconnect) - creates new room
@@ -402,7 +335,7 @@ class TestHubRoomPersistence:
         )
         await handler2.handle(event2)
 
-        second_room_id = handler2._hub_room_id
+        second_room_id = handler2.hub_room_id
         logger.info("Second handler created room: %s", second_room_id)
 
         # Both rooms exist and can be accessed
@@ -462,7 +395,7 @@ class TestHubRoomIsolation:
         )
         await handler.handle(event)
 
-        hub_room_id = handler._hub_room_id
+        hub_room_id = handler.hub_room_id
         logger.info("Hub room: %s", hub_room_id)
 
         # Verify hub and regular rooms are different

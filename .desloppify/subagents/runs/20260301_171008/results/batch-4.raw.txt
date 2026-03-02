@@ -1,0 +1,194 @@
+{
+  "batch": "Design coherence — Mechanical Concern Signals",
+  "batch_index": 4,
+  "assessments": {
+    "design_coherence": 74.0
+  },
+  "dimension_notes": {
+    "design_coherence": {
+      "evidence": [
+        "Adapter chat entrypoints repeatedly normalize the same legacy argument bag pattern (`normalize_chat_turn`) instead of centralizing migration handling in one dispatch path (`src/thenvoi/core/simple_adapter.py`, `src/thenvoi/adapters/anthropic.py`, `src/thenvoi/adapters/claude_sdk.py`, `src/thenvoi/adapters/crewai.py`, `src/thenvoi/adapters/pydantic_ai.py`).",
+        "Tool execution reporting (`tool_call`/`tool_result`) and payload-shaping policy are implemented independently across adapter modules and integration tool surfaces (`src/thenvoi/adapters/anthropic.py`, `src/thenvoi/adapters/pydantic_ai.py`, `src/thenvoi/adapters/langgraph.py`, `src/thenvoi/adapters/codex.py`, `src/thenvoi/integrations/claude_sdk/tools.py`, `src/thenvoi/integrations/parlant/tools.py`).",
+        "Gateway and runtime modules contain duplicated structural representations of the same state/contract (peer caches mirrored beside `PeerDirectory`; duplicated tool-order registries and duplicated arg-default logic in bridge dispatch paths) (`src/thenvoi/integrations/a2a/gateway/adapter.py`, `src/thenvoi/integrations/a2a/gateway/server.py`, `src/thenvoi/runtime/tools.py`, `src/thenvoi/runtime/tool_bridge.py`).",
+        "Example and test harnesses duplicate orchestration scaffolding with drift between sibling flows (`examples/run_agent.py` vs `src/thenvoi/testing/runner_core.py`; `docker/claude_sdk/runner.py` vs `examples/claude_sdk_docker/runner.py`; duplicated dynamic-agent setup across integration tests)."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "findings": [
+    {
+      "dimension": "design_coherence",
+      "identifier": "adapter_legacy_arg_normalization_leak",
+      "summary": "Legacy call-shape normalization is duplicated across adapters instead of being fully owned by base dispatch.",
+      "related_files": [
+        "src/thenvoi/core/simple_adapter.py",
+        "src/thenvoi/adapters/anthropic.py",
+        "src/thenvoi/adapters/claude_sdk.py",
+        "src/thenvoi/adapters/crewai.py",
+        "src/thenvoi/adapters/pydantic_ai.py"
+      ],
+      "evidence": [
+        "`SimpleAdapter.normalize_chat_turn` is defined as a compatibility normalization point, but adapter `chat(...)` methods still expose broad legacy params and manually unpack the normalized turn.",
+        "The same normalize-then-reassign structure appears in multiple adapters (`anthropic.py:140`, `claude_sdk.py:351`, `crewai.py:446`, `pydantic_ai.py:218`), indicating migration concerns are spread into provider implementations."
+      ],
+      "suggestion": "Move legacy signature support into a single base-level `chat` entrypoint (or decorator) that always passes a canonical `ChatTurn` into provider-specific methods; simplify adapter signatures to provider concerns only.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "architectural_change",
+      "root_cause_cluster": "compatibility_boundary_fragmentation"
+    },
+    {
+      "dimension": "design_coherence",
+      "identifier": "tool_reporting_pipeline_fragmented",
+      "summary": "Tool-call/tool-result reporting policy is reimplemented per adapter, causing repeated structure and behavior drift risk.",
+      "related_files": [
+        "src/thenvoi/adapters/anthropic.py",
+        "src/thenvoi/adapters/pydantic_ai.py",
+        "src/thenvoi/adapters/langgraph.py",
+        "src/thenvoi/adapters/codex.py",
+        "src/thenvoi/adapters/crewai_tooling.py",
+        "src/thenvoi/adapters/claude_sdk.py"
+      ],
+      "evidence": [
+        "Each adapter/tooling module contains its own logic for emitting `tool_call` and `tool_result` events and handling reporting failures.",
+        "Repeated event-shaping and best-effort error handling patterns appear across modules (`anthropic.py:418+`, `pydantic_ai.py:292+`, `langgraph.py:266+`, `codex.py:896+`, `crewai_tooling.py:80+`, `claude_sdk.py:525+`)."
+      ],
+      "suggestion": "Extract a shared runtime reporting component (input: tool name/args/result/error, execution context) and invoke it from adapters; keep adapters focused on framework integration points.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "execution_telemetry_ownership_split"
+    },
+    {
+      "dimension": "design_coherence",
+      "identifier": "tool_contracts_duplicated_across_integrations",
+      "summary": "Claude and Parlant integrations maintain parallel tool catalogs and formatting rules rather than one canonical contract source.",
+      "related_files": [
+        "src/thenvoi/integrations/claude_sdk/tools.py",
+        "src/thenvoi/integrations/parlant/tools.py"
+      ],
+      "evidence": [
+        "Both modules define overlapping tool surfaces (`thenvoi_send_message`, `thenvoi_send_event`, participant/contact tools) and adapter-specific mapping logic.",
+        "The duplicated contract appears as independent schema/description/mapping implementations (`claude_sdk/tools.py:214+`, `parlant/tools.py:183+`, `parlant/tools.py:423+`)."
+      ],
+      "suggestion": "Introduce a framework-agnostic canonical tool descriptor model in runtime, then generate Claude/Parlant-specific shapes from that model via thin translators.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "architectural_change",
+      "root_cause_cluster": "execution_telemetry_ownership_split"
+    },
+    {
+      "dimension": "design_coherence",
+      "identifier": "tool_bridge_dual_sources_of_truth",
+      "summary": "Tool argument defaults and tool ordering are duplicated between runtime modules, creating synchronization debt.",
+      "related_files": [
+        "src/thenvoi/runtime/tool_bridge.py",
+        "src/thenvoi/runtime/tools.py"
+      ],
+      "evidence": [
+        "`tool_bridge.py` maintains `PLATFORM_BASE_TOOL_ORDER`/`PLATFORM_MEMORY_TOOL_ORDER` while `tools.py` already defines `TOOL_MODELS` and derived tool-name sets; runtime assertions enforce sync after duplication (`tool_bridge.py:45-48`).",
+        "`normalize_tool_arguments` and `dispatch_platform_tool_call` both apply tool-specific default/coercion behavior in separate branches (`tool_bridge.py:167+` and `tool_bridge.py:242+`)."
+      ],
+      "suggestion": "Derive order and argument contracts from one canonical registry (e.g., metadata attached to `TOOL_MODELS`) and have dispatch consume normalized arguments from a single normalization pass.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "parallel_contract_representations"
+    },
+    {
+      "dimension": "design_coherence",
+      "identifier": "a2a_gateway_peer_state_mirroring",
+      "summary": "A2A gateway components keep mirrored peer caches alongside `PeerDirectory`, creating split state ownership.",
+      "related_files": [
+        "src/thenvoi/integrations/a2a/gateway/adapter.py",
+        "src/thenvoi/integrations/a2a/gateway/server.py"
+      ],
+      "evidence": [
+        "Adapter keeps `_peers` and `_peers_by_uuid` dicts plus `_peer_directory`, then reassigns mirror fields from directory state (`adapter.py:104-106`, `adapter.py:151-153`).",
+        "Server similarly manages peer-directory responsibilities, increasing the chance of divergence across gateway-side peer lifecycle paths."
+      ],
+      "suggestion": "Make `PeerDirectory` the sole mutable store and expose read-only projections where required; remove mirrored caches and route lookups through directory APIs.",
+      "confidence": "medium",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "parallel_contract_representations"
+    },
+    {
+      "dimension": "design_coherence",
+      "identifier": "example_runner_stack_diverges",
+      "summary": "Runner orchestration logic is duplicated across example and docker entrypoints, with behavioral drift between sibling runners.",
+      "related_files": [
+        "examples/run_agent.py",
+        "src/thenvoi/testing/runner_core.py",
+        "src/thenvoi/testing/example_logging.py",
+        "docker/claude_sdk/runner.py",
+        "examples/claude_sdk_docker/runner.py",
+        "docker/shared/repo_init.py"
+      ],
+      "evidence": [
+        "`examples/run_agent.py` defines its own `RunnerSpec` and runner-selection orchestration while `runner_core.py` already provides shared runner contracts and execution primitives.",
+        "Claude docker runner and example docker runner are near-parallel entrypoints, but only docker variant performs repo initialization/context bundle injection (`docker/claude_sdk/runner.py:76`, `:102`) while example variant omits it."
+      ],
+      "suggestion": "Consolidate runner wiring through `runner_core` + shared composable hooks; keep each entrypoint as minimal configuration, and encode optional repo-context behavior as explicit feature flags.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "example_harness_duplication"
+    },
+    {
+      "dimension": "design_coherence",
+      "identifier": "integration_test_harness_duplication",
+      "summary": "Integration tests duplicate dynamic-agent lifecycle scaffolding and multi-step setup flows instead of reusing shared fixtures.",
+      "related_files": [
+        "tests/integration/test_dynamic_agent.py",
+        "tests/integration/test_participant_permissions.py",
+        "tests/integration/test_hub_room_strategy.py"
+      ],
+      "evidence": [
+        "Both `test_dynamic_agent.py` and `test_participant_permissions.py` define their own `DynamicAgent` data structures and custom lifecycle management setup.",
+        "`test_hub_room_strategy.py` repeats approve/reject orchestration blocks with mostly identical setup and only outcome branching."
+      ],
+      "suggestion": "Extract a common dynamic-agent fixture/factory module for integration tests and parameterize approval/rejection scenario variants on top of shared setup helpers.",
+      "confidence": "medium",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "example_harness_duplication"
+    },
+    {
+      "dimension": "design_coherence",
+      "identifier": "nonfatal_error_handling_inconsistent_runtime",
+      "summary": "Runtime components use inconsistent nonfatal error recording patterns, fragmenting operational behavior.",
+      "related_files": [
+        "src/thenvoi/platform/link.py",
+        "src/thenvoi/runtime/presence.py",
+        "src/thenvoi/integrations/codex/websocket_client.py",
+        "src/thenvoi/integrations/codex/stdio_client.py",
+        "src/thenvoi/core/nonfatal.py"
+      ],
+      "evidence": [
+        "`CodexWebSocketClient` uses `NonFatalErrorRecorder`, while `ThenvoiLink` and `RoomPresence` implement local `_nonfatal_errors` and bespoke `_record_nonfatal_error` methods.",
+        "Sibling codex transports differ in error-recording structure (`websocket_client.py` recorder-based vs `stdio_client.py` ad-hoc handling), indicating boundary inconsistency within one subsystem."
+      ],
+      "suggestion": "Standardize on one runtime nonfatal recorder abstraction (mixin or composed helper) and apply it consistently across link/presence/transports with unified metadata shape.",
+      "confidence": "medium",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "error_handling_boundary_drift"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "Compatibility and migration concerns are distributed across provider adapters instead of isolated at a single boundary.",
+      "Tool contract and telemetry ownership is split between runtime, adapters, and integration-specific surfaces.",
+      "Example/test harnesses evolved via copy-and-specialize, creating parallel orchestration stacks."
+    ],
+    "likely_symptoms": [
+      "adapter_legacy_arg_normalization_leak",
+      "tool_bridge_dual_sources_of_truth",
+      "integration_test_harness_duplication"
+    ],
+    "possible_false_positives": []
+  }
+}

@@ -1,0 +1,103 @@
+{
+  "batch": "Governance & Contracts",
+  "batch_index": 4,
+  "assessments": {
+    "cross_module_architecture": 81.0,
+    "test_strategy": 74.0
+  },
+  "dimension_notes": {
+    "cross_module_architecture": {
+      "evidence": [
+        "`examples/common/bootstrap.py` imports runtime credential/url resolution from `thenvoi.testing.config_loader`, coupling example runtime bootstrapping to a `testing` namespace boundary.",
+        "`README.md` documents examples as primary onboarding/runtime paths while package structure also frames `testing/` as support infrastructure, leaving unclear whether `thenvoi.testing.*` is stable public API.",
+        "The same cross-boundary contract is used for core example bootstrap responsibilities (credentials + platform URLs), so boundary drift in `thenvoi.testing` can break many examples at once."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    },
+    "test_strategy": {
+      "evidence": [
+        "`README.md` states required PR quality gates include specific contract checks, but `pyproject.toml` only encodes default pytest selection (`-m 'not integration'`) and marker declarations, not enforceable contract-test selection/policy hooks.",
+        "`tests/support/integration/config.py` top-level usage docs still advertise `uv run pytest tests/integration/ -v` (without `-m integration`), which conflicts with the global `addopts` marker filter in `pyproject.toml` and can silently skip intended integration execution.",
+        "`tests/support/integration/config.py` uses fallback logic in `_expression_allows_integration` (`len(other_markers) > 8` => string check only), reducing reliability of the integration-mode gate for complex marker expressions."
+      ],
+      "impact_scope": "codebase",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "findings": [
+    {
+      "dimension": "cross_module_architecture",
+      "identifier": "example_bootstrap_depends_on_testing_boundary",
+      "summary": "Example runtime bootstrap depends on `thenvoi.testing` internals instead of a stable config boundary.",
+      "related_files": [
+        "examples/common/bootstrap.py",
+        "README.md",
+        "pyproject.toml"
+      ],
+      "evidence": [
+        "`examples/common/bootstrap.py` imports `resolve_agent_credentials` and `resolve_platform_urls` from `thenvoi.testing.config_loader` for normal example startup.",
+        "`README.md` positions examples as standard usage entrypoints, but this path relies on a namespace semantically tied to testing support.",
+        "No explicit compatibility contract is declared in `pyproject.toml` for `thenvoi.testing` as a public/stable example-facing API surface."
+      ],
+      "suggestion": "Promote credential/url resolution to a non-testing public module (for example `thenvoi.config`), update examples to consume that API, and keep `thenvoi.testing.config_loader` as a deprecation shim with a documented sunset.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "uncodified_public_contracts"
+    },
+    {
+      "dimension": "test_strategy",
+      "identifier": "quality_gate_policy_not_encoded_in_repo_contracts",
+      "summary": "Documented CI contract gates are not represented as enforceable repository-level test selection rules.",
+      "related_files": [
+        "README.md",
+        "pyproject.toml",
+        "tests/support/integration/config.py"
+      ],
+      "evidence": [
+        "`README.md` claims PR-required contract checks (bridge/bootstrap/prompt/integration marker policy).",
+        "`pyproject.toml` only sets default pytest `addopts = \"-v -m 'not integration'\"` and marker registration; it does not encode a contract-check test suite selector or policy gate.",
+        "Given this split, governance depends on external CI wiring rather than an in-repo executable contract, increasing drift risk between docs and runtime checks."
+      ],
+      "suggestion": "Add explicit pytest marker groups or dedicated commands in `pyproject.toml` (or documented task runner targets) for each required contract gate, and reference those exact commands in `README.md` so policy is reproducible locally and in CI.",
+      "confidence": "high",
+      "impact_scope": "codebase",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "uncodified_public_contracts"
+    },
+    {
+      "dimension": "test_strategy",
+      "identifier": "integration_run_instructions_conflict_with_default_marker_filter",
+      "summary": "Integration fixture docs include commands that conflict with default pytest marker filtering.",
+      "related_files": [
+        "tests/support/integration/config.py",
+        "pyproject.toml",
+        "README.md"
+      ],
+      "evidence": [
+        "`tests/support/integration/config.py` docstring repeatedly suggests `uv run pytest tests/integration/ -v` without `-m integration`.",
+        "`pyproject.toml` globally applies `-m 'not integration'`, so that command path can exclude integration tests by default.",
+        "`README.md` uses `-m integration` in integration sections, creating two competing run contracts inside the same codebase."
+      ],
+      "suggestion": "Normalize all integration run instructions to include `-m integration` (or update `addopts` strategy), and add a single authoritative command reference reused by both README and integration support module docs.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "single_edit",
+      "root_cause_cluster": "uncodified_public_contracts"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "Governance and compatibility expectations are documented across files but not fully encoded as executable repository contracts.",
+      "Example/runtime onboarding paths and test-support boundaries are insufficiently separated at API-contract level."
+    ],
+    "likely_symptoms": [
+      "quality_gate_policy_not_encoded_in_repo_contracts",
+      "integration_run_instructions_conflict_with_default_marker_filter"
+    ],
+    "possible_false_positives": []
+  }
+}

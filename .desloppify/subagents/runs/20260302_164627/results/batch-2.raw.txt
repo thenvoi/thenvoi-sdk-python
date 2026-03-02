@@ -1,0 +1,136 @@
+{
+  "batch": "Conventions & Errors",
+  "batch_index": 2,
+  "assessments": {
+    "convention_outlier": 74.0,
+    "error_consistency": 68.0,
+    "mid_level_elegance": 72.0
+  },
+  "dimension_notes": {
+    "convention_outlier": {
+      "evidence": [
+        "Example entrypoints use different startup conventions for similar tasks: `examples/a2a_bridge/01_basic_agent.py` manually loads dotenv/env vars and calls `Agent.create`, while `examples/a2a_bridge/02_with_auth.py` and `examples/codex/basic_agent.py` use `bootstrap_agent`/runtime helpers.",
+        "Near-identical tool package facades are duplicated with slightly different guidance text (`examples/claude_sdk_docker/tools/__init__.py` vs `examples/coding_agents/tools/__init__.py`), creating convention drift risk when one side evolves."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    },
+    "error_consistency": {
+      "evidence": [
+        "Failure signaling is inconsistent across adjacent seams: `examples/langgraph/standalone/calculator.py` returns in-band `{error: ...}` values, `src/thenvoi/integrations/parlant/tools.py` returns `BoundaryResult.failure(...)`, and `examples/a2a_gateway/basic_gateway.py` raises `ValueError` for config failure.",
+        "Integration tests in `tests/integration/test_participant_permissions.py` repeatedly catch broad `Exception` and infer outcome via string matching (e.g., '403', '404', '409'), while other tests in this batch assert typed exceptions directly via `pytest.raises(...)` (e.g., `tests/platform/test_link.py`)."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "architectural_change",
+      "confidence": "high"
+    },
+    "mid_level_elegance": {
+      "evidence": [
+        "Runner orchestration is duplicated across `docker/claude_sdk/runner.py` and `examples/claude_sdk_docker/runner.py` with subtle divergence (repo init/context-bundle path in one, absent in the other), so lifecycle-seam changes must be manually synchronized.",
+        "A2A examples expose multiple orchestration seams for equivalent startup responsibilities (`examples/a2a_gateway/basic_gateway.py` vs `examples/a2a_bridge/01_basic_agent.py`), increasing glue-code entropy instead of composing one canonical bootstrap pipeline."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "findings": [
+    {
+      "dimension": "convention_outlier",
+      "identifier": "example_bootstrap_protocol_drift",
+      "summary": "Sibling example entrypoints follow conflicting bootstrap conventions for equivalent agent startup work.",
+      "related_files": [
+        "examples/a2a_bridge/01_basic_agent.py",
+        "examples/a2a_bridge/02_with_auth.py",
+        "examples/codex/basic_agent.py",
+        "examples/a2a_gateway/basic_gateway.py"
+      ],
+      "evidence": [
+        "`examples/a2a_bridge/01_basic_agent.py` does manual dotenv/env validation plus `load_agent_config` and direct `Agent.create`.",
+        "`examples/a2a_bridge/02_with_auth.py` and `examples/codex/basic_agent.py` rely on `bootstrap_agent`/shared runtime helpers instead of manual bootstrap.",
+        "Equivalent concerns (config loading, credential wiring, startup logging) are implemented through different protocols across siblings."
+      ],
+      "suggestion": "Define one canonical example-bootstrap contract (e.g., shared helper that supports auth overrides and adapter-specific options) and migrate A2A/Codex/Gateway examples to that contract to remove style islands.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "bootstrap_contract_fragmentation"
+    },
+    {
+      "dimension": "error_consistency",
+      "identifier": "mixed_failure_channels_across_seams",
+      "summary": "Comparable boundary operations expose incompatible failure channels (exceptions, result objects, and in-band error strings).",
+      "related_files": [
+        "examples/langgraph/standalone/calculator.py",
+        "src/thenvoi/integrations/parlant/tools.py",
+        "examples/a2a_gateway/basic_gateway.py",
+        "examples/langgraph/standalone/sql_agent.py"
+      ],
+      "evidence": [
+        "`calculate_node` returns success/error as payload fields rather than raising or returning a typed result object.",
+        "Parlant tool execution uses `BoundaryResult.failure(...)` with structured codes in `src/thenvoi/integrations/parlant/tools.py`.",
+        "`examples/a2a_gateway/basic_gateway.py` raises `ValueError` for runtime config failures, while `examples/langgraph/standalone/sql_agent.py` catches broad exceptions and falls back silently."
+      ],
+      "suggestion": "Standardize a boundary-level error contract for adapter/example seams (e.g., typed result envelope with code/message/details), and add translation adapters only at top-level CLI/demo boundaries.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "architectural_change",
+      "root_cause_cluster": "bootstrap_contract_fragmentation"
+    },
+    {
+      "dimension": "error_consistency",
+      "identifier": "string_parsed_exception_handling_integration_tests",
+      "summary": "Integration tests depend on broad exception capture and string parsing for status classification, reducing failure predictability.",
+      "related_files": [
+        "tests/integration/test_participant_permissions.py",
+        "tests/platform/test_link.py",
+        "tests/integration/test_dynamic_agent.py"
+      ],
+      "evidence": [
+        "`test_participant_permissions.py` catches `Exception` in helper paths and maps outcomes by substring checks ('403', '404', '409').",
+        "The same file swallows setup exceptions in matrix loops and logs 'SETUP ERROR' without preserving type/context for assertions.",
+        "Other tests in-batch (e.g., `tests/platform/test_link.py`) use explicit `pytest.raises(RuntimeError, ...)`, showing a stricter contrasting strategy."
+      ],
+      "suggestion": "Introduce a small shared integration error-classification helper that normalizes API exception types/status codes explicitly, and replace broad catch/string parsing sites with typed checks.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "status_by_string_pattern"
+    },
+    {
+      "dimension": "mid_level_elegance",
+      "identifier": "duplicated_runner_composition_with_drift",
+      "summary": "Runner composition is duplicated across production and example Docker runners, creating seam drift and maintenance overhead.",
+      "related_files": [
+        "docker/claude_sdk/runner.py",
+        "examples/claude_sdk_docker/runner.py",
+        "docker/shared/repo_init.py"
+      ],
+      "evidence": [
+        "Both runner modules build execution context, artifacts, startup logger callback, and lifecycle run in nearly identical sequences.",
+        "Only one path wires repo initialization/context bundle (`docker/claude_sdk/runner.py` + `docker/shared/repo_init.py`), while the example runner uses a near-copy without that seam.",
+        "Mount contracts diverge (`/workspace/context` required only in one), indicating duplicated orchestration rather than parameterized composition."
+      ],
+      "suggestion": "Extract a shared runner builder with explicit feature flags (repo_init/context_indexing/startup_note/mount profile) so production and example runners differ by config, not by copied orchestration.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "bootstrap_contract_fragmentation"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "Bootstrap/orchestration responsibilities are spread across multiple ad-hoc entrypoint patterns instead of one composable contract.",
+      "Error handling semantics were optimized locally per module (demo UX, adapter boundaries, test convenience) without a cross-cutting failure model."
+    ],
+    "likely_symptoms": [
+      "example_bootstrap_protocol_drift",
+      "mixed_failure_channels_across_seams",
+      "duplicated_runner_composition_with_drift"
+    ],
+    "possible_false_positives": [
+      "Some divergence between example and production runners may be intentional for pedagogical simplicity, but duplication still increases drift risk."
+    ]
+  }
+}

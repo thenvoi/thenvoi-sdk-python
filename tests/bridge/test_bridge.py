@@ -24,7 +24,11 @@ from thenvoi.platform.event import (
     RoomRemovedEvent,
 )
 
-from bridge_core.bridge import BridgeConfig, ReconnectConfig, ThenvoiBridge
+from thenvoi.integrations.a2a_bridge.bridge import (
+    BridgeConfig,
+    ReconnectConfig,
+    ThenvoiBridge,
+)
 
 
 class TestBridgeConfig:
@@ -336,6 +340,20 @@ class TestThenvoiBridgeInit:
             handlers={"handler_a": AsyncMock(), "handler_b": AsyncMock()},
         )
         assert bridge._agent_mapping == {"alice": "handler_a", "bob": "handler_b"}
+
+    def test_set_link_rebinds_all_collaborators(self) -> None:
+        bridge = ThenvoiBridge(
+            config=self._make_config(),
+            handlers={"handler_a": AsyncMock()},
+        )
+        new_link = MagicMock()
+
+        bridge.set_link(new_link)
+
+        assert bridge._link is new_link
+        assert bridge._router._link is new_link
+        assert bridge._participant_directory._link is new_link
+        assert bridge._event_dispatcher._link is new_link
 
 
 class TestThenvoiBridgeHandleEvent:
@@ -701,7 +719,7 @@ class TestThenvoiBridgeParticipantCache:
         bridge._link.rest.agent_api_participants.list_agent_chat_participants.assert_not_called()
         # Handler should receive resolved sender_name
         call_kwargs = bridge._handlers["handler_a"].handle.call_args.kwargs
-        assert call_kwargs["sender_name"] == "Jane"
+        assert call_kwargs["message"].sender_name == "Jane"
 
     async def test_cache_miss_falls_back_to_rest(
         self, bridge_with_full_mock: ThenvoiBridge
@@ -739,7 +757,7 @@ class TestThenvoiBridgeParticipantCache:
         assert "room-1" in bridge._participant_cache
         # Handler should receive resolved sender_name
         call_kwargs = bridge._handlers["handler_a"].handle.call_args.kwargs
-        assert call_kwargs["sender_name"] == "Jane"
+        assert call_kwargs["message"].sender_name == "Jane"
 
     async def test_sender_name_none_when_not_found(
         self, bridge_with_full_mock: ThenvoiBridge
@@ -766,7 +784,7 @@ class TestThenvoiBridgeParticipantCache:
         await bridge._on_message("room-1", payload)
 
         call_kwargs = bridge._handlers["handler_a"].handle.call_args.kwargs
-        assert call_kwargs["sender_name"] is None
+        assert call_kwargs["message"].sender_name is None
 
 
 class TestThenvoiBridgeFetchExistingRooms:
@@ -800,6 +818,8 @@ class TestThenvoiBridgeFetchExistingRooms:
 
         rooms = await bridge._fetch_existing_rooms()
         assert rooms == []
+        assert bridge.nonfatal_errors
+        assert bridge.nonfatal_errors[0]["operation"] == "fetch_existing_rooms"
 
     async def test_returns_empty_on_no_data(self, bridge_config: BridgeConfig) -> None:
         bridge = ThenvoiBridge(
@@ -851,8 +871,9 @@ class TestThenvoiBridgeReconnect:
         bridge = ThenvoiBridge(
             config=bridge_config, handlers={"handler_a": AsyncMock()}
         )
-        bridge._link = MagicMock()
-        bridge._link.disconnect = AsyncMock()
+        mock_link = MagicMock()
+        mock_link.disconnect = AsyncMock(side_effect=RuntimeError("cleanup failed"))
+        bridge.set_link(mock_link)
 
         # First call fails, second triggers shutdown
         call_count = 0
@@ -867,11 +888,19 @@ class TestThenvoiBridgeReconnect:
 
         bridge._connect_and_consume = AsyncMock(side_effect=fail_then_shutdown)
 
-        with patch("bridge_core.bridge.asyncio.sleep", new_callable=AsyncMock):
+        with patch(
+            "thenvoi.integrations.a2a_bridge.bridge.asyncio.sleep",
+            new_callable=AsyncMock,
+        ):
             await bridge._run_with_reconnect()
 
         assert call_count == 2
         bridge._link.disconnect.assert_called()
+        assert bridge._reconnect_supervisor.nonfatal_errors
+        assert (
+            bridge._reconnect_supervisor.nonfatal_errors[0]["operation"]
+            == "disconnect_cleanup"
+        )
 
     async def test_reconnect_stops_after_max_retries(
         self, bridge_config: BridgeConfig
@@ -882,14 +911,18 @@ class TestThenvoiBridgeReconnect:
             handlers={"handler_a": AsyncMock()},
             reconnect_config=reconnect,
         )
-        bridge._link = MagicMock()
-        bridge._link.disconnect = AsyncMock()
+        mock_link = MagicMock()
+        mock_link.disconnect = AsyncMock()
+        bridge.set_link(mock_link)
 
         bridge._connect_and_consume = AsyncMock(
             side_effect=ConnectionError("always fails")
         )
 
-        with patch("bridge_core.bridge.asyncio.sleep", new_callable=AsyncMock):
+        with patch(
+            "thenvoi.integrations.a2a_bridge.bridge.asyncio.sleep",
+            new_callable=AsyncMock,
+        ):
             await bridge._run_with_reconnect()
 
         assert bridge._connect_and_consume.call_count == 3
@@ -904,8 +937,9 @@ class TestThenvoiBridgeReconnect:
             handlers={"handler_a": AsyncMock()},
             reconnect_config=reconnect,
         )
-        bridge._link = MagicMock()
-        bridge._link.disconnect = AsyncMock()
+        mock_link = MagicMock()
+        mock_link.disconnect = AsyncMock()
+        bridge.set_link(mock_link)
 
         call_count = 0
         sleep_delays: list[float] = []
@@ -929,7 +963,10 @@ class TestThenvoiBridgeReconnect:
         async def capture_sleep(delay: float) -> None:
             sleep_delays.append(delay)
 
-        with patch("bridge_core.bridge.asyncio.sleep", side_effect=capture_sleep):
+        with patch(
+            "thenvoi.integrations.a2a_bridge.bridge.asyncio.sleep",
+            side_effect=capture_sleep,
+        ):
             await bridge._run_with_reconnect()
 
         assert call_count == 4
@@ -966,8 +1003,9 @@ class TestThenvoiBridgeShutdown:
         bridge = ThenvoiBridge(
             config=bridge_config, handlers={"handler_a": AsyncMock()}
         )
-        bridge._link = MagicMock()
-        bridge._link.disconnect = AsyncMock()
+        mock_link = MagicMock()
+        mock_link.disconnect = AsyncMock()
+        bridge.set_link(mock_link)
         bridge._health = MagicMock()
         bridge._health.stop = AsyncMock()
 
@@ -982,8 +1020,9 @@ class TestThenvoiBridgeShutdown:
         bridge = ThenvoiBridge(
             config=bridge_config, handlers={"handler_a": AsyncMock()}
         )
-        bridge._link = MagicMock()
-        bridge._link.disconnect = AsyncMock(side_effect=RuntimeError("disconnect boom"))
+        mock_link = MagicMock()
+        mock_link.disconnect = AsyncMock(side_effect=RuntimeError("disconnect boom"))
+        bridge.set_link(mock_link)
         bridge._health = MagicMock()
         bridge._health.stop = AsyncMock()
 
@@ -991,6 +1030,8 @@ class TestThenvoiBridgeShutdown:
 
         bridge._link.disconnect.assert_called_once()
         bridge._health.stop.assert_called_once()
+        assert bridge.nonfatal_errors
+        assert bridge.nonfatal_errors[0]["operation"] == "shutdown_disconnect"
 
 
 class TestConnectAndConsume:
@@ -1050,7 +1091,9 @@ class TestConnectAndConsume:
 
         bridge._handle_event = tracking_handle  # type: ignore[assignment]
 
-        with patch("bridge_core.bridge.anext", side_effect=fake_anext):
+        with patch(
+            "thenvoi.integrations.a2a_bridge.bridge.anext", side_effect=fake_anext
+        ):
             await bridge._connect_and_consume()
 
         assert len(events_delivered) == 2
@@ -1071,7 +1114,9 @@ class TestConnectAndConsume:
             await never_resolving()
             return MagicMock()
 
-        with patch("bridge_core.bridge.anext", side_effect=fake_anext):
+        with patch(
+            "thenvoi.integrations.a2a_bridge.bridge.anext", side_effect=fake_anext
+        ):
             await bridge._connect_and_consume()
 
         # Should exit cleanly without processing any events
@@ -1085,7 +1130,9 @@ class TestConnectAndConsume:
         async def fake_anext(_iter: object) -> object:
             raise StopAsyncIteration
 
-        with patch("bridge_core.bridge.anext", side_effect=fake_anext):
+        with patch(
+            "thenvoi.integrations.a2a_bridge.bridge.anext", side_effect=fake_anext
+        ):
             await bridge._connect_and_consume()
 
         bridge._link.connect.assert_called_once()
@@ -1101,7 +1148,9 @@ class TestConnectAndConsume:
             err.__context__ = StopAsyncIteration()
             raise err
 
-        with patch("bridge_core.bridge.anext", side_effect=fake_anext):
+        with patch(
+            "thenvoi.integrations.a2a_bridge.bridge.anext", side_effect=fake_anext
+        ):
             await bridge._connect_and_consume()
 
         bridge._link.connect.assert_called_once()
@@ -1117,7 +1166,9 @@ class TestConnectAndConsume:
             err.__cause__ = StopAsyncIteration()
             raise err
 
-        with patch("bridge_core.bridge.anext", side_effect=fake_anext):
+        with patch(
+            "thenvoi.integrations.a2a_bridge.bridge.anext", side_effect=fake_anext
+        ):
             await bridge._connect_and_consume()
 
         bridge._link.connect.assert_called_once()
@@ -1130,7 +1181,9 @@ class TestConnectAndConsume:
         async def fake_anext(_iter: object) -> object:
             raise RuntimeError("unrelated error")
 
-        with patch("bridge_core.bridge.anext", side_effect=fake_anext):
+        with patch(
+            "thenvoi.integrations.a2a_bridge.bridge.anext", side_effect=fake_anext
+        ):
             with pytest.raises(RuntimeError, match="unrelated error"):
                 await bridge._connect_and_consume()
 
@@ -1190,7 +1243,9 @@ class TestConnectAndConsume:
 
         bridge._handle_event = failing_then_ok_handle  # type: ignore[assignment]
 
-        with patch("bridge_core.bridge.anext", side_effect=fake_anext):
+        with patch(
+            "thenvoi.integrations.a2a_bridge.bridge.anext", side_effect=fake_anext
+        ):
             # Should NOT raise — the exception is caught and logged
             await bridge._connect_and_consume()
 
@@ -1248,7 +1303,9 @@ class TestConnectAndConsumeShutdownCancelsHandler:
             await handler_started.wait()
             bridge._request_shutdown()
 
-        with patch("bridge_core.bridge.anext", side_effect=fake_anext):
+        with patch(
+            "thenvoi.integrations.a2a_bridge.bridge.anext", side_effect=fake_anext
+        ):
             # Run consume and shutdown trigger concurrently
             await asyncio.gather(
                 bridge._connect_and_consume(),
@@ -1301,7 +1358,9 @@ class TestConnectAndConsumeShutdownCancelsHandler:
             await handler_started.wait()
             bridge._request_shutdown()
 
-        with patch("bridge_core.bridge.anext", side_effect=fake_anext):
+        with patch(
+            "thenvoi.integrations.a2a_bridge.bridge.anext", side_effect=fake_anext
+        ):
             await asyncio.gather(
                 bridge._connect_and_consume(),
                 trigger_shutdown(),
@@ -1324,10 +1383,10 @@ class TestThenvoiBridgeMain:
         mock_run = AsyncMock()
 
         with (
-            patch("bridge_core.bridge.ThenvoiBridge.run", mock_run),
+            patch("thenvoi.integrations.a2a_bridge.bridge.ThenvoiBridge.run", mock_run),
             patch("dotenv.load_dotenv") as mock_dotenv,
         ):
-            from bridge_core.bridge import main
+            from thenvoi.integrations.a2a_bridge.bridge import main
 
             handler = AsyncMock()
             await main(handlers={"handler_a": handler})
@@ -1337,10 +1396,10 @@ class TestThenvoiBridgeMain:
 
 
 class TestModuleMain:
-    """Tests for python -m bridge_core entry point."""
+    """Tests for python -m thenvoi.integrations.a2a_bridge entry point."""
 
     def test_module_main_exits_with_error(self) -> None:
-        from bridge_core.__main__ import _main
+        from thenvoi.integrations.a2a_bridge.__main__ import _main
 
         with pytest.raises(SystemExit, match="requires handlers to be registered"):
             _main()

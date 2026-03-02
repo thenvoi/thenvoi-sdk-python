@@ -5,7 +5,7 @@ Run with: uv run pytest tests/integration/test_smoke.py -v -s
 
 import logging
 
-from tests.integration.conftest import requires_api
+from tests.support.integration.markers import requires_api
 
 logger = logging.getLogger(__name__)
 
@@ -20,7 +20,7 @@ class TestSmokeIntegration:
         assert response.data is not None
         assert response.data.name is not None
         assert response.data.id is not None
-        logger.info(
+        logger.debug(
             "Connected as agent: %s (ID: %s)", response.data.name, response.data.id
         )
 
@@ -28,10 +28,10 @@ class TestSmokeIntegration:
         """Verify agent can list its chats."""
         response = await api_client.agent_api_chats.list_agent_chats()
         assert response.data is not None
-        logger.info("Agent has %s chats", len(response.data))
+        logger.debug("Agent has %s chats", len(response.data))
 
     async def test_can_list_peers(self, api_client):
         """Verify agent can list available peers."""
         response = await api_client.agent_api_peers.list_agent_peers()
         assert response.data is not None
-        logger.info("Agent can see %s peers", len(response.data))
+        logger.debug("Agent can see %s peers", len(response.data))

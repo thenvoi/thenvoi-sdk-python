@@ -1,0 +1,156 @@
+You are a focused subagent reviewer for a single holistic investigation batch.
+
+Repository root: /Users/pp/thenvoi/thenvoi-sdk-python
+Blind packet: /Users/pp/thenvoi/thenvoi-sdk-python/.desloppify/review_packet_blind.json
+Batch index: 3
+Batch name: Design coherence — Mechanical Concern Signals
+Batch dimensions: design_coherence
+Batch rationale: mechanical detectors identified structural patterns needing judgment; concern types: design_concern, duplication_design, mixed_responsibilities, systemic_pattern; truncated to 80 files from 114 candidates
+
+Files assigned:
+- .github/actions/GithubToken/generate_token.py
+- examples/a2a_bridge/02_with_auth.py
+- examples/a2a_bridge/setup_logging.py
+- examples/a2a_gateway/demo_orchestrator/agent.py
+- examples/claude_sdk/02_extended_thinking.py
+- examples/claude_sdk/04_jerry_agent.py
+- examples/claude_sdk/setup_logging.py
+- examples/coding_agents/create_agents.py
+- examples/crewai/02_role_based_agent.py
+- examples/crewai/04_research_crew.py
+- examples/crewai/05_tom_agent.py
+- examples/crewai/06_jerry_agent.py
+- examples/crewai/setup_logging.py
+- examples/langgraph/05_rag_as_tool.py
+- examples/langgraph/08_jerry_agent.py
+- examples/langgraph/prompts.py
+- examples/langgraph/standalone_calculator.py
+- examples/langgraph/standalone_rag.py
+- examples/langgraph/standalone_sql_agent.py
+- examples/parlant/03_support_agent.py
+- examples/parlant/setup_logging.py
+- examples/prompts/characters.py
+- examples/pydantic_ai/02_custom_instructions.py
+- examples/pydantic_ai/03_tom_agent.py
+- examples/pydantic_ai/04_jerry_agent.py
+- src/thenvoi/adapters/a2a_gateway.py
+- src/thenvoi/adapters/langgraph.py
+- src/thenvoi/config/loader.py
+- src/thenvoi/converters/a2a.py
+- src/thenvoi/converters/a2a_gateway.py
+- src/thenvoi/converters/langchain.py
+- src/thenvoi/core/simple_adapter.py
+- src/thenvoi/integrations/claude_sdk/prompts.py
+- src/thenvoi/integrations/claude_sdk/session_manager.py
+- src/thenvoi/integrations/codex/rpc_base.py
+- src/thenvoi/integrations/langgraph/graph_tools.py
+- src/thenvoi/platform/link.py
+- src/thenvoi/preprocessing/default.py
+- src/thenvoi/runtime/formatters.py
+- src/thenvoi/runtime/presence.py
+- src/thenvoi/runtime/tools.py
+- src/thenvoi/testing/fake_tools.py
+- tests/adapters/test_codex_adapter.py
+- tests/bridge/test_router.py
+- tests/integration/test_callback_strategy.py
+- tests/integration/test_contact_tools.py
+- tests/integration/test_contact_websocket.py
+- tests/integration/test_dynamic_agent.py
+- tests/integration/test_history_converters.py
+- tests/integration/test_hub_room_strategy.py
+- tests/integration/test_multi_agent.py
+- tests/integration/test_participant_permissions.py
+- tests/preprocessing/test_default.py
+- thenvoi-bridge/bridge_core/bridge.py
+- thenvoi-bridge/bridge_core/router.py
+- src/thenvoi/converters/anthropic.py
+- src/thenvoi/converters/crewai.py
+- src/thenvoi/runtime/contact_tools.py
+- docker/claude_sdk/runner.py
+- docker/codex/runner.py
+- docker/shared/repo_init.py
+- examples/a2a_bridge/01_basic_agent.py
+- examples/a2a_gateway/01_basic_gateway.py
+- examples/a2a_gateway/02_with_demo_agent.py
+- examples/anthropic/01_basic_agent.py
+- examples/anthropic/02_custom_instructions.py
+- examples/anthropic/03_tom_agent.py
+- examples/anthropic/04_jerry_agent.py
+- examples/anthropic/setup_logging.py
+- examples/claude_sdk/01_basic_agent.py
+- examples/claude_sdk/03_tom_agent.py
+- examples/claude_sdk_docker/runner.py
+- examples/claude_sdk_docker/tools/example_tools.py
+- examples/codex/01_basic_agent.py
+- examples/crewai/01_basic_agent.py
+- examples/crewai/03_coordinator_agent.py
+- examples/langgraph/01_simple_agent.py
+- examples/langgraph/02_custom_tools.py
+- examples/langgraph/03_custom_personality.py
+- examples/langgraph/04_calculator_as_tool.py
+
+Task requirements:
+1. Read the blind packet and follow `system_prompt` constraints exactly.
+1a. If previously flagged issues are listed above, use them as context for your review.
+    Verify whether each still applies to the current code. Do not re-report fixed or
+    wontfix issues. Use them as starting points to look deeper — inspect adjacent code
+    and related modules for defects the prior review may have missed.
+1c. Think structurally: when you spot multiple individual issues that share a common
+    root cause (missing abstraction, duplicated pattern, inconsistent convention),
+    explain the deeper structural issue in the finding, not just the surface symptom.
+    If the pattern is significant enough, report the structural issue as its own finding
+    with appropriate fix_scope ('multi_file_refactor' or 'architectural_change') and
+    use `root_cause_cluster` to connect related symptom findings together.
+2. Evaluate ONLY listed files and ONLY listed dimensions for this batch.
+3. Return 0-10 high-quality findings for this batch (empty array allowed).
+3a. Do not suppress real defects to keep scores high; report every material issue you can support with evidence.
+3b. Do not default to 100. Reserve 100 for genuinely exemplary evidence in this batch.
+4. Score/finding consistency is required: broader or more severe findings MUST lower dimension scores.
+4a. Any dimension scored below 85.0 MUST include explicit feedback: add at least one finding with the same `dimension` and a non-empty actionable `suggestion`.
+5. Every finding must include `related_files` with at least 2 files when possible.
+6. Every finding must include `dimension`, `identifier`, `summary`, `evidence`, `suggestion`, and `confidence`.
+7. Every finding must include `impact_scope` and `fix_scope`.
+8. Every scored dimension MUST include dimension_notes with concrete evidence.
+9. If a dimension score is >85.0, include `issues_preventing_higher_score` in dimension_notes.
+10. Use exactly one decimal place for every assessment and abstraction sub-axis score.
+11. Ignore prior chat context and any target-threshold assumptions.
+12. Do not edit repository files.
+13. Return ONLY valid JSON, no markdown fences.
+
+Scope enums:
+- impact_scope: "local" | "module" | "subsystem" | "codebase"
+- fix_scope: "single_edit" | "multi_file_refactor" | "architectural_change"
+
+Output schema:
+{
+  "batch": "Design coherence — Mechanical Concern Signals",
+  "batch_index": 3,
+  "assessments": {"<dimension>": <0-100 with one decimal place>},
+  "dimension_notes": {
+    "<dimension>": {
+      "evidence": ["specific code observations"],
+      "impact_scope": "local|module|subsystem|codebase",
+      "fix_scope": "single_edit|multi_file_refactor|architectural_change",
+      "confidence": "high|medium|low",
+      "issues_preventing_higher_score": "required when score >85.0",
+      "sub_axes": {"abstraction_leverage": 0-100 with one decimal place, "indirection_cost": 0-100 with one decimal place, "interface_honesty": 0-100 with one decimal place}  // required for abstraction_fitness when evidence supports it
+    }
+  },
+  "findings": [{
+    "dimension": "<dimension>",
+    "identifier": "short_id",
+    "summary": "one-line defect summary",
+    "related_files": ["relative/path.py"],
+    "evidence": ["specific code observation"],
+    "suggestion": "concrete fix recommendation",
+    "confidence": "high|medium|low",
+    "impact_scope": "local|module|subsystem|codebase",
+    "fix_scope": "single_edit|multi_file_refactor|architectural_change",
+    "root_cause_cluster": "optional_cluster_name_when_supported_by_history"
+  }],
+  "retrospective": {
+    "root_causes": ["optional: concise root-cause hypotheses"],
+    "likely_symptoms": ["optional: identifiers that look symptom-level"],
+    "possible_false_positives": ["optional: prior concept keys likely mis-scoped"]
+  }
+}

@@ -1,11 +1,4 @@
-"""Tests for ParlantAdapter with official Parlant SDK.
-
-Tests for shared adapter behavior (initialization defaults, custom kwargs,
-history_converter, on_started agent_name/description, on_message callable,
-cleanup safety) live in tests/framework_conformance/test_adapter_conformance.py.
-This file contains Parlant-specific behavior: server/agent initialization,
-Application container, session management, history injection, and error handling.
-"""
+"""ParlantAdapter-specific behavior tests (shared adapter contract lives in framework_conformance)."""
 
 from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -459,6 +452,81 @@ class TestHistoryInjection:
         count = await adapter_with_app._inject_history("session-123", [])
         assert count == 0
 
+    @pytest.mark.asyncio
+    async def test_inject_history_records_nonfatal_on_event_failure(
+        self, adapter_with_app
+    ):
+        """Injection failures should be tracked as non-fatal errors."""
+        adapter_with_app._app.sessions.create_event = AsyncMock(
+            side_effect=Exception("inject failed")
+        )
+        history = [{"role": "assistant", "content": "Reply", "sender": "TestBot"}]
+
+        mock_moderation = MagicMock()
+        mock_moderation.NONE = "none"
+
+        mock_event_kind = MagicMock()
+        mock_event_kind.MESSAGE = "message"
+
+        mock_event_source = MagicMock()
+        mock_event_source.CUSTOMER = "customer"
+        mock_event_source.AI_AGENT = "ai_agent"
+
+        with patch.dict(
+            sys.modules,
+            {
+                "parlant.core.app_modules.sessions": MagicMock(
+                    Moderation=mock_moderation
+                ),
+                "parlant.core.sessions": MagicMock(
+                    EventKind=mock_event_kind,
+                    EventSource=mock_event_source,
+                ),
+            },
+        ):
+            count = await adapter_with_app._inject_history("session-123", history)
+
+        assert count == 0
+        assert adapter_with_app.nonfatal_errors
+        assert (
+            adapter_with_app.nonfatal_errors[0]["operation"] == "inject_history_message"
+        )
+
+    @pytest.mark.asyncio
+    async def test_process_agent_events_records_nonfatal_send_error(
+        self, adapter_with_app
+    ):
+        """Failed platform send_message calls should be recorded as non-fatal."""
+        event = MagicMock()
+        event.kind = "message"
+        event.source = "ai_agent"
+        event.data = {"message": "Hello", "tags": []}
+        event.offset = 2
+
+        event_kind = MagicMock()
+        event_kind.MESSAGE = "message"
+        event_source = MagicMock()
+        event_source.AI_AGENT = "ai_agent"
+
+        failing_tools = MagicMock()
+        failing_tools.send_message = AsyncMock(side_effect=Exception("send failed"))
+
+        offset, got_final = await adapter_with_app._process_agent_events(
+            events=[event],
+            current_offset=1,
+            room_id="room-123",
+            session_id_str="session-123",
+            tools=failing_tools,
+            sender_name="Alice",
+            event_kind=event_kind,
+            event_source=event_source,
+        )
+
+        assert got_final is True
+        assert offset == 2
+        assert adapter_with_app.nonfatal_errors
+        assert adapter_with_app.nonfatal_errors[0]["operation"] == "send_message_event"
+
 
 class TestCleanupAll:
     """Tests for cleanup_all() method."""
@@ -534,6 +602,57 @@ class TestErrorHandling:
 
         # Should have tried to report error
         mock_tools.send_event.assert_called()
+
+    @pytest.mark.asyncio
+    async def test_records_nonfatal_when_error_event_fails(
+        self, mock_parlant_server, mock_parlant_agent, sample_message
+    ):
+        """Should record non-fatal metadata when error reporting fails."""
+        adapter = ParlantAdapter(
+            server=mock_parlant_server,
+            parlant_agent=mock_parlant_agent,
+        )
+        adapter.agent_name = "TestBot"
+        adapter._system_prompt = "Test prompt"
+
+        mock_app = MagicMock()
+        mock_app.sessions = AsyncMock()
+        mock_app.sessions.create = AsyncMock(return_value=MagicMock(id="session-123"))
+        mock_app.sessions.create_customer_message = AsyncMock(
+            side_effect=Exception("API error")
+        )
+        adapter._app = mock_app
+
+        failing_tools = MagicMock()
+        failing_tools.send_event = AsyncMock(side_effect=Exception("event failed"))
+
+        mock_moderation = MagicMock()
+        mock_moderation.NONE = "none"
+
+        with patch.dict(
+            sys.modules,
+            {
+                "parlant.core.app_modules.sessions": MagicMock(
+                    Moderation=mock_moderation
+                ),
+                "parlant.core.sessions": MagicMock(
+                    EventSource=MagicMock(CUSTOMER="customer"),
+                ),
+            },
+        ):
+            with pytest.raises(Exception, match="API error"):
+                await adapter.on_message(
+                    msg=sample_message,
+                    tools=failing_tools,
+                    history=[],
+                    participants_msg=None,
+                    contacts_msg=None,
+                    is_session_bootstrap=True,
+                    room_id="room-123",
+                )
+
+        assert adapter.nonfatal_errors
+        assert adapter.nonfatal_errors[0]["operation"] == "error_event"
 
     @pytest.mark.asyncio
     async def test_clears_tools_on_error(

@@ -1,0 +1,72 @@
+{
+  "batch": "Package Organization",
+  "batch_index": 2,
+  "assessments": {
+    "package_organization": 82.0
+  },
+  "dimension_notes": {
+    "package_organization": {
+      "evidence": [
+        "src/thenvoi/runtime/__init__.py declares runtime root should expose runtime-core lifecycle/execution APIs only, but sibling files src/thenvoi/runtime/contact_tools.py and src/thenvoi/runtime/custom_tools.py still live at that root and represent domain-specific compatibility surfaces.",
+        "tests/conftest.py registers integration-specific plugins globally (tests.support.integration.plugin and tests.support.integration.fixtures), so non-integration suites such as tests/runtime/test_execution.py and tests/test_agent.py inherit integration-layer wiring from the repository root test boundary."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "findings": [
+    {
+      "dimension": "package_organization",
+      "identifier": "runtime_root_shim_leakage",
+      "summary": "Runtime root package still contains domain-specific compatibility shims that contradict the declared core-only boundary.",
+      "related_files": [
+        "src/thenvoi/runtime/__init__.py",
+        "src/thenvoi/runtime/contact_tools.py",
+        "src/thenvoi/runtime/custom_tools.py",
+        "tests/runtime/test_custom_tools.py"
+      ],
+      "evidence": [
+        "src/thenvoi/runtime/__init__.py docstring states domain helpers should come from dedicated submodules, but contact_tools.py and custom_tools.py remain in the runtime root namespace.",
+        "Both shim files explicitly redirect to deeper packages (thenvoi.runtime.contacts.contact_tools and thenvoi.runtime.tooling.custom_tools), showing root-level placement is now compatibility residue rather than ownership.",
+        "tests/runtime/test_custom_tools.py already uses canonical subpackage import (thenvoi.runtime.tooling.custom_tools), indicating callers have moved while root shims persist."
+      ],
+      "suggestion": "Stage 1: add a dedicated legacy boundary package (for example `src/thenvoi/runtime/compat/legacy_modules/`) and move compatibility shim ownership there while leaving temporary import stubs at current paths. Stage 2: update shim registration maps and any remaining imports to canonical modules (`thenvoi.runtime.contacts.*`, `thenvoi.runtime.tooling.*`). Stage 3: remove root stubs after deprecation window. Validate with `uv run ruff check .`, `uv run pyrefly check`, and `uv run pytest tests/runtime/test_custom_tools.py -v`.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "legacy_surface_not_isolated"
+    },
+    {
+      "dimension": "package_organization",
+      "identifier": "global_test_boundary_drift",
+      "summary": "Repository-root test config owns integration-specific plugin wiring, blurring test package boundaries.",
+      "related_files": [
+        "tests/conftest.py",
+        "tests/runtime/test_execution.py",
+        "tests/test_agent.py"
+      ],
+      "evidence": [
+        "tests/conftest.py globally loads tests.support.integration.plugin and tests.support.integration.fixtures at root scope.",
+        "tests/runtime/test_execution.py and tests/test_agent.py are non-integration suites under different concerns, but root plugin loading couples them to integration package initialization.",
+        "The root conftest function also applies integration collection filtering, reinforcing that integration concerns currently sit in the top-level test boundary instead of an integration-scoped boundary."
+      ],
+      "suggestion": "Stage 1: split `tests/conftest.py` into root-only shared hooks and `tests/integration/conftest.py` for integration plugins/guards. Stage 2: keep only truly global fixtures in root and move integration plugin registration to integration scope. Stage 3: run `uv run pytest tests/test_agent.py tests/runtime/test_execution.py -v` and `uv run pytest tests/integration/ -v --collect-only` to verify boundary behavior, then run `uv run ruff check .` to catch stale imports.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "legacy_surface_not_isolated"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "Compatibility and migration surfaces are not isolated into a dedicated legacy boundary package, so old entrypoints remain mixed with active ownership paths.",
+      "Test package layering centralizes integration behavior at root instead of scoping it to the integration subtree."
+    ],
+    "likely_symptoms": [
+      "runtime_root_shim_leakage",
+      "global_test_boundary_drift"
+    ],
+    "possible_false_positives": []
+  }
+}

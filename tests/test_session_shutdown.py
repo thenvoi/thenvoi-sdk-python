@@ -9,36 +9,21 @@ Tests cover:
 
 import asyncio
 import pytest
-from unittest.mock import AsyncMock, MagicMock
 
 from thenvoi.runtime.execution import ExecutionContext
 from thenvoi.runtime.types import SessionConfig
 
 # Import test helpers from conftest
-from tests.conftest import make_message_event
+from tests.support.events import make_message_event
 
 
 class TestIsRunningProperty:
     """Tests for is_running property reflecting task state."""
 
     @pytest.fixture
-    def mock_link(self):
+    def mock_link(self, link_mock_factory):
         """Create mock ThenvoiLink."""
-        link = MagicMock()
-        link.rest = MagicMock()
-        link.rest.agent_api_participants = MagicMock()
-        link.rest.agent_api_context = MagicMock()
-        link.rest.agent_api_participants.list_agent_chat_participants = AsyncMock(
-            return_value=MagicMock(data=[])
-        )
-        link.rest.agent_api_context.get_agent_chat_context = AsyncMock(
-            return_value=MagicMock(data=[])
-        )
-        link.get_next_message = AsyncMock(return_value=None)
-        link.mark_processing = AsyncMock()
-        link.mark_processed = AsyncMock()
-        link.mark_failed = AsyncMock()
-        return link
+        return link_mock_factory()
 
     @pytest.fixture
     def ctx(self, mock_link):
@@ -78,23 +63,9 @@ class TestInstantShutdown:
     """Tests for instant cancellation without timeout waiting."""
 
     @pytest.fixture
-    def mock_link(self):
+    def mock_link(self, link_mock_factory):
         """Create mock ThenvoiLink."""
-        link = MagicMock()
-        link.rest = MagicMock()
-        link.rest.agent_api_participants = MagicMock()
-        link.rest.agent_api_context = MagicMock()
-        link.rest.agent_api_participants.list_agent_chat_participants = AsyncMock(
-            return_value=MagicMock(data=[])
-        )
-        link.rest.agent_api_context.get_agent_chat_context = AsyncMock(
-            return_value=MagicMock(data=[])
-        )
-        link.get_next_message = AsyncMock(return_value=None)
-        link.mark_processing = AsyncMock()
-        link.mark_processed = AsyncMock()
-        link.mark_failed = AsyncMock()
-        return link
+        return link_mock_factory()
 
     @pytest.fixture
     def ctx(self, mock_link):
@@ -146,18 +117,9 @@ class TestCancellationDuringSync:
     """Tests for cancellation during synchronization phase."""
 
     @pytest.fixture
-    def mock_link_slow_sync(self):
+    def mock_link_slow_sync(self, link_mock_factory):
         """Create mock ThenvoiLink with slow /next that can be cancelled."""
-        link = MagicMock()
-        link.rest = MagicMock()
-        link.rest.agent_api_participants = MagicMock()
-        link.rest.agent_api_context = MagicMock()
-        link.rest.agent_api_participants.list_agent_chat_participants = AsyncMock(
-            return_value=MagicMock(data=[])
-        )
-        link.rest.agent_api_context.get_agent_chat_context = AsyncMock(
-            return_value=MagicMock(data=[])
-        )
+        link = link_mock_factory()
 
         # Simulate slow /next API that can be cancelled
         async def slow_get_next(room_id):
@@ -165,9 +127,6 @@ class TestCancellationDuringSync:
             return None
 
         link.get_next_message = slow_get_next
-        link.mark_processing = AsyncMock()
-        link.mark_processed = AsyncMock()
-        link.mark_failed = AsyncMock()
         return link
 
     @pytest.fixture
@@ -204,23 +163,9 @@ class TestCancellationDuringProcessing:
     """Tests for cancellation during event processing."""
 
     @pytest.fixture
-    def mock_link(self):
+    def mock_link(self, link_mock_factory):
         """Create mock ThenvoiLink."""
-        link = MagicMock()
-        link.rest = MagicMock()
-        link.rest.agent_api_participants = MagicMock()
-        link.rest.agent_api_context = MagicMock()
-        link.rest.agent_api_participants.list_agent_chat_participants = AsyncMock(
-            return_value=MagicMock(data=[])
-        )
-        link.rest.agent_api_context.get_agent_chat_context = AsyncMock(
-            return_value=MagicMock(data=[])
-        )
-        link.get_next_message = AsyncMock(return_value=None)
-        link.mark_processing = AsyncMock()
-        link.mark_processed = AsyncMock()
-        link.mark_failed = AsyncMock()
-        return link
+        return link_mock_factory()
 
     @pytest.fixture
     def ctx_with_slow_handler(self, mock_link):

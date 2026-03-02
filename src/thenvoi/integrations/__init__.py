@@ -1,18 +1,21 @@
-"""
-Framework integrations for Thenvoi SDK.
+"""Integration helper public namespace."""
 
-This module contains utilities for integrating with various AI frameworks:
-- base: Common helpers for all frameworks
-- langgraph: LangChain/LangGraph tools and utilities
-- parlant: Parlant SDK session and tool management
-- claude_sdk: Claude Agent SDK session management
-"""
+from __future__ import annotations
 
-# Base utilities (always available)
-from .base import check_and_format_participants
+import importlib
+from typing import Any
 
-__all__ = [
-    "check_and_format_participants",
-]
+__all__ = ("check_and_format_participants",)
 
-# Optional imports - fail gracefully if deps not installed
+
+def __getattr__(name: str) -> Any:
+    if name not in __all__:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    module = importlib.import_module("thenvoi.integrations.base")
+    value = getattr(module, name)
+    globals()[name] = value
+    return value
+
+
+def __dir__() -> list[str]:
+    return sorted(set(globals()) | set(__all__))

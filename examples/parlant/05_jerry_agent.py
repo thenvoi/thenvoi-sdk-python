@@ -23,21 +23,18 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
-import sys
 
 import parlant.sdk as p
 from dotenv import load_dotenv
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
-
-from prompts.characters import generate_jerry_prompt
-from setup_logging import setup_logging
+from thenvoi.example_support.prompts.characters import generate_jerry_prompt
+from thenvoi.testing.example_logging import setup_logging_profile
 from thenvoi import Agent
 from thenvoi.adapters import ParlantAdapter
 from thenvoi.config import load_agent_config
 from thenvoi.integrations.parlant.tools import create_parlant_tools
 
-setup_logging()
+setup_logging_profile("parlant")
 logger = logging.getLogger(__name__)
 
 

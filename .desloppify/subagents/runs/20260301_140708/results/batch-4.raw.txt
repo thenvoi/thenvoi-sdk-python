@@ -1,0 +1,161 @@
+{
+  "batch": "Design coherence — Mechanical Concern Signals",
+  "batch_index": 4,
+  "assessments": {
+    "design_coherence": 76.4
+  },
+  "dimension_notes": {
+    "design_coherence": {
+      "evidence": [
+        "`src/thenvoi/adapters/codex.py` concentrates transport lifecycle, thread/session state, local command parsing, approval UX workflow, task-event translation, model fallback, and sandbox policy normalization in one adapter class (~1900 lines with many private control-flow branches).",
+        "Multiple adapters repeat the same session-bootstrap/system-update/history-staging shape (`src/thenvoi/adapters/anthropic.py`, `src/thenvoi/adapters/pydantic_ai.py`, `src/thenvoi/adapters/crewai.py`, `src/thenvoi/adapters/langgraph.py`) rather than sharing a single orchestration policy surface.",
+        "`src/thenvoi/client/streaming/client.py` and `src/thenvoi/platform/link.py` both implement repetitive per-topic join/leave and event-wrapping methods, creating two layers of near-mechanical channel choreography.",
+        "Runner entrypoints duplicate similar environment parsing, prompt composition, mount validation, and startup wiring across `docker/codex/runner.py`, `docker/claude_sdk/runner.py`, and `examples/claude_sdk_docker/runner.py`, with divergent defaults and behavior."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "architectural_change",
+      "confidence": "high"
+    }
+  },
+  "findings": [
+    {
+      "dimension": "design_coherence",
+      "identifier": "codex_adapter_multi_role_core",
+      "summary": "Codex adapter has become a multi-role orchestrator that mixes unrelated responsibilities and raises change risk.",
+      "related_files": [
+        "src/thenvoi/adapters/codex.py",
+        "tests/adapters/test_codex_adapter.py",
+        "src/thenvoi/integrations/codex/rpc_base.py",
+        "src/thenvoi/integrations/codex/stdio_client.py",
+        "src/thenvoi/integrations/codex/websocket_client.py"
+      ],
+      "evidence": [
+        "One class handles RPC client bootstrapping, thread resume/start, turn loop, server request handling, local slash-commands, manual approval bookkeeping, model fallback, sandbox normalization, and event emission.",
+        "The adapter exposes many narrowly scoped private helpers that still depend on shared mutable adapter state (`_room_threads`, `_pending_approvals`, `_selected_model`, `_task_titles_by_id`), indicating high internal coupling instead of modular ownership.",
+        "Large behavior-specific test surface in `tests/adapters/test_codex_adapter.py` reflects this concentration by validating many orthogonal concerns through one entrypoint."
+      ],
+      "suggestion": "Split Codex behavior into composable collaborators (session lifecycle, command/approval controller, turn-event reducer, and policy/config normalizers) and keep `CodexAdapter` as orchestration glue with a narrow state model.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "architectural_change",
+      "root_cause_cluster": "adapter_orchestration_duplication"
+    },
+    {
+      "dimension": "design_coherence",
+      "identifier": "adapter_bootstrap_pattern_duplication",
+      "summary": "Framework adapters duplicate the same room bootstrap/system-update/history choreography with per-file drift.",
+      "related_files": [
+        "src/thenvoi/adapters/anthropic.py",
+        "src/thenvoi/adapters/pydantic_ai.py",
+        "src/thenvoi/adapters/crewai.py",
+        "src/thenvoi/adapters/langgraph.py",
+        "src/thenvoi/core/adapter_base.py"
+      ],
+      "evidence": [
+        "Anthropic, PydanticAI, and CrewAI adapters each stage per-room history, inject participant/contact system updates, then run framework-specific execution loops with similar error-report pathways.",
+        "LangGraph adapter reimplements bootstrap-once logic (`_bootstrapped_rooms`) and system update injection independently, instead of using a shared adapter lifecycle component.",
+        "`AdapterLifecycleBase` centralizes only minimal conversion dispatch, leaving repeated runtime session policy spread across adapter files."
+      ],
+      "suggestion": "Introduce a shared room-session orchestration layer (bootstrap policy, update injection, error reporting contract) consumed by framework adapters, with framework-specific code limited to request/response translation.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "adapter_orchestration_duplication"
+    },
+    {
+      "dimension": "design_coherence",
+      "identifier": "runtime_context_overloaded",
+      "summary": "Runtime execution context and platform runtime each aggregate too many lifecycle concerns, blurring ownership boundaries.",
+      "related_files": [
+        "src/thenvoi/runtime/execution.py",
+        "src/thenvoi/runtime/platform_runtime.py",
+        "src/thenvoi/runtime/contacts/contact_handler.py",
+        "src/thenvoi/platform/link.py"
+      ],
+      "evidence": [
+        "`ExecutionContext` handles queue processing, sync reconciliation with `/next`, retry accounting, stale-message recovery, participant cache, context hydration, and system-message injection in one class.",
+        "`PlatformRuntime` coordinates link startup/shutdown, metadata retrieval, contact strategy wiring, contact subscription state, broadcast queueing, and hub-room injection flow.",
+        "Contact handling integration requires cross-object callbacks (`_queue_broadcast`, `_inject_hub_event`, `_inject_hub_system_prompt`) that couple runtime orchestration to contact strategy internals."
+      ],
+      "suggestion": "Separate runtime into explicit components (message-sync engine, execution loop, participant/context cache, and contact orchestration facade) with clear handoff contracts to reduce cross-component callback coupling.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "architectural_change",
+      "root_cause_cluster": "runtime_orchestration_coupling"
+    },
+    {
+      "dimension": "design_coherence",
+      "identifier": "channel_choreography_repetition",
+      "summary": "WebSocket channel APIs are mechanically repeated across streaming and link layers, increasing drift potential.",
+      "related_files": [
+        "src/thenvoi/client/streaming/client.py",
+        "src/thenvoi/platform/link.py"
+      ],
+      "evidence": [
+        "`WebSocketClient` repeats near-identical `join_*`/`leave_*` methods that differ mostly by topic string and handler map.",
+        "`ThenvoiLink` adds another repetitive layer for subscribe/unsubscribe and per-event wrapper methods (`_on_*`) that mostly translate payloads into event objects and enqueue them.",
+        "Duplicated choreography requires parallel edits whenever channel/event shapes change."
+      ],
+      "suggestion": "Move to a declarative channel registry (topic template + payload model + event constructor) and generate join/leave + dispatch wiring from one table shared by both layers.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "event_channel_duplication"
+    },
+    {
+      "dimension": "design_coherence",
+      "identifier": "runner_bootstrap_inconsistency",
+      "summary": "Runner startup logic is duplicated across Docker/example entrypoints with inconsistent defaults and contracts.",
+      "related_files": [
+        "docker/codex/runner.py",
+        "docker/claude_sdk/runner.py",
+        "examples/claude_sdk_docker/runner.py",
+        "src/thenvoi/testing/runner_core.py"
+      ],
+      "evidence": [
+        "All three runners perform similar config-path/env resolution, mount validation, prompt composition, adapter creation, and lifecycle startup with hand-maintained variations.",
+        "Behavior diverges across files (mount requirements, role/workspace resolution style, inclusion of repo-init context bundle), despite serving the same startup shape.",
+        "This creates a maintenance pattern where feature additions/fixes must be manually replicated across entrypoints."
+      ],
+      "suggestion": "Define a single declarative runner spec and shared builder in `runner_core` that each entrypoint configures via small profile objects rather than duplicating startup flow.",
+      "confidence": "medium",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "runner_bootstrap_duplication"
+    },
+    {
+      "dimension": "design_coherence",
+      "identifier": "gateway_sender_type_contract_drift",
+      "summary": "Gateway history participant reconstruction relies on a sender-type convention that drifts from other runtime usage.",
+      "related_files": [
+        "src/thenvoi/converters/a2a_gateway.py",
+        "src/thenvoi/runtime/execution.py",
+        "tests/integration/test_history_converters.py"
+      ],
+      "evidence": [
+        "`GatewayHistoryConverter` tracks participants only when `sender_type == \"agent\"` (lowercase), while other runtime paths compare against `\"Agent\"` (capitalized) for agent-origin filtering.",
+        "No gateway-focused integration assertion in `tests/integration/test_history_converters.py` covers this sender-type normalization boundary, so convention drift can persist silently.",
+        "This is a coherence issue at the contract boundary: converter behavior depends on implicit casing assumptions not normalized in one place."
+      ],
+      "suggestion": "Normalize sender type through a shared canonical helper (case-insensitive enum-style normalization) and add converter integration tests that cover mixed-case sender types from platform history.",
+      "confidence": "medium",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "integration_contract_drift"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "Adapter-level orchestration responsibilities are not consistently extracted into shared policy components.",
+      "Event/channel and runner startup workflows are implemented as repeated imperative code instead of declarative registries/specs.",
+      "Boundary contracts (sender-type normalization and session orchestration semantics) are enforced ad hoc across modules."
+    ],
+    "likely_symptoms": [
+      "codex_adapter_multi_role_core",
+      "adapter_bootstrap_pattern_duplication",
+      "channel_choreography_repetition",
+      "runner_bootstrap_inconsistency"
+    ],
+    "possible_false_positives": []
+  }
+}

@@ -7,6 +7,7 @@ from collections import defaultdict
 from typing import TYPE_CHECKING, Any
 
 from thenvoi.core.protocols import HistoryConverter
+from thenvoi.runtime.types import is_agent_sender_type
 
 # Use TYPE_CHECKING to avoid circular import:
 # gateway/__init__.py -> adapter.py -> this module -> gateway/types.py -> gateway/__init__.py
@@ -37,7 +38,7 @@ class GatewayHistoryConverter(HistoryConverter["GatewaySessionState"]):
 
         Args:
             raw: Platform history from format_history_for_llm().
-                 Each dict has: role, content, sender_name, sender_type,
+                 Each dict has: role, content, sender_name, type/sender_type,
                  message_type, metadata, room_id, sender_id.
 
         Returns:
@@ -66,9 +67,9 @@ class GatewayHistoryConverter(HistoryConverter["GatewaySessionState"]):
 
             # Track participants from message senders
             sender_id = msg.get("sender_id")
-            sender_type = msg.get("sender_type")
+            sender_type = msg.get("type") or msg.get("sender_type")
             room_id = msg.get("room_id")
-            if sender_type == "agent" and room_id and sender_id:
+            if is_agent_sender_type(sender_type) and room_id and sender_id:
                 room_participants[room_id].add(sender_id)
 
         state = GatewaySessionState(

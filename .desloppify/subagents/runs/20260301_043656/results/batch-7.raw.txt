@@ -1,0 +1,156 @@
+{
+  "batch": "Governance & Contracts",
+  "batch_index": 7,
+  "assessments": {
+    "cross_module_architecture": 74.0,
+    "high_level_elegance": 71.0,
+    "test_strategy": 67.0,
+    "package_organization": 78.0
+  },
+  "dimension_notes": {
+    "cross_module_architecture": {
+      "evidence": [
+        "README.md documents `uv add ...[pydantic_ai]`, but pyproject.toml defines the extra as `pydantic-ai`; public install contract and packaging contract diverge.",
+        "pyproject.toml includes `claude-agent-sdk` in base `dependencies` while also defining a `claude_sdk` optional extra, creating unclear dependency boundaries between core SDK and integration-specific concerns."
+      ],
+      "impact_scope": "codebase",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    },
+    "high_level_elegance": {
+      "evidence": [
+        "README.md presents framework support as optional integration choices, but pyproject.toml currently hard-codes at least one integration dependency (`claude-agent-sdk`) into core install, blurring top-level ownership of core-vs-integration layers.",
+        "The governance contract for compatibility is inconsistent across docs and packaging metadata (`pydantic_ai` vs `pydantic-ai`), reducing trust in top-level project entry guidance."
+      ],
+      "impact_scope": "codebase",
+      "fix_scope": "architectural_change",
+      "confidence": "high"
+    },
+    "test_strategy": {
+      "evidence": [
+        "pyproject.toml `tool.pyrefly.project_excludes` excludes both `tests/**` and `thenvoi-bridge/**`, leaving no static type quality gate for the bridge production subtree.",
+        "tests/integration/conftest.py manually re-exports fixtures/hooks from `tests.conftest_integration` via import list and `__all__`, creating a brittle mirror that can silently drift when fixtures are added/renamed.",
+        "Global CI collection behavior in tests/conftest.py (`pytest_ignore_collect(..., \"integration\")`) means integration validation is environment-conditional rather than guaranteed in default quality gates."
+      ],
+      "impact_scope": "codebase",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    },
+    "package_organization": {
+      "evidence": [
+        "holistic_context.structure shows `src/thenvoi/runtime/` has 15 files (>10 mixed-concern threshold), indicating flattening pressure inside a high-change area.",
+        "holistic_context.structure marks `thenvoi-bridge/bridge_core/` as production-heavy (6 production files), but packaging/type-check configuration is centered on `src/` and explicitly excludes `thenvoi-bridge/**`, creating split governance for production code."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "architectural_change",
+      "confidence": "medium"
+    }
+  },
+  "findings": [
+    {
+      "dimension": "cross_module_architecture",
+      "identifier": "extra_name_contract_drift",
+      "summary": "Public extras contract is inconsistent between README and packaging metadata.",
+      "related_files": [
+        "README.md",
+        "pyproject.toml"
+      ],
+      "evidence": [
+        "README.md installation examples use `...[pydantic_ai]`.",
+        "pyproject.toml defines optional dependency group `pydantic-ai` (hyphen), not `pydantic_ai`."
+      ],
+      "suggestion": "Unify extra naming across docs and packaging: pick one canonical extra key (`pydantic-ai` or `pydantic_ai`), update README examples accordingly, and add a CI check that parses README install snippets and validates extras against `[project.optional-dependencies]` keys.",
+      "confidence": "high",
+      "impact_scope": "codebase",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "packaging_contract_drift"
+    },
+    {
+      "dimension": "high_level_elegance",
+      "identifier": "core_vs_integration_dependency_blur",
+      "summary": "Core package depends on integration SDK that is also modeled as optional.",
+      "related_files": [
+        "pyproject.toml",
+        "README.md"
+      ],
+      "evidence": [
+        "pyproject.toml base `dependencies` includes `claude-agent-sdk>=0.1.16`.",
+        "pyproject.toml also defines `claude_sdk` optional extra with `claude-agent-sdk>=0.1.0`.",
+        "README positions framework support as optional install paths."
+      ],
+      "suggestion": "Make integration scope explicit: move `claude-agent-sdk` out of base dependencies into `claude_sdk` extra (or explicitly document it as core-required and remove the duplicate extra entry). Then enforce a policy in CI that base dependencies contain only runtime-core requirements.",
+      "confidence": "high",
+      "impact_scope": "codebase",
+      "fix_scope": "architectural_change",
+      "root_cause_cluster": "packaging_contract_drift"
+    },
+    {
+      "dimension": "test_strategy",
+      "identifier": "bridge_quality_gate_gap",
+      "summary": "Production bridge code is excluded from static quality gates.",
+      "related_files": [
+        "pyproject.toml",
+        "thenvoi-bridge/bridge_core/session.py"
+      ],
+      "evidence": [
+        "pyproject.toml `tool.pyrefly.project_excludes` contains `thenvoi-bridge/**`.",
+        "thenvoi-bridge/bridge_core/session.py is production session lifecycle logic (state, eviction, concurrency), but not type-checked by configured gate."
+      ],
+      "suggestion": "Add bridge code to quality gates: staged rollout (1) include `thenvoi-bridge/bridge_core/session.py` first, (2) expand to `thenvoi-bridge/bridge_core/**`, (3) enforce in CI. Validation commands: `uv run pyrefly check`, `uv run ruff check thenvoi-bridge`, `uv run pytest tests/bridge -v`.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "governance_gate_fragmentation"
+    },
+    {
+      "dimension": "test_strategy",
+      "identifier": "fixture_reexport_mirror_fragility",
+      "summary": "Integration fixture exposure relies on manual re-export list that can drift.",
+      "related_files": [
+        "tests/integration/conftest.py",
+        "tests/conftest.py"
+      ],
+      "evidence": [
+        "tests/integration/conftest.py imports a long symbol list from `tests.conftest_integration` and duplicates names in `__all__`.",
+        "Any new/renamed fixture in parent integration conftest requires dual maintenance in this mirror file."
+      ],
+      "suggestion": "Replace manual fixture mirror with plugin registration (`pytest_plugins = [\"tests.conftest_integration\"]`) or a single wildcard-forwarding pattern with explicit linter allowance. Then verify with `uv run pytest tests/integration -q` and `uv run pytest --fixtures`.",
+      "confidence": "medium",
+      "impact_scope": "module",
+      "fix_scope": "single_edit",
+      "root_cause_cluster": "governance_gate_fragmentation"
+    },
+    {
+      "dimension": "package_organization",
+      "identifier": "production_layout_split_between_src_and_bridge_root",
+      "summary": "Production code is split across `src/` and top-level `thenvoi-bridge/` with uneven governance.",
+      "related_files": [
+        "pyproject.toml",
+        "thenvoi-bridge/bridge_core/session.py",
+        "src/thenvoi/runtime/types.py"
+      ],
+      "evidence": [
+        "holistic_context.structure reports `thenvoi-bridge/bridge_core/` as production-heavy while packaging discovery is `where = [\"src\"]`.",
+        "holistic_context.structure reports `src/thenvoi/runtime/` at 15 files (>10 threshold), indicating a crowded core area while adjacent runtime-like bridge responsibilities live outside `src/`."
+      ],
+      "suggestion": "Run a staged reorg plan: Stage 1 create target folders `src/thenvoi/bridge/` and `src/thenvoi/runtime/session/`; Stage 2 move `thenvoi-bridge/bridge_core/session.py` and nearby bridge runtime primitives into `src/thenvoi/bridge/` while keeping compatibility shims in old paths; Stage 3 split crowded `src/thenvoi/runtime/` by concern (`runtime/events/`, `runtime/contacts/`, `runtime/lifecycle/`), moving files in dependency-safe order; Stage 4 update imports and packaging (`[tool.setuptools.packages.find]` includes new packages); Stage 5 remove shims after deprecation window. Validation commands: `uv run ruff check .`, `uv run pyrefly check`, `uv run pytest tests/runtime tests/bridge -v`.",
+      "confidence": "medium",
+      "impact_scope": "codebase",
+      "fix_scope": "architectural_change",
+      "root_cause_cluster": "governance_gate_fragmentation"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "Packaging/documentation contracts are not validated as a single source of truth.",
+      "Production code ownership is split across directory roots with different quality-gate policies."
+    ],
+    "likely_symptoms": [
+      "extra_name_contract_drift",
+      "core_vs_integration_dependency_blur",
+      "bridge_quality_gate_gap",
+      "production_layout_split_between_src_and_bridge_root"
+    ],
+    "possible_false_positives": []
+  }
+}

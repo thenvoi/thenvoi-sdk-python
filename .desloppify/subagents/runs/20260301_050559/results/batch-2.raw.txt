@@ -1,0 +1,102 @@
+{
+  "batch": "Abstractions & Dependencies",
+  "batch_index": 2,
+  "assessments": {
+    "low_level_elegance": 72.0
+  },
+  "dimension_notes": {
+    "low_level_elegance": {
+      "evidence": [
+        "Tool binding is manually reimplemented in multiple adapters: `PydanticAIAdapter._create_agent()` registers many near-identical wrapper functions (`src/thenvoi/adapters/pydantic_ai.py`), `ClaudeSDKAdapter._create_mcp_server()` defines many near-identical MCP tool handlers (`src/thenvoi/adapters/claude_sdk.py`), and `agent_tools_to_langchain()` repeats the same pattern (`src/thenvoi/integrations/langgraph/langchain_tools.py`).",
+        "The codebase has a centralized tool catalog (`TOOL_MODELS`, `ALL_TOOL_NAMES`) in `src/thenvoi/runtime/tools.py`, but adapter internals still duplicate low-level dispatch and error-string behavior by hand.",
+        "Peer resolution logic is duplicated between adapter/server layers (`src/thenvoi/integrations/a2a/gateway/adapter.py::_resolve_peer` and `src/thenvoi/integrations/a2a/gateway/server.py::_resolve_peer`), and server UUID fallback performs a per-request linear scan over all peers to recover slug."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high",
+      "sub_axes": {
+        "abstraction_leverage": 64.0,
+        "indirection_cost": 73.0,
+        "interface_honesty": 69.0
+      }
+    }
+  },
+  "findings": [
+    {
+      "dimension": "low_level_elegance",
+      "identifier": "duplicated_tool_binding_layers",
+      "summary": "Three adapter paths hand-code the same tool-wrapper pattern instead of sharing one binding mechanism.",
+      "related_files": [
+        "src/thenvoi/adapters/pydantic_ai.py",
+        "src/thenvoi/adapters/claude_sdk.py",
+        "src/thenvoi/integrations/langgraph/langchain_tools.py",
+        "src/thenvoi/runtime/tools.py"
+      ],
+      "evidence": [
+        "`pydantic_ai.py` registers many `agent.tool(...)` wrappers that mostly do `await ctx.deps.<tool>(...)` with repeated try/except stringification.",
+        "`claude_sdk.py` defines many `@tool(...)` handlers with repeated room lookup, `No tools available` checks, and `_make_error(...)` boilerplate.",
+        "`langchain_tools.py` defines many async wrapper functions with the same exception-to-string pattern before `StructuredTool.from_function(...)`.",
+        "A canonical tool registry already exists in `runtime/tools.py` (`TOOL_MODELS`, `ALL_TOOL_NAMES`), but adapter low-level bindings are still copy/pasted per framework."
+      ],
+      "suggestion": "Introduce a single internal tool-binding factory (e.g., declarative table: tool name -> callable signature/adapter codec) that generates framework-specific wrappers for PydanticAI, Claude SDK MCP, and LangChain. Keep framework-specific marshaling only at the final boundary and centralize error mapping once.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "architectural_change",
+      "root_cause_cluster": "tool_binding_duplication"
+    },
+    {
+      "dimension": "low_level_elegance",
+      "identifier": "fat_agent_tools_protocol",
+      "summary": "A wide `AgentToolsProtocol` forces broad mocking and wrapper churn, reducing interface honesty.",
+      "related_files": [
+        "src/thenvoi/core/protocols.py",
+        "tests/adapters/test_pydantic_ai_adapter.py",
+        "tests/adapters/test_langgraph_adapter.py",
+        "src/thenvoi/core/simple_adapter.py"
+      ],
+      "evidence": [
+        "`AgentToolsProtocol` aggregates chat, participant, contact, and memory APIs into one large interface in `core/protocols.py`.",
+        "Adapter tests repeatedly construct partial tool mocks (`MagicMock` + many `AsyncMock` assignments) for each framework test file rather than using narrow capability interfaces.",
+        "`SimpleAdapter.on_event()` passes a single `inp.tools` object into every adapter path, encouraging adapters to depend on the same broad protocol regardless of actual needs."
+      ],
+      "suggestion": "Split `AgentToolsProtocol` into capability-focused protocols (e.g., MessagingTools, ParticipantTools, ContactTools, MemoryTools) and type adapters against the smallest required protocol. Provide a composed concrete `AgentTools` that implements all capabilities, while tests can mock only the needed subset.",
+      "confidence": "medium",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "tool_binding_duplication"
+    },
+    {
+      "dimension": "low_level_elegance",
+      "identifier": "gateway_peer_resolution_duplication",
+      "summary": "Gateway peer resolution is duplicated across layers and server fallback does avoidable O(n) scanning.",
+      "related_files": [
+        "src/thenvoi/integrations/a2a/gateway/adapter.py",
+        "src/thenvoi/integrations/a2a/gateway/server.py",
+        "tests/integrations/a2a/gateway/test_adapter.py"
+      ],
+      "evidence": [
+        "Both adapter and server implement separate `_resolve_peer()` logic for slug/UUID fallback.",
+        "`GatewayServer._resolve_peer()` performs `for slug, p in self.peers.items()` when UUID is used, scanning all peers per call.",
+        "Behavioral assumptions about slug-vs-UUID resolution are tested at adapter level, but resolution mechanics are split between two implementations, increasing drift risk."
+      ],
+      "suggestion": "Create one shared resolver component that stores both `slug->peer` and `uuid->slug` maps and is used by both adapter and server. Remove linear scan fallback and return `(slug, peer)` in O(1) for both key types.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "duplicated_resolution_logic"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "Per-framework integration code evolved independently around similar tool APIs, without a shared binding abstraction.",
+      "Single broad tool protocol blurred capability boundaries, increasing local boilerplate and mock friction.",
+      "Gateway resolution concerns are split between transport and orchestration layers without a single ownership point."
+    ],
+    "likely_symptoms": [
+      "duplicated_tool_binding_layers",
+      "fat_agent_tools_protocol",
+      "gateway_peer_resolution_duplication"
+    ],
+    "possible_false_positives": []
+  }
+}

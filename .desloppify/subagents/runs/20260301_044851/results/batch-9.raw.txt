@@ -1,0 +1,334 @@
+{
+  "batch": "Full Codebase Sweep",
+  "batch_index": 9,
+  "assessments": {
+    "cross_module_architecture": 78.0,
+    "convention_outlier": 72.0,
+    "error_consistency": 74.0,
+    "abstraction_fitness": 68.0,
+    "dependency_health": 86.0,
+    "test_strategy": 76.0,
+    "ai_generated_debt": 70.0,
+    "package_organization": 73.0,
+    "high_level_elegance": 86.0,
+    "mid_level_elegance": 86.0,
+    "low_level_elegance": 87.0,
+    "design_coherence": 75.0
+  },
+  "dimension_notes": {
+    "cross_module_architecture": {
+      "evidence": [
+        "Runner orchestration logic is duplicated across docker/claude_sdk/runner.py and docker/codex/runner.py (signal handling, retry loop, env validation, repo init lifecycle).",
+        "A third near-copy exists at examples/claude_sdk_docker/runner.py with local variants of the same responsibilities, creating parallel bootstrap paths.",
+        "docker/shared/config_loader.py centralizes only YAML loading, while lifecycle orchestration remains split across framework-specific runners."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "architectural_change",
+      "confidence": "high"
+    },
+    "convention_outlier": {
+      "evidence": [
+        "Logging setup conventions diverge across siblings: examples/a2a_bridge/setup_logging.py and examples/anthropic/setup_logging.py default root logger to WARNING then override thenvoi; examples/a2a_gateway/setup_logging.py and examples/codex/setup_logging.py configure root directly with different format/stream behavior.",
+        "Function signatures vary without clear contract: untyped setup_logging(level=logging.INFO) vs typed setup_logging(level: int = logging.INFO) and optional flags only in one directory (a2a_debug).",
+        "examples/coding_agents scripts insert sys.path manually while most other examples rely on package imports, creating a style island."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    },
+    "error_consistency": {
+      "evidence": [
+        ".github/actions/GithubToken/generate_token.py mixes ValueError for config problems and SystemExit for HTTP/runtime failures in one linear script.",
+        "examples/a2a_gateway/01_basic_gateway.py raises ValueError when config fallback fails, while examples/a2a_gateway/02_with_demo_agent.py logs and returns for analogous failure, producing inconsistent failure semantics.",
+        "examples/a2a_gateway/demo_orchestrator/remote_agent.py swallows broad exceptions in list_peers/discover_peer by returning []/False, but raises RuntimeError in call_peer for similar network-path failures."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    },
+    "abstraction_fitness": {
+      "evidence": [
+        "src/thenvoi/adapters/crewai.py (1239 lines) and src/thenvoi/adapters/claude_sdk.py (1087 lines) each embed large tool-definition surfaces with repeated call/report/result patterns rather than sharing a tool adapter builder.",
+        "In CrewAI, many BaseTool classes differ mostly by tool name and argument plumbing; repeated _report_tool_call/_report_tool_result/json response scaffolding dominates behavior.",
+        "Claude SDK and CrewAI adapters both solve the same platform-tool bridging concern with separate bespoke abstractions, increasing indirection and maintenance cost."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "architectural_change",
+      "confidence": "high",
+      "sub_axes": {
+        "abstraction_leverage": 61.0,
+        "indirection_cost": 58.0,
+        "interface_honesty": 72.0
+      }
+    },
+    "dependency_health": {
+      "evidence": [
+        "Adapter imports are lazily surfaced through src/thenvoi/adapters/__init__.py, helping optional-dependency isolation.",
+        "docker/shared/repo_init.py uses stdlib-heavy implementation with pydantic validation rather than introducing additional external bootstrap dependencies.",
+        "No direct evidence in this batch of conflicting libraries for the same purpose."
+      ],
+      "impact_scope": "module",
+      "fix_scope": "single_edit",
+      "confidence": "medium",
+      "issues_preventing_higher_score": "Some scripts still use ad-hoc runtime import-path mutation (examples/coding_agents/create_agents.py, examples/coding_agents/test_communication.py), which weakens dependency boundary hygiene."
+    },
+    "test_strategy": {
+      "evidence": [
+        "Operationally critical runner flows (docker/claude_sdk/runner.py, docker/codex/runner.py, docker/shared/repo_init.py) have substantial retry/signal/bootstrap logic but no colocated or referenced tests in this batch.",
+        "examples/coding_agents/test_communication.py is a manual integration script (sleep, log inspection) rather than an automated assertion-based test.",
+        "examples/coding_agents/create_agents.py and test_communication.py depend on live platform endpoints and credentials, making validation fragile and non-deterministic."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    },
+    "ai_generated_debt": {
+      "evidence": [
+        "Many example agents repeat nearly identical environment validation and credential loading blocks (THENVOI_WS_URL/THENVOI_REST_URL checks + load_agent_config call) across anthropic/claude_sdk/crewai/langgraph/parlant/pydantic_ai/a2a_bridge/codex examples.",
+        "Boilerplate setup_logging modules are repeated per framework directory with only minor logger-name deltas.",
+        "The repeated pattern includes similar comments and error messages, indicating copy-first growth rather than reusable helper composition."
+      ],
+      "impact_scope": "codebase",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    },
+    "package_organization": {
+      "evidence": [
+        "holistic_context.structure.directory_profiles shows examples/langgraph/ with file_count 13 (exceeds >10 mixed-concern threshold), containing scenario examples plus standalone utilities and support files in one flat directory.",
+        "Most example directories show avg_fan_in 0.0 / avg_fan_out 0.0, indicating low import coupling and making per-scenario module boundaries cheap to split.",
+        "docker/shared/ has only two files and centralized responsibility, but example concerns are fragmented across many sibling roots (per-framework setup_logging + repeated startup blocks) instead of a shared examples/common package."
+      ],
+      "impact_scope": "codebase",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    },
+    "high_level_elegance": {
+      "evidence": [
+        "Top-level adapter surface in src/thenvoi/adapters/__init__.py is coherent and explicitly scoped via lazy export contract.",
+        "docker/shared/repo_init.py establishes a clear bootstrap capability boundary reused by runners."
+      ],
+      "impact_scope": "module",
+      "fix_scope": "single_edit",
+      "confidence": "medium",
+      "issues_preventing_higher_score": "Bootstrap and example orchestration behavior is still duplicated across framework-specific entrypoints, which dilutes ownership boundaries."
+    },
+    "mid_level_elegance": {
+      "evidence": [
+        "In adapter flows, platform tool calls are generally wrapped with explicit report-call/report-result handoffs.",
+        "Runner main loops consistently coordinate agent task vs shutdown task and cancellation."
+      ],
+      "impact_scope": "module",
+      "fix_scope": "single_edit",
+      "confidence": "medium",
+      "issues_preventing_higher_score": "Equivalent handoff seams are reimplemented in multiple frameworks instead of shared composition utilities, so behavioral drift risk remains."
+    },
+    "low_level_elegance": {
+      "evidence": [
+        "docker/shared/repo_init.py uses focused helper functions and clear preflight/clone/index decomposition.",
+        "Most scripts use direct, readable control flow with explicit guard clauses for env/config validation."
+      ],
+      "impact_scope": "module",
+      "fix_scope": "single_edit",
+      "confidence": "medium",
+      "issues_preventing_higher_score": "Some files contain broad exception catches around heterogeneous operations, reducing precision at local failure points."
+    },
+    "design_coherence": {
+      "evidence": [
+        "src/thenvoi/adapters/crewai.py combines framework glue, tool schema definitions, tool execution wrappers, history/session handling, and error reporting in one large module.",
+        "src/thenvoi/adapters/claude_sdk.py similarly merges MCP tool registration, session management interaction, message orchestration, and event streaming responsibilities.",
+        "Repeated structural templates for tool wrappers indicate missing shared design primitive, not just isolated duplication."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "architectural_change",
+      "confidence": "high"
+    }
+  },
+  "findings": [
+    {
+      "dimension": "cross_module_architecture",
+      "identifier": "runner_bootstrap_forked_across_frameworks",
+      "summary": "Runner lifecycle architecture is forked into parallel framework-specific entrypoints, creating boundary drift and duplicated operational behavior.",
+      "related_files": [
+        "docker/claude_sdk/runner.py",
+        "docker/codex/runner.py",
+        "examples/claude_sdk_docker/runner.py",
+        "docker/shared/config_loader.py",
+        "docker/shared/repo_init.py"
+      ],
+      "evidence": [
+        "docker/claude_sdk/runner.py and docker/codex/runner.py both implement near-identical signal setup, mount validation, retry loops, config load, and repo-init integration.",
+        "examples/claude_sdk_docker/runner.py re-implements the same bootstrap behavior with local copies of config/tool loading logic rather than consuming docker/shared helpers.",
+        "This creates three runtime bootstrap paths with slight semantic differences (required mounts, logging behavior, role prompt handling)."
+      ],
+      "suggestion": "Introduce a shared runner core in docker/shared (for lifecycle, retry, shutdown, repo init, config merge) and keep framework runners as thin adapter-specific configuration layers. Migrate one runner first (Codex), then Claude, then example docker runner to the same core, and add a golden-path smoke test for each adapter using the shared orchestration contract.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "architectural_change",
+      "root_cause_cluster": "bootstrap_orchestration_duplication"
+    },
+    {
+      "dimension": "convention_outlier",
+      "identifier": "example_logging_style_islands",
+      "summary": "Example logging setup follows inconsistent conventions across sibling framework directories.",
+      "related_files": [
+        "examples/a2a_bridge/setup_logging.py",
+        "examples/a2a_gateway/setup_logging.py",
+        "examples/anthropic/setup_logging.py",
+        "examples/codex/setup_logging.py",
+        "examples/parlant/setup_logging.py"
+      ],
+      "evidence": [
+        "Some setup modules force root WARNING and set namespace levels, while others set root to provided level and alter different third-party loggers.",
+        "Signature and typing are inconsistent (typed level int vs untyped defaults, optional feature flags only in one module).",
+        "Formatting conventions vary (bracket format vs dash format, stdout stream usage only in codex)."
+      ],
+      "suggestion": "Create a single examples logging utility (for format, root policy, noise suppression, optional namespace toggles) and have per-framework setup files only pass framework-specific logger names/options. Enforce one signature: `setup_logging(level: int = logging.INFO, *, profile: str = \"default\") -> None`.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "example_bootstrap_duplication"
+    },
+    {
+      "dimension": "error_consistency",
+      "identifier": "mixed_failure_contracts_in_entrypoints",
+      "summary": "Sibling scripts handling similar startup/network failures use incompatible error contracts (raise, return, swallow).",
+      "related_files": [
+        ".github/actions/GithubToken/generate_token.py",
+        "examples/a2a_gateway/01_basic_gateway.py",
+        "examples/a2a_gateway/02_with_demo_agent.py",
+        "examples/a2a_gateway/demo_orchestrator/remote_agent.py"
+      ],
+      "evidence": [
+        "generate_token.py raises ValueError for missing env but SystemExit for HTTP/other request failures.",
+        "01_basic_gateway.py raises ValueError when credential fallback fails; 02_with_demo_agent.py logs and returns for analogous failure path.",
+        "remote_agent.py returns []/False on broad exceptions in discovery/listing but raises RuntimeError for call failures, obscuring caller expectations."
+      ],
+      "suggestion": "Define a consistent script error policy: validation errors -> ValueError; operational/retriable errors -> typed runtime exception; top-level `main` decides exit code. Apply same policy to all gateway/demo/action scripts and avoid broad `except Exception` without narrowing/translation.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "entrypoint_error_policy_drift"
+    },
+    {
+      "dimension": "abstraction_fitness",
+      "identifier": "platform_tool_wrappers_not_abstracted",
+      "summary": "Large adapters replicate tool-wrapper scaffolding instead of using a shared tool-bridge abstraction.",
+      "related_files": [
+        "src/thenvoi/adapters/crewai.py",
+        "src/thenvoi/adapters/claude_sdk.py"
+      ],
+      "evidence": [
+        "crewai adapter defines many nested BaseTool classes with repeated `_report_tool_call` -> tool invocation -> `_report_tool_result` -> json response structure.",
+        "claude_sdk adapter separately implements similar tool reporting/execution mechanics via MCP tool wrappers.",
+        "Both adapters encode near-identical cross-cutting policy (reporting, success/error payload normalization) in different forms."
+      ],
+      "suggestion": "Extract a shared `ToolBridge` layer that takes declarative tool specs (name, schema, executor, response formatter) and emits framework-specific wrappers. Refactor crewai/claude_sdk to consume the same spec map; keep only framework binding differences local.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "architectural_change",
+      "root_cause_cluster": "tool_bridge_missing_abstraction"
+    },
+    {
+      "dimension": "test_strategy",
+      "identifier": "critical_runner_paths_lack_automated_verification",
+      "summary": "Critical startup/retry/bootstrap paths rely on manual scripts and are not covered by deterministic automated tests in this slice.",
+      "related_files": [
+        "docker/claude_sdk/runner.py",
+        "docker/codex/runner.py",
+        "docker/shared/repo_init.py",
+        "examples/coding_agents/test_communication.py"
+      ],
+      "evidence": [
+        "Runner files include non-trivial retries, signal handling, cancellation, and repo-init behavior but no test files are paired in this assigned set.",
+        "test_communication.py validates by sleeps and log inspection, not assertions against stable test doubles.",
+        "Failure-handling branches (retry exhaustion, signal race, repo lock timeout) are high-risk and currently hard to regress-test."
+      ],
+      "suggestion": "Add pytest async tests for shared runner lifecycle and repo_init helpers: (1) signal-triggered graceful shutdown, (2) retry backoff/exhaustion, (3) repo lock timeout, (4) invalid config branches. Convert `test_communication.py` into an integration test module with explicit assertions and mocked REST client/session timings.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "bootstrap_orchestration_duplication"
+    },
+    {
+      "dimension": "ai_generated_debt",
+      "identifier": "copy_first_example_bootstrap_bloat",
+      "summary": "Example suites contain heavy copy-paste bootstrap boilerplate, indicating accumulated AI-style template debt.",
+      "related_files": [
+        "examples/anthropic/01_basic_agent.py",
+        "examples/claude_sdk/01_basic_agent.py",
+        "examples/crewai/01_basic_agent.py",
+        "examples/langgraph/01_simple_agent.py",
+        "examples/parlant/01_basic_agent.py",
+        "examples/pydantic_ai/01_basic_agent.py",
+        "examples/a2a_bridge/01_basic_agent.py",
+        "examples/codex/01_basic_agent.py"
+      ],
+      "evidence": [
+        "The same env var checks and ValueError strings are repeated across many files with only agent key changes.",
+        "Credential loading from `load_agent_config(...)` follows near-identical blocks in nearly every example script.",
+        "Repeated comments and scaffolding reduce signal-to-noise and increase drift risk when startup contract changes."
+      ],
+      "suggestion": "Introduce shared example helpers (`examples/common/bootstrap.py`) for env validation, URL defaults, and credential loading. Keep each example focused on framework behavior and scenario-specific logic only; enforce helper usage in new examples.",
+      "confidence": "high",
+      "impact_scope": "codebase",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "example_bootstrap_duplication"
+    },
+    {
+      "dimension": "package_organization",
+      "identifier": "examples_flat_layout_mixes_distinct_concerns",
+      "summary": "Examples package layout is overly flat and mixes scenario scripts, standalone utilities, and shared helpers in the same directories.",
+      "related_files": [
+        "examples/langgraph/01_simple_agent.py",
+        "examples/langgraph/standalone_calculator.py",
+        "examples/langgraph/standalone_rag.py",
+        "examples/langgraph/standalone_sql_agent.py",
+        "examples/langgraph/prompts.py",
+        "examples/coding_agents/test_communication.py"
+      ],
+      "evidence": [
+        "holistic_context.structure.directory_profiles reports `examples/langgraph/` file_count = 13, exceeding a practical flat-directory threshold while containing mixed roles.",
+        "The same structure data shows low coupling (avg_fan_in 0.0 / avg_fan_out 0.0) for most examples, indicating low-cost file moves and clear re-grouping opportunity.",
+        "`examples/coding_agents/test_communication.py` is a script-style manual verifier placed under examples with a `test_` prefix, blurring test vs example boundaries."
+      ],
+      "suggestion": "Staged reorg plan: Stage 1 create target folders `examples/common/`, `examples/langgraph/scenarios/`, `examples/langgraph/standalone/`, `examples/coding_agents/scripts/`; Stage 2 move files in order: shared helpers first (`setup_logging.py`, shared prompts/bootstrap), then standalone tools, then scenario scripts; Stage 3 update imports with `rg -l \"from setup_logging import|import prompts\" examples | xargs -I{} sed -i '' ...` (or equivalent), then validate with `uv run ruff check examples src/thenvoi/adapters docker` and `uv run pytest tests/ --ignore=tests/integration/ -v`.",
+      "confidence": "high",
+      "impact_scope": "codebase",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "example_bootstrap_duplication"
+    },
+    {
+      "dimension": "design_coherence",
+      "identifier": "adapter_modules_mix_too_many_responsibilities",
+      "summary": "Large adapter modules conflate framework binding, tool schema, execution orchestration, state management, and error policy in single files.",
+      "related_files": [
+        "src/thenvoi/adapters/crewai.py",
+        "src/thenvoi/adapters/claude_sdk.py",
+        "src/thenvoi/adapters/codex.py"
+      ],
+      "evidence": [
+        "crewai.py and claude_sdk.py each exceed 1000 lines and interleave tool definitions, runtime message flow, and platform reporting concerns.",
+        "codex.py (1925 lines) indicates similar concentration of orthogonal concerns within one adapter boundary.",
+        "Repeated patterning across these files suggests structural decomposition has not kept pace with feature growth."
+      ],
+      "suggestion": "Split each large adapter into cohesive submodules: `tool_specs.py`, `tool_bridge.py`, `session_flow.py`, `message_pipeline.py`, `errors.py`; retain a small public adapter facade that composes these parts. Apply one adapter at a time and lock behavior with characterization tests before each extraction step.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "architectural_change",
+      "root_cause_cluster": "tool_bridge_missing_abstraction"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "Framework-specific feature growth outpaced shared bootstrap/tooling abstractions.",
+      "Example portfolio expanded via copy-modify patterns instead of common helper modules.",
+      "Operational entrypoints evolved without a unified error contract and automated regression tests."
+    ],
+    "likely_symptoms": [
+      "example_logging_style_islands",
+      "mixed_failure_contracts_in_entrypoints",
+      "copy_first_example_bootstrap_bloat"
+    ],
+    "possible_false_positives": []
+  }
+}

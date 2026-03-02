@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
-from tests.conftest_integration import is_no_clean_mode
+from tests.support.integration.contracts.cleanup import is_no_clean_mode
 
 
 class TestIsNoCleanMode:

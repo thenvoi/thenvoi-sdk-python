@@ -4,6 +4,7 @@ from unittest.mock import AsyncMock, MagicMock, Mock
 
 import pytest
 
+from thenvoi.runtime.tool_bridge import ToolExecutionError
 from thenvoi.runtime.tools import (
     TOOL_MODELS,
     AgentTools,
@@ -465,37 +466,52 @@ class TestAgentToolsExecuteToolCall:
         assert isinstance(result, list)
 
     async def test_execute_unknown_tool(self, mock_rest_client):
-        """execute_tool_call() should return error for unknown tool."""
+        """execute_tool_call() should raise typed errors for unknown tools."""
         tools = AgentTools("room-123", mock_rest_client)
 
-        result = await tools.execute_tool_call("unknown_tool", {})
-
-        assert "Unknown tool" in result
+        with pytest.raises(ToolExecutionError, match="Unknown tool"):
+            await tools.execute_tool_call("unknown_tool", {})
 
     async def test_execute_validation_error(self, mock_rest_client):
-        """execute_tool_call() should return validation error in LLM-friendly format."""
+        """execute_tool_call() should raise validation error in LLM-friendly format."""
         tools = AgentTools("room-123", mock_rest_client)
 
-        # Missing required field
-        result = await tools.execute_tool_call(
-            "thenvoi_send_message", {"content": "Hello"}
-        )
-
-        assert "Invalid arguments for thenvoi_send_message" in result
-        assert "mentions" in result  # Should mention the missing field
+        with pytest.raises(
+            ToolExecutionError,
+            match="Invalid arguments for thenvoi_send_message",
+        ) as exc_info:
+            await tools.execute_tool_call("thenvoi_send_message", {"content": "Hello"})
+        assert "mentions" in str(exc_info.value)  # Should mention the missing field
 
     async def test_execute_runtime_error(self, mock_rest_client, participants):
-        """execute_tool_call() should return execution error."""
+        """execute_tool_call() should raise execution errors."""
         mock_rest_client.agent_api_messages.create_agent_chat_message.side_effect = (
             Exception("Network error")
         )
         tools = AgentTools("room-123", mock_rest_client, participants)
 
-        result = await tools.execute_tool_call(
-            "thenvoi_send_message", {"content": "Hello!", "mentions": ["User One"]}
-        )
+        with pytest.raises(ToolExecutionError, match="Error sending message"):
+            await tools.execute_tool_call(
+                "thenvoi_send_message",
+                {"content": "Hello!", "mentions": ["User One"]},
+            )
 
-        assert "Error executing" in result
+    async def test_execute_or_raise_unknown_tool(self, mock_rest_client):
+        """execute_tool_call_or_raise() should raise typed errors."""
+        tools = AgentTools("room-123", mock_rest_client)
+
+        with pytest.raises(ToolExecutionError, match="Unknown tool"):
+            await tools.execute_tool_call_or_raise("unknown_tool", {})
+
+    async def test_execute_or_raise_validation_error(self, mock_rest_client):
+        """execute_tool_call_or_raise() should raise validation failures."""
+        tools = AgentTools("room-123", mock_rest_client)
+
+        with pytest.raises(ToolExecutionError, match="Invalid arguments"):
+            await tools.execute_tool_call_or_raise(
+                "thenvoi_send_message",
+                {"content": "Hello"},
+            )
 
 
 class TestMentionResolution:

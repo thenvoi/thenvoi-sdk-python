@@ -1,0 +1,334 @@
+{
+  "batch": "Full Codebase Sweep",
+  "batch_index": 9,
+  "assessments": {
+    "cross_module_architecture": 78.0,
+    "convention_outlier": 80.0,
+    "error_consistency": 76.0,
+    "abstraction_fitness": 82.0,
+    "dependency_health": 88.0,
+    "test_strategy": 74.0,
+    "ai_generated_debt": 79.0,
+    "package_organization": 77.0,
+    "high_level_elegance": 87.0,
+    "mid_level_elegance": 82.0,
+    "low_level_elegance": 86.0,
+    "design_coherence": 78.0
+  },
+  "dimension_notes": {
+    "cross_module_architecture": {
+      "evidence": [
+        "Runtime/bootstrap logic is duplicated across docker/claude_sdk/runner.py, docker/codex/runner.py, and examples/claude_sdk_docker/runner.py (signal handling, env parsing, retry loops, mount validation, Agent.create wiring).",
+        "examples/a2a_gateway/demo_orchestrator/agent.py stores gateway state in module-global _gateway_client and tool function closure, coupling runtime correctness to global mutation order from __main__.py."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "architectural_change",
+      "confidence": "high"
+    },
+    "convention_outlier": {
+      "evidence": [
+        "Multiple examples inject import paths with sys.path.insert(...) (examples/claude_sdk/01_basic_agent.py, examples/claude_sdk/03_tom_agent.py, examples/anthropic/03_tom_agent.py, examples/crewai/05_tom_agent.py, examples/pydantic_ai/03_tom_agent.py), while sibling examples use package imports directly.",
+        "setup_logging.py modules across framework folders follow near-identical purpose with small ad-hoc API differences, creating style islands for equivalent concern."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    },
+    "error_consistency": {
+      "evidence": [
+        "examples/a2a_gateway/demo_orchestrator/remote_agent.py catches broad Exception in list_peers/discover_peer/call_peer and mixes fallback return values ([], False), stringified RuntimeError, and logs.",
+        "src/thenvoi/adapters/anthropic.py and src/thenvoi/adapters/claude_sdk.py convert many tool/reporting failures to warning logs while continuing, but other paths re-raise immediately; failure contract differs by path without typed boundary."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    },
+    "abstraction_fitness": {
+      "evidence": [
+        "src/thenvoi/adapters/a2a.py and src/thenvoi/adapters/a2a_gateway.py are pure re-export shims with no policy/translation, adding an extra adapter layer without clear local behavior.",
+        "Large config bags are passed and unpacked across runner paths (docker/claude_sdk/runner.py, docker/codex/runner.py, docker/shared/repo_init.py), which pushes validation/translation concerns into many call sites."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "medium",
+      "sub_axes": {
+        "abstraction_leverage": 76.0,
+        "indirection_cost": 83.0,
+        "interface_honesty": 81.0
+      }
+    },
+    "dependency_health": {
+      "evidence": [
+        "Assigned production adapters centralize framework dependencies per adapter module (anthropic, claude_sdk, codex, crewai), which limits cross-framework bleed.",
+        "Some example/utility scripts still use separate HTTP stacks (requests in .github/actions/GithubToken/generate_token.py vs httpx in demo_orchestrator/remote_agent.py), increasing maintenance surface for similar outbound HTTP concerns."
+      ],
+      "impact_scope": "module",
+      "fix_scope": "single_edit",
+      "confidence": "medium",
+      "issues_preventing_higher_score": "HTTP client usage is split across requests/httpx for similar API-call patterns in assigned scope, and lightweight shared HTTP utility conventions are not enforced."
+    },
+    "test_strategy": {
+      "evidence": [
+        "holistic_context.testing flags examples/a2a_gateway/demo_orchestrator/remote_agent.py and examples/a2a_gateway/demo_orchestrator/agent.py as critical_untested with importers=3.",
+        "No tests are colocated for docker/shared/repo_init.py despite substantial branching around auth preflight, locking, git operations, and metadata/indexing behavior."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    },
+    "ai_generated_debt": {
+      "evidence": [
+        "Framework example files repeat near-template startup flows (load_dotenv, env validation, load_agent_config, Agent.create, agent.run) across anthropic/claude_sdk/crewai/pydantic_ai/codex directories.",
+        "examples/coding_agents/tools/example_tools.py and examples/claude_sdk_docker/tools/example_tools.py are byte-identical re-export wrappers."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    },
+    "package_organization": {
+      "evidence": [
+        "holistic_context.structure shows examples/a2a_gateway/demo_orchestrator/ has file_count=5 and total_loc=739 with avg_fan_in/out=1.6, indicating a sizable mini-subsystem inside examples but without shared runtime package extraction.",
+        "holistic_context.structure marks examples/* directories primarily as zone=script with avg_fan_in/out near 0.0, while cross-framework helpers (logging, runner bootstrapping, tool namespace wrappers) are duplicated across directories instead of a common package."
+      ],
+      "impact_scope": "codebase",
+      "fix_scope": "architectural_change",
+      "confidence": "high"
+    },
+    "high_level_elegance": {
+      "evidence": [
+        "Top-level adapter split by framework is generally coherent and discoverable (src/thenvoi/adapters/*.py).",
+        "Ownership is blurred in examples because large orchestration behavior and reusable bootstrapping utilities live beside one-off scripts."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "medium",
+      "issues_preventing_higher_score": "Examples mix tutorial scripts, reusable runner infrastructure, and orchestration subsystem code in parallel folders, which weakens top-level ownership clarity."
+    },
+    "mid_level_elegance": {
+      "evidence": [
+        "examples/a2a_gateway/demo_orchestrator/agent.py tool -> global _gateway_client -> GatewayClient handoff is implicit rather than constructor-injected at seam.",
+        "Runner seam from config loading to adapter construction is duplicated with slight behavioral drift across docker/claude_sdk/runner.py and docker/codex/runner.py."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    },
+    "low_level_elegance": {
+      "evidence": [
+        "Core utility functions in docker/shared/config_loader.py and many adapter helpers stay direct and readable with limited branch depth.",
+        "There are local rough edges (broad except blocks and verbose defensive branches), but most internals in assigned files are still intention-revealing."
+      ],
+      "impact_scope": "module",
+      "fix_scope": "single_edit",
+      "confidence": "medium",
+      "issues_preventing_higher_score": "Recurring broad exception handling and repeated imperative boilerplate in example scripts add avoidable local noise."
+    },
+    "design_coherence": {
+      "evidence": [
+        "examples/run_agent.py contains many framework-specific run_* flows and repeated Agent.create branches, combining CLI parsing, environment policy, framework wiring, and feature toggles in a single script.",
+        "docker runner scripts mirror that same multi-responsibility pattern (config/mount validation, prompt assembly, repo init, retry orchestration, adapter construction) with only partial reuse."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "architectural_change",
+      "confidence": "high"
+    }
+  },
+  "findings": [
+    {
+      "dimension": "cross_module_architecture",
+      "identifier": "runner_bootstrap_duplication",
+      "summary": "Runner lifecycle logic is copy-pasted across Docker and example entrypoints.",
+      "related_files": [
+        "docker/claude_sdk/runner.py",
+        "docker/codex/runner.py",
+        "examples/claude_sdk_docker/runner.py",
+        "docker/shared/config_loader.py"
+      ],
+      "evidence": [
+        "All three runners duplicate signal wiring, env validation, retry loops, prompt file loading, and Agent.create orchestration with small divergences.",
+        "Shared utilities exist (docker/shared/config_loader.py, repo_init.py) but lifecycle orchestration remains duplicated in each runner."
+      ],
+      "suggestion": "Extract a shared runner core (e.g., docker/shared/runner_core.py) with reusable phases: validate_env, load_prompt, build_adapter, run_with_retry; keep framework-specific adapter factory as injected callbacks to remove copy drift.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "architectural_change",
+      "root_cause_cluster": "bootstrap_and_examples_duplication"
+    },
+    {
+      "dimension": "mid_level_elegance",
+      "identifier": "global_gateway_client_seam",
+      "summary": "Orchestrator tool seam relies on mutable global client state.",
+      "related_files": [
+        "examples/a2a_gateway/demo_orchestrator/agent.py",
+        "examples/a2a_gateway/demo_orchestrator/__main__.py",
+        "examples/a2a_gateway/demo_orchestrator/remote_agent.py"
+      ],
+      "evidence": [
+        "call_peer_agent tool function reads module-global _gateway_client set by set_gateway_client during OrchestratorAgent construction.",
+        "Tool behavior depends on prior global mutation order rather than explicit dependency injection through graph state/config."
+      ],
+      "suggestion": "Replace module-global _gateway_client with explicit injection: bind a tool factory per OrchestratorAgent instance (closure over self.gateway_client) or pass client through RunnableConfig configurable state to make seams deterministic and testable.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "implicit_runtime_context"
+    },
+    {
+      "dimension": "error_consistency",
+      "identifier": "mixed_error_contracts_across_boundaries",
+      "summary": "Similar failures are surfaced as booleans, fallbacks, logs, or raised errors depending on file.",
+      "related_files": [
+        "examples/a2a_gateway/demo_orchestrator/remote_agent.py",
+        "examples/a2a_gateway/demo_orchestrator/agent.py",
+        "examples/a2a_gateway/demo_orchestrator/agent_executor.py",
+        "src/thenvoi/adapters/anthropic.py"
+      ],
+      "evidence": [
+        "remote_agent.py returns []/False for some failures, but raises RuntimeError in call_peer, and catches broad Exception in multiple functions.",
+        "agent.py returns user-facing error strings on exceptions; agent_executor.py maps exceptions to InternalError; anthropic adapter may log/report and re-raise."
+      ],
+      "suggestion": "Define one boundary error contract for orchestration paths (typed domain exceptions + user-facing mapper) and apply it consistently: transport errors -> retryable exception, peer-not-found -> user-actionable response, internal faults -> structured error event + fail.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "implicit_runtime_context"
+    },
+    {
+      "dimension": "convention_outlier",
+      "identifier": "import_path_hacks_in_examples",
+      "summary": "Examples inconsistently depend on sys.path mutation for local imports.",
+      "related_files": [
+        "examples/claude_sdk/01_basic_agent.py",
+        "examples/claude_sdk/03_tom_agent.py",
+        "examples/anthropic/03_tom_agent.py",
+        "examples/crewai/05_tom_agent.py",
+        "examples/pydantic_ai/03_tom_agent.py"
+      ],
+      "evidence": [
+        "Several files call sys.path.insert(...) to import sibling setup modules while other examples in same repo use direct package-style imports.",
+        "The pattern appears in character-specific variants (tom/jerry) and creates a convention island tied to invocation location."
+      ],
+      "suggestion": "Package example helpers under a stable module path (e.g., examples.common.logging_setup) and replace sys.path.insert usage with absolute imports; run `uv run ruff check examples --fix` and execute sample entrypoints to verify invocation from repo root and module mode.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "bootstrap_and_examples_duplication"
+    },
+    {
+      "dimension": "abstraction_fitness",
+      "identifier": "low_leverage_adapter_shims",
+      "summary": "Some adapter modules add an extra layer but only re-export integration classes.",
+      "related_files": [
+        "src/thenvoi/adapters/a2a.py",
+        "src/thenvoi/adapters/a2a_gateway.py",
+        "src/thenvoi/adapters/__init__.py"
+      ],
+      "evidence": [
+        "a2a.py and a2a_gateway.py only import/re-export symbols from integration modules and define __all__.",
+        "__init__.py already provides lazy import facade, so extra one-file wrappers increase navigation depth without local policy."
+      ],
+      "suggestion": "Either fold these aliases into the central adapters facade (__init__.py lazy map only) or document/version them as stable API shims with deprecation timeline; avoid parallel wrapper layers when no behavior is added.",
+      "confidence": "medium",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "indirection_without_policy"
+    },
+    {
+      "dimension": "test_strategy",
+      "identifier": "untested_orchestrator_critical_path",
+      "summary": "Core orchestrator call path is flagged as critical but remains untested.",
+      "related_files": [
+        "examples/a2a_gateway/demo_orchestrator/agent.py",
+        "examples/a2a_gateway/demo_orchestrator/remote_agent.py",
+        "examples/a2a_gateway/demo_orchestrator/agent_executor.py"
+      ],
+      "evidence": [
+        "holistic_context.testing lists remote_agent.py and agent.py in critical_untested with importers=3.",
+        "These files implement peer discovery, remote call/response extraction, and A2A task-state transitions but have no corresponding tests in assigned scope."
+      ],
+      "suggestion": "Add focused tests for: peer discovery fallback behavior, call_peer error mapping, response extraction precedence (artifact vs status), and executor status transitions. Use AsyncMock for HTTP/A2A clients and assert deterministic task states.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "bootstrap_and_examples_duplication"
+    },
+    {
+      "dimension": "ai_generated_debt",
+      "identifier": "template_script_proliferation",
+      "summary": "Framework examples duplicate template bootstrap logic with minimal semantic change.",
+      "related_files": [
+        "examples/anthropic/01_basic_agent.py",
+        "examples/pydantic_ai/01_basic_agent.py",
+        "examples/crewai/01_basic_agent.py",
+        "examples/claude_sdk/01_basic_agent.py",
+        "examples/codex/01_basic_agent.py"
+      ],
+      "evidence": [
+        "Files share almost identical execution skeleton (dotenv load, env checks, credential load, adapter instantiate, Agent.create, await run).",
+        "Character variants and setup_logging wrappers repeat this pattern further, increasing maintenance and drift risk."
+      ],
+      "suggestion": "Introduce a small shared example bootstrap helper (e.g., examples/common/bootstrap.py) that performs env/credential setup and accepts adapter factory + defaults; keep per-framework files focused on what is truly different.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "bootstrap_and_examples_duplication"
+    },
+    {
+      "dimension": "package_organization",
+      "identifier": "examples_shared_concerns_not_factored",
+      "summary": "Shared example infrastructure is spread across many framework folders instead of a common package.",
+      "related_files": [
+        "examples/run_agent.py",
+        "examples/claude_sdk/setup_logging.py",
+        "examples/anthropic/setup_logging.py",
+        "examples/crewai/setup_logging.py",
+        "examples/pydantic_ai/setup_logging.py",
+        "examples/claude_sdk_docker/tools/example_tools.py",
+        "examples/coding_agents/tools/example_tools.py"
+      ],
+      "evidence": [
+        "holistic_context.structure shows many examples directories with avg_fan_in/out near 0.0 (script-only islands) while they still duplicate common logging/tool/bootstrap concerns.",
+        "demo_orchestrator is relatively large (739 LOC, 5 files) but remains under examples rather than an explicit reusable package boundary."
+      ],
+      "suggestion": "Staged reorg plan: Stage 1 create `examples/common/` for `logging.py`, `bootstrap.py`, and shared tool namespace; Stage 2 move duplicated wrappers from `examples/*/setup_logging.py` and `examples/*/tools/example_tools.py` to common; Stage 3 split large `examples/run_agent.py` into `examples/runners/cli.py` plus per-framework modules; Stage 4 keep thin compatibility stubs. Validate with `uv run ruff check examples docker --fix`, `uv run ruff format examples docker`, and smoke-run key scripts via `uv run python examples/run_agent.py --help`.",
+      "confidence": "high",
+      "impact_scope": "codebase",
+      "fix_scope": "architectural_change",
+      "root_cause_cluster": "bootstrap_and_examples_duplication"
+    },
+    {
+      "dimension": "design_coherence",
+      "identifier": "monolithic_example_router",
+      "summary": "run_agent.py concentrates too many responsibilities in one flow-heavy script.",
+      "related_files": [
+        "examples/run_agent.py",
+        "docker/claude_sdk/runner.py",
+        "docker/codex/runner.py"
+      ],
+      "evidence": [
+        "run_agent.py contains many framework-specific creation branches and repeated Agent.create flows, alongside CLI parsing, contacts policy, and logging policy.",
+        "Similar responsibility stacking appears in Docker runners, indicating design duplication rather than layered composition."
+      ],
+      "suggestion": "Refactor to a registry-based design: one typed `RunnerSpec` per framework (adapter_factory, defaults, flags), one shared execution pipeline, and thin entrypoints. This reduces branch-heavy scripts and aligns local and Docker runners around the same composition model.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "architectural_change",
+      "root_cause_cluster": "bootstrap_and_examples_duplication"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "Shared bootstrap/runtime behavior was copied into many scripts instead of centralized as reusable modules.",
+      "Boundary seams often rely on implicit context (globals, broad exceptions) rather than explicit typed contracts.",
+      "Examples directory mixes tutorial scripts and reusable infrastructure without a clear package split."
+    ],
+    "likely_symptoms": [
+      "import_path_hacks_in_examples",
+      "template_script_proliferation",
+      "mixed_error_contracts_across_boundaries"
+    ],
+    "possible_false_positives": [
+      "low_leverage_adapter_shims may be intentional API-stability shims if a documented deprecation/migration policy exists outside reviewed files."
+    ]
+  }
+}

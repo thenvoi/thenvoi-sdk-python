@@ -1,0 +1,132 @@
+{
+  "batch": "Conventions & Errors",
+  "batch_index": 2,
+  "assessments": {
+    "convention_outlier": 74.0,
+    "error_consistency": 67.0,
+    "mid_level_elegance": 71.0
+  },
+  "dimension_notes": {
+    "convention_outlier": {
+      "evidence": [
+        "Example logging modules are split between two patterns: most use `build_logging_setup(...)` aliases, while `examples/a2a_bridge/setup_logging.py` defines a bespoke wrapper over `setup_logging_profile(...)` with a distinct signature (`a2a_debug`).",
+        "Typing/import conventions drift across sibling integration files: `src/thenvoi/integrations/langgraph/graph_tools.py` and `src/thenvoi/integrations/langgraph/message_formatters.py` use legacy `Dict/Optional/Any` style and omit `from __future__ import annotations`, while nearby integration modules use modern annotations and future-import style.",
+        "Package surface conventions are inconsistent for integration packages: some `__init__.py` modules export active symbols (`src/thenvoi/integrations/claude_sdk/__init__.py`, `src/thenvoi/integrations/langgraph/__init__.py`), while peers are doc-only stubs with empty `__all__` (`src/thenvoi/integrations/anthropic/__init__.py`, `src/thenvoi/integrations/parlant/__init__.py`, `src/thenvoi/integrations/pydantic_ai/__init__.py`)."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    },
+    "error_consistency": {
+      "evidence": [
+        "The A2A demo orchestrator path mixes incompatible failure contracts for the same call chain: `GatewayClient.list_peers()`/`discover_peer()` swallow exceptions and return empty/False, `GatewayClient.call_peer()` raises `RuntimeError`, and `make_call_peer_agent_tool()` catches all exceptions and returns error strings as normal tool output.",
+        "`OrchestratorAgentExecutor.execute()` catches broad exceptions and converts them to `ServerError(InternalError())`, which strips the more specific semantic failures already transformed to string responses in `agent.py`, creating dual failure channels (exception and payload-string error).",
+        "Different boundaries in the same subsystem choose different error surfacing rules (return sentinel, return user-facing error string, raise wrapped runtime exception, raise protocol server exception), making failure handling unpredictable."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    },
+    "mid_level_elegance": {
+      "evidence": [
+        "The seam between orchestrator and executor is a loosely typed dict protocol (`is_task_complete`, `require_user_input`, `content`) passed via `agent.stream()` and consumed by `agent_executor.execute()`, with no shared typed contract to guarantee field presence/meaning.",
+        "Error states are serialized into plain message strings in `make_call_peer_agent_tool()` and then interpreted downstream like normal content, collapsing transport/process errors into the same channel as successful task text.",
+        "The gateway integration choreography relies on ad hoc translation across three modules (`remote_agent.py` -> `agent.py` -> `agent_executor.py`) instead of one canonical boundary mapper for peer response/status/error state."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "architectural_change",
+      "confidence": "medium"
+    }
+  },
+  "findings": [
+    {
+      "dimension": "convention_outlier",
+      "identifier": "example_logging_pattern_split",
+      "summary": "Example logging setup uses two conflicting conventions across sibling modules",
+      "related_files": [
+        "examples/a2a_bridge/setup_logging.py",
+        "examples/a2a_gateway/setup_logging.py",
+        "examples/claude_sdk/setup_logging.py",
+        "examples/langgraph/setup_logging.py"
+      ],
+      "evidence": [
+        "`examples/a2a_bridge/setup_logging.py` defines a custom `setup_logging(level, a2a_debug)` wrapper using `setup_logging_profile`.",
+        "Other example packages expose `setup_logging = build_logging_setup(\"...\")` directly with a uniform factory pattern."
+      ],
+      "suggestion": "Unify all example logging entrypoints on one factory contract (prefer the shared builder with optional feature flags) and move A2A-specific toggles behind shared kwargs so callers and docs see one consistent API shape.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "example_convention_fragmentation"
+    },
+    {
+      "dimension": "convention_outlier",
+      "identifier": "langgraph_typing_style_island",
+      "summary": "LangGraph integration files form a style island with legacy typing/import conventions",
+      "related_files": [
+        "src/thenvoi/integrations/langgraph/graph_tools.py",
+        "src/thenvoi/integrations/langgraph/message_formatters.py",
+        "src/thenvoi/integrations/parlant/tools.py"
+      ],
+      "evidence": [
+        "`graph_tools.py` and `message_formatters.py` omit `from __future__ import annotations` and use legacy `Dict`/`Optional` imports.",
+        "Sibling integration module `parlant/tools.py` uses modern built-in generics (`dict[str, Any]`, `Any | None`) and current annotation style."
+      ],
+      "suggestion": "Standardize these integration modules to one typing convention: add future annotations and replace legacy `Dict/Optional` with built-in generics/unions to remove style drift within the integrations subsystem.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "example_convention_fragmentation"
+    },
+    {
+      "dimension": "error_consistency",
+      "identifier": "orchestrator_mixed_failure_channels",
+      "summary": "Orchestrator call path mixes sentinel returns, raised exceptions, and error-as-content strings",
+      "related_files": [
+        "examples/a2a_gateway/demo_orchestrator/remote_agent.py",
+        "examples/a2a_gateway/demo_orchestrator/agent.py",
+        "examples/a2a_gateway/demo_orchestrator/agent_executor.py"
+      ],
+      "evidence": [
+        "`list_peers()` returns `[]` on exception and `discover_peer()` returns `False` on exception, while `call_peer()` raises `RuntimeError`.",
+        "`make_call_peer_agent_tool()` catches all exceptions and returns formatted error text (normal `str` response) rather than propagating structured errors.",
+        "`agent_executor.execute()` catches exceptions and maps to `ServerError(InternalError())`, creating a second independent error strategy."
+      ],
+      "suggestion": "Define one error contract for the orchestrator subsystem (for example: typed domain exceptions internally, single boundary mapping to A2A `ServerError`, and structured tool errors rather than raw strings) and apply it consistently across `remote_agent`, `agent`, and `agent_executor`.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "architectural_change",
+      "root_cause_cluster": "orchestrator_error_contract_drift"
+    },
+    {
+      "dimension": "mid_level_elegance",
+      "identifier": "orchestrator_untyped_handoff_protocol",
+      "summary": "Executor-agent handoff relies on untyped dict keys and implicit state semantics",
+      "related_files": [
+        "examples/a2a_gateway/demo_orchestrator/agent.py",
+        "examples/a2a_gateway/demo_orchestrator/agent_executor.py"
+      ],
+      "evidence": [
+        "`agent.stream()` yields dict literals with keys like `is_task_complete`, `require_user_input`, and `content`.",
+        "`agent_executor.execute()` directly indexes those keys and branches behavior, but no shared dataclass/Pydantic model enforces schema or valid state combinations."
+      ],
+      "suggestion": "Introduce a shared response model (dataclass or Pydantic) with explicit status enum and payload fields; have `stream()` yield that model and make executor logic pattern-match on typed states.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "orchestrator_error_contract_drift"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "Example and integration subsystems evolved with parallel local conventions and no enforced shared style contract.",
+      "The orchestrator demo lacks a single canonical boundary contract for status/error propagation, so each layer chose its own strategy."
+    ],
+    "likely_symptoms": [
+      "example_logging_pattern_split",
+      "langgraph_typing_style_island",
+      "orchestrator_untyped_handoff_protocol"
+    ],
+    "possible_false_positives": []
+  }
+}

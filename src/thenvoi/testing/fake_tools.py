@@ -1,4 +1,4 @@
-"""Fake AgentTools for unit testing adapters."""
+"""Composable fake tool surfaces for adapter and runtime tests."""
 
 from __future__ import annotations
 
@@ -6,34 +6,29 @@ import uuid
 from typing import Any
 
 
-class FakeAgentTools:
-    """
-    Fake implementation of AgentToolsProtocol for testing.
+class FakeDispatchTools:
+    """Minimal fake for adapters that only dispatch platform tool calls."""
 
-    Tracks all calls and allows assertions on tool usage.
-    No mocking framework needed - just use this directly.
-
-    Example:
-        async def test_adapter_sends_message():
-            adapter = MyAdapter()
-            tools = FakeAgentTools()
-
-            await adapter.on_message(msg, tools, history, None,
-                                     is_session_bootstrap=True, room_id="room-1")
-
-            assert len(tools.messages_sent) == 1
-            assert tools.messages_sent[0]["content"] == "Expected response"
-    """
-
-    def __init__(self):
-        self.messages_sent: list[dict[str, Any]] = []
-        self.events_sent: list[dict[str, Any]] = []
-        self.participants_added: list[dict[str, Any]] = []
-        self.participants_removed: list[dict[str, Any]] = []
+    def __init__(self) -> None:
         self.tool_calls: list[dict[str, Any]] = []
 
+    async def execute_tool_call(self, tool_name: str, arguments: dict[str, Any]) -> Any:
+        call = {"tool_name": tool_name, "arguments": arguments}
+        self.tool_calls.append(call)
+        return {"status": "ok"}
+
+
+class FakeMessagingTools:
+    """Fake message/event surface."""
+
+    def __init__(self) -> None:
+        self.messages_sent: list[dict[str, Any]] = []
+        self.events_sent: list[dict[str, Any]] = []
+
     async def send_message(
-        self, content: str, mentions: list[str] | list[dict[str, str]] | None = None
+        self,
+        content: str,
+        mentions: list[str] | list[dict[str, str]] | None = None,
     ) -> dict[str, Any]:
         msg = {
             "id": f"msg-{len(self.messages_sent)}",
@@ -58,6 +53,22 @@ class FakeAgentTools:
         self.events_sent.append(event)
         return event
 
+
+class FakeMessagingDispatchTools(FakeMessagingTools, FakeDispatchTools):
+    """Minimal fake for adapters that emit messages/events and dispatch tools."""
+
+    def __init__(self) -> None:
+        FakeMessagingTools.__init__(self)
+        FakeDispatchTools.__init__(self)
+
+
+class FakeParticipantTools:
+    """Fake participant/room orchestration surface."""
+
+    def __init__(self) -> None:
+        self.participants_added: list[dict[str, Any]] = []
+        self.participants_removed: list[dict[str, Any]] = []
+
     async def add_participant(self, name: str, role: str = "member") -> dict[str, Any]:
         participant = {"id": f"p-{name}", "name": name, "role": role}
         self.participants_added.append(participant)
@@ -80,6 +91,10 @@ class FakeAgentTools:
     async def create_chatroom(self, task_id: str | None = None) -> str:
         return f"room-{uuid.uuid4()}"
 
+
+class FakeContactTools:
+    """Fake contact-management surface."""
+
     async def list_contacts(self, page: int = 1, page_size: int = 50) -> dict[str, Any]:
         return {
             "contacts": [],
@@ -92,17 +107,24 @@ class FakeAgentTools:
         }
 
     async def add_contact(
-        self, handle: str, message: str | None = None
+        self,
+        handle: str,
+        message: str | None = None,
     ) -> dict[str, Any]:
         return {"id": str(uuid.uuid4()), "status": "pending"}
 
     async def remove_contact(
-        self, handle: str | None = None, contact_id: str | None = None
+        self,
+        handle: str | None = None,
+        contact_id: str | None = None,
     ) -> dict[str, Any]:
         return {"status": "removed"}
 
     async def list_contact_requests(
-        self, page: int = 1, page_size: int = 50, sent_status: str = "pending"
+        self,
+        page: int = 1,
+        page_size: int = 50,
+        sent_status: str = "pending",
     ) -> dict[str, Any]:
         return {
             "received": [],
@@ -116,7 +138,10 @@ class FakeAgentTools:
         }
 
     async def respond_contact_request(
-        self, action: str, handle: str | None = None, request_id: str | None = None
+        self,
+        action: str,
+        handle: str | None = None,
+        request_id: str | None = None,
     ) -> dict[str, Any]:
         status_map = {
             "approve": "approved",
@@ -127,6 +152,10 @@ class FakeAgentTools:
             "id": request_id or str(uuid.uuid4()),
             "status": status_map.get(action, action),
         }
+
+
+class FakeMemoryTools:
+    """Fake memory-management surface."""
 
     async def list_memories(
         self,
@@ -188,22 +217,54 @@ class FakeAgentTools:
     async def archive_memory(self, memory_id: str) -> dict[str, Any]:
         return {"id": memory_id, "status": "archived"}
 
+
+class FakeSchemaTools:
+    """Fake schema export surface."""
+
     def get_tool_schemas(
-        self, format: str, *, include_memory: bool = False
+        self,
+        format: str,
+        *,
+        include_memory: bool = False,
     ) -> list[dict[str, Any]]:
         return []
 
     def get_anthropic_tool_schemas(
-        self, *, include_memory: bool = False
+        self,
+        *,
+        include_memory: bool = False,
     ) -> list[dict[str, Any]]:
         return []
 
     def get_openai_tool_schemas(
-        self, *, include_memory: bool = False
+        self,
+        *,
+        include_memory: bool = False,
     ) -> list[dict[str, Any]]:
         return []
 
-    async def execute_tool_call(self, tool_name: str, arguments: dict[str, Any]) -> Any:
-        call = {"tool_name": tool_name, "arguments": arguments}
-        self.tool_calls.append(call)
-        return {"status": "ok"}
+
+class FakeAgentTools(
+    FakeMessagingDispatchTools,
+    FakeParticipantTools,
+    FakeContactTools,
+    FakeMemoryTools,
+    FakeSchemaTools,
+):
+    """Compatibility fake implementing the full AgentTools protocol surface."""
+
+    def __init__(self) -> None:
+        FakeMessagingDispatchTools.__init__(self)
+        FakeParticipantTools.__init__(self)
+
+
+__all__ = [
+    "FakeAgentTools",
+    "FakeDispatchTools",
+    "FakeMessagingTools",
+    "FakeMessagingDispatchTools",
+    "FakeParticipantTools",
+    "FakeContactTools",
+    "FakeMemoryTools",
+    "FakeSchemaTools",
+]

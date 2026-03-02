@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import datetime, timedelta, timezone
+from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -13,8 +15,13 @@ from thenvoi.client.streaming import (
     MessageMetadata,
 )
 
-from bridge_core.router import MentionRouter
-from bridge_core.session import InMemorySessionStore
+from thenvoi.integrations.a2a_bridge.router import MentionRouter
+from thenvoi.integrations.a2a_bridge.handler import HandlerResult
+from thenvoi.integrations.a2a_bridge.session import InMemorySessionStore
+
+if TYPE_CHECKING:
+    from thenvoi.runtime.tools import AgentTools
+    from thenvoi.runtime.types import PlatformMessage
 
 
 class TestParseAgentMapping:
@@ -66,25 +73,115 @@ class TestParseAgentMapping:
 
 
 def _make_payload(
-    sender_id: str = "user-1",
-    sender_type: str = "User",
-    content: str = "hello",
-    msg_id: str = "msg-1",
-    mentions: list[Mention] | None = None,
-    thread_id: str | None = None,
+    **overrides: object,
 ) -> MessageCreatedPayload:
+    payload_data: dict[str, object] = {
+        "id": "msg-1",
+        "content": "hello",
+        "message_type": "text",
+        "sender_id": "user-1",
+        "sender_type": "User",
+        "chat_room_id": "room-1",
+        "thread_id": None,
+        "inserted_at": "2024-01-01T00:00:00Z",
+        "updated_at": "2024-01-01T00:00:00Z",
+    }
+    mention_values: list[Mention] | None = None
+    unknown_keys: list[str] = []
+    for key, value in overrides.items():
+        canonical_key = {"msg_id": "id", "room_id": "chat_room_id"}.get(key, key)
+        if canonical_key == "mentions":
+            mention_values = value if isinstance(value, list) else None
+            continue
+        if canonical_key not in payload_data:
+            unknown_keys.append(key)
+            continue
+        payload_data[canonical_key] = value
+    if unknown_keys:
+        unknown = ", ".join(sorted(unknown_keys))
+        raise TypeError(f"_make_payload() got unexpected keyword arguments: {unknown}")
+    payload_data["metadata"] = MessageMetadata(mentions=mention_values or [], status="sent")
     return MessageCreatedPayload(
-        id=msg_id,
-        content=content,
-        message_type="text",
-        sender_id=sender_id,
-        sender_type=sender_type,
-        chat_room_id="room-1",
-        thread_id=thread_id,
-        inserted_at="2024-01-01T00:00:00Z",
-        updated_at="2024-01-01T00:00:00Z",
-        metadata=MessageMetadata(mentions=mentions or [], status="sent"),
+        **payload_data,
     )
+
+
+def _called_message(handler: AsyncMock):
+    """Return the normalized PlatformMessage passed to handler.handle()."""
+    return handler.handle.call_args.kwargs["message"]
+
+
+class RecordingHandler:
+    """Concrete handler used to validate router/BaseHandler contract arguments."""
+
+    def __init__(self) -> None:
+        self.calls: list[tuple["PlatformMessage", str, "AgentTools"]] = []
+
+    async def handle(
+        self,
+        message: "PlatformMessage",
+        mentioned_agent: str,
+        tools: "AgentTools",
+    ) -> HandlerResult:
+        self.calls.append((message, mentioned_agent, tools))
+        return HandlerResult.handled()
+
+
+class IgnoringHandler:
+    """Handler that intentionally ignores routed messages."""
+
+    async def handle(
+        self,
+        message: "PlatformMessage",
+        mentioned_agent: str,
+        tools: "AgentTools",
+    ) -> HandlerResult:
+        _ = message
+        _ = mentioned_agent
+        _ = tools
+        return HandlerResult.ignored("already handled elsewhere")
+
+
+class ErrorResultHandler:
+    """Handler that reports errors via structured outcome contract."""
+
+    async def handle(
+        self,
+        message: "PlatformMessage",
+        mentioned_agent: str,
+        tools: "AgentTools",
+    ) -> HandlerResult:
+        _ = message
+        _ = mentioned_agent
+        _ = tools
+        return HandlerResult.error("structured failure")
+
+
+class InvalidStatusHandler:
+    """Handler that returns an invalid structured status."""
+
+    async def handle(
+        self,
+        message: "PlatformMessage",
+        mentioned_agent: str,
+        tools: "AgentTools",
+    ) -> HandlerResult:
+        _ = message
+        _ = mentioned_agent
+        _ = tools
+        return HandlerResult(status="invalid")  # type: ignore[arg-type]
+
+
+class MalformedHandler:
+    """Intentionally malformed handler used to verify contract failure behavior."""
+
+    async def handle(
+        self,
+        message: "PlatformMessage",
+        tools: "AgentTools",
+    ) -> None:
+        _ = message
+        _ = tools
 
 
 @pytest.fixture
@@ -99,7 +196,9 @@ def mock_link() -> AsyncMock:
 class TestMentionRouterRoute:
     @pytest.fixture
     def mock_handler(self) -> AsyncMock:
-        return AsyncMock()
+        handler = AsyncMock()
+        handler.handle.return_value = HandlerResult.handled()
+        return handler
 
     @pytest.fixture
     def session_store(self) -> InMemorySessionStore:
@@ -128,17 +227,19 @@ class TestMentionRouterRoute:
 
         await router.route(payload, "room-1", tools)
 
-        mock_handler.handle.assert_called_once_with(
-            content="hello",
-            room_id="room-1",
-            thread_id="room-1",
-            message_id="msg-1",
-            sender_id="user-1",
-            sender_name=None,
-            sender_type="User",
-            mentioned_agent="alice",
-            tools=tools,
-        )
+        mock_handler.handle.assert_called_once()
+        call_kwargs = mock_handler.handle.call_args.kwargs
+        assert call_kwargs["mentioned_agent"] == "alice"
+        assert call_kwargs["tools"] is tools
+
+        message = _called_message(mock_handler)
+        assert message.id == "msg-1"
+        assert message.content == "hello"
+        assert message.room_id == "room-1"
+        assert message.thread_id == "room-1"
+        assert message.sender_id == "user-1"
+        assert message.sender_type == "User"
+        assert message.sender_name is None
 
     async def test_skips_self_messages(
         self, router: MentionRouter, mock_handler: AsyncMock
@@ -187,7 +288,9 @@ class TestMentionRouterRoute:
         self, session_store: InMemorySessionStore, mock_link: AsyncMock
     ) -> None:
         handler_a = AsyncMock()
+        handler_a.handle.return_value = HandlerResult.handled()
         handler_b = AsyncMock()
+        handler_b.handle.return_value = HandlerResult.handled()
 
         router = MentionRouter(
             agent_mapping={"alice": "handler_a", "bob": "handler_b"},
@@ -227,6 +330,51 @@ class TestMentionRouterRoute:
         session = await session_store.get("room-1")
         assert session is not None
 
+    async def test_router_refreshes_expired_session_ttl(
+        self,
+        mock_link: AsyncMock,
+    ) -> None:
+        now = datetime(2026, 1, 1, tzinfo=timezone.utc)
+
+        def _clock() -> datetime:
+            return now
+
+        session_store = InMemorySessionStore(session_ttl=60.0, clock=_clock)
+        handler = AsyncMock()
+        handler.handle.return_value = HandlerResult.handled()
+        router = MentionRouter(
+            agent_mapping={"alice": "alice_handler"},
+            handlers={"alice_handler": handler},
+            session_store=session_store,
+            agent_id="bridge-agent-id",
+            link=mock_link,
+        )
+        tools = MagicMock()
+
+        await router.route(
+            _make_payload(
+                msg_id="msg-1", mentions=[Mention(id="alice-id", username="alice")]
+            ),
+            "room-1",
+            tools,
+        )
+        first_session = await session_store.get("room-1")
+        assert first_session is not None
+
+        now = now + timedelta(seconds=61)
+
+        await router.route(
+            _make_payload(
+                msg_id="msg-2", mentions=[Mention(id="alice-id", username="alice")]
+            ),
+            "room-1",
+            tools,
+        )
+        second_session = await session_store.get("room-1")
+        assert second_session is not None
+        assert second_session is not first_session
+        assert handler.handle.await_count == 2
+
     async def test_uses_thread_id_from_payload(
         self,
         router: MentionRouter,
@@ -242,8 +390,7 @@ class TestMentionRouterRoute:
         await router.route(payload, "room-1", tools)
 
         mock_handler.handle.assert_called_once()
-        call_kwargs = mock_handler.handle.call_args.kwargs
-        assert call_kwargs["thread_id"] == "thread-42"
+        assert _called_message(mock_handler).thread_id == "thread-42"
 
     async def test_thread_id_from_payload_not_session(
         self,
@@ -268,8 +415,8 @@ class TestMentionRouterRoute:
         await router.route(payload_2, "room-1", tools)
 
         calls = mock_handler.handle.call_args_list
-        assert calls[0].kwargs["thread_id"] == "thread-1"
-        assert calls[1].kwargs["thread_id"] == "thread-2"
+        assert calls[0].kwargs["message"].thread_id == "thread-1"
+        assert calls[1].kwargs["message"].thread_id == "thread-2"
 
     async def test_skips_mentions_with_none_username(
         self, router: MentionRouter, mock_handler: AsyncMock, mock_link: AsyncMock
@@ -481,6 +628,7 @@ class TestMentionRouterRoute:
     ) -> None:
         """When some handlers succeed and some fail, mark_processed is called (not mark_failed)."""
         handler_a = AsyncMock()  # succeeds
+        handler_a.handle.return_value = HandlerResult.handled()
         handler_b = AsyncMock()
         handler_b.handle.side_effect = RuntimeError("error B")
 
@@ -552,8 +700,7 @@ class TestMentionRouterRoute:
 
         await router.route(payload, "room-1", tools)
 
-        call_kwargs = mock_handler.handle.call_args.kwargs
-        assert call_kwargs["sender_type"] == "Agent"
+        assert _called_message(mock_handler).sender_type == "Agent"
 
     async def test_passes_message_id(
         self, router: MentionRouter, mock_handler: AsyncMock
@@ -566,8 +713,7 @@ class TestMentionRouterRoute:
 
         await router.route(payload, "room-1", tools)
 
-        call_kwargs = mock_handler.handle.call_args.kwargs
-        assert call_kwargs["message_id"] == "custom-msg-id"
+        assert _called_message(mock_handler).id == "custom-msg-id"
 
     async def test_passes_sender_name(
         self, router: MentionRouter, mock_handler: AsyncMock
@@ -579,8 +725,7 @@ class TestMentionRouterRoute:
 
         await router.route(payload, "room-1", tools, sender_name="Jane Doe")
 
-        call_kwargs = mock_handler.handle.call_args.kwargs
-        assert call_kwargs["sender_name"] == "Jane Doe"
+        assert _called_message(mock_handler).sender_name == "Jane Doe"
 
     async def test_sender_name_defaults_to_none(
         self, router: MentionRouter, mock_handler: AsyncMock
@@ -592,8 +737,131 @@ class TestMentionRouterRoute:
 
         await router.route(payload, "room-1", tools)
 
-        call_kwargs = mock_handler.handle.call_args.kwargs
-        assert call_kwargs["sender_name"] is None
+        assert _called_message(mock_handler).sender_name is None
+
+
+class TestBaseHandlerContract:
+    def test_handler_result_rejects_invalid_status(self) -> None:
+        with pytest.raises(ValueError, match="Invalid handler status"):
+            HandlerResult(status="invalid")  # type: ignore[arg-type]
+
+    async def test_concrete_handler_receives_contract_arguments(
+        self, mock_link: AsyncMock
+    ) -> None:
+        handler = RecordingHandler()
+        router = MentionRouter(
+            agent_mapping={"alice": "concrete"},
+            handlers={"concrete": handler},
+            session_store=InMemorySessionStore(),
+            agent_id="bridge-agent-id",
+            link=mock_link,
+        )
+        payload = _make_payload(mentions=[Mention(id="alice-id", username="alice")])
+        tools = MagicMock()
+        tools.send_event = AsyncMock()
+
+        await router.route(payload, "room-1", tools)
+
+        assert len(handler.calls) == 1
+        message, mentioned_agent, received_tools = handler.calls[0]
+        assert message.id == "msg-1"
+        assert message.room_id == "room-1"
+        assert mentioned_agent == "alice"
+        assert received_tools is tools
+        mock_link.mark_processing.assert_called_once_with("room-1", "msg-1")
+        mock_link.mark_processed.assert_called_once_with("room-1", "msg-1")
+        mock_link.mark_failed.assert_not_called()
+
+    async def test_malformed_handler_signature_is_marked_failed(
+        self, mock_link: AsyncMock
+    ) -> None:
+        router = MentionRouter(
+            agent_mapping={"alice": "bad_handler"},
+            handlers={"bad_handler": MalformedHandler()},
+            session_store=InMemorySessionStore(),
+            agent_id="bridge-agent-id",
+            link=mock_link,
+        )
+        payload = _make_payload(mentions=[Mention(id="alice-id", username="alice")])
+        tools = MagicMock()
+        tools.send_event = AsyncMock()
+
+        await router.route(payload, "room-1", tools)
+
+        mock_link.mark_processing.assert_called_once_with("room-1", "msg-1")
+        mock_link.mark_processed.assert_not_called()
+        mock_link.mark_failed.assert_called_once()
+
+        failed_call = mock_link.mark_failed.call_args
+        assert failed_call.args[0] == "room-1"
+        assert failed_call.args[1] == "msg-1"
+        assert "bad_handler" in failed_call.args[2]
+        assert "mentioned_agent" in failed_call.args[2]
+        tools.send_event.assert_awaited_once()
+
+    async def test_handler_result_ignored_marks_processed(
+        self, mock_link: AsyncMock
+    ) -> None:
+        router = MentionRouter(
+            agent_mapping={"alice": "ignorer"},
+            handlers={"ignorer": IgnoringHandler()},
+            session_store=InMemorySessionStore(),
+            agent_id="bridge-agent-id",
+            link=mock_link,
+        )
+        payload = _make_payload(mentions=[Mention(id="alice-id", username="alice")])
+        tools = MagicMock()
+        tools.send_event = AsyncMock()
+
+        await router.route(payload, "room-1", tools)
+
+        mock_link.mark_processing.assert_called_once_with("room-1", "msg-1")
+        mock_link.mark_processed.assert_called_once_with("room-1", "msg-1")
+        mock_link.mark_failed.assert_not_called()
+        tools.send_event.assert_not_called()
+
+    async def test_handler_result_error_marks_failed(
+        self, mock_link: AsyncMock
+    ) -> None:
+        router = MentionRouter(
+            agent_mapping={"alice": "error_handler"},
+            handlers={"error_handler": ErrorResultHandler()},
+            session_store=InMemorySessionStore(),
+            agent_id="bridge-agent-id",
+            link=mock_link,
+        )
+        payload = _make_payload(mentions=[Mention(id="alice-id", username="alice")])
+        tools = MagicMock()
+        tools.send_event = AsyncMock()
+
+        await router.route(payload, "room-1", tools)
+
+        mock_link.mark_processing.assert_called_once_with("room-1", "msg-1")
+        mock_link.mark_processed.assert_not_called()
+        mock_link.mark_failed.assert_called_once()
+        failed_message = mock_link.mark_failed.call_args.args[2]
+        assert "structured failure" in failed_message
+        tools.send_event.assert_awaited_once()
+
+    async def test_invalid_handler_status_marks_failed(
+        self, mock_link: AsyncMock
+    ) -> None:
+        router = MentionRouter(
+            agent_mapping={"alice": "bad_status"},
+            handlers={"bad_status": InvalidStatusHandler()},
+            session_store=InMemorySessionStore(),
+            agent_id="bridge-agent-id",
+            link=mock_link,
+        )
+        payload = _make_payload(mentions=[Mention(id="alice-id", username="alice")])
+        tools = MagicMock()
+        tools.send_event = AsyncMock()
+
+        await router.route(payload, "room-1", tools)
+
+        mock_link.mark_failed.assert_called_once()
+        failed_message = mock_link.mark_failed.call_args.args[2]
+        assert "Invalid handler status" in failed_message
 
 
 class TestMentionRouterTimeout:
@@ -652,6 +920,7 @@ class TestMentionRouterTimeout:
     ) -> None:
         """With handler_timeout=None, handlers run without timeout."""
         handler = AsyncMock()
+        handler.handle.return_value = HandlerResult.handled()
 
         router = MentionRouter(
             agent_mapping={"alice": "handler_a"},
@@ -675,6 +944,7 @@ class TestMentionRouterTimeout:
     ) -> None:
         """When one handler times out but another succeeds, partial success applies."""
         fast_handler = AsyncMock()
+        fast_handler.handle.return_value = HandlerResult.handled()
 
         slow_handler = AsyncMock()
 

@@ -1,16 +1,4 @@
-"""
-Execution - Per-room execution interface and default implementation.
-
-Extracted from AgentSession with simplified interface.
-
-Crash Recovery:
-    When an agent restarts, it may have missed messages while down.
-    The sync mechanism handles this:
-    1. First WebSocket message marks the sync point (_first_ws_msg_id)
-    2. Before processing WS queue, _synchronize_with_next() polls REST API
-    3. Process backlog messages until we reach the sync point
-    4. Clear marker and continue with WebSocket queue
-"""
+"""Per-room execution contract and default runtime implementation."""
 
 from __future__ import annotations
 
@@ -29,6 +17,7 @@ from typing import (
 )
 
 from thenvoi.client.rest import DEFAULT_REQUEST_OPTIONS
+from thenvoi.core.nonfatal import NonFatalErrorRecorder
 from thenvoi.platform.event import (
     MessageEvent,
     ParticipantAddedEvent,
@@ -42,6 +31,7 @@ from .types import (
     SessionConfig,
     SYNTHETIC_SENDER_TYPE,
     SYNTHETIC_CONTACT_EVENTS_SENDER_ID,
+    is_agent_sender_type,
 )
 from .retry_tracker import MessageRetryTracker
 
@@ -58,32 +48,7 @@ def _error_label(e: Exception) -> str:
 
 @runtime_checkable
 class Execution(Protocol):
-    """
-    Interface for per-room execution. Pluggable.
-
-    Implementations handle what happens INSIDE a room.
-    The default ExecutionContext uses context accumulation.
-    Custom implementations (e.g., Letta) can use persistent agents.
-
-    .. versionchanged:: 0.2.0
-        Breaking change: The ``stop()`` method signature changed from
-        ``async def stop() -> None`` to ``async def stop(timeout=None) -> bool``.
-
-    Migration Guide:
-        If you have a custom Execution implementation, update the stop() method:
-
-        Before::
-
-            async def stop(self) -> None:
-                # cleanup logic
-                pass
-
-        After::
-
-            async def stop(self, timeout: float | None = None) -> bool:
-                # cleanup logic (timeout can be ignored if not needed)
-                return True  # Return True for graceful, False if interrupted
-    """
+    """Pluggable interface for handling events within one room session."""
 
     room_id: str
 
@@ -92,24 +57,11 @@ class Execution(Protocol):
         ...
 
     async def stop(self, timeout: float | None = None) -> bool:
-        """
-        Stop the execution context.
-
-        Args:
-            timeout: Optional seconds to wait for graceful shutdown.
-                     None means stop immediately.
-
-        Returns:
-            True if stopped gracefully, False if cancelled mid-processing.
-        """
+        """Stop execution and report whether shutdown completed cleanly."""
         ...
 
     def inject_system_message(self, message: str) -> None:
-        """
-        Queue a system message for injection on next processing.
-
-        Used by ContactEventHandler to broadcast contact changes.
-        """
+        """Queue a system message for delivery before the next user event."""
         ...
 
     async def on_event(self, event: PlatformEvent) -> None:
@@ -118,30 +70,92 @@ class Execution(Protocol):
 
 
 # Type for execution callback
-ExecutionHandler = Callable[["ExecutionContext", PlatformEvent], Awaitable[None]]
+ExecutionHandler = Callable[[Execution, PlatformEvent], Awaitable[None]]
 
 
-class ExecutionContext:
-    """
-    Default execution: context accumulation model.
+class MessageLifecycleProcessor:
+    """Shared message lifecycle for backlog and WebSocket execution paths."""
 
-    Extracted from AgentSession.
+    def __init__(
+        self,
+        *,
+        room_id: str,
+        link: "ThenvoiLink",
+        retry_tracker: MessageRetryTracker,
+        processed_ids: OrderedDict[str, bool],
+        max_processed_ids: int,
+        set_state: Callable[[Literal["starting", "idle", "processing"]], None],
+    ) -> None:
+        self._room_id = room_id
+        self._link = link
+        self._retry_tracker = retry_tracker
+        self._processed_ids = processed_ids
+        self._max_processed_ids = max_processed_ids
+        self._set_state = set_state
 
-    - Accumulates inputs (history, participants)
-    - Queues messages
-    - Feeds agent when instantiated
-    - Agent disappears after execution
+    def should_process_message(self, msg_id: str, *, duplicate_label: str) -> bool:
+        """Return True when a message should proceed through lifecycle execution."""
+        if self._retry_tracker.is_permanently_failed(msg_id):
+            logger.debug("Skipping permanently failed message %s", msg_id)
+            return False
 
-    Example:
-        async def on_execute(ctx: ExecutionContext, event: PlatformEvent):
-            if isinstance(event, MessageEvent):
-                tools = AgentTools.from_context(ctx)
-                history = ctx.get_history_for_llm()
-                # Run LLM with context and tools...
+        if msg_id in self._processed_ids:
+            self._processed_ids.move_to_end(msg_id)
+            logger.debug("Skipping duplicate %s: %s", duplicate_label, msg_id)
+            return False
 
-        ctx = ExecutionContext(room_id, link, on_execute)
-        await ctx.start()
-    """
+        attempts, exceeded = self._retry_tracker.record_attempt(msg_id)
+        if exceeded:
+            logger.warning(
+                "Message %s exceeded max retries (%s attempts)",
+                msg_id,
+                attempts,
+            )
+            return False
+        return True
+
+    async def run(
+        self,
+        *,
+        msg_id: str | None,
+        event_label: str,
+        hydrate: Callable[[], Awaitable[None]],
+        execute: Callable[[], Awaitable[None]],
+    ) -> None:
+        """Run mark-processing/execute/mark-processed lifecycle with shared error flow."""
+        self._set_state("processing")
+        logger.debug("Processing %s in room %s", event_label, self._room_id)
+
+        try:
+            if msg_id:
+                await self._link.mark_processing(self._room_id, msg_id)
+
+            await hydrate()
+            await execute()
+
+            if msg_id:
+                await self._link.mark_processed(self._room_id, msg_id)
+                self._retry_tracker.mark_success(msg_id)
+                self._processed_ids[msg_id] = True
+                if len(self._processed_ids) > self._max_processed_ids:
+                    self._processed_ids.popitem(last=False)
+
+            logger.debug("%s processed successfully", event_label)
+        except Exception as error:
+            logger.error(
+                "Error processing %s: %s",
+                event_label,
+                error,
+                exc_info=True,
+            )
+            if msg_id:
+                await self._link.mark_failed(self._room_id, msg_id, _error_label(error))
+        finally:
+            self._set_state("idle")
+
+
+class ExecutionContext(NonFatalErrorRecorder):
+    """Default per-room execution with queued events and context hydration."""
 
     def __init__(
         self,
@@ -151,16 +165,8 @@ class ExecutionContext:
         config: SessionConfig | None = None,
         agent_id: str | None = None,
     ):
-        """
-        Initialize execution context for a specific room.
-
-        Args:
-            room_id: The room this context manages
-            link: ThenvoiLink for REST API calls
-            on_execute: Callback for handling events
-            config: Optional session configuration
-            agent_id: Agent ID for filtering self-messages
-        """
+        """Initialize room execution state and dependencies."""
+        self._init_nonfatal_errors()
         self.room_id = room_id
         self.link = link
         self._on_execute = on_execute
@@ -194,6 +200,14 @@ class ExecutionContext:
             room_id=room_id,
         )
         self._sync_complete = False  # True after sync with /next completes
+        self._message_lifecycle = MessageLifecycleProcessor(
+            room_id=room_id,
+            link=link,
+            retry_tracker=self._retry_tracker,
+            processed_ids=self._processed_ids,
+            max_processed_ids=self._max_processed_ids,
+            set_state=self._set_state,
+        )
 
         # Graceful shutdown: event signaled when state becomes idle
         self._idle_event: asyncio.Event = asyncio.Event()
@@ -213,12 +227,7 @@ class ExecutionContext:
         return self.state == "processing"
 
     def _set_state(self, new_state: Literal["starting", "idle", "processing"]) -> None:
-        """
-        Set the execution state and update the idle event accordingly.
-
-        This ensures the idle event is properly synchronized with state changes
-        for graceful shutdown coordination.
-        """
+        """Update processing state and keep the idle event in sync."""
         self.state = new_state
         if new_state == "processing":
             self._idle_event.clear()
@@ -305,7 +314,10 @@ class ExecutionContext:
         try:
             await self._process_loop_task
         except asyncio.CancelledError:
-            pass
+            logger.debug(
+                "ExecutionContext %s: Process loop cancelled during stop",
+                self.room_id,
+            )
         self._process_loop_task = None
         return graceful
 
@@ -639,10 +651,15 @@ class ExecutionContext:
 
         except asyncio.CancelledError:
             logger.debug("ExecutionContext %s cancelled", self.room_id)
+            raise
         except Exception as e:
-            logger.error(
-                "ExecutionContext %s error: %s", self.room_id, e, exc_info=True
+            self._record_nonfatal_error(
+                "process_loop",
+                e,
+                room_id=self.room_id,
             )
+            self._is_running = False
+            self._set_state("idle")
 
         logger.debug("ExecutionContext %s loop exited", self.room_id)
 
@@ -707,7 +724,10 @@ class ExecutionContext:
                             # Put it back if it's not the duplicate
                             self.queue.put_nowait(head)
                     except asyncio.QueueEmpty:
-                        pass
+                        logger.debug(
+                            "ExecutionContext %s: Queue empty at sync-point dedupe",
+                            self.room_id,
+                        )
 
                     self._first_ws_msg_id = None  # Clear marker
                     self._processed_ids.clear()  # No longer needed after sync
@@ -779,6 +799,56 @@ class ExecutionContext:
         """
         return await self.link.get_next_message(self.room_id)
 
+    async def _hydrate_if_enabled(self) -> None:
+        """Hydrate context lazily once before processing the current lifecycle step."""
+        if not self._context_hydrated and self.config.enable_context_hydration:
+            await self.hydrate()
+
+    def _build_message_event(self, msg: PlatformMessage) -> MessageEvent:
+        """Convert backlog REST message payload into a streaming MessageEvent."""
+        created_at_str = (
+            msg.created_at.isoformat()
+            if msg.created_at
+            else datetime.now(timezone.utc).isoformat()
+        )
+
+        metadata = msg.metadata.copy() if msg.metadata else {}
+        if "mentions" in metadata:
+            normalized_mentions = []
+            for mention in metadata.get("mentions", []):
+                if isinstance(mention, dict):
+                    normalized_mentions.append(
+                        {
+                            "id": mention.get("id", ""),
+                            "username": mention.get("username")
+                            or mention.get("name")
+                            or mention.get("id", ""),
+                        }
+                    )
+            metadata["mentions"] = normalized_mentions
+        else:
+            metadata["mentions"] = []
+
+        if "status" not in metadata:
+            metadata["status"] = "sent"
+
+        from thenvoi.client.streaming import MessageCreatedPayload, MessageMetadata
+
+        return MessageEvent(
+            room_id=self.room_id,
+            payload=MessageCreatedPayload(
+                id=msg.id,
+                content=msg.content,
+                sender_id=msg.sender_id,
+                sender_type=msg.sender_type,
+                message_type=msg.message_type,
+                metadata=MessageMetadata(**metadata),
+                chat_room_id=self.room_id,
+                inserted_at=created_at_str,
+                updated_at=created_at_str,
+            ),
+        )
+
     async def _process_backlog_message(self, msg: PlatformMessage) -> None:
         """
         Process a backlog message from /next during sync.
@@ -795,111 +865,30 @@ class ExecutionContext:
         # Skip messages from self (agent's own messages) to avoid infinite loops
         if (
             self._agent_id
-            and msg.sender_type == "Agent"
+            and is_agent_sender_type(msg.sender_type)
             and msg.sender_id == self._agent_id
         ):
             logger.debug("Skipping self-message %s", msg_id)
             return
 
-        # Skip permanently failed messages
-        if self._retry_tracker.is_permanently_failed(msg_id):
-            logger.debug("Skipping permanently failed message %s", msg_id)
+        if not self._message_lifecycle.should_process_message(
+            msg_id,
+            duplicate_label="backlog message",
+        ):
             return
 
-        # Skip if already processed (dedupe)
-        if msg_id in self._processed_ids:
-            self._processed_ids.move_to_end(msg_id)
-            logger.debug("Skipping duplicate backlog message: %s", msg_id)
-            return
-
-        # Track attempts - check if exceeded BEFORE processing
-        attempts, exceeded = self._retry_tracker.record_attempt(msg_id)
-        if exceeded:
-            logger.warning(
-                "Message %s exceeded max retries (%s attempts)", msg_id, attempts
-            )
-            return
-
-        self._set_state("processing")
         logger.info("Processing backlog message %s in room %s", msg_id, self.room_id)
 
-        try:
-            # Mark as processing on server BEFORE we start
-            await self.link.mark_processing(self.room_id, msg_id)
-
-            # Hydrate context on first message if enabled
-            if not self._context_hydrated and self.config.enable_context_hydration:
-                await self.hydrate()
-
-            # Format timestamps for MessageCreatedPayload validation
-            created_at_str = (
-                msg.created_at.isoformat()
-                if msg.created_at
-                else datetime.now(timezone.utc).isoformat()
-            )
-
-            # Normalize metadata.mentions to include username field
-            metadata = msg.metadata.copy() if msg.metadata else {}
-            if "mentions" in metadata:
-                normalized_mentions = []
-                for mention in metadata.get("mentions", []):
-                    if isinstance(mention, dict):
-                        normalized_mentions.append(
-                            {
-                                "id": mention.get("id", ""),
-                                "username": mention.get("username")
-                                or mention.get("name")
-                                or mention.get("id", ""),
-                            }
-                        )
-                metadata["mentions"] = normalized_mentions
-            else:
-                metadata["mentions"] = []
-
-            if "status" not in metadata:
-                metadata["status"] = "sent"
-
-            # Create event from message for handler
-            from thenvoi.client.streaming import MessageCreatedPayload, MessageMetadata
-
-            event = MessageEvent(
-                room_id=self.room_id,
-                payload=MessageCreatedPayload(
-                    id=msg.id,
-                    content=msg.content,
-                    sender_id=msg.sender_id,
-                    sender_type=msg.sender_type,
-                    message_type=msg.message_type,
-                    metadata=MessageMetadata(**metadata),
-                    chat_room_id=self.room_id,
-                    inserted_at=created_at_str,
-                    updated_at=created_at_str,
-                ),
-            )
-
-            # Call execution handler
+        async def _execute() -> None:
+            event = self._build_message_event(msg)
             await self._on_execute(self, event)
 
-            # SUCCESS: Mark as processed on server
-            await self.link.mark_processed(self.room_id, msg_id)
-            self._retry_tracker.mark_success(msg_id)
-
-            # Track in dedupe cache
-            self._processed_ids[msg_id] = True
-            if len(self._processed_ids) > self._max_processed_ids:
-                self._processed_ids.popitem(last=False)
-
-            logger.debug("Message %s processed successfully", msg_id)
-
-        except Exception as e:
-            # FAILURE: Mark as failed on server
-            logger.error(
-                "Error processing backlog message %s: %s", msg_id, e, exc_info=True
-            )
-            await self.link.mark_failed(self.room_id, msg_id, _error_label(e))
-
-        finally:
-            self._set_state("idle")
+        await self._message_lifecycle.run(
+            msg_id=msg_id,
+            event_label=f"backlog message {msg_id}",
+            hydrate=self._hydrate_if_enabled,
+            execute=_execute,
+        )
 
     def _drain_duplicate_from_queue(self, msg_id: str) -> None:
         """
@@ -941,12 +930,14 @@ class ExecutionContext:
         payload = event.payload if isinstance(event, MessageEvent) else None
         msg_id = payload.id if payload else None
 
+        event_message_id: str | None = msg_id
+
         # For messages: check if we should skip
         if isinstance(event, MessageEvent) and msg_id and payload:
             # Skip messages from self (agent's own messages) to avoid infinite loops
             if (
                 self._agent_id
-                and payload.sender_type == "Agent"
+                and is_agent_sender_type(payload.sender_type)
                 and payload.sender_id == self._agent_id
             ):
                 logger.debug("Skipping self-message %s", msg_id)
@@ -960,43 +951,16 @@ class ExecutionContext:
             )
             if is_synthetic:
                 logger.debug("Processing synthetic contact event message")
-                msg_id = None  # Clear to skip message marking later
+                event_message_id = None
                 # Skip all tracking for synthetic messages - go directly to processing
             else:
-                # Only track retries and duplicates for real messages
-                # Skip permanently failed messages
-                if self._retry_tracker.is_permanently_failed(msg_id):
-                    logger.debug("Skipping permanently failed message %s", msg_id)
+                if not self._message_lifecycle.should_process_message(
+                    msg_id,
+                    duplicate_label="message",
+                ):
                     return
 
-                # Skip duplicates
-                if msg_id in self._processed_ids:
-                    self._processed_ids.move_to_end(msg_id)
-                    logger.debug("Skipping duplicate message %s", msg_id)
-                    return
-
-                # Track attempts
-                attempts, exceeded = self._retry_tracker.record_attempt(msg_id)
-                if exceeded:
-                    logger.warning(
-                        "Message %s exceeded max retries (%s attempts)",
-                        msg_id,
-                        attempts,
-                    )
-                    return
-
-        self._set_state("processing")
-        logger.debug("Processing %s in room %s", event.type, self.room_id)
-
-        try:
-            # For messages: mark as processing on server
-            if isinstance(event, MessageEvent) and msg_id:
-                await self.link.mark_processing(self.room_id, msg_id)
-
-            # Hydrate context on first event if enabled
-            if not self._context_hydrated and self.config.enable_context_hydration:
-                await self.hydrate()
-
+        async def _execute() -> None:
             # Handle participant events internally
             if isinstance(event, ParticipantAddedEvent) and event.payload:
                 self.add_participant(event.payload.model_dump())
@@ -1006,23 +970,9 @@ class ExecutionContext:
             # Call execution handler
             await self._on_execute(self, event)
 
-            # For messages: mark as processed on server
-            if isinstance(event, MessageEvent) and msg_id:
-                await self.link.mark_processed(self.room_id, msg_id)
-                self._retry_tracker.mark_success(msg_id)
-
-                # Track in dedupe cache
-                self._processed_ids[msg_id] = True
-                if len(self._processed_ids) > self._max_processed_ids:
-                    self._processed_ids.popitem(last=False)
-
-            logger.debug("Event %s processed successfully", event.type)
-
-        except Exception as e:
-            logger.error("Error processing %s: %s", event.type, e, exc_info=True)
-            # For messages: mark as failed on server
-            if isinstance(event, MessageEvent) and msg_id:
-                await self.link.mark_failed(self.room_id, msg_id, _error_label(e))
-
-        finally:
-            self._set_state("idle")
+        await self._message_lifecycle.run(
+            msg_id=event_message_id,
+            event_label=f"event {event.type}",
+            hydrate=self._hydrate_if_enabled,
+            execute=_execute,
+        )

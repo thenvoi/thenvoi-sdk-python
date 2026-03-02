@@ -43,35 +43,16 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from thenvoi.preprocessing.participants import (
+    check_and_format_participants as _check_and_format_participants,
+)
+
 if TYPE_CHECKING:
     from thenvoi.runtime.execution import ExecutionContext
 
+__all__ = ["check_and_format_participants"]
+
 
 def check_and_format_participants(ctx: "ExecutionContext") -> str | None:
-    """
-    Check if participants changed and return formatted message if so.
-
-    This is a convenience function for framework integrations to ensure
-    consistent participant notification across all implementations.
-
-    Usage:
-        participants_msg = check_and_format_participants(ctx)
-        if participants_msg:
-            # Inject into LLM context as system/user message
-            ...
-
-    Args:
-        ctx: The ExecutionContext to check
-
-    Returns:
-        Formatted participant message if changed, None otherwise.
-        Automatically calls mark_participants_sent() if changed.
-    """
-    from thenvoi.runtime.formatters import build_participants_message
-
-    if not ctx.participants_changed():
-        return None
-
-    msg = build_participants_message(ctx.participants)
-    ctx.mark_participants_sent()
-    return msg
+    """Compatibility wrapper for participant update formatting helper."""
+    return _check_and_format_participants(ctx)

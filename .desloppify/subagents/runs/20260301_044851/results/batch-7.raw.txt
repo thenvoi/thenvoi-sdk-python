@@ -1,0 +1,142 @@
+{
+  "batch": "Governance & Contracts",
+  "batch_index": 7,
+  "assessments": {
+    "cross_module_architecture": 76.0,
+    "high_level_elegance": 74.0,
+    "test_strategy": 81.0,
+    "package_organization": 72.0
+  },
+  "dimension_notes": {
+    "cross_module_architecture": {
+      "evidence": [
+        "README.md presents framework integrations as optional extras (`uv add ...[claude_sdk]`, `...[codex]`) while pyproject.toml includes `claude-agent-sdk>=0.1.16` in base `dependencies`, creating a hard dependency from core install to one integration stack.",
+        "pyproject.toml defines a separate `claude_sdk` optional extra even though the same library is already required in base dependencies, which blurs package boundary intent and compatibility policy."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    },
+    "high_level_elegance": {
+      "evidence": [
+        "The repo advertises a single SDK surface in README.md, but pyproject.toml mixes core runtime and adapter-specific concerns in base dependencies, weakening top-level ownership boundaries.",
+        "A production subsystem (`thenvoi-bridge/bridge_core/session.py`) lives outside `src/thenvoi/` while README positions bridge capability as part of the SDK offering, making the stable/public boundary harder to reason about."
+      ],
+      "impact_scope": "codebase",
+      "fix_scope": "architectural_change",
+      "confidence": "medium"
+    },
+    "test_strategy": {
+      "evidence": [
+        "pyproject.toml excludes `thenvoi-bridge/**` from pyrefly checks, so production bridge contracts (including session lifecycle in `thenvoi-bridge/bridge_core/session.py`) are outside one of the default quality gates.",
+        "tests/integration/conftest.py is a re-export hub with a long mirrored import/export list, creating a drift-prone fixture surface that can fail silently when parent fixture contracts change.",
+        "tests/conftest.py centralizes many cross-domain fixtures and event factories, increasing coupling of unrelated tests to shared test internals."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    },
+    "package_organization": {
+      "evidence": [
+        "holistic_context.structure shows `src/thenvoi/runtime/` as a 15-file production directory and a separate production directory `thenvoi-bridge/bridge_core/` (7 files), indicating a split runtime/bridge ownership model across top-level roots.",
+        "pyproject.toml package discovery only includes `src/thenvoi*`, while bridge production code remains in a separate top-level tree and is excluded from pyrefly (`thenvoi-bridge/**`).",
+        "The coupling summary identifies bridge core files as imported and active, so this is not a dead or script-only location."
+      ],
+      "impact_scope": "codebase",
+      "fix_scope": "architectural_change",
+      "confidence": "high"
+    }
+  },
+  "findings": [
+    {
+      "dimension": "cross_module_architecture",
+      "identifier": "optional_boundary_drift_claude_sdk",
+      "summary": "Core install path is coupled to an adapter-specific dependency despite optional-extra docs.",
+      "related_files": [
+        "pyproject.toml",
+        "README.md"
+      ],
+      "evidence": [
+        "README.md instructs base install and framework-specific extras separately, implying integrations are opt-in.",
+        "pyproject.toml base `dependencies` includes `claude-agent-sdk>=0.1.16` while `claude_sdk` extra also declares `claude-agent-sdk>=0.1.0`."
+      ],
+      "suggestion": "Make adapter SDKs truly optional: move `claude-agent-sdk` from base `dependencies` to `project.optional-dependencies.claude_sdk`, keep base dependencies framework-agnostic, and align README install examples to one policy (base-only + explicit extras).",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "unclear_core_vs_integration_boundary"
+    },
+    {
+      "dimension": "high_level_elegance",
+      "identifier": "sdk_scope_vs_runtime_shape_mismatch",
+      "summary": "Top-level ownership is blurred between SDK core, integration adapters, and bridge runtime.",
+      "related_files": [
+        "README.md",
+        "pyproject.toml",
+        "thenvoi-bridge/bridge_core/session.py"
+      ],
+      "evidence": [
+        "README describes a cohesive SDK with broad production-ready capability matrix.",
+        "Bridge runtime contracts (SessionData/SessionStore/InMemorySessionStore) are implemented outside `src/thenvoi/`, while package metadata and quality gates are centered on `src/thenvoi/`."
+      ],
+      "suggestion": "Define an explicit architecture contract section in README and enforce it in packaging: either fold bridge runtime under `src/thenvoi/bridge/` as an owned subsystem or declare it as a separate package/project with its own pyproject and independent CI gates.",
+      "confidence": "medium",
+      "impact_scope": "codebase",
+      "fix_scope": "architectural_change",
+      "root_cause_cluster": "unclear_core_vs_integration_boundary"
+    },
+    {
+      "dimension": "test_strategy",
+      "identifier": "quality_gate_gap_for_bridge_and_fixture_hubs",
+      "summary": "Bridge production code and shared fixture contracts are insufficiently guarded by default checks.",
+      "related_files": [
+        "pyproject.toml",
+        "tests/integration/conftest.py",
+        "tests/conftest.py",
+        "thenvoi-bridge/bridge_core/session.py"
+      ],
+      "evidence": [
+        "pyproject.toml excludes `thenvoi-bridge/**` from pyrefly, so one production subtree is not type-checked in standard workflow.",
+        "tests/integration/conftest.py relies on a long explicit re-export list and duplicated `__all__`, which is easy to desynchronize from source fixtures.",
+        "tests/conftest.py concentrates many helper factories and fixtures used across domains, increasing blast radius for test breakage."
+      ],
+      "suggestion": "Add bridge to quality gates and reduce fixture indirection: include `thenvoi-bridge/**` in pyrefly scope, add a CI job for `tests/bridge` + integration fixture smoke checks, and replace manual re-export lists with a smaller explicit plugin registration strategy (`pytest_plugins`) to prevent symbol-drift errors.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "governance_enforcement_gap"
+    },
+    {
+      "dimension": "package_organization",
+      "identifier": "bridge_subsystem_split_across_roots",
+      "summary": "Active production bridge code is structurally separated from package root and validation path.",
+      "related_files": [
+        "pyproject.toml",
+        "thenvoi-bridge/bridge_core/session.py",
+        "README.md"
+      ],
+      "evidence": [
+        "Package discovery is limited to `src/thenvoi*`, while bridge production modules are in `thenvoi-bridge/bridge_core/`.",
+        "pyrefly explicitly excludes `thenvoi-bridge/**`, reinforcing separate governance for an active production directory.",
+        "README presents bridge capability in the same product narrative as SDK integrations, so current placement creates navigability and ownership ambiguity."
+      ],
+      "suggestion": "Run a staged reorg plan: Stage 1 create `src/thenvoi/bridge/` and move `thenvoi-bridge/bridge_core/session.py` first; Stage 2 migrate remaining bridge_core modules in dependency order (`types/session` -> `handler/router` -> `bridge/__main__`); Stage 3 update imports with `rg \"thenvoi-bridge|bridge_core\" -n` and targeted replacements; Stage 4 validate with `uv run ruff check .`, `uv run pyrefly check`, and `uv run pytest tests/bridge tests/integration -v`; Stage 5 remove old path and keep a temporary compatibility shim only if external tooling depends on it.",
+      "confidence": "high",
+      "impact_scope": "codebase",
+      "fix_scope": "architectural_change",
+      "root_cause_cluster": "unclear_core_vs_integration_boundary"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "Core-vs-integration boundary is not consistently encoded across docs, dependencies, package layout, and gates.",
+      "Governance checks are uneven across production subtrees, allowing architectural drift."
+    ],
+    "likely_symptoms": [
+      "optional_boundary_drift_claude_sdk",
+      "sdk_scope_vs_runtime_shape_mismatch",
+      "bridge_subsystem_split_across_roots"
+    ],
+    "possible_false_positives": []
+  }
+}

@@ -1,72 +1,66 @@
 """
-Parlant tool definitions that wrap Thenvoi AgentTools.
+Parlant tool definitions that wrap Thenvoi platform tools.
 
 These tools are defined at server startup and use a session-keyed registry
 to access the current room's tools during execution.
 
-This module provides the same tools as LangGraph/Claude adapters:
-- send_message: Send messages to the chat room
-- send_event: Send events (thought, error, task)
-- add_participant: Add agents/users to the room
-- remove_participant: Remove participants
-- lookup_peers: Find available agents
-- get_participants: List current participants
-- create_chatroom: Create new rooms
-
-NOTE: We intentionally do NOT use `from __future__ import annotations` here
-because Parlant's @p.tool decorator checks annotation types at runtime.
+NOTE: We intentionally do NOT use ``from __future__ import annotations`` here
+because Parlant's ``@p.tool`` decorator checks annotation types at runtime.
 """
 
 import logging
 import warnings
+from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
 from typing import Any, Optional
 
+from thenvoi.core.seams import BoundaryResult
+from thenvoi.runtime.tool_binding_factory import (
+    ToolBindingFactory,
+    ToolBindingLookupError,
+)
+from thenvoi.runtime.tool_bridge import build_tool_failure
+from thenvoi.runtime.tool_sessions import ToolSessionRegistry
+
 logger = logging.getLogger(__name__)
+_TOOL_BINDINGS = ToolBindingFactory(binding_logger=logger)
 
-# Session-keyed registry to hold tools for each session
-# This approach works across async contexts (unlike ContextVar)
-_session_tools: dict[str, Any] = {}
+_SESSION_REGISTRY = ToolSessionRegistry[Any]()
 
-# Track whether send_message was called for each session
-# This helps the adapter know if it needs to forward Parlant's response
-_session_message_sent: dict[str, bool] = {}
+# Backward-compatible aliases for tests/introspection of session caches.
+_session_tools = _SESSION_REGISTRY._tools_by_session
+_session_message_sent = _SESSION_REGISTRY._message_sent_by_session
 
 
 def set_session_tools(session_id: str, tools: Optional[Any]) -> None:
     """Set the tools for a specific Parlant session."""
-    if tools is None:
-        _session_tools.pop(session_id, None)
-        _session_message_sent.pop(session_id, None)
-    else:
-        _session_tools[session_id] = tools
-        _session_message_sent[session_id] = False
+    _SESSION_REGISTRY.set_tools(session_id, tools)
     logger.debug("Set tools for session %s: %s", session_id, tools is not None)
 
 
 def get_session_tools(session_id: str) -> Optional[Any]:
     """Get the tools for a specific Parlant session."""
-    tools = _session_tools.get(session_id)
+    tools = _SESSION_REGISTRY.get_tools(session_id)
     logger.debug(
         "Get tools for session_id=%s: found=%s, available_sessions=%s",
         session_id,
         tools is not None,
-        list(_session_tools.keys()),
+        _SESSION_REGISTRY.active_sessions(),
     )
     return tools
 
 
 def mark_message_sent(session_id: str) -> None:
     """Mark that a message was sent via the send_message tool for this session."""
-    _session_message_sent[session_id] = True
+    _SESSION_REGISTRY.mark_message_sent(session_id)
     logger.debug("Marked message sent for session %s", session_id)
 
 
 def was_message_sent(session_id: str) -> bool:
     """Check if a message was sent via the send_message tool for this session."""
-    return _session_message_sent.get(session_id, False)
+    return _SESSION_REGISTRY.was_message_sent(session_id)
 
 
-# Keep old API for backwards compatibility (deprecated)
 def set_current_tools(tools: Optional[Any]) -> None:
     """Deprecated: Use set_session_tools instead."""
     warnings.warn(
@@ -83,19 +77,440 @@ def get_current_tools() -> Optional[Any]:
         DeprecationWarning,
         stacklevel=2,
     )
-    return None  # Always returns None, tools now accessed via session_id
+    return None
+
+
+ToolRunner = Callable[
+    [Any, str, dict[str, Any]],
+    Awaitable[BoundaryResult[Any]],
+]
+
+
+def _create_tool_runner() -> ToolRunner:
+    async def _run_tool(
+        context: Any,
+        tool_name: str,
+        arguments: dict[str, Any],
+    ) -> BoundaryResult[Any]:
+        tools = get_session_tools(context.session_id)
+        if not tools:
+            logger.error(
+                "[Parlant Tool] %s: No tools available for session %s",
+                tool_name,
+                context.session_id,
+            )
+            return BoundaryResult.failure(
+                code="tools_unavailable",
+                message="Error: No tools available in current context",
+            )
+
+        try:
+            result = await _TOOL_BINDINGS.invoke_session_tool(
+                session_id=context.session_id,
+                registry=_SESSION_REGISTRY,
+                tool_name=tool_name,
+                arguments=arguments,
+            )
+            return BoundaryResult.success(result)
+        except ToolBindingLookupError as error:
+            return BoundaryResult.failure(
+                code="tool_lookup_failed",
+                message=str(error),
+                details={"tool_name": tool_name},
+            )
+        except Exception as error:
+            failure = build_tool_failure(tool_name, arguments, error)
+            logger.error("[Parlant Tool] %s failed: %s", tool_name, error, exc_info=True)
+            return BoundaryResult.failure(
+                code="tool_execution_failed",
+                message=failure.message,
+                details={"tool_name": tool_name},
+            )
+
+    return _run_tool
+
+
+def _parse_mentions(mentions: str) -> list[str]:
+    return [mention.strip() for mention in mentions.split(",") if mention.strip()]
+
+
+def _format_lookup_peers_result(tool_result_type: Any, result: Any) -> Any:
+    if not isinstance(result, dict):
+        return tool_result_type(data=str(result))
+
+    peers = result.get("peers", [])
+    metadata = result.get("metadata", {})
+    if not peers:
+        return tool_result_type(data="No available agents found")
+
+    lines = [
+        (
+            "Available agents "
+            f"(page {metadata.get('page', 1)} of {metadata.get('total_pages', 1)}):"
+        )
+    ]
+    for peer in peers:
+        name = peer.get("name", "Unknown")
+        description = peer.get("description", "No description")
+        peer_type = peer.get("type", "Agent")
+        lines.append(f"- {name} ({peer_type}): {description}")
+    return tool_result_type(data="\n".join(lines))
+
+
+def _format_get_participants_result(tool_result_type: Any, result: Any) -> Any:
+    if not isinstance(result, list):
+        return tool_result_type(data=str(result))
+    if not result:
+        return tool_result_type(data="No participants in the room")
+
+    lines = ["Current participants:"]
+    for participant in result:
+        name = participant.get("name", "Unknown")
+        participant_type = participant.get("type", "Unknown")
+        lines.append(f"- {name} ({participant_type})")
+    return tool_result_type(data="\n".join(lines))
+
+
+async def _execute_descriptor_tool(
+    context: Any,
+    descriptor: "ParlantToolDescriptor",
+    run_tool: ToolRunner,
+    arguments: dict[str, Any],
+) -> BoundaryResult[Any]:
+    return await run_tool(context, descriptor.name, arguments)
+
+
+def _to_tool_result_error(tool_result_type: Any, outcome: BoundaryResult[Any]) -> Any:
+    error_message = (
+        outcome.error.message
+        if outcome.error is not None
+        else "Error: Tool execution failed"
+    )
+    return tool_result_type(data=error_message)
+
+
+@dataclass(frozen=True)
+class ParlantToolDescriptor:
+    """Declarative tool table for Parlant wrapper generation."""
+
+    name: str
+    description: str
+    kind: str
+
+
+_PARLANT_CHAT_DESCRIPTORS: tuple[ParlantToolDescriptor, ...] = (
+    ParlantToolDescriptor(
+        name="thenvoi_send_message",
+        description="Send a message to the chat room using required mentions.",
+        kind="send_message",
+    ),
+    ParlantToolDescriptor(
+        name="thenvoi_send_event",
+        description="Send an event update to the chat room.",
+        kind="send_event",
+    ),
+    ParlantToolDescriptor(
+        name="thenvoi_add_participant",
+        description="Invite an agent or user to join the current room.",
+        kind="add_participant",
+    ),
+    ParlantToolDescriptor(
+        name="thenvoi_remove_participant",
+        description="Remove a participant from the current room.",
+        kind="remove_participant",
+    ),
+    ParlantToolDescriptor(
+        name="thenvoi_lookup_peers",
+        description="List available peers that can be added to the room.",
+        kind="lookup_peers",
+    ),
+    ParlantToolDescriptor(
+        name="thenvoi_get_participants",
+        description="List participants currently present in the room.",
+        kind="get_participants",
+    ),
+    ParlantToolDescriptor(
+        name="thenvoi_create_chatroom",
+        description="Create a new chat room, optionally linked to a task.",
+        kind="create_chatroom",
+    ),
+)
+
+
+def _build_send_message_tool(
+    p: Any,
+    descriptor: ParlantToolDescriptor,
+    tool_context_type: Any,
+    tool_result_type: Any,
+    run_tool: ToolRunner,
+) -> Any:
+    @p.tool
+    async def thenvoi_send_message(
+        context: tool_context_type,
+        content: str,
+        mentions: str,
+    ) -> tool_result_type:
+        """Send a message to the chat room using required mentions."""
+        mention_list = _parse_mentions(mentions)
+        if not mention_list:
+            return tool_result_type(data="Error: At least one mention is required")
+
+        outcome = await _execute_descriptor_tool(
+            context,
+            descriptor,
+            run_tool,
+            {"content": content, "mentions": mention_list},
+        )
+        if not outcome.is_ok:
+            return _to_tool_result_error(tool_result_type, outcome)
+        result = outcome.value
+
+        mark_message_sent(context.session_id)
+        logger.info("[Parlant Tool] Message sent via %s: %s", descriptor.name, result)
+        return tool_result_type(data=f"Message sent to {', '.join(mention_list)}")
+
+    return thenvoi_send_message
+
+
+def _build_send_event_tool(
+    p: Any,
+    descriptor: ParlantToolDescriptor,
+    tool_context_type: Any,
+    tool_result_type: Any,
+    run_tool: ToolRunner,
+) -> Any:
+    @p.tool
+    async def thenvoi_send_event(
+        context: tool_context_type,
+        content: str,
+        message_type: str,
+    ) -> tool_result_type:
+        """Send an event update to the chat room."""
+        if message_type not in ("thought", "error", "task"):
+            return tool_result_type(
+                data=(
+                    f"Error: Invalid message_type '{message_type}'. "
+                    "Use 'thought', 'error', or 'task'"
+                )
+            )
+
+        outcome = await _execute_descriptor_tool(
+            context,
+            descriptor,
+            run_tool,
+            {"content": content, "message_type": message_type, "metadata": None},
+        )
+        if not outcome.is_ok:
+            return _to_tool_result_error(tool_result_type, outcome)
+        return tool_result_type(data=f"Event ({message_type}) sent successfully")
+
+    return thenvoi_send_event
+
+
+def _build_add_participant_tool(
+    p: Any,
+    descriptor: ParlantToolDescriptor,
+    tool_context_type: Any,
+    tool_result_type: Any,
+    run_tool: ToolRunner,
+) -> Any:
+    @p.tool
+    async def thenvoi_add_participant(
+        context: tool_context_type,
+        name: str,
+    ) -> tool_result_type:
+        """Invite an agent or user to join the current room."""
+        outcome = await _execute_descriptor_tool(
+            context,
+            descriptor,
+            run_tool,
+            {"name": name, "role": "member"},
+        )
+        if not outcome.is_ok:
+            return _to_tool_result_error(tool_result_type, outcome)
+        result = outcome.value
+
+        status = result.get("status", "added") if isinstance(result, dict) else "added"
+        if status == "already_in_room":
+            return tool_result_type(data=f"'{name}' is already in the room - no action needed")
+        return tool_result_type(data=f"Successfully added '{name}' to the room")
+
+    return thenvoi_add_participant
+
+
+def _build_remove_participant_tool(
+    p: Any,
+    descriptor: ParlantToolDescriptor,
+    tool_context_type: Any,
+    tool_result_type: Any,
+    run_tool: ToolRunner,
+) -> Any:
+    @p.tool
+    async def thenvoi_remove_participant(
+        context: tool_context_type,
+        name: str,
+    ) -> tool_result_type:
+        """Remove a participant from the current room."""
+        outcome = await _execute_descriptor_tool(
+            context,
+            descriptor,
+            run_tool,
+            {"name": name},
+        )
+        if not outcome.is_ok:
+            return _to_tool_result_error(tool_result_type, outcome)
+        return tool_result_type(data=f"Successfully removed '{name}' from the room")
+
+    return thenvoi_remove_participant
+
+
+def _build_lookup_peers_tool(
+    p: Any,
+    descriptor: ParlantToolDescriptor,
+    tool_context_type: Any,
+    tool_result_type: Any,
+    run_tool: ToolRunner,
+) -> Any:
+    @p.tool
+    async def thenvoi_lookup_peers(
+        context: tool_context_type,
+    ) -> tool_result_type:
+        """List available peers that can be added to the room."""
+        outcome = await _execute_descriptor_tool(
+            context,
+            descriptor,
+            run_tool,
+            {"page": 1, "page_size": 50},
+        )
+        if not outcome.is_ok:
+            return _to_tool_result_error(tool_result_type, outcome)
+        result = outcome.value
+        return _format_lookup_peers_result(tool_result_type, result)
+
+    return thenvoi_lookup_peers
+
+
+def _build_get_participants_tool(
+    p: Any,
+    descriptor: ParlantToolDescriptor,
+    tool_context_type: Any,
+    tool_result_type: Any,
+    run_tool: ToolRunner,
+) -> Any:
+    @p.tool
+    async def thenvoi_get_participants(
+        context: tool_context_type,
+    ) -> tool_result_type:
+        """List participants currently present in the room."""
+        outcome = await _execute_descriptor_tool(
+            context,
+            descriptor,
+            run_tool,
+            {},
+        )
+        if not outcome.is_ok:
+            return _to_tool_result_error(tool_result_type, outcome)
+        result = outcome.value
+        return _format_get_participants_result(tool_result_type, result)
+
+    return thenvoi_get_participants
+
+
+def _build_create_chatroom_tool(
+    p: Any,
+    descriptor: ParlantToolDescriptor,
+    tool_context_type: Any,
+    tool_result_type: Any,
+    run_tool: ToolRunner,
+) -> Any:
+    @p.tool
+    async def thenvoi_create_chatroom(
+        context: tool_context_type,
+        task_id: str = "",
+    ) -> tool_result_type:
+        """Create a new chat room, optionally linked to a task."""
+        outcome = await _execute_descriptor_tool(
+            context,
+            descriptor,
+            run_tool,
+            {"task_id": task_id if task_id else None},
+        )
+        if not outcome.is_ok:
+            return _to_tool_result_error(tool_result_type, outcome)
+        result = outcome.value
+        return tool_result_type(data=f"Created new chat room: {result}")
+
+    return thenvoi_create_chatroom
+
+
+def _build_descriptor_tool(
+    p: Any,
+    descriptor: ParlantToolDescriptor,
+    tool_context_type: Any,
+    tool_result_type: Any,
+    run_tool: ToolRunner,
+) -> Any:
+    if descriptor.kind == "send_message":
+        return _build_send_message_tool(
+            p,
+            descriptor,
+            tool_context_type,
+            tool_result_type,
+            run_tool,
+        )
+    if descriptor.kind == "send_event":
+        return _build_send_event_tool(
+            p,
+            descriptor,
+            tool_context_type,
+            tool_result_type,
+            run_tool,
+        )
+    if descriptor.kind == "add_participant":
+        return _build_add_participant_tool(
+            p,
+            descriptor,
+            tool_context_type,
+            tool_result_type,
+            run_tool,
+        )
+    if descriptor.kind == "remove_participant":
+        return _build_remove_participant_tool(
+            p,
+            descriptor,
+            tool_context_type,
+            tool_result_type,
+            run_tool,
+        )
+    if descriptor.kind == "lookup_peers":
+        return _build_lookup_peers_tool(
+            p,
+            descriptor,
+            tool_context_type,
+            tool_result_type,
+            run_tool,
+        )
+    if descriptor.kind == "get_participants":
+        return _build_get_participants_tool(
+            p,
+            descriptor,
+            tool_context_type,
+            tool_result_type,
+            run_tool,
+        )
+    if descriptor.kind == "create_chatroom":
+        return _build_create_chatroom_tool(
+            p,
+            descriptor,
+            tool_context_type,
+            tool_result_type,
+            run_tool,
+        )
+    raise ValueError(f"Unknown descriptor kind: {descriptor.kind}")
 
 
 def create_parlant_tools() -> list[Any]:
-    """
-    Create Parlant tool definitions that wrap Thenvoi tools.
-
-    These tools use context variables to access the current room's
-    AgentToolsProtocol during execution.
-
-    Returns:
-        List of Parlant ToolEntry objects
-    """
+    """Create Parlant tool definitions backed by session-scoped Thenvoi tools."""
     try:
         import parlant.sdk as p
         from parlant.core.tools import ToolContext, ToolResult
@@ -103,334 +518,8 @@ def create_parlant_tools() -> list[Any]:
         logger.warning("Parlant SDK not installed, skipping tool creation")
         return []
 
-    @p.tool
-    async def thenvoi_send_message(
-        context: ToolContext,
-        content: str,
-        mentions: str,
-    ) -> ToolResult:
-        """
-        Send a message to the chat room.
-
-        Use this to respond to users or other agents. Messages require @mentions
-        to reach users. You MUST use this tool to communicate.
-
-        Args:
-            context: Parlant tool context (automatically provided)
-            content: The message content to send
-            mentions: Comma-separated list of participant handles to @mention (e.g., "@alice, @bob/agent")
-
-        Returns:
-            Confirmation of message sent or error
-        """
-        logger.info(
-            "[Parlant Tool] send_message called: session=%s, content=%s..., mentions=%s",
-            context.session_id,
-            content[:50],
-            mentions,
-        )
-        tools = get_session_tools(context.session_id)
-        if not tools:
-            logger.error(
-                "[Parlant Tool] send_message: No tools available for session %s",
-                context.session_id,
-            )
-            return ToolResult(data="Error: No tools available in current context")
-
-        try:
-            # Parse mentions from comma-separated string
-            mention_list = [m.strip() for m in mentions.split(",") if m.strip()]
-            if not mention_list:
-                logger.warning("[Parlant Tool] send_message: No mentions provided")
-                return ToolResult(data="Error: At least one mention is required")
-
-            logger.info("[Parlant Tool] Sending message to: %s", mention_list)
-            await tools.send_message(content, mention_list)
-            # Mark that we sent a message via the tool (so adapter doesn't duplicate)
-            mark_message_sent(context.session_id)
-            logger.info("[Parlant Tool] Message sent successfully via tool")
-            return ToolResult(data=f"Message sent to {', '.join(mention_list)}")
-        except Exception as e:
-            logger.error("[Parlant Tool] Error sending message: %s", e, exc_info=True)
-            return ToolResult(data=f"Error sending message: {e}")
-
-    @p.tool
-    async def thenvoi_send_event(
-        context: ToolContext,
-        content: str,
-        message_type: str,
-    ) -> ToolResult:
-        """
-        Send an event to the chat room. No mentions required.
-
-        Use this to share your reasoning or report status.
-
-        Args:
-            context: Parlant tool context (automatically provided)
-            content: Human-readable event content
-            message_type: Type of event - 'thought' (share reasoning), 'error' (report problem), or 'task' (report progress)
-
-        Returns:
-            Confirmation of event sent or error
-        """
-        logger.info(
-            "[Parlant Tool] send_event called: session=%s, type=%s",
-            context.session_id,
-            message_type,
-        )
-        tools = get_session_tools(context.session_id)
-        if not tools:
-            logger.error(
-                "[Parlant Tool] send_event: No tools available for session %s",
-                context.session_id,
-            )
-            return ToolResult(data="Error: No tools available in current context")
-
-        if message_type not in ("thought", "error", "task"):
-            return ToolResult(
-                data=f"Error: Invalid message_type '{message_type}'. Use 'thought', 'error', or 'task'"
-            )
-
-        try:
-            await tools.send_event(content, message_type, None)
-            logger.info("[Parlant Tool] Event (%s) sent successfully", message_type)
-            return ToolResult(data=f"Event ({message_type}) sent successfully")
-        except Exception as e:
-            logger.error("[Parlant Tool] Error sending event: %s", e, exc_info=True)
-            return ToolResult(data=f"Error sending event: {e}")
-
-    @p.tool
-    async def thenvoi_add_participant(
-        context: ToolContext,
-        name: str,
-    ) -> ToolResult:
-        """
-        Invite an agent or user to join this chat room.
-
-        Args:
-            context: Parlant tool context (automatically provided)
-            name: REQUIRED - The name of the agent to add. Must match exactly from lookup_peers (e.g. "Pirate Captain", "Research Agent", "Weather Assistant")
-
-        Returns:
-            Success message or error description
-
-        Example calls:
-            add_participant(name="Pirate Captain")
-            add_participant(name="Research Agent")
-        """
-        logger.info(
-            "[Parlant Tool] add_participant called: session=%s, name=%s",
-            context.session_id,
-            name,
-        )
-        tools = get_session_tools(context.session_id)
-        if not tools:
-            logger.error(
-                "[Parlant Tool] add_participant: No tools available for session %s",
-                context.session_id,
-            )
-            return ToolResult(data="Error: No tools available in current context")
-
-        try:
-            result = await tools.add_participant(name, "member")
-            status = result.get("status", "added")
-            if status == "already_in_room":
-                logger.info("[Parlant Tool] '%s' is already in the room", name)
-                return ToolResult(
-                    data=f"'{name}' is already in the room - no action needed"
-                )
-            logger.info("[Parlant Tool] Successfully added '%s' to the room", name)
-            return ToolResult(data=f"Successfully added '{name}' to the room")
-        except Exception as e:
-            logger.error(
-                "[Parlant Tool] Error adding participant '%s': %s",
-                name,
-                e,
-                exc_info=True,
-            )
-            return ToolResult(data=f"Error adding participant '{name}': {e}")
-
-    @p.tool
-    async def thenvoi_remove_participant(
-        context: ToolContext,
-        name: str,
-    ) -> ToolResult:
-        """
-        Remove a participant from this chat room.
-
-        Args:
-            context: Parlant tool context (automatically provided)
-            name: REQUIRED - The name of the participant to remove. Must match exactly from get_participants (e.g. "Pirate Captain", "Research Agent")
-
-        Returns:
-            Success message or error description
-
-        Example calls:
-            remove_participant(name="Pirate Captain")
-            remove_participant(name="Research Agent")
-        """
-        logger.info(
-            "[Parlant Tool] remove_participant called: session=%s, name=%s",
-            context.session_id,
-            name,
-        )
-        tools = get_session_tools(context.session_id)
-        if not tools:
-            logger.error(
-                "[Parlant Tool] remove_participant: No tools available for session %s",
-                context.session_id,
-            )
-            return ToolResult(data="Error: No tools available in current context")
-
-        try:
-            await tools.remove_participant(name)
-            logger.info("[Parlant Tool] Successfully removed '%s' from the room", name)
-            return ToolResult(data=f"Successfully removed '{name}' from the room")
-        except Exception as e:
-            logger.error(
-                "[Parlant Tool] Error removing participant '%s': %s",
-                name,
-                e,
-                exc_info=True,
-            )
-            return ToolResult(data=f"Error removing participant '{name}': {e}")
-
-    @p.tool
-    async def thenvoi_lookup_peers(
-        context: ToolContext,
-    ) -> ToolResult:
-        """
-        List available peers (agents and users) that can be added to this room.
-
-        Automatically excludes peers already in the room. Use this to find
-        specialized agents when you cannot answer a question directly.
-
-        Args:
-            context: Parlant tool context (automatically provided)
-
-        Returns:
-            List of available agents with their names and descriptions
-        """
-        logger.info(
-            "[Parlant Tool] lookup_peers called: session=%s", context.session_id
-        )
-        tools = get_session_tools(context.session_id)
-        if not tools:
-            logger.error(
-                "[Parlant Tool] lookup_peers: No tools available for session %s",
-                context.session_id,
-            )
-            return ToolResult(data="Error: No tools available in current context")
-
-        try:
-            # Use defaults - pagination rarely needed for agent lookups
-            result = await tools.lookup_peers(page=1, page_size=50)
-            logger.info("[Parlant Tool] lookup_peers result: %s", result)
-            if isinstance(result, dict):
-                peers = result.get("peers", [])
-                metadata = result.get("metadata", {})
-                if not peers:
-                    return ToolResult(data="No available agents found")
-
-                lines = [
-                    f"Available agents (page {metadata.get('page', 1)} of {metadata.get('total_pages', 1)}):"
-                ]
-                for peer in peers:
-                    name = peer.get("name", "Unknown")
-                    desc = peer.get("description", "No description")
-                    peer_type = peer.get("type", "Agent")
-                    lines.append(f"- {name} ({peer_type}): {desc}")
-                return ToolResult(data="\n".join(lines))
-            return ToolResult(data=str(result))
-        except Exception as e:
-            logger.error("[Parlant Tool] Error looking up peers: %s", e, exc_info=True)
-            return ToolResult(data=f"Error looking up peers: {e}")
-
-    @p.tool
-    async def thenvoi_get_participants(
-        context: ToolContext,
-    ) -> ToolResult:
-        """
-        Get the list of all participants currently in the chat room.
-
-        Args:
-            context: Parlant tool context (automatically provided)
-
-        Returns:
-            List of current participants with their names and types
-        """
-        logger.info(
-            "[Parlant Tool] get_participants called: session=%s", context.session_id
-        )
-        tools = get_session_tools(context.session_id)
-        if not tools:
-            logger.error(
-                "[Parlant Tool] get_participants: No tools available for session %s",
-                context.session_id,
-            )
-            return ToolResult(data="Error: No tools available in current context")
-
-        try:
-            result = await tools.get_participants()
-            logger.info("[Parlant Tool] get_participants result: %s", result)
-            if isinstance(result, list):
-                if not result:
-                    return ToolResult(data="No participants in the room")
-                lines = ["Current participants:"]
-                for participant in result:
-                    name = participant.get("name", "Unknown")
-                    p_type = participant.get("type", "Unknown")
-                    lines.append(f"- {name} ({p_type})")
-                return ToolResult(data="\n".join(lines))
-            return ToolResult(data=str(result))
-        except Exception as e:
-            logger.error(
-                "[Parlant Tool] Error getting participants: %s", e, exc_info=True
-            )
-            return ToolResult(data=f"Error getting participants: {e}")
-
-    @p.tool
-    async def thenvoi_create_chatroom(
-        context: ToolContext,
-        task_id: str = "",
-    ) -> ToolResult:
-        """
-        Create a new chat room for a specific task or conversation.
-
-        Args:
-            context: Parlant tool context (automatically provided)
-            task_id: Optional task ID to associate with the room
-
-        Returns:
-            The ID of the newly created room
-        """
-        logger.info(
-            "[Parlant Tool] create_chatroom called: session=%s, task_id=%s",
-            context.session_id,
-            task_id,
-        )
-        tools = get_session_tools(context.session_id)
-        if not tools:
-            logger.error(
-                "[Parlant Tool] create_chatroom: No tools available for session %s",
-                context.session_id,
-            )
-            return ToolResult(data="Error: No tools available in current context")
-
-        try:
-            result = await tools.create_chatroom(task_id if task_id else None)
-            logger.info("[Parlant Tool] Created chatroom: %s", result)
-            return ToolResult(data=f"Created new chat room: {result}")
-        except Exception as e:
-            logger.error("[Parlant Tool] Error creating chatroom: %s", e, exc_info=True)
-            return ToolResult(data=f"Error creating chatroom: {e}")
-
+    run_tool = _create_tool_runner()
     return [
-        thenvoi_send_message,
-        thenvoi_send_event,
-        thenvoi_add_participant,
-        thenvoi_remove_participant,
-        thenvoi_lookup_peers,
-        thenvoi_get_participants,
-        thenvoi_create_chatroom,
+        _build_descriptor_tool(p, descriptor, ToolContext, ToolResult, run_tool)
+        for descriptor in _PARLANT_CHAT_DESCRIPTORS
     ]

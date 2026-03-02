@@ -1,0 +1,116 @@
+{
+  "batch": "Abstractions & Dependencies",
+  "batch_index": 1,
+  "assessments": {
+    "abstraction_fitness": 72.0
+  },
+  "dimension_notes": {
+    "abstraction_fitness": {
+      "evidence": [
+        "A2AGatewayAdapter keeps backward-compatible alias state (`_context_to_room`, `_room_participants`, `_pending_tasks`) and passthrough compatibility methods (`_get_or_create_room`, `_rehydrate`, `_create_task`, `_translate_to_a2a`, `_emit_context_event`) that only forward to collaborators.",
+        "Core adapter contract uses `AgentToolsProtocol` everywhere even when adapters need smaller capability slices; tests/fakes mirror the oversized surface by implementing many unrelated methods.",
+        "Execution abstraction is split between `Execution` protocol and `ExecutionContext` concrete type, but runtime callback signatures still bind to `ExecutionContext`, limiting substitution."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high",
+      "sub_axes": {
+        "abstraction_leverage": 69.0,
+        "indirection_cost": 74.0,
+        "interface_honesty": 73.0
+      }
+    }
+  },
+  "findings": [
+    {
+      "dimension": "abstraction_fitness",
+      "identifier": "gateway_compat_wrapper_chain",
+      "summary": "Gateway adapter exposes test-anchored compatibility wrappers/aliases that duplicate collaborator APIs instead of maintaining one stable abstraction boundary.",
+      "related_files": [
+        "src/thenvoi/integrations/a2a/gateway/adapter.py",
+        "tests/integrations/a2a/gateway/test_adapter.py"
+      ],
+      "evidence": [
+        "`A2AGatewayAdapter.__init__` publishes internal alias fields (`_context_to_room`, `_room_participants`, `_pending_tasks`) from collaborator objects.",
+        "Adapter defines wrapper methods (`_get_or_create_room`, `_rehydrate`, `_create_task`, `_translate_to_a2a`, `_emit_context_event`) that only delegate to `GatewaySessionManager`/`GatewayTaskCorrelator`.",
+        "Tests call wrapper methods and assert alias internals directly (e.g., `test_adapter.py` checks `_context_to_room`/`_room_participants` and calls `_get_or_create_room`, `_rehydrate`, `_translate_to_a2a`)."
+      ],
+      "suggestion": "Introduce a single explicit facade contract for gateway state/operations (or test collaborators directly), then deprecate and remove private compatibility aliases/wrappers in one migration to eliminate duplicate API surfaces.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "backcompat_surface_leakage"
+    },
+    {
+      "dimension": "abstraction_fitness",
+      "identifier": "god_protocol_tools_surface",
+      "summary": "The adapter tool interface is over-broad, forcing consumers and test doubles to implement capabilities they do not use.",
+      "related_files": [
+        "src/thenvoi/core/protocols.py",
+        "src/thenvoi/core/simple_adapter.py",
+        "src/thenvoi/testing/fake_tools.py",
+        "src/thenvoi/adapters/pydantic_ai.py"
+      ],
+      "evidence": [
+        "`AgentToolsProtocol` composes messaging, participant, contact, memory, schema-provider, and dispatch contracts into one required type.",
+        "`SimpleAdapter.on_message` requires `AgentToolsProtocol`, propagating the full surface to every adapter subclass regardless of actual needs.",
+        "`FakeAgentTools` implements the whole surface (including memory/contact/schema methods) to satisfy typing/test use, while `PydanticAIAdapter` separately defines a narrower `PydanticAIToolsProtocol` indicating real usage is smaller."
+      ],
+      "suggestion": "Make `SimpleAdapter` generic over a tool-capabilities protocol (or split `on_message` contracts per adapter family) so each adapter and test fake binds only to required capabilities.",
+      "confidence": "high",
+      "impact_scope": "codebase",
+      "fix_scope": "architectural_change",
+      "root_cause_cluster": "interface_overaggregation"
+    },
+    {
+      "dimension": "abstraction_fitness",
+      "identifier": "bridge_mutation_backdoor",
+      "summary": "Bridge injects hidden cross-object mutation through `__setattr__`, creating implicit coupling between orchestrator and collaborators.",
+      "related_files": [
+        "src/thenvoi/integrations/a2a_bridge/bridge.py",
+        "tests/bridge/test_bridge.py"
+      ],
+      "evidence": [
+        "`ThenvoiBridge.__setattr__` intercepts `_link` assignment and mutates collaborator state (`router._link`, `participant_directory.set_link`, `event_dispatcher.set_link`).",
+        "Tests repeatedly replace `bridge._link` directly with mocks, relying on this non-obvious side effect path instead of explicit dependency APIs."
+      ],
+      "suggestion": "Replace `__setattr__` hook with an explicit `set_link()`/rebind method on the bridge and collaborator interfaces, and update tests to use the explicit API to remove hidden mutation paths.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "backcompat_surface_leakage"
+    },
+    {
+      "dimension": "abstraction_fitness",
+      "identifier": "execution_protocol_not_effective_boundary",
+      "summary": "Execution is declared as a protocol but key runtime extension points still depend on concrete `ExecutionContext`, reducing abstraction value.",
+      "related_files": [
+        "src/thenvoi/runtime/execution.py",
+        "src/thenvoi/runtime/platform_runtime.py",
+        "tests/test_platform_runtime.py"
+      ],
+      "evidence": [
+        "`execution.py` defines `Execution` protocol, but `ExecutionHandler` is typed as `Callable[[ExecutionContext, PlatformEvent], ...]` rather than `Execution`.",
+        "`PlatformRuntime.start` requires `on_execute: Callable[[ExecutionContext, PlatformEvent], Awaitable[None]]`, so callers are coupled to concrete context type.",
+        "Runtime tests validate callback plumbing around this concrete shape rather than a protocol contract."
+      ],
+      "suggestion": "Retype callback boundaries to the `Execution` protocol (or a smaller execution-callback protocol) and expose only required context methods via that interface, keeping `ExecutionContext` as an implementation detail.",
+      "confidence": "medium",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "interface_overaggregation"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "Backward-compatibility was preserved by layering aliases/wrappers instead of converging callers onto one boundary.",
+      "Capability contracts grew by accumulation, causing broad protocols and concrete-type leakage at extension points."
+    ],
+    "likely_symptoms": [
+      "gateway_compat_wrapper_chain",
+      "bridge_mutation_backdoor",
+      "execution_protocol_not_effective_boundary"
+    ],
+    "possible_false_positives": []
+  }
+}

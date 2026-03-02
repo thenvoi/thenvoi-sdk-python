@@ -1,0 +1,177 @@
+{
+  "batch": "Conventions & Errors",
+  "batch_index": 2,
+  "assessments": {
+    "convention_outlier": 73.0,
+    "error_consistency": 68.0,
+    "mid_level_elegance": 71.0
+  },
+  "dimension_notes": {
+    "convention_outlier": {
+      "evidence": [
+        "Example logging helpers drift in API and behavior: examples/a2a_gateway/setup_logging.py and examples/codex/setup_logging.py configure root logger level directly, while examples/anthropic/setup_logging.py, examples/langgraph/setup_logging.py, and others force WARNING globally then selectively bump namespace loggers.",
+        "Function typing conventions are inconsistent across sibling setup modules: examples/a2a_gateway/setup_logging.py and examples/codex/setup_logging.py use explicit type hints/None return, while most other setup_logging modules omit annotations.",
+        "Export-surface convention is inconsistent: src/thenvoi/__init__.py and src/thenvoi/runtime/__init__.py expose large barrel APIs, while sibling integration packages (e.g., src/thenvoi/integrations/anthropic/__init__.py, src/thenvoi/integrations/pydantic_ai/__init__.py) export empty __all__ surfaces."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    },
+    "error_consistency": {
+      "evidence": [
+        "LangGraph tool wrappers in src/thenvoi/integrations/langgraph/langchain_tools.py broadly catch Exception and return error strings (e.g., \"Error sending message: ...\") instead of preserving typed/structured failures.",
+        "The demo orchestrator tool in examples/a2a_gateway/demo_orchestrator/agent.py follows the same catch-and-string pattern in call_peer_agent, while examples/a2a_gateway/demo_orchestrator/remote_agent.py raises RuntimeError for similar failure paths.",
+        "In examples/a2a_gateway/demo_orchestrator/remote_agent.py, list_peers/discover_peer collapse operational failures into []/False, which removes boundary context and makes failure mode interpretation ambiguous for callers."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "architectural_change",
+      "confidence": "high"
+    },
+    "mid_level_elegance": {
+      "evidence": [
+        "Integration seams depend on hidden global mutable state: examples/a2a_gateway/demo_orchestrator/agent.py uses module-level _gateway_client set via set_gateway_client, and src/thenvoi/integrations/parlant/tools.py stores session tools in module-level registries (_session_tools, _session_message_sent).",
+        "Error handoff contracts are not explicit across seams: wrapper layers return plain strings on failure in src/thenvoi/integrations/langgraph/langchain_tools.py and src/thenvoi/integrations/parlant/tools.py, forcing callers to infer error state from content rather than type/contract.",
+        "Dual import style for script/module execution in examples/a2a_gateway/demo_orchestrator/__init__.py with absolute local imports in agent.py/agent_executor.py creates a non-obvious integration boundary for package vs script use."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "architectural_change",
+      "confidence": "medium"
+    }
+  },
+  "findings": [
+    {
+      "dimension": "error_consistency",
+      "identifier": "stringly_typed_tool_errors",
+      "summary": "Tool boundary failures are encoded as plain strings instead of a consistent error contract.",
+      "related_files": [
+        "src/thenvoi/integrations/langgraph/langchain_tools.py",
+        "examples/a2a_gateway/demo_orchestrator/agent.py",
+        "src/thenvoi/integrations/parlant/tools.py"
+      ],
+      "evidence": [
+        "langchain_tools wrappers catch Exception and return strings like \"Error ...\" while success paths return dict/list values.",
+        "call_peer_agent in demo orchestrator returns \"Error calling peer ...\" string on failure instead of propagating/structuring failure.",
+        "Parlant tool wrappers return ToolResult(data=\"Error ...\") for broad exceptions, creating a third error representation in adjacent integrations."
+      ],
+      "suggestion": "Define one cross-integration tool error contract (e.g., typed ToolError payload with code/message/context), update wrappers to return that contract consistently, and reserve exception raising for transport/runtime boundaries that can preserve trace context.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "architectural_change",
+      "root_cause_cluster": "adapter_error_contract_drift"
+    },
+    {
+      "dimension": "error_consistency",
+      "identifier": "silent_gateway_discovery_failures",
+      "summary": "Gateway discovery/listing paths swallow transport failures into empty/false outcomes.",
+      "related_files": [
+        "examples/a2a_gateway/demo_orchestrator/remote_agent.py",
+        "examples/a2a_gateway/demo_orchestrator/agent.py"
+      ],
+      "evidence": [
+        "GatewayClient.list_peers returns [] on any exception after warning, making unreachable gateway indistinguishable from no peers.",
+        "GatewayClient.discover_peer returns False on any exception, collapsing timeout/auth/schema failures into one boolean.",
+        "Orchestrator logic relies on these calls for routing decisions, so hidden failures can surface as incorrect orchestration behavior rather than explicit errors."
+      ],
+      "suggestion": "Return structured failure objects (or raise typed exceptions) for connectivity/auth/parsing failures and let the orchestrator map them to explicit user-visible error states.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "adapter_error_contract_drift"
+    },
+    {
+      "dimension": "convention_outlier",
+      "identifier": "logging_setup_style_islands",
+      "summary": "Example logging setup modules use conflicting conventions for API shape and root logger policy.",
+      "related_files": [
+        "examples/a2a_bridge/setup_logging.py",
+        "examples/a2a_gateway/setup_logging.py",
+        "examples/codex/setup_logging.py",
+        "examples/langgraph/setup_logging.py"
+      ],
+      "evidence": [
+        "Some setup functions are typed and return None, others are untyped and implicit-return.",
+        "a2a_gateway/codex variants set root logger level to the requested level, while most sibling modules hard-set WARNING and only tune named loggers.",
+        "Formatting conventions differ significantly (hyphen-separated format in codex vs bracketed format elsewhere)."
+      ],
+      "suggestion": "Create one shared examples logging helper with typed signature and consistent root/noise policy, then have per-integration setup modules delegate only integration-specific logger overrides.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "examples_convention_drift"
+    },
+    {
+      "dimension": "convention_outlier",
+      "identifier": "export_surface_policy_drift",
+      "summary": "Package export conventions are inconsistent between oversized barrels and empty integration surfaces.",
+      "related_files": [
+        "src/thenvoi/__init__.py",
+        "src/thenvoi/runtime/__init__.py",
+        "src/thenvoi/integrations/anthropic/__init__.py",
+        "src/thenvoi/integrations/pydantic_ai/__init__.py"
+      ],
+      "evidence": [
+        "Top-level and runtime __init__.py files re-export broad internal surfaces (types, tools, trackers, shutdown helpers).",
+        "Several integration packages expose empty __all__ even while containing usable integration modules.",
+        "Consumers get different import ergonomics and stability expectations depending on package, with no single convention."
+      ],
+      "suggestion": "Adopt and document a single export policy (strict minimal facades vs broad convenience barrels), then normalize __init__.py surfaces across runtime/integrations accordingly.",
+      "confidence": "medium",
+      "impact_scope": "subsystem",
+      "fix_scope": "architectural_change",
+      "root_cause_cluster": "public_api_convention_drift"
+    },
+    {
+      "dimension": "mid_level_elegance",
+      "identifier": "global_context_integration_seams",
+      "summary": "Integration handoffs rely on module-level mutable globals instead of explicit dependency flow.",
+      "related_files": [
+        "examples/a2a_gateway/demo_orchestrator/agent.py",
+        "src/thenvoi/integrations/parlant/tools.py"
+      ],
+      "evidence": [
+        "Orchestrator tools read a module-level _gateway_client set out-of-band via set_gateway_client.",
+        "Parlant tool execution depends on module-level session registries for current tools and message-sent state.",
+        "These seams hide lifecycle ownership and increase cross-session/cross-instance coupling risk."
+      ],
+      "suggestion": "Pass tool dependencies explicitly through agent/session-scoped objects (or context injection hooks) and eliminate module globals for runtime state.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "architectural_change",
+      "root_cause_cluster": "implicit_runtime_context"
+    },
+    {
+      "dimension": "mid_level_elegance",
+      "identifier": "script_vs_package_import_boundary_blur",
+      "summary": "Demo orchestrator mixes script fallback imports with package-style local imports.",
+      "related_files": [
+        "examples/a2a_gateway/demo_orchestrator/__init__.py",
+        "examples/a2a_gateway/demo_orchestrator/agent.py",
+        "examples/a2a_gateway/demo_orchestrator/agent_executor.py"
+      ],
+      "evidence": [
+        "__init__.py uses try/except ImportError to switch between relative and absolute imports.",
+        "agent.py and agent_executor.py import sibling modules as top-level names (from remote_agent / from agent), which depends on execution context.",
+        "The seam between running as package vs script is implicit and fragile to path/runtime changes."
+      ],
+      "suggestion": "Pick one import mode (package-relative) and provide explicit entrypoints for script execution instead of runtime import fallback branching.",
+      "confidence": "medium",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "examples_convention_drift"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "No unified cross-adapter error contract, so each integration encodes failures differently (exceptions, booleans/empties, and error strings).",
+      "Example/integration modules lack shared conventions for logging setup and import/export boundaries, creating local style islands.",
+      "Runtime context is passed implicitly through module globals instead of explicit dependency injection at integration seams."
+    ],
+    "likely_symptoms": [
+      "stringly_typed_tool_errors",
+      "silent_gateway_discovery_failures",
+      "logging_setup_style_islands",
+      "global_context_integration_seams"
+    ],
+    "possible_false_positives": []
+  }
+}

@@ -78,9 +78,15 @@ class BaseJsonRpcClient:
 
         self._pending: dict[JsonRpcId, asyncio.Future[dict[str, Any]]] = {}
         self._events: asyncio.Queue[RpcEvent] = asyncio.Queue(maxsize=10_000)
+        self._dropped_events: list[dict[str, str]] = []
         self._request_id = 0
         self._connected = False
         self._transport_label = "payload"  # overridden by subclasses for diagnostics
+
+    @property
+    def dropped_events(self) -> list[dict[str, str]]:
+        """Return queue-drop diagnostics captured during runtime."""
+        return list(self._dropped_events)
 
     # ------------------------------------------------------------------
     # Transport methods
@@ -242,7 +248,7 @@ class BaseJsonRpcClient:
                 )
             )
         except asyncio.QueueFull:
-            logger.warning("Event queue full; disconnect event dropped")
+            self._record_dropped_event("transport/closed")
 
     async def _dispatch_rpc_message(self, text: str) -> None:
         """Parse a raw JSON-RPC text frame and route it."""
@@ -275,7 +281,10 @@ class BaseJsonRpcClient:
                     )
                 )
             except asyncio.QueueFull:
-                logger.warning("Event queue full; dropping server request %s", method)
+                self._record_dropped_event(
+                    "request",
+                    method=str(method),
+                )
             return
 
         if method:
@@ -290,7 +299,10 @@ class BaseJsonRpcClient:
                     )
                 )
             except asyncio.QueueFull:
-                logger.warning("Event queue full; dropping notification %s", method)
+                self._record_dropped_event(
+                    "notification",
+                    method=str(method),
+                )
             return
 
         if msg_id is not None:
@@ -304,6 +316,16 @@ class BaseJsonRpcClient:
     def _next_request_id(self) -> int:
         self._request_id += 1
         return self._request_id
+
+    def _record_dropped_event(self, kind: str, *, method: str | None = None) -> None:
+        details = {"kind": kind}
+        if method:
+            details["method"] = method
+        self._dropped_events.append(details)
+        if method:
+            logger.warning("Event queue full; dropping %s event %s", kind, method)
+            return
+        logger.warning("Event queue full; dropping %s event", kind)
 
     @staticmethod
     def _is_retryable_overload(err: CodexJsonRpcError) -> bool:

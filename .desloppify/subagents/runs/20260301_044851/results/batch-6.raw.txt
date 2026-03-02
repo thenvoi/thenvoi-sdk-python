@@ -1,0 +1,107 @@
+{
+  "batch": "Package Organization",
+  "batch_index": 6,
+  "assessments": {
+    "package_organization": 74.0,
+    "high_level_elegance": 79.0
+  },
+  "dimension_notes": {
+    "package_organization": {
+      "evidence": [
+        "holistic_context.structure shows `src/thenvoi/runtime/` has 15 files and `tests/runtime/` has 16 files, both above the >10 mixed-concern split threshold; contact-specific modules/tests are mixed with broader runtime lifecycle modules in the same flat folders.",
+        "A2A gateway tests are split across `tests/integration/test_a2a_gateway_context.py` and `tests/integrations/a2a/gateway/test_adapter.py` / `tests/integrations/a2a/gateway/test_server.py`, indicating domain-affinity mismatch and duplicated navigation paths for one subsystem.",
+        "`tests/integration/conftest.py` is a pure re-export shim over `tests/conftest_integration.py`, creating two ownership locations for integration fixture contracts."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    },
+    "high_level_elegance": {
+      "evidence": [
+        "`src/thenvoi/runtime/__init__.py` aggregates a very broad surface (execution, presence, runtime orchestration, tools, prompts, formatters, trackers, shutdown) in one facade, which weakens top-level role clarity for the runtime package.",
+        "Contact runtime behavior lives in dedicated modules (`contact_handler.py`, `contact_tools.py`) and dedicated tests, but package structure does not expose a clear contact-focused sub-boundary; the package reads as one catch-all runtime bucket.",
+        "Integration test ownership is split between `tests/integration/` and `tests/integrations/a2a/gateway/` for the same A2A gateway capability, reducing predictability of where subsystem behavior belongs."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "architectural_change",
+      "confidence": "medium"
+    }
+  },
+  "findings": [
+    {
+      "dimension": "package_organization",
+      "identifier": "a2a_gateway_tests_split_across_two_taxonomies",
+      "summary": "A2A gateway tests are split between generic integration and domain-specific integration trees.",
+      "related_files": [
+        "tests/integration/test_a2a_gateway_context.py",
+        "tests/integrations/a2a/gateway/test_adapter.py",
+        "tests/integrations/a2a/gateway/test_server.py",
+        "tests/integration/conftest.py"
+      ],
+      "evidence": [
+        "`tests/integration/test_a2a_gateway_context.py` exercises `A2AGatewayAdapter` directly, but sibling A2A gateway tests live under `tests/integrations/a2a/gateway/`.",
+        "The structure profile shows a dedicated `tests/integrations/a2a/gateway/` package already exists, so the root integration placement is an outlier rather than a missing folder case."
+      ],
+      "suggestion": "Staged reorg plan: (1) create/confirm target folder `tests/integrations/a2a/gateway/`; (2) move `tests/integration/test_a2a_gateway_context.py` to `tests/integrations/a2a/gateway/test_context_flow.py`; (3) if needed, add a local `conftest.py` in that folder that imports shared fixtures from `tests/conftest_integration.py`; (4) run import updates with `rg -n \"test_a2a_gateway_context|from \\.conftest import requires_api\" tests/` and adjust references; (5) validate with `uv run pytest tests/integrations/a2a/gateway -v` and `uv run pytest tests/integration -v`.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "subsystem_boundary_split"
+    },
+    {
+      "dimension": "package_organization",
+      "identifier": "runtime_and_runtime_tests_are_flat_and_mixed",
+      "summary": "Runtime production/tests exceed cohesion thresholds and mix contact-specific and core runtime concerns in flat folders.",
+      "related_files": [
+        "src/thenvoi/runtime/contact_handler.py",
+        "src/thenvoi/runtime/contact_tools.py",
+        "src/thenvoi/runtime/__init__.py",
+        "tests/runtime/test_broadcast_changes.py",
+        "tests/runtime/test_contact_config.py",
+        "tests/runtime/test_execution.py"
+      ],
+      "evidence": [
+        "structure profile: `src/thenvoi/runtime/` has 15 files and `tests/runtime/` has 16 files (both >10), with mixed concerns (contact events, execution engine, prompts, shutdown, trackers).",
+        "Contact-specific files/tests are intermixed with unrelated runtime lifecycle modules/tests instead of being grouped under a focused contact boundary."
+      ],
+      "suggestion": "Staged reorg plan: (1) create `src/thenvoi/runtime/contact/` and `tests/runtime/contact/`; (2) move `contact_handler.py` and `contact_tools.py` first, then move `test_broadcast_changes.py` and `test_contact_config.py`; (3) add thin compatibility imports in old module paths during transition (`from .contact.contact_handler import ...`) and remove after callers migrate; (4) update imports via `rg -n \"thenvoi\\.runtime\\.contact_(handler|tools)|tests\\.runtime\\.test_contact\" src tests` and patch callers; (5) validate with `uv run pytest tests/runtime/contact -v` then `uv run pytest tests/runtime -v`.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "runtime_boundary_blur"
+    },
+    {
+      "dimension": "high_level_elegance",
+      "identifier": "runtime_package_acts_as_catch_all_facade",
+      "summary": "The runtime package’s top-level API and folder shape blur subsystem ownership.",
+      "related_files": [
+        "src/thenvoi/runtime/__init__.py",
+        "src/thenvoi/runtime/contact_handler.py",
+        "src/thenvoi/runtime/contact_tools.py",
+        "tests/runtime/test_broadcast_changes.py",
+        "tests/runtime/test_contact_config.py"
+      ],
+      "evidence": [
+        "`src/thenvoi/runtime/__init__.py` exports a broad, heterogeneous API surface (execution, presence, tools, prompts, trackers, shutdown), which dilutes explicit package role boundaries.",
+        "Contact event handling is implemented as dedicated modules and dedicated tests but not represented as a first-class subpackage boundary, so decomposition is discoverable only by reading file names."
+      ],
+      "suggestion": "Introduce an explicit runtime decomposition plan: (1) add subpackages `runtime/core/` (execution/presence/runtime lifecycle) and `runtime/contact/` (contact handler/tools/types adapters); (2) move contact modules first, then prune `runtime/__init__.py` to a minimal public contract; (3) if backward compatibility is needed, keep temporary re-exports with deprecation notes; (4) run `rg -n \"from thenvoi\\.runtime import|thenvoi\\.runtime\\.[a-z_]+\" src tests` to update imports systematically; (5) validate with `uv run pytest tests/runtime -v` and `uv run pytest tests/integration/test_a2a_gateway_context.py -v`.",
+      "confidence": "medium",
+      "impact_scope": "subsystem",
+      "fix_scope": "architectural_change",
+      "root_cause_cluster": "runtime_boundary_blur"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "Directory growth without introducing subsystem-level subpackages caused flat-folder overload in runtime and runtime tests.",
+      "Parallel test taxonomies (`integration` vs `integrations/...`) evolved independently, splitting ownership for A2A gateway behavior."
+    ],
+    "likely_symptoms": [
+      "a2a_gateway_tests_split_across_two_taxonomies",
+      "runtime_and_runtime_tests_are_flat_and_mixed",
+      "runtime_package_acts_as_catch_all_facade"
+    ],
+    "possible_false_positives": []
+  }
+}

@@ -1,61 +1,21 @@
-"""Pytest configuration for integration tests.
+"""Integration test package hooks."""
 
-Re-exports fixtures from the parent module.
-Credentials are loaded from .env.test automatically.
+from __future__ import annotations
 
-See tests/conftest_integration.py for cleanup behavior documentation.
-"""
+from pathlib import Path
 
-from tests.conftest_integration import (
-    # Pytest hooks (must be re-exported for pytest to find them)
-    pytest_addoption,
-    # Settings and helpers
-    api_client,
-    api_client_2,
-    get_api_key,
-    get_api_key_2,
-    get_base_url,
-    get_test_agent_id,
-    get_test_agent_id_2,
-    get_user_api_key,
-    get_ws_url,
-    integration_settings,
-    # Skip markers
-    requires_api,
-    requires_multi_agent,
-    requires_user_api,
-    # Test fixtures
-    test_chat,
-    test_peer_id,
-    test_settings,
-    user_api_client,
-    # Cleanup helper
-    is_no_clean_mode,
+import pytest
+
+pytest_plugins = (
+    "tests.support.integration.plugin",
+    "tests.support.integration.fixtures",
 )
 
-__all__ = [
-    # Pytest hooks
-    "pytest_addoption",
-    # Settings and helpers
-    "api_client",
-    "api_client_2",
-    "get_api_key",
-    "get_api_key_2",
-    "get_base_url",
-    "get_test_agent_id",
-    "get_test_agent_id_2",
-    "get_user_api_key",
-    "get_ws_url",
-    "integration_settings",
-    # Skip markers
-    "requires_api",
-    "requires_multi_agent",
-    "requires_user_api",
-    # Test fixtures
-    "test_chat",
-    "test_peer_id",
-    "test_settings",
-    "user_api_client",
-    # Cleanup helper
-    "is_no_clean_mode",
-]
+
+def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
+    """Mark all tests in this package as integration tests."""
+    integration_root = Path(__file__).resolve().parent
+    for item in items:
+        item_path = Path(item.path).resolve()
+        if item_path.is_relative_to(integration_root):
+            item.add_marker("integration")

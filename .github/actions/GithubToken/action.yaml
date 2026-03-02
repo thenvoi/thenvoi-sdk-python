@@ -32,7 +32,7 @@ runs:
     - name: Generate token
       id: generate_token_script
       shell: bash
-      run: echo "token=$(python ${{ github.action_path }}/generate_token.py)" >> $GITHUB_OUTPUT
+      run: python ${{ github.action_path }}/generate_token.py
       env:
         github_app_id: ${{ inputs.app_id }}
         github_app_installation_id: ${{ inputs.installation_id }}

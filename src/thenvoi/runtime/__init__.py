@@ -1,97 +1,59 @@
-"""
-Thenvoi Runtime Layer - Agent execution and room management.
+"""Core runtime package surface.
 
-Components:
-    RoomPresence: Cross-room lifecycle management
-    Execution: Per-room execution protocol
-    ExecutionContext: Default execution implementation (context accumulation)
-    AgentRuntime: Convenience wrapper combining presence + execution
-    AgentTools: Tool interface for LLM platform interaction
-
-Utilities:
-    formatters: Pure functions for message formatting
-    prompts: System prompt rendering
-    ParticipantTracker: Participant tracking with change detection
-    MessageRetryTracker: Message retry tracking
-
-Shutdown:
-    GracefulShutdown: Signal handler for graceful agent termination
-    run_with_graceful_shutdown: Convenience function to run agent with signal handling
+This module intentionally exposes runtime-core execution and lifecycle APIs only.
+Domain-specific helpers (contacts, prompts, formatters, tool schemas, trackers)
+should be imported from their dedicated submodules.
 """
 
-# Types
-from .types import (
-    AgentConfig,
-    ConversationContext,
-    MessageHandler,
-    PlatformMessage,
-    SessionConfig,
-)
+from __future__ import annotations
 
-# Core runtime components
-from .presence import RoomPresence
-from .execution import Execution, ExecutionContext, ExecutionHandler
-from .runtime import AgentRuntime
+from importlib import import_module
+from typing import Any
 
-# Tools
-from .tools import (
-    AgentTools,
-    TOOL_MODELS,
-    ALL_TOOL_NAMES,
-    BASE_TOOL_NAMES,
-    CHAT_TOOL_NAMES,
-    CONTACT_TOOL_NAMES,
-    MEMORY_TOOL_NAMES,
-    MCP_TOOL_PREFIX,
-    mcp_tool_names,
-)
+from thenvoi.runtime.tools import AgentTools
 
-# Utilities
-from .formatters import (
-    format_message_for_llm,
-    format_history_for_llm,
-    build_participants_message,
-)
-from .prompts import render_system_prompt, BASE_INSTRUCTIONS, TEMPLATES
-from .participant_tracker import ParticipantTracker
-from .retry_tracker import MessageRetryTracker
-from .shutdown import GracefulShutdown, run_with_graceful_shutdown
-
-__all__ = [
-    # Types
+__all__ = (
     "AgentConfig",
     "SessionConfig",
     "PlatformMessage",
     "ConversationContext",
     "MessageHandler",
-    # Core components
     "RoomPresence",
     "Execution",
     "ExecutionContext",
     "ExecutionHandler",
     "AgentRuntime",
-    # Tools
     "AgentTools",
-    "TOOL_MODELS",
-    "ALL_TOOL_NAMES",
-    "BASE_TOOL_NAMES",
-    "CHAT_TOOL_NAMES",
-    "CONTACT_TOOL_NAMES",
-    "MEMORY_TOOL_NAMES",
-    "MCP_TOOL_PREFIX",
-    "mcp_tool_names",
-    # Formatters
-    "format_message_for_llm",
-    "format_history_for_llm",
-    "build_participants_message",
-    # Prompts
-    "render_system_prompt",
-    "BASE_INSTRUCTIONS",
-    "TEMPLATES",
-    # Trackers
-    "ParticipantTracker",
-    "MessageRetryTracker",
-    # Shutdown
     "GracefulShutdown",
     "run_with_graceful_shutdown",
-]
+)
+
+
+_EXPORT_MODULES: dict[str, tuple[str, str]] = {
+    "AgentConfig": ("thenvoi.runtime.types", "AgentConfig"),
+    "SessionConfig": ("thenvoi.runtime.types", "SessionConfig"),
+    "PlatformMessage": ("thenvoi.runtime.types", "PlatformMessage"),
+    "ConversationContext": ("thenvoi.runtime.types", "ConversationContext"),
+    "MessageHandler": ("thenvoi.runtime.types", "MessageHandler"),
+    "RoomPresence": ("thenvoi.runtime.presence", "RoomPresence"),
+    "Execution": ("thenvoi.runtime.execution", "Execution"),
+    "ExecutionContext": ("thenvoi.runtime.execution", "ExecutionContext"),
+    "ExecutionHandler": ("thenvoi.runtime.execution", "ExecutionHandler"),
+    "AgentRuntime": ("thenvoi.runtime.runtime", "AgentRuntime"),
+    "GracefulShutdown": ("thenvoi.runtime.shutdown", "GracefulShutdown"),
+    "run_with_graceful_shutdown": (
+        "thenvoi.runtime.shutdown",
+        "run_with_graceful_shutdown",
+    ),
+}
+
+
+def __getattr__(name: str) -> Any:
+    if name not in _EXPORT_MODULES:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+    module_name, attribute_name = _EXPORT_MODULES[name]
+    module = import_module(module_name)
+    value = getattr(module, attribute_name)
+    globals()[name] = value
+    return value

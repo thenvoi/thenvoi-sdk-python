@@ -1,0 +1,167 @@
+{
+  "batch": "Abstractions & Dependencies",
+  "batch_index": 3,
+  "assessments": {
+    "abstraction_fitness": 72.0,
+    "dependency_health": 83.0,
+    "mid_level_elegance": 70.0,
+    "low_level_elegance": 80.0
+  },
+  "dimension_notes": {
+    "abstraction_fitness": {
+      "evidence": [
+        "Tool contracts are redefined in multiple layers: runtime input models (`src/thenvoi/runtime/tools.py`), CrewAI schema map (`CREWAI_TOOL_SCHEMAS`), Claude SDK MCP schema map (`_MCP_TOOL_SCHEMAS`), and per-tool wrappers in `PydanticAIAdapter._create_agent`.",
+        "A2A gateway peer lookup/identity translation logic is duplicated in both adapter and HTTP server (`_resolve_peer` in `src/thenvoi/integrations/a2a/gateway/adapter.py` and `src/thenvoi/integrations/a2a/gateway/server.py`).",
+        "Tests hardcode adapter-specific tool lists (`tests/adapters/test_pydantic_ai_adapter.py`), reinforcing parallel abstractions instead of one shared contract."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high",
+      "sub_axes": {
+        "abstraction_leverage": 68.0,
+        "indirection_cost": 74.0,
+        "interface_honesty": 71.0
+      }
+    },
+    "dependency_health": {
+      "evidence": [
+        "Optional dependency handling is inconsistent across adapters: `src/thenvoi/adapters/claude_sdk.py` defers missing dependency failure to runtime, while `src/thenvoi/adapters/crewai.py` raises on import and `src/thenvoi/adapters/pydantic_ai.py` imports directly.",
+        "This creates uneven import-time coupling behavior for framework adapters and increases fragility when optional extras are partially installed."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "medium"
+    },
+    "mid_level_elegance": {
+      "evidence": [
+        "Contact broadcast pipeline is split between `ContactEventHandler` and `PlatformRuntime`, but `PlatformRuntime._on_contact_event` only drains `_pending_broadcasts` in the `else` branch (no handler configured), not after successful handler execution.",
+        "Broadcasts are queued by callback (`_queue_broadcast`) from `ContactEventHandler._maybe_broadcast`, so normal configured flows can accumulate pending messages without delivery.",
+        "Tests cover broadcast generation in `tests/runtime/test_contact_handler.py` but there is no corresponding runtime seam assertion in `tests/test_platform_runtime.py` for queue draining/injection."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "single_edit",
+      "confidence": "high"
+    },
+    "low_level_elegance": {
+      "evidence": [
+        "`src/thenvoi/adapters/crewai.py` applies a global irreversible `nest_asyncio` patch and routes sync tool calls through `_run_async` with `run_until_complete`, introducing hidden process-wide side effects in local execution flow.",
+        "The adapter’s local tool execution path mixes contextvar lookup, sync wrappers, coroutine factories, and JSON error shaping (`_execute_tool` + `_run_async`), creating dense control flow for routine tool calls."
+      ],
+      "impact_scope": "module",
+      "fix_scope": "architectural_change",
+      "confidence": "medium"
+    }
+  },
+  "findings": [
+    {
+      "dimension": "abstraction_fitness",
+      "identifier": "adapter_tool_contract_duplication",
+      "summary": "Platform tool contracts are duplicated across adapters instead of generated from one source",
+      "related_files": [
+        "src/thenvoi/runtime/tools.py",
+        "src/thenvoi/adapters/pydantic_ai.py",
+        "src/thenvoi/adapters/claude_sdk.py",
+        "src/thenvoi/adapters/crewai.py",
+        "tests/adapters/test_pydantic_ai_adapter.py"
+      ],
+      "evidence": [
+        "`runtime/tools.py` defines canonical tool input models, while adapters define separate schema maps/wrappers (`_MCP_TOOL_SCHEMAS`, `CREWAI_TOOL_SCHEMAS`, and per-tool wrapper functions in `PydanticAIAdapter._create_agent`).",
+        "Adapter tests assert adapter-local tool lists, which locks in duplicated declarations rather than shared generation."
+      ],
+      "suggestion": "Introduce a single tool contract registry (name, schema model, description, execution binding) and generate adapter-specific wrappers/schemas from it; migrate adapter tests to assert against generated registry output instead of duplicated hardcoded lists.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "adapter_tool_contract_drift"
+    },
+    {
+      "dimension": "abstraction_fitness",
+      "identifier": "a2a_peer_resolution_reimplemented",
+      "summary": "Peer resolution is reimplemented in both gateway adapter and gateway server",
+      "related_files": [
+        "src/thenvoi/integrations/a2a/gateway/adapter.py",
+        "src/thenvoi/integrations/a2a/gateway/server.py",
+        "tests/integrations/a2a/gateway/test_adapter.py",
+        "tests/integrations/a2a/test_adapter.py"
+      ],
+      "evidence": [
+        "Both modules implement slug/UUID fallback peer resolution with separate logic paths.",
+        "A2A request handling depends on this mapping in both layers, so drift can produce inconsistent routing behavior between transport and orchestration."
+      ],
+      "suggestion": "Extract peer identity resolution into a shared component used by both adapter and server, and add a single integration test matrix for slug/UUID lookup behavior to prevent divergence.",
+      "confidence": "medium",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "adapter_tool_contract_drift"
+    },
+    {
+      "dimension": "dependency_health",
+      "identifier": "optional_dependency_boundary_inconsistent",
+      "summary": "Optional framework dependencies are handled inconsistently at import boundaries",
+      "related_files": [
+        "src/thenvoi/adapters/claude_sdk.py",
+        "src/thenvoi/adapters/crewai.py",
+        "src/thenvoi/adapters/pydantic_ai.py"
+      ],
+      "evidence": [
+        "`claude_sdk.py` guards missing SDK imports and defers failure to runtime checks.",
+        "`crewai.py` and `pydantic_ai.py` import framework packages at module load, causing immediate import-time failure when extras are absent."
+      ],
+      "suggestion": "Standardize optional dependency policy across adapters (either all lazy-validated in `on_started` or all eagerly required) and apply one pattern consistently with a shared helper for dependency checks.",
+      "confidence": "medium",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "mid_level_elegance",
+      "identifier": "contact_broadcast_queue_not_drained",
+      "summary": "Contact broadcasts are queued but not drained in the normal contact-handler path",
+      "related_files": [
+        "src/thenvoi/runtime/platform_runtime.py",
+        "src/thenvoi/runtime/contact_handler.py",
+        "tests/runtime/test_contact_handler.py",
+        "tests/test_platform_runtime.py"
+      ],
+      "evidence": [
+        "`ContactEventHandler` queues broadcast messages via `on_broadcast` callback.",
+        "`PlatformRuntime._on_contact_event` only calls `_process_broadcasts()` inside the `else` branch (when no handler exists), so handler-configured flows do not flush pending broadcasts."
+      ],
+      "suggestion": "Call `_process_broadcasts()` after successful `self._contact_handler.handle(event)` as well, and add a runtime-level test that verifies queued broadcasts are injected into active executions when contact handling is enabled.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "single_edit",
+      "root_cause_cluster": "contact_event_pipeline_gap"
+    },
+    {
+      "dimension": "low_level_elegance",
+      "identifier": "crewai_global_loop_patch_side_effect",
+      "summary": "CrewAI tool execution relies on global event-loop patching and sync/async bridging",
+      "related_files": [
+        "src/thenvoi/adapters/crewai.py",
+        "tests/adapters/test_crewai_adapter.py"
+      ],
+      "evidence": [
+        "Module-level `_ensure_nest_asyncio()` applies irreversible global loop patching.",
+        "`_execute_tool` composes contextvar lookup, coroutine factory, error reporting, and `_run_async(run_until_complete)` in one path, making local behavior non-obvious and process-coupled."
+      ],
+      "suggestion": "Move CrewAI tool invocation to an isolated async execution boundary (e.g., dedicated worker thread/event loop or framework-native async tool API) and keep adapter internals fully async without global loop mutation.",
+      "confidence": "medium",
+      "impact_scope": "module",
+      "fix_scope": "architectural_change",
+      "root_cause_cluster": "sync_async_boundary_workaround"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "Missing single source of truth for platform tool contracts across adapter integrations.",
+      "Runtime seam responsibilities are split across handler and runtime without an explicit post-handle delivery contract.",
+      "Framework compatibility workarounds (sync/async bridging, optional deps) are handled per-adapter instead of by shared policy."
+    ],
+    "likely_symptoms": [
+      "adapter_tool_contract_duplication",
+      "a2a_peer_resolution_reimplemented",
+      "optional_dependency_boundary_inconsistent"
+    ],
+    "possible_false_positives": []
+  }
+}

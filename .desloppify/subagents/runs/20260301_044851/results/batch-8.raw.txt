@@ -1,0 +1,140 @@
+{
+  "batch": "Design coherence — Mechanical Concern Signals",
+  "batch_index": 8,
+  "assessments": {
+    "design_coherence": 72.5
+  },
+  "dimension_notes": {
+    "design_coherence": {
+      "evidence": [
+        "Contact-management behavior is implemented twice with near-identical shapes in `src/thenvoi/runtime/tools.py` (room-bound `AgentTools` contact methods) and `src/thenvoi/runtime/contact_tools.py` (agent-level `ContactTools`), creating parallel maintenance paths.",
+        "Example agent scripts repeat the same startup pipeline (load env, validate URLs, load credentials, create adapter, create Agent, run) across multiple frameworks (for example `examples/anthropic/03_tom_agent.py`, `examples/crewai/05_tom_agent.py`, `examples/pydantic_ai/03_tom_agent.py`).",
+        "Infrastructure runner behavior is copy-pasted across runner entrypoints (`docker/claude_sdk/runner.py`, `docker/codex/runner.py`, `examples/claude_sdk_docker/runner.py`): mount validation, signal handling, config loading, and retry loop logic are reimplemented with local variation.",
+        "Cross-module event-shape handling is inconsistent: `src/thenvoi/runtime/formatters.py` and `src/thenvoi/runtime/tools.py` preserve `sender_type` as platform casing (e.g., `Agent`), while `src/thenvoi/converters/a2a_gateway.py` checks lowercase `agent` for participant tracking."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "findings": [
+    {
+      "dimension": "design_coherence",
+      "identifier": "duplicated_contact_tool_surface",
+      "summary": "Contact operations are duplicated across two tool classes with no shared core.",
+      "related_files": [
+        "src/thenvoi/runtime/tools.py",
+        "src/thenvoi/runtime/contact_tools.py",
+        "src/thenvoi/testing/fake_tools.py"
+      ],
+      "evidence": [
+        "`AgentTools` contains full contact CRUD/request methods while `ContactTools` reimplements the same API-facing transformations and validation rules.",
+        "Both classes manually build response dict payloads and metadata structures for contacts and requests, so behavior changes must be patched in multiple places.",
+        "`FakeAgentTools` mirrors the same broad method surface, increasing drift risk when contact semantics evolve."
+      ],
+      "suggestion": "Extract a shared contact service layer (e.g., `ContactOperations`) that owns request/response shaping and validation, then have both `AgentTools` and `ContactTools` delegate to it; keep room-bound concerns in `AgentTools` only.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "missing_shared_example_and_tool_primitives"
+    },
+    {
+      "dimension": "design_coherence",
+      "identifier": "framework_example_bootstrap_duplication",
+      "summary": "Framework character examples duplicate the same orchestration skeleton with adapter-only differences.",
+      "related_files": [
+        "examples/anthropic/03_tom_agent.py",
+        "examples/crewai/05_tom_agent.py",
+        "examples/pydantic_ai/03_tom_agent.py",
+        "examples/langgraph/08_jerry_agent.py"
+      ],
+      "evidence": [
+        "Each file repeats the same flow: `load_dotenv` -> env URL checks -> `load_agent_config` -> adapter construction -> `Agent.create` -> `await agent.run()`.",
+        "The only meaningful variation is adapter type/model/prompt wiring, but lifecycle and config boilerplate is duplicated per file.",
+        "This duplication makes example updates (new required env var, startup behavior changes, diagnostics) fan out across many scripts."
+      ],
+      "suggestion": "Introduce a shared example bootstrap helper that centralizes env/config validation and agent startup, and let each example supply only adapter factory + scenario-specific prompt/tool configuration.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "missing_shared_example_and_tool_primitives"
+    },
+    {
+      "dimension": "design_coherence",
+      "identifier": "logging_setup_copy_islands",
+      "summary": "Per-framework `setup_logging.py` files are near-copies with small ad-hoc edits.",
+      "related_files": [
+        "examples/anthropic/setup_logging.py",
+        "examples/claude_sdk/setup_logging.py",
+        "examples/crewai/setup_logging.py",
+        "examples/parlant/setup_logging.py",
+        "examples/pydantic_ai/setup_logging.py",
+        "examples/a2a_bridge/setup_logging.py"
+      ],
+      "evidence": [
+        "Each file repeats `logging.basicConfig(...)` and `thenvoi` logger setup with tiny per-framework deltas.",
+        "Framework-specific additions are encoded by manual copy changes (e.g., extra logger names or optional debug flag), not by a shared extension point.",
+        "This pattern creates consistency drift across examples for formatting, level behavior, and enabled logger namespaces."
+      ],
+      "suggestion": "Replace per-folder copies with one shared logging utility that accepts optional extra logger names and flags (e.g., `setup_logging(extra_loggers=[...], debug_namespaces=[...])`).",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "missing_shared_example_and_tool_primitives"
+    },
+    {
+      "dimension": "design_coherence",
+      "identifier": "runner_infra_logic_reimplemented",
+      "summary": "Runner entrypoints reimplement the same infra responsibilities instead of composing shared primitives.",
+      "related_files": [
+        "docker/claude_sdk/runner.py",
+        "docker/codex/runner.py",
+        "examples/claude_sdk_docker/runner.py",
+        "docker/shared/repo_init.py"
+      ],
+      "evidence": [
+        "Multiple runners define their own required mounts, signal handlers, retry constants/loops, and config-loading flows with similar structure.",
+        "Custom tool loading logic is repeated with mostly the same `importlib` + `TOOL_REGISTRY` pattern in more than one runner.",
+        "The shared folder already exists (`docker/shared/repo_init.py`), but runner lifecycle concerns are still split across per-runner files."
+      ],
+      "suggestion": "Create a shared runner-core module (startup validation, signal wiring, retry orchestration, tool loading contract) and keep each runner focused on adapter-specific configuration mapping only.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "architectural_change",
+      "root_cause_cluster": "missing_shared_example_and_tool_primitives"
+    },
+    {
+      "dimension": "design_coherence",
+      "identifier": "sender_type_convention_drift",
+      "summary": "Sender-type casing conventions are inconsistent across formatting and gateway conversion paths.",
+      "related_files": [
+        "src/thenvoi/runtime/formatters.py",
+        "src/thenvoi/runtime/tools.py",
+        "src/thenvoi/converters/a2a_gateway.py"
+      ],
+      "evidence": [
+        "`format_message_for_llm` treats `sender_type == \"Agent\"` as assistant role and passes the original sender type through without normalization.",
+        "`AgentTools.get_participants` returns participant `type` directly from API payload, again without normalization.",
+        "`GatewayHistoryConverter` records room participants only when `sender_type == \"agent\"` (lowercase), which is a different convention from other modules."
+      ],
+      "suggestion": "Normalize sender/participant type values at a single boundary (e.g., canonical enum or lowercase normalization helper) and update converters to consume only the canonical form.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "event_schema_normalization_gap"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "Shared helper abstractions are missing in examples and runner infrastructure, so similar workflows are copied per framework.",
+      "Domain boundaries are split by call site (room-bound vs callback-bound) rather than by reusable operation core (contact operations).",
+      "Event schema normalization is not centralized, allowing convention drift across converters and formatters."
+    ],
+    "likely_symptoms": [
+      "framework_example_bootstrap_duplication",
+      "logging_setup_copy_islands",
+      "runner_infra_logic_reimplemented"
+    ],
+    "possible_false_positives": []
+  }
+}

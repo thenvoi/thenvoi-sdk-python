@@ -1,0 +1,164 @@
+{
+  "batch": "Governance & Contracts",
+  "batch_index": 6,
+  "assessments": {
+    "cross_module_architecture": 76.0,
+    "high_level_elegance": 78.0,
+    "test_strategy": 74.0,
+    "package_organization": 77.0
+  },
+  "dimension_notes": {
+    "cross_module_architecture": {
+      "evidence": [
+        "`tests/conftest.py` defines global test behavior (`pytest_ignore_collect`) while integration gating contracts are split into `tests/integration/markers.py` and `tests/support/integration/config.py`.",
+        "`tests/support/integration/config.py` returns `None` from API client fixtures when credentials are missing, while `tests/integration/markers.py` separately provides skip markers; boundary enforcement is distributed instead of centralized.",
+        "README-level support claims are broad, but contract enforcement logic is spread across test bootstrap modules rather than one explicit policy boundary."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    },
+    "high_level_elegance": {
+      "evidence": [
+        "`README.md` install examples use `pydantic_ai` extra name, but `pyproject.toml` defines `pydantic-ai`; this is a top-level contract mismatch for users.",
+        "`README.md` marks multiple frameworks as production-ready, but the same repo config (`tests/conftest.py` + `tests/support/integration/config.py`) makes high-risk integration validation optional/skip-based in common flows.",
+        "Top-level documentation and package metadata do not present a single consistent compatibility policy surface."
+      ],
+      "impact_scope": "codebase",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    },
+    "test_strategy": {
+      "evidence": [
+        "`tests/conftest.py` skips integration test collection in CI (`pytest_ignore_collect`), reducing automated coverage on real API contracts.",
+        "`tests/support/integration/config.py` fixtures (`api_client`, `api_client_2`, `user_api_client`) return `None` when env vars are missing, which relies on individual tests to remember marker enforcement.",
+        "`tests/integration/markers.py` defines required-env markers, but enforcement is opt-in per test rather than guaranteed by fixture-level fail/skip behavior."
+      ],
+      "impact_scope": "codebase",
+      "fix_scope": "architectural_change",
+      "confidence": "high"
+    },
+    "package_organization": {
+      "evidence": [
+        "Holistic structure shows `tests/` has 14 files at root (`file_count: 14`), indicating flat-directory overload above the >10 mixed-concern threshold.",
+        "`tests/conftest.py` combines global collection hooks, event factories, and mock coordinator fixtures, mixing distinct responsibilities in one root-level file.",
+        "`tests/support/integration/config.py` and `tests/integration/markers.py` hold policy logic that is tightly coupled to root `tests/conftest.py`, but split across different folders with no single ownership module."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "findings": [
+    {
+      "dimension": "high_level_elegance",
+      "identifier": "extra_name_contract_drift",
+      "summary": "README extra names drift from pyproject optional dependency contract.",
+      "related_files": [
+        "README.md",
+        "pyproject.toml"
+      ],
+      "evidence": [
+        "`README.md` install section uses `uv add \"... [pydantic_ai]\"`.",
+        "`pyproject.toml` defines `[project.optional-dependencies]` key `pydantic-ai` (hyphen), not `pydantic_ai` (underscore)."
+      ],
+      "suggestion": "Align docs and package contract in one direction: either rename the extra key in `pyproject.toml` to `pydantic_ai` (with compatibility alias strategy) or update README to `pydantic-ai`; then add a docs-contract check in CI that validates README extra tokens against `pyproject.toml` keys.",
+      "confidence": "high",
+      "impact_scope": "codebase",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "governance_contract_drift"
+    },
+    {
+      "dimension": "test_strategy",
+      "identifier": "integration_gate_disabled_in_ci",
+      "summary": "Integration contract checks are globally skipped in CI despite broad production claims.",
+      "related_files": [
+        "tests/conftest.py",
+        "README.md",
+        "tests/support/integration/config.py"
+      ],
+      "evidence": [
+        "`tests/conftest.py` implements `pytest_ignore_collect` to skip integration paths in CI.",
+        "`README.md` presents multiple adapters/frameworks as production-ready.",
+        "Real-API fixtures in `tests/support/integration/config.py` are therefore not exercised in default CI runs."
+      ],
+      "suggestion": "Introduce staged quality gates: keep fast unit CI, add a required scheduled/pre-release integration job that runs a minimal smoke matrix (one test per supported adapter family) using real credentials; document this policy in README and enforce via workflow status checks.",
+      "confidence": "high",
+      "impact_scope": "codebase",
+      "fix_scope": "architectural_change",
+      "root_cause_cluster": "test_contract_fragmentation"
+    },
+    {
+      "dimension": "cross_module_architecture",
+      "identifier": "split_test_policy_boundary",
+      "summary": "Test policy boundary is fragmented across root conftest, integration markers, and config fixtures.",
+      "related_files": [
+        "tests/conftest.py",
+        "tests/integration/markers.py",
+        "tests/support/integration/config.py"
+      ],
+      "evidence": [
+        "Skip policy (`pytest_ignore_collect`) lives in `tests/conftest.py`.",
+        "Env requirement markers live separately in `tests/integration/markers.py`.",
+        "Credential-dependent fixtures in `tests/support/integration/config.py` return `None` instead of enforcing skip/fail contracts."
+      ],
+      "suggestion": "Create a single `tests/support/policy/` boundary: move CI collection policy, env marker definitions, and credential fixture guards into one module set; make fixtures call a shared `require_env(...)` helper to enforce skip/fail uniformly; keep root `tests/conftest.py` as thin registration only.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "test_contract_fragmentation"
+    },
+    {
+      "dimension": "package_organization",
+      "identifier": "root_tests_flat_mixed_concerns",
+      "summary": "Root tests package is overloaded and mixes global hooks with domain-specific factories.",
+      "related_files": [
+        "tests/conftest.py",
+        "tests/support/integration/config.py",
+        "tests/integration/markers.py"
+      ],
+      "evidence": [
+        "Holistic structure reports `tests/` root `file_count: 14`, indicating flat-root overload.",
+        "`tests/conftest.py` contains global pytest hooks plus many event factory helpers and mock coordinator fixtures.",
+        "Integration-specific concerns are partially in `tests/support/integration/config.py` and partially in `tests/integration/markers.py`, creating split navigability."
+      ],
+      "suggestion": "Staged reorg plan: (1) create `tests/support/events.py`, `tests/support/mocks/agent.py`, and `tests/support/policy/integration.py`; (2) move event factories and mock fixtures out of root `tests/conftest.py`; (3) move/alias marker + env policy into `tests/support/policy/integration.py`; (4) keep root `tests/conftest.py` to imports/registration only; (5) run `uv run pytest tests/ --ignore=tests/integration/ -v`, `uv run pytest tests/integration/ -v`, and `uv run ruff check .` to validate import updates and collection behavior.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "test_contract_fragmentation"
+    },
+    {
+      "dimension": "test_strategy",
+      "identifier": "nullable_live_client_fixtures",
+      "summary": "Live API fixtures returning None create silent-path risk and weaken failure signaling.",
+      "related_files": [
+        "tests/support/integration/config.py",
+        "tests/integration/markers.py",
+        "tests/conftest.py"
+      ],
+      "evidence": [
+        "`api_client`, `api_client_2`, and `user_api_client` fixtures return `None` when env vars are missing.",
+        "Marker enforcement is defined separately in `tests/integration/markers.py` and can be missed by individual tests.",
+        "CI integration skip in root conftest compounds the chance of unnoticed contract gaps."
+      ],
+      "suggestion": "Replace `None`-returning credential fixtures with enforced behavior: either `pytest.skip(...)` inside fixture when missing env or split into `required_api_client` fixtures that hard-skip/fail; keep permissive fixtures only for explicit tests that assert missing-credential behavior.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "test_contract_fragmentation"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "Governance contracts (README promises, packaging metadata, and test policy) are maintained in separate places without an automated consistency check.",
+      "Test-policy ownership is fragmented across multiple files, causing optional enforcement and weaker quality gates."
+    ],
+    "likely_symptoms": [
+      "extra_name_contract_drift",
+      "integration_gate_disabled_in_ci",
+      "nullable_live_client_fixtures"
+    ],
+    "possible_false_positives": []
+  }
+}

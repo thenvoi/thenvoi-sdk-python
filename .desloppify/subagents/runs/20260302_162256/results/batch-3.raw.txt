@@ -1,0 +1,73 @@
+{
+  "batch": "Governance & Contracts",
+  "batch_index": 3,
+  "assessments": {
+    "package_organization": 82.0
+  },
+  "dimension_notes": {
+    "package_organization": {
+      "evidence": [
+        "`tests/support/integration/config.py` is named as config but acts as a broad compatibility barrel: it re-exports fixtures, policy helpers, selection internals, cleanup errors, and cleanup orchestration in one module.",
+        "Holistic structure signals show `tests/support/integration/` as a high-traffic boundary (`avg_fan_in` 4.5; coupling edges from `tests/integration/` -> `tests/support/integration/` = 16), so ambiguous placement in this directory has subsystem-wide navigation impact.",
+        "`examples/common/scenario_registry.py` is a shared contract module imported across multiple example framework directories and test directories, but it lives under `examples/` (script-oriented namespace), which mixes executable example surface with reusable governance/configuration surface."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "findings": [
+    {
+      "dimension": "package_organization",
+      "identifier": "integration_config_barrel_misplaced",
+      "summary": "Integration governance contracts are concentrated in a misnamed compatibility barrel (`config.py`).",
+      "related_files": [
+        "tests/support/integration/config.py",
+        "pyproject.toml",
+        "tests/support/integration/markers.py",
+        "tests/integration/history_converters/support.py"
+      ],
+      "evidence": [
+        "`tests/support/integration/config.py` re-exports unrelated concerns (fixtures, policy enforcement, selection internals, cleanup exceptions/functions) and adds wrapper indirection; this is broader than a config module boundary.",
+        "`pyproject.toml` defines integration marker policy at repo level (`integration`, `requires_api`, `requires_multi_agent`, `requires_user_api`), while marker composition lives separately in `tests/support/integration/markers.py`; consumers still route through `config.py` for many non-config contracts.",
+        "History-converter integration helpers (`tests/integration/history_converters/support.py`) also define integration lifecycle helpers (`no_clean`, chat setup/cleanup), indicating contract ownership is not centralized by concern."
+      ],
+      "suggestion": "Staged reorg plan: (1) create `tests/support/integration/contracts/` with focused modules `markers.py`, `cleanup.py`, `settings.py`, `selection.py`; (2) move integration-lifecycle helpers from `tests/integration/history_converters/support.py` into `tests/support/integration/contracts/history.py` and keep payload builders in a test-local helper if domain-specific; (3) replace `tests/support/integration/config.py` with a thin deprecated facade that only re-exports from `contracts/*` and add a removal timeline docstring; (4) update imports with `rg -l \"tests\\.support\\.integration\\.config\" tests | xargs sed -i '' 's/tests\\.support\\.integration\\.config/tests.support.integration.contracts.<module>/g'` (module-specific); (5) validate with `uv run pytest tests/test_integration_policy_contract.py tests/test_integration_cleanup_policy.py tests/integration/ -m integration -v` and `uv run thenvoi-quality-gates`.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "integration_contracts_boundary_blur"
+    },
+    {
+      "dimension": "package_organization",
+      "identifier": "shared_example_registry_in_script_namespace",
+      "summary": "Reusable scenario contract data is placed under `examples/`, conflating script and shared package roles.",
+      "related_files": [
+        "examples/common/scenario_registry.py",
+        "README.md",
+        "pyproject.toml"
+      ],
+      "evidence": [
+        "`examples/common/scenario_registry.py` defines canonical cross-framework keys/messages/adapter kwargs used by multiple framework example directories and by tests, but its location under `examples/` implies script/demo ownership rather than shared contract ownership.",
+        "`README.md` presents framework coverage and quality-gate governance as repository-level contracts; the scenario registry participates in that contract but is not in a governance/test-support package.",
+        "Holistic structure shows `examples/common/` imported by multiple sibling example directories and tests (broad reuse), which is a placement signal for a dedicated shared-support package rather than a script tree."
+      ],
+      "suggestion": "Staged reorg plan: (1) add `src/thenvoi/example_support/scenarios.py` (or `tests/support/examples/scenario_registry.py` if strictly test/example scope) as the canonical shared registry location; (2) move registry constants/functions from `examples/common/scenario_registry.py` to the new target; (3) keep `examples/common/scenario_registry.py` as temporary shim importing from the new path; (4) update imports in example and test modules (`rg -l \"examples\\.common\\.scenario_registry\" examples tests`) to the new module; (5) validate with `uv run pytest tests/example_agents/ -v tests/docs/test_readme_package_structure.py` and `uv run thenvoi-quality-gates`.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "integration_contracts_boundary_blur"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "Compatibility preservation is implemented as broad re-export facades instead of concern-bounded packages.",
+      "Shared contract artifacts for examples/integration tests are placed by convenience of call site rather than by ownership boundary."
+    ],
+    "likely_symptoms": [
+      "integration_config_barrel_misplaced",
+      "shared_example_registry_in_script_namespace"
+    ],
+    "possible_false_positives": []
+  }
+}

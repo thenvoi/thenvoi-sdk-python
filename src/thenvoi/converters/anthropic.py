@@ -6,8 +6,12 @@ import logging
 from typing import Any
 
 from thenvoi.core.protocols import HistoryConverter
-
-from ._tool_parsing import parse_tool_call, parse_tool_result
+from thenvoi.converters.normalized_events import (
+    ToolCallHistoryEvent,
+    ToolResultHistoryEvent,
+    TextHistoryEvent,
+    normalize_history_events,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -177,51 +181,38 @@ class AnthropicHistoryConverter(HistoryConverter[AnthropicMessages]):
         # Collect tool results to batch them into a single user message
         pending_tool_results: list[dict[str, Any]] = []
 
-        for hist in raw:
-            message_type = hist.get("message_type", "text")
-            content = hist.get("content", "")
-
-            if message_type == "tool_call":
+        for event in normalize_history_events(raw):
+            if isinstance(event, ToolCallHistoryEvent):
                 # Flush pending tool results before starting new tool calls
                 _flush_pending_tool_results(messages, pending_tool_results)
 
-                # Parse tool call JSON and collect for batching
-                parsed = parse_tool_call(content)
-                if parsed:
-                    tool_use_block = {
-                        "type": "tool_use",
-                        "id": parsed.tool_call_id,
-                        "name": parsed.name,
-                        "input": parsed.args,
-                    }
-                    pending_tool_calls.append(tool_use_block)
+                tool_use_block = {
+                    "type": "tool_use",
+                    "id": event.tool_call_id,
+                    "name": event.name,
+                    "input": event.args,
+                }
+                pending_tool_calls.append(tool_use_block)
 
-            elif message_type == "tool_result":
+            elif isinstance(event, ToolResultHistoryEvent):
                 # Flush pending tool calls first (tool results follow tool calls)
                 _flush_pending_tool_calls(messages, pending_tool_calls)
 
-                # Parse tool result JSON and collect for batching
-                parsed = parse_tool_result(content)
-                if parsed:
-                    tool_result_block: dict[str, Any] = {
-                        "type": "tool_result",
-                        "tool_use_id": parsed.tool_call_id,
-                        "content": parsed.output,
-                    }
-                    # Only include is_error if True (Anthropic API expects this)
-                    if parsed.is_error:
-                        tool_result_block["is_error"] = True
-                    pending_tool_results.append(tool_result_block)
+                tool_result_block: dict[str, Any] = {
+                    "type": "tool_result",
+                    "tool_use_id": event.tool_call_id,
+                    "content": event.output,
+                }
+                if event.is_error:
+                    tool_result_block["is_error"] = True
+                pending_tool_results.append(tool_result_block)
 
-            elif message_type == "text":
+            elif isinstance(event, TextHistoryEvent):
                 # Flush pending tool calls and results first
                 _flush_pending_tool_calls(messages, pending_tool_calls)
                 _flush_pending_tool_results(messages, pending_tool_results)
 
-                role = hist.get("role", "user")
-                sender_name = hist.get("sender_name", "")
-
-                if role == "assistant" and sender_name == self._agent_name:
+                if event.role == "assistant" and event.sender_name == self._agent_name:
                     # Skip THIS agent's text (redundant with tool results)
                     continue
                 else:
@@ -229,9 +220,9 @@ class AnthropicHistoryConverter(HistoryConverter[AnthropicMessages]):
                     messages.append(
                         {
                             "role": "user",
-                            "content": f"[{sender_name}]: {content}"
-                            if sender_name
-                            else content,
+                            "content": f"[{event.sender_name}]: {event.content}"
+                            if event.sender_name
+                            else event.content,
                         }
                     )
 

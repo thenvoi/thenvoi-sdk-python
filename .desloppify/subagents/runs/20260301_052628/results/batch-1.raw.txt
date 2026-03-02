@@ -1,0 +1,114 @@
+{
+  "batch": "Architecture & Coupling",
+  "batch_index": 1,
+  "assessments": {
+    "cross_module_architecture": 76.0
+  },
+  "dimension_notes": {
+    "cross_module_architecture": {
+      "evidence": [
+        ".github/actions/GithubToken/generate_token.py executes env reads, JWT generation, network I/O (`requests.post`), and file writes at module import time (lines 10-56), making import side effects unavoidable.",
+        "examples/a2a_bridge/02_with_auth.py and examples/a2a_gateway/01_basic_gateway.py call `setup_logging()` at module import time (lines 30 and 59), so importing these scripts mutates global logging configuration outside explicit entrypoint control.",
+        "tests/integration/conftest.py is a re-export hub importing many fixtures/markers from another module (lines 9-34), while tests/integration/test_smoke.py imports from that conftest module (line 8), coupling test modules to pytest wiring internals.",
+        "tests/runtime/test_presence.py, tests/runtime/test_runtime.py, and tests/integration/test_smoke.py import helpers/markers from shared conftest modules (tests.conftest and tests.integration.conftest), concentrating cross-test dependencies into central hubs.",
+        "examples/coding_agents/test_communication.py mutates `sys.path` (line 24) and relies on ad-hoc runtime import topology, bypassing package boundaries and creating path-order dependency."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "findings": [
+    {
+      "dimension": "cross_module_architecture",
+      "identifier": "import_time_side_effect_entrypoints",
+      "summary": "Entrypoint modules perform heavy side effects at import time, creating order-dependent coupling and unsafe reuse as libraries.",
+      "related_files": [
+        ".github/actions/GithubToken/generate_token.py",
+        "examples/a2a_bridge/02_with_auth.py",
+        "examples/a2a_gateway/01_basic_gateway.py"
+      ],
+      "evidence": [
+        ".github/actions/GithubToken/generate_token.py executes external HTTP (`requests.post`) and writes `GITHUB_OUTPUT` during module import (lines 39-54), with no `main()` guard.",
+        "examples/a2a_bridge/02_with_auth.py and examples/a2a_gateway/01_basic_gateway.py call `setup_logging()` at top-level (lines 30 and 59), applying process-global config on import."
+      ],
+      "suggestion": "Move all side effects behind explicit `main()`/`run()` entrypoints, keep top-level code declaration-only, and gate execution with `if __name__ == \"__main__\":` for script paths; expose callable functions for reuse and testing.",
+      "confidence": "high",
+      "impact_scope": "codebase",
+      "fix_scope": "architectural_change",
+      "root_cause_cluster": "entrypoint_import_side_effects"
+    },
+    {
+      "dimension": "cross_module_architecture",
+      "identifier": "conftest_hub_coupling",
+      "summary": "Tests depend directly on conftest modules as shared APIs, turning pytest wiring files into cross-module dependency hubs.",
+      "related_files": [
+        "tests/integration/conftest.py",
+        "tests/integration/test_smoke.py",
+        "tests/runtime/test_presence.py",
+        "tests/runtime/test_runtime.py",
+        "tests/conftest.py"
+      ],
+      "evidence": [
+        "tests/integration/test_smoke.py imports `requires_api` from `tests.integration.conftest` (line 8), coupling test logic to pytest config module internals.",
+        "tests/runtime/test_presence.py and tests/runtime/test_runtime.py import helper constructors from `tests.conftest` (lines 10-14 and line 11), using conftest as a utility library rather than fixture registration boundary.",
+        "tests/integration/conftest.py re-exports a broad symbol set (lines 9-34 and `__all__` lines 36-61), reinforcing a central hub pattern with large blast radius."
+      ],
+      "suggestion": "Extract reusable test helpers/markers into dedicated utility modules (e.g., `tests/helpers/events.py`, `tests/helpers/markers.py`) and keep `conftest.py` focused on fixture/plugin registration only.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "test_boundary_blur"
+    },
+    {
+      "dimension": "cross_module_architecture",
+      "identifier": "path_manipulation_boundary_bypass",
+      "summary": "Example test script bypasses package boundaries via direct `sys.path` mutation, making module resolution environment-dependent.",
+      "related_files": [
+        "examples/coding_agents/test_communication.py",
+        "examples/a2a_bridge/02_with_auth.py",
+        "examples/a2a_gateway/01_basic_gateway.py"
+      ],
+      "evidence": [
+        "examples/coding_agents/test_communication.py inserts a relative repo path into `sys.path` (line 24), creating implicit import coupling to local filesystem layout.",
+        "Other examples rely on module imports without path mutation, causing inconsistent cross-module bootstrapping behavior across scripts."
+      ],
+      "suggestion": "Package example dependencies properly and import via stable package paths; if needed, run examples through `uv run -m ...` entrypoints rather than mutating `sys.path` in code.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "entrypoint_import_side_effects"
+    },
+    {
+      "dimension": "cross_module_architecture",
+      "identifier": "transport_lifecycle_duplication",
+      "summary": "Codex stdio and websocket clients duplicate lifecycle/read-loop responsibilities, increasing boundary drift risk between transports.",
+      "related_files": [
+        "src/thenvoi/integrations/codex/stdio_client.py",
+        "src/thenvoi/integrations/codex/websocket_client.py",
+        "src/thenvoi/integrations/claude_sdk/session_manager.py"
+      ],
+      "evidence": [
+        "Both transport clients independently implement connect/close/read-loop task orchestration and pending-failure semantics (`_connected`, `_reader_task`, `_fail_pending`) with similar but separate logic.",
+        "Stdio client adds stderr loop/process termination behavior while websocket client has its own close/disconnect path, making transport lifecycle guarantees distributed instead of centrally enforced."
+      ],
+      "suggestion": "Introduce a shared transport lifecycle abstraction in the integration layer (task management, state transitions, pending-failure contract), and keep each client responsible only for transport-specific send/receive primitives.",
+      "confidence": "medium",
+      "impact_scope": "subsystem",
+      "fix_scope": "architectural_change",
+      "root_cause_cluster": "transport_contract_fragmentation"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "Script/entrypoint code is not consistently separated from importable module code, leading to import-time side effects.",
+      "Pytest configuration modules are carrying reusable helper responsibilities, blurring architectural boundaries in tests.",
+      "Transport integration code favors parallel concrete implementations over shared lifecycle contracts."
+    ],
+    "likely_symptoms": [
+      "conftest_hub_coupling",
+      "path_manipulation_boundary_bypass"
+    ],
+    "possible_false_positives": []
+  }
+}

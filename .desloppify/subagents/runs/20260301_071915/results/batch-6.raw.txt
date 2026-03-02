@@ -1,0 +1,133 @@
+{
+  "batch": "Governance & Contracts",
+  "batch_index": 6,
+  "assessments": {
+    "cross_module_architecture": 82.0,
+    "test_strategy": 76.0,
+    "package_organization": 81.0
+  },
+  "dimension_notes": {
+    "cross_module_architecture": {
+      "evidence": [
+        "README.md install instructions use extra `pydantic_ai` (`uv add \"... [pydantic_ai]\"`), but pyproject.toml defines the optional dependency group as `pydantic-ai`.",
+        "This is a docs-to-runtime contract mismatch at a public package boundary (installation API), not just wording drift."
+      ],
+      "impact_scope": "module",
+      "fix_scope": "single_edit",
+      "confidence": "high"
+    },
+    "test_strategy": {
+      "evidence": [
+        "examples/common/bootstrap.py is a high-fan-in helper (11 importers in holistic_context) used by many example entrypoints, but there are no tests referencing `bootstrap_agent`, `load_runtime_config`, `load_platform_urls`, or `create_agent_from_runtime`.",
+        "examples/prompts/characters.py is imported by multiple example families (holistic_context shows fan-in and imports from anthropic/claude_sdk/crewai/pydantic_ai), but no tests reference `generate_tom_prompt` or `generate_jerry_prompt`.",
+        "tests/support/integration/config.py contains real API integration fixture logic and custom cleanup mode (`--no-clean`), but pyproject.toml pytest defaults (`testpaths = [\"tests\"]`, `addopts = \"-v\"`) do not enforce a default isolation gate for integration tests."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    },
+    "package_organization": {
+      "evidence": [
+        "holistic_context.structure shows `tests/integration/markers.py` as a high fan-in shared utility (12 importers), yet it is placed under scenario tests rather than support infrastructure.",
+        "`tests/support/integration/` already exists as shared infra and is imported by `tests/integration/` (coupling edge: `tests/integration/ → tests/support/integration/` = 6), indicating markers belong to the same support boundary.",
+        "Current placement creates mixed concerns inside `tests/integration/` (scenario tests + reusable gating contract), reducing navigability of ownership boundaries."
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "findings": [
+    {
+      "dimension": "cross_module_architecture",
+      "identifier": "extras_name_contract_drift",
+      "summary": "README optional-extra name drifts from pyproject dependency contract.",
+      "related_files": [
+        "README.md",
+        "pyproject.toml"
+      ],
+      "evidence": [
+        "README.md instructs `uv add \"git+https://github.com/thenvoi/thenvoi-sdk-python.git[pydantic_ai]\"`.",
+        "pyproject.toml declares `[project.optional-dependencies]` key `pydantic-ai`, not `pydantic_ai`."
+      ],
+      "suggestion": "Align the public install contract in one place: either rename the pyproject extra key to `pydantic_ai` for consistency with examples, or update README commands to `pydantic-ai`; then add a lightweight CI/docs check that validates README extras against `[project.optional-dependencies]` keys.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "single_edit",
+      "root_cause_cluster": "contract_source_of_truth_gap"
+    },
+    {
+      "dimension": "test_strategy",
+      "identifier": "untested_high_fanin_example_bootstrap_contract",
+      "summary": "High-fan-in example bootstrap contract is untested despite broad reuse.",
+      "related_files": [
+        "examples/common/bootstrap.py",
+        "tests/support/integration/config.py",
+        "README.md"
+      ],
+      "evidence": [
+        "holistic_context marks examples/common/bootstrap.py with fan-in 11 and imports from most example directories.",
+        "Search across tests finds no direct coverage for `bootstrap_agent`, `load_runtime_config`, `load_platform_urls`, or `create_agent_from_runtime`.",
+        "README positions examples as primary usage paths, making bootstrap behavior part of user-facing contract."
+      ],
+      "suggestion": "Add focused unit tests in `tests/` for bootstrap behavior: env resolution precedence, missing endpoint errors, credential passthrough to `Agent.create`, and dotenv toggle behavior; mock `load_agent_config` and `Agent.create` to keep tests deterministic.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "governance_surface_not_gated"
+    },
+    {
+      "dimension": "test_strategy",
+      "identifier": "integration_quality_gate_not_defaulted",
+      "summary": "Integration fixture contracts rely on manual invocation instead of enforced default gates.",
+      "related_files": [
+        "tests/support/integration/config.py",
+        "pyproject.toml",
+        "tests/integration/markers.py"
+      ],
+      "evidence": [
+        "tests/support/integration/config.py documents real-server dependency and custom cleanup semantics (`--no-clean`, `.env.test`, real credentials).",
+        "pyproject.toml pytest config uses `testpaths = [\"tests\"]` and `addopts = \"-v\"` without default integration exclusion/marker gate.",
+        "Gating exists in helper decorators (`tests/integration/markers.py`), but enforcement depends on individual test usage rather than central policy."
+      ],
+      "suggestion": "Stage a quality-gate hardening plan: (1) add pytest markers registration (`integration`, `requires_api`, `requires_multi_agent`, `requires_user_api`) and set default `-m \"not integration\"` in pyproject, (2) explicitly mark integration suites and keep env-based skip decorators as secondary checks, (3) add CI commands `uv run pytest tests/ -m \"not integration\" -v` and `uv run pytest tests/integration/ -m integration -v` with documented env requirements.",
+      "confidence": "medium",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "governance_surface_not_gated"
+    },
+    {
+      "dimension": "package_organization",
+      "identifier": "shared_markers_misplaced_in_scenario_dir",
+      "summary": "Shared integration markers live in scenario test package instead of support boundary.",
+      "related_files": [
+        "tests/integration/markers.py",
+        "tests/support/integration/config.py",
+        "pyproject.toml"
+      ],
+      "evidence": [
+        "holistic_context lists `tests/integration/markers.py` as a shared utility with 12 importers.",
+        "`tests/support/integration/config.py` already hosts reusable integration infra and is imported by integration tests, indicating an existing support boundary.",
+        "Keeping shared marker contracts in `tests/integration/` mixes reusable infra with scenario tests and obscures where test governance primitives live."
+      ],
+      "suggestion": "Execute a staged reorg: (1) create `tests/support/integration/markers.py` and move marker definitions there, (2) update imports in integration tests to new path, (3) keep a temporary shim `tests/integration/markers.py` re-exporting from support with deprecation note, (4) remove shim after callers migrate. Validate with `uv run ruff check .`, `uv run pyrefly check`, and `uv run pytest tests/ --ignore=tests/integration/ -v`.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "test_infra_boundary_blur"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "No single source-of-truth enforcement between packaging metadata and README install contracts.",
+      "Shared test governance primitives are distributed across scenario and support locations without a strict boundary.",
+      "High-reuse example contract modules are treated as helper scripts, so they miss proportional test gates."
+    ],
+    "likely_symptoms": [
+      "extras_name_contract_drift",
+      "integration_quality_gate_not_defaulted",
+      "shared_markers_misplaced_in_scenario_dir"
+    ],
+    "possible_false_positives": []
+  }
+}

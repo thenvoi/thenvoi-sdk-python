@@ -22,81 +22,13 @@ from thenvoi.client.streaming import (
     ContactRequestReceivedPayload,
     ContactAddedPayload,
 )
-from thenvoi.runtime.contact_handler import ContactEventHandler
-from thenvoi.runtime.contact_tools import ContactTools
+from thenvoi.runtime.contacts.contact_handler import ContactEventHandler
+from thenvoi.runtime.contacts.contact_tools import ContactTools
 from thenvoi.runtime.types import ContactEventConfig, ContactEventStrategy
-from tests.integration.conftest import requires_api, requires_multi_agent
+from tests.support.integration.contracts.cleanup import cleanup_contact_state
+from tests.support.integration.markers import requires_api, requires_multi_agent
 
 logger = logging.getLogger(__name__)
-
-
-async def cleanup_contact_state(api_client, api_client_2):
-    """Clean up any existing contact state between the two agents."""
-    response1 = await api_client.agent_api_identity.get_agent_me()
-    agent1_handle = response1.data.handle
-
-    response2 = await api_client_2.agent_api_identity.get_agent_me()
-    agent2_handle = response2.data.handle
-
-    logger.info(
-        "Cleaning up contact state between %s and %s", agent1_handle, agent2_handle
-    )
-
-    # Agent 1: Remove contact with Agent 2 if exists
-    try:
-        await api_client.agent_api_contacts.remove_agent_contact(handle=agent2_handle)
-    except Exception:
-        pass
-
-    # Agent 2: Remove contact with Agent 1 if exists
-    try:
-        await api_client_2.agent_api_contacts.remove_agent_contact(handle=agent1_handle)
-    except Exception:
-        pass
-
-    # Cancel/reject any pending requests
-    try:
-        await api_client.agent_api_contacts.respond_to_agent_contact_request(
-            action="cancel", handle=agent2_handle
-        )
-    except Exception:
-        pass
-
-    try:
-        await api_client_2.agent_api_contacts.respond_to_agent_contact_request(
-            action="cancel", handle=agent1_handle
-        )
-    except Exception:
-        pass
-
-    # Reject any received requests
-    try:
-        response = await api_client.agent_api_contacts.list_agent_contact_requests()
-        received = getattr(response.data, "received", []) or []
-        for req in received:
-            from_handle = getattr(req, "from_handle", None)
-            status = getattr(req, "status", None)
-            if from_handle == agent2_handle and status == "pending":
-                await api_client.agent_api_contacts.respond_to_agent_contact_request(
-                    action="reject", request_id=req.id
-                )
-    except Exception:
-        pass
-
-    try:
-        response = await api_client_2.agent_api_contacts.list_agent_contact_requests()
-        received = getattr(response.data, "received", []) or []
-        for req in received:
-            from_handle = getattr(req, "from_handle", None)
-            status = getattr(req, "status", None)
-            if from_handle == agent1_handle and status == "pending":
-                await api_client_2.agent_api_contacts.respond_to_agent_contact_request(
-                    action="reject", request_id=req.id
-                )
-    except Exception:
-        pass
-
-    await asyncio.sleep(0.3)
 
 
 @requires_multi_agent

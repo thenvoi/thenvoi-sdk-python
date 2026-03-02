@@ -1,0 +1,103 @@
+{
+  "batch": "Package Organization",
+  "batch_index": 5,
+  "assessments": {
+    "package_organization": 72.0,
+    "high_level_elegance": 76.0
+  },
+  "dimension_notes": {
+    "package_organization": {
+      "evidence": [
+        "holistic_context.structure.directory_profiles shows src/thenvoi/runtime/ has 16 files in one flat directory (file_count=16), crossing concerns (execution, presence, tools, contacts, formatting, shutdown).",
+        "Contact-specific modules (src/thenvoi/runtime/contact_handler.py and src/thenvoi/runtime/contact_tools.py) live beside generic runtime orchestration instead of a bounded contact subpackage.",
+        "tests/conftest_integration.py contains integration-only settings/fixtures and CLI option hooks but is placed at tests/ root, while holistic_context.structure.coupling_matrix shows tests/runtime/ → tests/ edge count 3, indicating root-level fixture gravity."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    },
+    "high_level_elegance": {
+      "evidence": [
+        "ContactEventHandler centralizes multiple subsystem roles in one class: strategy routing, dedup cache, request enrichment cache/API lookup, hub-room lifecycle, event-to-message formatting, and broadcast side-channel handling.",
+        "contact_handler.py (690 LOC) owns both orchestration policy and presentation formatting strings (including HUB_ROOM_SYSTEM_PROMPT and formatted event text), which blurs ownership boundaries.",
+        "tests/conftest.py and tests/conftest_integration.py split test-platform setup responsibilities across root files, making test-layer ownership less predictable (unit support vs integration environment setup)."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "architectural_change",
+      "confidence": "medium"
+    }
+  },
+  "findings": [
+    {
+      "dimension": "package_organization",
+      "identifier": "contacts_subsystem_not_bounded",
+      "summary": "Contact runtime components are embedded in a broad flat runtime package",
+      "related_files": [
+        "src/thenvoi/runtime/contact_handler.py",
+        "src/thenvoi/runtime/contact_tools.py",
+        "src/thenvoi/runtime/__init__.py"
+      ],
+      "evidence": [
+        "src/thenvoi/runtime/ mixes 16 modules with distinct concerns in one directory; contacts code is not isolated despite being a coherent feature area.",
+        "contact_handler.py and contact_tools.py form a paired contact-management subsystem but are placed as peers to unrelated runtime modules (presence, retry, formatters, shutdown).",
+        "__init__.py exports a broad runtime surface from many modules, reinforcing a catch-all package boundary rather than feature-bounded ownership."
+      ],
+      "suggestion": "Staged reorg plan: (1) create target folder `src/thenvoi/runtime/contacts/` with `__init__.py`; (2) move `contact_handler.py` and `contact_tools.py` into it in this order: tools first, handler second; (3) update imports with `rg -l \"thenvoi\\.runtime\\.contact_(handler|tools)|\\.contact_(handler|tools)\" src tests | xargs sed -i '' -e 's/thenvoi\\.runtime\\.contact_tools/thenvoi.runtime.contacts.contact_tools/g' -e 's/thenvoi\\.runtime\\.contact_handler/thenvoi.runtime.contacts.contact_handler/g'`; (4) keep temporary compatibility shims at old paths that re-export new locations; (5) validate with `uv run pytest tests/runtime/test_contact_config.py tests/runtime/test_broadcast_changes.py -v` then `uv run pytest tests/runtime/ -v`.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "missing_contacts_boundary"
+    },
+    {
+      "dimension": "package_organization",
+      "identifier": "integration_fixtures_anchored_at_tests_root",
+      "summary": "Integration-specific fixture module sits at root and pulls runtime tests upward",
+      "related_files": [
+        "tests/conftest_integration.py",
+        "tests/conftest.py",
+        "tests/runtime/test_broadcast_changes.py"
+      ],
+      "evidence": [
+        "tests/conftest_integration.py defines integration-only settings, API clients, and `pytest_addoption`, but is stored at tests root instead of under an integration-scoped support package.",
+        "Root tests/conftest.py already hosts broad shared helpers, so adding integration lifecycle concerns at root increases fixture ownership ambiguity.",
+        "holistic_context.structure.coupling_matrix reports tests/runtime/ → tests/ count 3, indicating runtime tests depend on root-level test infrastructure rather than a runtime-local support boundary."
+      ],
+      "suggestion": "Staged reorg plan: (1) create target folder `tests/support/integration/` with `__init__.py`; (2) move `tests/conftest_integration.py` to `tests/support/integration/config.py`; (3) keep `tests/conftest.py` minimal and import only cross-cutting hooks from `tests.support.*`; (4) update runtime tests to use local fixtures first and shared support modules second; (5) run import updates with `rg -l \"conftest_integration|tests\\.conftest\" tests | xargs sed -i '' -e 's/tests\\.conftest_integration/tests.support.integration.config/g'`; (6) validate with `uv run pytest tests/runtime/test_broadcast_changes.py tests/runtime/test_contact_config.py -v` and `uv run pytest tests/integration/ -k smoke -v`.",
+      "confidence": "medium",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "test_boundary_blur"
+    },
+    {
+      "dimension": "high_level_elegance",
+      "identifier": "contact_handler_owns_too_many_layers",
+      "summary": "Single handler class mixes coordination, state, formatting, and transport concerns",
+      "related_files": [
+        "src/thenvoi/runtime/contact_handler.py",
+        "src/thenvoi/runtime/contact_tools.py"
+      ],
+      "evidence": [
+        "ContactEventHandler handles strategy routing, dedup cache, request enrichment cache, hub-room initialization, synthetic event creation, REST posting, and message formatting in one class.",
+        "Event formatting and hub-room prompt text live in the same module as transport/orchestration behavior, so responsibility boundaries are not crisp.",
+        "Handler performs direct REST enrichment (`_fetch_request_details`) even though ContactTools already encapsulates contact API operations, indicating ownership leakage across layers."
+      ],
+      "suggestion": "Staged reorg plan: (1) define target folders `src/thenvoi/runtime/contacts/handlers/`, `.../formatting/`, `.../state/`, and `.../services/`; (2) extract in order: formatters (`_format_event_for_room` + prompt), cache/enrichment state helpers, then hub-room delivery adapter; (3) keep ContactEventHandler as thin orchestrator depending on extracted collaborators; (4) consolidate contact API access behind one service (either extend ContactTools or add ContactRequestService) and remove direct REST calls from handler; (5) update imports with `rg -l \"runtime\\.contact_handler|runtime\\.contact_tools\" src tests`; (6) validate with `uv run pytest tests/runtime/test_broadcast_changes.py tests/runtime/test_contact_handler.py tests/runtime/test_contact_tools.py -v`.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "architectural_change",
+      "root_cause_cluster": "missing_contacts_boundary"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "Contact-management functionality was added into runtime incrementally without establishing a dedicated package boundary.",
+      "Test support grew from root conftest files instead of an explicit shared-support hierarchy."
+    ],
+    "likely_symptoms": [
+      "contacts_subsystem_not_bounded",
+      "contact_handler_owns_too_many_layers",
+      "integration_fixtures_anchored_at_tests_root"
+    ],
+    "possible_false_positives": []
+  }
+}

@@ -1,0 +1,128 @@
+{
+  "batch": "Conventions & Errors",
+  "batch_index": 2,
+  "assessments": {
+    "convention_outlier": 79.0,
+    "error_consistency": 71.0,
+    "mid_level_elegance": 74.0
+  },
+  "dimension_notes": {
+    "convention_outlier": {
+      "evidence": [
+        "Example logging modules with the same `setup_logging` entrypoint diverge in baseline behavior: `examples/langgraph/setup_logging.py` calls `setup_example_logging(level)` while `examples/a2a_gateway/setup_logging.py` and `examples/codex/setup_logging.py` override root handling and warning logger sets.",
+        "`examples/coding_agents/tools/__init__.py` says tools are registered in local `example_tools.py`, while `examples/claude_sdk_docker/tools/__init__.py` documents delegated implementation to shared `thenvoi.testing.example_tools`; sibling packages present different ownership conventions for the same pattern."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    },
+    "error_consistency": {
+      "evidence": [
+        "In one orchestration flow, failures are represented as string payloads (`examples/a2a_gateway/demo_orchestrator/agent.py` returns `\"Error: ...\"`) and as exceptions (`examples/a2a_gateway/demo_orchestrator/remote_agent.py` raises `RuntimeError`, `agent_executor.py` wraps to `ServerError`).",
+        "`examples/a2a_gateway/demo_orchestrator/remote_agent.py` swallows broad exceptions in `list_peers` and `discover_peer` and returns `[]` / `False`, conflating transport failure with valid 'no peers' states."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    },
+    "mid_level_elegance": {
+      "evidence": [
+        "Tool execution in `examples/a2a_gateway/demo_orchestrator/agent.py` depends on module-global `_gateway_client` set by side effect in `set_gateway_client`, so boundary wiring is implicit rather than explicit.",
+        "The executor (`agent_executor.py`) consumes a dict contract (`is_task_complete`, `require_user_input`, `content`) produced by `OrchestratorAgent.stream` without typed boundary objects, making seam expectations easy to drift."
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "findings": [
+    {
+      "dimension": "mid_level_elegance",
+      "identifier": "global_gateway_client_hidden_seam",
+      "summary": "Orchestrator tool wiring relies on mutable module-global client state",
+      "related_files": [
+        "examples/a2a_gateway/demo_orchestrator/agent.py",
+        "examples/a2a_gateway/demo_orchestrator/agent_executor.py"
+      ],
+      "evidence": [
+        "`call_peer_agent` reads `_gateway_client` from module scope and returns an error string when unset.",
+        "`OrchestratorAgent.__init__` mutates global state via `set_gateway_client(self.gateway_client)`, so multiple agent instances share/overwrite one client binding."
+      ],
+      "suggestion": "Replace module-global client state with explicit dependency injection: create tool callables bound to `self.gateway_client` (closure or instance method), and keep executor-agent seam on instance-owned collaborators only.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "gateway_orchestrator_seam_contracts"
+    },
+    {
+      "dimension": "error_consistency",
+      "identifier": "mixed_error_channel_string_vs_exception",
+      "summary": "Same gateway call path mixes exception flow and error-as-string payloads",
+      "related_files": [
+        "examples/a2a_gateway/demo_orchestrator/agent.py",
+        "examples/a2a_gateway/demo_orchestrator/remote_agent.py",
+        "examples/a2a_gateway/demo_orchestrator/agent_executor.py"
+      ],
+      "evidence": [
+        "`GatewayClient.call_peer` raises `RuntimeError` on failures.",
+        "`call_peer_agent` catches `Exception` and converts failures into string content (`\"Error calling peer ...\"`).",
+        "`OrchestratorAgentExecutor.execute` separately catches exceptions and maps to A2A `ServerError`, creating two incompatible failure channels."
+      ],
+      "suggestion": "Standardize the orchestration boundary on one error contract (prefer typed exceptions internally), and map to user-visible messages at a single layer (executor or final response formatter), not inside tools.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "gateway_orchestrator_seam_contracts"
+    },
+    {
+      "dimension": "error_consistency",
+      "identifier": "silent_gateway_discovery_failures",
+      "summary": "Peer discovery APIs collapse operational errors into normal empty results",
+      "related_files": [
+        "examples/a2a_gateway/demo_orchestrator/remote_agent.py",
+        "examples/a2a_gateway/demo_orchestrator/agent.py"
+      ],
+      "evidence": [
+        "`list_peers` catches broad `Exception` and returns `[]`, which is indistinguishable from a real empty peer set.",
+        "`discover_peer` catches broad `Exception` and returns `False`, collapsing network/HTTP/parsing failures into 'peer unavailable'."
+      ],
+      "suggestion": "Return a structured result that separates availability from transport failure (e.g., `{available: bool, error: str | None}`) or raise typed exceptions and let caller decide fallback behavior.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "single_edit",
+      "root_cause_cluster": "gateway_orchestrator_seam_contracts"
+    },
+    {
+      "dimension": "convention_outlier",
+      "identifier": "example_logging_policy_drift",
+      "summary": "Sibling example packages expose same logging API with conflicting defaults",
+      "related_files": [
+        "examples/langgraph/setup_logging.py",
+        "examples/a2a_gateway/setup_logging.py",
+        "examples/codex/setup_logging.py",
+        "examples/claude_sdk/setup_logging.py"
+      ],
+      "evidence": [
+        "`examples/langgraph/setup_logging.py` and `examples/pydantic_ai/setup_logging.py` use minimal defaults, while `examples/a2a_gateway/setup_logging.py` sets `root_level=level` and custom warning loggers.",
+        "`examples/codex/setup_logging.py` additionally changes output stream and format, creating a separate behavior island behind the same function name."
+      ],
+      "suggestion": "Define a shared logging preset model (e.g., default, gateway, codex) in one module and make each example select a named preset so behavior differences are explicit and consistently documented.",
+      "confidence": "medium",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "example_convention_drift"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "Boundary contracts in the A2A demo orchestrator are implicit (global state + dict payloads), encouraging local ad-hoc error conversions.",
+      "Example package utilities evolved per directory without a single policy source, producing convention islands for similarly named setup modules."
+    ],
+    "likely_symptoms": [
+      "mixed_error_channel_string_vs_exception",
+      "silent_gateway_discovery_failures",
+      "example_logging_policy_drift"
+    ],
+    "possible_false_positives": []
+  }
+}

@@ -1,0 +1,142 @@
+{
+  "batch": "Design coherence — Mechanical Concern Signals",
+  "batch_index": 4,
+  "assessments": {
+    "design_coherence": 78.6
+  },
+  "dimension_notes": {
+    "design_coherence": {
+      "evidence": [
+        "Platform tool behavior is implemented in multiple places: `src/thenvoi/runtime/tools.py` (`execute_tool_call` dispatch map), `src/thenvoi/runtime/tool_bridge.py` (argument normalization + fallback dispatch + error formatting), and framework-specific wrappers in `src/thenvoi/integrations/claude_sdk/tools.py`, `src/thenvoi/integrations/parlant/tools.py`, and `src/thenvoi/integrations/langgraph/langchain_tools.py`.",
+        "Two adapter base classes duplicate lifecycle/conversion logic (`src/thenvoi/core/simple_adapter.py` and `src/thenvoi/core/control_plane_adapter.py`) with near-identical `history_converter` handling, `on_started`, `on_cleanup`, and `on_event` flow.",
+        "`src/thenvoi/preprocessing/default.py` depends on `src/thenvoi/integrations/base.py` for participant formatting, while that integration utility reaches back into runtime concerns, creating blurred package boundaries.",
+        "Runner startup logic is repeated across `docker/codex/runner.py` and `docker/claude_sdk/runner.py` even though `src/thenvoi/testing/runner_core.py` centralizes many lifecycle helpers; config parsing/override policy is split between runner files."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "architectural_change",
+      "confidence": "high"
+    }
+  },
+  "findings": [
+    {
+      "dimension": "design_coherence",
+      "identifier": "tool_contract_fragmentation",
+      "summary": "Platform tool contracts are duplicated across runtime and adapter layers, creating drift-prone behavior and inconsistent error semantics.",
+      "related_files": [
+        "src/thenvoi/runtime/tools.py",
+        "src/thenvoi/runtime/tool_bridge.py",
+        "src/thenvoi/integrations/claude_sdk/tools.py",
+        "src/thenvoi/integrations/parlant/tools.py",
+        "src/thenvoi/integrations/langgraph/langchain_tools.py"
+      ],
+      "evidence": [
+        "`execute_tool_call` in `runtime/tools.py` defines its own name→call mapping and error strings.",
+        "`runtime/tool_bridge.py` redefines tool-name normalization/error formatting and also includes a legacy fallback dispatch chain.",
+        "Framework integrations still maintain per-framework wrappers around the same tool set (`claude_sdk/tools.py` and `parlant/tools.py`), including additional local parsing/formatting logic.",
+        "Tool ordering/constants are repeated (`PLATFORM_*_TOOL_ORDER` and `_LANGGRAPH_*_TOOL_ORDER`) instead of derived from a single registry."
+      ],
+      "suggestion": "Introduce one canonical tool registry object (schema, normalization, dispatch, error mapping, ordering) in runtime; make framework integrations consume that registry through a thin adapter interface and remove per-framework duplicated tool wiring.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "architectural_change",
+      "root_cause_cluster": "tooling_surface_split"
+    },
+    {
+      "dimension": "design_coherence",
+      "identifier": "adapter_base_duplication",
+      "summary": "Simple and control-plane adapter bases duplicate lifecycle/conversion flow, increasing maintenance divergence risk.",
+      "related_files": [
+        "src/thenvoi/core/simple_adapter.py",
+        "src/thenvoi/core/control_plane_adapter.py",
+        "src/thenvoi/core/protocols.py"
+      ],
+      "evidence": [
+        "Both base classes store `history_converter`, `agent_name`, `agent_description` and implement nearly identical `on_started` behavior with converter propagation.",
+        "Both implement `on_event` with the same conversion pattern (`inp.history.convert(...)` fallback to raw) then call `on_message`.",
+        "Both expose identical no-op `on_cleanup` hook with separate implementations."
+      ],
+      "suggestion": "Extract shared adapter lifecycle into one reusable mixin/base (or unify base classes with a typed tool-capability mode flag) so conversion/startup/cleanup semantics are implemented once and specialized only where behavior truly differs.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "lifecycle_abstraction_drift"
+    },
+    {
+      "dimension": "design_coherence",
+      "identifier": "layer_boundary_inversion_preprocessing",
+      "summary": "Preprocessing depends on an integrations utility for core runtime participant formatting, weakening architectural boundaries.",
+      "related_files": [
+        "src/thenvoi/preprocessing/default.py",
+        "src/thenvoi/integrations/base.py",
+        "src/thenvoi/runtime/execution.py"
+      ],
+      "evidence": [
+        "`DefaultPreprocessor` imports `check_and_format_participants` from `integrations/base.py` even though preprocessing is part of runtime message pipeline.",
+        "`integrations/base.py` utility requires `ExecutionContext` semantics and runtime formatter behavior, so integration layer acts as a generic-runtime utility bucket.",
+        "This makes dependency direction ambiguous: runtime/preprocessing relies on integration package for behavior that is not integration-specific."
+      ],
+      "suggestion": "Move participant change formatting helper into a runtime/preprocessing module (or dedicated runtime utilities package) and keep `integrations/base.py` scoped to true integration translation concerns.",
+      "confidence": "medium",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "boundary_erosion"
+    },
+    {
+      "dimension": "design_coherence",
+      "identifier": "runner_bootstrap_policy_scattered",
+      "summary": "Docker runner bootstrap policy is split across runner scripts, causing repeated orchestration and inconsistent configuration conventions.",
+      "related_files": [
+        "docker/codex/runner.py",
+        "docker/claude_sdk/runner.py",
+        "src/thenvoi/testing/runner_core.py",
+        "docker/shared/repo_init.py"
+      ],
+      "evidence": [
+        "Both runner scripts repeat startup orchestration steps (read env/config, initialize repo, build prompt, create adapter, create agent, run lifecycle) with runner-specific parsing in file-local helpers.",
+        "`runner_core.py` already centralizes large parts of this lifecycle, but policy details (env key precedence, adapter config parsing) remain spread across runner files.",
+        "Codex runner introduces several parser helpers (`_parse_transport`, `_parse_approval_mode`, `_parse_reasoning_effort`) while Claude runner uses direct env reads, leading to non-uniform validation patterns."
+      ],
+      "suggestion": "Create a shared typed runner-config composition layer (per-adapter schema + common bootstrap template) so each runner only declares adapter-specific fields while startup flow and validation conventions stay centralized.",
+      "confidence": "medium",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "bootstrap_duplication"
+    },
+    {
+      "dimension": "design_coherence",
+      "identifier": "test_double_reimplements_tool_dispatch",
+      "summary": "Adapter tests reimplement tool dispatch logic inline, coupling tests to duplicated behavior instead of one shared contract helper.",
+      "related_files": [
+        "tests/adapters/test_crewai_adapter.py",
+        "tests/adapters/test_codex_adapter.py",
+        "src/thenvoi/runtime/tool_bridge.py",
+        "src/thenvoi/runtime/tools.py"
+      ],
+      "evidence": [
+        "`tests/adapters/test_crewai_adapter.py` defines `_execute_tool_call` with manual tool-name branching mirroring production dispatch behavior.",
+        "`tests/adapters/test_codex_adapter.py` defines custom fake tool schemas and behavior-specific fakes, bypassing shared runtime tool bridge contracts.",
+        "When production tool mappings/error contracts evolve, duplicated test-side dispatch can silently diverge from runtime semantics."
+      ],
+      "suggestion": "Provide a shared testing utility that uses the same canonical tool registry/dispatch path as production, and update adapter tests to use it instead of local if/elif dispatch replicas.",
+      "confidence": "medium",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "tooling_surface_split"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "Core contracts (tool dispatch and adapter lifecycle) are implemented in multiple parallel surfaces rather than one canonical path.",
+      "Package boundaries have drifted, with integration and runtime utilities crossing layers for convenience.",
+      "Compatibility and framework-specific wrappers accumulated without a strict consolidation pass."
+    ],
+    "likely_symptoms": [
+      "tool_contract_fragmentation",
+      "test_double_reimplements_tool_dispatch",
+      "runner_bootstrap_policy_scattered"
+    ],
+    "possible_false_positives": [
+      "Some duplication is intentional for framework ergonomics, but current overlap still exceeds thin-adapter boundaries."
+    ]
+  }
+}

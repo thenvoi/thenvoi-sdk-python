@@ -1,0 +1,100 @@
+{
+  "batch": "Cross-cutting Sweep",
+  "batch_index": 8,
+  "assessments": {
+    "ai_generated_debt": 78.4
+  },
+  "dimension_notes": {
+    "ai_generated_debt": {
+      "evidence": [
+        "Several modules contain tutorial-style, multi-screen docstrings and inline comments that restate obvious code mechanics (for example `src/thenvoi/integrations/langgraph/graph_tools.py` lines 23-122 and 132-192).",
+        "Compatibility shims in `examples/a2a_gateway/demo_orchestrator/*.py` are pure re-export pass-through wrappers with no policy/translation logic (`agent.py`, `agent_executor.py`, `remote_agent.py`).",
+        "Eight `examples/*/setup_logging.py` files repeat the same 3-line pattern, changing only a string argument, indicating copy-pasted ceremony rather than a single declarative mapping."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "findings": [
+    {
+      "dimension": "ai_generated_debt",
+      "identifier": "docstring_ceremony_overload",
+      "summary": "Excessive tutorial-style docstrings/comments drown signal in core runtime and integration files.",
+      "related_files": [
+        "src/thenvoi/integrations/langgraph/graph_tools.py",
+        "src/thenvoi/integrations/langgraph/message_formatters.py",
+        "src/thenvoi/runtime/execution.py",
+        "src/thenvoi/__init__.py"
+      ],
+      "evidence": [
+        "`graph_as_tool` has a very long didactic docstring and repeated explanatory comments (lines 23-122, 132-192) that mostly narrate straightforward operations already visible in code.",
+        "`default_messages_state_formatter` uses an extended example-heavy docstring for a small formatter function (`message_formatters.py` lines 37-65).",
+        "`Execution` protocol and module header include migration/tutorial narrative mixed into implementation file (`execution.py` lines 1-13, 61-86), creating high reading overhead before behavior.",
+        "Top-level package init docstring (`src/thenvoi/__init__.py` lines 1-41) embeds long examples and architecture narration in import-surface code."
+      ],
+      "suggestion": "Trim these to concise contract-focused docs: keep 1-3 sentence module intent, move tutorials/migration guides to dedicated docs (e.g., `docs/`), and remove comments that only restate code steps.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "narrative_ceremony_over_signal"
+    },
+    {
+      "dimension": "ai_generated_debt",
+      "identifier": "pass_through_shim_sprawl",
+      "summary": "Demo orchestrator compatibility files are no-op re-export wrappers that add maintenance noise.",
+      "related_files": [
+        "examples/a2a_gateway/demo_orchestrator/agent.py",
+        "examples/a2a_gateway/demo_orchestrator/agent_executor.py",
+        "examples/a2a_gateway/demo_orchestrator/remote_agent.py",
+        "src/thenvoi/integrations/a2a_gateway/orchestrator/__init__.py"
+      ],
+      "evidence": [
+        "Each shim file imports symbols from canonical module and re-exports via `__all__` without added behavior or boundary policy.",
+        "`agent.py` and `agent_executor.py` are effectively import aliases only.",
+        "`remote_agent.py` repeats a broad symbol list solely to forward names."
+      ],
+      "suggestion": "Collapse these into a single compatibility entrypoint or remove shims and update callers to canonical imports; if compatibility is required, centralize aliasing in one module with deprecation warnings and sunset timeline.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "alias_layer_without_policy"
+    },
+    {
+      "dimension": "ai_generated_debt",
+      "identifier": "copied_setup_logging_stubs",
+      "summary": "Example logging setup modules are duplicated boilerplate differing only by namespace string.",
+      "related_files": [
+        "examples/a2a_gateway/setup_logging.py",
+        "examples/anthropic/setup_logging.py",
+        "examples/claude_sdk/setup_logging.py",
+        "examples/codex/setup_logging.py",
+        "examples/crewai/setup_logging.py",
+        "examples/langgraph/setup_logging.py",
+        "examples/parlant/setup_logging.py",
+        "examples/pydantic_ai/setup_logging.py"
+      ],
+      "evidence": [
+        "All files contain the same structure: import `build_logging_setup` then assign `setup_logging = build_logging_setup(\"<name>\")`.",
+        "Most docstrings are near-identical ('Shared logging configuration for examples' variants), reinforcing copy-template churn."
+      ],
+      "suggestion": "Replace per-framework files with one shared helper that accepts framework id at call site, or generate these aliases from a small registry to avoid repeated handwritten stubs.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "alias_layer_without_policy"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "Documentation and compatibility strategy is encoded as repetitive inline module ceremony instead of centralized docs and alias policy.",
+      "Template-driven file creation appears to favor per-file symmetry over maintainability, producing low-leverage boilerplate."
+    ],
+    "likely_symptoms": [
+      "docstring_ceremony_overload",
+      "pass_through_shim_sprawl",
+      "copied_setup_logging_stubs"
+    ],
+    "possible_false_positives": []
+  }
+}

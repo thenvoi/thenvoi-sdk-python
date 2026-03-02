@@ -1,11 +1,4 @@
-"""Tests for ParlantHistoryConverter.
-
-Tests for shared converter behavior (user messages, agent filtering, empty
-history, edge cases, output shape) live in
-tests/framework_conformance/test_converter_conformance.py.
-This file contains Parlant-specific assistant message formatting and
-guideline-based conversation tests.
-"""
+"""ParlantHistoryConverter-specific tests (shared converter contract lives in framework_conformance)."""
 
 from thenvoi.converters.parlant import ParlantHistoryConverter
 

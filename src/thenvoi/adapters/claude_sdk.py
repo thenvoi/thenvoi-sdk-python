@@ -10,11 +10,41 @@ when on_message is called so the MCP server can access them.
 
 from __future__ import annotations
 
-import json
 import logging
 import warnings
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
+
+from thenvoi.core.nonfatal import NonFatalErrorRecorder
+from thenvoi.core.protocols import MessagingDispatchToolsProtocol
+from thenvoi.core.room_state import RoomStateStore
+from thenvoi.core.simple_adapter import SimpleAdapter, legacy_chat_turn_compat
+from thenvoi.core.types import ChatMessageTurnContext
+from thenvoi.converters.claude_sdk import (
+    ClaudeSDKHistoryConverter,
+    ClaudeSDKSessionState,
+)
+from thenvoi.adapters.optional_dependencies import ensure_optional_dependency
+from thenvoi.integrations.claude_sdk.session_manager import ClaudeSessionManager
+from thenvoi.integrations.claude_sdk.mcp_server import ClaudeMcpServerFactory
+from thenvoi.integrations.claude_sdk.prompts import generate_claude_sdk_agent_prompt
+from thenvoi.runtime.tooling.custom_tools import (
+    CustomToolDef,
+    get_custom_tool_name,
+)
+from thenvoi.runtime.tools import (
+    ALL_TOOL_NAMES,
+    BASE_TOOL_NAMES,
+    MEMORY_TOOL_NAMES,
+    mcp_tool_names,
+)
+
+_CLAUDE_SDK_IMPORT_ERROR: ImportError | None = None
+_CLAUDE_SDK_INSTALL_COMMANDS = (
+    "pip install claude-agent-sdk",
+    "uv add claude-agent-sdk",
+)
 
 try:
     from claude_agent_sdk import (
@@ -30,35 +60,43 @@ try:
         create_sdk_mcp_server,
     )
 except ImportError as e:
-    raise ImportError(
-        "claude-agent-sdk is required for Claude SDK examples.\n"
-        "Install with: pip install claude-agent-sdk\n"
-        "Or: uv add claude-agent-sdk"
-    ) from e
+    _CLAUDE_SDK_IMPORT_ERROR = e
+    ClaudeSDKClient = Any
+    ClaudeAgentOptions = Any
+    AssistantMessage = Any
+    TextBlock = Any
+    ThinkingBlock = Any
+    ToolUseBlock = Any
+    ToolResultBlock = Any
+    ResultMessage = Any
 
-from thenvoi.core.protocols import AgentToolsProtocol
-from thenvoi.core.simple_adapter import SimpleAdapter
-from thenvoi.core.types import PlatformMessage
-from thenvoi.converters.claude_sdk import (
-    ClaudeSDKHistoryConverter,
-    ClaudeSDKSessionState,
-)
-from thenvoi.integrations.claude_sdk.session_manager import ClaudeSessionManager
-from thenvoi.integrations.claude_sdk.prompts import generate_claude_sdk_agent_prompt
-from thenvoi.runtime.custom_tools import (
-    CustomToolDef,
-    execute_custom_tool,
-    get_custom_tool_name,
-)
-from thenvoi.runtime.tools import (
-    ALL_TOOL_NAMES,
-    BASE_TOOL_NAMES,
-    MEMORY_TOOL_NAMES,
-    get_tool_description,
-    mcp_tool_names,
-)
+    def tool(*_args: Any, **_kwargs: Any):
+        def _decorator(func: Any) -> Any:
+            return func
+
+        return _decorator
+
+    def create_sdk_mcp_server(*_args: Any, **_kwargs: Any) -> Any:
+        ensure_optional_dependency(
+            _CLAUDE_SDK_IMPORT_ERROR,
+            package="claude-agent-sdk",
+            integration="Claude SDK",
+            install_commands=_CLAUDE_SDK_INSTALL_COMMANDS,
+        )
+        raise AssertionError("unreachable")
+
 
 logger = logging.getLogger(__name__)
+
+
+def _ensure_claude_sdk_available() -> None:
+    """Raise a runtime error if optional Claude SDK dependency is missing."""
+    ensure_optional_dependency(
+        _CLAUDE_SDK_IMPORT_ERROR,
+        package="claude-agent-sdk",
+        integration="Claude SDK",
+        install_commands=_CLAUDE_SDK_INSTALL_COMMANDS,
+    )
 
 
 # Tool names as constants (MCP naming convention: mcp__{server}__{tool})
@@ -70,6 +108,69 @@ THENVOI_MEMORY_TOOLS: list[str] = mcp_tool_names(MEMORY_TOOL_NAMES)
 THENVOI_ALL_TOOLS: list[str] = mcp_tool_names(ALL_TOOL_NAMES)
 
 _THENVOI_TOOLS: list[str] = THENVOI_ALL_TOOLS
+
+
+@dataclass(frozen=True)
+class ClaudeSDKAdapterConfig:
+    """Typed configuration surface for ClaudeSDKAdapter."""
+
+    model: str = "claude-sonnet-4-5-20250929"
+    custom_section: str | None = None
+    max_thinking_tokens: int | None = None
+    permission_mode: Literal["default", "acceptEdits", "plan", "bypassPermissions"] = (
+        "acceptEdits"
+    )
+    enable_execution_reporting: bool = False
+    enable_memory_tools: bool = False
+    history_converter: ClaudeSDKHistoryConverter | None = None
+    additional_tools: list[CustomToolDef] | None = None
+    cwd: str | None = None
+
+
+def _as_mapping(result: Any) -> dict[str, Any]:
+    if isinstance(result, dict):
+        return result
+    return {"result": result}
+
+
+def _format_mcp_success_payload(
+    tool_name: str,
+    args: dict[str, Any],
+    result: Any,
+) -> dict[str, Any]:
+    if tool_name == "thenvoi_send_message":
+        return {"status": "success", "message": "Message sent"}
+    if tool_name == "thenvoi_send_event":
+        return {"status": "success", "message": "Event sent"}
+    if tool_name == "thenvoi_add_participant":
+        name = args.get("name", "")
+        role = args.get("role", "member")
+        return {
+            "status": "success",
+            "message": f"Participant '{name}' added as {role}",
+            **_as_mapping(result),
+        }
+    if tool_name == "thenvoi_remove_participant":
+        name = args.get("name", "")
+        return {
+            "status": "success",
+            "message": f"Participant '{name}' removed",
+            **_as_mapping(result),
+        }
+    if tool_name == "thenvoi_get_participants":
+        participants = result if isinstance(result, list) else []
+        return {
+            "status": "success",
+            "participants": participants,
+            "count": len(participants),
+        }
+    if tool_name == "thenvoi_create_chatroom":
+        return {
+            "status": "success",
+            "message": "Chat room created",
+            "room_id": result,
+        }
+    return {"status": "success", **_as_mapping(result)}
 
 
 def __getattr__(name: str) -> Any:
@@ -86,7 +187,10 @@ def __getattr__(name: str) -> Any:
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
-class ClaudeSDKAdapter(SimpleAdapter[ClaudeSDKSessionState]):
+class ClaudeSDKAdapter(
+    NonFatalErrorRecorder,
+    SimpleAdapter[ClaudeSDKSessionState, MessagingDispatchToolsProtocol],
+):
     """
     Claude Agent SDK adapter using SimpleAdapter pattern.
 
@@ -135,6 +239,7 @@ class ClaudeSDKAdapter(SimpleAdapter[ClaudeSDKSessionState]):
             cwd: Working directory for Claude Code sessions. If set, Claude Code
                 will operate in this directory (e.g., a mounted git repo).
         """
+        _ensure_claude_sdk_available()
         super().__init__(
             history_converter=history_converter or ClaudeSDKHistoryConverter()
         )
@@ -154,16 +259,16 @@ class ClaudeSDKAdapter(SimpleAdapter[ClaudeSDKSessionState]):
         self._mcp_server = None
 
         # Per-room tools storage for MCP server access
-        self._room_tools: dict[str, AgentToolsProtocol] = {}
+        self._room_tools = RoomStateStore[MessagingDispatchToolsProtocol]()
 
         # Per-room session context (text history for Claude SDK)
-        self._session_context: dict[str, str] = {}
+        self._session_context = RoomStateStore[str]()
 
         # Per-room session IDs (for SDK session resume)
-        self._session_ids: dict[str, str] = {}
-
+        self._session_ids = RoomStateStore[str]()
         # Custom tools (user-provided)
         self._custom_tools: list[CustomToolDef] = additional_tools or []
+        self._init_nonfatal_errors()
 
     # --- Adapted from ThenvoiClaudeSDKAgent._on_started ---
     async def on_started(self, agent_name: str, agent_description: str) -> None:
@@ -217,623 +322,25 @@ class ClaudeSDKAdapter(SimpleAdapter[ClaudeSDKSessionState]):
         )
 
     def _create_mcp_server(self):
-        """Create MCP SDK server that uses stored room tools."""
-        adapter = self  # Capture reference for tool closures
-
-        def _make_result(data: Any) -> dict[str, Any]:
-            """Format tool result for MCP response."""
-            return {
-                "content": [{"type": "text", "text": json.dumps(data, default=str)}]
-            }
-
-        def _make_error(error: str) -> dict[str, Any]:
-            """Format error result for MCP response."""
-            return {
-                "content": [
-                    {
-                        "type": "text",
-                        "text": json.dumps({"status": "error", "message": error}),
-                    }
-                ],
-                "is_error": True,
-            }
-
-        def _get_tools(room_id: str) -> AgentToolsProtocol | None:
-            """Get stored tools for a room."""
-            return adapter._room_tools.get(room_id)
-
-        @tool(
-            "thenvoi_send_message",
-            get_tool_description("thenvoi_send_message"),
-            {
-                "room_id": str,
-                "content": str,
-                "mentions": str,
-            },
+        """Create MCP SDK server using shared Claude MCP tool bindings."""
+        factory = ClaudeMcpServerFactory(
+            tool_decorator=tool,
+            create_server=create_sdk_mcp_server,
+            get_tools=self._room_tools.get,
+            include_memory_tools=self.enable_memory_tools,
+            custom_tools=self._custom_tools,
+            format_success_payload=_format_mcp_success_payload,
         )
-        async def send_message(args: dict[str, Any]) -> dict[str, Any]:
-            """Send message to chat room via API."""
-            try:
-                room_id = args.get("room_id", "")
-                content = args.get("content", "")
-                mentions_str = args.get("mentions", "[]")
-
-                mention_handles: list[str] = []
-                if mentions_str:
-                    try:
-                        mention_handles = (
-                            json.loads(mentions_str)
-                            if isinstance(mentions_str, str)
-                            else mentions_str
-                        )
-                    except json.JSONDecodeError:
-                        pass
-
-                logger.info("[%s] send_message: %s...", room_id, content[:100])
-
-                tools = _get_tools(room_id)
-                if not tools:
-                    return _make_error(f"No tools available for room {room_id}")
-
-                await tools.send_message(content, mention_handles)
-
-                return _make_result({"status": "success", "message": "Message sent"})
-
-            except Exception as e:
-                logger.exception("send_message failed: %s", e)
-                return _make_error(str(e))
-
-        @tool(
-            "thenvoi_send_event",
-            get_tool_description("thenvoi_send_event"),
-            {"room_id": str, "content": str, "message_type": str},
-        )
-        async def send_event(args: dict[str, Any]) -> dict[str, Any]:
-            """Send event to chat room via API."""
-            try:
-                room_id = args.get("room_id", "")
-                content = args.get("content", "")
-                message_type = args.get("message_type", "thought")
-
-                tools = _get_tools(room_id)
-                if not tools:
-                    return _make_error(f"No tools available for room {room_id}")
-
-                await tools.send_event(content, message_type)
-
-                return _make_result({"status": "success", "message": "Event sent"})
-
-            except Exception as e:
-                logger.exception("send_event failed: %s", e)
-                return _make_error(str(e))
-
-        @tool(
-            "thenvoi_add_participant",
-            get_tool_description("thenvoi_add_participant"),
-            {"room_id": str, "name": str, "role": str},
-        )
-        async def add_participant(args: dict[str, Any]) -> dict[str, Any]:
-            """Add participant to chat room via API."""
-            try:
-                room_id = args.get("room_id", "")
-                name = args.get("name", "")
-                role = args.get("role", "member")
-
-                tools = _get_tools(room_id)
-                if not tools:
-                    return _make_error(f"No tools available for room {room_id}")
-
-                result = await tools.add_participant(name, role)
-
-                return _make_result(
-                    {
-                        "status": "success",
-                        "message": f"Participant '{name}' added as {role}",
-                        **result,
-                    }
-                )
-
-            except Exception as e:
-                logger.exception("add_participant failed: %s", e)
-                return _make_error(str(e))
-
-        @tool(
-            "thenvoi_remove_participant",
-            get_tool_description("thenvoi_remove_participant"),
-            {"room_id": str, "name": str},
-        )
-        async def remove_participant(args: dict[str, Any]) -> dict[str, Any]:
-            """Remove participant from chat room via API."""
-            try:
-                room_id = args.get("room_id", "")
-                name = args.get("name", "")
-
-                tools = _get_tools(room_id)
-                if not tools:
-                    return _make_error(f"No tools available for room {room_id}")
-
-                result = await tools.remove_participant(name)
-
-                return _make_result(
-                    {
-                        "status": "success",
-                        "message": f"Participant '{name}' removed",
-                        **result,
-                    }
-                )
-
-            except Exception as e:
-                logger.exception("remove_participant failed: %s", e)
-                return _make_error(str(e))
-
-        @tool(
-            "thenvoi_get_participants",
-            get_tool_description("thenvoi_get_participants"),
-            {"room_id": str},
-        )
-        async def get_participants(args: dict[str, Any]) -> dict[str, Any]:
-            """Get participants in chat room via API."""
-            try:
-                room_id = args.get("room_id", "")
-
-                tools = _get_tools(room_id)
-                if not tools:
-                    return _make_error(f"No tools available for room {room_id}")
-
-                participants = await tools.get_participants()
-
-                return _make_result(
-                    {
-                        "status": "success",
-                        "participants": participants,
-                        "count": len(participants),
-                    }
-                )
-
-            except Exception as e:
-                logger.exception("get_participants failed: %s", e)
-                return _make_error(str(e))
-
-        @tool(
-            "thenvoi_lookup_peers",
-            get_tool_description("thenvoi_lookup_peers"),
-            {"room_id": str, "page": int, "page_size": int},
-        )
-        async def lookup_peers(args: dict[str, Any]) -> dict[str, Any]:
-            """Look up available peers via API."""
-            try:
-                room_id = args.get("room_id", "")
-                page = args.get("page", 1)
-                page_size = args.get("page_size", 50)
-
-                tools = _get_tools(room_id)
-                if not tools:
-                    return _make_error(f"No tools available for room {room_id}")
-
-                result = await tools.lookup_peers(page, page_size)
-
-                return _make_result({"status": "success", **result})
-
-            except Exception as e:
-                logger.exception("lookup_peers failed: %s", e)
-                return _make_error(str(e))
-
-        @tool(
-            "thenvoi_create_chatroom",
-            get_tool_description("thenvoi_create_chatroom"),
-            {"room_id": str, "task_id": str},
-        )
-        async def create_chatroom(args: dict[str, Any]) -> dict[str, Any]:
-            """Create a new chat room via API."""
-            task_id = args.get("task_id") or None
-            try:
-                room_id = args.get("room_id", "")
-
-                tools = _get_tools(room_id)
-                if not tools:
-                    return _make_error(f"No tools available for room {room_id}")
-
-                new_room_id = await tools.create_chatroom(task_id)
-
-                return _make_result(
-                    {
-                        "status": "success",
-                        "message": "Chat room created",
-                        "room_id": new_room_id,
-                    }
-                )
-
-            except Exception as e:
-                logger.exception("create_chatroom failed (task_id=%s): %s", task_id, e)
-                return _make_error(str(e))
-
-        # Contact management tools
-        @tool(
-            "thenvoi_list_contacts",
-            get_tool_description("thenvoi_list_contacts"),
-            {"room_id": str, "page": int, "page_size": int},
-        )
-        async def list_contacts(args: dict[str, Any]) -> dict[str, Any]:
-            """List agent's contacts."""
-            try:
-                room_id = args.get("room_id", "")
-                page = args.get("page", 1)
-                page_size = args.get("page_size", 50)
-
-                tools = _get_tools(room_id)
-                if not tools:
-                    return _make_error(f"No tools available for room {room_id}")
-
-                result = await tools.list_contacts(page, page_size)
-                return _make_result({"status": "success", **result})
-
-            except Exception as e:
-                logger.exception("list_contacts failed: %s", e)
-                return _make_error(str(e))
-
-        @tool(
-            "thenvoi_add_contact",
-            get_tool_description("thenvoi_add_contact"),
-            {"room_id": str, "handle": str, "message": str},
-        )
-        async def add_contact(args: dict[str, Any]) -> dict[str, Any]:
-            """Send a contact request."""
-            try:
-                room_id = args.get("room_id", "")
-                handle = args.get("handle", "")
-                message = args.get("message") or None
-
-                tools = _get_tools(room_id)
-                if not tools:
-                    return _make_error(f"No tools available for room {room_id}")
-
-                result = await tools.add_contact(handle, message)
-                return _make_result({"status": "success", **result})
-
-            except Exception as e:
-                logger.exception("add_contact failed: %s", e)
-                return _make_error(str(e))
-
-        @tool(
-            "thenvoi_remove_contact",
-            get_tool_description("thenvoi_remove_contact"),
-            {"room_id": str, "handle": str, "contact_id": str},
-        )
-        async def remove_contact(args: dict[str, Any]) -> dict[str, Any]:
-            """Remove a contact."""
-            try:
-                room_id = args.get("room_id", "")
-                handle = args.get("handle") or None
-                contact_id = args.get("contact_id") or None
-
-                tools = _get_tools(room_id)
-                if not tools:
-                    return _make_error(f"No tools available for room {room_id}")
-
-                result = await tools.remove_contact(handle, contact_id)
-                return _make_result({"status": "success", **result})
-
-            except Exception as e:
-                logger.exception("remove_contact failed: %s", e)
-                return _make_error(str(e))
-
-        @tool(
-            "thenvoi_list_contact_requests",
-            get_tool_description("thenvoi_list_contact_requests"),
-            {"room_id": str, "page": int, "page_size": int, "sent_status": str},
-        )
-        async def list_contact_requests(args: dict[str, Any]) -> dict[str, Any]:
-            """List contact requests."""
-            try:
-                room_id = args.get("room_id", "")
-                page = args.get("page", 1)
-                page_size = args.get("page_size", 50)
-                sent_status = args.get("sent_status", "pending")
-
-                tools = _get_tools(room_id)
-                if not tools:
-                    return _make_error(f"No tools available for room {room_id}")
-
-                result = await tools.list_contact_requests(page, page_size, sent_status)
-                return _make_result({"status": "success", **result})
-
-            except Exception as e:
-                logger.exception("list_contact_requests failed: %s", e)
-                return _make_error(str(e))
-
-        @tool(
-            "thenvoi_respond_contact_request",
-            get_tool_description("thenvoi_respond_contact_request"),
-            {"room_id": str, "action": str, "handle": str, "request_id": str},
-        )
-        async def respond_contact_request(args: dict[str, Any]) -> dict[str, Any]:
-            """Respond to a contact request."""
-            try:
-                room_id = args.get("room_id", "")
-                action = args.get("action", "")
-                handle = args.get("handle") or None
-                request_id = args.get("request_id") or None
-
-                tools = _get_tools(room_id)
-                if not tools:
-                    return _make_error(f"No tools available for room {room_id}")
-
-                result = await tools.respond_contact_request(action, handle, request_id)
-                return _make_result({"status": "success", **result})
-
-            except Exception as e:
-                logger.exception("respond_contact_request failed: %s", e)
-                return _make_error(str(e))
-
-        # Memory management tools
-        @tool(
-            "thenvoi_list_memories",
-            get_tool_description("thenvoi_list_memories"),
-            {
-                "room_id": str,
-                "subject_id": str,
-                "scope": str,
-                "system": str,
-                "type": str,
-                "segment": str,
-                "content_query": str,
-                "page_size": int,
-                "status": str,
-            },
-        )
-        async def list_memories(args: dict[str, Any]) -> dict[str, Any]:
-            """List memories."""
-            try:
-                room_id = args.get("room_id", "")
-                subject_id = args.get("subject_id") or None
-                scope = args.get("scope") or None
-                system = args.get("system") or None
-                memory_type = args.get("type") or None
-                segment = args.get("segment") or None
-                content_query = args.get("content_query") or None
-                page_size = args.get("page_size", 50)
-                status = args.get("status") or None
-
-                tools = _get_tools(room_id)
-                if not tools:
-                    return _make_error(f"No tools available for room {room_id}")
-
-                result = await tools.list_memories(
-                    subject_id=subject_id,
-                    scope=scope,
-                    system=system,
-                    type=memory_type,
-                    segment=segment,
-                    content_query=content_query,
-                    page_size=page_size,
-                    status=status,
-                )
-                return _make_result({"status": "success", **result})
-
-            except Exception as e:
-                logger.exception("list_memories failed: %s", e)
-                return _make_error(str(e))
-
-        @tool(
-            "thenvoi_store_memory",
-            get_tool_description("thenvoi_store_memory"),
-            {
-                "room_id": str,
-                "content": str,
-                "system": str,
-                "type": str,
-                "segment": str,
-                "thought": str,
-                "scope": str,
-                "subject_id": str,
-            },
-        )
-        async def store_memory(args: dict[str, Any]) -> dict[str, Any]:
-            """Store a new memory."""
-            try:
-                room_id = args.get("room_id", "")
-                content = args.get("content", "")
-                system = args.get("system", "")
-                memory_type = args.get("type", "")
-                segment = args.get("segment", "")
-                thought = args.get("thought", "")
-                scope = args.get("scope", "subject")
-                subject_id = args.get("subject_id") or None
-
-                tools = _get_tools(room_id)
-                if not tools:
-                    return _make_error(f"No tools available for room {room_id}")
-
-                result = await tools.store_memory(
-                    content=content,
-                    system=system,
-                    type=memory_type,
-                    segment=segment,
-                    thought=thought,
-                    scope=scope,
-                    subject_id=subject_id,
-                )
-                return _make_result({"status": "success", **result})
-
-            except Exception as e:
-                logger.exception("store_memory failed: %s", e)
-                return _make_error(str(e))
-
-        @tool(
-            "thenvoi_get_memory",
-            get_tool_description("thenvoi_get_memory"),
-            {"room_id": str, "memory_id": str},
-        )
-        async def get_memory(args: dict[str, Any]) -> dict[str, Any]:
-            """Get a specific memory."""
-            try:
-                room_id = args.get("room_id", "")
-                memory_id = args.get("memory_id", "")
-
-                tools = _get_tools(room_id)
-                if not tools:
-                    return _make_error(f"No tools available for room {room_id}")
-
-                result = await tools.get_memory(memory_id)
-                return _make_result({"status": "success", **result})
-
-            except Exception as e:
-                logger.exception("get_memory failed: %s", e)
-                return _make_error(str(e))
-
-        @tool(
-            "thenvoi_supersede_memory",
-            get_tool_description("thenvoi_supersede_memory"),
-            {"room_id": str, "memory_id": str},
-        )
-        async def supersede_memory(args: dict[str, Any]) -> dict[str, Any]:
-            """Supersede a memory."""
-            try:
-                room_id = args.get("room_id", "")
-                memory_id = args.get("memory_id", "")
-
-                tools = _get_tools(room_id)
-                if not tools:
-                    return _make_error(f"No tools available for room {room_id}")
-
-                result = await tools.supersede_memory(memory_id)
-                return _make_result({"status": "success", **result})
-
-            except Exception as e:
-                logger.exception("supersede_memory failed: %s", e)
-                return _make_error(str(e))
-
-        @tool(
-            "thenvoi_archive_memory",
-            get_tool_description("thenvoi_archive_memory"),
-            {"room_id": str, "memory_id": str},
-        )
-        async def archive_memory(args: dict[str, Any]) -> dict[str, Any]:
-            """Archive a memory."""
-            try:
-                room_id = args.get("room_id", "")
-                memory_id = args.get("memory_id", "")
-
-                tools = _get_tools(room_id)
-                if not tools:
-                    return _make_error(f"No tools available for room {room_id}")
-
-                result = await tools.archive_memory(memory_id)
-                return _make_result({"status": "success", **result})
-
-            except Exception as e:
-                logger.exception("archive_memory failed: %s", e)
-                return _make_error(str(e))
-
-        # Start with platform tools
-        all_tools = [
-            send_message,
-            send_event,
-            add_participant,
-            remove_participant,
-            get_participants,
-            lookup_peers,
-            create_chatroom,
-            # Contact management tools
-            list_contacts,
-            add_contact,
-            remove_contact,
-            list_contact_requests,
-            respond_contact_request,
-        ]
-
-        # Memory management tools (enterprise only - opt-in)
-        if adapter.enable_memory_tools:
-            all_tools.extend(
-                [
-                    list_memories,
-                    store_memory,
-                    get_memory,
-                    supersede_memory,
-                    archive_memory,
-                ]
-            )
-
-        # Add custom tools wrapped as MCP tools
-        for custom_tool_def in adapter._custom_tools:
-            input_model, _ = custom_tool_def  # func used via execute_custom_tool
-            tool_name = get_custom_tool_name(input_model)
-            tool_description = input_model.__doc__ or f"Custom tool: {tool_name}"
-
-            # Build schema from Pydantic model
-            schema = input_model.model_json_schema()
-            properties = schema.get("properties", {})
-            # Convert to simple type dict for MCP (name: type)
-            mcp_schema: dict[str, type] = {"room_id": str}  # Always include room_id
-            for prop_name, prop_def in properties.items():
-                prop_type = prop_def.get("type", "string")
-                if prop_type == "string":
-                    mcp_schema[prop_name] = str
-                elif prop_type == "number":
-                    mcp_schema[prop_name] = float
-                elif prop_type == "integer":
-                    mcp_schema[prop_name] = int
-                elif prop_type == "boolean":
-                    mcp_schema[prop_name] = bool
-                else:
-                    mcp_schema[prop_name] = str  # Default to string
-
-            # Create MCP wrapper function
-            # Need to capture variables in closure
-            def make_mcp_wrapper(tool_def: CustomToolDef, name: str):
-                async def mcp_wrapper(args: dict[str, Any]) -> dict[str, Any]:
-                    try:
-                        # Remove room_id from args (not part of custom tool input)
-                        tool_args = {k: v for k, v in args.items() if k != "room_id"}
-
-                        # Execute custom tool
-                        result = await execute_custom_tool(tool_def, tool_args)
-
-                        # Format result for MCP
-                        return _make_result(result)
-
-                    except Exception as e:
-                        logger.error(
-                            "Custom tool %s failed: %s", name, e, exc_info=True
-                        )
-                        return _make_error(str(e))
-
-                return mcp_wrapper
-
-            wrapper = make_mcp_wrapper(custom_tool_def, tool_name)
-            wrapper.__name__ = tool_name  # Set function name for tool decorator
-
-            # Apply @tool decorator
-            decorated = tool(tool_name, tool_description, mcp_schema)(wrapper)
-            all_tools.append(decorated)
-
-            logger.debug("Registered custom MCP tool: %s", tool_name)
-
-        server = create_sdk_mcp_server(
-            name="thenvoi",
-            version="1.0.0",
-            tools=all_tools,
-        )
-
-        logger.info(
-            "Thenvoi MCP SDK server created with %s tools (%s custom)",
-            len(all_tools),
-            len(adapter._custom_tools),
-        )
-
-        return server
+        return factory.create()
 
     # --- Adapted from ThenvoiClaudeSDKAgent._handle_message ---
+    @legacy_chat_turn_compat
     async def on_message(
         self,
-        msg: PlatformMessage,
-        tools: AgentToolsProtocol,
-        history: ClaudeSDKSessionState,
-        participants_msg: str | None,
-        contacts_msg: str | None,
-        *,
-        is_session_bootstrap: bool,
-        room_id: str,
+        turn: ChatMessageTurnContext[
+            ClaudeSDKSessionState,
+            MessagingDispatchToolsProtocol,
+        ],
     ) -> None:
         """
         Handle incoming message.
@@ -843,6 +350,14 @@ class ClaudeSDKAdapter(SimpleAdapter[ClaudeSDKSessionState]):
         - Include room_id in the message so Claude can pass it to tools
         - Stream response and log events (tools execute via MCP)
         """
+        msg = turn.msg
+        tools = turn.tools
+        history = turn.history
+        participants_msg = turn.participants_msg
+        contacts_msg = turn.contacts_msg
+        is_session_bootstrap = turn.is_session_bootstrap
+        room_id = turn.room_id
+
         logger.debug("Handling message %s in room %s", msg.id, room_id)
 
         if not self._session_manager:
@@ -906,15 +421,17 @@ class ClaudeSDKAdapter(SimpleAdapter[ClaudeSDKSessionState]):
                 f"[Previous conversation context:]\n{self._session_context[room_id]}"
             )
 
-        # Inject participants message if changed
-        if participants_msg:
-            messages_to_send.append(f"{room_context}[System]: {participants_msg}")
-            logger.info("Room %s: Participants updated", room_id)
-
-        # Inject contacts message if present
-        if contacts_msg:
-            messages_to_send.append(f"{room_context}[System]: {contacts_msg}")
-            logger.info("Room %s: Contacts broadcast received", room_id)
+        system_updates = self.build_metadata_updates(
+            participants_msg=participants_msg,
+            contacts_msg=contacts_msg,
+        )
+        messages_to_send.extend(
+            [f"{room_context}{update}" for update in system_updates]
+        )
+        if system_updates:
+            logger.info(
+                "Room %s: Injected %d system updates", room_id, len(system_updates)
+            )
 
         # Add current message with room_id context
         user_message = f"{room_context}{msg.format_for_llm()}"
@@ -939,14 +456,21 @@ class ClaudeSDKAdapter(SimpleAdapter[ClaudeSDKSessionState]):
 
         except Exception as e:
             logger.exception("Error processing message: %s", e)
-            await self._report_error(tools, str(e))
+            await self.report_adapter_error(
+                tools,
+                error=e,
+                operation="report_error_event",
+            )
             raise
 
         logger.debug("Message %s processed successfully", msg.id)
 
     # --- Copied from ThenvoiClaudeSDKAgent._process_response ---
     async def _process_response(
-        self, client: ClaudeSDKClient, room_id: str, tools: AgentToolsProtocol
+        self,
+        client: ClaudeSDKClient,
+        room_id: str,
+        tools: MessagingDispatchToolsProtocol,
     ) -> None:
         """
         Process streaming response from Claude SDK.
@@ -971,15 +495,13 @@ class ClaudeSDKAdapter(SimpleAdapter[ClaudeSDKSessionState]):
                             )
                             # Report thinking as event if enabled
                             if self.enable_execution_reporting:
-                                try:
-                                    await tools.send_event(
-                                        content=block.thinking,
-                                        message_type="thought",
-                                    )
-                                except Exception as e:
-                                    logger.warning(
-                                        "Failed to send thinking event: %s", e
-                                    )
+                                await self.send_lifecycle_event(
+                                    tools,
+                                    content=block.thinking,
+                                    message_type="thought",
+                                    operation="thinking_event",
+                                    room_id=room_id,
+                                )
 
                     elif isinstance(block, ToolUseBlock):
                         logger.info(
@@ -989,19 +511,16 @@ class ClaudeSDKAdapter(SimpleAdapter[ClaudeSDKSessionState]):
                             str(block.input)[:100],
                         )
                         if self.enable_execution_reporting:
-                            try:
-                                await tools.send_event(
-                                    content=json.dumps(
-                                        {
-                                            "name": block.name,
-                                            "args": block.input,
-                                            "tool_call_id": block.id,
-                                        }
-                                    ),
-                                    message_type="tool_call",
-                                )
-                            except Exception as e:
-                                logger.warning("Failed to send tool_call event: %s", e)
+                            await self.send_tool_call_event(
+                                tools,
+                                payload={
+                                    "name": block.name,
+                                    "args": block.input,
+                                    "tool_call_id": block.id,
+                                },
+                                room_id=room_id,
+                                tool_name=block.name,
+                            )
 
                     elif isinstance(block, ToolResultBlock):
                         logger.debug(
@@ -1011,20 +530,14 @@ class ClaudeSDKAdapter(SimpleAdapter[ClaudeSDKSessionState]):
                             block.is_error,
                         )
                         if self.enable_execution_reporting:
-                            try:
-                                await tools.send_event(
-                                    content=json.dumps(
-                                        {
-                                            "output": block.content,
-                                            "tool_call_id": block.tool_use_id,
-                                        }
-                                    ),
-                                    message_type="tool_result",
-                                )
-                            except Exception as e:
-                                logger.warning(
-                                    "Failed to send tool_result event: %s", e
-                                )
+                            await self.send_tool_result_event(
+                                tools,
+                                payload={
+                                    "output": block.content,
+                                    "tool_call_id": block.tool_use_id,
+                                },
+                                room_id=room_id,
+                            )
 
             elif isinstance(sdk_message, ResultMessage):
                 logger.info(
@@ -1044,20 +557,16 @@ class ClaudeSDKAdapter(SimpleAdapter[ClaudeSDKSessionState]):
                     )
                     # Persist session_id as task event (best-effort, only on change)
                     if sdk_message.session_id != prev_session_id:
-                        try:
-                            await tools.send_event(
-                                content="Claude SDK session",
-                                message_type="task",
-                                metadata={
-                                    "claude_sdk_session_id": sdk_message.session_id,
-                                },
-                            )
-                        except Exception as e:
-                            logger.warning(
-                                "Room %s: Failed to persist session_id: %s",
-                                room_id,
-                                e,
-                            )
+                        await self.send_lifecycle_event(
+                            tools,
+                            content="Claude SDK session",
+                            message_type="task",
+                            operation="persist_session_id_event",
+                            metadata={
+                                "claude_sdk_session_id": sdk_message.session_id,
+                            },
+                            room_id=room_id,
+                        )
                 break
 
     # --- Copied from ThenvoiClaudeSDKAgent._cleanup_session ---
@@ -1069,14 +578,6 @@ class ClaudeSDKAdapter(SimpleAdapter[ClaudeSDKSessionState]):
         self._session_context.pop(room_id, None)
         self._session_ids.pop(room_id, None)
         logger.debug("Room %s: Cleaned up Claude SDK session", room_id)
-
-    # --- Copied from BaseFrameworkAgent._report_error ---
-    async def _report_error(self, tools: AgentToolsProtocol, error: str) -> None:
-        """Send error event (best effort)."""
-        try:
-            await tools.send_event(content=f"Error: {error}", message_type="error")
-        except Exception:
-            logger.debug("Failed to send error event", exc_info=True)
 
     async def cleanup_all(self) -> None:
         """Cleanup all sessions (call on stop)."""

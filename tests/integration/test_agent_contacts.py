@@ -13,7 +13,7 @@ from thenvoi.adapters.pydantic_ai import PydanticAIAdapter
 from thenvoi.platform.event import (
     ContactEvent,
 )
-from thenvoi.runtime.contact_tools import ContactTools
+from thenvoi.runtime.contacts.contact_tools import ContactTools
 from thenvoi.runtime.types import ContactEventConfig, ContactEventStrategy
 
 # Skip all tests if no API key is set

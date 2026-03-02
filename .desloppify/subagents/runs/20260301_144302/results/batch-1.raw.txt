@@ -1,0 +1,101 @@
+{
+  "batch": "Abstractions & Dependencies",
+  "batch_index": 1,
+  "assessments": {
+    "abstraction_fitness": 74.0
+  },
+  "dimension_notes": {
+    "abstraction_fitness": {
+      "evidence": [
+        "Adapter-specific tool protocols are repeatedly redeclared as thin composites with little behavioral differentiation (e.g., `LangGraphToolsProtocol`, `PydanticAIToolsProtocol`, `ParlantToolsProtocol`, `AnthropicToolsProtocol`) in `src/thenvoi/adapters/langgraph.py`, `src/thenvoi/adapters/pydantic_ai.py`, `src/thenvoi/adapters/parlant.py`, and `src/thenvoi/adapters/anthropic.py`.",
+        "Adapter construction/config wiring is duplicated across adapters via near-identical `*AdapterConfig` + `from_config` pass-through patterns (`src/thenvoi/adapters/anthropic.py`, `src/thenvoi/adapters/pydantic_ai.py`, `src/thenvoi/adapters/crewai.py`, `src/thenvoi/adapters/claude_sdk.py`), and tests mirror this duplication (`tests/adapters/test_pydantic_ai_adapter.py`, `tests/adapters/test_crewai_adapter.py`).",
+        "Contact strategy flow uses callback-mediated round-trips between `PlatformRuntime` and `ContactEventHandler` (`src/thenvoi/runtime/platform_runtime.py` and `src/thenvoi/runtime/contacts/contact_handler.py`), creating a multi-hop wrapper chain for hub-event injection and broadcasts."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high",
+      "sub_axes": {
+        "abstraction_leverage": 70.0,
+        "indirection_cost": 72.0,
+        "interface_honesty": 80.0
+      }
+    }
+  },
+  "findings": [
+    {
+      "dimension": "abstraction_fitness",
+      "identifier": "adapter_protocol_fragmentation",
+      "summary": "Per-adapter tool protocol aliases create parallel interfaces with minimal semantic differences, increasing maintenance without adding real extension value.",
+      "related_files": [
+        "src/thenvoi/adapters/langgraph.py",
+        "src/thenvoi/adapters/pydantic_ai.py",
+        "src/thenvoi/adapters/parlant.py",
+        "src/thenvoi/adapters/anthropic.py",
+        "src/thenvoi/core/protocols.py"
+      ],
+      "evidence": [
+        "`LangGraphToolsProtocol`, `PydanticAIToolsProtocol`, and `ParlantToolsProtocol` each mostly restate `MessagingToolsProtocol + ToolDispatchProtocol` rather than defining materially distinct contracts.",
+        "`AnthropicToolsProtocol` adds one schema method, but still follows the same per-adapter pattern, producing N parallel protocol types for one underlying tool surface.",
+        "This fragmentation propagates into adapter generics and test doubles instead of a single stable capability model."
+      ],
+      "suggestion": "Replace adapter-local protocol aliases with a small shared set of capability protocols (e.g., `DispatchTools`, `MessagingDispatchTools`, `AnthropicSchemaTools`) in `core/protocols.py`, and have adapters type against those shared contracts directly.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "adapter_surface_duplication"
+    },
+    {
+      "dimension": "abstraction_fitness",
+      "identifier": "config_passthrough_duplication",
+      "summary": "Adapter config objects and `from_config` constructors are repeated as mostly mechanical pass-through wrappers, causing change amplification across frameworks.",
+      "related_files": [
+        "src/thenvoi/adapters/anthropic.py",
+        "src/thenvoi/adapters/pydantic_ai.py",
+        "src/thenvoi/adapters/crewai.py",
+        "src/thenvoi/adapters/claude_sdk.py",
+        "tests/adapters/test_pydantic_ai_adapter.py",
+        "tests/adapters/test_crewai_adapter.py"
+      ],
+      "evidence": [
+        "Each adapter defines a dataclass config and a `from_config` classmethod that forwards nearly every field one-to-one into `__init__`.",
+        "Behavioral policy is rarely added in `from_config`; most code is field mapping boilerplate, so API evolution requires synchronized edits in multiple adapters and tests.",
+        "Test coverage includes repeated `from_config` checks per adapter, reflecting structural duplication rather than distinct domain behavior."
+      ],
+      "suggestion": "Introduce a shared config-loading mechanism (e.g., `@classmethod from_mapping` on a common adapter base or a reusable mapper utility) and keep adapter-specific config only for truly unique fields/validation.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "adapter_surface_duplication"
+    },
+    {
+      "dimension": "abstraction_fitness",
+      "identifier": "runtime_contact_callback_chain",
+      "summary": "Contact handling relies on callback indirection between runtime and handler, creating a leaky boundary and wrapper chain with temporal coupling.",
+      "related_files": [
+        "src/thenvoi/runtime/platform_runtime.py",
+        "src/thenvoi/runtime/contacts/contact_handler.py"
+      ],
+      "evidence": [
+        "`PlatformRuntime._setup_contact_handling()` injects callbacks (`_queue_broadcast`, `_inject_hub_event`, `_inject_hub_system_prompt`) into `ContactEventHandler`.",
+        "`ContactEventHandler` then routes through sink callbacks to call back into runtime-owned execution contexts for hub-room operations, instead of targeting a dedicated runtime-facing interface.",
+        "The behavior depends on ordering (`initialize_hub_room`, runtime execution creation, `mark_hub_room_ready`), indicating a boundary that is orchestrationally coupled rather than explicitly modeled."
+      ],
+      "suggestion": "Define a dedicated runtime contact port/interface (e.g., `ContactRuntimePort`) implemented by `PlatformRuntime`, and make `ContactEventHandler` depend on that explicit port instead of multiple callbacks plus sink indirection.",
+      "confidence": "medium",
+      "impact_scope": "subsystem",
+      "fix_scope": "architectural_change",
+      "root_cause_cluster": "indirect_runtime_orchestration"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "Adapter layer evolved by copy-and-specialize, producing parallel type/config surfaces.",
+      "Runtime orchestration favors callback plumbing over explicit boundary contracts."
+    ],
+    "likely_symptoms": [
+      "adapter_protocol_fragmentation",
+      "config_passthrough_duplication"
+    ],
+    "possible_false_positives": []
+  }
+}

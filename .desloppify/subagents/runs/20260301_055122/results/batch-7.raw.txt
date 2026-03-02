@@ -1,0 +1,138 @@
+{
+  "batch": "Design coherence — Mechanical Concern Signals",
+  "batch_index": 7,
+  "assessments": {
+    "design_coherence": 71.0
+  },
+  "dimension_notes": {
+    "design_coherence": {
+      "evidence": [
+        "Cross-framework example scripts repeat the same startup flow (dotenv load, THENVOI_WS_URL/THENVOI_REST_URL validation, load_agent_config, Agent.create, run) across anthropic/claude_sdk/crewai/langgraph/pydantic_ai variants with only adapter-specific knobs changed.",
+        "Contact management behavior is implemented twice with near-identical method sets and response shaping in src/thenvoi/runtime/tools.py and src/thenvoi/runtime/contact_tools.py.",
+        "Contact-state cleanup orchestration is copy-pasted across multiple integration tests (test_callback_strategy.py, test_contact_tools.py, test_contact_websocket.py), indicating missing shared test-domain utilities.",
+        "Codex and Claude Docker runners duplicate lifecycle orchestration (signal setup, mount validation, retry loop, env/config normalization) instead of composing a shared runner core."
+      ],
+      "impact_scope": "codebase",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "findings": [
+    {
+      "dimension": "design_coherence",
+      "identifier": "example_bootstrap_template_sprawl",
+      "summary": "Example entrypoints duplicate the same environment/bootstrap orchestration across frameworks, creating high drift risk for basic startup behavior.",
+      "related_files": [
+        "examples/anthropic/01_basic_agent.py",
+        "examples/claude_sdk/01_basic_agent.py",
+        "examples/pydantic_ai/02_custom_instructions.py",
+        "examples/langgraph/01_simple_agent.py",
+        "examples/crewai/01_basic_agent.py",
+        "examples/parlant/01_basic_agent.py"
+      ],
+      "evidence": [
+        "Each file independently loads dotenv, validates THENVOI_WS_URL/THENVOI_REST_URL, loads agent credentials, constructs Agent.create(...), and starts run loop.",
+        "Character variants repeat the same scaffolding again (e.g., tom/jerry scripts) and also repeat path surgery via sys.path.insert for shared prompts."
+      ],
+      "suggestion": "Create a shared example bootstrap utility (e.g., `examples/common/bootstrap.py`) that handles env validation, config loading, and agent startup, with per-example files reduced to adapter construction and scenario-specific prompt/tool setup.",
+      "confidence": "high",
+      "impact_scope": "codebase",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "missing_example_bootstrap_abstraction"
+    },
+    {
+      "dimension": "design_coherence",
+      "identifier": "duplicated_contact_tool_surface",
+      "summary": "Contact domain logic is duplicated between room-bound and agent-level tool classes instead of sharing a contact service abstraction.",
+      "related_files": [
+        "src/thenvoi/runtime/tools.py",
+        "src/thenvoi/runtime/contact_tools.py",
+        "src/thenvoi/runtime/contact_handler.py",
+        "tests/integration/test_contact_tools.py"
+      ],
+      "evidence": [
+        "Both classes implement the same five methods (`list_contacts`, `add_contact`, `remove_contact`, `list_contact_requests`, `respond_contact_request`) with nearly identical validation, REST calls, and output mapping.",
+        "Error messages and metadata-shaping logic are materially the same in both files, indicating clone-and-specialize rather than composition."
+      ],
+      "suggestion": "Extract a shared `ContactService` (or reusable mixin/private module) for request construction and response shaping, then delegate from both `AgentTools` and `ContactTools` to keep one source of truth.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "duplicated_contact_domain_logic"
+    },
+    {
+      "dimension": "design_coherence",
+      "identifier": "integration_cleanup_copy_paste",
+      "summary": "Integration tests repeat large contact cleanup workflows instead of centralizing domain setup/teardown behavior.",
+      "related_files": [
+        "tests/integration/test_callback_strategy.py",
+        "tests/integration/test_contact_tools.py",
+        "tests/integration/test_contact_websocket.py",
+        "tests/integration/conftest.py"
+      ],
+      "evidence": [
+        "Each test module defines its own `cleanup_contact_state` with same sequence: remove contact both sides, cancel sent requests, reject received pending requests, sleep for settling.",
+        "Only minor logging differences exist across copies, so behavior updates require multi-file edits and are prone to skew."
+      ],
+      "suggestion": "Move contact-state reset into a shared async fixture/helper in `tests/integration/conftest.py` and parameterize log verbosity at callsites.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "duplicated_contact_domain_logic"
+    },
+    {
+      "dimension": "design_coherence",
+      "identifier": "converter_pipeline_fragmentation",
+      "summary": "History converter implementations duplicate traversal concerns but diverge in ad hoc policy, signaling a missing normalized intermediate event model.",
+      "related_files": [
+        "src/thenvoi/converters/anthropic.py",
+        "src/thenvoi/converters/langchain.py",
+        "src/thenvoi/converters/crewai.py",
+        "src/thenvoi/runtime/formatters.py"
+      ],
+      "evidence": [
+        "All converters independently loop raw history and re-encode sender/message semantics, including similar 'skip own assistant text' behavior in separate implementations.",
+        "Tool-event handling policies differ sharply (`anthropic` batches and patches orphaned tool_use IDs, `langchain` pairs by name with regex fallback IDs, `crewai` drops tool events entirely), making behavior hard to reason about as a coherent conversion pipeline."
+      ],
+      "suggestion": "Introduce a normalized intermediate history event schema (text/tool_call/tool_result with canonical IDs and actor identity) produced once from runtime formatters, then keep converters focused on framework-specific rendering only.",
+      "confidence": "medium",
+      "impact_scope": "subsystem",
+      "fix_scope": "architectural_change",
+      "root_cause_cluster": "missing_canonical_history_model"
+    },
+    {
+      "dimension": "design_coherence",
+      "identifier": "docker_runner_orchestration_duplication",
+      "summary": "Docker runner entrypoints duplicate lifecycle orchestration instead of sharing a common runtime harness.",
+      "related_files": [
+        "docker/claude_sdk/runner.py",
+        "docker/codex/runner.py",
+        "docker/shared/repo_init.py"
+      ],
+      "evidence": [
+        "Both runners define module-level shutdown event, signal handlers, mount validation, AGENT_CONFIG loading, repo initialization, and similar retry/backoff loops with only adapter-specific config differences.",
+        "Small policy differences are embedded inside two long scripts, increasing merge risk when operational behavior (retry, shutdown, env validation) changes."
+      ],
+      "suggestion": "Extract shared runner lifecycle primitives (signal wiring, retry loop, config/env validation, startup/shutdown choreography) into `docker/shared`, and keep each runner as a thin adapter-specific configuration layer.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "runner_harness_not_shared"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "Feature growth favored copy-and-adapt over introducing shared bootstrap/domain harnesses.",
+      "Framework-specific integrations were added without a canonical intermediate model for history/tool event semantics.",
+      "Operational scripts evolved independently with no common runner abstraction."
+    ],
+    "likely_symptoms": [
+      "example_bootstrap_template_sprawl",
+      "integration_cleanup_copy_paste",
+      "docker_runner_orchestration_duplication"
+    ],
+    "possible_false_positives": [
+      "Some converter divergence may be partially intentional due to framework protocol constraints, but the duplicated traversal and actor-normalization logic still indicates architectural fragmentation."
+    ]
+  }
+}

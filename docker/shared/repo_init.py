@@ -30,6 +30,8 @@ logger = logging.getLogger(__name__)
 DEFAULT_STATE_DIR = Path("/workspace/state")
 DEFAULT_CONTEXT_DIR = Path("/workspace/context")
 DEFAULT_LOCK_TIMEOUT_S = 120.0
+DEFAULT_SSH_KEYGEN_TIMEOUT_S = 10.0
+DEFAULT_GIT_COMMAND_TIMEOUT_S = 300.0
 CONTEXT_FILENAMES = ("structure.md", "patterns.md", "dependencies.md")
 _SSH_STRICT_ENV = "GIT_SSH_STRICT_HOST_KEY_CHECKING"
 
@@ -340,10 +342,16 @@ def _preflight_repo_auth(url: str) -> None:
             capture_output=True,
             text=True,
             check=False,
+            timeout=DEFAULT_SSH_KEYGEN_TIMEOUT_S,
         )
     except FileNotFoundError as exc:
         raise ValueError(
             "ssh-keygen is required for SSH host verification but was not found"
+        ) from exc
+    except subprocess.TimeoutExpired as exc:
+        raise ValueError(
+            f"ssh-keygen host verification timed out for {host} after "
+            f"{DEFAULT_SSH_KEYGEN_TIMEOUT_S:.1f}s"
         ) from exc
 
     if check.returncode != 0:
@@ -585,6 +593,7 @@ def _git(cwd: Path | None, *args: str) -> str:
             capture_output=True,
             text=True,
             check=True,
+            timeout=DEFAULT_GIT_COMMAND_TIMEOUT_S,
         )
     except subprocess.CalledProcessError as exc:
         stderr = (exc.stderr or "").strip()
@@ -592,5 +601,10 @@ def _git(cwd: Path | None, *args: str) -> str:
         details = stderr or stdout or "unknown git error"
         raise ValueError(
             f"Git command failed ({' '.join(command)}): {details}"
+        ) from exc
+    except subprocess.TimeoutExpired as exc:
+        raise ValueError(
+            f"Git command timed out after {DEFAULT_GIT_COMMAND_TIMEOUT_S:.1f}s: "
+            f"{' '.join(command)}"
         ) from exc
     return result.stdout

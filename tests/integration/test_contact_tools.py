@@ -16,93 +16,11 @@ Run with: uv run pytest tests/integration/test_contact_tools.py -v -s
 import asyncio
 import logging
 
-from thenvoi.runtime.contact_tools import ContactTools
-from tests.integration.conftest import requires_api, requires_multi_agent
+from thenvoi.runtime.contacts.contact_tools import ContactTools
+from tests.support.integration.contracts.cleanup import cleanup_contact_state
+from tests.support.integration.markers import requires_api, requires_multi_agent
 
 logger = logging.getLogger(__name__)
-
-
-async def cleanup_contact_state(api_client, api_client_2):
-    """Clean up any existing contact state between the two agents."""
-    # Get agent identities
-    response1 = await api_client.agent_api_identity.get_agent_me()
-    agent1_handle = response1.data.handle
-
-    response2 = await api_client_2.agent_api_identity.get_agent_me()
-    agent2_handle = response2.data.handle
-
-    logger.info(
-        "Cleaning up contact state between %s and %s", agent1_handle, agent2_handle
-    )
-
-    # Agent 1: Remove contact with Agent 2 if exists
-    try:
-        await api_client.agent_api_contacts.remove_agent_contact(handle=agent2_handle)
-        logger.info("  Agent 1 removed contact with Agent 2")
-    except Exception:
-        pass
-
-    # Agent 2: Remove contact with Agent 1 if exists
-    try:
-        await api_client_2.agent_api_contacts.remove_agent_contact(handle=agent1_handle)
-        logger.info("  Agent 2 removed contact with Agent 1")
-    except Exception:
-        pass
-
-    # Agent 1: Cancel any SENT pending requests to Agent 2
-    try:
-        await api_client.agent_api_contacts.respond_to_agent_contact_request(
-            action="cancel",
-            handle=agent2_handle,
-        )
-        logger.info("  Agent 1 canceled pending request to Agent 2")
-    except Exception as e:
-        logger.debug("  No sent request to cancel from Agent 1: %s", e)
-
-    # Agent 2: Cancel any SENT pending requests to Agent 1
-    try:
-        await api_client_2.agent_api_contacts.respond_to_agent_contact_request(
-            action="cancel",
-            handle=agent1_handle,
-        )
-        logger.info("  Agent 2 canceled pending request to Agent 1")
-    except Exception as e:
-        logger.debug("  No sent request to cancel from Agent 2: %s", e)
-
-    # Agent 1: Reject any RECEIVED pending requests from Agent 2
-    try:
-        response = await api_client.agent_api_contacts.list_agent_contact_requests()
-        received = getattr(response.data, "received", []) or []
-        for req in received:
-            from_handle = getattr(req, "from_handle", None)
-            status = getattr(req, "status", None)
-            if from_handle == agent2_handle and status == "pending":
-                await api_client.agent_api_contacts.respond_to_agent_contact_request(
-                    action="reject",
-                    request_id=req.id,
-                )
-                logger.info("  Agent 1 rejected pending request from Agent 2")
-    except Exception as e:
-        logger.debug("  No received requests to reject at Agent 1: %s", e)
-
-    # Agent 2: Reject any RECEIVED pending requests from Agent 1
-    try:
-        response = await api_client_2.agent_api_contacts.list_agent_contact_requests()
-        received = getattr(response.data, "received", []) or []
-        for req in received:
-            from_handle = getattr(req, "from_handle", None)
-            status = getattr(req, "status", None)
-            if from_handle == agent1_handle and status == "pending":
-                await api_client_2.agent_api_contacts.respond_to_agent_contact_request(
-                    action="reject",
-                    request_id=req.id,
-                )
-                logger.info("  Agent 2 rejected pending request from Agent 1")
-    except Exception as e:
-        logger.debug("  No received requests to reject at Agent 2: %s", e)
-
-    await asyncio.sleep(0.3)
-    logger.info("Cleanup complete")
 
 
 @requires_api

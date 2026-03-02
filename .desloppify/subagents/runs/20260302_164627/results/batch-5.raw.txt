@@ -1,0 +1,85 @@
+{
+  "batch": "Package Organization",
+  "batch_index": 5,
+  "assessments": {
+    "package_organization": 74.0,
+    "high_level_elegance": 77.0
+  },
+  "dimension_notes": {
+    "package_organization": {
+      "evidence": [
+        "holistic_context.structure shows reciprocal coupling between integration helper layers (`tests/support/integration/ -> tests/support/integration/contracts/ = 9` and `tests/support/integration/contracts/ -> tests/support/integration/ = 5`), indicating boundary placement is not one-directional.",
+        "`tests/support/integration/contracts/cleanup.py` is a compatibility relay that re-exports and wraps internals from `tests/support/integration/cleanup.py` while also being the canonical import target for tests, so ownership is split across two directories.",
+        "`src/thenvoi/runtime/` directory profile is overloaded (23 files) and includes both active runtime APIs (`__init__.py`) and deprecated compatibility entrypoints (`contact_tools.py`, `custom_tools.py`) instead of isolating legacy surfaces."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    },
+    "high_level_elegance": {
+      "evidence": [
+        "`src/thenvoi/runtime/__init__.py` declares a constrained runtime-core surface, but sibling files `contact_tools.py` and `custom_tools.py` keep legacy API shapes in the same package root, which weakens top-level ownership clarity.",
+        "`tests/runtime/test_custom_tools.py` already exercises the new canonical module path (`thenvoi.runtime.tooling.custom_tools`) while compatibility stubs remain in runtime root, confirming a mixed-era package contract in one namespace.",
+        "`tests/support/integration/contracts/cleanup.py` exists mainly to preserve monkeypatch points and delegates to `tests/support/integration/cleanup.py`, so decomposition is compatibility-driven rather than capability-driven."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "architectural_change",
+      "confidence": "high"
+    }
+  },
+  "findings": [
+    {
+      "dimension": "package_organization",
+      "identifier": "integration_contract_layer_bidirectional_coupling",
+      "summary": "Integration support and contracts directories are coupled in both directions, blurring ownership boundaries.",
+      "related_files": [
+        "tests/support/integration/cleanup.py",
+        "tests/support/integration/contracts/cleanup.py",
+        "tests/support/integration/contracts/__init__.py",
+        "tests/support/integration/__init__.py"
+      ],
+      "evidence": [
+        "`tests/support/integration/contracts/cleanup.py` imports and re-exports many internals from `tests/support/integration/cleanup.py` (`_error_detail`, `_iter_*`, `_is_contact_state_settled`) while remaining the canonical contract path.",
+        "The packet coupling matrix reports reciprocal directory edges (integration->contracts: 9, contracts->integration: 5), which is a direct structural signal of boundary bleed.",
+        "Both packages publish overlapping cleanup responsibilities, forcing contributors to navigate two locations for one concern."
+      ],
+      "suggestion": "Stage a reorg to make contracts a pure facade boundary: (1) create `tests/support/integration/core/cleanup.py` and move implementation helpers there; (2) reduce `tests/support/integration/cleanup.py` to a thin canonical module importing from `core`; (3) keep `tests/support/integration/contracts/cleanup.py` as temporary re-export only (no helper aliases), then migrate call sites to one canonical path and remove duplicate exports. After each stage run `rg -n \"tests\\.support\\.integration(\\.contracts)?\\.cleanup\" tests`, update imports, then validate with `uv run pytest tests/test_integration_cleanup_policy.py tests/test_no_clean_mode.py tests/integration/test_contact_tools.py -v`.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "compatibility_layers_not_quarantined"
+    },
+    {
+      "dimension": "high_level_elegance",
+      "identifier": "runtime_root_mixes_core_and_legacy_surfaces",
+      "summary": "Runtime package root mixes core API exports with legacy compatibility modules, weakening top-level role clarity.",
+      "related_files": [
+        "src/thenvoi/runtime/__init__.py",
+        "src/thenvoi/runtime/contact_tools.py",
+        "src/thenvoi/runtime/custom_tools.py",
+        "tests/runtime/test_custom_tools.py"
+      ],
+      "evidence": [
+        "`src/thenvoi/runtime/__init__.py` explicitly states domain-specific helpers should come from dedicated submodules, but root-level `contact_tools.py` and `custom_tools.py` still expose deprecated paths.",
+        "Both root modules are compatibility stubs delegating to `thenvoi.runtime.compat.legacy_modules.*`, so legacy routing remains colocated with primary package surface.",
+        "Tests in `tests/runtime/test_custom_tools.py` already target the new domain package (`thenvoi.runtime.tooling.custom_tools`), showing the old placement is now mostly transitional debt."
+      ],
+      "suggestion": "Execute a staged namespace cleanup: (1) move legacy runtime entrypoints under an explicit legacy namespace (for example `src/thenvoi/runtime/compat/legacy_entrypoints/`) and leave only import shims with deprecation warnings at root; (2) update docs/tests to canonical paths first (`thenvoi.runtime.contacts.*`, `thenvoi.runtime.tooling.*`); (3) remove root legacy files after deprecation window. Use `rg -n \"thenvoi\\.runtime\\.(contact_tools|custom_tools)\" src tests` to migrate imports and verify with `uv run pytest tests/runtime/test_custom_tools.py tests/runtime/test_execution.py tests/test_agent.py -v`.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "architectural_change",
+      "root_cause_cluster": "compatibility_layers_not_quarantined"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "Compatibility migration artifacts are not physically isolated from canonical package surfaces.",
+      "Contract/facade layers in tests preserve historical monkeypatch seams by re-exporting internals, creating two-way directory dependency."
+    ],
+    "likely_symptoms": [
+      "integration_contract_layer_bidirectional_coupling",
+      "runtime_root_mixes_core_and_legacy_surfaces"
+    ],
+    "possible_false_positives": []
+  }
+}

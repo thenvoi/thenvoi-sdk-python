@@ -1,0 +1,94 @@
+{
+  "batch": "Testing & API",
+  "batch_index": 4,
+  "assessments": {
+    "test_strategy": 81.0,
+    "mid_level_elegance": 84.0
+  },
+  "dimension_notes": {
+    "test_strategy": {
+      "evidence": [
+        "tests/runtime/test_types.py only validates PlatformMessage parity via format_for_llm(), but does not assert field-level contract parity between runtime and core message models.",
+        "tests/example_agents/a2a_bridge/test_setup_logging_example.py replaces setup_logging_profile with a mock and verifies only delegation, so real behavior for profile-specific options (including a2a_debug path) is not exercised."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    },
+    "mid_level_elegance": {
+      "evidence": [
+        "src/thenvoi/runtime/types.py defines a runtime PlatformMessage shape that differs from the core PlatformMessage used broadly in adapters and core seams (mutability, metadata typing, and extra thread_id).",
+        "tests/runtime/test_types.py has an explicit parity test for formatting, which indicates ongoing seam coordination effort between two near-duplicate boundary contracts rather than a single authoritative handoff type."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "architectural_change",
+      "confidence": "high"
+    }
+  },
+  "findings": [
+    {
+      "dimension": "mid_level_elegance",
+      "identifier": "platform_message_contract_split",
+      "summary": "Runtime and core PlatformMessage models diverge, creating a brittle seam across module handoffs.",
+      "related_files": [
+        "src/thenvoi/runtime/types.py",
+        "src/thenvoi/core/types.py"
+      ],
+      "evidence": [
+        "runtime.types.PlatformMessage includes thread_id and is mutable, while core.types.PlatformMessage is frozen and has a different metadata contract.",
+        "Both models expose format_for_llm and overlapping fields, signaling duplicated boundary ownership for the same conceptual payload."
+      ],
+      "suggestion": "Converge on a single canonical PlatformMessage contract (prefer core.types for adapter seams), then either alias runtime usage to that type or introduce one explicit translation boundary with exhaustive tests and deprecation timeline for duplicate fields.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "architectural_change",
+      "root_cause_cluster": "platform_message_contract_split"
+    },
+    {
+      "dimension": "test_strategy",
+      "identifier": "missing_schema_parity_tests_for_message_models",
+      "summary": "Tests cover formatting parity but miss schema/behavior parity for duplicated message contracts.",
+      "related_files": [
+        "src/thenvoi/runtime/types.py",
+        "tests/runtime/test_types.py"
+      ],
+      "evidence": [
+        "Current parity test asserts only format_for_llm output; it does not verify field parity, mutability expectations, or compatibility when adding/removing fields across the two message classes.",
+        "Given duplicate message classes across runtime and core, lack of contract-level tests leaves critical handoff regressions undetected."
+      ],
+      "suggestion": "Add contract tests that compare full constructor/field semantics between runtime and core message models (including optional fields and mutability expectations), or replace parity tests with translation tests if a single canonical model is adopted.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "platform_message_contract_split"
+    },
+    {
+      "dimension": "test_strategy",
+      "identifier": "over_mocked_a2a_logging_wrapper_test",
+      "summary": "A2A bridge logging test validates call wiring only, not observable logging behavior.",
+      "related_files": [
+        "examples/a2a_bridge/setup_logging.py",
+        "tests/example_agents/a2a_bridge/test_setup_logging_example.py"
+      ],
+      "evidence": [
+        "The test monkeypatches setup_logging_profile and asserts one call; it never validates actual logger levels or side effects.",
+        "The wrapper exposes a2a_debug behavior but no behavioral test checks that enabling it affects the intended logger configuration."
+      ],
+      "suggestion": "Keep one delegation test, but add a behavioral test using real setup_logging_profile that asserts effective logger level changes for the A2A debug path and baseline non-debug path.",
+      "confidence": "medium",
+      "impact_scope": "module",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "Boundary contract ownership is split between runtime and core instead of centralized, causing seam drift risk.",
+      "Tests around seam wrappers are biased toward call-shape verification instead of end-to-end behavior/contracts."
+    ],
+    "likely_symptoms": [
+      "missing_schema_parity_tests_for_message_models",
+      "over_mocked_a2a_logging_wrapper_test"
+    ],
+    "possible_false_positives": []
+  }
+}

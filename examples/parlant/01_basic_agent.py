@@ -21,18 +21,16 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import os
 
 import parlant.sdk as p
-from dotenv import load_dotenv
 
-from setup_logging import setup_logging
-from thenvoi import Agent
+from thenvoi.example_support.bootstrap import bootstrap_agent
+from thenvoi.example_support.scenarios import basic_agent_key, basic_startup_message
+from thenvoi.testing.example_logging import setup_logging_profile
 from thenvoi.adapters import ParlantAdapter
-from thenvoi.config import load_agent_config
 from thenvoi.integrations.parlant.tools import create_parlant_tools
 
-setup_logging()
+setup_logging_profile("parlant")
 logger = logging.getLogger(__name__)
 
 # Agent description with detailed instructions
@@ -115,19 +113,6 @@ async def setup_agent_with_guidelines(
 
 
 async def main() -> None:
-    load_dotenv()
-
-    ws_url = os.getenv("THENVOI_WS_URL")
-    rest_url = os.getenv("THENVOI_REST_URL")
-
-    if not ws_url:
-        raise ValueError("THENVOI_WS_URL environment variable is required")
-    if not rest_url:
-        raise ValueError("THENVOI_REST_URL environment variable is required")
-
-    # Load agent credentials from agent_config.yaml
-    agent_id, api_key = load_agent_config("parlant_agent")
-
     # Start Parlant server with OpenAI (requires OPENAI_API_KEY env var)
     async with p.Server(nlp_service=p.NLPServices.openai) as server:
         # Create Parlant tools INSIDE server context
@@ -148,17 +133,13 @@ async def main() -> None:
             parlant_agent=parlant_agent,
         )
 
-        # Create and start Thenvoi agent
-        agent = Agent.create(
+        session = bootstrap_agent(
+            agent_key=basic_agent_key("parlant"),
             adapter=adapter,
-            agent_id=agent_id,
-            api_key=api_key,
-            ws_url=ws_url,
-            rest_url=rest_url,
         )
 
-        logger.info("Starting Thenvoi agent with Parlant SDK (full tools)...")
-        await agent.run()
+        logger.info(basic_startup_message("parlant"))
+        await session.agent.run()
 
 
 if __name__ == "__main__":

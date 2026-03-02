@@ -1,0 +1,102 @@
+{
+  "batch": "Cross-cutting Sweep",
+  "batch_index": 4,
+  "assessments": {
+    "ai_generated_debt": 76.8
+  },
+  "dimension_notes": {
+    "ai_generated_debt": {
+      "evidence": [
+        "Nine example logging modules repeat the same setup skeleton with tiny parameter differences (e.g., examples/a2a_bridge/setup_logging.py, examples/langgraph/setup_logging.py, examples/pydantic_ai/setup_logging.py, examples/claude_sdk/setup_logging.py).",
+        "Tool adapter layers replicate near-identical wrapper/catch/return-string patterns across frameworks instead of using one shared wrapper builder (src/thenvoi/adapters/pydantic_ai.py, src/thenvoi/integrations/langgraph/langchain_tools.py, src/thenvoi/adapters/claude_sdk.py, src/thenvoi/integrations/parlant/tools.py).",
+        "Several modules contain tutorial-style, highly repetitive doc/prompt blocks far larger than the executable logic they describe (examples/langgraph/prompts.py, examples/prompts/characters.py, src/thenvoi/integrations/langgraph/graph_tools.py, src/thenvoi/integrations/langgraph/message_formatters.py)."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "findings": [
+    {
+      "dimension": "ai_generated_debt",
+      "identifier": "duplicated_example_logging_scaffolds",
+      "summary": "Example logging setup is copy-pasted across many files with only minor option changes.",
+      "related_files": [
+        "examples/a2a_bridge/setup_logging.py",
+        "examples/a2a_gateway/setup_logging.py",
+        "examples/anthropic/setup_logging.py",
+        "examples/claude_sdk/setup_logging.py",
+        "examples/codex/setup_logging.py",
+        "examples/crewai/setup_logging.py",
+        "examples/langgraph/setup_logging.py",
+        "examples/parlant/setup_logging.py",
+        "examples/pydantic_ai/setup_logging.py"
+      ],
+      "evidence": [
+        "Each file defines a same-named `setup_logging(...)` wrapper around `setup_example_logging(...)` with mostly duplicated imports/docstrings and only small argument differences (extra/warning/debug logger tuples).",
+        "Two pairs are byte-identical by hash (`examples/langgraph/setup_logging.py` and `examples/pydantic_ai/setup_logging.py`; `examples/a2a_bridge/setup_logging.py` and duplicate entry in hash scan), indicating template cloning rather than intentional module-specific logic."
+      ],
+      "suggestion": "Replace per-example copies with one shared `examples/common_logging.py` helper that accepts a profile/options object, and keep only thin one-line config declarations in each example package.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "template_driven_scaffolding"
+    },
+    {
+      "dimension": "ai_generated_debt",
+      "identifier": "tool_wrapper_exception_template_sprawl",
+      "summary": "Multiple adapter modules duplicate generated-style tool wrappers with identical broad-except/error-string handling.",
+      "related_files": [
+        "src/thenvoi/adapters/pydantic_ai.py",
+        "src/thenvoi/integrations/langgraph/langchain_tools.py",
+        "src/thenvoi/adapters/claude_sdk.py",
+        "src/thenvoi/integrations/parlant/tools.py"
+      ],
+      "evidence": [
+        "In `src/thenvoi/adapters/pydantic_ai.py`, many `thenvoi_*` functions repeat `try: return await ctx.deps.<tool>(...) except Exception as e: return f\"Error ...\"` (e.g., lines around 125-406).",
+        "In `src/thenvoi/integrations/langgraph/langchain_tools.py`, wrappers repeat the same `except Exception as e` pattern for each tool (e.g., lines 38-214) plus repeated `StructuredTool.from_function(...)` boilerplate (lines 218+).",
+        "In `src/thenvoi/adapters/claude_sdk.py` and `src/thenvoi/integrations/parlant/tools.py`, the same per-tool pattern appears again with broad catch blocks and near-duplicate error shaping."
+      ],
+      "suggestion": "Introduce a shared declarative tool registry (tool name, callable, argument schema, error policy) plus one generic wrapper factory to generate framework-specific bindings; centralize exception mapping once instead of per-tool/per-adapter duplication.",
+      "confidence": "high",
+      "impact_scope": "codebase",
+      "fix_scope": "architectural_change",
+      "root_cause_cluster": "template_driven_scaffolding"
+    },
+    {
+      "dimension": "ai_generated_debt",
+      "identifier": "instructional_text_overgrowth_in_runtime_modules",
+      "summary": "Prompt/doc text is excessively repetitive and dominates logic in several runtime-facing modules.",
+      "related_files": [
+        "examples/langgraph/prompts.py",
+        "examples/prompts/characters.py",
+        "src/thenvoi/integrations/langgraph/graph_tools.py",
+        "src/thenvoi/integrations/langgraph/message_formatters.py",
+        "src/thenvoi/__init__.py",
+        "src/thenvoi/runtime/__init__.py"
+      ],
+      "evidence": [
+        "`examples/langgraph/prompts.py` repeats the same mandatory-send-message rule in multiple sections (`CRITICAL`, `MANDATORY`, `FINAL REMINDER`) instead of one canonical constraint block.",
+        "`examples/prompts/characters.py` embeds long repeated instruction sections (multiple `CRITICAL` blocks, long examples and rule restatements) that are hard to maintain and prone to divergence.",
+        "`src/thenvoi/integrations/langgraph/graph_tools.py` and `message_formatters.py` include tutorial-level walkthrough prose and extended examples that restate behavior visible in short function bodies."
+      ],
+      "suggestion": "Split long instructional content into reusable prompt fragments/templates with a single source of truth; trim module docstrings to concise API contracts and move tutorials/examples to dedicated docs files.",
+      "confidence": "medium",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "documentation_bloat"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "Template-first implementation pattern favored copy/modify over shared abstractions.",
+      "Instructional prose and prompt content are maintained inline in code modules without normalization.",
+      "Framework adapter expansion happened through parallel per-framework copies rather than a common binding layer."
+    ],
+    "likely_symptoms": [
+      "duplicated_example_logging_scaffolds",
+      "tool_wrapper_exception_template_sprawl"
+    ],
+    "possible_false_positives": []
+  }
+}

@@ -1,0 +1,103 @@
+{
+  "batch": "Testing & API",
+  "batch_index": 4,
+  "assessments": {
+    "test_strategy": 79.0,
+    "mid_level_elegance": 73.0
+  },
+  "dimension_notes": {
+    "test_strategy": {
+      "evidence": [
+        "src/thenvoi/integrations/a2a_bridge/session.py returns internal SessionData objects directly from get()/list_sessions(), so boundary behavior depends on external mutation and makes invariant-focused tests harder to write.",
+        "src/thenvoi/integrations/a2a_bridge/handler.py explicitly treats `None` as a valid legacy success path in the handler contract, which creates a high-risk path where malformed handler outcomes can pass silently unless tests are very explicit.",
+        "src/thenvoi/runtime/types.py validates CALLBACK handlers with inspect.iscoroutinefunction(self.on_event), but the file has no companion guard/normalization path for callable instances with async __call__, leaving a subtle API edge case easy to miss in tests."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "medium"
+    },
+    "mid_level_elegance": {
+      "evidence": [
+        "Handler seam contracts are inconsistent: src/thenvoi/runtime/types.py defines MessageHandler as Awaitable[None], while src/thenvoi/integrations/a2a_bridge/handler.py defines BaseHandler.handle -> HandlerResult | None with multiple semantic statuses.",
+        "src/thenvoi/integrations/a2a_bridge/handler.py allows both structured outcomes and implicit success (`None`), which weakens boundary explicitness and makes orchestration behavior less predictable.",
+        "src/thenvoi/integrations/a2a_bridge/session.py exposes mutable SessionData objects directly, so session lifecycle state can be changed outside store methods, bypassing intended encapsulation and lock-protected write paths."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "architectural_change",
+      "confidence": "high"
+    }
+  },
+  "findings": [
+    {
+      "dimension": "mid_level_elegance",
+      "identifier": "session_state_leaks_through_mutable_dtos",
+      "summary": "Session store leaks mutable internal state across module boundaries.",
+      "related_files": [
+        "src/thenvoi/integrations/a2a_bridge/session.py",
+        "src/thenvoi/runtime/types.py"
+      ],
+      "evidence": [
+        "InMemorySessionStore.get() returns the stored SessionData object directly (`return self._sessions.get(room_id)`), and list_sessions() returns direct references (`list(self._sessions.values())`).",
+        "SessionData is a mutable Pydantic model; callers can mutate `last_activity` without going through store APIs, changing eviction behavior externally.",
+        "Runtime boundary types in runtime/types.py are also mutable dataclasses, reinforcing a pattern of unguarded cross-module state mutation."
+      ],
+      "suggestion": "Make boundary DTOs immutable (or return defensive copies) and provide explicit store methods for lifecycle updates (for example, `touch_session(room_id)`), so session mutation always flows through lock-protected store logic.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "implicit_mutable_boundary_contracts"
+    },
+    {
+      "dimension": "mid_level_elegance",
+      "identifier": "bridge_handler_outcome_contract_split",
+      "summary": "Bridge handler contract mixes implicit and explicit outcome semantics.",
+      "related_files": [
+        "src/thenvoi/integrations/a2a_bridge/handler.py",
+        "src/thenvoi/runtime/types.py"
+      ],
+      "evidence": [
+        "BaseHandler.handle in handler.py returns `HandlerResult | None`, with docstring saying `None` means implicit success.",
+        "HandlerResult introduces explicit statuses (`handled`, `ignored`, `error`), but the same seam still permits unstructured completion via `None`.",
+        "Nearby runtime seam (`MessageHandler` in runtime/types.py) uses a different contract style (`Awaitable[None]`), increasing integration ambiguity between related handler abstractions."
+      ],
+      "suggestion": "Unify handler seams on one explicit contract: require structured outcome objects for bridge handlers (deprecate implicit `None`), and align runtime handler type aliases/docs so boundary behavior is uniformly predictable.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "architectural_change",
+      "root_cause_cluster": "implicit_mutable_boundary_contracts"
+    },
+    {
+      "dimension": "test_strategy",
+      "identifier": "high_risk_boundary_paths_are_easy_to_miss_in_tests",
+      "summary": "Current boundary design creates silent-failure paths that need targeted contract tests.",
+      "related_files": [
+        "src/thenvoi/integrations/a2a_bridge/handler.py",
+        "src/thenvoi/integrations/a2a_bridge/session.py"
+      ],
+      "evidence": [
+        "handler.py intentionally allows implicit success via `None`, so accidental handler return-shape regressions can look successful unless tests explicitly assert contract normalization behavior.",
+        "session.py exposes live session objects, so behavior can be altered externally without store API calls, making tests vulnerable to hidden coupling and stateful side effects.",
+        "Both files represent critical routing/session paths, but their contracts rely on implicit behavior rather than fail-fast boundaries, increasing the chance of regressions escaping unit tests."
+      ],
+      "suggestion": "Add strict contract tests around these seams: enforce explicit handler outcomes (or explicit normalization warnings/errors), and add tests that verify session state cannot be mutated externally without going through store methods.",
+      "confidence": "medium",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "implicit_mutable_boundary_contracts"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "Boundary contracts favor backward-compatible implicit behavior over explicit, enforceable interfaces.",
+      "Mutable DTOs are passed across seams without encapsulation, creating hidden coupling."
+    ],
+    "likely_symptoms": [
+      "session_state_leaks_through_mutable_dtos",
+      "bridge_handler_outcome_contract_split",
+      "high_risk_boundary_paths_are_easy_to_miss_in_tests"
+    ],
+    "possible_false_positives": [
+      "If legacy compatibility is a hard requirement, the implicit `None` handler path may be an intentional transitional tradeoff rather than permanent API debt."
+    ]
+  }
+}

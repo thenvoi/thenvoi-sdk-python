@@ -1,15 +1,5 @@
-"""
-Anthropic integration for Thenvoi SDK.
+"""Anthropic integration internals used by the Anthropic adapter."""
 
-NOTE: The old ThenvoiAnthropicAgent has been removed.
-Use the new composition-based pattern instead:
+from __future__ import annotations
 
-    from thenvoi import Agent
-    from thenvoi.adapters import AnthropicAdapter
-
-    adapter = AnthropicAdapter(model="claude-sonnet-4-5-20250929")
-    agent = Agent.create(adapter=adapter, agent_id="...", api_key="...")
-    await agent.run()
-"""
-
-__all__: list[str] = []
+__all__: tuple[str, ...] = ()

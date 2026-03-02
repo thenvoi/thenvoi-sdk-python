@@ -1,0 +1,146 @@
+{
+  "batch": "Cross-cutting Sweep",
+  "batch_index": 8,
+  "assessments": {
+    "ai_generated_debt": 74.0
+  },
+  "dimension_notes": {
+    "ai_generated_debt": {
+      "evidence": [
+        "Near-duplicate runner orchestration appears in both docker and example paths (load config, build prompt parts, load tools, create adapter, create agent, run/shutdown), indicating copy-paste drift risk rather than a single shared implementation.",
+        "Repeated best-effort `try/except Exception` cleanup blocks with only message-string variation are present in integration cleanup helpers and bridge runtime loops, showing templated defensive scaffolding.",
+        "Several modules include large tutorial-style docstrings and usage blocks that restate straightforward code behavior and reduce signal density in operational files."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "findings": [
+    {
+      "dimension": "ai_generated_debt",
+      "identifier": "duplicated_runner_orchestration",
+      "summary": "Runner orchestration logic is duplicated across docker/example entrypoints with minor edits, creating copy-paste maintenance debt.",
+      "related_files": [
+        "docker/claude_sdk/runner.py",
+        "examples/claude_sdk_docker/runner.py",
+        "docker/shared/config_loader.py"
+      ],
+      "evidence": [
+        "Both runner files implement the same sequence: load config path/URLs, validate mounts, assemble role/custom prompt parts, optionally load custom tools, instantiate `ClaudeSDKAdapter`, create agent, run retry loop, then close agent.",
+        "Config parsing/validation logic is duplicated between `examples/claude_sdk_docker/runner.py:50-78` and `docker/shared/config_loader.py:13-35` with only keyed/flat shape differences.",
+        "The duplication has already diverged (repo-init and AGENT_KEY in docker runner but not example runner), demonstrating drift from copy-derived scaffolding."
+      ],
+      "suggestion": "Extract a shared runner workflow function and a single config-normalization utility (keyed/flat modes as options), then keep each entrypoint as a thin parameterization layer.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "copy_paste_templates"
+    },
+    {
+      "dimension": "ai_generated_debt",
+      "identifier": "templated_broad_exception_cleanup",
+      "summary": "Repeated broad-exception cleanup templates hide error intent and look mechanically copied rather than policy-driven.",
+      "related_files": [
+        "tests/support/integration/config.py",
+        "thenvoi-bridge/bridge_core/bridge.py",
+        "src/thenvoi/adapters/langgraph.py"
+      ],
+      "evidence": [
+        "`tests/support/integration/config.py:118-176` repeats six `try/except Exception as exc` blocks with near-identical `logger.debug(\"... skipped: %s\", exc)` structure.",
+        "`thenvoi-bridge/bridge_core/bridge.py` contains many `except Exception` handlers around unrelated lifecycle operations (`_shutdown`, reconnect cleanup, room subscribe/unsubscribe, participant fetch/cache).",
+        "`src/thenvoi/adapters/langgraph.py:208-214` catches broad exceptions, sends a fallback event, then uses a nested broad exception with `pass`, repeating the same catch-all template style."
+      ],
+      "suggestion": "Introduce reusable best-effort helpers (`run_best_effort`, `log_and_continue`) with explicit exception typing per operation; keep broad catches only at true boundary layers with structured context.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "copy_paste_templates"
+    },
+    {
+      "dimension": "ai_generated_debt",
+      "identifier": "docstring_instruction_bloat",
+      "summary": "Operational modules contain large tutorial-style docstrings that restate obvious usage and inflate cognitive load.",
+      "related_files": [
+        "examples/a2a_gateway/01_basic_gateway.py",
+        "src/thenvoi/__init__.py",
+        "src/thenvoi/runtime/__init__.py",
+        "src/thenvoi/integrations/a2a/__init__.py"
+      ],
+      "evidence": [
+        "`examples/a2a_gateway/01_basic_gateway.py:8-46` includes a long architecture/prerequisites/manual section in executable script code.",
+        "`src/thenvoi/__init__.py:1-41` embeds multi-mode tutorial content and examples in the package facade module.",
+        "`src/thenvoi/runtime/__init__.py:1-20` and `src/thenvoi/integrations/a2a/__init__.py:1-30` include long explanatory blocks that mainly enumerate exports and obvious flow."
+      ],
+      "suggestion": "Move tutorial-scale guidance to docs/README and keep module docstrings concise (purpose + non-obvious constraints only).",
+      "confidence": "medium",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "template_heavy_docs"
+    },
+    {
+      "dimension": "ai_generated_debt",
+      "identifier": "boilerplate_logging_wrappers",
+      "summary": "Example logging setup modules are mostly thin wrappers/factories repeated by directory, indicating generated boilerplate surfaces.",
+      "related_files": [
+        "examples/anthropic/setup_logging.py",
+        "examples/claude_sdk/setup_logging.py",
+        "examples/codex/setup_logging.py",
+        "examples/langgraph/setup_logging.py",
+        "examples/parlant/setup_logging.py",
+        "examples/pydantic_ai/setup_logging.py",
+        "examples/a2a_gateway/setup_logging.py",
+        "examples/a2a_bridge/setup_logging.py"
+      ],
+      "evidence": [
+        "Most files are a single assignment `setup_logging = build_logging_setup(\"...\")` with only the profile name changed.",
+        "A2A bridge has a near-equivalent wrapper function forwarding directly to shared `setup_logging_profile` with minimal added behavior (`a2a_debug` pass-through).",
+        "Pattern repeats across many sibling directories, increasing file count without adding meaningful domain logic."
+      ],
+      "suggestion": "Replace per-directory wrapper files with direct imports from a shared logging module or generate them from a single declarative profile map.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "copy_paste_templates"
+    },
+    {
+      "dimension": "ai_generated_debt",
+      "identifier": "duplicated_test_fixture_factories",
+      "summary": "Test fixture and factory patterns are repeated across adapter/integration tests with only type substitutions, suggesting template-generated test scaffolding.",
+      "related_files": [
+        "tests/adapters/test_langgraph_adapter.py",
+        "tests/adapters/test_pydantic_ai_adapter.py",
+        "tests/integrations/a2a/test_adapter.py",
+        "tests/integrations/a2a/gateway/test_adapter.py",
+        "tests/conftest.py"
+      ],
+      "evidence": [
+        "Multiple files define near-identical `sample_message`/`make_platform_message` fixtures creating the same `PlatformMessage` shape with only small field differences.",
+        "Mock tool fixture shape (`send_message`, `send_event`, participant operations) is repeated in adapter tests instead of reusing common fixtures.",
+        "`tests/conftest.py` already hosts shared event/test helpers, but similar fixture logic remains duplicated in several test modules."
+      ],
+      "suggestion": "Promote shared message/tool fixture builders into `tests/conftest.py` (or `tests/support`) and keep module-local fixtures only for behavior-specific overrides.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "copy_paste_templates"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "Example and runner code evolved through copy-and-modify rather than parameterized shared helpers.",
+      "Boundary/error-handling policy is not centralized, encouraging repeated broad-catch templates.",
+      "Documentation intent is embedded in executable modules instead of curated docs surfaces."
+    ],
+    "likely_symptoms": [
+      "duplicated_runner_orchestration",
+      "templated_broad_exception_cleanup",
+      "boilerplate_logging_wrappers",
+      "duplicated_test_fixture_factories"
+    ],
+    "possible_false_positives": [
+      "Some long docstrings may be intentionally pedagogical for example users.",
+      "Some broad exception guards in bridge/runtime may be intentional resilience boundaries."
+    ]
+  }
+}

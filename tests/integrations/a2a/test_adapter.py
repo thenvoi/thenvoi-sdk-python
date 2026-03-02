@@ -844,3 +844,5 @@ class TestA2AAdapterSessionRehydration:
 
         # Context should still be restored
         assert adapter_with_client._contexts.get("room-123") == "ctx-123"
+        assert adapter_with_client.nonfatal_errors
+        assert adapter_with_client.nonfatal_errors[0]["operation"] == "resubscribe_task"

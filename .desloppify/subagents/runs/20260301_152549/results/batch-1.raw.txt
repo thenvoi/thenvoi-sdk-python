@@ -1,0 +1,92 @@
+{
+  "batch": "Architecture & Coupling",
+  "batch_index": 1,
+  "assessments": {
+    "cross_module_architecture": 78.0
+  },
+  "dimension_notes": {
+    "cross_module_architecture": {
+      "evidence": [
+        "`examples/common/bootstrap.py` imports credential/url resolvers from `thenvoi.testing.config_loader`, so example runtime wiring depends on a testing namespace (`examples/common/bootstrap.py:11`, `src/thenvoi/testing/config_loader.py:35-82`).",
+        "`tests/support/integration/config.py` combines pytest plugin hooks (`pytest_addoption`, `pytest_runtest_setup`) with API fixture provisioning and cleanup orchestration in one highly imported module (`tests/support/integration/config.py:87-190`, `335-711`).",
+        "Thenvoi link test doubles are implemented in multiple places with overlapping but different contracts (`tests/support/fakes_link.py:24-89`, `tests/bridge/conftest.py:23-58`, `tests/platform/test_link_contacts.py:31-231`)."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "findings": [
+    {
+      "dimension": "cross_module_architecture",
+      "identifier": "examples_depend_on_testing_boundary",
+      "summary": "Example runtime bootstrap crosses into the testing package, blurring production-vs-test module boundaries.",
+      "related_files": [
+        "examples/common/bootstrap.py",
+        "src/thenvoi/testing/config_loader.py",
+        "examples/a2a_bridge/02_with_auth.py"
+      ],
+      "evidence": [
+        "`bootstrap.py` imports `resolve_agent_credentials` and `resolve_platform_urls` from `thenvoi.testing.config_loader` (`examples/common/bootstrap.py:11`).",
+        "Example scripts consume `bootstrap_agent()` as their runtime entrypoint (`examples/a2a_bridge/02_with_auth.py:25,58`), so examples inherit testing-layer dependency direction.",
+        "`thenvoi.testing.config_loader` includes compatibility aliases and runner-specific loading concerns (`load_runner_config`, `load_config`) that are not example-runtime specific (`src/thenvoi/testing/config_loader.py:62-82`)."
+      ],
+      "suggestion": "Extract environment/credential resolution into a neutral runtime config module under non-testing package boundaries (for example `thenvoi.config`), then have `thenvoi.testing.config_loader` and `examples/common/bootstrap.py` both depend on that shared core.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "boundary_layering_drift"
+    },
+    {
+      "dimension": "cross_module_architecture",
+      "identifier": "fragmented_link_test_double_boundary",
+      "summary": "Bridge/platform tests maintain parallel ThenvoiLink mock surfaces instead of one shared contract boundary.",
+      "related_files": [
+        "tests/support/fakes_link.py",
+        "tests/bridge/conftest.py",
+        "tests/platform/test_link_contacts.py"
+      ],
+      "evidence": [
+        "`tests/support/fakes_link.py` defines a canonical `make_thenvoi_link_mock()` with lifecycle/subscription/rest behavior (`24-89`).",
+        "`tests/bridge/conftest.py` rebuilds separate MagicMock link objects manually with partially overlapping methods (`23-58`) instead of reusing the shared fake.",
+        "`tests/platform/test_link_contacts.py` bypasses the shared fake and patches `WebSocketClient` directly in each test (`31-231`), creating a third pattern for the same boundary."
+      ],
+      "suggestion": "Define a single shared test-double boundary for `ThenvoiLink`/socket behavior (fixture factory + typed helper API), and migrate bridge/platform tests to consume it so contract changes are centralized.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "test_boundary_fragmentation"
+    },
+    {
+      "dimension": "cross_module_architecture",
+      "identifier": "integration_plugin_fixture_hub",
+      "summary": "Integration support module is a hub that mixes plugin policy, live cleanup orchestration, settings cache, and fixtures, increasing cross-module coupling.",
+      "related_files": [
+        "tests/support/integration/config.py",
+        "tests/support/integration/markers.py",
+        "tests/integration/test_smoke.py"
+      ],
+      "evidence": [
+        "`tests/support/integration/config.py` contains pytest plugin hooks (`pytest_addoption`, `pytest_runtest_setup`) and fixture implementations in the same module (`87-190`, `540-711`).",
+        "The same module also owns a module-global mutable settings singleton (`_test_settings`) used across fixtures (`489-497`, `540-600`), introducing shared state coupling.",
+        "Integration tests consume marker/decorator layer (`tests/support/integration/markers.py`, `tests/integration/test_smoke.py:8-14`) while fixture enforcement policy lives elsewhere, splitting policy/runtime concerns across tightly coupled support modules."
+      ],
+      "suggestion": "Split integration architecture into explicit boundaries: a dedicated pytest plugin module for marker policy and command-line options, separate stateless fixture modules for clients/resources, and fixture-scoped settings objects instead of module-global cache.",
+      "confidence": "medium",
+      "impact_scope": "subsystem",
+      "fix_scope": "architectural_change",
+      "root_cause_cluster": "test_boundary_fragmentation"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "Boundary ownership is organized around convenience hubs (examples bootstrap, integration config) rather than stable package layers.",
+      "Test infrastructure lacks a single canonical contract for platform/link doubles, so behavior is redefined per test area."
+    ],
+    "likely_symptoms": [
+      "fragmented_link_test_double_boundary",
+      "integration_plugin_fixture_hub"
+    ],
+    "possible_false_positives": []
+  }
+}

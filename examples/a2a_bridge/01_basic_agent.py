@@ -37,7 +37,7 @@ import os
 
 from dotenv import load_dotenv
 
-from setup_logging import setup_logging
+from examples.a2a_bridge.setup_logging import setup_logging
 from thenvoi import Agent
 from thenvoi.adapters import A2AAdapter
 from thenvoi.config import load_agent_config

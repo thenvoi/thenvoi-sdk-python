@@ -4,23 +4,18 @@ Thenvoi platform tools exposed as MCP SDK server for Claude Agent SDK.
 This module creates an in-process MCP SDK server that exposes Thenvoi
 platform tools to Claude. Tools receive room_id from Claude (which knows
 it from the system prompt) and execute real API calls.
-
-Architecture:
-    - Tools are defined inside create_thenvoi_mcp_server() to capture api_client
-    - Each tool receives room_id as a parameter from Claude
-    - Tools call the actual Thenvoi API and return real results
-    - No stub pattern - Claude sees actual data
 """
 
 from __future__ import annotations
 
-import json
 import logging
 import warnings
-from typing import Any, Protocol
+from collections.abc import Callable
+from dataclasses import dataclass
+from typing import Any
 
 try:
-    from claude_agent_sdk import tool, create_sdk_mcp_server
+    from claude_agent_sdk import create_sdk_mcp_server, tool
 except ImportError as e:
     raise ImportError(
         "claude-agent-sdk is required for Claude SDK examples.\n"
@@ -28,7 +23,20 @@ except ImportError as e:
         "Or: uv add claude-agent-sdk"
     ) from e
 
+from thenvoi.runtime.tool_binding_factory import (
+    ToolBindingFactory,
+    ToolBindingLookupError,
+)
+from thenvoi.runtime.tool_bridge import ToolExecutionError
+from thenvoi.runtime.tool_sessions import mcp_text_error, mcp_text_result
 from thenvoi.runtime.tools import CHAT_TOOL_NAMES, mcp_tool_names
+from thenvoi.integrations.claude_sdk.tool_state import (
+    get_participant_handles,
+    get_tools,
+    parse_mention_handles,
+    update_participants_cache_for_add,
+    update_participants_cache_for_remove,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -53,388 +61,187 @@ def __getattr__(name: str) -> Any:
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
-class ThenvoiApiClient(Protocol):
-    """Protocol for Thenvoi API client operations needed by tools."""
+@dataclass(frozen=True)
+class ClaudeToolDescriptor:
+    """Declarative mapping from MCP payloads to platform tool execution."""
 
-    async def send_message(
-        self, room_id: str, content: str, mentions: list[str] | None = None
-    ) -> dict[str, Any]: ...
+    name: str
+    description: str
+    schema: dict[str, type]
+    map_args: Callable[[dict[str, Any]], dict[str, Any]]
+    format_success: Callable[[Any, dict[str, Any]], dict[str, Any]]
+    on_success: Callable[[Any, str, Any], None] | None = None
+    add_handle_guidance_on_error: bool = False
 
-    async def send_event(
-        self,
-        room_id: str,
-        content: str,
-        message_type: str,
-        metadata: dict | None = None,
-    ) -> dict[str, Any]: ...
 
-    async def add_participant(
-        self, room_id: str, name: str, role: str = "member"
-    ) -> dict[str, Any]: ...
+def _build_claude_tool(
+    agent: Any,
+    descriptor: ClaudeToolDescriptor,
+    tool_bindings: ToolBindingFactory,
+) -> Any:
+    @tool(descriptor.name, descriptor.description, descriptor.schema)
+    async def _handler(args: dict[str, Any]) -> dict[str, Any]:
+        room_id = str(args.get("room_id", ""))
+        tool_args = descriptor.map_args(args)
 
-    async def remove_participant(self, room_id: str, name: str) -> dict[str, Any]: ...
+        try:
+            result = await tool_bindings.invoke_room_tool(
+                room_id=room_id,
+                get_tools=lambda current_room_id: get_tools(agent, current_room_id),
+                tool_name=descriptor.name,
+                arguments=tool_args,
+                missing_tools_message=f"No tools available for room {room_id}",
+            )
+        except ToolBindingLookupError as error:
+            return mcp_text_error(str(error))
+        except ToolExecutionError as error:
+            message = error.failure.message
+            if descriptor.add_handle_guidance_on_error:
+                available = get_participant_handles(agent, room_id)
+                message = (
+                    f"{message}. Available handles: {available}. "
+                    "Use participant handles from the list."
+                )
+            return mcp_text_error(message)
 
-    async def get_participants(self, room_id: str) -> list[dict[str, Any]]: ...
+        if descriptor.on_success is not None:
+            descriptor.on_success(agent, room_id, result)
 
-    async def lookup_peers(
-        self, room_id: str, page: int = 1, page_size: int = 50
-    ) -> dict[str, Any]: ...
+        return mcp_text_result(descriptor.format_success(result, args))
 
-    async def create_chatroom(self, task_id: str | None = None) -> str: ...
+    return _handler
+
+
+_CLAUDE_TOOL_DESCRIPTORS: tuple[ClaudeToolDescriptor, ...] = (
+    ClaudeToolDescriptor(
+        name="thenvoi_send_message",
+        description=(
+            "Send a message to the Thenvoi chat room. Use this to respond to users. "
+            "You MUST use this tool to communicate - text responses without this tool "
+            "won't reach users."
+        ),
+        schema={"room_id": str, "content": str, "mentions": str},
+        map_args=lambda args: {
+            "content": str(args.get("content", "")),
+            "mentions": parse_mention_handles(args.get("mentions", "[]")),
+        },
+        format_success=lambda _result, _args: {
+            "status": "success",
+            "message": "Message sent",
+        },
+        add_handle_guidance_on_error=True,
+    ),
+    ClaudeToolDescriptor(
+        name="thenvoi_send_event",
+        description=(
+            "Send an event (thought, tool_call, tool_result, error) to the chat room "
+            "for transparency."
+        ),
+        schema={"room_id": str, "content": str, "message_type": str},
+        map_args=lambda args: {
+            "content": str(args.get("content", "")),
+            "message_type": str(args.get("message_type", "thought")),
+        },
+        format_success=lambda _result, _args: {
+            "status": "success",
+            "message": "Event sent",
+        },
+    ),
+    ClaudeToolDescriptor(
+        name="thenvoi_add_participant",
+        description=(
+            "Add a participant (user or agent) to the chat room by name. "
+            "Use thenvoi_lookup_peers first to see available participants."
+        ),
+        schema={"room_id": str, "name": str, "role": str},
+        map_args=lambda args: {
+            "name": str(args.get("name", "")),
+            "role": str(args.get("role", "member")),
+        },
+        format_success=lambda result, args: {
+            "status": "success",
+            "message": (
+                f"Participant '{args.get('name', '')}' added as "
+                f"{args.get('role', 'member')}"
+            ),
+            **result,
+        },
+        on_success=lambda agent, room_id, result: update_participants_cache_for_add(
+            agent,
+            room_id,
+            result,
+        ),
+    ),
+    ClaudeToolDescriptor(
+        name="thenvoi_remove_participant",
+        description="Remove a participant from the chat room by name.",
+        schema={"room_id": str, "name": str},
+        map_args=lambda args: {"name": str(args.get("name", ""))},
+        format_success=lambda result, args: {
+            "status": "success",
+            "message": f"Participant '{args.get('name', '')}' removed",
+            **result,
+        },
+        on_success=lambda agent, room_id, result: update_participants_cache_for_remove(
+            agent,
+            room_id,
+            str(result.get("id", "")),
+        ),
+    ),
+    ClaudeToolDescriptor(
+        name="thenvoi_get_participants",
+        description="Get list of participants currently in the chat room.",
+        schema={"room_id": str},
+        map_args=lambda _args: {},
+        format_success=lambda result, _args: {
+            "status": "success",
+            "participants": result,
+            "count": len(result),
+        },
+    ),
+    ClaudeToolDescriptor(
+        name="thenvoi_lookup_peers",
+        description=(
+            "Look up available users and agents that can be added to the chat room. "
+            "Returns peers NOT already in the room."
+        ),
+        schema={"room_id": str, "page": int, "page_size": int},
+        map_args=lambda args: {
+            "page": int(args.get("page", 1)),
+            "page_size": int(args.get("page_size", 50)),
+        },
+        format_success=lambda result, _args: {"status": "success", **result},
+    ),
+    ClaudeToolDescriptor(
+        name="thenvoi_create_chatroom",
+        description=(
+            "Create a new chat room. Optionally link it to a task by providing a task_id."
+        ),
+        schema={"room_id": str, "task_id": str},
+        map_args=lambda args: {"task_id": args.get("task_id") or None},
+        format_success=lambda result, _args: {
+            "status": "success",
+            "message": "Chat room created",
+            "room_id": result,
+        },
+    ),
+)
 
 
 def create_thenvoi_mcp_server(agent: Any):
     """
-    Create MCP SDK server for Thenvoi platform tools.
+    Create MCP SDK server for Thenvoi platform chat tools.
 
-    Creates an in-process MCP server that exposes Thenvoi platform tools.
     Tools receive room_id from Claude and execute real API calls via AgentTools.
-
-    Args:
-        agent: Agent instance with link.rest and runtime.executions
-
-    Returns:
-        MCP SDK server configuration
-
-    Example:
-        server = create_thenvoi_mcp_server(agent)
-
-        options = ClaudeAgentOptions(
-            mcp_servers={"thenvoi": server},
-            allowed_tools=THENVOI_CHAT_TOOLS
-        )
-
-    Note:
-        Claude receives room_id in the system prompt and must pass it
-        to each tool call.
     """
-    from thenvoi.runtime.tools import AgentTools
-
-    def _make_result(data: Any) -> dict[str, Any]:
-        """Format tool result for MCP response."""
-        return {"content": [{"type": "text", "text": json.dumps(data, default=str)}]}
-
-    def _make_error(error: str) -> dict[str, Any]:
-        """Format error result for MCP response."""
-        return {
-            "content": [
-                {
-                    "type": "text",
-                    "text": json.dumps({"status": "error", "message": error}),
-                }
-            ],
-            "is_error": True,
-        }
-
-    def _get_tools(room_id: str) -> AgentTools:
-        """Get AgentTools for a room, with participants from execution context."""
-        executions = agent.runtime.executions if agent.runtime else {}
-        execution = executions.get(room_id)
-        participants = execution.participants if execution else []
-        return AgentTools(room_id, agent.link.rest, participants)
-
-    def _get_participant_handles(room_id: str) -> list[str]:
-        """Get list of participant handles in room."""
-        executions = agent.runtime.executions if agent.runtime else {}
-        execution = executions.get(room_id)
-        participants = execution.participants if execution else []
-        return [p.get("handle", "") for p in participants if p.get("handle")]
-
-    @tool(
-        "thenvoi_send_message",
-        "Send a message to the Thenvoi chat room. Use this to respond to users. You MUST use this tool to communicate - text responses without this tool won't reach users.",
-        {
-            "room_id": str,
-            "content": str,
-            "mentions": str,  # JSON array of participant handles, e.g. '["@alice", "@bob/agent"]' or '[]'
-        },
-    )
-    async def send_message(args: dict[str, Any]) -> dict[str, Any]:
-        """Send message to chat room via API."""
-        try:
-            room_id = args.get("room_id", "")
-            content = args.get("content", "")
-            mentions_str = args.get("mentions", "[]")
-
-            # Parse mentions JSON (handles like ["@alice", "@bob/agent"])
-            mention_handles: list[str] = []
-            if mentions_str:
-                try:
-                    mention_handles = (
-                        json.loads(mentions_str)
-                        if isinstance(mentions_str, str)
-                        else mentions_str
-                    )
-                except json.JSONDecodeError:
-                    pass
-
-            logger.info("[%s] send_message: %s...", room_id, content[:100])
-
-            # Get AgentTools for this room and send message
-            tools = _get_tools(room_id)
-            try:
-                await tools.send_message(content, mention_handles)
-            except ValueError as e:
-                # Mention resolution failed
-                available = _get_participant_handles(room_id)
-                return _make_error(
-                    f"{e}. Available handles: {available}. "
-                    f"Use participant handles from the list."
-                )
-
-            return _make_result(
-                {
-                    "status": "success",
-                    "message": "Message sent",
-                }
-            )
-
-        except Exception as e:
-            logger.error("send_message failed: %s", e, exc_info=True)
-            return _make_error(str(e))
-
-    @tool(
-        "thenvoi_send_event",
-        "Send an event (thought, tool_call, tool_result, error) to the chat room for transparency.",
-        {
-            "room_id": str,
-            "content": str,
-            "message_type": str,  # "thought", "tool_call", "tool_result", "error"
-        },
-    )
-    async def send_event(args: dict[str, Any]) -> dict[str, Any]:
-        """Send event to chat room via API."""
-        try:
-            room_id = args.get("room_id", "")
-            content = args.get("content", "")
-            message_type = args.get("message_type", "thought")
-
-            logger.debug("[%s] send_event: type=%s", room_id, message_type)
-
-            tools = _get_tools(room_id)
-            await tools.send_event(content, message_type)
-
-            return _make_result(
-                {
-                    "status": "success",
-                    "message": "Event sent",
-                }
-            )
-
-        except Exception as e:
-            logger.error("send_event failed: %s", e, exc_info=True)
-            return _make_error(str(e))
-
-    @tool(
-        "thenvoi_add_participant",
-        "Add a participant (user or agent) to the chat room by name. Use thenvoi_lookup_peers first to see available participants.",
-        {
-            "room_id": str,
-            "name": str,
-            "role": str,  # "member", "admin", or "owner"
-        },
-    )
-    async def add_participant(args: dict[str, Any]) -> dict[str, Any]:
-        """Add participant to chat room via API."""
-        try:
-            room_id = args.get("room_id", "")
-            name = args.get("name", "")
-            role = args.get("role", "member")
-
-            logger.info("[%s] add_participant: %s as %s", room_id, name, role)
-
-            tools = _get_tools(room_id)
-            result = await tools.add_participant(name, role)
-
-            # NOTE: Race condition fix for participant mentions
-            # WebSocket will eventually send participant_added event which updates
-            # ExecutionContext.participants (see execution.py:701-702), but that happens
-            # async. If Claude immediately tries to @mention the new participant,
-            # mention resolution fails because WS event hasn't arrived yet.
-            # We update the cache here to allow immediate mentions after add_participant.
-            executions = agent.runtime.executions if agent.runtime else {}
-            execution = executions.get(room_id)
-            logger.debug(
-                "[%s] add_participant: runtime=%s, executions=%s, execution=%s",
-                room_id,
-                agent.runtime,
-                list(executions.keys()),
-                execution,
-            )
-            if execution:
-                new_participant = {
-                    "id": result["id"],
-                    "name": result["name"],
-                    "type": "Agent",  # Default, could be User
-                }
-                execution.add_participant(new_participant)
-                logger.info(
-                    "[%s] Updated participants cache: added %s, total=%s",
-                    room_id,
-                    result["name"],
-                    len(execution.participants),
-                )
-
-            return _make_result(
-                {
-                    "status": "success",
-                    "message": f"Participant '{name}' added as {role}",
-                    **result,
-                }
-            )
-
-        except Exception as e:
-            logger.error("add_participant failed: %s", e, exc_info=True)
-            return _make_error(str(e))
-
-    @tool(
-        "thenvoi_remove_participant",
-        "Remove a participant from the chat room by name.",
-        {
-            "room_id": str,
-            "name": str,
-        },
-    )
-    async def remove_participant(args: dict[str, Any]) -> dict[str, Any]:
-        """Remove participant from chat room via API."""
-        try:
-            room_id = args.get("room_id", "")
-            name = args.get("name", "")
-
-            logger.info("[%s] remove_participant: %s", room_id, name)
-
-            tools = _get_tools(room_id)
-            result = await tools.remove_participant(name)
-
-            # NOTE: Race condition fix - same as add_participant (see above)
-            # Update cache immediately so removed participant can't be mentioned.
-            executions = agent.runtime.executions if agent.runtime else {}
-            execution = executions.get(room_id)
-            if execution:
-                execution.remove_participant(result["id"])
-
-            return _make_result(
-                {
-                    "status": "success",
-                    "message": f"Participant '{name}' removed",
-                    **result,
-                }
-            )
-
-        except Exception as e:
-            logger.error("remove_participant failed: %s", e, exc_info=True)
-            return _make_error(str(e))
-
-    @tool(
-        "thenvoi_get_participants",
-        "Get list of participants currently in the chat room.",
-        {
-            "room_id": str,
-        },
-    )
-    async def get_participants(args: dict[str, Any]) -> dict[str, Any]:
-        """Get participants in chat room via API."""
-        try:
-            room_id = args.get("room_id", "")
-
-            logger.debug("[%s] get_participants", room_id)
-
-            tools = _get_tools(room_id)
-            participants = await tools.get_participants()
-
-            return _make_result(
-                {
-                    "status": "success",
-                    "participants": participants,
-                    "count": len(participants),
-                }
-            )
-
-        except Exception as e:
-            logger.error("get_participants failed: %s", e, exc_info=True)
-            return _make_error(str(e))
-
-    @tool(
-        "thenvoi_lookup_peers",
-        "Look up available users and agents that can be added to the chat room. Returns peers NOT already in the room.",
-        {
-            "room_id": str,
-            "page": int,
-            "page_size": int,
-        },
-    )
-    async def lookup_peers(args: dict[str, Any]) -> dict[str, Any]:
-        """Look up available peers via API."""
-        try:
-            room_id = args.get("room_id", "")
-            page = args.get("page", 1)
-            page_size = args.get("page_size", 50)
-
-            logger.debug(
-                "[%s] lookup_peers: page=%s, page_size=%s", room_id, page, page_size
-            )
-
-            tools = _get_tools(room_id)
-            result = await tools.lookup_peers(page, page_size)
-
-            return _make_result(
-                {
-                    "status": "success",
-                    **result,
-                }
-            )
-
-        except Exception as e:
-            logger.error("lookup_peers failed: %s", e, exc_info=True)
-            return _make_error(str(e))
-
-    @tool(
-        "thenvoi_create_chatroom",
-        "Create a new chat room. Optionally link it to a task by providing a task_id.",
-        {
-            "room_id": str,
-            "task_id": str,  # Optional task ID to associate with the room
-        },
-    )
-    async def create_chatroom(args: dict[str, Any]) -> dict[str, Any]:
-        """Create a new chat room via API."""
-        task_id = args.get("task_id") or None
-        try:
-            room_id = args.get("room_id", "")
-            logger.info("[%s] create_chatroom: task_id=%s", room_id, task_id)
-
-            tools = _get_tools(room_id)
-            new_room_id = await tools.create_chatroom(task_id)
-
-            return _make_result(
-                {
-                    "status": "success",
-                    "message": "Chat room created",
-                    "room_id": new_room_id,
-                }
-            )
-
-        except Exception as e:
-            logger.exception("create_chatroom failed (task_id=%s): %s", task_id, e)
-            return _make_error(str(e))
-
-    # Create MCP SDK server with all tools
-    server = create_sdk_mcp_server(
-        name="thenvoi",
-        version="1.0.0",
-        tools=[
-            send_message,
-            send_event,
-            add_participant,
-            remove_participant,
-            get_participants,
-            lookup_peers,
-            create_chatroom,
-        ],
-    )
-
+    tool_bindings = ToolBindingFactory(binding_logger=logger)
+    server_tools = [
+        _build_claude_tool(agent, descriptor, tool_bindings)
+        for descriptor in _CLAUDE_TOOL_DESCRIPTORS
+    ]
+    server = create_sdk_mcp_server(name="thenvoi", version="1.0.0", tools=server_tools)
     logger.info(
-        "Thenvoi MCP SDK server created with %d real tools", len(THENVOI_CHAT_TOOLS)
+        "Thenvoi MCP SDK server created with %d real tools",
+        len(THENVOI_CHAT_TOOLS),
     )
-
     return server

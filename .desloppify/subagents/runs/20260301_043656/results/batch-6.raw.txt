@@ -1,0 +1,103 @@
+{
+  "batch": "Package Organization",
+  "batch_index": 6,
+  "assessments": {
+    "package_organization": 72.0,
+    "high_level_elegance": 74.0
+  },
+  "dimension_notes": {
+    "package_organization": {
+      "evidence": [
+        "tests/integration/test_a2a_gateway_context.py mixes mock-based unit behavior and real-platform E2E behavior in one file under a generic integration folder, while the same domain (A2A gateway) is owned by a dedicated package path in src/thenvoi/integrations/a2a/gateway.",
+        "tests/integration/conftest.py is a large re-export shim of tests.conftest_integration symbols; holistic_context marks this file as high fan-in (12 importers), showing centralized cross-directory fixture dependency rather than domain-local fixture ownership.",
+        "Contact runtime code is split as peer modules at src/thenvoi/runtime/contact_handler.py and src/thenvoi/runtime/contact_tools.py, but src/thenvoi/runtime/__init__.py exposes broad runtime APIs without a dedicated contact boundary, making the package shape less navigable."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    },
+    "high_level_elegance": {
+      "evidence": [
+        "The testing surface for one capability (A2A context routing) is decomposed by execution mode (unit vs E2E) inside a single integration file instead of by capability boundary, which obscures ownership and expected placement for future related tests.",
+        "Fixture/public API ownership is split between tests.conftest_integration and tests/integration/conftest.py; this indirection requires readers to trace multiple module entrypoints to understand one subsystem's setup contract.",
+        "Runtime contact handling appears as additive modules in the runtime root instead of a coherent contact subpackage with one explicit façade, so top-level runtime decomposition does not clearly communicate where contact capability starts/ends."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "architectural_change",
+      "confidence": "medium"
+    }
+  },
+  "findings": [
+    {
+      "dimension": "package_organization",
+      "identifier": "a2a_test_boundary_split",
+      "summary": "A2A gateway context tests are placed in a generic integration bucket and combine unit/E2E concerns, weakening domain-based directory boundaries.",
+      "related_files": [
+        "tests/integration/test_a2a_gateway_context.py",
+        "tests/integration/conftest.py"
+      ],
+      "evidence": [
+        "tests/integration/test_a2a_gateway_context.py contains both mock-only tests (gateway_adapter_with_mocks) and real API tests guarded by @requires_api in one module.",
+        "The file targets A2AGatewayAdapter directly but is not organized under a domain-focused A2A integration test path.",
+        "tests/integration/conftest.py centralizes integration fixtures via re-exports, reinforcing a broad bucket rather than capability-local test ownership."
+      ],
+      "suggestion": "Staged reorg plan: (1) create target folders `tests/integration/a2a_gateway/` and `tests/integration/shared/`; (2) move mock-context tests to `tests/integration/a2a_gateway/test_context_id_unit.py` and real-platform tests to `tests/integration/a2a_gateway/test_context_id_e2e.py`; (3) move generic fixtures/markers now in `tests/integration/conftest.py` into `tests/integration/shared/conftest.py` and keep only minimal local imports in package-level conftest; (4) update imports (`from .conftest import requires_api` -> `from tests.integration.shared.conftest import requires_api`) and run `rg -n \"from \\.conftest|tests\\.integration\\.conftest\" tests/`; (5) validate with `uv run pytest tests/integration/a2a_gateway -v` and `uv run pytest tests/ --ignore=tests/integration/ -v`.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "test_boundary_blur"
+    },
+    {
+      "dimension": "high_level_elegance",
+      "identifier": "integration_fixture_api_indirection",
+      "summary": "Integration fixture API is exposed through a pass-through module, creating unclear ownership and a duplicated public setup surface.",
+      "related_files": [
+        "tests/integration/conftest.py",
+        "tests/integration/test_a2a_gateway_context.py",
+        "tests/integration/__init__.py"
+      ],
+      "evidence": [
+        "tests/integration/conftest.py re-exports a long symbol list from tests.conftest_integration rather than owning fixture definitions.",
+        "test_a2a_gateway_context.py consumes `requires_api` via relative import from `.conftest`, coupling tests to the shim entrypoint instead of a stable shared fixture module.",
+        "tests/integration/__init__.py is only a package marker/docstring and does not provide boundary semantics for the integration subsystem."
+      ],
+      "suggestion": "Staged reorg plan: (1) establish a single authoritative fixture module at `tests/integration/shared/fixtures.py` (or `tests/integration/shared/conftest.py`) and move integration marker ownership there; (2) reduce `tests/integration/conftest.py` to the minimal pytest hook surface needed for discovery; (3) update integration tests to import markers/helpers from the shared module directly; (4) remove redundant re-exports in phases and check with `rg -n \"from tests\\.conftest_integration|from \\.conftest\" tests/integration`; (5) validate via `uv run pytest tests/integration -v`.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "architectural_change",
+      "root_cause_cluster": "test_boundary_blur"
+    },
+    {
+      "dimension": "package_organization",
+      "identifier": "runtime_contacts_not_bounded_subpackage",
+      "summary": "Contact runtime capability is implemented as root-level runtime peers without a dedicated package boundary, making navigation and ownership diffuse.",
+      "related_files": [
+        "src/thenvoi/runtime/contact_handler.py",
+        "src/thenvoi/runtime/contact_tools.py",
+        "src/thenvoi/runtime/__init__.py",
+        "tests/runtime/test_contact_config.py"
+      ],
+      "evidence": [
+        "Contact-specific modules (`contact_handler.py`, `contact_tools.py`) live beside broad runtime modules instead of under a focused contact package.",
+        "src/thenvoi/runtime/__init__.py exposes many runtime components but no explicit contact namespace/facade, so contact capability is discovered through internal module paths.",
+        "tests/runtime/test_contact_config.py validates contact configuration behavior by importing runtime types directly, indicating contact concerns are spread across runtime root modules."
+      ],
+      "suggestion": "Staged reorg plan: (1) create `src/thenvoi/runtime/contacts/` with `handler.py`, `tools.py`, and `__init__.py`; (2) move contact-related constants/types wiring toward this namespace while keeping compatibility shims in old module paths; (3) add explicit exports in `src/thenvoi/runtime/__init__.py` (or intentionally keep internal and document) so public surface is clear; (4) update imports with `rg -n \"runtime\\.contact_(handler|tools)\" src tests` and replace paths incrementally; (5) validate with `uv run pytest tests/runtime/test_contact_config.py tests/runtime/test_broadcast_changes.py -v` and then full runtime tests.",
+      "confidence": "medium",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "runtime_contact_boundary_blur"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "Directory boundaries are organized by execution mode/convenience wrappers rather than capability ownership.",
+      "Public fixture/runtime entrypoints have grown through re-export accretion, obscuring authoritative module ownership."
+    ],
+    "likely_symptoms": [
+      "a2a_test_boundary_split",
+      "integration_fixture_api_indirection"
+    ],
+    "possible_false_positives": []
+  }
+}

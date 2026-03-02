@@ -1,0 +1,125 @@
+{
+  "batch": "Cross-cutting Sweep",
+  "batch_index": 8,
+  "assessments": {
+    "ai_generated_debt": 71.4
+  },
+  "dimension_notes": {
+    "ai_generated_debt": {
+      "evidence": [
+        "Nine separate example logging modules implement near-identical `setup_logging()` wrappers that mostly forward options to `setup_example_logging` with minor tuple differences (`examples/a2a_bridge/setup_logging.py`, `examples/langgraph/setup_logging.py`, `examples/codex/setup_logging.py`, etc.).",
+        "Large instructional prompt/docstring blocks dominate files and restate obvious behavior instead of encoding reusable policy objects (`examples/langgraph/prompts.py`, `examples/prompts/characters.py`, `examples/langgraph/standalone_rag.py`, `examples/langgraph/standalone_sql_agent.py`).",
+        "Multiple tiny wrapper/re-export modules provide little or no behavior beyond forwarding symbols (`examples/coding_agents/tools/example_tools.py`, `examples/claude_sdk_docker/tools/example_tools.py`, `tests/integration/conftest.py`, `tests/framework_conformance/conftest.py`)."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "findings": [
+    {
+      "dimension": "ai_generated_debt",
+      "identifier": "duplicated_example_logging_wrappers",
+      "summary": "Example logging setup is repeated as near-identical pass-through wrappers across many files.",
+      "related_files": [
+        "examples/a2a_bridge/setup_logging.py",
+        "examples/a2a_gateway/setup_logging.py",
+        "examples/anthropic/setup_logging.py",
+        "examples/claude_sdk/setup_logging.py",
+        "examples/codex/setup_logging.py",
+        "examples/crewai/setup_logging.py",
+        "examples/langgraph/setup_logging.py",
+        "examples/parlant/setup_logging.py",
+        "examples/pydantic_ai/setup_logging.py"
+      ],
+      "evidence": [
+        "Most files define only `setup_logging(level=...)` and immediately call `setup_example_logging(...)` with slight argument variation.",
+        "Docstrings are also repeated with nearly identical wording ('Shared logging configuration for examples').",
+        "Behavioral differences (extra/warning/debug loggers) are data-level options but are hard-coded in duplicate function shells."
+      ],
+      "suggestion": "Replace per-example wrapper modules with a shared `build_logging_setup(profile)` helper or centralized config map keyed by example family, then keep only minimal profile declarations in each example package.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "copy_paste_wrapper_pattern"
+    },
+    {
+      "dimension": "ai_generated_debt",
+      "identifier": "prompt_and_docstring_instruction_bloat",
+      "summary": "Prompt/template files contain very long repetitive instruction blocks that encode policy as prose rather than structured rules.",
+      "related_files": [
+        "examples/langgraph/prompts.py",
+        "examples/prompts/characters.py",
+        "examples/langgraph/standalone_rag.py",
+        "examples/langgraph/standalone_sql_agent.py"
+      ],
+      "evidence": [
+        "`generate_langgraph_agent_prompt` embeds an extremely long monolithic template with repeated completion/mention reminders and duplicated examples.",
+        "`characters.py` stores very large role-play prompts with repeated 'BAD/GOOD' pairs and restated constraints, inflating maintenance cost.",
+        "Standalone LangGraph examples include tutorial-style explanatory blocks that repeat what function/type names already express."
+      ],
+      "suggestion": "Move repeated behavioral rules into compact reusable policy sections (or constants), deduplicate repeated warnings/examples, and keep file-level docstrings to intent/constraints not walkthrough prose.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "prose_over_structure"
+    },
+    {
+      "dimension": "ai_generated_debt",
+      "identifier": "reexport_shell_modules_without_policy",
+      "summary": "Several modules exist primarily as forwarding shells, increasing surface area without adding domain behavior.",
+      "related_files": [
+        "examples/coding_agents/tools/example_tools.py",
+        "examples/claude_sdk_docker/tools/example_tools.py",
+        "tests/integration/conftest.py",
+        "src/thenvoi/adapters/a2a.py",
+        "src/thenvoi/adapters/a2a_gateway.py"
+      ],
+      "evidence": [
+        "Both `example_tools.py` files are byte-for-byte style re-exports of `thenvoi.testing.example_tools` symbols.",
+        "`tests/integration/conftest.py` re-exports a long symbol list from `tests/conftest_integration.py` with no behavior.",
+        "Adapter modules `a2a.py` and `a2a_gateway.py` only re-export integration symbols, adding package indirection."
+      ],
+      "suggestion": "Collapse pure forwarding shells where possible; where compatibility aliases are required, centralize aliasing in one compatibility module and annotate sunset/ownership to prevent wrapper sprawl.",
+      "confidence": "medium",
+      "impact_scope": "subsystem",
+      "fix_scope": "architectural_change",
+      "root_cause_cluster": "copy_paste_wrapper_pattern"
+    },
+    {
+      "dimension": "ai_generated_debt",
+      "identifier": "trivial_getter_fixture_boilerplate",
+      "summary": "Test helper modules include many tiny no-logic getters/factories that look auto-generated and add navigation noise.",
+      "related_files": [
+        "tests/conftest_integration.py",
+        "tests/framework_conformance/conftest.py",
+        "tests/conftest.py"
+      ],
+      "evidence": [
+        "`tests/conftest_integration.py` defines multiple one-line getters (`get_api_key*`, `get_base_url`, `get_ws_url`, `get_test_agent_id*`) that directly proxy `test_settings` fields.",
+        "`tests/framework_conformance/conftest.py` contains thin fixtures (`converter_config`, `adapter_config`, `output`) and nested factory wrappers with minimal added semantics.",
+        "`tests/conftest.py` contains many repetitive event factory helpers with largely mechanical payload assembly."
+      ],
+      "suggestion": "Consolidate one-line getters into a typed settings object fixture and replace repetitive event constructors with parametrized factory utilities/data builders to reduce boilerplate volume.",
+      "confidence": "medium",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "copy_paste_wrapper_pattern"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "Preference for copy-forwarding modules over configuration-driven reuse",
+      "Behavior encoded as long prose blocks instead of composable rule structures",
+      "Compatibility/convenience wrappers accumulated without consolidation boundaries"
+    ],
+    "likely_symptoms": [
+      "duplicated_example_logging_wrappers",
+      "reexport_shell_modules_without_policy",
+      "trivial_getter_fixture_boilerplate"
+    ],
+    "possible_false_positives": [
+      "Some re-export wrappers may be intentionally retained for public import-path stability."
+    ]
+  }
+}

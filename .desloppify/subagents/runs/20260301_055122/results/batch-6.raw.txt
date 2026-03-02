@@ -1,0 +1,159 @@
+{
+  "batch": "Governance & Contracts",
+  "batch_index": 6,
+  "assessments": {
+    "cross_module_architecture": 76.0,
+    "high_level_elegance": 71.0,
+    "test_strategy": 74.0,
+    "package_organization": 77.0
+  },
+  "dimension_notes": {
+    "cross_module_architecture": {
+      "evidence": [
+        "`examples/a2a_gateway/demo_orchestrator/agent.py` uses module-global `_gateway_client` + `set_gateway_client()` and tool functions read that singleton instead of instance-owned dependencies.",
+        "`thenvoi-bridge/bridge_core/session.py` states eviction depends on external health polling rather than store-internal lifecycle control, making runtime behavior depend on deployment choreography."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "architectural_change",
+      "confidence": "high"
+    },
+    "high_level_elegance": {
+      "evidence": [
+        "`README.md` package structure lists modules/files that do not match current runtime naming/contracts (e.g., `events.py`, `agent_runtime.py`, `room_presence.py`, `agent_tools.py`, `trackers.py`).",
+        "`README.md` custom adapter example imports `thenvoi.adapters.base.SimpleAdapter`, while the project structure and implementation organize adapter protocol differently, making extension guidance untrustworthy."
+      ],
+      "impact_scope": "codebase",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    },
+    "test_strategy": {
+      "evidence": [
+        "`pyproject.toml` excludes `tests/**`, `examples/**`, and `thenvoi-bridge/**` from `pyrefly`, removing static checks for documented bridge/orchestrator paths.",
+        "`tests/conftest.py` skips integration collection in CI via `pytest_ignore_collect`, while `README.md` positions integration-heavy gateway/bridge flows as key capabilities; this leaves quality-gate blind spots on cross-module behavior."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    },
+    "package_organization": {
+      "evidence": [
+        "Holistic structure shows `examples/a2a_gateway/demo_orchestrator/` is script-zoned with low fan-in (avg 1.6) while implementing non-trivial runtime orchestration behavior.",
+        "`thenvoi-bridge/bridge_core/` contains production logic outside `src/` and is excluded from type-check scope in `pyproject.toml`, creating split ownership and uneven governance for adjacent integration contracts."
+      ],
+      "impact_scope": "codebase",
+      "fix_scope": "architectural_change",
+      "confidence": "high"
+    }
+  },
+  "findings": [
+    {
+      "dimension": "cross_module_architecture",
+      "identifier": "gateway_singleton_hidden_coupling",
+      "summary": "Orchestrator tool wiring relies on mutable module-global client state.",
+      "related_files": [
+        "examples/a2a_gateway/demo_orchestrator/agent.py",
+        "examples/a2a_gateway/demo_orchestrator/remote_agent.py"
+      ],
+      "evidence": [
+        "`_gateway_client` is global, set by `set_gateway_client()`, and consumed by `call_peer_agent` tool.",
+        "Agent instances do not pass client dependencies explicitly to tool execution; instance isolation is bypassed by process-global state."
+      ],
+      "suggestion": "Remove `_gateway_client` and build tools as instance-bound closures/factories (e.g., `make_call_peer_tool(client)`), then pass those tools to `create_react_agent` so each `OrchestratorAgent` has explicit dependency ownership.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "architectural_change",
+      "root_cause_cluster": "implicit_runtime_contracts"
+    },
+    {
+      "dimension": "cross_module_architecture",
+      "identifier": "session_eviction_externalized_contract",
+      "summary": "Session lifecycle correctness depends on external health polling side effects.",
+      "related_files": [
+        "thenvoi-bridge/bridge_core/session.py",
+        "README.md"
+      ],
+      "evidence": [
+        "`InMemorySessionStore` documents lazy eviction only on `list_sessions`/`count`, and explicitly ties safe operation to external health checks.",
+        "Operational requirement is not enforced by the store contract itself, so deployments can silently accumulate stale sessions when health polling is absent."
+      ],
+      "suggestion": "Make eviction an internal lifecycle responsibility: add periodic background eviction in bridge startup, or run bounded opportunistic eviction in `get`/`get_or_create`; document this as a guaranteed store behavior rather than an optional deployment convention.",
+      "confidence": "medium",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "implicit_runtime_contracts"
+    },
+    {
+      "dimension": "high_level_elegance",
+      "identifier": "readme_runtime_map_drift",
+      "summary": "Top-level architecture docs drift from actual module and API contracts.",
+      "related_files": [
+        "README.md",
+        "pyproject.toml"
+      ],
+      "evidence": [
+        "README structure and extension examples reference paths/contracts that do not align with the current declared package layout and runtime naming.",
+        "Public onboarding depends on README as architectural source-of-truth; drift causes incorrect mental model and failed extension attempts."
+      ],
+      "suggestion": "Regenerate README architecture and extension sections directly from current package metadata/layout, then add a docs consistency check in CI (e.g., script that validates referenced module paths/import snippets exist).",
+      "confidence": "high",
+      "impact_scope": "codebase",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "governance_contract_drift"
+    },
+    {
+      "dimension": "test_strategy",
+      "identifier": "quality_gate_blind_spots_for_documented_paths",
+      "summary": "Quality gates under-cover bridge/orchestrator contracts presented as supported flows.",
+      "related_files": [
+        "pyproject.toml",
+        "tests/conftest.py",
+        "tests/integration/conftest.py",
+        "README.md"
+      ],
+      "evidence": [
+        "Type checking excludes `examples/**` and `thenvoi-bridge/**` even though README documents gateway/orchestrator/bridge as operational usage paths.",
+        "Integration collection is conditionally skipped in CI, reducing continuous verification of cross-module contracts."
+      ],
+      "suggestion": "Add a governance profile for contract-critical non-`src` paths: run pyrefly on `examples/a2a_gateway/demo_orchestrator/*.py` and `thenvoi-bridge/bridge_core/*.py`, and add a CI lane that runs a minimal integration subset for gateway/bridge contract checks.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "governance_contract_drift"
+    },
+    {
+      "dimension": "package_organization",
+      "identifier": "runtime_capabilities_split_across_unowned_zones",
+      "summary": "Documented runtime capabilities are split across package, example, and bridge zones.",
+      "related_files": [
+        "README.md",
+        "pyproject.toml",
+        "examples/a2a_gateway/demo_orchestrator/agent.py",
+        "examples/a2a_gateway/demo_orchestrator/remote_agent.py",
+        "thenvoi-bridge/bridge_core/session.py"
+      ],
+      "evidence": [
+        "Holistic structure: `examples/a2a_gateway/demo_orchestrator/` has avg fan-in 1.6 and script-zone classification despite containing orchestrator runtime behavior.",
+        "`thenvoi-bridge/bridge_core/` holds production logic outside `src/` and outside type-check scope, while README presents these flows as first-class capabilities."
+      ],
+      "suggestion": "Staged reorg plan: Stage 1 move reusable orchestrator/bridge runtime code into `src/thenvoi/integrations/a2a_gateway/orchestrator/` and `src/thenvoi/integrations/a2a_bridge/` (leave thin CLI/demo wrappers in `examples/`); Stage 2 update imports and entrypoints in README/examples to point to new module paths; Stage 3 enforce validation with `rg \"demo_orchestrator|bridge_core\" -n`, `uv run pyrefly check`, `uv run ruff check .`, and `uv run pytest tests/ --ignore=tests/integration/ -v` plus gateway/bridge integration subset.",
+      "confidence": "high",
+      "impact_scope": "codebase",
+      "fix_scope": "architectural_change",
+      "root_cause_cluster": "boundary_ownership_blur"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "Governance artifacts (README, quality gates, package boundaries) are not enforced as synchronized contracts.",
+      "Operational behaviors are encoded as conventions (global state, deployment polling) instead of explicit architecture boundaries."
+    ],
+    "likely_symptoms": [
+      "gateway_singleton_hidden_coupling",
+      "readme_runtime_map_drift",
+      "quality_gate_blind_spots_for_documented_paths"
+    ],
+    "possible_false_positives": [
+      "session_eviction_externalized_contract may be acceptable if deployment policy universally guarantees health polling."
+    ]
+  }
+}

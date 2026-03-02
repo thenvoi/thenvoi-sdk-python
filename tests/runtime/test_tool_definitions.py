@@ -11,7 +11,7 @@ Tests:
 import pytest
 from pydantic import ValidationError
 
-from thenvoi.runtime.tools import (
+from thenvoi.runtime.tool_definitions import (
     TOOL_MODELS,
     SendMessageInput,
     SendEventInput,
@@ -19,6 +19,7 @@ from thenvoi.runtime.tools import (
     LookupPeersInput,
     get_tool_description,
 )
+from thenvoi.runtime.tools import TOOL_MODELS as COMPAT_TOOL_MODELS
 
 
 class TestSendMessageInput:
@@ -143,6 +144,9 @@ class TestToolModelsRegistry:
             "thenvoi_archive_memory",
         }
         assert set(TOOL_MODELS.keys()) == expected
+
+    def test_runtime_tools_compat_reexports_registry(self):
+        assert COMPAT_TOOL_MODELS is TOOL_MODELS
 
     def test_models_have_docstrings(self):
         """All models should have docstrings for LLM descriptions."""

@@ -15,8 +15,10 @@ class A2AAuth:
     - headers: Custom headers for authentication
 
     Example:
+        import os
+
         # API key auth
-        auth = A2AAuth(api_key="my-secret-key")
+        auth = A2AAuth(api_key=os.environ["A2A_API_KEY"])
 
         # Bearer token
         auth = A2AAuth(bearer_token="eyJ...")

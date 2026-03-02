@@ -1,0 +1,120 @@
+{
+  "batch": "Conventions & Errors",
+  "batch_index": 2,
+  "assessments": {
+    "convention_outlier": 74.0
+  },
+  "dimension_notes": {
+    "convention_outlier": {
+      "evidence": [
+        "Error-handling conventions diverge across sibling integrations: `src/thenvoi/integrations/langgraph/langchain_tools.py` catches broad exceptions in nearly every wrapper and returns error strings, while `examples/a2a_gateway/demo_orchestrator/remote_agent.py` and `docker/shared/config_loader.py` convert failures into raised exceptions (`RuntimeError`/`ValueError`).",
+        "Package export conventions are inconsistent at the top-level API boundary: `src/thenvoi/__init__.py` and `src/thenvoi/runtime/__init__.py` expose very large re-export surfaces, while sibling integration packages like `src/thenvoi/integrations/anthropic/__init__.py`, `src/thenvoi/integrations/parlant/__init__.py`, and `src/thenvoi/integrations/pydantic_ai/__init__.py` export empty `__all__`.",
+        "Example logging modules implement divergent setup contracts for the same role (`setup_logging`): `examples/codex/setup_logging.py` customizes root logger, stream target, and format, while most sibling modules only pass a level and optional extra logger names.",
+        "Near-duplicate tool package initializers use different registration idioms without a shared convention (`examples/claude_sdk_docker/tools/__init__.py` uses tuple-to-dict staging while `examples/coding_agents/tools/__init__.py` uses direct literal registry)."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "findings": [
+    {
+      "dimension": "convention_outlier",
+      "identifier": "mixed_tool_error_contracts",
+      "summary": "Tool-layer failures are surfaced with incompatible contracts (string-returned errors vs raised exceptions) across adjacent integrations.",
+      "related_files": [
+        "src/thenvoi/integrations/langgraph/langchain_tools.py",
+        "src/thenvoi/integrations/parlant/tools.py",
+        "examples/a2a_gateway/demo_orchestrator/remote_agent.py",
+        "docker/shared/config_loader.py"
+      ],
+      "evidence": [
+        "`agent_tools_to_langchain` wrappers catch `Exception` and return strings like `\"Error ...\"` for send/add/remove/contact/memory operations.",
+        "`create_parlant_tools` similarly catches exceptions and returns `ToolResult(data=\"Error ...\")` instead of propagating typed failures.",
+        "`GatewayClient.call_peer` catches and re-raises as `RuntimeError`, and `load_config` raises `ValueError` for file/YAML errors, creating a different failure protocol for callers."
+      ],
+      "suggestion": "Define a single cross-integration tool error convention (for example: structured error object with code/message/details, or always raise typed domain exceptions at adapter boundaries) and refactor LangGraph/Parlant/A2A helper layers to follow it consistently.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "architectural_change",
+      "root_cause_cluster": "error_contract_fragmentation"
+    },
+    {
+      "dimension": "convention_outlier",
+      "identifier": "init_export_surface_drift",
+      "summary": "Public package `__init__` files follow conflicting export philosophies, making API discovery inconsistent.",
+      "related_files": [
+        "src/thenvoi/__init__.py",
+        "src/thenvoi/runtime/__init__.py",
+        "src/thenvoi/integrations/anthropic/__init__.py",
+        "src/thenvoi/integrations/parlant/__init__.py",
+        "src/thenvoi/integrations/pydantic_ai/__init__.py"
+      ],
+      "evidence": [
+        "`src/thenvoi/__init__.py` re-exports a broad mixed surface (composition/platform/runtime/types/tools/formatters/trackers/shutdown helpers).",
+        "`src/thenvoi/runtime/__init__.py` repeats another broad aggregator pattern, while multiple sibling integration packages expose empty `__all__` and no symbols.",
+        "The result is that similar package levels do not follow a predictable import contract (facade-heavy vs intentionally empty)."
+      ],
+      "suggestion": "Standardize `__init__` policy by package tier (e.g., thin facades with curated stable symbols, no deep internal re-exports, and explicit rationale for empty facades) and apply it consistently across core/runtime/integrations.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "public_api_convention_drift"
+    },
+    {
+      "dimension": "convention_outlier",
+      "identifier": "example_logging_contract_drift",
+      "summary": "Sibling example modules expose the same `setup_logging` entry point but with materially different behavior and options.",
+      "related_files": [
+        "examples/codex/setup_logging.py",
+        "examples/langgraph/setup_logging.py",
+        "examples/a2a_gateway/setup_logging.py",
+        "examples/claude_sdk/setup_logging.py",
+        "examples/a2a_bridge/setup_logging.py"
+      ],
+      "evidence": [
+        "`examples/codex/setup_logging.py` configures root level, stdout streaming, custom format/date handling, and warning logger suppression.",
+        "`examples/a2a_gateway/setup_logging.py` sets `root_level` and warning logger overrides, while `examples/langgraph/setup_logging.py` passes only level with default behavior.",
+        "`examples/a2a_bridge/setup_logging.py` adds an extra boolean (`a2a_debug`) absent in other siblings, creating multiple incompatible invocation conventions."
+      ],
+      "suggestion": "Introduce a shared example logging profile abstraction (named presets plus consistent function signature) and have each example module call that profile instead of ad-hoc per-directory contracts.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "example_module_contract_drift"
+    },
+    {
+      "dimension": "convention_outlier",
+      "identifier": "duplicated_tool_registry_patterns",
+      "summary": "Two example tool packages implement nearly identical registries with different structure, creating avoidable style islands.",
+      "related_files": [
+        "examples/claude_sdk_docker/tools/__init__.py",
+        "examples/coding_agents/tools/__init__.py",
+        "examples/claude_sdk_docker/tools/example_tools.py",
+        "examples/coding_agents/tools/example_tools.py"
+      ],
+      "evidence": [
+        "Both packages re-export the same tool set (`calculator`, `get_time`, `random_number`) and both example_tools modules are identical namespace re-exports from `thenvoi.testing.example_tools`.",
+        "Registry assembly differs (`_TOOLS` tuple then `dict(_TOOLS)` vs direct dict literal), without any behavioral reason indicated in code comments/docs."
+      ],
+      "suggestion": "Extract a single shared registry builder (or one shared tools package) and have both example directories import it to remove convention drift and reduce duplicate maintenance surfaces.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "example_module_contract_drift"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "No enforced cross-integration convention for how adapters expose and propagate operational errors.",
+      "No explicit policy for package facade breadth (`__init__` export size and intent) by layer.",
+      "Examples evolved independently without a shared contract module for logging/tools scaffolding."
+    ],
+    "likely_symptoms": [
+      "mixed_tool_error_contracts",
+      "example_logging_contract_drift",
+      "duplicated_tool_registry_patterns"
+    ],
+    "possible_false_positives": []
+  }
+}

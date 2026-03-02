@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import logging
 import re
 from typing import Any
@@ -16,6 +15,12 @@ except ImportError as e:
     ) from e
 
 from thenvoi.core.protocols import HistoryConverter
+from thenvoi.converters.normalized_events import (
+    ToolCallHistoryEvent,
+    ToolResultHistoryEvent,
+    TextHistoryEvent,
+    normalize_history_events,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -57,66 +62,52 @@ class LangChainHistoryConverter(HistoryConverter[LangChainMessages]):
     def convert(self, raw: list[dict[str, Any]]) -> LangChainMessages:
         """Convert platform history to LangChain messages."""
         messages: LangChainMessages = []
-        pending_tool_calls: list[dict[str, Any]] = []
+        pending_tool_calls: list[ToolCallHistoryEvent] = []
 
-        for hist in raw:
-            message_type = hist.get("message_type", "text")
-            content = hist.get("content", "")
-            role = hist.get("role")
-            sender_name = hist.get("sender_name", "")
+        for event in normalize_history_events(raw):
+            if isinstance(event, ToolCallHistoryEvent):
+                pending_tool_calls.append(event)
 
-            if message_type == "tool_call":
-                try:
-                    event = json.loads(content)
-                    pending_tool_calls.append(event)
-                except json.JSONDecodeError:
-                    logger.warning("Failed to parse tool_call: %s", content[:100])
+            elif isinstance(event, ToolResultHistoryEvent):
+                tool_name = event.name
+                output = event.output
+                tool_call_id = event.tool_call_id
 
-            elif message_type == "tool_result":
-                try:
-                    event = json.loads(content)
-                    tool_name = event.get("name", "unknown")
-                    output = event.get("data", {}).get("output", "")
+                matching_call: ToolCallHistoryEvent | None = None
+                for i, pending in enumerate(pending_tool_calls):
+                    if pending.name == tool_name:
+                        matching_call = pending_tool_calls.pop(i)
+                        break
 
-                    tool_call_id = self._extract_tool_call_id(str(output))
-                    if not tool_call_id:
-                        tool_call_id = event.get("run_id", "unknown")
-
-                    # Match with pending tool call
-                    matching_call = None
-                    for i, call in enumerate(pending_tool_calls):
-                        if call.get("name") == tool_name:
-                            matching_call = pending_tool_calls.pop(i)
-                            break
-
-                    if matching_call:
-                        tool_input = matching_call.get("data", {}).get("input", {})
-                        messages.append(
-                            AIMessage(
-                                content="",
-                                tool_calls=[
-                                    {
-                                        "id": tool_call_id,
-                                        "name": tool_name,
-                                        "args": tool_input,
-                                    }
-                                ],
-                            )
-                        )
-
+                if matching_call:
                     messages.append(
-                        ToolMessage(content=str(output), tool_call_id=tool_call_id)
+                        AIMessage(
+                            content="",
+                            tool_calls=[
+                                {
+                                    "id": tool_call_id,
+                                    "name": tool_name,
+                                    "args": matching_call.args,
+                                }
+                            ],
+                        )
                     )
-                except json.JSONDecodeError:
-                    logger.warning("Failed to parse tool_result: %s", content[:100])
 
-            elif message_type == "text":
-                if role == "assistant" and sender_name == self._agent_name:
+                messages.append(
+                    ToolMessage(content=str(output), tool_call_id=tool_call_id)
+                )
+
+            elif isinstance(event, TextHistoryEvent):
+                if event.role == "assistant" and event.sender_name == self._agent_name:
                     # Skip only THIS agent's text (redundant with tool calls)
-                    logger.debug("Skipping own message: %s", content[:50])
+                    logger.debug("Skipping own message: %s", event.content[:50])
                 else:
                     # Include user messages AND other agents' messages
-                    messages.append(HumanMessage(content=f"[{sender_name}]: {content}"))
+                    messages.append(
+                        HumanMessage(
+                            content=f"[{event.sender_name}]: {event.content}"
+                        )
+                    )
 
         # Warn about unmatched tool calls
         if pending_tool_calls:
