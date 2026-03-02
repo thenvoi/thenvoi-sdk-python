@@ -827,6 +827,12 @@ langchain_tools = agent_tools_to_langchain(agent_tools)
 
 ---
 
+## Development
+
+See [AGENTS.md](AGENTS.md) for development setup, testing, and contributing guidelines.
+
+---
+
 ## Help & Feedback
 
 - **Documentation:** See `examples/` for complete working examples
