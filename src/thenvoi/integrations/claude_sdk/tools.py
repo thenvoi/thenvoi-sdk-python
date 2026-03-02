@@ -415,7 +415,9 @@ def create_thenvoi_mcp_server(agent: Any):
             )
 
         except Exception as e:
-            logger.exception("create_chatroom failed (task_id=%s): %s", task_id, e)
+            logger.error(
+                "create_chatroom failed (task_id=%s): %s", task_id, e, exc_info=True
+            )
             return _make_error(str(e))
 
     # Create MCP SDK server with all tools
