@@ -5,8 +5,9 @@ This is a Python SDK that connects AI agents to the Thenvoi collaborative platfo
 ## Core Features
 
 1. Multi-framework support (LangGraph, Anthropic, CrewAI, Claude SDK, Pydantic AI, Parlant, Letta)
-2. Platform tools for chat, contacts, and memory management
-3. WebSocket + REST transport: Real-time messaging with REST API fallback
+2. A2A protocol support: Bridge to external A2A agents and expose Thenvoi peers as A2A endpoints
+3. Platform tools for chat, contacts, and memory management
+4. WebSocket + REST transport: Real-time messaging with REST API fallback
 
 ## Platform Tools
 
@@ -158,6 +159,41 @@ agent = Agent.create(
 - Posts task events to room for persistence/visibility
 - Enriches `ContactRequestUpdatedEvent` with sender info via cache + API fallback
 
+## A2A Protocol Integration
+
+The SDK supports the [A2A (Agent-to-Agent) protocol](https://google.github.io/A2A/) in two directions:
+
+### A2A Adapter (outbound)
+
+`A2AAdapter` forwards Thenvoi messages to an external A2A-compliant agent. Each Thenvoi room maps to an A2A context, with automatic session state persistence via task events and session rehydration on room rejoin.
+
+```python
+from thenvoi.adapters.a2a import A2AAdapter, A2AAuth
+
+adapter = A2AAdapter(
+    a2a_url="http://localhost:10000",
+    auth=A2AAuth(api_key="..."),  # optional
+)
+```
+
+### A2A Gateway (inbound)
+
+`A2AGatewayAdapter` + `GatewayServer` expose Thenvoi peers as A2A JSON-RPC endpoints. External A2A clients can send messages to Thenvoi agents via the gateway, with context ID preservation (same `contextId` = same chat room) and SSE streaming responses.
+
+```python
+from thenvoi.adapters.a2a_gateway import A2AGatewayAdapter, GatewayServer
+
+adapter = A2AGatewayAdapter(gateway_port=10000)
+```
+
+### Key files
+
+| Purpose | Path |
+|---|---|
+| A2A Adapter | `src/thenvoi/adapters/a2a.py`, `src/thenvoi/integrations/a2a/adapter.py` |
+| A2A Gateway | `src/thenvoi/adapters/a2a_gateway.py`, `src/thenvoi/integrations/a2a/gateway/` |
+| A2A Types | `src/thenvoi/integrations/a2a/types.py` |
+
 ### REST Client OMIT vs Null
 
 When calling REST endpoints with optional parameters, **never pass `None`** - the Fern client sends `null` which fails backend validation. Instead, use kwargs:
@@ -175,13 +211,16 @@ await client.respond_to_agent_contact_request(**kwargs)
 
 ```
 src/thenvoi/
-├── adapters/       # Framework adapters (langgraph, anthropic, crewai)
+├── adapters/       # Framework adapters (langgraph, anthropic, crewai, a2a, etc.)
 ├── converters/     # History converters per framework
 ├── core/           # Protocols, types, base classes
 ├── runtime/        # Execution context, tools, formatters
 ├── platform/       # WebSocket/REST transport, events
 ├── preprocessing/  # Event filtering before adapter
 ├── client/         # Low-level API clients
+├── integrations/   # Deep framework integrations (a2a, anthropic, claude_sdk, langgraph, parlant, pydantic_ai)
+├── config/         # Configuration management, YAML loading, env parsing
+├── testing/        # Testing utilities (fake tools, test helpers)
 └── agent.py        # Main entry point
 ```
 

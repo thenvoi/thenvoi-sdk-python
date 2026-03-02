@@ -324,6 +324,79 @@ await agent.run()
 
 ---
 
+## Examples Overview
+
+### LangGraph (`examples/langgraph/`)
+
+| File | Description |
+|------|-------------|
+| `01_simple_agent.py` | Minimal setup with `Agent.create()` and LangGraphAdapter |
+| `02_custom_tools.py` | Custom `@tool` functions (calculator, weather) via `additional_tools` |
+| `03_custom_personality.py` | Custom behavior via `custom_instructions` |
+| `04_calculator_as_tool.py` | Wraps a LangGraph as a tool using `graph_as_tool()` |
+| `05_rag_as_tool.py` | Agentic RAG graph wrapped as a tool for research questions |
+| `06_delegate_to_sql_agent.py` | SQL agent with its own LLM and database tools as a subgraph |
+
+### Pydantic AI (`examples/pydantic_ai/`)
+
+| File | Description |
+|------|-------------|
+| `01_basic_agent.py` | Minimal setup with PydanticAIAdapter using OpenAI |
+| `02_custom_instructions.py` | Support agent persona using Anthropic Claude |
+
+### Anthropic SDK (`examples/anthropic/`)
+
+| File | Description |
+|------|-------------|
+| `01_basic_agent.py` | Minimal setup with AnthropicAdapter using Claude Sonnet |
+| `02_custom_instructions.py` | Support agent with execution reporting enabled |
+
+### Claude Agent SDK (`examples/claude_sdk/`)
+
+| File | Description |
+|------|-------------|
+| `01_basic_agent.py` | Minimal setup with ClaudeSDKAdapter using Claude Sonnet |
+| `02_extended_thinking.py` | Extended thinking with 10,000 token thinking budget |
+
+### Codex (`examples/codex/`)
+
+| File | Description |
+|------|-------------|
+| `01_basic_agent.py` | CodexAdapter with room/thread mapping and dynamic Thenvoi tools |
+
+### CrewAI (`examples/crewai/`)
+
+| File | Description |
+|------|-------------|
+| `01_basic_agent.py` | Simple agent with CrewAIAdapter |
+| `02_role_based_agent.py` | Agent with role, goal, and backstory |
+| `03_coordinator_agent.py` | Multi-agent orchestration coordinator |
+| `04_research_crew.py` | Research team with Analyst, Writer, and Editor |
+
+### Parlant (`examples/parlant/`)
+
+| File | Description |
+|------|-------------|
+| `01_basic_agent.py` | Simple agent with ParlantAdapter |
+| `02_with_guidelines.py` | Behavioral guidelines (condition/action rules) |
+| `03_support_agent.py` | Realistic customer support agent |
+
+### A2A Adapter (`examples/a2a_bridge/`)
+
+| File | Description |
+|------|-------------|
+| `01_basic_agent.py` | Basic bridge forwarding Thenvoi messages to an external A2A agent |
+| `02_with_auth.py` | A2A bridge with API key authentication |
+
+### A2A Gateway (`examples/a2a_gateway/`)
+
+| File | Description |
+|------|-------------|
+| `01_basic_gateway.py` | Exposes Thenvoi peers as A2A protocol endpoints |
+| `02_with_demo_agent.py` | Gateway + LangGraph demo orchestrator |
+
+---
+
 ## Running Examples
 
 ### Quick Start with run_agent.py
