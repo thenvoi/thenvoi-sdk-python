@@ -194,7 +194,7 @@ adapter = A2AGatewayAdapter(gateway_port=10000)
 | A2A Gateway | `src/thenvoi/adapters/a2a_gateway.py`, `src/thenvoi/integrations/a2a/gateway/` |
 | A2A Types | `src/thenvoi/integrations/a2a/types.py` |
 
-### REST Client OMIT vs Null
+## REST Client OMIT vs Null
 
 When calling REST endpoints with optional parameters, **never pass `None`** - the Fern client sends `null` which fails backend validation. Instead, use kwargs:
 
