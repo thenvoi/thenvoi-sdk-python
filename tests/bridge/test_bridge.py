@@ -350,6 +350,8 @@ class TestThenvoiBridgeHandleEvent:
             payload=RoomAddedPayload(
                 id="room-new",
                 title="New Room",
+                inserted_at="2024-01-01T00:00:00Z",
+                updated_at="2024-01-01T00:00:00Z",
                 owner=RoomOwner(id="user-1", name="User", type="User"),
                 status="active",
                 type="direct",
@@ -398,6 +400,8 @@ class TestThenvoiBridgeHandleEvent:
             payload=RoomAddedPayload(
                 id="room-new",
                 title="New Room",
+                inserted_at="2024-01-01T00:00:00Z",
+                updated_at="2024-01-01T00:00:00Z",
                 owner=RoomOwner(id="user-1", name="User", type="User"),
                 status="active",
                 type="direct",
@@ -580,6 +584,8 @@ class TestThenvoiBridgeHandleEvent:
             payload=RoomAddedPayload(
                 id="room-new",
                 title="New Room",
+                inserted_at="2024-01-01T00:00:00Z",
+                updated_at="2024-01-01T00:00:00Z",
                 owner=RoomOwner(id="user-1", name="User", type="User"),
                 status="active",
                 type="direct",
@@ -1007,6 +1013,8 @@ class TestConnectAndConsume:
             payload=RoomAddedPayload(
                 id="room-1",
                 title="Room",
+                inserted_at="2024-01-01T00:00:00Z",
+                updated_at="2024-01-01T00:00:00Z",
                 owner=RoomOwner(id="u1", name="User", type="User"),
                 status="active",
                 type="direct",
@@ -1019,6 +1027,8 @@ class TestConnectAndConsume:
             payload=RoomAddedPayload(
                 id="room-2",
                 title="Room 2",
+                inserted_at="2024-01-01T00:00:00Z",
+                updated_at="2024-01-01T00:00:00Z",
                 owner=RoomOwner(id="u1", name="User", type="User"),
                 status="active",
                 type="direct",
@@ -1146,6 +1156,8 @@ class TestConnectAndConsume:
             payload=RoomAddedPayload(
                 id="room-1",
                 title="Room",
+                inserted_at="2024-01-01T00:00:00Z",
+                updated_at="2024-01-01T00:00:00Z",
                 owner=RoomOwner(id="u1", name="User", type="User"),
                 status="active",
                 type="direct",
@@ -1158,6 +1170,8 @@ class TestConnectAndConsume:
             payload=RoomAddedPayload(
                 id="room-2",
                 title="Room 2",
+                inserted_at="2024-01-01T00:00:00Z",
+                updated_at="2024-01-01T00:00:00Z",
                 owner=RoomOwner(id="u1", name="User", type="User"),
                 status="active",
                 type="direct",
@@ -1233,6 +1247,8 @@ class TestConnectAndConsumeShutdownCancelsHandler:
                     payload=RoomAddedPayload(
                         id="room-1",
                         title="Room",
+                        inserted_at="2024-01-01T00:00:00Z",
+                        updated_at="2024-01-01T00:00:00Z",
                         owner=RoomOwner(id="u1", name="User", type="User"),
                         status="active",
                         type="direct",
@@ -1279,6 +1295,8 @@ class TestConnectAndConsumeShutdownCancelsHandler:
             payload=RoomAddedPayload(
                 id="room-1",
                 title="Room",
+                inserted_at="2024-01-01T00:00:00Z",
+                updated_at="2024-01-01T00:00:00Z",
                 owner=RoomOwner(id="u1", name="User", type="User"),
                 status="active",
                 type="direct",

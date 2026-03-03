@@ -67,20 +67,20 @@ class RoomOwner(BaseModel):
 
 
 class RoomAddedPayload(BaseModel):
-    """Payload for room_added events (observed from real WebSocket)."""
+    """Payload for room_added events.
+
+    Required/optional fields aligned with the Fern-generated ChatRoom model
+    (thenvoi_rest.types.chat_room.ChatRoom). The WebSocket may include
+    additional fields which are captured by ``extra="allow"``.
+    """
 
     model_config = ConfigDict(extra="allow")
 
     id: str
+    inserted_at: str
+    updated_at: str
     title: str | None = None
-    owner: RoomOwner | None = None
-    status: str | None = None
-    type: str | None = None
-    created_at: str | None = None
-    participant_role: str | None = None
     task_id: str | None = None
-    inserted_at: str | None = None
-    updated_at: str | None = None
 
 
 class RoomRemovedPayload(BaseModel):
