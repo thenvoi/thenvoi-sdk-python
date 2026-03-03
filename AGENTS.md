@@ -251,7 +251,7 @@ uv run pytest tests/ -k "test_name"
 # Run with coverage
 uv run pytest tests/ --ignore=tests/integration/ --cov=src/thenvoi
 
-# Run integration tests (requires API key)
+# Run integration tests (requires credentials, see below)
 uv run pytest tests/integration/ -v -s --no-cov
 
 # Linting and formatting
@@ -259,6 +259,41 @@ uv run ruff check .
 uv run ruff format .
 uv run pyrefly check
 ```
+
+## Integration Test Setup
+
+Integration tests require a running Thenvoi API server and valid credentials.
+
+```bash
+cp .env.test.example .env.test
+```
+
+Edit `.env.test` with your credentials:
+
+```bash
+# Server URLs
+THENVOI_BASE_URL=http://localhost:4000
+THENVOI_WS_URL=ws://localhost:4000/api/v1/socket/websocket
+
+# Primary test agent
+THENVOI_API_KEY=<your-agent-api-key>
+TEST_AGENT_ID=<agent-uuid>
+
+# Secondary test agent (for multi-agent tests)
+THENVOI_API_KEY_2=<your-second-agent-api-key>
+TEST_AGENT_ID_2=<second-agent-uuid>
+
+# User API key (for dynamic agent tests)
+THENVOI_API_KEY_USER=<your-user-api-key>
+```
+
+| Test Type | Required Credentials |
+|-----------|---------------------|
+| Basic agent tests | `THENVOI_API_KEY`, `TEST_AGENT_ID` |
+| Multi-agent tests | Above + `THENVOI_API_KEY_2`, `TEST_AGENT_ID_2` |
+| Dynamic agent tests | Above + `THENVOI_API_KEY_USER` |
+
+Tests automatically skip if required credentials are not configured.
 
 ## Environment Variables
 
