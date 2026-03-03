@@ -29,6 +29,7 @@ try:
         tool,
         create_sdk_mcp_server,
     )
+    from claude_agent_sdk._errors import CLIConnectionError
 except ImportError as e:
     raise ImportError(
         "claude-agent-sdk is required for Claude SDK examples.\n"
@@ -936,6 +937,20 @@ class ClaudeSDKAdapter(SimpleAdapter[ClaudeSDKSessionState]):
 
             # Process streaming response (MCP tools handle execution)
             await self._process_response(client, room_id, tools)
+
+        except CLIConnectionError as e:
+            # CLI process is dead — evict the cached session so the next
+            # message creates a fresh one instead of reusing the corpse.
+            logger.error(
+                "Room %s: CLI process terminated: %s — invalidating session",
+                room_id,
+                e,
+            )
+            await self._session_manager.invalidate_session(room_id)
+            self._session_ids.pop(room_id, None)
+
+            await self._report_error(tools, str(e))
+            raise
 
         except Exception as e:
             logger.exception("Error processing message: %s", e)
