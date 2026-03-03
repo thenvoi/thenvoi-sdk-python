@@ -10,10 +10,7 @@ from __future__ import annotations
 import asyncio
 import logging
 
-import pytest
-
 from thenvoi_rest import ChatMessageRequest, ChatRoomRequest
-from thenvoi_rest.core.api_error import ApiError
 from thenvoi_rest.types import (
     ChatMessageRequestMentionsItem as Mention,
     ParticipantRequest,

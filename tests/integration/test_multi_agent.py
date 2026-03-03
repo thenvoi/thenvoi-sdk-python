@@ -22,7 +22,6 @@ from __future__ import annotations
 import asyncio
 import logging
 
-import pytest
 from thenvoi_rest import ChatEventRequest, ChatMessageRequest
 from thenvoi_rest.types import (
     ChatMessageRequestMentionsItem as Mention,
@@ -51,6 +50,8 @@ class TestMultiAgentChatRoom:
     ):
         """Test that Agent 2 does NOT see messages in /context where it's not @mentioned."""
         if shared_multi_agent_room is None:
+            import pytest
+
             pytest.skip("shared_multi_agent_room not available")
 
         logger.info("\n" + "=" * 60)
@@ -136,6 +137,8 @@ class TestMultiAgentChatRoom:
     ):
         """Test that Agent 2's WebSocket does NOT receive messages where it's not @mentioned."""
         if shared_multi_agent_room is None:
+            import pytest
+
             pytest.skip("shared_multi_agent_room not available")
 
         logger.info("\n" + "=" * 60)
@@ -220,6 +223,8 @@ class TestMultiAgentChatRoom:
     ):
         """Test that Agent 2 DOES see messages where it IS @mentioned."""
         if shared_multi_agent_room is None:
+            import pytest
+
             pytest.skip("shared_multi_agent_room not available")
 
         logger.info("\n" + "=" * 60)
@@ -279,6 +284,8 @@ class TestMultiAgentChatRoom:
     ):
         """Test that Agent 2 does NOT see Agent 1's events (thoughts, tool_calls, tool_results)."""
         if shared_multi_agent_room is None:
+            import pytest
+
             pytest.skip("shared_multi_agent_room not available")
 
         logger.info("\n" + "=" * 60)
@@ -381,6 +388,8 @@ class TestMultiAgentChatRoom:
     ):
         """Test that each agent sees only their own events, not other agents' events."""
         if shared_multi_agent_room is None:
+            import pytest
+
             pytest.skip("shared_multi_agent_room not available")
 
         logger.info("\n" + "=" * 60)
@@ -465,6 +474,8 @@ class TestMultiAgentChatRoom:
         to add participants that are not yet in the room.
         """
         if shared_multi_agent_room is None:
+            import pytest
+
             pytest.skip("shared_multi_agent_room not available")
 
         logger.info("\n" + "=" * 60)
@@ -532,8 +543,8 @@ class TestMultiAgentChatRoom:
                             chat_id, other_agent_id
                         )
                     )
-                except Exception as e:
-                    logger.debug("Cleanup: remove added agent: %s", e)
+                except Exception:
+                    pass
             except Exception as e:
                 logger.info("FAILED: Agent 2 could not add Agent: %s", type(e).__name__)
                 if "403" in str(e) or "forbidden" in str(e).lower():
@@ -567,6 +578,8 @@ class TestMultiAgentChatRoom:
         then verifies it can add a participant.
         """
         if shared_multi_agent_room is None:
+            import pytest
+
             pytest.skip("shared_multi_agent_room not available")
 
         logger.info("\n" + "=" * 60)
@@ -586,8 +599,8 @@ class TestMultiAgentChatRoom:
                 participant=ParticipantRequest(participant_id=agent2_id, role="admin"),
             )
             logger.info("Promoted Agent 2 to admin")
-        except Exception as e:
-            logger.info("Agent 2 may already be admin or re-add not supported: %s", e)
+        except Exception:
+            logger.info("Agent 2 may already be admin or re-add not supported")
 
         # Verify Agent 2's role
         response = await api_client.agent_api_participants.list_agent_chat_participants(
@@ -656,5 +669,5 @@ class TestMultiAgentChatRoom:
             await api_client.agent_api_participants.remove_agent_chat_participant(
                 chat_id, addable_peer.id
             )
-        except Exception as e:
-            logger.debug("Cleanup: remove added peer: %s", e)
+        except Exception:
+            pass

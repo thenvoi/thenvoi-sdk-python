@@ -8,9 +8,7 @@ from __future__ import annotations
 
 import logging
 
-import pytest
 from thenvoi_rest import ChatEventRequest, ChatMessageRequest
-from thenvoi_rest.core.api_error import ApiError
 from thenvoi_rest.types import (
     ChatMessageRequestMentionsItem as Mention,
     ParticipantRequest,
@@ -30,6 +28,8 @@ class TestFullWorkflow:
     ):
         """Test complete workflow: identity -> chat -> participants -> messages -> events -> lifecycle."""
         if shared_room is None:
+            import pytest
+
             pytest.skip("shared_room not available")
 
         # ============================================================
@@ -298,6 +298,8 @@ class TestMessageFailureLifecycle:
     async def test_mark_message_failed(self, api_client, shared_room, shared_user_peer):
         """Test marking a message as failed with error message."""
         if shared_room is None:
+            import pytest
+
             pytest.skip("shared_room not available")
 
         logger.info("\n" + "=" * 60)
@@ -356,6 +358,8 @@ class TestParticipantOperations:
     ):
         """Test adding and removing a participant from a chat."""
         if shared_room is None:
+            import pytest
+
             pytest.skip("shared_room not available")
 
         logger.info("\n" + "=" * 60)
@@ -370,19 +374,11 @@ class TestParticipantOperations:
 
         # Step 1: Add participant (handle 409 if already present)
         logger.info("\nStep 1: Adding participant...")
-        try:
-            await api_client.agent_api_participants.add_agent_chat_participant(
-                chat_id,
-                participant=ParticipantRequest(
-                    participant_id=test_peer_id, role="member"
-                ),
-            )
-            logger.info("Added participant")
-        except ApiError as e:
-            if e.status_code == 409:
-                logger.info("Participant already in room (409 conflict), continuing")
-            else:
-                raise
+        await api_client.agent_api_participants.add_agent_chat_participant(
+            chat_id,
+            participant=ParticipantRequest(participant_id=test_peer_id, role="member"),
+        )
+        logger.info("Added participant")
 
         # Step 2: Verify participant is present
         logger.info("\nStep 2: Verifying participant is present...")

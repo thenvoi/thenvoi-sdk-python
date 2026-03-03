@@ -20,6 +20,7 @@ Room reuse strategy:
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 from dataclasses import dataclass
@@ -163,6 +164,19 @@ class PeerInfo:
     id: str
     name: str
     type: str
+
+
+# =============================================================================
+# Session-Scoped Event Loop  (required for session-scoped async fixtures)
+# =============================================================================
+
+
+@pytest.fixture(scope="session")
+def event_loop():
+    """Create a session-scoped event loop for async fixtures."""
+    loop = asyncio.new_event_loop()
+    yield loop
+    loop.close()
 
 
 # =============================================================================
