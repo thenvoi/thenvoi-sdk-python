@@ -279,7 +279,7 @@ async def shared_agent1_info(
     """Session-scoped identity info for Agent 1."""
     if session_api_client is None:
         return None
-    response = await session_api_client.agent_api_identity.get_agent_me()
+    response = await session_api_client.agent_api.get_agent_me()
     data = response.data
     return AgentInfo(id=data.id, name=data.name, handle=getattr(data, "handle", None))
 
@@ -291,7 +291,7 @@ async def shared_agent2_info(
     """Session-scoped identity info for Agent 2."""
     if session_api_client_2 is None:
         return None
-    response = await session_api_client_2.agent_api_identity.get_agent_me()
+    response = await session_api_client_2.agent_api.get_agent_me()
     data = response.data
     return AgentInfo(id=data.id, name=data.name, handle=getattr(data, "handle", None))
 
@@ -303,7 +303,7 @@ async def shared_user_peer(
     """Session-scoped User peer (the agent owner)."""
     if session_api_client is None:
         return None
-    response = await session_api_client.agent_api_peers.list_agent_peers()
+    response = await session_api_client.agent_api.list_agent_peers()
     user_peer = next((p for p in (response.data or []) if p.type == "User"), None)
     if user_peer is None:
         return None
@@ -322,12 +322,10 @@ async def _ensure_participant(
     role: str = "member",
 ) -> None:
     """Add a participant to a room if not already present."""
-    response = await api_client.agent_api_participants.list_agent_chat_participants(
-        chat_id
-    )
+    response = await api_client.agent_api.list_agent_chat_participants(chat_id)
     existing_ids = {p.id for p in (response.data or [])}
     if participant_id not in existing_ids:
-        await api_client.agent_api_participants.add_agent_chat_participant(
+        await api_client.agent_api.add_agent_chat_participant(
             chat_id,
             participant=ParticipantRequest(participant_id=participant_id, role=role),
         )
@@ -349,14 +347,14 @@ async def shared_room(
         return None
 
     # Try to reuse an existing room
-    response = await session_api_client.agent_api_chats.list_agent_chats()
+    response = await session_api_client.agent_api.list_agent_chats()
     existing_rooms = response.data or []
     if existing_rooms:
         chat_id = existing_rooms[0].id
         logger.info("Reusing existing room for shared_room: %s", chat_id)
     else:
         # Create a new room
-        create_response = await session_api_client.agent_api_chats.create_agent_chat(
+        create_response = await session_api_client.agent_api.create_agent_chat(
             chat=ChatRoomRequest()
         )
         chat_id = create_response.data.id
@@ -390,13 +388,13 @@ async def shared_multi_agent_room(
     agent2_id = shared_agent2_info.id
 
     # Look for an existing room that already has Agent 2
-    response = await session_api_client.agent_api_chats.list_agent_chats()
+    response = await session_api_client.agent_api.list_agent_chats()
     existing_rooms = response.data or []
 
     chat_id: str | None = None
     for room in existing_rooms:
-        participants_response = await session_api_client.agent_api_participants.list_agent_chat_participants(
-            room.id
+        participants_response = (
+            await session_api_client.agent_api.list_agent_chat_participants(room.id)
         )
         participant_ids = {p.id for p in (participants_response.data or [])}
         if agent2_id in participant_ids:
@@ -406,7 +404,7 @@ async def shared_multi_agent_room(
 
     if chat_id is None:
         # Create a new room and add Agent 2
-        create_response = await session_api_client.agent_api_chats.create_agent_chat(
+        create_response = await session_api_client.agent_api.create_agent_chat(
             chat=ChatRoomRequest()
         )
         chat_id = create_response.data.id
@@ -448,12 +446,12 @@ async def test_peer_id(api_client: AsyncRestClient | None) -> str | None:
         pytest.skip("THENVOI_API_KEY not set")
 
     # Get agent's owner_uuid to exclude from peer selection
-    agent_me = await api_client.agent_api_identity.get_agent_me()
+    agent_me = await api_client.agent_api.get_agent_me()
     agent_owner_uuid = (
         str(agent_me.data.owner_uuid) if agent_me.data.owner_uuid else None
     )
 
-    response = await api_client.agent_api_peers.list_agent_peers()
+    response = await api_client.agent_api.list_agent_peers()
     if response.data:
         # Prefer a peer that is NOT the agent's owner (to avoid P4 protection rule)
         for peer in response.data:

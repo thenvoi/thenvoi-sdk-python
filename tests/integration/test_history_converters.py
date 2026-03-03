@@ -87,7 +87,7 @@ class TestAnthropicConverterIntegration:
         peer_name = shared_user_peer.name
 
         # === STEP 1: Send a user message (with mention to trigger it) ===
-        await api_client.agent_api_messages.create_agent_chat_message(
+        await api_client.agent_api.create_agent_chat_message(
             chat_id,
             message=ChatMessageRequest(
                 content=f"@{peer_name} What's the weather in Tokyo?",
@@ -102,7 +102,7 @@ class TestAnthropicConverterIntegration:
             args={"location": "Tokyo", "unit": "celsius"},
             tool_call_id=tc_id,
         )
-        await api_client.agent_api_events.create_agent_chat_event(
+        await api_client.agent_api.create_agent_chat_event(
             chat_id,
             event=ChatEventRequest(
                 content=tool_call_content,
@@ -117,7 +117,7 @@ class TestAnthropicConverterIntegration:
             output="Tokyo is 22C and sunny",
             tool_call_id=tc_id,
         )
-        await api_client.agent_api_events.create_agent_chat_event(
+        await api_client.agent_api.create_agent_chat_event(
             chat_id,
             event=ChatEventRequest(
                 content=tool_result_content,
@@ -127,9 +127,7 @@ class TestAnthropicConverterIntegration:
         logger.info("Created tool_result event")
 
         # === STEP 4: Fetch history from platform ===
-        context_response = await api_client.agent_api_context.get_agent_chat_context(
-            chat_id
-        )
+        context_response = await api_client.agent_api.get_agent_chat_context(chat_id)
         raw_history = [msg.model_dump() for msg in context_response.data]
         logger.info("Fetched %d messages from platform", len(raw_history))
 
@@ -181,7 +179,7 @@ class TestAnthropicConverterIntegration:
         tc_id_2 = _unique_id("toolu_batch2")
 
         # === Create multiple tool_call events (simulating parallel tool use) ===
-        await api_client.agent_api_events.create_agent_chat_event(
+        await api_client.agent_api.create_agent_chat_event(
             chat_id,
             event=ChatEventRequest(
                 content=_create_tool_call_content(
@@ -190,7 +188,7 @@ class TestAnthropicConverterIntegration:
                 message_type="tool_call",
             ),
         )
-        await api_client.agent_api_events.create_agent_chat_event(
+        await api_client.agent_api.create_agent_chat_event(
             chat_id,
             event=ChatEventRequest(
                 content=_create_tool_call_content(
@@ -201,7 +199,7 @@ class TestAnthropicConverterIntegration:
         )
 
         # === Create corresponding tool_result events ===
-        await api_client.agent_api_events.create_agent_chat_event(
+        await api_client.agent_api.create_agent_chat_event(
             chat_id,
             event=ChatEventRequest(
                 content=_create_tool_result_content(
@@ -210,7 +208,7 @@ class TestAnthropicConverterIntegration:
                 message_type="tool_result",
             ),
         )
-        await api_client.agent_api_events.create_agent_chat_event(
+        await api_client.agent_api.create_agent_chat_event(
             chat_id,
             event=ChatEventRequest(
                 content=_create_tool_result_content(
@@ -221,9 +219,7 @@ class TestAnthropicConverterIntegration:
         )
 
         # === Fetch and convert ===
-        context_response = await api_client.agent_api_context.get_agent_chat_context(
-            chat_id
-        )
+        context_response = await api_client.agent_api.get_agent_chat_context(chat_id)
         raw_history = [msg.model_dump() for msg in context_response.data]
 
         converter = AnthropicHistoryConverter(agent_name=agent_name)
@@ -299,7 +295,7 @@ class TestPydanticAIConverterIntegration:
         peer_name = shared_user_peer.name
 
         # === Create tool events ===
-        await api_client.agent_api_messages.create_agent_chat_message(
+        await api_client.agent_api.create_agent_chat_message(
             chat_id,
             message=ChatMessageRequest(
                 content=f"@{peer_name} Search for Python tutorials",
@@ -307,7 +303,7 @@ class TestPydanticAIConverterIntegration:
             ),
         )
 
-        await api_client.agent_api_events.create_agent_chat_event(
+        await api_client.agent_api.create_agent_chat_event(
             chat_id,
             event=ChatEventRequest(
                 content=_create_tool_call_content(
@@ -317,7 +313,7 @@ class TestPydanticAIConverterIntegration:
             ),
         )
 
-        await api_client.agent_api_events.create_agent_chat_event(
+        await api_client.agent_api.create_agent_chat_event(
             chat_id,
             event=ChatEventRequest(
                 content=_create_tool_result_content(
@@ -328,9 +324,7 @@ class TestPydanticAIConverterIntegration:
         )
 
         # === Fetch and convert ===
-        context_response = await api_client.agent_api_context.get_agent_chat_context(
-            chat_id
-        )
+        context_response = await api_client.agent_api.get_agent_chat_context(chat_id)
         raw_history = [msg.model_dump() for msg in context_response.data]
 
         converter = PydanticAIHistoryConverter(agent_name=agent_name)
@@ -392,7 +386,7 @@ class TestMixedConversationIntegration:
 
         # === Simulate multi-turn conversation ===
         # Turn 1: User asks question
-        await api_client.agent_api_messages.create_agent_chat_message(
+        await api_client.agent_api.create_agent_chat_message(
             chat_id,
             message=ChatMessageRequest(
                 content=f"@{peer_name} What's the weather in NYC?",
@@ -401,7 +395,7 @@ class TestMixedConversationIntegration:
         )
 
         # Turn 1: Agent uses tool
-        await api_client.agent_api_events.create_agent_chat_event(
+        await api_client.agent_api.create_agent_chat_event(
             chat_id,
             event=ChatEventRequest(
                 content=_create_tool_call_content(
@@ -411,7 +405,7 @@ class TestMixedConversationIntegration:
             ),
         )
 
-        await api_client.agent_api_events.create_agent_chat_event(
+        await api_client.agent_api.create_agent_chat_event(
             chat_id,
             event=ChatEventRequest(
                 content=_create_tool_result_content(
@@ -422,7 +416,7 @@ class TestMixedConversationIntegration:
         )
 
         # Turn 2: User asks follow-up
-        await api_client.agent_api_messages.create_agent_chat_message(
+        await api_client.agent_api.create_agent_chat_message(
             chat_id,
             message=ChatMessageRequest(
                 content=f"@{peer_name} What about San Francisco?",
@@ -431,7 +425,7 @@ class TestMixedConversationIntegration:
         )
 
         # Turn 2: Agent uses tool again
-        await api_client.agent_api_events.create_agent_chat_event(
+        await api_client.agent_api.create_agent_chat_event(
             chat_id,
             event=ChatEventRequest(
                 content=_create_tool_call_content(
@@ -441,7 +435,7 @@ class TestMixedConversationIntegration:
             ),
         )
 
-        await api_client.agent_api_events.create_agent_chat_event(
+        await api_client.agent_api.create_agent_chat_event(
             chat_id,
             event=ChatEventRequest(
                 content=_create_tool_result_content(
@@ -452,9 +446,7 @@ class TestMixedConversationIntegration:
         )
 
         # === Fetch and convert ===
-        context_response = await api_client.agent_api_context.get_agent_chat_context(
-            chat_id
-        )
+        context_response = await api_client.agent_api.get_agent_chat_context(chat_id)
         raw_history = [msg.model_dump() for msg in context_response.data]
 
         converter = AnthropicHistoryConverter(agent_name=agent_name)
@@ -511,7 +503,7 @@ class TestEdgeCasesIntegration:
         tc_id = _unique_id("toolu_thought")
 
         # Create thought event
-        await api_client.agent_api_events.create_agent_chat_event(
+        await api_client.agent_api.create_agent_chat_event(
             chat_id,
             event=ChatEventRequest(
                 content=thought_content,
@@ -520,7 +512,7 @@ class TestEdgeCasesIntegration:
         )
 
         # Create tool_call event
-        await api_client.agent_api_events.create_agent_chat_event(
+        await api_client.agent_api.create_agent_chat_event(
             chat_id,
             event=ChatEventRequest(
                 content=_create_tool_call_content("analyze", {"text": "hello"}, tc_id),
@@ -529,9 +521,7 @@ class TestEdgeCasesIntegration:
         )
 
         # Fetch and convert
-        context_response = await api_client.agent_api_context.get_agent_chat_context(
-            chat_id
-        )
+        context_response = await api_client.agent_api.get_agent_chat_context(chat_id)
         raw_history = [msg.model_dump() for msg in context_response.data]
 
         converter = AnthropicHistoryConverter()
@@ -568,7 +558,7 @@ class TestEdgeCasesIntegration:
         error_content = f"Error: API rate limit exceeded {marker}"
 
         # Create error event
-        await api_client.agent_api_events.create_agent_chat_event(
+        await api_client.agent_api.create_agent_chat_event(
             chat_id,
             event=ChatEventRequest(
                 content=error_content,
@@ -577,9 +567,7 @@ class TestEdgeCasesIntegration:
         )
 
         # Fetch and convert
-        context_response = await api_client.agent_api_context.get_agent_chat_context(
-            chat_id
-        )
+        context_response = await api_client.agent_api.get_agent_chat_context(chat_id)
         raw_history = [msg.model_dump() for msg in context_response.data]
 
         converter = AnthropicHistoryConverter()
@@ -612,10 +600,8 @@ class TestMentionReplacementIntegration:
         marker = uuid.uuid4().hex[:8]
 
         # Get participants to find peer's handle
-        participants_response = (
-            await api_client.agent_api_participants.list_agent_chat_participants(
-                chat_id
-            )
+        participants_response = await api_client.agent_api.list_agent_chat_participants(
+            chat_id
         )
         participants = [
             {
@@ -635,7 +621,7 @@ class TestMentionReplacementIntegration:
 
         # Send message with unique marker and mention
         message_content = f"Hey {marker}, can you help me?"
-        await api_client.agent_api_messages.create_agent_chat_message(
+        await api_client.agent_api.create_agent_chat_message(
             chat_id,
             message=ChatMessageRequest(
                 content=message_content,
@@ -645,9 +631,7 @@ class TestMentionReplacementIntegration:
         logger.info("Sent message: %s (with mention in array)", message_content)
 
         # Verify raw history contains UUID format
-        context_response = await api_client.agent_api_context.get_agent_chat_context(
-            chat_id
-        )
+        context_response = await api_client.agent_api.get_agent_chat_context(chat_id)
         raw_history = [msg.model_dump() for msg in context_response.data]
         logger.info("Fetched %d messages from platform", len(raw_history))
 
