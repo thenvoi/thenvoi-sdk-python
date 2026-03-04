@@ -416,6 +416,11 @@ class AgentTools(AgentToolsProtocol):
         self.rest = rest
         self._participants = participants or []
 
+    @property
+    def participants(self) -> list[dict[str, Any]]:
+        """Return a shallow copy of the cached participant list."""
+        return list(self._participants)
+
     @classmethod
     def from_context(cls, ctx: "ExecutionContext") -> "AgentTools":
         """

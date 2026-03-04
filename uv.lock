@@ -2520,7 +2520,7 @@ wheels = [
 
 [[package]]
 name = "letta-client"
-version = "1.7.9"
+version = "1.7.11"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "anyio" },
@@ -2530,9 +2530,9 @@ dependencies = [
     { name = "sniffio" },
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/8c/13/6af905840455940e49b8bd6121897ff2ba9b9042be86d79663986461e5e1/letta_client-1.7.9.tar.gz", hash = "sha256:d6fbc9fc16c254df3b21620009e743d45b54f48fd054c70792d3c8d6d6e0bd59", size = 267396, upload-time = "2026-02-25T18:46:28.265Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/af/97/1f1586b4b72abcb412ea5f0df78e2d8f38f327454deee645479a77f1a6e6/letta_client-1.7.11.tar.gz", hash = "sha256:8ec564a57733bc5eb66e49f2f9de35cf62ab2b9ea1f2f49a42d528d8950a578d", size = 268784, upload-time = "2026-03-04T03:15:34.192Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/aa/6a/f15dd165bd6631b3cf245f01989c67829f8a6a7380087fb53096f40da55f/letta_client-1.7.9-py3-none-any.whl", hash = "sha256:c83b2e99c3ace7d7bcde1f5dbded2643d79f373869a57bcfcb32534889be3345", size = 388778, upload-time = "2026-02-25T18:46:26.944Z" },
+    { url = "https://files.pythonhosted.org/packages/ff/cd/f5f400c7d14ffe303f5ae5e13f0e1b413d782fe175cae1607961b70a6b41/letta_client-1.7.11-py3-none-any.whl", hash = "sha256:93d7c0337ecbb09e46ad2c9188dbdfbc3a417dc1eb73089f3c2ba0852e037e09", size = 390341, upload-time = "2026-03-04T03:15:32.626Z" },
 ]
 
 [[package]]
@@ -5581,6 +5581,9 @@ anthropic = [
 bridge = [
     { name = "aiohttp" },
 ]
+bridge-langchain = [
+    { name = "httpx" },
+]
 claude-sdk = [
     { name = "claude-agent-sdk" },
 ]
@@ -5665,6 +5668,7 @@ requires-dist = [
     { name = "commitizen", marker = "extra == 'dev'", specifier = ">=3.13.0" },
     { name = "crewai", marker = "extra == 'crewai'", specifier = ">=0.80.0,<2.0.0" },
     { name = "crewai", marker = "extra == 'dev'", specifier = ">=0.80.0" },
+    { name = "httpx", marker = "extra == 'bridge-langchain'", specifier = ">=0.24.0" },
     { name = "httpx", marker = "extra == 'dev'", specifier = ">=0.24.0" },
     { name = "langchain", marker = "extra == 'dev'", specifier = ">=1.0.0" },
     { name = "langchain", marker = "extra == 'langgraph'", specifier = ">=1.0.0" },
@@ -5714,7 +5718,7 @@ requires-dist = [
     { name = "uvicorn", marker = "extra == 'dev'", specifier = ">=0.32.0" },
     { name = "websockets", marker = "extra == 'codex'", specifier = ">=13.0" },
 ]
-provides-extras = ["codex", "letta", "pydantic-ai", "anthropic", "langgraph", "claude-sdk", "parlant", "crewai", "a2a", "a2a-gateway", "a2a-gateway-demo", "bridge", "dev"]
+provides-extras = ["codex", "letta", "pydantic-ai", "anthropic", "langgraph", "claude-sdk", "parlant", "crewai", "a2a", "a2a-gateway", "a2a-gateway-demo", "bridge", "bridge-langchain", "dev"]
 
 [[package]]
 name = "thenvoi-testing-python"

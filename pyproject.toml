@@ -86,6 +86,9 @@ a2a_gateway_demo = [
 bridge = [
     "aiohttp>=3.9,<4",      # Health check HTTP server
 ]
+bridge_langchain = [
+    "httpx>=0.24.0",
+]
 
 dev = [
     "thenvoi-testing-python>=0.1.2",

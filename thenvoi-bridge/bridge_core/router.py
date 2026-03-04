@@ -137,7 +137,16 @@ class MentionRouter:
         for mention in mentions:
             username = mention.username
             if username is None:
-                continue
+                # Platform sends username=null for agents; try handle/name fallback
+                username = getattr(mention, "handle", None) or getattr(
+                    mention, "name", None
+                )
+                if username is None:
+                    logger.debug(
+                        "Could not resolve username for mention %s, skipping",
+                        mention.id,
+                    )
+                    continue
             if username in seen_usernames:
                 continue
             seen_usernames.add(username)
