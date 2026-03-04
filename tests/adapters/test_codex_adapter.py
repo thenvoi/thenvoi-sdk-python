@@ -1518,6 +1518,38 @@ class TestCodexAdapter:
         )
 
     @pytest.mark.asyncio
+    async def test_transport_closed_resets_client_state(self) -> None:
+        """After transport/closed, _client and _initialized should be reset
+        so the next message rebuilds the client via _ensure_client_ready()."""
+        events = [
+            _event_notification(
+                "transport/closed",
+                {"reason": "Codex process exited unexpectedly"},
+            )
+        ]
+        fake_client = FakeCodexClient(events=events)
+        adapter = CodexAdapter(
+            config=CodexAdapterConfig(transport="ws"),
+            client_factory=lambda _config: fake_client,
+        )
+        tools = ToolSchemaFakeTools()
+
+        await adapter.on_started("Codex Agent", "A coding agent")
+        await adapter.on_message(
+            make_platform_message(),
+            tools,
+            CodexSessionState(),
+            participants_msg=None,
+            contacts_msg=None,
+            is_session_bootstrap=True,
+            room_id="room-1",
+        )
+
+        # After transport/closed, client state should be reset
+        assert adapter._client is None
+        assert adapter._initialized is False
+
+    @pytest.mark.asyncio
     async def test_turn_timeout_sends_interrupt_and_clean_error(self) -> None:
         """When recv_event times out, the adapter sends turn/interrupt and reports cleanly."""
         # No events means FakeCodexClient raises asyncio.TimeoutError immediately.

@@ -250,6 +250,127 @@ class TestErrorHandling:
             assert "API Error" in call_kwargs.get("content", "")
 
 
+class TestCLIConnectionError:
+    """Tests for dead subprocess recovery via CLIConnectionError."""
+
+    @pytest.mark.asyncio
+    async def test_invalidates_session_on_cli_connection_error(
+        self, sample_message, mock_tools
+    ):
+        """CLIConnectionError should invalidate the dead session and re-raise."""
+        from claude_agent_sdk._errors import CLIConnectionError
+
+        adapter = ClaudeSDKAdapter()
+        mock_client = MagicMock()
+        mock_client.query = AsyncMock(
+            side_effect=CLIConnectionError("Cannot write to terminated process")
+        )
+        mock_manager = AsyncMock()
+        mock_manager.get_or_create_session = AsyncMock(return_value=mock_client)
+        mock_manager.invalidate_session = AsyncMock()
+
+        with patch(
+            "thenvoi.adapters.claude_sdk.ClaudeSessionManager",
+            return_value=mock_manager,
+        ):
+            await adapter.on_started(
+                agent_name="TestBot", agent_description="A test bot"
+            )
+
+            with pytest.raises(CLIConnectionError):
+                await adapter.on_message(
+                    msg=sample_message,
+                    tools=mock_tools,
+                    history=ClaudeSDKSessionState(text=""),
+                    participants_msg=None,
+                    contacts_msg=None,
+                    is_session_bootstrap=True,
+                    room_id="room-123",
+                )
+
+            # Dead session should be invalidated
+            mock_manager.invalidate_session.assert_awaited_once_with("room-123")
+            # Cached session ID should be cleared
+            assert "room-123" not in adapter._session_ids
+
+    @pytest.mark.asyncio
+    async def test_cli_connection_error_reports_error_event(
+        self, sample_message, mock_tools
+    ):
+        """CLIConnectionError should report error event to the user."""
+        from claude_agent_sdk._errors import CLIConnectionError
+
+        adapter = ClaudeSDKAdapter()
+        mock_client = MagicMock()
+        mock_client.query = AsyncMock(side_effect=CLIConnectionError("Process dead"))
+        mock_manager = AsyncMock()
+        mock_manager.get_or_create_session = AsyncMock(return_value=mock_client)
+        mock_manager.invalidate_session = AsyncMock()
+
+        with patch(
+            "thenvoi.adapters.claude_sdk.ClaudeSessionManager",
+            return_value=mock_manager,
+        ):
+            await adapter.on_started(
+                agent_name="TestBot", agent_description="A test bot"
+            )
+
+            with pytest.raises(CLIConnectionError):
+                await adapter.on_message(
+                    msg=sample_message,
+                    tools=mock_tools,
+                    history=ClaudeSDKSessionState(text=""),
+                    participants_msg=None,
+                    contacts_msg=None,
+                    is_session_bootstrap=True,
+                    room_id="room-123",
+                )
+
+            # Error should be surfaced to the user
+            mock_tools.send_event.assert_called()
+            call_kwargs = mock_tools.send_event.call_args[1]
+            assert call_kwargs.get("message_type") == "error"
+            assert "Process dead" in call_kwargs.get("content", "")
+
+    @pytest.mark.asyncio
+    async def test_clears_session_id_on_cli_connection_error(
+        self, sample_message, mock_tools
+    ):
+        """CLIConnectionError should clear cached session ID so resume is not attempted."""
+        from claude_agent_sdk._errors import CLIConnectionError
+
+        adapter = ClaudeSDKAdapter()
+        # Pre-populate a session ID
+        adapter._session_ids["room-123"] = "sess-old"
+
+        mock_client = MagicMock()
+        mock_client.query = AsyncMock(side_effect=CLIConnectionError("Dead"))
+        mock_manager = AsyncMock()
+        mock_manager.get_or_create_session = AsyncMock(return_value=mock_client)
+        mock_manager.invalidate_session = AsyncMock()
+
+        with patch(
+            "thenvoi.adapters.claude_sdk.ClaudeSessionManager",
+            return_value=mock_manager,
+        ):
+            await adapter.on_started(
+                agent_name="TestBot", agent_description="A test bot"
+            )
+
+            with pytest.raises(CLIConnectionError):
+                await adapter.on_message(
+                    msg=sample_message,
+                    tools=mock_tools,
+                    history=ClaudeSDKSessionState(text=""),
+                    participants_msg=None,
+                    contacts_msg=None,
+                    is_session_bootstrap=False,
+                    room_id="room-123",
+                )
+
+            assert "room-123" not in adapter._session_ids
+
+
 class TestRoomToolsStorage:
     """Tests for room tools storage."""
 
