@@ -71,7 +71,7 @@ def format_history_for_llm(
         List of formatted message dicts
     """
     return [
-        format_message_for_llm(m, participants)
+        format_message_for_llm(m, participants=participants)
         for m in messages
         if m.get("id") != exclude_id
     ]

@@ -20,6 +20,21 @@ if _bridge_dir not in sys.path:
 from bridge_core.bridge import BridgeConfig, ThenvoiBridge  # noqa: E402
 
 
+def make_tools(
+    participants: list[dict] | None = None,
+    send_event_side_effect: Exception | None = None,
+) -> MagicMock:
+    """Create a mock AgentTools with common defaults.
+
+    Shared across all bridge handler tests.
+    """
+    tools = MagicMock()
+    tools.send_message = AsyncMock()
+    tools.send_event = AsyncMock(side_effect=send_event_side_effect)
+    tools.participants = participants or []
+    return tools
+
+
 @pytest.fixture
 def bridge_config() -> BridgeConfig:
     """Standard bridge config for tests."""

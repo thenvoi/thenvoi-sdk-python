@@ -7,6 +7,8 @@ Tests cover:
 - stop() returns immediately even when queue.get() is blocked
 """
 
+from __future__ import annotations
+
 import asyncio
 import pytest
 from unittest.mock import AsyncMock, MagicMock
@@ -27,10 +29,10 @@ class TestIsRunningProperty:
         link = MagicMock()
         link.rest = MagicMock()
         link.rest.agent_api_participants = MagicMock()
-        link.rest.agent_api_context = MagicMock()
         link.rest.agent_api_participants.list_agent_chat_participants = AsyncMock(
             return_value=MagicMock(data=[])
         )
+        link.rest.agent_api_context = MagicMock()
         link.rest.agent_api_context.get_agent_chat_context = AsyncMock(
             return_value=MagicMock(data=[])
         )
@@ -83,10 +85,10 @@ class TestInstantShutdown:
         link = MagicMock()
         link.rest = MagicMock()
         link.rest.agent_api_participants = MagicMock()
-        link.rest.agent_api_context = MagicMock()
         link.rest.agent_api_participants.list_agent_chat_participants = AsyncMock(
             return_value=MagicMock(data=[])
         )
+        link.rest.agent_api_context = MagicMock()
         link.rest.agent_api_context.get_agent_chat_context = AsyncMock(
             return_value=MagicMock(data=[])
         )
@@ -118,9 +120,9 @@ class TestInstantShutdown:
         await asyncio.sleep(0.01)
 
         # Stop should be instant (no 60-second timeout)
-        start = asyncio.get_event_loop().time()
+        start = asyncio.get_running_loop().time()
         await ctx.stop()
-        elapsed = asyncio.get_event_loop().time() - start
+        elapsed = asyncio.get_running_loop().time() - start
 
         # Should complete in well under 1 second
         assert elapsed < 0.5, f"stop() took {elapsed}s - should be instant"
@@ -151,10 +153,10 @@ class TestCancellationDuringSync:
         link = MagicMock()
         link.rest = MagicMock()
         link.rest.agent_api_participants = MagicMock()
-        link.rest.agent_api_context = MagicMock()
         link.rest.agent_api_participants.list_agent_chat_participants = AsyncMock(
             return_value=MagicMock(data=[])
         )
+        link.rest.agent_api_context = MagicMock()
         link.rest.agent_api_context.get_agent_chat_context = AsyncMock(
             return_value=MagicMock(data=[])
         )
@@ -192,9 +194,9 @@ class TestCancellationDuringSync:
         await asyncio.sleep(0.01)
 
         # Stop should be instant despite slow sync
-        start = asyncio.get_event_loop().time()
+        start = asyncio.get_running_loop().time()
         await slow_sync_ctx.stop()
-        elapsed = asyncio.get_event_loop().time() - start
+        elapsed = asyncio.get_running_loop().time() - start
 
         # Should complete in well under 1 second (not 10 seconds)
         assert elapsed < 0.5, f"stop() took {elapsed}s - sync should be cancelled"
@@ -209,10 +211,10 @@ class TestCancellationDuringProcessing:
         link = MagicMock()
         link.rest = MagicMock()
         link.rest.agent_api_participants = MagicMock()
-        link.rest.agent_api_context = MagicMock()
         link.rest.agent_api_participants.list_agent_chat_participants = AsyncMock(
             return_value=MagicMock(data=[])
         )
+        link.rest.agent_api_context = MagicMock()
         link.rest.agent_api_context.get_agent_chat_context = AsyncMock(
             return_value=MagicMock(data=[])
         )
@@ -253,9 +255,9 @@ class TestCancellationDuringProcessing:
         await asyncio.sleep(0.05)
 
         # Stop should cancel processing
-        start = asyncio.get_event_loop().time()
+        start = asyncio.get_running_loop().time()
         await ctx.stop()
-        elapsed = asyncio.get_event_loop().time() - start
+        elapsed = asyncio.get_running_loop().time() - start
 
         # Should complete quickly (not wait 10 seconds for handler)
         assert elapsed < 1.0, f"stop() took {elapsed}s - should cancel processing"

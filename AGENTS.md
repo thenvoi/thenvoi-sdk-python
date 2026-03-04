@@ -67,10 +67,11 @@ MessageCreatedPayload:
   metadata?, inserted_at, updated_at
 
 RoomAddedPayload:
-  id, title, task_id?, inserted_at, updated_at
+  id, title?, owner?, status?, type?, created_at?, participant_role?,
+  task_id?, inserted_at?, updated_at?
 
 RoomRemovedPayload:
-  id, status, type, title, removed_at
+  id, status?, type?, title?, removed_at?
 
 ParticipantAddedPayload:
   id, name, type
@@ -79,7 +80,7 @@ ParticipantRemovedPayload:
   id
 
 Mention:
-  id, handle, name
+  id, username?, handle?, name?
 ```
 
 ### PlatformEvent Union (Tagged Union Pattern)
