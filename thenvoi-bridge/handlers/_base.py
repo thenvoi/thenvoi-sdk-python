@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any
 
-from bridge_core.handler import BaseHandler as Handler
+from bridge_core.handler import Handler
 
 if TYPE_CHECKING:
     from thenvoi.runtime.tools import AgentTools

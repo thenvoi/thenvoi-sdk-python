@@ -11,7 +11,7 @@ if TYPE_CHECKING:
     from thenvoi.platform.link import ThenvoiLink
     from thenvoi.runtime.tools import AgentTools
 
-    from .handler import BaseHandler
+    from .handler import Handler
     from .session import SessionStore
 
 logger = logging.getLogger(__name__)
@@ -32,7 +32,7 @@ class MentionRouter:
     def __init__(
         self,
         agent_mapping: dict[str, str],
-        handlers: dict[str, BaseHandler],
+        handlers: dict[str, Handler],
         session_store: SessionStore,
         agent_id: str,
         link: ThenvoiLink,
@@ -132,7 +132,7 @@ class MentionRouter:
 
         # Resolve which mentions map to registered handlers (deduplicate by username
         # so that repeated @mentions in one message don't dispatch the same handler twice)
-        dispatch_list: list[tuple[str, str, BaseHandler]] = []
+        dispatch_list: list[tuple[str, str, Handler]] = []
         seen_usernames: set[str] = set()
         for mention in mentions:
             username = mention.username
@@ -185,7 +185,7 @@ class MentionRouter:
 
         # Dispatch to all matched handlers concurrently, collect failures
         async def _dispatch(
-            username: str, handler_name: str, handler: BaseHandler
+            username: str, handler_name: str, handler: Handler
         ) -> tuple[str, str, Exception] | None:
             logger.info(
                 "Routing message to handler '%s' for @%s in room %s",

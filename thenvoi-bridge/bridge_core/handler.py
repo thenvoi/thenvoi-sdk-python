@@ -9,7 +9,7 @@ if TYPE_CHECKING:
 
 
 @runtime_checkable
-class BaseHandler(Protocol):
+class Handler(Protocol):
     """Protocol for bridge message handlers.
 
     Implement this to create handlers for specific agents.
