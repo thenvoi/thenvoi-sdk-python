@@ -25,6 +25,7 @@ from dataclasses import dataclass
 
 import pytest
 from thenvoi_rest import AsyncRestClient, ChatRoomRequest
+from thenvoi_rest.core.api_error import ApiError
 
 from tests.integration.conftest import (
     get_base_url,
@@ -98,12 +99,19 @@ async def dynamic_agent(module_user_api_client, request):
     unique_suffix = uuid.uuid4().hex[:8]
     agent_name = f"SDK Dynamic Test Agent {unique_suffix}"
 
-    response = await module_user_api_client.human_api_agents.register_my_agent(
-        agent=AgentRegisterRequest(
-            name=agent_name,
-            description="Created by SDK integration tests - will be deleted",
+    try:
+        response = await module_user_api_client.human_api_agents.register_my_agent(
+            agent=AgentRegisterRequest(
+                name=agent_name,
+                description="Created by SDK integration tests - will be deleted",
+            )
         )
-    )
+    except ApiError as e:
+        if e.status_code == 403:
+            pytest.skip(
+                "Enterprise plan required for Human API agent registration"
+            )
+        raise
 
     agent = response.data.agent
     credentials = response.data.credentials
@@ -373,7 +381,14 @@ class TestUserAgentManagement:
         if user_api_client is None:
             pytest.skip("THENVOI_API_KEY_USER not set")
 
-        response = await user_api_client.human_api_agents.list_my_agents()
+        try:
+            response = await user_api_client.human_api_agents.list_my_agents()
+        except ApiError as e:
+            if e.status_code == 403:
+                pytest.skip(
+                    "Enterprise plan required for Human API access"
+                )
+            raise
 
         assert response.data is not None
         logger.info("User owns %s agents", len(response.data))
@@ -383,7 +398,14 @@ class TestUserAgentManagement:
         if user_api_client is None:
             pytest.skip("THENVOI_API_KEY_USER not set")
 
-        response = await user_api_client.human_api_peers.list_my_peers()
+        try:
+            response = await user_api_client.human_api_peers.list_my_peers()
+        except ApiError as e:
+            if e.status_code == 403:
+                pytest.skip(
+                    "Enterprise plan required for Human API access"
+                )
+            raise
 
         assert response.data is not None
         logger.info("User can see %s peers", len(response.data))

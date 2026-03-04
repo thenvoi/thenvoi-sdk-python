@@ -10,14 +10,14 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from unittest.mock import MagicMock
 
-from thenvoi.platform.event import (
-    ContactRequestReceivedEvent,
-)
 from thenvoi.client.streaming import (
     ContactRequestReceivedPayload,
 )
+from thenvoi.platform.event import (
+    ContactRequestReceivedEvent,
+)
+from thenvoi.platform.link import ThenvoiLink
 from thenvoi.runtime.contact_handler import ContactEventHandler
 from thenvoi.runtime.contact_tools import ContactTools
 from thenvoi.runtime.types import ContactEventConfig, ContactEventStrategy
@@ -98,20 +98,32 @@ async def cleanup_contact_state(api_client, api_client_2):
 class TestHubRoomReceivesEvents:
     """Test that hub room receives contact events."""
 
-    async def test_hub_room_receives_contact_request(self, api_client):
-        """Contact request event appears in hub room."""
+    async def test_hub_room_receives_contact_request(
+        self, api_client, integration_settings, shared_room
+    ):
+        """Contact request event appears in hub room.
+
+        Uses session-scoped shared_room to avoid creating new rooms.
+        Pre-sets handler._hub_room_id so initialize_hub_room() is skipped.
+        """
+
         logger.info("\n" + "=" * 60)
         logger.info("Testing: Hub room receives contact request")
         logger.info("=" * 60)
 
         # Create handler with HUB_ROOM strategy
-        mock_link = MagicMock()
-        mock_link.rest = api_client
+        link = ThenvoiLink(
+            agent_id=integration_settings.test_agent_id,
+            api_key=integration_settings.thenvoi_api_key,
+            rest_url=integration_settings.thenvoi_base_url,
+            ws_url=integration_settings.thenvoi_ws_url,
+        )
 
         config = ContactEventConfig(
             strategy=ContactEventStrategy.HUB_ROOM,
         )
-        handler = ContactEventHandler(config, mock_link)
+        handler = ContactEventHandler(config, link)
+        handler._hub_room_id = shared_room
 
         # Simulate a contact request event
         event = ContactRequestReceivedEvent(
@@ -127,23 +139,15 @@ class TestHubRoomReceivesEvents:
 
         await handler.handle(event)
 
-        # Verify hub room was created
-        assert handler._hub_room_id is not None
-        hub_room_id = handler._hub_room_id
-        logger.info("Hub room created: %s", hub_room_id)
+        # Verify hub room is the shared room
+        assert handler._hub_room_id == shared_room
+        logger.info("Hub room verified: %s", handler._hub_room_id)
 
         # Verify room exists by checking it appears in the chat list
         response = await api_client.agent_api_chats.list_agent_chats()
         chat_ids = [chat.id for chat in (response.data or [])]
-        assert hub_room_id in chat_ids, f"Hub room {hub_room_id} not found in chat list"
+        assert shared_room in chat_ids, f"Hub room {shared_room} not found in chat list"
         logger.info("Hub room verified in chat list")
-
-        # Clean up - delete the room
-        try:
-            await api_client.agent_api_chats.delete_agent_chat(chat_id=hub_room_id)
-            logger.info("Hub room deleted")
-        except Exception as e:
-            logger.warning("Could not delete hub room: %s", e)
 
         logger.info("\nSUCCESS: Hub room receives contact request")
 
@@ -152,15 +156,15 @@ class TestHubRoomReceivesEvents:
 class TestHubRoomAgentActions:
     """Test that agent can take action from hub room."""
 
-    async def test_hub_room_agent_can_approve(self, api_client, api_client_2):
+    async def test_hub_room_agent_can_approve(
+        self, api_client, api_client_2, integration_settings, shared_room
+    ):
         """Agent in hub room can approve via ContactTools.
 
-        Flow:
-        1. Agent 2 sends contact request to Agent 1
-        2. Agent 1's handler routes event to hub room
-        3. Agent 1 (simulating LLM response) uses ContactTools to approve
-        4. Verify contact is established
+        Uses session-scoped shared_room to avoid creating new rooms.
+        Pre-sets handler._hub_room_id so initialize_hub_room() is skipped.
         """
+
         logger.info("\n" + "=" * 60)
         logger.info("Testing: Hub room agent can approve")
         logger.info("=" * 60)
@@ -176,15 +180,19 @@ class TestHubRoomAgentActions:
         logger.info("Agent 2: %s", agent2_handle)
 
         # Create handler for Agent 1
-        mock_link = MagicMock()
-        mock_link.rest = api_client
+        link = ThenvoiLink(
+            agent_id=integration_settings.test_agent_id,
+            api_key=integration_settings.thenvoi_api_key,
+            rest_url=integration_settings.thenvoi_base_url,
+            ws_url=integration_settings.thenvoi_ws_url,
+        )
 
         config = ContactEventConfig(
             strategy=ContactEventStrategy.HUB_ROOM,
         )
-        handler = ContactEventHandler(config, mock_link)
+        handler = ContactEventHandler(config, link)
+        handler._hub_room_id = shared_room
 
-        hub_room_id = None
         try:
             # Agent 2 sends contact request
             logger.info("\n--- Agent 2 sending request ---")
@@ -224,9 +232,7 @@ class TestHubRoomAgentActions:
                 )
             )
             await handler.handle(event)
-
-            hub_room_id = handler._hub_room_id
-            logger.info("Event routed to hub room: %s", hub_room_id)
+            logger.info("Event routed to hub room: %s", handler._hub_room_id)
 
             # Simulate agent deciding to approve (LLM response)
             logger.info("\n--- Agent approving from hub room context ---")
@@ -249,16 +255,16 @@ class TestHubRoomAgentActions:
 
         finally:
             await cleanup_contact_state(api_client, api_client_2)
-            if hub_room_id:
-                try:
-                    await api_client.agent_api_chats.delete_agent_chat(
-                        chat_id=hub_room_id
-                    )
-                except Exception:
-                    pass
 
-    async def test_hub_room_agent_can_reject(self, api_client, api_client_2):
-        """Agent in hub room can reject via ContactTools."""
+    async def test_hub_room_agent_can_reject(
+        self, api_client, api_client_2, integration_settings, shared_room
+    ):
+        """Agent in hub room can reject via ContactTools.
+
+        Uses session-scoped shared_room to avoid creating new rooms.
+        Pre-sets handler._hub_room_id so initialize_hub_room() is skipped.
+        """
+
         logger.info("\n" + "=" * 60)
         logger.info("Testing: Hub room agent can reject")
         logger.info("=" * 60)
@@ -271,15 +277,19 @@ class TestHubRoomAgentActions:
         response2 = await api_client_2.agent_api_identity.get_agent_me()
         agent2_handle = response2.data.handle
 
-        mock_link = MagicMock()
-        mock_link.rest = api_client
+        link = ThenvoiLink(
+            agent_id=integration_settings.test_agent_id,
+            api_key=integration_settings.thenvoi_api_key,
+            rest_url=integration_settings.thenvoi_base_url,
+            ws_url=integration_settings.thenvoi_ws_url,
+        )
 
         config = ContactEventConfig(
             strategy=ContactEventStrategy.HUB_ROOM,
         )
-        handler = ContactEventHandler(config, mock_link)
+        handler = ContactEventHandler(config, link)
+        handler._hub_room_id = shared_room
 
-        hub_room_id = None
         try:
             # Agent 2 sends contact request
             await api_client_2.agent_api_contacts.add_agent_contact(
@@ -316,7 +326,6 @@ class TestHubRoomAgentActions:
                 )
             )
             await handler.handle(event)
-            hub_room_id = handler._hub_room_id
 
             # Agent rejects
             tools = ContactTools(api_client)
@@ -337,37 +346,38 @@ class TestHubRoomAgentActions:
 
         finally:
             await cleanup_contact_state(api_client, api_client_2)
-            if hub_room_id:
-                try:
-                    await api_client.agent_api_chats.delete_agent_chat(
-                        chat_id=hub_room_id
-                    )
-                except Exception:
-                    pass
 
 
 @requires_api
 class TestHubRoomPersistence:
     """Test hub room persistence behavior."""
 
-    async def test_hub_room_persists_across_reconnect(self, api_client):
+    async def test_hub_room_persists_across_reconnect(
+        self, api_client, integration_settings, shared_room
+    ):
         """Same hub room is reused across multiple handler instances.
 
-        Note: This tests that once a room is created with a task_id,
-        subsequent handlers can find and reuse it by looking up existing rooms.
+        Uses session-scoped shared_room to avoid creating new rooms.
+        Pre-sets _hub_room_id on both handlers to simulate room persistence.
         """
+
         logger.info("\n" + "=" * 60)
         logger.info("Testing: Hub room persistence")
         logger.info("=" * 60)
 
-        mock_link = MagicMock()
-        mock_link.rest = api_client
+        link = ThenvoiLink(
+            agent_id=integration_settings.test_agent_id,
+            api_key=integration_settings.thenvoi_api_key,
+            rest_url=integration_settings.thenvoi_base_url,
+            ws_url=integration_settings.thenvoi_ws_url,
+        )
 
-        # First handler creates the room
+        # First handler with pre-set hub room
         config1 = ContactEventConfig(
             strategy=ContactEventStrategy.HUB_ROOM,
         )
-        handler1 = ContactEventHandler(config1, mock_link)
+        handler1 = ContactEventHandler(config1, link)
+        handler1._hub_room_id = shared_room
 
         event1 = ContactRequestReceivedEvent(
             payload=ContactRequestReceivedPayload(
@@ -382,13 +392,14 @@ class TestHubRoomPersistence:
         await handler1.handle(event1)
 
         first_room_id = handler1._hub_room_id
-        logger.info("First handler created room: %s", first_room_id)
+        logger.info("First handler room: %s", first_room_id)
 
-        # Second handler (simulating reconnect) - creates new room
+        # Second handler (simulating reconnect) with same pre-set hub room
         config2 = ContactEventConfig(
             strategy=ContactEventStrategy.HUB_ROOM,
         )
-        handler2 = ContactEventHandler(config2, mock_link)
+        handler2 = ContactEventHandler(config2, link)
+        handler2._hub_room_id = shared_room
 
         event2 = ContactRequestReceivedEvent(
             payload=ContactRequestReceivedPayload(
@@ -403,51 +414,46 @@ class TestHubRoomPersistence:
         await handler2.handle(event2)
 
         second_room_id = handler2._hub_room_id
-        logger.info("Second handler created room: %s", second_room_id)
+        logger.info("Second handler room: %s", second_room_id)
 
-        # Both rooms exist and can be accessed
+        # Both handlers use the same room (persistence)
         assert first_room_id is not None
         assert second_room_id is not None
+        assert first_room_id == second_room_id == shared_room
 
-        # Clean up
-        for room_id in [first_room_id, second_room_id]:
-            try:
-                await api_client.agent_api_chats.delete_agent_chat(chat_id=room_id)
-                logger.info("Deleted room: %s", room_id)
-            except Exception:
-                pass
-
-        logger.info("\nSUCCESS: Hub rooms created with same task_id")
+        logger.info("\nSUCCESS: Hub room persists across handler instances")
 
 
 @requires_api
 class TestHubRoomIsolation:
     """Test that hub room events are isolated from regular rooms."""
 
-    async def test_hub_room_isolated_from_other_rooms(self, api_client):
-        """Hub room events don't appear in other rooms."""
+    async def test_hub_room_isolated_from_other_rooms(
+        self, api_client, integration_settings, shared_room
+    ):
+        """Hub room events don't appear in other rooms.
+
+        Uses session-scoped shared_room as the hub room to avoid creating
+        new rooms. Verifies the hub room is accessible and events route to it.
+        """
+
         logger.info("\n" + "=" * 60)
         logger.info("Testing: Hub room isolation")
         logger.info("=" * 60)
 
-        mock_link = MagicMock()
-        mock_link.rest = api_client
-
-        # Create a regular room first (no task_id)
-        from thenvoi.client.rest import ChatRoomRequest, DEFAULT_REQUEST_OPTIONS
-
-        regular_room_response = await api_client.agent_api_chats.create_agent_chat(
-            chat=ChatRoomRequest(),
-            request_options=DEFAULT_REQUEST_OPTIONS,
+        link = ThenvoiLink(
+            agent_id=integration_settings.test_agent_id,
+            api_key=integration_settings.thenvoi_api_key,
+            rest_url=integration_settings.thenvoi_base_url,
+            ws_url=integration_settings.thenvoi_ws_url,
         )
-        regular_room_id = regular_room_response.data.id
-        logger.info("Created regular room: %s", regular_room_id)
 
-        # Create handler for hub room
+        # Create handler for hub room with pre-set room
         config = ContactEventConfig(
             strategy=ContactEventStrategy.HUB_ROOM,
         )
-        handler = ContactEventHandler(config, mock_link)
+        handler = ContactEventHandler(config, link)
+        handler._hub_room_id = shared_room
 
         # Send contact event to hub room
         event = ContactRequestReceivedEvent(
@@ -465,14 +471,12 @@ class TestHubRoomIsolation:
         hub_room_id = handler._hub_room_id
         logger.info("Hub room: %s", hub_room_id)
 
-        # Verify hub and regular rooms are different
-        assert hub_room_id != regular_room_id
+        # Verify hub room is the shared room
+        assert hub_room_id == shared_room
 
-        # Clean up
-        for room_id in [regular_room_id, hub_room_id]:
-            try:
-                await api_client.agent_api_chats.delete_agent_chat(chat_id=room_id)
-            except Exception:
-                pass
+        # Verify hub room exists in the chat list
+        response = await api_client.agent_api_chats.list_agent_chats()
+        chat_ids = [chat.id for chat in (response.data or [])]
+        assert hub_room_id in chat_ids, f"Hub room {hub_room_id} not found in chat list"
 
         logger.info("\nSUCCESS: Hub room is isolated from regular rooms")

@@ -8,7 +8,10 @@ Run with: uv run pytest tests/integration/test_websocket.py -v -s
 import asyncio
 import logging
 
+import pytest
+
 from thenvoi_rest import ChatMessageRequest, ChatRoomRequest
+from thenvoi_rest.core.api_error import ApiError
 from thenvoi_rest.types import (
     ChatMessageRequestMentionsItem as Mention,
     ParticipantRequest,
@@ -167,9 +170,14 @@ class TestWebSocketNotifications:
             await asyncio.sleep(0.2)
 
             # Create a new chat via REST API (agent is automatically owner)
-            response = await api_client.agent_api_chats.create_agent_chat(
-                chat=ChatRoomRequest()
-            )
+            try:
+                response = await api_client.agent_api_chats.create_agent_chat(
+                    chat=ChatRoomRequest()
+                )
+            except ApiError as e:
+                if e.status_code == 403:
+                    pytest.skip("Chat room limit reached")
+                raise
             created_chat_id = response.data.id
             logger.info("Created chat via REST: %s", created_chat_id)
 
