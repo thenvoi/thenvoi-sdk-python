@@ -15,6 +15,7 @@ Run with:
 from __future__ import annotations
 
 import logging
+import uuid
 
 import pytest
 from thenvoi_rest import AsyncRestClient
@@ -60,8 +61,10 @@ class TestContextPersistence:
         adapter_name, factory = adapter_entry
         chat_id, user_id, user_name = e2e_chat_room_with_user
         timeout = e2e_config.e2e_timeout
-        # Unique code per adapter to avoid cross-adapter contamination in shared room
-        secret_code = f"CODE_{adapter_name.upper()}_742"
+        # Unique code per adapter AND per run to prevent cross-run contamination
+        # in shared rooms that persist across test sessions.
+        run_id = uuid.uuid4().hex[:6]
+        secret_code = f"CODE_{adapter_name.upper()}_{run_id}"
 
         logger.info(
             "Testing context persistence with %s adapter (code: %s)",
@@ -120,7 +123,7 @@ class TestContextPersistence:
                 await send_user_message(
                     api_client,
                     chat_id,
-                    f"What was the secret code I told you to remember? It started with CODE_{adapter_name.upper()}. Reply with just the code.",
+                    f"What was the secret code I told you to remember? It started with CODE_{adapter_name.upper()}_{run_id[:3]}. Reply with just the code.",
                     agent_name2,
                     e2e_agent_id,
                 )

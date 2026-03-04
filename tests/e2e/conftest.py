@@ -12,7 +12,7 @@ Configuration is loaded from .env.test with E2E-specific overrides from env vars
 from __future__ import annotations
 
 import logging
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Generator
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -104,13 +104,13 @@ def e2e_config() -> E2ESettings:
 
 
 @pytest.fixture(scope="session", autouse=True)
-def e2e_room_summary() -> None:
+def e2e_room_summary() -> Generator[None, None, None]:
     """Log a summary of rooms created during the E2E test session.
 
     Rooms persist on the platform (no delete API for agents), so this
     summary helps operators track accumulation across runs.
     """
-    yield  # type: ignore[misc]
+    yield
     if created_room_ids:
         logger.info(
             "E2E session created %d room(s) that will persist: %s",
@@ -119,14 +119,15 @@ def e2e_room_summary() -> None:
         )
 
 
-@pytest.fixture
-async def api_client(
+@pytest.fixture(scope="session")
+def e2e_session_client(
     e2e_config: E2ESettings,
 ) -> AsyncRestClient:
-    """Create a REST API client for the primary test agent.
+    """Session-scoped REST client shared across all E2E fixtures.
 
-    Note: AsyncRestClient has no close() method — the underlying httpx
-    client is managed internally and cleaned up on garbage collection.
+    Avoids creating multiple short-lived AsyncRestClient instances in each
+    session-scoped fixture. AsyncRestClient has no close() method — the
+    underlying httpx client is managed internally.
     """
     if not e2e_config.thenvoi_api_key:
         pytest.skip("THENVOI_API_KEY not set")
@@ -137,9 +138,20 @@ async def api_client(
     )
 
 
+@pytest.fixture
+def api_client(
+    e2e_session_client: AsyncRestClient,
+) -> AsyncRestClient:
+    """Function-scoped alias for the session REST client.
+
+    Provides backward-compatible fixture name for tests that inject ``api_client``.
+    """
+    return e2e_session_client
+
+
 @pytest.fixture(scope="session")
 async def e2e_shared_room(
-    e2e_config: E2ESettings,
+    e2e_session_client: AsyncRestClient,
 ) -> tuple[str, str, str]:
     """Session-scoped shared chat room with a User peer.
 
@@ -152,13 +164,7 @@ async def e2e_shared_room(
     connected. Context hydration may include prior messages, but assertions
     target the specific WS response, not room history.
     """
-    if not e2e_config.thenvoi_api_key:
-        pytest.skip("THENVOI_API_KEY not set")
-
-    client = AsyncRestClient(
-        api_key=e2e_config.thenvoi_api_key,
-        base_url=e2e_config.thenvoi_base_url,
-    )
+    client = e2e_session_client
 
     # Find a User peer
     peers_response = await client.agent_api_peers.list_agent_peers()
@@ -187,7 +193,7 @@ async def e2e_shared_room(
 
 @pytest.fixture(scope="session")
 async def e2e_isolation_room_pair(
-    e2e_config: E2ESettings,
+    e2e_session_client: AsyncRestClient,
     e2e_shared_room: tuple[str, str, str],
 ) -> tuple[tuple[str, str, str], tuple[str, str, str]]:
     """Session-scoped pair of rooms for isolation tests.
@@ -197,15 +203,8 @@ async def e2e_isolation_room_pair(
     creates one (once per session). This limits room accumulation to at most
     1 new room instead of 2 per adapter × 5 adapters = 10.
     """
-    if not e2e_config.thenvoi_api_key:
-        pytest.skip("THENVOI_API_KEY not set")
-
     room_a_id, user_id, user_name = e2e_shared_room
-
-    client = AsyncRestClient(
-        api_key=e2e_config.thenvoi_api_key,
-        base_url=e2e_config.thenvoi_base_url,
-    )
+    client = e2e_session_client
 
     # Try to find a second existing room (different from room A) with User peer
     chats_response = await client.agent_api_chats.list_agent_chats()
@@ -241,7 +240,7 @@ def e2e_chat_room_with_user(
 
 
 @pytest.fixture(scope="session")
-async def e2e_agent_id(e2e_config: E2ESettings) -> str:
+async def e2e_agent_id(e2e_session_client: AsyncRestClient) -> str:
     """Get the agent ID for the test agent (cached for the entire session).
 
     Note: Session-scoped because the agent ID is stable for a given API key
@@ -249,17 +248,7 @@ async def e2e_agent_id(e2e_config: E2ESettings) -> str:
     tests, this cached value would be stale — but that scenario doesn't
     apply to E2E runs against a persistent platform.
     """
-    if not e2e_config.thenvoi_api_key:
-        pytest.skip("THENVOI_API_KEY not set")
-
-    # Short-lived client — AsyncRestClient has no close() method, so the
-    # underlying httpx client is cleaned up on garbage collection when
-    # this local variable falls out of scope after the fixture returns.
-    client = AsyncRestClient(
-        api_key=e2e_config.thenvoi_api_key,
-        base_url=e2e_config.thenvoi_base_url,
-    )
-    agent_me = await client.agent_api_identity.get_agent_me()
+    agent_me = await e2e_session_client.agent_api_identity.get_agent_me()
     return agent_me.data.id
 
 

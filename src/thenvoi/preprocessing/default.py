@@ -74,7 +74,7 @@ class DefaultPreprocessor(Preprocessor):
                 msg_data.inserted_at.replace("Z", "+00:00")
             )
             if msg_data.inserted_at
-            else datetime.now(timezone.utc),
+            else self._fallback_timestamp(msg_data.id),
         )
 
         is_bootstrap = not ctx.is_llm_initialized
@@ -115,6 +115,15 @@ class DefaultPreprocessor(Preprocessor):
         if not messages:
             return None
         return "\n".join(messages)
+
+    @staticmethod
+    def _fallback_timestamp(message_id: str) -> datetime:
+        """Return current UTC time as fallback when inserted_at is missing."""
+        logger.warning(
+            "Message %s has no inserted_at timestamp, using current UTC time",
+            message_id,
+        )
+        return datetime.now(timezone.utc)
 
     def _lookup_sender_name(self, ctx: ExecutionContext, sender_id: str) -> str | None:
         """Look up sender name from participants list by sender_id."""
