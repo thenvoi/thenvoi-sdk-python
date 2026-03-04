@@ -135,8 +135,9 @@ class TestLettaAdapterInit:
     def test_default_config(self) -> None:
         adapter = LettaAdapter()
         assert adapter.config == LettaAdapterConfig()
-        assert adapter.config.base_url == "http://localhost:8283"
+        assert adapter.config.base_url == "https://api.letta.com"
         assert adapter.config.api_key is None
+        assert adapter.config.project is None
         assert adapter.config.mode == "per_room"
         assert adapter.config.mcp_server_url == "http://localhost:8002/sse"
         assert adapter.config.mcp_server_name == "thenvoi"
@@ -155,11 +156,12 @@ class TestLettaAdapterInit:
         assert adapter.config.mode == "shared"
         assert adapter.config.enable_execution_reporting is True
 
-    def test_self_hosted_defaults(self) -> None:
-        """Default config targets self-hosted Letta (localhost), not Cloud."""
+    def test_cloud_defaults(self) -> None:
+        """Default config targets Letta Cloud."""
         config = LettaAdapterConfig()
-        assert config.base_url == "http://localhost:8283"
-        assert config.api_key is None  # Optional for self-hosted
+        assert config.base_url == "https://api.letta.com"
+        assert config.api_key is None
+        assert config.project is None
 
     def test_no_client_tools_attribute(self) -> None:
         """MCP adapter has no _client_tools attribute."""
@@ -193,8 +195,7 @@ class TestLettaAdapterOnStarted:
             await adapter.on_started("TestBot", "A test bot")
 
         mock_letta_module.AsyncLetta.assert_called_once_with(
-            base_url="http://localhost:8283",
-            api_key=None,
+            base_url="https://api.letta.com",
         )
         mock_client.mcp_servers.create.assert_called_once_with(
             server_name="thenvoi",
@@ -206,6 +207,34 @@ class TestLettaAdapterOnStarted:
         assert adapter._mcp_server_id == mock_server.id
         assert adapter._mcp_tool_ids == ["t1", "t2"]
         assert adapter._system_prompt  # non-empty
+
+    @pytest.mark.asyncio
+    async def test_on_started_forwards_cloud_params(self) -> None:
+        """api_key and project are forwarded to AsyncLetta when configured."""
+        adapter = LettaAdapter(
+            config=LettaAdapterConfig(
+                base_url="https://api.letta.com",
+                api_key="letta-key-123",
+                project="my-project",
+            )
+        )
+
+        mock_client = AsyncMock()
+        mock_server = _make_mock_mcp_server()
+        mock_client.mcp_servers.create.return_value = mock_server
+        mock_client.mcp_servers.tools.list.return_value = []
+
+        mock_letta_module = MagicMock()
+        mock_letta_module.AsyncLetta = MagicMock(return_value=mock_client)
+
+        with patch.dict("sys.modules", {"letta_client": mock_letta_module}):
+            await adapter.on_started("TestBot", "A test bot")
+
+        mock_letta_module.AsyncLetta.assert_called_once_with(
+            base_url="https://api.letta.com",
+            api_key="letta-key-123",
+            project="my-project",
+        )
 
     @pytest.mark.asyncio
     async def test_on_started_mcp_registration_failure_raises(self) -> None:
