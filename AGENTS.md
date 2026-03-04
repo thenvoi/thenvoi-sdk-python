@@ -67,7 +67,8 @@ MessageCreatedPayload:
   metadata?, chat_room_id?, thread_id?, inserted_at?, updated_at?
 
 RoomAddedPayload:
-  id, inserted_at, updated_at, title?, task_id?
+  id, title?, owner?, status?, type?, created_at?, participant_role?,
+  task_id?, inserted_at?, updated_at?
 
 RoomRemovedPayload:
   id, status?, type?, title?, removed_at?

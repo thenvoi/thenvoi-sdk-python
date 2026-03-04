@@ -66,7 +66,7 @@ class RoomAddedPayload(BaseModel):
     model_config = ConfigDict(extra="allow")
 
     id: str
-    title: str
+    title: str | None = None
     owner: RoomOwner | None = None
     status: str | None = None
     type: str | None = None

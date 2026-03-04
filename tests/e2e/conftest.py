@@ -185,6 +185,48 @@ async def e2e_shared_room(
     return await create_room_with_user(client)
 
 
+@pytest.fixture(scope="session")
+async def e2e_isolation_room_pair(
+    e2e_config: E2ESettings,
+    e2e_shared_room: tuple[str, str, str],
+) -> tuple[tuple[str, str, str], tuple[str, str, str]]:
+    """Session-scoped pair of rooms for isolation tests.
+
+    Returns ((room_a_id, user_id, user_name), (room_b_id, user_id, user_name)).
+    Room A reuses e2e_shared_room. Room B reuses a second existing room or
+    creates one (once per session). This limits room accumulation to at most
+    1 new room instead of 2 per adapter × 5 adapters = 10.
+    """
+    if not e2e_config.thenvoi_api_key:
+        pytest.skip("THENVOI_API_KEY not set")
+
+    room_a_id, user_id, user_name = e2e_shared_room
+
+    client = AsyncRestClient(
+        api_key=e2e_config.thenvoi_api_key,
+        base_url=e2e_config.thenvoi_base_url,
+    )
+
+    # Try to find a second existing room (different from room A) with User peer
+    chats_response = await client.agent_api_chats.list_agent_chats()
+    existing_rooms = chats_response.data or []
+
+    for room in existing_rooms:
+        if room.id == room_a_id:
+            continue
+        participants_response = (
+            await client.agent_api_participants.list_agent_chat_participants(room.id)
+        )
+        participant_ids = [p.id for p in (participants_response.data or [])]
+        if user_id in participant_ids:
+            logger.info("E2E: Reusing existing room %s as isolation room B", room.id)
+            return (room_a_id, user_id, user_name), (room.id, user_id, user_name)
+
+    # No suitable second room found — create one
+    room_b = await create_room_with_user(client)
+    return (room_a_id, user_id, user_name), room_b
+
+
 @pytest.fixture
 def e2e_chat_room_with_user(
     e2e_shared_room: tuple[str, str, str],

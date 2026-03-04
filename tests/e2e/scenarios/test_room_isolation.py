@@ -27,7 +27,6 @@ from tests.e2e.helpers import (
     TrackingWebSocketClient,
     assert_content_contains,
     assert_no_content_contains,
-    create_room_with_user,
     listening_for_agent_responses,
     send_user_message,
 )
@@ -48,6 +47,7 @@ class TestRoomIsolation:
         adapter_entry: tuple[str, AdapterFactory],
         api_client: AsyncRestClient,
         e2e_agent_id: str,
+        e2e_isolation_room_pair: tuple[tuple[str, str, str], tuple[str, str, str]],
     ):
         """Agents in different rooms don't see each other's context.
 
@@ -56,18 +56,15 @@ class TestRoomIsolation:
         Room A: Ask "What's the code?" -> Assert "APPLE", not "BANANA"
         Room B: Ask "What's the code?" -> Assert "BANANA", not "APPLE"
 
-        Note: This test creates 2 rooms per adapter via ``create_room_with_user``
-        (not the ``e2e_chat_room_with_user`` fixture). These rooms persist because
-        there is no delete API for agents. Expect room accumulation across runs.
+        Uses session-scoped room pair (``e2e_isolation_room_pair``) to avoid
+        creating 2 rooms per adapter. At most 1 new room is created per session.
         """
         adapter_name, factory = adapter_entry
         timeout = e2e_config.e2e_timeout
 
         logger.info("Testing room isolation with %s adapter", adapter_name)
 
-        # Create two separate rooms
-        room_a_id, user_id, user_name = await create_room_with_user(api_client)
-        room_b_id, _, _ = await create_room_with_user(api_client)
+        (room_a_id, user_id, user_name), (room_b_id, _, _) = e2e_isolation_room_pair
         logger.info("Room A: %s, Room B: %s", room_a_id, room_b_id)
 
         # Create adapter and agent (single agent, two rooms)
@@ -153,9 +150,4 @@ class TestRoomIsolation:
         logger.info(
             "[%s] Room isolation test PASSED: rooms are correctly isolated",
             adapter_name,
-        )
-        logger.info(
-            "E2E test rooms %s, %s will persist (no delete API)",
-            room_a_id,
-            room_b_id,
         )

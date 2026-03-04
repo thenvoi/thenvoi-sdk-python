@@ -50,15 +50,24 @@ class TestContextPersistence:
     ):
         """Agent removed then re-added remembers context via platform history.
 
-        Phase 1: Send "Remember the code: ABC123", wait for acknowledgment
+        Phase 1: Send "Remember the code: <unique>", wait for acknowledgment
         Phase 2: Stop agent (triggers on_cleanup), restart (triggers bootstrap)
-        Phase 3: Ask "What was the code?", assert response contains "ABC123"
+        Phase 3: Ask "What was the code?", assert response contains the unique code
+
+        Uses a unique secret code per adapter to avoid cross-adapter contamination
+        when sharing a room across parametrized runs.
         """
         adapter_name, factory = adapter_entry
         chat_id, user_id, user_name = e2e_chat_room_with_user
         timeout = e2e_config.e2e_timeout
+        # Unique code per adapter to avoid cross-adapter contamination in shared room
+        secret_code = f"CODE_{adapter_name.upper()}_742"
 
-        logger.info("Testing context persistence with %s adapter", adapter_name)
+        logger.info(
+            "Testing context persistence with %s adapter (code: %s)",
+            adapter_name,
+            secret_code,
+        )
 
         # --- Phase 1: Establish context ---
         adapter = factory(e2e_config)
@@ -79,7 +88,7 @@ class TestContextPersistence:
                 await send_user_message(
                     api_client,
                     chat_id,
-                    "Remember this secret code: ABC123. Respond confirming you remember it.",
+                    f"Remember this secret code: {secret_code}. Respond confirming you remember it.",
                     agent_name,
                     e2e_agent_id,
                 )
@@ -111,15 +120,16 @@ class TestContextPersistence:
                 await send_user_message(
                     api_client,
                     chat_id,
-                    "What was the secret code I told you to remember? Reply with just the code.",
+                    f"What was the secret code I told you to remember? It started with CODE_{adapter_name.upper()}. Reply with just the code.",
                     agent_name2,
                     e2e_agent_id,
                 )
                 phase2_received = await wait()
 
-            assert_content_contains(phase2_received, "ABC123")
+            assert_content_contains(phase2_received, secret_code)
 
         logger.info(
-            "[%s] Context persistence test PASSED: agent remembered ABC123",
+            "[%s] Context persistence test PASSED: agent remembered %s",
             adapter_name,
+            secret_code,
         )

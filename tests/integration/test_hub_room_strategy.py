@@ -352,14 +352,14 @@ class TestHubRoomAgentActions:
 class TestHubRoomPersistence:
     """Test hub room persistence behavior."""
 
-    async def test_hub_room_persists_across_reconnect(
+    async def test_multiple_handlers_route_events_to_same_hub_room(
         self, api_client, integration_settings, shared_room
     ):
-        """Multiple handler instances route events to the same hub room.
+        """Multiple handler instances route events to the same pre-set hub room.
 
         Uses session-scoped shared_room. Verifies that both handlers
-        actually post events to the same room by checking the room context
-        contains messages from both handlers.
+        actually post events to the room by checking the room context
+        contains items from both handlers (using unique request IDs).
         """
 
         logger.info("\n" + "=" * 60)

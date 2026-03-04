@@ -26,7 +26,6 @@ from tests.conftest_integration import (
     requires_multi_agent,
     requires_user_api,
     # Session-scoped fixtures
-    event_loop,
     session_api_client,
     session_api_client_2,
     shared_agent1_info,
