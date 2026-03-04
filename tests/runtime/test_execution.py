@@ -816,8 +816,11 @@ class TestContextHydrationConfig:
 
         # History should be empty (skipped)
         assert context.messages == []
-        assert context.participants == []
         mock_link.rest.agent_api_context.get_agent_chat_context.assert_not_called()
+        # Participants should still be loaded
+        assert len(context.participants) == 1
+        assert context.participants[0]["name"] == "User One"
+        mock_link.rest.agent_api_participants.list_agent_chat_participants.assert_called_once()
 
     async def test_get_context_calls_api_when_hydration_enabled(
         self, mock_link, mock_handler
