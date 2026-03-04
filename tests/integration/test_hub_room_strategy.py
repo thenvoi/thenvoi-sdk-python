@@ -431,10 +431,11 @@ class TestHubRoomIsolation:
     async def test_hub_room_isolated_from_other_rooms(
         self, api_client, integration_settings, shared_room
     ):
-        """Hub room events don't appear in other rooms.
+        """Hub room events are posted to the hub room and not to other rooms.
 
-        Uses session-scoped shared_room as the hub room to avoid creating
-        new rooms. Verifies the hub room is accessible and events route to it.
+        Sets up the handler with a real on_hub_event callback and marks the
+        hub room as ready.  After handling, verifies the contact event task
+        was actually posted to the hub room's context via REST.
         """
 
         logger.info("\n" + "=" * 60)
@@ -448,12 +449,20 @@ class TestHubRoomIsolation:
             ws_url=integration_settings.thenvoi_ws_url,
         )
 
-        # Create handler for hub room with pre-set room
+        # Capture injected events
+        injected_events: list[tuple[str, object]] = []
+
+        async def capture_hub_event(room_id, message_event):
+            injected_events.append((room_id, message_event))
+
+        # Create handler with all pieces wired up
         config = ContactEventConfig(
             strategy=ContactEventStrategy.HUB_ROOM,
         )
         handler = ContactEventHandler(config, link)
         handler._hub_room_id = shared_room
+        handler._on_hub_event = capture_hub_event
+        handler.mark_hub_room_ready()
 
         # Send contact event to hub room
         event = ContactRequestReceivedEvent(
@@ -467,16 +476,29 @@ class TestHubRoomIsolation:
             )
         )
         await handler.handle(event)
+        await asyncio.sleep(0.5)
 
-        hub_room_id = handler._hub_room_id
-        logger.info("Hub room: %s", hub_room_id)
+        # 1. Verify the on_hub_event callback was invoked with the hub room
+        assert len(injected_events) == 1, (
+            f"Expected 1 injected event, got {len(injected_events)}"
+        )
+        injected_room_id, _ = injected_events[0]
+        assert injected_room_id == shared_room
 
-        # Verify hub room is the shared room
-        assert hub_room_id == shared_room
+        # 2. Verify the task event was posted to the hub room's context
+        response = await api_client.agent_api_context.get_agent_chat_context(
+            shared_room
+        )
+        context_items = response.data or []
+        task_events = [
+            item
+            for item in context_items
+            if getattr(item, "message_type", None) == "task"
+            and "isolated-user" in (getattr(item, "content", "") or "").lower()
+        ]
+        assert len(task_events) > 0, (
+            "Contact event task should appear in hub room context"
+        )
+        logger.info("Found %s task event(s) in hub room context", len(task_events))
 
-        # Verify hub room exists in the chat list
-        response = await api_client.agent_api_chats.list_agent_chats()
-        chat_ids = [chat.id for chat in (response.data or [])]
-        assert hub_room_id in chat_ids, f"Hub room {hub_room_id} not found in chat list"
-
-        logger.info("\nSUCCESS: Hub room is isolated from regular rooms")
+        logger.info("\nSUCCESS: Hub room receives events correctly")

@@ -79,7 +79,7 @@ ParticipantRemovedPayload:
   id
 
 Mention:
-  id, handle, name
+  id, username
 ```
 
 ### PlatformEvent Union (Tagged Union Pattern)

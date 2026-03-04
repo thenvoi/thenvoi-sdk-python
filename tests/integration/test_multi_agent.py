@@ -22,6 +22,7 @@ from __future__ import annotations
 import asyncio
 import logging
 
+import pytest
 from thenvoi_rest import ChatEventRequest, ChatMessageRequest
 from thenvoi_rest.types import (
     ChatMessageRequestMentionsItem as Mention,
@@ -50,8 +51,6 @@ class TestMultiAgentChatRoom:
     ):
         """Test that Agent 2 does NOT see messages in /context where it's not @mentioned."""
         if shared_multi_agent_room is None:
-            import pytest
-
             pytest.skip("shared_multi_agent_room not available")
 
         logger.info("\n" + "=" * 60)
@@ -137,8 +136,6 @@ class TestMultiAgentChatRoom:
     ):
         """Test that Agent 2's WebSocket does NOT receive messages where it's not @mentioned."""
         if shared_multi_agent_room is None:
-            import pytest
-
             pytest.skip("shared_multi_agent_room not available")
 
         logger.info("\n" + "=" * 60)
@@ -223,8 +220,6 @@ class TestMultiAgentChatRoom:
     ):
         """Test that Agent 2 DOES see messages where it IS @mentioned."""
         if shared_multi_agent_room is None:
-            import pytest
-
             pytest.skip("shared_multi_agent_room not available")
 
         logger.info("\n" + "=" * 60)
@@ -284,8 +279,6 @@ class TestMultiAgentChatRoom:
     ):
         """Test that Agent 2 does NOT see Agent 1's events (thoughts, tool_calls, tool_results)."""
         if shared_multi_agent_room is None:
-            import pytest
-
             pytest.skip("shared_multi_agent_room not available")
 
         logger.info("\n" + "=" * 60)
@@ -388,8 +381,6 @@ class TestMultiAgentChatRoom:
     ):
         """Test that each agent sees only their own events, not other agents' events."""
         if shared_multi_agent_room is None:
-            import pytest
-
             pytest.skip("shared_multi_agent_room not available")
 
         logger.info("\n" + "=" * 60)
@@ -474,8 +465,6 @@ class TestMultiAgentChatRoom:
         to add participants that are not yet in the room.
         """
         if shared_multi_agent_room is None:
-            import pytest
-
             pytest.skip("shared_multi_agent_room not available")
 
         logger.info("\n" + "=" * 60)
@@ -578,8 +567,6 @@ class TestMultiAgentChatRoom:
         then verifies it can add a participant.
         """
         if shared_multi_agent_room is None:
-            import pytest
-
             pytest.skip("shared_multi_agent_room not available")
 
         logger.info("\n" + "=" * 60)

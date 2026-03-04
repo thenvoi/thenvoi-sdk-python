@@ -47,21 +47,6 @@ class DynamicAgent:
 
 
 @pytest.fixture(scope="module")
-def event_loop():
-    """Create an event loop for the module scope.
-
-    Required for module-scoped async fixtures.
-    """
-    import asyncio
-
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    yield loop
-    loop.close()
-    asyncio.set_event_loop(None)
-
-
-@pytest.fixture(scope="module")
 def module_user_api_client():
     """Create user API client for the module scope."""
     api_key = get_user_api_key()
