@@ -158,6 +158,37 @@ def api_client(
     return e2e_session_client
 
 
+async def _find_room_with_participant(
+    client: AsyncRestClient,
+    participant_id: str,
+    exclude_ids: set[str] | None = None,
+    max_rooms: int = 10,
+) -> str | None:
+    """Find an existing room that contains the given participant.
+
+    Searches at most *max_rooms* to avoid excessive API calls for agents
+    with many rooms.  Returns the room ID or ``None`` if no match.
+    """
+    chats_response = await client.agent_api_chats.list_agent_chats()
+    existing_rooms = chats_response.data or []
+
+    checked = 0
+    for room in existing_rooms:
+        if exclude_ids and room.id in exclude_ids:
+            continue
+        if checked >= max_rooms:
+            break
+        checked += 1
+        participants_response = (
+            await client.agent_api_participants.list_agent_chat_participants(room.id)
+        )
+        participant_ids = [p.id for p in (participants_response.data or [])]
+        if participant_id in participant_ids:
+            return room.id
+
+    return None
+
+
 @pytest.fixture(scope="session")
 async def e2e_shared_room(
     e2e_session_client: AsyncRestClient,
@@ -183,19 +214,12 @@ async def e2e_shared_room(
         pytest.skip("No User peer available for E2E tests")
 
     # Try to reuse an existing room that has this User peer
-    chats_response = await client.agent_api_chats.list_agent_chats()
-    existing_rooms = chats_response.data or []
-
-    for room in existing_rooms:
-        participants_response = (
-            await client.agent_api_participants.list_agent_chat_participants(room.id)
+    room_id = await _find_room_with_participant(client, user_peer.id)
+    if room_id is not None:
+        logger.info(
+            "E2E: Reusing existing room %s with user %s", room_id, user_peer.name
         )
-        participant_ids = [p.id for p in (participants_response.data or [])]
-        if user_peer.id in participant_ids:
-            logger.info(
-                "E2E: Reusing existing room %s with user %s", room.id, user_peer.name
-            )
-            return room.id, user_peer.id, user_peer.name
+        return room_id, user_peer.id, user_peer.name
 
     # No suitable room found — create one
     return await create_room_with_user(client, room_tracker=e2e_created_room_ids)
@@ -218,19 +242,12 @@ async def e2e_isolation_room_pair(
     client = e2e_session_client
 
     # Try to find a second existing room (different from room A) with User peer
-    chats_response = await client.agent_api_chats.list_agent_chats()
-    existing_rooms = chats_response.data or []
-
-    for room in existing_rooms:
-        if room.id == room_a_id:
-            continue
-        participants_response = (
-            await client.agent_api_participants.list_agent_chat_participants(room.id)
-        )
-        participant_ids = [p.id for p in (participants_response.data or [])]
-        if user_id in participant_ids:
-            logger.info("E2E: Reusing existing room %s as isolation room B", room.id)
-            return (room_a_id, user_id, user_name), (room.id, user_id, user_name)
+    room_b_id = await _find_room_with_participant(
+        client, user_id, exclude_ids={room_a_id}
+    )
+    if room_b_id is not None:
+        logger.info("E2E: Reusing existing room %s as isolation room B", room_b_id)
+        return (room_a_id, user_id, user_name), (room_b_id, user_id, user_name)
 
     # No suitable second room found — create one
     room_b = await create_room_with_user(client, room_tracker=e2e_created_room_ids)

@@ -23,7 +23,6 @@ from thenvoi.client.streaming import MessageCreatedPayload, WebSocketClient
 logger = logging.getLogger(__name__)
 
 
-
 class TrackingWebSocketClient:
     """Wrapper around WebSocketClient that tracks joined rooms for cleanup.
 
