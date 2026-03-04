@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 import pytest
+from pydantic import ValidationError
 from thenvoi_rest import AsyncRestClient
 from thenvoi_testing.settings import ThenvoiTestSettings
 
@@ -31,6 +32,9 @@ if TYPE_CHECKING:
     from tests.e2e.adapters.conftest import AdapterFactory
 
 logger = logging.getLogger(__name__)
+
+# Platform limits agents to 10 active chat rooms; cap room searches accordingly.
+_MAX_ROOMS_TO_SEARCH = 10
 
 
 # =============================================================================
@@ -74,8 +78,8 @@ def _check_e2e_status() -> tuple[bool, str]:
             return True, "E2E_TESTS_ENABLED is not set to true"
         if not settings.thenvoi_api_key:
             return True, "THENVOI_API_KEY is not set"
-        return False, ""
-    except Exception as exc:
+        return False, "E2E tests enabled"
+    except (ValidationError, ValueError, OSError) as exc:
         logger.warning(
             "E2E settings could not be loaded (missing .env.test?), skipping E2E tests",
             exc_info=True,
@@ -162,12 +166,12 @@ async def _find_room_with_participant(
     client: AsyncRestClient,
     participant_id: str,
     exclude_ids: set[str] | None = None,
-    max_rooms: int = 10,
 ) -> str | None:
     """Find an existing room that contains the given participant.
 
-    Searches at most *max_rooms* to avoid excessive API calls for agents
-    with many rooms.  Returns the room ID or ``None`` if no match.
+    Searches at most ``_MAX_ROOMS_TO_SEARCH`` rooms to avoid excessive API
+    calls for agents with many rooms.  Returns the room ID or ``None`` if
+    no match.
     """
     chats_response = await client.agent_api_chats.list_agent_chats()
     existing_rooms = chats_response.data or []
@@ -176,7 +180,7 @@ async def _find_room_with_participant(
     for room in existing_rooms:
         if exclude_ids and room.id in exclude_ids:
             continue
-        if checked >= max_rooms:
+        if checked >= _MAX_ROOMS_TO_SEARCH:
             break
         checked += 1
         participants_response = (

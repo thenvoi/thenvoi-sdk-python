@@ -123,7 +123,7 @@ class TestContextPersistence:
                 await send_user_message(
                     api_client,
                     chat_id,
-                    f"What was the secret code I told you to remember? It started with CODE_{adapter_name.upper()}_{run_id[:3]}. Reply with just the code.",
+                    "What was the secret code I told you to remember? Reply with just the code.",
                     agent_name2,
                     e2e_agent_id,
                 )

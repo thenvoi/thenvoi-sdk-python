@@ -21,6 +21,7 @@ from thenvoi.platform.link import ThenvoiLink
 from thenvoi.runtime.contact_handler import ContactEventHandler
 from thenvoi.runtime.contact_tools import ContactTools
 from thenvoi.runtime.types import ContactEventConfig, ContactEventStrategy
+from thenvoi_rest.core.api_error import ApiError
 from tests.integration.conftest import requires_api, requires_multi_agent
 
 logger = logging.getLogger(__name__)
@@ -41,12 +42,12 @@ async def cleanup_contact_state(api_client, api_client_2):
     # Remove contacts
     try:
         await api_client.agent_api_contacts.remove_agent_contact(handle=agent2_handle)
-    except Exception:
+    except ApiError:
         logger.debug("Cleanup: remove contact agent1->agent2 failed")
 
     try:
         await api_client_2.agent_api_contacts.remove_agent_contact(handle=agent1_handle)
-    except Exception:
+    except ApiError:
         logger.debug("Cleanup: remove contact agent2->agent1 failed")
 
     # Cancel/reject pending requests
@@ -54,14 +55,14 @@ async def cleanup_contact_state(api_client, api_client_2):
         await api_client.agent_api_contacts.respond_to_agent_contact_request(
             action="cancel", handle=agent2_handle
         )
-    except Exception:
+    except ApiError:
         logger.debug("Cleanup: cancel request agent1->agent2 failed")
 
     try:
         await api_client_2.agent_api_contacts.respond_to_agent_contact_request(
             action="cancel", handle=agent1_handle
         )
-    except Exception:
+    except ApiError:
         logger.debug("Cleanup: cancel request agent2->agent1 failed")
 
     # Reject received requests
@@ -75,7 +76,7 @@ async def cleanup_contact_state(api_client, api_client_2):
                 await api_client.agent_api_contacts.respond_to_agent_contact_request(
                     action="reject", request_id=req.id
                 )
-    except Exception:
+    except ApiError:
         logger.debug("Cleanup: reject requests for agent1 failed")
 
     try:
@@ -88,7 +89,7 @@ async def cleanup_contact_state(api_client, api_client_2):
                 await api_client_2.agent_api_contacts.respond_to_agent_contact_request(
                     action="reject", request_id=req.id
                 )
-    except Exception:
+    except ApiError:
         logger.debug("Cleanup: reject requests for agent2 failed")
 
     await asyncio.sleep(0.3)

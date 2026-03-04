@@ -11,8 +11,11 @@ Run with:
 from __future__ import annotations
 
 import logging
+import os
 from collections.abc import Callable
 from typing import Any
+
+import pytest
 
 from thenvoi.core.simple_adapter import SimpleAdapter
 
@@ -29,8 +32,21 @@ AdapterFactory = Callable[[E2ESettings], SimpleAdapter[Any]]
 # =============================================================================
 
 
+def _require_openai_key() -> None:
+    """Skip test if OPENAI_API_KEY is not set."""
+    if not os.environ.get("OPENAI_API_KEY"):
+        pytest.skip("OPENAI_API_KEY not set")
+
+
+def _require_anthropic_key() -> None:
+    """Skip test if ANTHROPIC_API_KEY is not set."""
+    if not os.environ.get("ANTHROPIC_API_KEY"):
+        pytest.skip("ANTHROPIC_API_KEY not set")
+
+
 def create_langgraph_adapter(settings: E2ESettings) -> SimpleAdapter[Any]:
     """Create a LangGraph adapter with a cheap OpenAI model."""
+    _require_openai_key()
     from langchain_openai import ChatOpenAI
     from langgraph.checkpoint.memory import MemorySaver
 
@@ -45,6 +61,7 @@ def create_langgraph_adapter(settings: E2ESettings) -> SimpleAdapter[Any]:
 
 def create_anthropic_adapter(settings: E2ESettings) -> SimpleAdapter[Any]:
     """Create an Anthropic adapter with a cheap Claude model."""
+    _require_anthropic_key()
     from thenvoi.adapters.anthropic import AnthropicAdapter
 
     return AnthropicAdapter(
@@ -55,6 +72,7 @@ def create_anthropic_adapter(settings: E2ESettings) -> SimpleAdapter[Any]:
 
 def create_pydantic_ai_adapter(settings: E2ESettings) -> SimpleAdapter[Any]:
     """Create a Pydantic AI adapter with a cheap OpenAI model."""
+    _require_openai_key()
     from thenvoi.adapters.pydantic_ai import PydanticAIAdapter
 
     return PydanticAIAdapter(
@@ -65,6 +83,7 @@ def create_pydantic_ai_adapter(settings: E2ESettings) -> SimpleAdapter[Any]:
 
 def create_claude_sdk_adapter(settings: E2ESettings) -> SimpleAdapter[Any]:
     """Create a Claude SDK adapter with a cheap Claude model."""
+    _require_anthropic_key()
     from thenvoi.adapters.claude_sdk import ClaudeSDKAdapter
 
     return ClaudeSDKAdapter(
@@ -75,6 +94,7 @@ def create_claude_sdk_adapter(settings: E2ESettings) -> SimpleAdapter[Any]:
 
 def create_crewai_adapter(settings: E2ESettings) -> SimpleAdapter[Any]:
     """Create a CrewAI adapter with a cheap OpenAI model."""
+    _require_openai_key()
     from thenvoi.adapters.crewai import CrewAIAdapter
 
     return CrewAIAdapter(
