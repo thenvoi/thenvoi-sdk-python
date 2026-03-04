@@ -234,6 +234,9 @@ tests/
 ├── core/           # Core logic tests
 ├── runtime/        # Runtime tests
 ├── integration/    # Real API tests (skipped in CI)
+├── e2e/            # End-to-end tests (requires live platform + LLM keys)
+│   ├── adapters/   # Per-adapter smoke & tool execution tests
+│   └── scenarios/  # Cross-cutting scenarios (context persistence, room isolation)
 └── conftest.py     # Shared fixtures
 ```
 
@@ -244,16 +247,22 @@ tests/
 uv sync --extra dev
 
 # Run unit tests
-uv run pytest tests/ --ignore=tests/integration/ -v
+uv run pytest tests/ --ignore=tests/integration/ --ignore=tests/e2e/ -v
 
 # Run single test
 uv run pytest tests/ -k "test_name"
 
 # Run with coverage
-uv run pytest tests/ --ignore=tests/integration/ --cov=src/thenvoi
+uv run pytest tests/ --ignore=tests/integration/ --ignore=tests/e2e/ --cov=src/thenvoi
 
 # Run integration tests (requires API key)
 uv run pytest tests/integration/ -v -s --no-cov
+
+# Run E2E tests (requires live platform + LLM API keys)
+E2E_TESTS_ENABLED=true uv run pytest tests/e2e/ -v -s --no-cov
+
+# Run E2E tests for a single adapter
+E2E_TESTS_ENABLED=true uv run pytest tests/e2e/ -k langgraph -v -s --no-cov
 
 # Linting and formatting
 uv run ruff check .
@@ -267,6 +276,10 @@ uv run pyrefly check
 - `THENVOI_WS_URL`: WebSocket URL (default: wss://app.thenvoi.com/api/v1/socket/websocket)
 - `OPENAI_API_KEY`: OpenAI API key (for LangGraph examples)
 - `ANTHROPIC_API_KEY`: Anthropic API key (for Anthropic/Claude SDK examples)
+- `E2E_TESTS_ENABLED`: Set to `true` to enable E2E tests (default: disabled)
+- `E2E_LLM_MODEL`: OpenAI model for E2E tests (default: `gpt-4o-mini`)
+- `E2E_ANTHROPIC_MODEL`: Anthropic model for E2E tests (default: `claude-sonnet-4-20250514`)
+- `E2E_TIMEOUT`: Response timeout in seconds for E2E tests (default: `30`)
 
 ## Adding a New Framework Integration
 
@@ -310,7 +323,7 @@ In `src/thenvoi/adapters/<framework>.py`: `on_started` sets agent name/descripti
 ```bash
 uv run pytest tests/framework_conformance/ tests/framework_configs/ -v
 uv run pytest tests/adapters/test_<framework>_adapter.py tests/converters/test_<framework>.py -v
-uv run pytest tests/ --ignore=tests/integration/ -v
+uv run pytest tests/ --ignore=tests/integration/ --ignore=tests/e2e/ -v
 uv run ruff check . && uv run ruff format .
 ```
 
@@ -379,5 +392,5 @@ Replace `<extra>` with the appropriate framework extra (e.g., `langgraph`, `anth
 uv run ruff check .
 uv run ruff format .
 uv run pyrefly check
-uv run pytest tests/ --ignore=tests/integration/ -v
+uv run pytest tests/ --ignore=tests/integration/ --ignore=tests/e2e/ -v
 ```
