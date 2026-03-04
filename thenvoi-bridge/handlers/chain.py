@@ -342,14 +342,14 @@ class LangChainHandler:
                 # Per-agent URL mapping
                 urls: dict[str, str] = {}
                 for part in parts:
-                    sep = part.find(":")
-                    if sep <= 0:
+                    pieces = part.split(":", maxsplit=1)
+                    if len(pieces) != 2 or not pieces[0].strip():
                         raise ValueError(
                             f"Invalid LANGCHAIN_URLS entry '{part}'; "
                             f"expected 'agent_name:url' format"
                         )
-                    agent = part[:sep].strip()
-                    url = part[sep + 1 :].strip()
+                    agent = pieces[0].strip()
+                    url = pieces[1].strip()
                     if not agent or not url:
                         raise ValueError(
                             f"Invalid LANGCHAIN_URLS entry '{part}'; "

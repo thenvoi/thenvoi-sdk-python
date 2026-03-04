@@ -23,7 +23,7 @@ classifiers = [
 
 dependencies = [
     "thenvoi-client-rest==0.0.4",
-    "phoenix-channels-python-client>=0.1.5",
+    "phoenix-channels-python-client>=0.1.5",  # >=0.1.5 for channel rejoin & heartbeat fixes
     "python-dotenv>=1.1.1",
     "pyyaml>=6.0",
     "claude-agent-sdk>=0.1.16",
