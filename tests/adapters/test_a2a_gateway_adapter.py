@@ -30,7 +30,7 @@ class TestA2AGatewayContextIdFlow:
         weather_peer = Peer(
             id="uuid-weather",
             name="Weather Agent",
-            type="Agent",
+            type="agent",
             handle="test/weather-agent",
             is_contact=False,
             source="registry",
@@ -115,7 +115,7 @@ class TestA2AGatewayContextIdFlow:
         data_peer = Peer(
             id="uuid-data",
             name="Data Agent",
-            type="Agent",
+            type="agent",
             handle="test/data-agent",
             is_contact=False,
             source="registry",
