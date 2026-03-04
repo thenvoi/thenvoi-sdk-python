@@ -7,7 +7,7 @@ import json
 import logging
 from typing import TYPE_CHECKING, Any
 
-from handlers._base import resolve_sender
+from ._base import resolve_sender
 
 if TYPE_CHECKING:
     import httpx
@@ -190,7 +190,13 @@ class LangChainHandler:
             if key in data:
                 value = data[key]
                 return str(value) if not isinstance(value, str) else value
-        # Fall back to full response as string
+        # No known key found — return full JSON.  Log a warning so
+        # operators can add the correct key to the extraction list.
+        logger.warning(
+            "No known response key found in LangChain response; "
+            "returning full JSON. Keys present: %s",
+            list(data.keys()),
+        )
         return json.dumps(data)
 
     async def _invoke_agent(
@@ -288,7 +294,13 @@ class LangChainHandler:
         # Import httpx before the try block so the except handler can
         # reference it without an inline import.  _get_client() would
         # import it anyway; doing it here keeps the error path clean.
-        import httpx as _httpx
+        try:
+            import httpx as _httpx
+        except ImportError:
+            raise ImportError(
+                "httpx is required for LangChainHandler. "
+                "Install with: pip install thenvoi-sdk[bridge_langchain]"
+            )
 
         try:
             response_text = await self._invoke_agent(url, payload)

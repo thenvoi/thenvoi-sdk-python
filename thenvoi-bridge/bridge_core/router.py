@@ -138,9 +138,7 @@ class MentionRouter:
             username = mention.username
             if username is None:
                 # Platform sends username=null for agents; try handle/name fallback
-                username = getattr(mention, "handle", None) or getattr(
-                    mention, "name", None
-                )
+                username = mention.handle or mention.name
                 if username is None:
                     logger.debug(
                         "Could not resolve username for mention %s, skipping",
@@ -157,7 +155,7 @@ class MentionRouter:
                 logger.debug("No handler mapped for @%s", username)
                 continue
 
-            # handler must exist: _validate_handlers() at init guarantees
+            # handler must exist: the bridge validates at startup that
             # every mapped handler_name is present in self._handlers.
             handler = self._handlers[handler_name]
 

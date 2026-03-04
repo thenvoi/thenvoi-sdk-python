@@ -3,32 +3,16 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Any
+
+from bridge_core.handler import BaseHandler as Handler
 
 if TYPE_CHECKING:
     from thenvoi.runtime.tools import AgentTools
 
 logger = logging.getLogger(__name__)
 
-
-@runtime_checkable
-class Handler(Protocol):
-    """Protocol that all bridge message handlers must satisfy."""
-
-    async def handle(
-        self,
-        content: str,
-        room_id: str,
-        thread_id: str,
-        message_id: str,
-        sender_id: str,
-        sender_name: str | None,
-        sender_type: str,
-        mentioned_agent: str,
-        tools: AgentTools,
-    ) -> None: ...
-
-    async def close(self) -> None: ...
+__all__ = ["Handler", "resolve_sender"]
 
 
 def resolve_sender(
