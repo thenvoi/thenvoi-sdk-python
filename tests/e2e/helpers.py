@@ -95,7 +95,7 @@ async def send_user_message(
         The message ID of the sent message.
     """
     message_content = f"@{agent_name} {content}"
-    response = await client.agent_api.create_agent_chat_message(
+    response = await client.agent_api_messages.create_agent_chat_message(
         room_id,
         message=ChatMessageRequest(
             content=message_content,
@@ -115,15 +115,17 @@ async def create_room_with_user(
     Returns (chat_id, user_id, user_name). Rooms created here will persist
     (no delete API for agents).
     """
-    response = await api_client.agent_api.create_agent_chat(chat=ChatRoomRequest())
+    response = await api_client.agent_api_chats.create_agent_chat(
+        chat=ChatRoomRequest()
+    )
     chat_id = response.data.id
 
-    peers_response = await api_client.agent_api.list_agent_peers()
+    peers_response = await api_client.agent_api_peers.list_agent_peers()
     user_peer = next((p for p in peers_response.data if p.type == "User"), None)
     if user_peer is None:
         pytest.skip("No User peer available for E2E tests")
 
-    await api_client.agent_api.add_agent_chat_participant(
+    await api_client.agent_api_participants.add_agent_chat_participant(
         chat_id,
         participant=ParticipantRequest(participant_id=user_peer.id, role="member"),
     )

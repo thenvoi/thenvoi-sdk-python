@@ -194,7 +194,7 @@ async def e2e_agent_id() -> str:
         api_key=settings.thenvoi_api_key,
         base_url=settings.thenvoi_base_url,
     )
-    agent_me = await client.agent_api.get_agent_me()
+    agent_me = await client.agent_api_identity.get_agent_me()
     return agent_me.data.id
 
 
