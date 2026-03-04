@@ -27,6 +27,7 @@ dependencies = [
     "python-dotenv>=1.1.1",
     "pyyaml>=6.0",
     "claude-agent-sdk>=0.1.16",
+    "cryptography>=46.0.5",
 ]
 
 [project.optional-dependencies]
@@ -37,7 +38,7 @@ letta = [
     "letta-client>=0.1.0",
 ]
 pydantic-ai = [
-    "pydantic-ai-slim>=1.0.0",
+    "pydantic-ai-slim>=1.56.0",
     "openai>=1.0.0",
 ]
 anthropic = [
@@ -45,7 +46,7 @@ anthropic = [
 ]
 langgraph = [
     "langchain>=1.0.0",
-    "langchain-core>=1.2.5",
+    "langchain-core>=1.2.11",
     "langgraph>=1.0.0",
     "langchain-openai>=0.3.0",
     "langchain-community>=0.4.0",  # 0.4.0+ required for langchain 1.0 compatibility
@@ -59,6 +60,7 @@ claude_sdk = [
 parlant = [
     "parlant>=3.0.0",
     "openai>=1.0.0",
+    "werkzeug>=3.1.6",
 ]
 crewai = [
     # Upper bound due to reliance on kickoff_async message list behavior.
@@ -66,14 +68,18 @@ crewai = [
     "crewai>=0.80.0,<2.0.0",
     "openai>=1.0.0",
     "nest-asyncio>=1.6.0",  # Required for sync-to-async bridging in CrewAI tools
+    "pillow>=12.1.1",
 ]
 a2a = [
     "a2a-sdk>=0.3.22",  # Official A2A Python SDK
+    "protobuf>=6.33.5",
 ]
 a2a_gateway = [
     "a2a-sdk>=0.3.22",  # Official A2A Python SDK
     "starlette>=0.40.0",  # HTTP server framework
     "uvicorn>=0.32.0",  # ASGI server
+    "protobuf>=6.33.5",
+    "python-multipart>=0.0.22",
 ]
 a2a_gateway_demo = [
     "a2a-sdk>=0.3.22",      # A2A client for calling gateway peers
@@ -95,12 +101,12 @@ dev = [
     "pytest-cov>=4.0.0",
     "httpx>=0.24.0",  # Already in main deps, for mocking
     # Include pydantic-ai for testing
-    "pydantic-ai-slim>=1.0.0",
+    "pydantic-ai-slim>=1.56.0",
     # Include anthropic for testing
     "anthropic>=0.75.0",
     # Include langgraph for testing
     "langchain>=1.0.0",
-    "langchain-core>=1.2.5",
+    "langchain-core>=1.2.11",
     "langgraph>=1.0.0",
     "langchain-openai>=0.3.0",
     "langchain-community>=0.4.0",
