@@ -229,6 +229,7 @@ CONVERTER_EXCLUDED_MODULES: frozenset[str] = frozenset(
         "a2a",
         "a2a_gateway",
         "codex",
+        "letta",
     }
 )
 
