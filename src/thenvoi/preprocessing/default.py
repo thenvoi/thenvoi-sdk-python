@@ -118,7 +118,13 @@ class DefaultPreprocessor(Preprocessor):
 
     @staticmethod
     def _fallback_timestamp(message_id: str) -> datetime:
-        """Return current UTC time as fallback when inserted_at is missing."""
+        """Return current UTC time as fallback when inserted_at is missing.
+
+        Note: Multiple messages arriving without timestamps will get near-identical
+        fallback times, which may affect ordering in history. This is acceptable
+        since missing timestamps indicate a backend issue that should be fixed
+        at the source.
+        """
         logger.warning(
             "Message %s has no inserted_at timestamp, using current UTC time",
             message_id,

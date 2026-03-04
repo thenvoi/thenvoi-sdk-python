@@ -25,6 +25,7 @@ import logging
 import pytest
 
 from thenvoi_rest import ChatEventRequest, ChatMessageRequest
+from thenvoi_rest.core.api_error import ApiError
 from thenvoi_rest.types import (
     ChatMessageRequestMentionsItem as Mention,
     ParticipantRequest,
@@ -533,11 +534,15 @@ class TestMultiAgentChatRoom:
                             chat_id, other_agent_id
                         )
                     )
-                except Exception:
+                except ApiError:
                     logger.warning("Failed to clean up added agent %s", other_agent_id)
-            except Exception as e:
-                logger.info("FAILED: Agent 2 could not add Agent: %s", type(e).__name__)
-                if "403" in str(e) or "forbidden" in str(e).lower():
+            except ApiError as e:
+                logger.info(
+                    "FAILED: Agent 2 could not add Agent: %s (status %s)",
+                    type(e).__name__,
+                    e.status_code,
+                )
+                if e.status_code == 403:
                     logger.info("  -> 403 Forbidden: Members cannot add participants")
         else:
             add_agent_success = None
@@ -580,15 +585,18 @@ class TestMultiAgentChatRoom:
 
         chat_id = shared_multi_agent_room
 
-        # Promote Agent 2 to admin (re-add with admin role, ignore if already admin)
+        # Promote Agent 2 to admin (re-add with admin role, ignore 409 if already admin)
         try:
             await api_client.agent_api_participants.add_agent_chat_participant(
                 chat_id,
                 participant=ParticipantRequest(participant_id=agent2_id, role="admin"),
             )
             logger.info("Promoted Agent 2 to admin")
-        except Exception:
-            logger.info("Agent 2 may already be admin or re-add not supported")
+        except ApiError as e:
+            if e.status_code == 409:
+                logger.info("Agent 2 already admin (409 conflict)")
+            else:
+                raise
 
         # Verify Agent 2's role
         response = await api_client.agent_api_participants.list_agent_chat_participants(
@@ -627,8 +635,12 @@ class TestMultiAgentChatRoom:
             logger.info(
                 "SUCCESS: Agent 2 (admin) added '%s' to chat", addable_peer.name
             )
-        except Exception as e:
-            logger.info("FAILED: Agent 2 (admin) could not add peer: %s", e)
+        except ApiError as e:
+            logger.info(
+                "FAILED: Agent 2 (admin) could not add peer: %s (status %s)",
+                e,
+                e.status_code,
+            )
 
         # Verify peer was added
         response = await api_client.agent_api_participants.list_agent_chat_participants(
@@ -657,5 +669,5 @@ class TestMultiAgentChatRoom:
             await api_client.agent_api_participants.remove_agent_chat_participant(
                 chat_id, addable_peer.id
             )
-        except Exception:
+        except ApiError:
             logger.warning("Failed to clean up added peer %s", addable_peer.id)
