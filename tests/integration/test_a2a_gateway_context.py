@@ -40,8 +40,8 @@ class TestA2AGatewayContextIdFlow:
         weather_peer = Peer(
             id="uuid-weather",
             name="Weather Agent",
-            type="Agent",
-            handle="weather-agent",
+            type="agent",
+            handle="test/weather-agent",
             is_contact=False,
             source="registry",
         )
@@ -62,8 +62,8 @@ class TestA2AGatewayContextIdFlow:
             side_effect=track_room_creation
         )
         adapter._rest.agent_api_participants.add_agent_chat_participant = AsyncMock()
-        adapter._rest.agent_api_chats.create_agent_chat_message = AsyncMock()
-        adapter._rest.agent_api_chats.create_agent_chat_event = AsyncMock()
+        adapter._rest.agent_api_messages.create_agent_chat_message = AsyncMock()
+        adapter._rest.agent_api_events.create_agent_chat_event = AsyncMock()
         adapter._rooms_created = rooms_created  # Expose for assertions
 
         return adapter
@@ -125,8 +125,8 @@ class TestA2AGatewayContextIdFlow:
         data_peer = Peer(
             id="uuid-data",
             name="Data Agent",
-            type="Agent",
-            handle="data-agent",
+            type="agent",
+            handle="test/data-agent",
             is_contact=False,
             source="registry",
         )

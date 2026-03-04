@@ -24,8 +24,6 @@ class Mention(BaseModel):
     model_config = ConfigDict(extra="allow")
 
     id: str
-    handle: str | None = None
-    name: str | None = None
     username: str | None = None
 
 
@@ -34,7 +32,8 @@ class MessageMetadata(BaseModel):
 
     model_config = ConfigDict(extra="allow")
 
-    mentions: list[Mention] | None = None
+    mentions: list[Mention] = []
+    status: str | None = None
 
 
 class MessageCreatedPayload(BaseModel):
@@ -50,11 +49,10 @@ class MessageCreatedPayload(BaseModel):
     metadata: MessageMetadata | None = None
     sender_id: str
     sender_type: str
-    sender_name: str | None = None
     chat_room_id: str | None = None
     thread_id: str | None = None
-    inserted_at: str
-    updated_at: str
+    inserted_at: str | None = None
+    updated_at: str | None = None
 
 
 class RoomOwner(BaseModel):
@@ -71,15 +69,15 @@ class RoomAddedPayload(BaseModel):
     model_config = ConfigDict(extra="allow")
 
     id: str
-    title: str | None = None
-    task_id: str | None = None
-    inserted_at: str | None = None
-    updated_at: str | None = None
+    title: str
     owner: RoomOwner | None = None
     status: str | None = None
     type: str | None = None
     created_at: str | None = None
     participant_role: str | None = None
+    task_id: str | None = None
+    inserted_at: str | None = None
+    updated_at: str | None = None
 
 
 class RoomRemovedPayload(BaseModel):
@@ -88,10 +86,10 @@ class RoomRemovedPayload(BaseModel):
     model_config = ConfigDict(extra="allow")
 
     id: str
-    status: str
-    type: str
-    title: str
-    removed_at: str
+    status: str | None = None
+    type: str | None = None
+    title: str | None = None
+    removed_at: str | None = None
 
 
 class ParticipantAddedPayload(BaseModel):

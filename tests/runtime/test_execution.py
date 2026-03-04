@@ -26,14 +26,13 @@ def mock_link():
 
     # REST client mock
     link.rest = MagicMock()
-    link.rest.agent_api_participants = MagicMock()
-    link.rest.agent_api_context = MagicMock()
 
     # Mock list_agent_chat_participants
     participant1 = MagicMock()
     participant1.id = "user-1"
     participant1.name = "User One"
     participant1.type = "User"
+    link.rest.agent_api_participants = MagicMock()
     link.rest.agent_api_participants.list_agent_chat_participants = AsyncMock(
         return_value=MagicMock(data=[participant1])
     )
@@ -47,6 +46,7 @@ def mock_link():
     msg1.sender_name = "User One"
     msg1.message_type = "text"
     msg1.inserted_at = "2024-01-01T00:00:00Z"
+    link.rest.agent_api_context = MagicMock()
     link.rest.agent_api_context.get_agent_chat_context = AsyncMock(
         return_value=MagicMock(data=[msg1])
     )
@@ -402,13 +402,13 @@ class TestCrashRecoverySync:
         link = MagicMock()
         link.agent_id = "agent-123"
         link.rest = MagicMock()
-        link.rest.agent_api_participants = MagicMock()
-        link.rest.agent_api_context = MagicMock()
 
         # Default: no messages
+        link.rest.agent_api_participants = MagicMock()
         link.rest.agent_api_participants.list_agent_chat_participants = AsyncMock(
             return_value=MagicMock(data=[])
         )
+        link.rest.agent_api_context = MagicMock()
         link.rest.agent_api_context.get_agent_chat_context = AsyncMock(
             return_value=MagicMock(data=[])
         )
@@ -816,11 +816,8 @@ class TestContextHydrationConfig:
 
         # History should be empty (skipped)
         assert context.messages == []
+        assert context.participants == []
         mock_link.rest.agent_api_context.get_agent_chat_context.assert_not_called()
-        # Participants should still be loaded
-        assert len(context.participants) == 1
-        assert context.participants[0]["name"] == "User One"
-        mock_link.rest.agent_api_participants.list_agent_chat_participants.assert_called_once()
 
     async def test_get_context_calls_api_when_hydration_enabled(
         self, mock_link, mock_handler

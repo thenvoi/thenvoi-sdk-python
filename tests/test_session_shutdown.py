@@ -27,10 +27,10 @@ class TestIsRunningProperty:
         link = MagicMock()
         link.rest = MagicMock()
         link.rest.agent_api_participants = MagicMock()
-        link.rest.agent_api_context = MagicMock()
         link.rest.agent_api_participants.list_agent_chat_participants = AsyncMock(
             return_value=MagicMock(data=[])
         )
+        link.rest.agent_api_context = MagicMock()
         link.rest.agent_api_context.get_agent_chat_context = AsyncMock(
             return_value=MagicMock(data=[])
         )
@@ -83,10 +83,10 @@ class TestInstantShutdown:
         link = MagicMock()
         link.rest = MagicMock()
         link.rest.agent_api_participants = MagicMock()
-        link.rest.agent_api_context = MagicMock()
         link.rest.agent_api_participants.list_agent_chat_participants = AsyncMock(
             return_value=MagicMock(data=[])
         )
+        link.rest.agent_api_context = MagicMock()
         link.rest.agent_api_context.get_agent_chat_context = AsyncMock(
             return_value=MagicMock(data=[])
         )
@@ -151,10 +151,10 @@ class TestCancellationDuringSync:
         link = MagicMock()
         link.rest = MagicMock()
         link.rest.agent_api_participants = MagicMock()
-        link.rest.agent_api_context = MagicMock()
         link.rest.agent_api_participants.list_agent_chat_participants = AsyncMock(
             return_value=MagicMock(data=[])
         )
+        link.rest.agent_api_context = MagicMock()
         link.rest.agent_api_context.get_agent_chat_context = AsyncMock(
             return_value=MagicMock(data=[])
         )
@@ -209,10 +209,10 @@ class TestCancellationDuringProcessing:
         link = MagicMock()
         link.rest = MagicMock()
         link.rest.agent_api_participants = MagicMock()
-        link.rest.agent_api_context = MagicMock()
         link.rest.agent_api_participants.list_agent_chat_participants = AsyncMock(
             return_value=MagicMock(data=[])
         )
+        link.rest.agent_api_context = MagicMock()
         link.rest.agent_api_context.get_agent_chat_context = AsyncMock(
             return_value=MagicMock(data=[])
         )

@@ -49,7 +49,7 @@ def make_peer(peer_id: str, name: str, description: str = "") -> Peer:
         name=name,
         type="Agent",
         description=description,
-        handle=name.lower().replace(" ", "-"),
+        handle=f"test/{name.lower().replace(' ', '-')}",
         is_contact=False,
         source="registry",
     )

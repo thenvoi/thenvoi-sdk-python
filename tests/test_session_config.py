@@ -46,10 +46,10 @@ class TestGetHistoryForLLMHydrationDisabled:
         link = MagicMock()
         link.rest = MagicMock()
         link.rest.agent_api_participants = MagicMock()
-        link.rest.agent_api_context = MagicMock()
         link.rest.agent_api_participants.list_agent_chat_participants = AsyncMock(
             return_value=MagicMock(data=[])
         )
+        link.rest.agent_api_context = MagicMock()
         link.rest.agent_api_context.get_agent_chat_context = AsyncMock(
             return_value=MagicMock(data=[])
         )
@@ -108,7 +108,6 @@ class TestGetHistoryForLLMHydrationEnabled:
         link = MagicMock()
         link.rest = MagicMock()
         link.rest.agent_api_participants = MagicMock()
-        link.rest.agent_api_context = MagicMock()
         link.rest.agent_api_participants.list_agent_chat_participants = AsyncMock(
             return_value=MagicMock(data=[])
         )
@@ -132,6 +131,7 @@ class TestGetHistoryForLLMHydrationEnabled:
         mock_msg2.message_type = "text"
         mock_msg2.inserted_at = datetime.now(timezone.utc).isoformat()
 
+        link.rest.agent_api_context = MagicMock()
         link.rest.agent_api_context.get_agent_chat_context = AsyncMock(
             return_value=MagicMock(data=[mock_msg1, mock_msg2])
         )
@@ -185,10 +185,10 @@ class TestProcessEventHydration:
         link = MagicMock()
         link.rest = MagicMock()
         link.rest.agent_api_participants = MagicMock()
-        link.rest.agent_api_context = MagicMock()
         link.rest.agent_api_participants.list_agent_chat_participants = AsyncMock(
             return_value=MagicMock(data=[])
         )
+        link.rest.agent_api_context = MagicMock()
         link.rest.agent_api_context.get_agent_chat_context = AsyncMock(
             return_value=MagicMock(data=[])
         )

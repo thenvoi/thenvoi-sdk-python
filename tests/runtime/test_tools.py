@@ -20,11 +20,6 @@ from thenvoi.runtime.tools import (
 def mock_rest_client():
     """Mock AsyncRestClient for testing AgentTools."""
     client = MagicMock()
-    client.agent_api_messages = MagicMock()
-    client.agent_api_events = MagicMock()
-    client.agent_api_participants = MagicMock()
-    client.agent_api_peers = MagicMock()
-    client.agent_api_chats = MagicMock()
 
     # Mock create_agent_chat_message
     message_response = MagicMock()
