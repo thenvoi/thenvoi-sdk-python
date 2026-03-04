@@ -51,8 +51,8 @@ class MessageCreatedPayload(BaseModel):
     sender_type: str
     chat_room_id: str | None = None
     thread_id: str | None = None
-    inserted_at: str | None = None
-    updated_at: str | None = None
+    inserted_at: str
+    updated_at: str
 
 
 class RoomOwner(BaseModel):
