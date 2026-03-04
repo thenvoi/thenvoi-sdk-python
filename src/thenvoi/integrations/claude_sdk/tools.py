@@ -435,16 +435,9 @@ def create_thenvoi_mcp_server(agent: Any):
         "thenvoi_add_contact",
         "Send a contact request to add someone as a contact. Returns 'pending' when request is created, 'approved' when inverse request existed.",
         {
-            "type": "object",
-            "properties": {
-                "room_id": {"type": "string"},
-                "handle": {"type": "string"},
-                "message": {
-                    "type": "string",
-                    "description": "Optional message to include with the contact request",
-                },
-            },
-            "required": ["room_id", "handle"],
+            "room_id": str,
+            "handle": str,
+            "message": str,
         },
     )
     async def add_contact(args: dict[str, Any]) -> dict[str, Any]:
