@@ -15,6 +15,7 @@ import pytest
 
 from thenvoi.integrations.a2a.gateway import A2AGatewayAdapter
 from thenvoi_rest import AsyncRestClient, ChatMessageRequest, ParticipantRequest
+from thenvoi_rest.core.api_error import ApiError
 from thenvoi_rest.types import ChatMessageRequestMentionsItem as Mention
 
 from .conftest import requires_api
@@ -31,9 +32,9 @@ async def ensure_peer_in_room(
             chat_id=room_id,
             participant=ParticipantRequest(participant_id=peer_id, role="member"),
         )
-    except Exception as e:
+    except ApiError as e:
         # 409 Conflict means peer is already in the room — safe to ignore
-        if hasattr(e, "status_code") and e.status_code == 409:
+        if e.status_code == 409:
             logger.debug("Peer %s already in room %s", peer_id, room_id)
         else:
             raise

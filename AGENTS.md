@@ -63,8 +63,8 @@ await link.rest.agent_api_participants.list_agent_chat_participants(...)
 
 ```python
 MessageCreatedPayload:
-  id, content, message_type, sender_type, sender_id, sender_name?,
-  metadata?, inserted_at, updated_at
+  id, content, message_type, sender_type, sender_id,
+  metadata?, chat_room_id?, thread_id?, inserted_at?, updated_at?
 
 RoomAddedPayload:
   id, inserted_at, updated_at, title?, task_id?
@@ -79,7 +79,7 @@ ParticipantRemovedPayload:
   id
 
 Mention:
-  id, username?, handle?, name?
+  id, username?
 ```
 
 ### PlatformEvent Union (Tagged Union Pattern)

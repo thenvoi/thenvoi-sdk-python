@@ -57,20 +57,6 @@ class E2ESettings(ThenvoiTestSettings):
     e2e_tests_enabled: bool = False
 
 
-# Singleton instance — initialised lazily on first access via _get_e2e_settings().
-# Note: the first call happens at module import time (via _check_e2e_status below),
-# but is wrapped in a try/except so a missing or malformed .env.test won't blow up
-# test collection.
-_e2e_settings: E2ESettings | None = None
-
-
-def _get_e2e_settings() -> E2ESettings:
-    global _e2e_settings  # noqa: PLW0603
-    if _e2e_settings is None:
-        _e2e_settings = E2ESettings()
-    return _e2e_settings
-
-
 # =============================================================================
 # Skip Markers
 # =============================================================================
@@ -84,7 +70,7 @@ def _check_e2e_status() -> tuple[bool, str]:
     actionable.
     """
     try:
-        settings = _get_e2e_settings()
+        settings = E2ESettings()
         if not settings.e2e_tests_enabled:
             return True, "E2E_TESTS_ENABLED is not set to true"
         if not settings.thenvoi_api_key:
@@ -111,10 +97,10 @@ requires_e2e = pytest.mark.skipif(
 # =============================================================================
 
 
-@pytest.fixture
+@pytest.fixture(scope="session")
 def e2e_config() -> E2ESettings:
-    """Provide E2E settings to tests."""
-    return _get_e2e_settings()
+    """Provide E2E settings to tests (session-scoped singleton)."""
+    return E2ESettings()
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -151,48 +137,85 @@ async def api_client(
     )
 
 
-@pytest.fixture
-async def e2e_chat_room_with_user(
-    api_client: AsyncRestClient,
+@pytest.fixture(scope="session")
+async def e2e_shared_room(
+    e2e_config: E2ESettings,
 ) -> tuple[str, str, str]:
-    """Create a chat room with a User peer added.
+    """Session-scoped shared chat room with a User peer.
 
-    Returns (chat_id, user_id, user_name) tuple.
-    The user peer is needed so agents can send @mentioned messages.
+    Returns (chat_id, user_id, user_name) tuple. Reuses an existing room
+    from prior runs when possible to avoid room accumulation (the platform
+    has no delete API for agents).
 
-    Intentionally function-scoped: adapter tests are parametrized across
-    multiple adapters, and each adapter sends different messages into the
-    room. Sharing a room would leak context between adapters. This does
-    mean one orphaned room per test — see note below.
-
-    Note: rooms persist — there is no delete API for agents.
+    Tests that check WS responses (smoke, tool execution) can safely share
+    this room because each agent only processes messages arriving while it's
+    connected. Context hydration may include prior messages, but assertions
+    target the specific WS response, not room history.
     """
-    return await create_room_with_user(api_client)
+    if not e2e_config.thenvoi_api_key:
+        pytest.skip("THENVOI_API_KEY not set")
+
+    client = AsyncRestClient(
+        api_key=e2e_config.thenvoi_api_key,
+        base_url=e2e_config.thenvoi_base_url,
+    )
+
+    # Find a User peer
+    peers_response = await client.agent_api_peers.list_agent_peers()
+    user_peer = next((p for p in peers_response.data if p.type == "User"), None)
+    if user_peer is None:
+        pytest.skip("No User peer available for E2E tests")
+
+    # Try to reuse an existing room that has this User peer
+    chats_response = await client.agent_api_chats.list_agent_chats()
+    existing_rooms = chats_response.data or []
+
+    for room in existing_rooms:
+        participants_response = (
+            await client.agent_api_participants.list_agent_chat_participants(room.id)
+        )
+        participant_ids = [p.id for p in (participants_response.data or [])]
+        if user_peer.id in participant_ids:
+            logger.info(
+                "E2E: Reusing existing room %s with user %s", room.id, user_peer.name
+            )
+            return room.id, user_peer.id, user_peer.name
+
+    # No suitable room found — create one
+    return await create_room_with_user(client)
+
+
+@pytest.fixture
+def e2e_chat_room_with_user(
+    e2e_shared_room: tuple[str, str, str],
+) -> tuple[str, str, str]:
+    """Provide a chat room with a User peer (delegates to session-scoped shared room).
+
+    Returns (chat_id, user_id, user_name) tuple. Uses the session-scoped
+    shared room to avoid creating rooms per test. Tests check WS responses
+    which are unaffected by prior room history.
+    """
+    return e2e_shared_room
 
 
 @pytest.fixture(scope="session")
-async def e2e_agent_id() -> str:
+async def e2e_agent_id(e2e_config: E2ESettings) -> str:
     """Get the agent ID for the test agent (cached for the entire session).
-
-    Uses ``_get_e2e_settings()`` directly instead of the function-scoped
-    ``e2e_config`` fixture, since session-scoped fixtures cannot depend on
-    function-scoped ones.
 
     Note: Session-scoped because the agent ID is stable for a given API key
     and never changes mid-run. If the underlying agent is recreated between
     tests, this cached value would be stale — but that scenario doesn't
     apply to E2E runs against a persistent platform.
     """
-    settings = _get_e2e_settings()
-    if not settings.thenvoi_api_key:
+    if not e2e_config.thenvoi_api_key:
         pytest.skip("THENVOI_API_KEY not set")
 
     # Short-lived client — AsyncRestClient has no close() method, so the
     # underlying httpx client is cleaned up on garbage collection when
     # this local variable falls out of scope after the fixture returns.
     client = AsyncRestClient(
-        api_key=settings.thenvoi_api_key,
-        base_url=settings.thenvoi_base_url,
+        api_key=e2e_config.thenvoi_api_key,
+        base_url=e2e_config.thenvoi_base_url,
     )
     agent_me = await client.agent_api_identity.get_agent_me()
     return agent_me.data.id

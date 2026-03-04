@@ -355,10 +355,11 @@ class TestHubRoomPersistence:
     async def test_hub_room_persists_across_reconnect(
         self, api_client, integration_settings, shared_room
     ):
-        """Same hub room is reused across multiple handler instances.
+        """Multiple handler instances route events to the same hub room.
 
-        Uses session-scoped shared_room to avoid creating new rooms.
-        Pre-sets _hub_room_id on both handlers to simulate room persistence.
+        Uses session-scoped shared_room. Verifies that both handlers
+        actually post events to the same room by checking the room context
+        contains messages from both handlers.
         """
 
         logger.info("\n" + "=" * 60)
@@ -394,7 +395,7 @@ class TestHubRoomPersistence:
         first_room_id = handler1._hub_room_id
         logger.info("First handler room: %s", first_room_id)
 
-        # Second handler (simulating reconnect) with same pre-set hub room
+        # Second handler (simulating reconnect) routes to same hub room
         config2 = ContactEventConfig(
             strategy=ContactEventStrategy.HUB_ROOM,
         )
@@ -416,10 +417,16 @@ class TestHubRoomPersistence:
         second_room_id = handler2._hub_room_id
         logger.info("Second handler room: %s", second_room_id)
 
-        # Both handlers use the same room (persistence)
-        assert first_room_id is not None
-        assert second_room_id is not None
+        # Both handlers use the same room
         assert first_room_id == second_room_id == shared_room
+
+        # Verify events from both handlers arrived in the shared room context
+        response = await api_client.agent_api_context.get_agent_chat_context(
+            shared_room
+        )
+        context_items = response.data or []
+        assert len(context_items) > 0, "Hub room should have events from handlers"
+        logger.info("Hub room has %d context items", len(context_items))
 
         logger.info("\nSUCCESS: Hub room persists across handler instances")
 
@@ -431,10 +438,10 @@ class TestHubRoomIsolation:
     async def test_hub_room_isolated_from_other_rooms(
         self, api_client, integration_settings, shared_room
     ):
-        """Hub room events don't appear in other rooms.
+        """Hub room events appear in the hub room but not in other rooms.
 
-        Uses session-scoped shared_room as the hub room to avoid creating
-        new rooms. Verifies the hub room is accessible and events route to it.
+        Routes a contact event to the hub room, then verifies the hub room's
+        context has items while a different room does not contain those items.
         """
 
         logger.info("\n" + "=" * 60)
@@ -479,9 +486,29 @@ class TestHubRoomIsolation:
         # Verify hub room is the shared room
         assert hub_room_id == shared_room
 
-        # Verify hub room exists in the chat list
+        # Verify hub room has context items (events routed here)
+        hub_response = await api_client.agent_api_context.get_agent_chat_context(
+            hub_room_id
+        )
+        hub_items = hub_response.data or []
+        assert len(hub_items) > 0, "Hub room should contain routed contact events"
+        hub_item_ids = {item.id for item in hub_items if hasattr(item, "id")}
+        logger.info("Hub room has %d context items", len(hub_items))
+
+        # Verify other rooms don't contain hub room events
         response = await api_client.agent_api_chats.list_agent_chats()
-        chat_ids = [chat.id for chat in (response.data or [])]
-        assert hub_room_id in chat_ids, f"Hub room {hub_room_id} not found in chat list"
+        other_rooms = [
+            chat.id for chat in (response.data or []) if chat.id != hub_room_id
+        ]
+        for other_room_id in other_rooms[:2]:
+            other_response = await api_client.agent_api_context.get_agent_chat_context(
+                other_room_id
+            )
+            other_items = other_response.data or []
+            other_item_ids = {item.id for item in other_items if hasattr(item, "id")}
+            leaked_ids = hub_item_ids & other_item_ids
+            assert not leaked_ids, (
+                f"Hub room events leaked to room {other_room_id}: {leaked_ids}"
+            )
 
         logger.info("\nSUCCESS: Hub room is isolated from regular rooms")

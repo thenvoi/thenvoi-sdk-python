@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import logging
 
+import pytest
+
 from thenvoi_rest import ChatEventRequest, ChatMessageRequest
 from thenvoi_rest.core.api_error import ApiError
 from thenvoi_rest.types import (
@@ -29,8 +31,6 @@ class TestFullWorkflow:
     ):
         """Test complete workflow: identity -> chat -> participants -> messages -> events -> lifecycle."""
         if shared_room is None:
-            import pytest
-
             pytest.skip("shared_room not available")
 
         # ============================================================
@@ -299,8 +299,6 @@ class TestMessageFailureLifecycle:
     async def test_mark_message_failed(self, api_client, shared_room, shared_user_peer):
         """Test marking a message as failed with error message."""
         if shared_room is None:
-            import pytest
-
             pytest.skip("shared_room not available")
 
         logger.info("\n" + "=" * 60)
@@ -359,8 +357,6 @@ class TestParticipantOperations:
     ):
         """Test adding and removing a participant from a chat."""
         if shared_room is None:
-            import pytest
-
             pytest.skip("shared_room not available")
 
         logger.info("\n" + "=" * 60)
