@@ -233,7 +233,7 @@ class LangChainHandler:
         if not content:
             raise RuntimeError("LangChain agent returned empty response body")
 
-        text = content.decode("utf-8")
+        text = content.decode("utf-8", errors="replace")
 
         try:
             data = json.loads(text)
