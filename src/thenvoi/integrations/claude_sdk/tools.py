@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 import logging
+import warnings
 from typing import Any, Protocol
 
 try:
@@ -27,7 +28,29 @@ except ImportError as e:
         "Or: uv add claude-agent-sdk"
     ) from e
 
+from thenvoi.runtime.tools import CHAT_TOOL_NAMES, mcp_tool_names
+
 logger = logging.getLogger(__name__)
+
+# Tool names as constants (MCP naming convention: mcp__{server}__{tool})
+# Derived from TOOL_MODELS — single source of truth (chat tools only, no contacts/memory)
+THENVOI_CHAT_TOOLS: list[str] = mcp_tool_names(CHAT_TOOL_NAMES)
+
+_THENVOI_TOOLS: list[str] = THENVOI_CHAT_TOOLS
+
+
+def __getattr__(name: str) -> Any:
+    if name == "THENVOI_TOOLS":
+        warnings.warn(
+            "THENVOI_TOOLS is deprecated, use THENVOI_CHAT_TOOLS instead. "
+            f"Note: this contains only chat tools ({len(_THENVOI_TOOLS)}). "
+            "For all tools including contacts and memory, use "
+            "thenvoi.adapters.claude_sdk.THENVOI_ALL_TOOLS.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return _THENVOI_TOOLS
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 class ThenvoiApiClient(Protocol):
@@ -78,7 +101,7 @@ def create_thenvoi_mcp_server(agent: Any):
 
         options = ClaudeAgentOptions(
             mcp_servers={"thenvoi": server},
-            allowed_tools=THENVOI_TOOLS
+            allowed_tools=THENVOI_CHAT_TOOLS
         )
 
     Note:
@@ -610,23 +633,8 @@ def create_thenvoi_mcp_server(agent: Any):
         ],
     )
 
-    logger.info("Thenvoi MCP SDK server created with 12 real tools")
+    logger.info(
+        "Thenvoi MCP SDK server created with %d real tools", len(THENVOI_CHAT_TOOLS)
+    )
 
     return server
-
-
-# Tool names as constants (MCP naming convention: mcp__{server}__{tool})
-THENVOI_TOOLS = [
-    "mcp__thenvoi__thenvoi_send_message",
-    "mcp__thenvoi__thenvoi_send_event",
-    "mcp__thenvoi__thenvoi_add_participant",
-    "mcp__thenvoi__thenvoi_remove_participant",
-    "mcp__thenvoi__thenvoi_get_participants",
-    "mcp__thenvoi__thenvoi_lookup_peers",
-    "mcp__thenvoi__thenvoi_create_chatroom",
-    "mcp__thenvoi__thenvoi_list_contacts",
-    "mcp__thenvoi__thenvoi_add_contact",
-    "mcp__thenvoi__thenvoi_remove_contact",
-    "mcp__thenvoi__thenvoi_list_contact_requests",
-    "mcp__thenvoi__thenvoi_respond_contact_request",
-]

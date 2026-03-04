@@ -51,6 +51,7 @@ docker-compose.yml
 
 # Documentation
 *.md
+!README.md
 docs/
 
 # Tests

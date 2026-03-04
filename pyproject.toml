@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "thenvoi-sdk"
-version = "0.1.2"
+version = "0.2.1"
 description = "A Python SDK for Thenvoi API"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -30,6 +30,9 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+codex = [
+    "websockets>=13.0",
+]
 pydantic-ai = [
     "pydantic-ai-slim>=1.0.0",
     "openai>=1.0.0",
@@ -82,7 +85,7 @@ bridge = [
 ]
 
 dev = [
-    "thenvoi-testing-python @ git+https://github.com/thenvoi/thenvoi-testing-python.git@thenvoi-testing-python-v0.1.1",
+    "thenvoi-testing-python>=0.1.2",
     "pytest>=7.0.0",
     "pytest-asyncio>=0.21.0",
     "pytest-mock>=3.10.0",
@@ -137,20 +140,24 @@ asyncio_mode = "auto"
 addopts = "-v"
 
 [tool.pyrefly]
+project_includes = [
+    "src/**/*.py",              # Only check source files
+]
 project_excludes = [
     "tests/**",                 # Tests use mocks with duck typing
     "examples/**",              # Examples use local imports
     "thenvoi-bridge/**",        # Standalone bridge app, not in src/ import root
 ]
+# Disable the default **/.[!/.]*/** exclude so pyrefly works inside
+# .claude/worktrees/ (git worktree paths contain a hidden directory).
+disable-project-excludes-heuristics = true
 
 [tool.commitizen]
 name = "cz_conventional_commits"
-version = "0.1.1"
+version = "0.1.2"
 version_files = [
     "pyproject.toml:version",
     "src/thenvoi/__init__.py:__version__",
 ]
 # Tag format aligned with release-please (package-name-v$version)
 tag_format = "thenvoi-sdk-python-v$version"
-
-[tool.ruff]

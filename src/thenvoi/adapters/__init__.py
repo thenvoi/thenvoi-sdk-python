@@ -1,7 +1,8 @@
 """Built-in framework adapters.
 
 Adapters are lazily imported to avoid requiring all optional dependencies.
-Install the extra you need:
+Install the extra you need::
+
     uv add thenvoi-sdk[langgraph]
     uv add thenvoi-sdk[anthropic]
     uv add thenvoi-sdk[pydantic_ai]
@@ -10,7 +11,10 @@ Install the extra you need:
     uv add thenvoi-sdk[crewai]
     uv add thenvoi-sdk[a2a]
     uv add thenvoi-sdk[a2a_gateway]
+    uv add thenvoi-sdk[codex]
 """
+
+from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
@@ -24,6 +28,8 @@ if TYPE_CHECKING:
     from thenvoi.adapters.crewai import CrewAIAdapter as CrewAIAdapter
     from thenvoi.adapters.a2a import A2AAdapter as A2AAdapter
     from thenvoi.adapters.a2a_gateway import A2AGatewayAdapter as A2AGatewayAdapter
+    from thenvoi.adapters.codex import CodexAdapter as CodexAdapter
+    from thenvoi.adapters.codex import CodexAdapterConfig as CodexAdapterConfig
 
 __all__ = [
     "LangGraphAdapter",
@@ -34,10 +40,12 @@ __all__ = [
     "CrewAIAdapter",
     "A2AAdapter",
     "A2AGatewayAdapter",
+    "CodexAdapter",
+    "CodexAdapterConfig",
 ]
 
 
-def __getattr__(name: str):
+def __getattr__(name: str) -> type:
     """Lazy import adapters to avoid loading optional dependencies."""
     if name == "LangGraphAdapter":
         from thenvoi.adapters.langgraph import LangGraphAdapter
@@ -71,4 +79,12 @@ def __getattr__(name: str):
         from thenvoi.adapters.a2a_gateway import A2AGatewayAdapter
 
         return A2AGatewayAdapter
+    elif name == "CodexAdapter":
+        from thenvoi.adapters.codex import CodexAdapter
+
+        return CodexAdapter
+    elif name == "CodexAdapterConfig":
+        from thenvoi.adapters.codex import CodexAdapterConfig
+
+        return CodexAdapterConfig
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
