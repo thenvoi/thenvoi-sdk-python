@@ -5,6 +5,8 @@ Tests real-time WebSocket notifications against the local platform.
 Run with: uv run pytest tests/integration/test_websocket.py -v -s
 """
 
+from __future__ import annotations
+
 import asyncio
 import logging
 

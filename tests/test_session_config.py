@@ -7,6 +7,8 @@ Tests cover:
 - Event processing skips hydration when disabled
 """
 
+from __future__ import annotations
+
 import pytest
 from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock

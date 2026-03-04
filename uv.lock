@@ -5614,6 +5614,7 @@ dev = [
     { name = "pytest-cov" },
     { name = "pytest-mock" },
     { name = "pytest-rerunfailures" },
+    { name = "pytest-timeout" },
     { name = "ruff" },
     { name = "starlette" },
     { name = "thenvoi-testing-python" },
@@ -5639,11 +5640,6 @@ parlant = [
 pydantic-ai = [
     { name = "openai" },
     { name = "pydantic-ai-slim" },
-]
-
-[package.dev-dependencies]
-dev = [
-    { name = "pytest-timeout" },
 ]
 
 [package.metadata]
@@ -5700,6 +5696,7 @@ requires-dist = [
     { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=4.0.0" },
     { name = "pytest-mock", marker = "extra == 'dev'", specifier = ">=3.10.0" },
     { name = "pytest-rerunfailures", marker = "extra == 'dev'", specifier = ">=14.0.0" },
+    { name = "pytest-timeout", marker = "extra == 'dev'", specifier = ">=2.4.0" },
     { name = "python-dotenv", specifier = ">=1.1.1" },
     { name = "pyyaml", specifier = ">=6.0" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.8.0" },
@@ -5714,9 +5711,6 @@ requires-dist = [
     { name = "websockets", marker = "extra == 'codex'", specifier = ">=13.0" },
 ]
 provides-extras = ["codex", "letta", "pydantic-ai", "anthropic", "langgraph", "claude-sdk", "parlant", "crewai", "a2a", "a2a-gateway", "a2a-gateway-demo", "bridge", "dev"]
-
-[package.metadata.requires-dev]
-dev = [{ name = "pytest-timeout", specifier = ">=2.4.0" }]
 
 [[package]]
 name = "thenvoi-testing-python"

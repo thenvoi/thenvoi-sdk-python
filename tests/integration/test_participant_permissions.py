@@ -75,9 +75,7 @@ class DynamicAgentManager:
             )
         except ApiError as e:
             if e.status_code == 403:
-                pytest.skip(
-                    "Enterprise plan required for Human API agent registration"
-                )
+                pytest.skip("Enterprise plan required for Human API agent registration")
             raise
 
         agent = response.data.agent

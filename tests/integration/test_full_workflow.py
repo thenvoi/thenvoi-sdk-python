@@ -4,6 +4,8 @@ Tests the complete agent workflow from identity to message lifecycle.
 Run with: uv run pytest tests/integration/test_full_workflow.py -v -s
 """
 
+from __future__ import annotations
+
 import logging
 
 from thenvoi_rest import ChatEventRequest, ChatMessageRequest

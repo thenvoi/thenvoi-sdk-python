@@ -17,6 +17,8 @@ Test scenarios:
 Run with: uv run pytest tests/integration/test_multi_agent.py -v -s
 """
 
+from __future__ import annotations
+
 import asyncio
 import logging
 
@@ -541,8 +543,8 @@ class TestMultiAgentChatRoom:
                             chat_id, other_agent_id
                         )
                     )
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug("Cleanup: remove added agent: %s", e)
             except Exception as e:
                 logger.info("FAILED: Agent 2 could not add Agent: %s", type(e).__name__)
                 if "403" in str(e) or "forbidden" in str(e).lower():
@@ -597,8 +599,8 @@ class TestMultiAgentChatRoom:
                 participant=ParticipantRequest(participant_id=agent2_id, role="admin"),
             )
             logger.info("Promoted Agent 2 to admin")
-        except Exception:
-            logger.info("Agent 2 may already be admin or re-add not supported")
+        except Exception as e:
+            logger.info("Agent 2 may already be admin or re-add not supported: %s", e)
 
         # Verify Agent 2's role
         response = await api_client.agent_api_participants.list_agent_chat_participants(
@@ -667,5 +669,5 @@ class TestMultiAgentChatRoom:
             await api_client.agent_api_participants.remove_agent_chat_participant(
                 chat_id, addable_peer.id
             )
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("Cleanup: remove added peer: %s", e)

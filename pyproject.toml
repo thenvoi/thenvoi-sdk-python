@@ -94,6 +94,7 @@ dev = [
     "pytest-mock>=3.10.0",
     "pytest-cov>=4.0.0",
     "pytest-rerunfailures>=14.0.0",
+    "pytest-timeout>=2.4.0",
     "httpx>=0.24.0",  # Already in main deps, for mocking
     # Include pydantic-ai for testing
     "pydantic-ai-slim>=1.0.0",
@@ -168,8 +169,3 @@ version_files = [
 ]
 # Tag format aligned with release-please (package-name-v$version)
 tag_format = "thenvoi-sdk-python-v$version"
-
-[dependency-groups]
-dev = [
-    "pytest-timeout>=2.4.0",
-]

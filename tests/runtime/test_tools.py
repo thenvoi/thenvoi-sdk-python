@@ -1,5 +1,7 @@
 """Tests for AgentTools."""
 
+from __future__ import annotations
+
 from unittest.mock import AsyncMock, MagicMock, Mock
 
 import pytest

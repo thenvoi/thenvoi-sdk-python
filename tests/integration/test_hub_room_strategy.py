@@ -41,28 +41,28 @@ async def cleanup_contact_state(api_client, api_client_2):
     # Remove contacts
     try:
         await api_client.agent_api_contacts.remove_agent_contact(handle=agent2_handle)
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("Cleanup: remove contact agent1->agent2: %s", e)
 
     try:
         await api_client_2.agent_api_contacts.remove_agent_contact(handle=agent1_handle)
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("Cleanup: remove contact agent2->agent1: %s", e)
 
     # Cancel/reject pending requests
     try:
         await api_client.agent_api_contacts.respond_to_agent_contact_request(
             action="cancel", handle=agent2_handle
         )
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("Cleanup: cancel request agent1->agent2: %s", e)
 
     try:
         await api_client_2.agent_api_contacts.respond_to_agent_contact_request(
             action="cancel", handle=agent1_handle
         )
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("Cleanup: cancel request agent2->agent1: %s", e)
 
     # Reject received requests
     try:
@@ -75,8 +75,8 @@ async def cleanup_contact_state(api_client, api_client_2):
                 await api_client.agent_api_contacts.respond_to_agent_contact_request(
                     action="reject", request_id=req.id
                 )
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("Cleanup: reject requests for agent1: %s", e)
 
     try:
         response = await api_client_2.agent_api_contacts.list_agent_contact_requests()
@@ -88,8 +88,8 @@ async def cleanup_contact_state(api_client, api_client_2):
                 await api_client_2.agent_api_contacts.respond_to_agent_contact_request(
                     action="reject", request_id=req.id
                 )
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("Cleanup: reject requests for agent2: %s", e)
 
     await asyncio.sleep(0.3)
 
