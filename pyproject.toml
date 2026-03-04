@@ -33,6 +33,9 @@ dependencies = [
 codex = [
     "websockets>=13.0",
 ]
+letta = [
+    "letta-client>=0.1.0",
+]
 pydantic-ai = [
     "pydantic-ai-slim>=1.0.0",
     "openai>=1.0.0",
@@ -138,6 +141,9 @@ include-package-data = true
 testpaths = ["tests"]
 asyncio_mode = "auto"
 addopts = "-v"
+markers = [
+    "requires_api: marks tests as requiring real API credentials (skipped in CI)",
+]
 
 [tool.pyrefly]
 project_includes = [
