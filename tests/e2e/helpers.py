@@ -22,10 +22,6 @@ from thenvoi.client.streaming import MessageCreatedPayload, WebSocketClient
 
 logger = logging.getLogger(__name__)
 
-# Tracks room IDs created during the test session for summary logging.
-# Populated by create_room_with_user(), logged by the e2e_room_summary
-# session fixture in conftest.py.
-created_room_ids: list[str] = []
 
 
 class TrackingWebSocketClient:
@@ -109,11 +105,17 @@ async def send_user_message(
 
 async def create_room_with_user(
     api_client: AsyncRestClient,
+    room_tracker: list[str] | None = None,
 ) -> tuple[str, str, str]:
     """Create a chat room and add a User peer.
 
     Returns (chat_id, user_id, user_name). Rooms created here will persist
     (no delete API for agents).
+
+    Args:
+        api_client: REST API client.
+        room_tracker: Optional list to append the created room ID to.
+            Managed by the ``e2e_created_room_ids`` session fixture.
     """
     response = await api_client.agent_api_chats.create_agent_chat(
         chat=ChatRoomRequest()
@@ -130,14 +132,13 @@ async def create_room_with_user(
         participant=ParticipantRequest(participant_id=user_peer.id, role="member"),
     )
 
-    created_room_ids.append(chat_id)
+    if room_tracker is not None:
+        room_tracker.append(chat_id)
     logger.info(
-        "Created chat room %s with user %s (%s) (will persist, no delete API) "
-        "[%d room(s) created this session]",
+        "Created chat room %s with user %s (%s) (will persist, no delete API)",
         chat_id,
         user_peer.name,
         user_peer.id,
-        len(created_room_ids),
     )
     return chat_id, user_peer.id, user_peer.name
 

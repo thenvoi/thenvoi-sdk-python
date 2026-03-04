@@ -253,6 +253,28 @@ async def test_accepts_valid_room_removed_payload():
     assert received_payload.id == "room-123"
 
 
+async def test_accepts_minimal_room_removed_payload():
+    """Should accept room_removed with only required `id` field (all others optional)."""
+    client = WebSocketClient("ws://localhost", "test-key", "agent-123")
+    received_payload = None
+
+    async def test_callback(payload):
+        nonlocal received_payload
+        received_payload = payload
+
+    class MockMessage:
+        event = "room_removed"
+        payload = {"id": "room-456"}
+
+    await client._handle_events(MockMessage(), {"room_removed": test_callback})
+    assert isinstance(received_payload, RoomRemovedPayload)
+    assert received_payload.id == "room-456"
+    assert received_payload.status is None
+    assert received_payload.type is None
+    assert received_payload.title is None
+    assert received_payload.removed_at is None
+
+
 async def test_accepts_valid_participant_added_payload():
     """Should accept valid participant_added payload and pass typed model to callback."""
     client = WebSocketClient("ws://localhost", "test-key", "agent-123")

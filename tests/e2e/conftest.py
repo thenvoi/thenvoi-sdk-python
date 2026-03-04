@@ -25,7 +25,6 @@ from thenvoi.client.streaming import WebSocketClient
 from tests.e2e.helpers import (
     TrackingWebSocketClient,
     create_room_with_user,
-    created_room_ids,
 )
 
 if TYPE_CHECKING:
@@ -103,19 +102,29 @@ def e2e_config() -> E2ESettings:
     return E2ESettings()
 
 
+@pytest.fixture(scope="session")
+def e2e_created_room_ids() -> list[str]:
+    """Session-scoped list tracking room IDs created during the E2E run.
+
+    Passed to ``create_room_with_user()`` so the helper can record new rooms
+    without relying on module-level mutable state.
+    """
+    return []
+
+
 @pytest.fixture(scope="session", autouse=True)
-def e2e_room_summary() -> Generator[None, None, None]:
+def e2e_room_summary(e2e_created_room_ids: list[str]) -> Generator[None, None, None]:
     """Log a summary of rooms created during the E2E test session.
 
     Rooms persist on the platform (no delete API for agents), so this
     summary helps operators track accumulation across runs.
     """
     yield
-    if created_room_ids:
+    if e2e_created_room_ids:
         logger.info(
             "E2E session created %d room(s) that will persist: %s",
-            len(created_room_ids),
-            ", ".join(created_room_ids),
+            len(e2e_created_room_ids),
+            ", ".join(e2e_created_room_ids),
         )
 
 
@@ -152,6 +161,7 @@ def api_client(
 @pytest.fixture(scope="session")
 async def e2e_shared_room(
     e2e_session_client: AsyncRestClient,
+    e2e_created_room_ids: list[str],
 ) -> tuple[str, str, str]:
     """Session-scoped shared chat room with a User peer.
 
@@ -188,13 +198,14 @@ async def e2e_shared_room(
             return room.id, user_peer.id, user_peer.name
 
     # No suitable room found — create one
-    return await create_room_with_user(client)
+    return await create_room_with_user(client, room_tracker=e2e_created_room_ids)
 
 
 @pytest.fixture(scope="session")
 async def e2e_isolation_room_pair(
     e2e_session_client: AsyncRestClient,
     e2e_shared_room: tuple[str, str, str],
+    e2e_created_room_ids: list[str],
 ) -> tuple[tuple[str, str, str], tuple[str, str, str]]:
     """Session-scoped pair of rooms for isolation tests.
 
@@ -222,7 +233,7 @@ async def e2e_isolation_room_pair(
             return (room_a_id, user_id, user_name), (room.id, user_id, user_name)
 
     # No suitable second room found — create one
-    room_b = await create_room_with_user(client)
+    room_b = await create_room_with_user(client, room_tracker=e2e_created_room_ids)
     return (room_a_id, user_id, user_name), room_b
 
 

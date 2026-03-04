@@ -4,6 +4,15 @@ These tests verify that history converters work correctly with real session
 history from the platform. This catches any mismatches between the expected
 format in the converters and the actual format stored by the platform.
 
+Room sharing strategy:
+    All test classes share a single ``shared_room`` fixture (session-scoped)
+    to stay within the platform's 10-room-per-agent limit. Each test posts
+    messages with a unique ``uuid`` prefix and filters assertions by that
+    prefix, so concurrent or sequential runs don't interfere. The tradeoff
+    is that room history grows over time; if converter tests start failing
+    due to context window limits, either prune the room or create a fresh
+    agent.
+
 Run with: uv run pytest tests/integration/test_history_converters.py -v -s
 """
 
