@@ -251,6 +251,7 @@ class TestSynchronizeWithNext:
         link.mark_processing = AsyncMock()
         link.mark_processed = AsyncMock()
         link.mark_failed = AsyncMock()
+        link.get_stale_processing_messages = AsyncMock(return_value=[])
         return link
 
     @pytest.fixture

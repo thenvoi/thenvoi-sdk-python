@@ -93,9 +93,7 @@ async def dynamic_agent(module_user_api_client, request):
         )
     except ApiError as e:
         if e.status_code == 403:
-            pytest.skip(
-                "Enterprise plan required for Human API agent registration"
-            )
+            pytest.skip("Enterprise plan required for Human API agent registration")
         raise
 
     agent = response.data.agent
@@ -370,9 +368,7 @@ class TestUserAgentManagement:
             response = await user_api_client.human_api_agents.list_my_agents()
         except ApiError as e:
             if e.status_code == 403:
-                pytest.skip(
-                    "Enterprise plan required for Human API access"
-                )
+                pytest.skip("Enterprise plan required for Human API access")
             raise
 
         assert response.data is not None
@@ -387,9 +383,7 @@ class TestUserAgentManagement:
             response = await user_api_client.human_api_peers.list_my_peers()
         except ApiError as e:
             if e.status_code == 403:
-                pytest.skip(
-                    "Enterprise plan required for Human API access"
-                )
+                pytest.skip("Enterprise plan required for Human API access")
             raise
 
         assert response.data is not None

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 from thenvoi.core.protocols import Preprocessor
@@ -72,7 +72,9 @@ class DefaultPreprocessor(Preprocessor):
             metadata=msg_data.metadata,  # Pass through as-is (Any type)
             created_at=datetime.fromisoformat(
                 msg_data.inserted_at.replace("Z", "+00:00")
-            ),
+            )
+            if msg_data.inserted_at
+            else datetime.now(timezone.utc),
         )
 
         is_bootstrap = not ctx.is_llm_initialized
