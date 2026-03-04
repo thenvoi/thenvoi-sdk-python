@@ -695,23 +695,11 @@ class ExecutionContext:
                         next_msg.id,
                     )
                     await self._process_backlog_message(next_msg)
-
-                    # Pop duplicate from queue
-                    try:
-                        head = self.queue.get_nowait()
-                        head_id = (
-                            getattr(head.payload, "id", None)
-                            if hasattr(head, "payload") and head.payload
-                            else None
-                        )
-                        if head_id != next_msg.id:
-                            # Put it back if it's not the duplicate
-                            self.queue.put_nowait(head)
-                    except asyncio.QueueEmpty:
-                        pass
+                    # Remove all WS copies of the sync-point message while
+                    # preserving the relative order of other queued events.
+                    self._drain_duplicate_from_queue(next_msg.id)
 
                     self._first_ws_msg_id = None  # Clear marker
-                    self._processed_ids.clear()  # No longer needed after sync
                     break
 
                 logger.debug(
