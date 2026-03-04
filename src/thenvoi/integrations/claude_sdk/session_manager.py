@@ -101,7 +101,7 @@ class ClaudeSessionManager:
             return
 
         # Send stop command
-        stop_future: asyncio.Future[None] = asyncio.get_event_loop().create_future()
+        stop_future: asyncio.Future[None] = asyncio.get_running_loop().create_future()
         await self._command_queue.put(
             _SessionCommand(action="stop", result_future=stop_future)
         )
@@ -289,7 +289,7 @@ class ClaudeSessionManager:
             await self.start()
 
         result_future: asyncio.Future[ClaudeSDKClient] = (
-            asyncio.get_event_loop().create_future()
+            asyncio.get_running_loop().create_future()
         )
         await self._command_queue.put(
             _SessionCommand(
@@ -316,7 +316,7 @@ class ClaudeSessionManager:
         if not self._started:
             return
 
-        result_future: asyncio.Future[None] = asyncio.get_event_loop().create_future()
+        result_future: asyncio.Future[None] = asyncio.get_running_loop().create_future()
         await self._command_queue.put(
             _SessionCommand(
                 action="cleanup",
@@ -340,7 +340,7 @@ class ClaudeSessionManager:
         if not self._started:
             return
 
-        result_future: asyncio.Future[None] = asyncio.get_event_loop().create_future()
+        result_future: asyncio.Future[None] = asyncio.get_running_loop().create_future()
         await self._command_queue.put(
             _SessionCommand(
                 action="invalidate",
@@ -360,7 +360,7 @@ class ClaudeSessionManager:
         if not self._started:
             return
 
-        result_future: asyncio.Future[None] = asyncio.get_event_loop().create_future()
+        result_future: asyncio.Future[None] = asyncio.get_running_loop().create_future()
         await self._command_queue.put(
             _SessionCommand(
                 action="cleanup_all",
