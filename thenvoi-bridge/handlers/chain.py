@@ -297,6 +297,11 @@ class LangChainHandler:
                 f"LangChain invocation timed out after {self._timeout}s "
                 f"for @{mentioned_agent}"
             ) from exc
+        except _httpx.HTTPStatusError as exc:
+            raise RuntimeError(
+                f"LangChain agent returned HTTP {exc.response.status_code} "
+                f"for @{mentioned_agent}: {exc.response.reason_phrase}"
+            ) from exc
 
         # Prefer handle for mention resolution (most reliable for the
         # platform), fall back to sender_name or resolved display name.

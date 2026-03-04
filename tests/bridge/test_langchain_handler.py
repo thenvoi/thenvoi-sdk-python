@@ -554,7 +554,7 @@ class TestLangChainHandlerHandle:
             ]
         )
 
-        with pytest.raises(httpx.HTTPStatusError):
+        with pytest.raises(RuntimeError, match="HTTP 500"):
             await handler.handle(
                 content="Hello",
                 room_id="room-1",
