@@ -1,6 +1,6 @@
 # /// script
 # requires-python = ">=3.11"
-# dependencies = ["thenvoi-sdk[letta]"]
+# dependencies = ["thenvoi-sdk[letta]", "python-dotenv"]
 #
 # [tool.uv.sources]
 # thenvoi-sdk = { git = "https://github.com/thenvoi/thenvoi-sdk-python.git" }

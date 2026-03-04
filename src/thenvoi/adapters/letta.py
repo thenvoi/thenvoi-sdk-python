@@ -137,9 +137,8 @@ class LettaAdapter(SimpleAdapter[LettaSessionState]):
         self._mcp_server_id: str | None = None
         self._mcp_tool_ids: list[str] = []
 
-        # Concurrency: only needed for per_room mode where we protect
-        # agent creation.  Shared mode uses Conversations API which is
-        # thread-safe for cross-room access.
+        # Protects agent creation only — not held during message handling,
+        # so concurrent rooms can process messages in parallel.
         self._rpc_lock = asyncio.Lock()
 
         # Built during on_started
@@ -179,22 +178,47 @@ class LettaAdapter(SimpleAdapter[LettaSessionState]):
         )
 
     async def _register_mcp_server(self) -> None:
-        """Register the thenvoi-mcp server with Letta and discover available tools."""
+        """Register the thenvoi-mcp server with Letta and discover available tools.
+
+        Uses lookup-or-create to handle adapter restarts where the MCP server
+        name is already registered in Letta.
+        """
         try:
-            server = await self._client.mcp_servers.create(
-                server_name=self.config.mcp_server_name,
-                config={
-                    "mcp_server_type": "sse",
-                    "server_url": self.config.mcp_server_url,
-                },
+            # Check if the MCP server is already registered
+            servers = await self._client.mcp_servers.list()
+            existing = next(
+                (
+                    s
+                    for s in servers
+                    if getattr(s, "server_name", None) == self.config.mcp_server_name
+                    or getattr(s, "name", None) == self.config.mcp_server_name
+                ),
+                None,
             )
+
+            if existing:
+                server = existing
+                logger.info(
+                    "Found existing MCP server %r (id=%s)",
+                    self.config.mcp_server_name,
+                    server.id,
+                )
+            else:
+                server = await self._client.mcp_servers.create(
+                    server_name=self.config.mcp_server_name,
+                    config={
+                        "mcp_server_type": "sse",
+                        "server_url": self.config.mcp_server_url,
+                    },
+                )
+                logger.info(
+                    "Registered MCP server %r (id=%s) at %s",
+                    self.config.mcp_server_name,
+                    server.id,
+                    self.config.mcp_server_url,
+                )
+
             self._mcp_server_id = server.id
-            logger.info(
-                "Registered MCP server %r (id=%s) at %s",
-                self.config.mcp_server_name,
-                server.id,
-                self.config.mcp_server_url,
-            )
 
             # Discover available tools from the MCP server
             tools = await self._client.mcp_servers.tools.list(
@@ -226,35 +250,28 @@ class LettaAdapter(SimpleAdapter[LettaSessionState]):
         room_id: str,
     ) -> None:
         """Handle incoming message via Letta API with MCP tools."""
-        if self.config.mode == "per_room":
-            async with self._rpc_lock:
-                await self._handle_message(
-                    msg=msg,
-                    tools=tools,
-                    history=history,
-                    participants_msg=participants_msg,
-                    contacts_msg=contacts_msg,
-                    is_session_bootstrap=is_session_bootstrap,
-                    room_id=room_id,
-                )
-        else:
-            # Shared mode: Conversations API is thread-safe for cross-room,
-            # but we still need the lock for agent creation / conversation setup.
-            if room_id not in self._rooms:
-                async with self._rpc_lock:
-                    # Double-check after acquiring lock
-                    if room_id not in self._rooms:
-                        await self._ensure_agent(room_id, history, tools)
+        if not self._client:
+            logger.error("Letta client not initialized, dropping message %s", msg.id)
+            await self._report_error(tools, "Letta adapter not initialized")
+            return
 
-            await self._handle_message(
-                msg=msg,
-                tools=tools,
-                history=history,
-                participants_msg=participants_msg,
-                contacts_msg=contacts_msg,
-                is_session_bootstrap=is_session_bootstrap,
-                room_id=room_id,
-            )
+        # Lock only protects agent creation, not the full message path.
+        # This allows concurrent rooms to process messages in parallel.
+        if room_id not in self._rooms:
+            async with self._rpc_lock:
+                # Double-check after acquiring lock
+                if room_id not in self._rooms:
+                    await self._ensure_agent(room_id, history, tools)
+
+        await self._handle_message(
+            msg=msg,
+            tools=tools,
+            history=history,
+            participants_msg=participants_msg,
+            contacts_msg=contacts_msg,
+            is_session_bootstrap=is_session_bootstrap,
+            room_id=room_id,
+        )
 
     async def _handle_message(
         self,
@@ -268,30 +285,28 @@ class LettaAdapter(SimpleAdapter[LettaSessionState]):
         room_id: str,
     ) -> None:
         """Inner message handler."""
-        if not self._client:
-            logger.error("Letta client not initialized, dropping message %s", msg.id)
-            await self._report_error(tools, "Letta adapter not initialized")
-            return
-
-        # Ensure Letta agent exists for this room
-        agent_id = await self._ensure_agent(room_id, history, tools)
+        # Agent must exist — ensured by on_message before calling this method.
+        room_ctx = self._rooms.get(room_id)
+        agent_id = (
+            room_ctx.agent_id
+            if room_ctx
+            else await self._ensure_agent(room_id, history, tools)
+        )
 
         # Build user message content
         # NOTE: Unlike other adapters that pass participants_msg and contacts_msg
         # as separate system messages, Letta uses a single-message API where each
-        # call sends one user message.  We inject system context as [System]-
+        # call sends one user message.  We inject system context as [System]:
         # prefixed lines in the user message body so the agent sees participant
         # and contact updates inline with the conversation.
         parts: list[str] = []
 
         # Inject rejoin context when resuming after absence
-        room_ctx = self._rooms.get(room_id)
         if is_session_bootstrap and room_ctx and room_ctx.last_interaction:
             time_ago = self._format_time_ago(room_ctx.last_interaction)
-            rejoin_msg = f"[System: You have rejoined this room after {time_ago}."
+            rejoin_msg = f"[System]: You have rejoined this room after {time_ago}."
             if room_ctx.summary:
                 rejoin_msg += f" Previous topic: {room_ctx.summary}"
-            rejoin_msg += "]"
             parts.append(rejoin_msg)
 
         # Inject participants update
@@ -755,9 +770,9 @@ class LettaAdapter(SimpleAdapter[LettaSessionState]):
                     {
                         "role": "user",
                         "content": (
-                            "[System: You are leaving this room. Consolidate key "
+                            "[System]: You are leaving this room. Consolidate key "
                             "decisions, action items, and important context into "
-                            "your memory now.]"
+                            "your memory now."
                         ),
                     }
                 ],

@@ -26,7 +26,12 @@ import signal
 from pathlib import Path
 from typing import Any, Literal
 
-import yaml
+try:
+    import yaml
+except ImportError:
+    raise ImportError(
+        "pyyaml is required for the Letta runner. Install with: pip install pyyaml"
+    )
 
 from thenvoi.config.loader import load_agent_config
 
