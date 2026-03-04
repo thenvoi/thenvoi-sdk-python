@@ -178,3 +178,8 @@ version_files = [
 ]
 # Tag format aligned with release-please (package-name-v$version)
 tag_format = "thenvoi-sdk-python-v$version"
+
+[dependency-groups]
+dev = [
+    "pytest-timeout>=2.4.0",
+]
