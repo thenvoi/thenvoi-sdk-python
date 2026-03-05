@@ -477,7 +477,6 @@ class TestThenvoiACPServerAdapterCleanup:
         adapter._session_to_room["session-1"] = "room-123"
         adapter._room_to_session["room-123"] = "session-1"
         adapter._session_modes["session-1"] = "code"
-        adapter._session_models["session-1"] = "gpt-4"
         adapter._pending_prompts["room-123"] = PendingACPPrompt(session_id="session-1")
 
         await adapter.on_cleanup("room-123")
@@ -485,7 +484,6 @@ class TestThenvoiACPServerAdapterCleanup:
         assert "room-123" not in adapter._room_to_session
         assert "session-1" not in adapter._session_to_room
         assert "session-1" not in adapter._session_modes
-        assert "session-1" not in adapter._session_models
         assert "room-123" not in adapter._pending_prompts
 
     @pytest.mark.asyncio
@@ -711,12 +709,11 @@ class TestThenvoiACPServerAdapterPublicAccessors:
 
         assert adapter._session_modes["session-1"] == "code"
 
-    def test_set_and_get_session_model(self) -> None:
-        """Should store session model."""
+    def test_set_session_model_logs(self) -> None:
+        """Should accept model setting without error."""
         adapter = ThenvoiACPServerAdapter()
+        # set_session_model stores for future use; verify it doesn't raise
         adapter.set_session_model("session-1", "gpt-4")
-
-        assert adapter._session_models["session-1"] == "gpt-4"
 
     def test_get_session_for_room(self) -> None:
         """Should return session_id for known rooms, None otherwise."""

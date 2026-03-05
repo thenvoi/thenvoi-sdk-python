@@ -75,6 +75,7 @@ from dotenv import load_dotenv
 
 from setup_logging import setup_logging
 from thenvoi import Agent
+from thenvoi.config import load_agent_config
 from thenvoi.integrations.acp.push_handler import ACPPushHandler
 from thenvoi.integrations.acp.router import AgentRouter
 from thenvoi.integrations.acp.server import ACPServer
@@ -91,17 +92,24 @@ async def main() -> None:
         "THENVOI_WS_URL", "wss://app.thenvoi.com/api/v1/socket/websocket"
     )
     rest_url = os.getenv("THENVOI_REST_URL", "https://app.thenvoi.com")
+    # JetBrains IDEs inject credentials via ~/.jetbrains/acp.json env config.
+    # Fall back to agent_config.yaml for standalone testing.
     api_key = os.getenv("THENVOI_API_KEY")
-    agent_id = os.getenv("THENVOI_AGENT_ID")
 
     if not api_key:
-        raise ValueError(
-            "THENVOI_API_KEY is required. Set it in ~/.jetbrains/acp.json env config."
-        )
-    if not agent_id:
-        raise ValueError(
-            "THENVOI_AGENT_ID is required. Pass via --agent-id or set THENVOI_AGENT_ID."
-        )
+        try:
+            agent_id, api_key = load_agent_config("jetbrains_acp_agent")
+        except Exception:
+            raise ValueError(
+                "THENVOI_API_KEY environment variable is required, "
+                "or configure 'jetbrains_acp_agent' in agent_config.yaml"
+            )
+    else:
+        agent_id = os.getenv("THENVOI_AGENT_ID")
+        if not agent_id:
+            raise ValueError(
+                "THENVOI_AGENT_ID is required. Pass via --agent-id or set THENVOI_AGENT_ID."
+            )
 
     # Create ACP server adapter
     adapter = ThenvoiACPServerAdapter(

@@ -37,9 +37,9 @@ class ThenvoiACPClient(Client):  # type: ignore[misc]  # ACP Client has optional
 
     def __init__(self) -> None:
         self._session_chunks: dict[str, list[CollectedChunk]] = {}
-        self._permission_handler: Callable[..., Awaitable[dict[str, object]]] | None = (
-            None
-        )
+        self._permission_handlers: dict[
+            str, Callable[..., Awaitable[dict[str, object]]]
+        ] = {}  # session_id -> handler
 
     async def session_update(
         self, session_id: str, update: object, **kwargs: object
@@ -121,8 +121,9 @@ class ThenvoiACPClient(Client):  # type: ignore[misc]  # ACP Client has optional
         Returns:
             Permission outcome dict.
         """
-        if self._permission_handler:
-            return await self._permission_handler(
+        handler = self._permission_handlers.get(session_id)
+        if handler:
+            return await handler(
                 options=options,
                 session_id=session_id,
                 tool_call=tool_call,
@@ -133,23 +134,30 @@ class ThenvoiACPClient(Client):  # type: ignore[misc]  # ACP Client has optional
         return {"outcome": {"outcome": "cancelled"}}
 
     def set_permission_handler(
-        self, handler: Callable[..., Awaitable[dict[str, object]]] | None
+        self,
+        session_id: str,
+        handler: Callable[..., Awaitable[dict[str, object]]] | None,
     ) -> None:
-        """Set a callback for handling permission requests.
+        """Set a callback for handling permission requests for a session.
 
         Args:
+            session_id: The ACP session to set the handler for.
             handler: Async callable that receives permission request params
                 and returns an outcome dict. Set to None to auto-cancel.
         """
-        self._permission_handler = handler
+        if handler is None:
+            self._permission_handlers.pop(session_id, None)
+        else:
+            self._permission_handlers[session_id] = handler
 
     def reset_session(self, session_id: str) -> None:
-        """Clear the collected chunks buffer for a specific session.
+        """Clear the collected chunks buffer and permission handler for a session.
 
         Args:
             session_id: The ACP session to clear.
         """
         self._session_chunks.pop(session_id, None)
+        self._permission_handlers.pop(session_id, None)
 
     def get_collected_text(self, session_id: str | None = None) -> str:
         """Return collected text chunks as a single string.

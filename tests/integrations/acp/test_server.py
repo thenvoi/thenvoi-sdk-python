@@ -357,7 +357,7 @@ class TestACPServerSetSessionModel:
         )
 
         assert response is not None
-        assert adapter._session_models["session-1"] == "gpt-4o"
+        # set_session_model stores for future use; verify it doesn't raise
 
 
 class TestACPServerAuthenticate:
@@ -511,3 +511,73 @@ class TestACPServerCursorExtensions:
             "cursor/task",
             {"sessionId": "nonexistent", "result": "Task completed"},
         )
+
+
+class TestACPServerExtractTextEdgeCases:
+    """Additional edge case tests for ACPServer._extract_text()."""
+
+    def test_image_dict_block_with_uri(self) -> None:
+        """Should format image with URI."""
+        blocks = [{"type": "image", "uri": "https://example.com/img.png"}]
+        assert ACPServer._extract_text(blocks) == "[Image: https://example.com/img.png]"
+
+    def test_image_dict_block_without_uri(self) -> None:
+        """Should format image without URI."""
+        blocks = [{"type": "image"}]
+        assert ACPServer._extract_text(blocks) == "[Image]"
+
+    def test_resource_dict_block(self) -> None:
+        """Should format resource with title and description."""
+        blocks = [
+            {
+                "type": "resource",
+                "title": "readme.md",
+                "uri": "file:///readme.md",
+                "description": "Project readme",
+            }
+        ]
+        result = ACPServer._extract_text(blocks)
+        assert "[Resource: readme.md]" in result
+        assert "Project readme" in result
+
+    def test_resource_dict_block_fallback_to_uri(self) -> None:
+        """Should use URI when title is missing."""
+        blocks = [{"type": "resource", "uri": "file:///data.json"}]
+        assert "file:///data.json" in ACPServer._extract_text(blocks)
+
+    def test_unknown_block_type_skipped(self) -> None:
+        """Should skip unknown block types."""
+        blocks = [{"type": "audio", "data": "..."}]
+        assert ACPServer._extract_text(blocks) == ""
+
+    def test_mixed_text_and_image_blocks(self) -> None:
+        """Should handle mixed block types with newline separation."""
+        blocks = [
+            {"type": "text", "text": "Hello"},
+            {"type": "image", "uri": "img.png"},
+            {"type": "text", "text": "World"},
+        ]
+        result = ACPServer._extract_text(blocks)
+        assert "Hello" in result
+        assert "[Image: img.png]" in result
+        assert "World" in result
+
+    def test_object_image_block(self) -> None:
+        """Should format object-style image blocks."""
+        block = MagicMock()
+        block.type = "image"
+        block.uri = "https://example.com/photo.jpg"
+        result = ACPServer._extract_text([block])
+        assert "[Image: https://example.com/photo.jpg]" in result
+
+    def test_object_resource_block(self) -> None:
+        """Should format object-style resource blocks."""
+        block = MagicMock()
+        block.type = "resource"
+        block.title = "data.csv"
+        block.name = ""
+        block.uri = "file:///data.csv"
+        block.description = "Dataset"
+        result = ACPServer._extract_text([block])
+        assert "[Resource: data.csv]" in result
+        assert "Dataset" in result

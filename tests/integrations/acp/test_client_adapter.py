@@ -454,8 +454,8 @@ class TestACPClientAdapterPermissionHandler:
             room_id="room-123",
         )
 
-        # Permission handler should have been set
-        assert adapter_with_mocks._client._permission_handler is not None
+        # Permission handler should have been set for this session
+        assert len(adapter_with_mocks._client._permission_handlers) > 0
 
     @pytest.mark.asyncio
     async def test_permission_handler_posts_event(
@@ -755,9 +755,7 @@ class TestACPClientAdapterDeadConnectionRecovery:
         """Should stop connection on prompt error so next message respawns."""
         adapter = ACPClientAdapter(command="codex")
         adapter._conn = AsyncMock()
-        adapter._conn.prompt = AsyncMock(
-            side_effect=RuntimeError("Process died")
-        )
+        adapter._conn.prompt = AsyncMock(side_effect=RuntimeError("Process died"))
         mock_session = MagicMock()
         mock_session.session_id = "sess-1"
         adapter._conn.new_session = AsyncMock(return_value=mock_session)
@@ -771,8 +769,13 @@ class TestACPClientAdapterDeadConnectionRecovery:
         msg = make_platform_message("Hello", room_id="room-1")
 
         await adapter.on_message(
-            msg, tools, ACPClientSessionState(), None, None,
-            is_session_bootstrap=False, room_id="room-1",
+            msg,
+            tools,
+            ACPClientSessionState(),
+            None,
+            None,
+            is_session_bootstrap=False,
+            room_id="room-1",
         )
 
         # Connection should be cleared after error
@@ -789,7 +792,9 @@ class TestACPClientAdapterDeadConnectionRecovery:
 class TestACPClientAdapterInjectToolsWarning:
     """Tests for inject_thenvoi_tools warning when no api_key."""
 
-    def test_inject_tools_without_api_key_logs_warning(self, caplog: pytest.LogCaptureFixture) -> None:
+    def test_inject_tools_without_api_key_logs_warning(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
         """Should warn when inject_thenvoi_tools=True but no api_key."""
         import logging
 
@@ -803,7 +808,9 @@ class TestACPClientAdapterInjectToolsWarning:
         assert not adapter._inject_thenvoi_tools
         assert "inject_thenvoi_tools=True but no api_key" in caplog.text
 
-    def test_inject_tools_with_api_key_no_warning(self, caplog: pytest.LogCaptureFixture) -> None:
+    def test_inject_tools_with_api_key_no_warning(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
         """Should not warn when api_key is provided."""
         import logging
 

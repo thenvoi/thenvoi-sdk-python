@@ -194,6 +194,22 @@ class TestParlantToolDrift:
         )
 
 
+class TestACPMcpServerToolDrift:
+    """ACP MCP server (integrations/acp/mcp_server.py) must cover all tools."""
+
+    _FILE = _SRC_ROOT / "integrations" / "acp" / "mcp_server.py"
+
+    def test_all_tools_registered(self):
+        """Every tool in TOOL_MODELS has an @mcp.tool handler."""
+        source = self._FILE.read_text()
+        found = _extract_tool_names(source)
+        missing = ALL_TOOL_NAMES - found
+        assert not missing, (
+            f"ACP MCP server is missing @mcp.tool handlers for: {sorted(missing)}. "
+            f"Add tool implementations in mcp_server.py."
+        )
+
+
 # ---------------------------------------------------------------------------
 # Cross-cutting sanity checks
 # ---------------------------------------------------------------------------

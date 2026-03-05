@@ -31,6 +31,14 @@ class ACPClientAdapter(SimpleAdapter[ACPClientSessionState]):
 
     Uses ACP SDK's spawn_agent_process for subprocess management.
 
+    Lifecycle:
+        1. ``on_started()`` spawns the subprocess and initializes the ACP connection.
+        2. ``on_message()`` forwards messages; respawns if the process died.
+        3. ``on_cleanup(room_id)`` removes per-room state.
+        4. ``stop()`` terminates the subprocess. Called internally on error
+           and should be called externally when the agent is shutting down.
+           After ``stop()``, the next ``on_message()`` will auto-respawn.
+
     Example:
         from thenvoi import Agent
         from thenvoi.integrations.acp import ACPClientAdapter
@@ -95,7 +103,7 @@ class ACPClientAdapter(SimpleAdapter[ACPClientSessionState]):
         self._conn: Any = None  # ACP agent connection
         self._client: ThenvoiACPClient | None = None
         self._ctx: Any = None  # spawn_agent_process context manager
-        self._stopping = False  # Prevents double stop()
+        self._stop_lock = asyncio.Lock()  # Guards stop() to prevent TOCTOU race
 
         # Room -> session mapping and prompt serialization (guarded by _session_lock)
         self._room_to_session: dict[str, str] = {}
@@ -146,7 +154,6 @@ class ACPClientAdapter(SimpleAdapter[ACPClientSessionState]):
             self._ctx = None
             self._conn = None
             raise
-        self._stopping = False
         logger.info("Connected to ACP agent: %s", " ".join(self._command))
 
     async def on_message(
@@ -192,7 +199,7 @@ class ACPClientAdapter(SimpleAdapter[ACPClientSessionState]):
         if self._client:
             self._client.reset_session(session_id)
             self._client.set_permission_handler(
-                self._make_permission_handler(tools, room_id)
+                session_id, self._make_permission_handler(tools, room_id)
             )
 
         # Build prompt with system context on first message per session
@@ -432,15 +439,16 @@ class ACPClientAdapter(SimpleAdapter[ACPClientSessionState]):
         ``_spawn_process()`` again (triggered by the next ``on_message``
         when ``_conn is None``).
         """
-        if self._stopping or not self._ctx:
-            return
-        self._stopping = True
+        async with self._stop_lock:
+            if not self._ctx:
+                return
+            ctx = self._ctx
+            self._ctx = None
+            self._conn = None
         try:
-            await self._ctx.__aexit__(None, None, None)
+            await ctx.__aexit__(None, None, None)
         except Exception:
             logger.exception("Error during ACP agent shutdown")
-        self._ctx = None
-        self._conn = None
         logger.info("ACP client adapter stopped")
 
     def _rehydrate(self, room_id: str, history: ACPClientSessionState) -> None:
