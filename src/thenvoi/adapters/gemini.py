@@ -29,6 +29,7 @@ from thenvoi.runtime.custom_tools import (
     CustomToolDef,
     execute_custom_tool,
     find_custom_tool,
+    get_custom_tool_name,
 )
 from thenvoi.runtime.prompts import render_system_prompt
 
@@ -117,30 +118,22 @@ class GeminiAdapter(SimpleAdapter[GeminiMessages]):
         elif room_id not in self._message_history:
             self._message_history[room_id] = []
 
+        # Merge all user-side content into a single Content to respect
+        # Gemini's strict user/model turn alternation requirement.
+        user_parts: list[types.Part] = []
         if participants_msg:
-            self._message_history[room_id].append(
-                types.Content(
-                    role="user",
-                    parts=[types.Part.from_text(text=f"[System]: {participants_msg}")],
-                )
+            user_parts.append(
+                types.Part.from_text(text=f"[System]: {participants_msg}")
             )
-
+            logger.info("Room %s: Participants updated", room_id)
         if contacts_msg:
-            self._message_history[room_id].append(
-                types.Content(
-                    role="user",
-                    parts=[types.Part.from_text(text=f"[System]: {contacts_msg}")],
-                )
-            )
-
+            user_parts.append(types.Part.from_text(text=f"[System]: {contacts_msg}"))
+            logger.info("Room %s: Contacts broadcast received", room_id)
+        user_parts.append(types.Part.from_text(text=msg.format_for_llm()))
         self._message_history[room_id].append(
-            types.Content(
-                role="user",
-                parts=[types.Part.from_text(text=msg.format_for_llm())],
-            )
+            types.Content(role="user", parts=user_parts)
         )
 
-        self._trim_history(room_id)
         gemini_tools = self._build_gemini_tools(tools)
         tool_rounds = 0
         while True:
@@ -177,23 +170,47 @@ class GeminiAdapter(SimpleAdapter[GeminiMessages]):
 
             tool_rounds += 1
 
+        # Trim after the tool loop so the LLM always sees full context for the
+        # current turn; trimming only affects the next turn's window.
+        self._trim_history(room_id)
+
     async def on_cleanup(self, room_id: str) -> None:
         """Clean up message history when the agent leaves a room."""
         self._message_history.pop(room_id, None)
         logger.debug("Room %s: Cleaned up Gemini history", room_id)
 
     def _trim_history(self, room_id: str) -> None:
-        """Trim message history to stay within ``max_history_messages``."""
+        """Trim message history to stay within ``max_history_messages``.
+
+        After slicing, drops leading orphaned tool responses (function_response
+        parts without a preceding function_call) to avoid Gemini API errors.
+        """
         history = self._message_history.get(room_id)
-        if history and len(history) > self.max_history_messages:
-            trimmed = len(history) - self.max_history_messages
-            self._message_history[room_id] = history[-self.max_history_messages :]
-            logger.debug(
-                "Room %s: Trimmed %s oldest messages (kept %s)",
-                room_id,
-                trimmed,
-                self.max_history_messages,
-            )
+        if not history or len(history) <= self.max_history_messages:
+            return
+
+        trimmed_count = len(history) - self.max_history_messages
+        trimmed = history[-self.max_history_messages :]
+
+        # Drop leading orphaned tool responses
+        while trimmed and self._is_tool_response(trimmed[0]):
+            trimmed.pop(0)
+            trimmed_count += 1
+
+        self._message_history[room_id] = trimmed
+        logger.debug(
+            "Room %s: Trimmed %s oldest messages (kept %s)",
+            room_id,
+            trimmed_count,
+            len(trimmed),
+        )
+
+    @staticmethod
+    def _is_tool_response(content: types.Content) -> bool:
+        """Check if a Content entry contains only function_response parts."""
+        if not content.parts:
+            return False
+        return all(part.function_response is not None for part in content.parts)
 
     def _ensure_client(self) -> genai.Client:
         """Create client lazily to avoid requiring API key during adapter init."""
@@ -250,7 +267,8 @@ class GeminiAdapter(SimpleAdapter[GeminiMessages]):
                     delay_s,
                 )
                 await asyncio.sleep(delay_s)
-        raise RuntimeError("Gemini call retry loop exhausted unexpectedly")
+        # Unreachable: loop always returns on success or re-raises on last attempt.
+        raise AssertionError("unreachable")  # pragma: no cover
 
     def _build_gemini_tools(self, tools: AgentToolsProtocol) -> list[types.Tool]:
         """Build Gemini function declarations from platform and custom tools."""
@@ -278,10 +296,7 @@ class GeminiAdapter(SimpleAdapter[GeminiMessages]):
         for input_model, _func in self._custom_tools:
             schema = input_model.model_json_schema()
             schema.pop("title", None)
-            tool_name = input_model.__name__
-            if tool_name.endswith("Input"):
-                tool_name = tool_name[:-5]
-            tool_name = tool_name.lower()
+            tool_name = get_custom_tool_name(input_model)
             declarations.append(
                 types.FunctionDeclaration(
                     name=tool_name,
@@ -361,7 +376,8 @@ class GeminiAdapter(SimpleAdapter[GeminiMessages]):
                 is_error = False
             except ValidationError as exc:
                 errors = "; ".join(
-                    f"{err['loc'][0]}: {err['msg']}" for err in exc.errors()
+                    f"{err['loc'][0] if err.get('loc') else 'unknown'}: {err['msg']}"
+                    for err in exc.errors()
                 )
                 result_str = f"Invalid arguments for {tool_name}: {errors}"
                 is_error = True

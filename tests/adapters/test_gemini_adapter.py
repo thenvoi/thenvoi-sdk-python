@@ -533,8 +533,12 @@ class TestParticipantsContactsInjection:
             )
 
         history = adapter._message_history["room-123"]
-        assert "[System]: Alice, Bob" in history[0].parts[0].text
-        assert "[System]: Charlie added" in history[1].parts[0].text
+        # All user-side content merged into a single Content entry
+        user_entry = history[0]
+        assert len(user_entry.parts) == 3
+        assert "[System]: Alice, Bob" in user_entry.parts[0].text
+        assert "[System]: Charlie added" in user_entry.parts[1].text
+        assert "Alice" in user_entry.parts[2].text  # user message
 
 
 class TestEmptyCandidates:

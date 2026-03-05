@@ -277,13 +277,13 @@ class TestTextMessageConversion:
             },
         ]
         result = converter.convert(raw)
-        assert len(result) == 4
-        # text -> tool_call (model) -> tool_result (user) -> text
+        # Consecutive user entries (tool_result + text) are merged into one
+        assert len(result) == 3
+        # text (user) -> tool_call (model) -> tool_result + text (merged user)
         assert result[0].role == "user"
         assert "[Alice]: Search for cats" in result[0].parts[0].text
         assert result[1].role == "model"
         assert result[1].parts[0].function_call is not None
         assert result[2].role == "user"
         assert result[2].parts[0].function_response is not None
-        assert result[3].role == "user"
-        assert "[Alice]: Thanks!" in result[3].parts[0].text
+        assert "[Alice]: Thanks!" in result[2].parts[1].text

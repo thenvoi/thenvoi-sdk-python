@@ -42,6 +42,28 @@ def _flush_pending_tool_results(
         pending_tool_results.clear()
 
 
+def _merge_consecutive_roles(messages: GeminiMessages) -> GeminiMessages:
+    """Merge consecutive Content entries with the same role.
+
+    Gemini requires strict user/model turn alternation.  After converting
+    platform history there may be consecutive same-role entries (e.g. a
+    tool_result flush followed by a text message, both ``role="user"``).
+    This pass collapses them into a single Content with combined parts.
+    """
+    if not messages:
+        return messages
+    merged: GeminiMessages = [messages[0]]
+    for msg in messages[1:]:
+        if msg.role == merged[-1].role:
+            merged[-1] = types.Content(
+                role=msg.role,
+                parts=list(merged[-1].parts or []) + list(msg.parts or []),
+            )
+        else:
+            merged.append(msg)
+    return merged
+
+
 class GeminiHistoryConverter(HistoryConverter[GeminiMessages]):
     """
     Convert platform history to Gemini content format.
@@ -132,4 +154,4 @@ class GeminiHistoryConverter(HistoryConverter[GeminiMessages]):
 
         _flush_pending_tool_calls(messages, pending_tool_calls)
         _flush_pending_tool_results(messages, pending_tool_results)
-        return messages
+        return _merge_consecutive_roles(messages)

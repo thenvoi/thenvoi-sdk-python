@@ -324,33 +324,48 @@ class PydanticAIOutputAdapter:
 
 
 class GeminiOutputAdapter:
-    """Adapter for Gemini converter output (list[google.genai.types.Content])."""
+    """Adapter for Gemini converter output (list[google.genai.types.Content]).
+
+    Consecutive same-role Content entries are merged by the converter, so all
+    indexed accessors operate on a flattened (role, part) view to stay
+    compatible with the conformance test expectations.
+    """
+
+    @staticmethod
+    def _flatten(result: list) -> list[tuple[str, object]]:
+        """Return a flat list of (role, part) tuples."""
+        flat: list[tuple[str, object]] = []
+        for content in result:
+            for part in content.parts or []:
+                flat.append((content.role, part))
+        return flat
 
     def assert_result_type(self, result: list) -> None:
         assert isinstance(result, list), f"Expected list, got {type(result).__name__}"
 
     def result_length(self, result: list) -> int:
-        return len(result)
+        return len(self._flatten(result))
 
     def get_content(self, result: list, index: int) -> str:
-        content = result[index]
-        for part in content.parts or []:
-            if part.text:
-                return part.text
-            if part.function_call and part.function_call.name:
-                return part.function_call.name
-            if part.function_response:
-                response_text = str(part.function_response.response or "")
-                if response_text:
-                    return response_text
-                if part.function_response.name:
-                    return part.function_response.name
+        flat = self._flatten(result)
+        _role, part = flat[index]
+        if part.text:
+            return part.text
+        if part.function_call and part.function_call.name:
+            return part.function_call.name
+        if part.function_response:
+            response_text = str(part.function_response.response or "")
+            if response_text:
+                return response_text
+            if part.function_response.name:
+                return part.function_response.name
         raise ValueError(
             f"No text/function_call/function_response content at index {index}"
         )
 
     def get_role(self, result: list, index: int) -> str:
-        role = result[index].role
+        flat = self._flatten(result)
+        role, _part = flat[index]
         if role == "model":
             return "assistant"
         return "user"
