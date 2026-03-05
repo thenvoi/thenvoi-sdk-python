@@ -23,6 +23,7 @@ class TestToolEventConversion:
         assert result[0].parts[0].function_call is not None
         assert result[0].parts[0].function_call.name == "search"
         assert result[0].parts[0].function_call.args == {"query": "test"}
+        assert result[0].parts[0].function_call.id == "tc_123"
 
     def test_converts_tool_result_to_user_content(self):
         converter = GeminiHistoryConverter()
@@ -70,6 +71,8 @@ class TestToolEventConversion:
         assert len(result[0].parts) == 2
         assert result[0].parts[0].function_call.name == "tool1"
         assert result[0].parts[1].function_call.name == "tool2"
+        assert result[0].parts[0].function_call.id == "tc_1"
+        assert result[0].parts[1].function_call.id == "tc_2"
 
     def test_batches_multiple_tool_results(self):
         converter = GeminiHistoryConverter()

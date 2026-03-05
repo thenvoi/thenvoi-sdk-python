@@ -72,8 +72,12 @@ class GeminiHistoryConverter(HistoryConverter[GeminiMessages]):
                 parsed = parse_tool_call(content)
                 if parsed:
                     pending_tool_calls.append(
-                        types.Part.from_function_call(
-                            name=parsed.name, args=parsed.args
+                        types.Part(
+                            function_call=types.FunctionCall(
+                                id=parsed.tool_call_id,
+                                name=parsed.name,
+                                args=parsed.args,
+                            )
                         )
                     )
                 continue
