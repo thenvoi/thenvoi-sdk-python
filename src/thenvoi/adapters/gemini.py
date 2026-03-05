@@ -80,7 +80,6 @@ class GeminiAdapter(SimpleAdapter[GeminiMessages]):
         self._message_history: dict[str, GeminiMessages] = {}
         self._system_prompt: str = ""
         self._custom_tools: list[CustomToolDef] = additional_tools or []
-        self._warn_if_deprecated_model()
 
     async def on_started(self, agent_name: str, agent_description: str) -> None:
         """Render system prompt after agent metadata is fetched."""
@@ -195,16 +194,6 @@ class GeminiAdapter(SimpleAdapter[GeminiMessages]):
                 room_id,
                 trimmed,
                 self.max_history_messages,
-            )
-
-    def _warn_if_deprecated_model(self) -> None:
-        """Warn when a legacy Gemini model family is configured."""
-        deprecated_prefixes = ("gemini-1.", "gemini-2.0")
-        if self.model.startswith(deprecated_prefixes):
-            logger.warning(
-                "Configured Gemini model '%s' appears deprecated. "
-                "Consider using gemini-2.5-flash or a newer model.",
-                self.model,
             )
 
     def _ensure_client(self) -> genai.Client:

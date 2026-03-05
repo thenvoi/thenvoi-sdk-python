@@ -69,11 +69,6 @@ def _response_with_function_call(
 
 
 class TestOnStarted:
-    def test_warns_for_deprecated_model_family(self, caplog: pytest.LogCaptureFixture):
-        with caplog.at_level("WARNING"):
-            GeminiAdapter(model="gemini-1.5-pro", gemini_api_key="test-key")
-        assert "appears deprecated" in caplog.text
-
     @pytest.mark.asyncio
     async def test_renders_system_prompt(self):
         adapter = GeminiAdapter(gemini_api_key="test-key")
