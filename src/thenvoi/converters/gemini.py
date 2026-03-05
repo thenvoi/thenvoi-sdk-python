@@ -47,7 +47,7 @@ class GeminiHistoryConverter(HistoryConverter[GeminiMessages]):
     - text messages -> Content(role="user", parts=[Part.from_text(...)])
     - tool_call events -> Content(role="model", parts=[Part.from_function_call(...)])
     - tool_result events -> Content(role="user", parts=[Part(function_response=...)])
-    - this agent's assistant text messages are skipped
+    - this agent's assistant text messages -> Content(role="model", ...) to maintain turn alternation
     """
 
     def __init__(self, agent_name: str = ""):
@@ -112,6 +112,14 @@ class GeminiHistoryConverter(HistoryConverter[GeminiMessages]):
             role = hist.get("role", "user")
             sender_name = hist.get("sender_name", "")
             if role == "assistant" and sender_name == self._agent_name:
+                # Keep own-agent text as model role to maintain turn alternation.
+                # Gemini requires strict user/model alternation; skipping this
+                # would create consecutive user messages after tool results.
+                messages.append(
+                    types.Content(
+                        role="model", parts=[types.Part.from_text(text=content)]
+                    )
+                )
                 continue
 
             formatted = f"[{sender_name}]: {content}" if sender_name else content

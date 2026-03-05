@@ -233,6 +233,7 @@ def _build_gemini_config() -> ConverterConfig:
         display_name="Gemini",
         converter_factory=_gemini_factory,
         empty_result=[],
+        filters_own_messages=False,  # Gemini keeps own-agent text as model role for turn alternation
         empty_sender_behavior=SenderBehavior.CONTENT_AS_IS,
         missing_sender_behavior=SenderBehavior.CONTENT_AS_IS,
         output_adapter=GeminiOutputAdapter(),

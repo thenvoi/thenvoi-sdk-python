@@ -207,7 +207,7 @@ class TestTextMessageConversion:
         assert len(result) == 1
         assert result[0].parts[0].text == "Hello there"
 
-    def test_filters_own_agent_assistant_messages(self):
+    def test_own_agent_assistant_messages_become_model_role(self):
         converter = GeminiHistoryConverter(agent_name="MyBot")
         raw = [
             {
@@ -218,7 +218,9 @@ class TestTextMessageConversion:
             }
         ]
         result = converter.convert(raw)
-        assert len(result) == 0
+        assert len(result) == 1
+        assert result[0].role == "model"
+        assert result[0].parts[0].text == "I am the bot"
 
     def test_keeps_other_agent_assistant_messages(self):
         converter = GeminiHistoryConverter(agent_name="MyBot")
