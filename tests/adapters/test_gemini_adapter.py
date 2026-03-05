@@ -1,5 +1,7 @@
 """Tests for GeminiAdapter."""
 
+from __future__ import annotations
+
 from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -258,3 +260,85 @@ class TestCustomTools:
         assert function_response is not None
         assert function_response.response == {"output": "hello"}
         mock_tools.execute_tool_call.assert_not_called()
+
+
+class TestOnCleanup:
+    @pytest.mark.asyncio
+    async def test_removes_room_history(self):
+        adapter = GeminiAdapter(gemini_api_key="test-key")
+        adapter._message_history["room-1"] = [
+            types.Content(role="user", parts=[types.Part.from_text(text="hi")])
+        ]
+        await adapter.on_cleanup("room-1")
+        assert "room-1" not in adapter._message_history
+
+    def test_trim_history_caps_at_max(self):
+        adapter = GeminiAdapter(gemini_api_key="test-key", max_history_messages=5)
+        adapter._message_history["room-1"] = [
+            types.Content(role="user", parts=[types.Part.from_text(text=f"msg-{i}")])
+            for i in range(10)
+        ]
+        adapter._trim_history("room-1")
+        assert len(adapter._message_history["room-1"]) == 5
+        assert adapter._message_history["room-1"][0].parts[0].text == "msg-5"
+
+    def test_trim_history_noop_when_under_limit(self):
+        adapter = GeminiAdapter(gemini_api_key="test-key", max_history_messages=50)
+        adapter._message_history["room-1"] = [
+            types.Content(role="user", parts=[types.Part.from_text(text="hi")])
+        ]
+        adapter._trim_history("room-1")
+        assert len(adapter._message_history["room-1"]) == 1
+
+    @pytest.mark.asyncio
+    async def test_cleanup_twice_is_idempotent(self):
+        adapter = GeminiAdapter(gemini_api_key="test-key")
+        adapter._message_history["room-1"] = []
+        await adapter.on_cleanup("room-1")
+        await adapter.on_cleanup("room-1")
+        assert "room-1" not in adapter._message_history
+
+    @pytest.mark.asyncio
+    async def test_cleanup_unknown_room_is_noop(self):
+        adapter = GeminiAdapter(gemini_api_key="test-key")
+        await adapter.on_cleanup("nonexistent-room")
+        assert "nonexistent-room" not in adapter._message_history
+
+    @pytest.mark.asyncio
+    async def test_cleanup_before_any_messages(self):
+        adapter = GeminiAdapter(gemini_api_key="test-key")
+        await adapter.on_started("TestBot", "Test bot")
+        await adapter.on_cleanup("room-never-used")
+
+
+class TestValidationErrorHandling:
+    @pytest.mark.asyncio
+    async def test_validation_error_returns_friendly_message(self, mock_tools):
+        from pydantic import ValidationError
+
+        adapter = GeminiAdapter(gemini_api_key="test-key")
+
+        mock_tools.execute_tool_call = AsyncMock(
+            side_effect=ValidationError.from_exception_data(
+                title="SendMessageInput",
+                line_errors=[
+                    {
+                        "type": "missing",
+                        "loc": ("content",),
+                        "msg": "Field required",
+                        "input": {},
+                    }
+                ],
+            )
+        )
+
+        function_calls = [
+            types.FunctionCall(name="thenvoi_send_message", args={}, id="call_1")
+        ]
+        parts = await adapter._process_function_calls(function_calls, mock_tools)
+
+        assert len(parts) == 1
+        resp = parts[0].function_response
+        assert resp is not None
+        assert "Invalid arguments for thenvoi_send_message" in resp.response["error"]
+        assert "content" in resp.response["error"]

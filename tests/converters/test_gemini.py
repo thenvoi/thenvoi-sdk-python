@@ -1,5 +1,7 @@
 """Tests for GeminiHistoryConverter."""
 
+from __future__ import annotations
+
 from thenvoi.converters.gemini import GeminiHistoryConverter
 
 
@@ -153,3 +155,132 @@ class TestToolEventConversion:
         result = converter.convert(raw)
         assert len(result) == 0
         assert "Failed to parse tool_result" in caplog.text
+
+
+class TestTextMessageConversion:
+    """Tests for text message conversion."""
+
+    def test_empty_history_returns_empty_list(self):
+        converter = GeminiHistoryConverter()
+        result = converter.convert([])
+        assert result == []
+
+    def test_text_message_with_sender(self):
+        converter = GeminiHistoryConverter()
+        raw = [
+            {
+                "role": "user",
+                "content": "Hello there",
+                "sender_name": "Alice",
+                "message_type": "text",
+            }
+        ]
+        result = converter.convert(raw)
+        assert len(result) == 1
+        assert result[0].role == "user"
+        assert result[0].parts[0].text == "[Alice]: Hello there"
+
+    def test_text_message_with_empty_sender_name(self):
+        converter = GeminiHistoryConverter()
+        raw = [
+            {
+                "role": "user",
+                "content": "Hello there",
+                "sender_name": "",
+                "message_type": "text",
+            }
+        ]
+        result = converter.convert(raw)
+        assert len(result) == 1
+        assert result[0].parts[0].text == "Hello there"
+
+    def test_text_message_with_missing_sender_name(self):
+        converter = GeminiHistoryConverter()
+        raw = [
+            {
+                "role": "user",
+                "content": "Hello there",
+                "message_type": "text",
+            }
+        ]
+        result = converter.convert(raw)
+        assert len(result) == 1
+        assert result[0].parts[0].text == "Hello there"
+
+    def test_filters_own_agent_assistant_messages(self):
+        converter = GeminiHistoryConverter(agent_name="MyBot")
+        raw = [
+            {
+                "role": "assistant",
+                "content": "I am the bot",
+                "sender_name": "MyBot",
+                "message_type": "text",
+            }
+        ]
+        result = converter.convert(raw)
+        assert len(result) == 0
+
+    def test_keeps_other_agent_assistant_messages(self):
+        converter = GeminiHistoryConverter(agent_name="MyBot")
+        raw = [
+            {
+                "role": "assistant",
+                "content": "I am another bot",
+                "sender_name": "OtherBot",
+                "message_type": "text",
+            }
+        ]
+        result = converter.convert(raw)
+        assert len(result) == 1
+        assert result[0].role == "user"
+        assert "[OtherBot]:" in result[0].parts[0].text
+
+    def test_skips_thought_messages(self):
+        converter = GeminiHistoryConverter()
+        raw = [
+            {
+                "role": "assistant",
+                "content": "Thinking...",
+                "sender_name": "Bot",
+                "message_type": "thought",
+            }
+        ]
+        result = converter.convert(raw)
+        assert len(result) == 0
+
+    def test_mixed_text_and_tool_events(self):
+        converter = GeminiHistoryConverter()
+        raw = [
+            {
+                "role": "user",
+                "content": "Search for cats",
+                "sender_name": "Alice",
+                "message_type": "text",
+            },
+            {
+                "role": "assistant",
+                "content": '{"name": "search", "args": {"query": "cats"}, "tool_call_id": "tc_1"}',
+                "message_type": "tool_call",
+            },
+            {
+                "role": "assistant",
+                "content": '{"name": "search", "output": "found cats", "tool_call_id": "tc_1"}',
+                "message_type": "tool_result",
+            },
+            {
+                "role": "user",
+                "content": "Thanks!",
+                "sender_name": "Alice",
+                "message_type": "text",
+            },
+        ]
+        result = converter.convert(raw)
+        assert len(result) == 4
+        assert result[0].role == "user"
+        assert "[Alice]: Search for cats" in result[0].parts[0].text
+        assert result[1].role == "model"
+        assert result[1].parts[0].function_call is not None
+        assert result[2].role == "user"
+        assert result[2].parts[0].function_response is not None
+        assert result[3].role == "user"
+        assert "[Alice]: Thanks!" in result[3].parts[0].text

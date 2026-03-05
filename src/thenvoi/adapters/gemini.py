@@ -8,6 +8,7 @@ import logging
 from typing import Any, cast
 
 import httpx
+from pydantic import ValidationError
 
 try:
     from google import genai
@@ -54,6 +55,7 @@ class GeminiAdapter(SimpleAdapter[GeminiMessages]):
         max_tool_rounds: int = 20,
         max_retries: int = 2,
         retry_base_delay_s: float = 1.0,
+        max_history_messages: int = 200,
         history_converter: GeminiHistoryConverter | None = None,
         additional_tools: list[CustomToolDef] | None = None,
     ) -> None:
@@ -71,6 +73,7 @@ class GeminiAdapter(SimpleAdapter[GeminiMessages]):
         self.max_tool_rounds = max_tool_rounds
         self.max_retries = max_retries
         self.retry_base_delay_s = retry_base_delay_s
+        self.max_history_messages = max_history_messages
 
         self._gemini_api_key = gemini_api_key
         self.client: genai.Client | None = None
@@ -138,6 +141,7 @@ class GeminiAdapter(SimpleAdapter[GeminiMessages]):
             )
         )
 
+        self._trim_history(room_id)
         gemini_tools = self._build_gemini_tools(tools)
         tool_rounds = 0
         while True:
@@ -151,7 +155,7 @@ class GeminiAdapter(SimpleAdapter[GeminiMessages]):
                     contents=self._message_history[room_id], tools=gemini_tools
                 )
             except Exception as e:
-                logger.error("Error calling Gemini: %s", e, exc_info=True)
+                logger.exception("Error calling Gemini: %s", e)
                 await self._report_error(tools, str(e))
                 raise
 
@@ -179,6 +183,19 @@ class GeminiAdapter(SimpleAdapter[GeminiMessages]):
         if room_id in self._message_history:
             del self._message_history[room_id]
             logger.debug("Room %s: Cleaned up Gemini history", room_id)
+
+    def _trim_history(self, room_id: str) -> None:
+        """Trim message history to stay within ``max_history_messages``."""
+        history = self._message_history.get(room_id)
+        if history and len(history) > self.max_history_messages:
+            trimmed = len(history) - self.max_history_messages
+            self._message_history[room_id] = history[-self.max_history_messages :]
+            logger.debug(
+                "Room %s: Trimmed %s oldest messages (kept %s)",
+                room_id,
+                trimmed,
+                self.max_history_messages,
+            )
 
     def _warn_if_deprecated_model(self) -> None:
         """Warn when a legacy Gemini model family is configured."""
@@ -354,10 +371,17 @@ class GeminiAdapter(SimpleAdapter[GeminiMessages]):
                     else result
                 )
                 is_error = False
+            except ValidationError as exc:
+                errors = "; ".join(
+                    f"{err['loc'][0]}: {err['msg']}" for err in exc.errors()
+                )
+                result_str = f"Invalid arguments for {tool_name}: {errors}"
+                is_error = True
+                logger.warning("Validation error for tool %s: %s", tool_name, errors)
             except Exception as e:
                 result_str = f"Error: {e}"
                 is_error = True
-                logger.error("Tool %s failed: %s", tool_name, e)
+                logger.exception("Tool %s failed: %s", tool_name, e)
 
             if self.enable_execution_reporting:
                 try:
