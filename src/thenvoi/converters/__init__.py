@@ -9,6 +9,7 @@ Install the extra you need::
     uv add thenvoi-sdk[claude_sdk]
     uv add thenvoi-sdk[parlant]
     uv add thenvoi-sdk[crewai]
+    uv add thenvoi-sdk[gemini]
     uv add thenvoi-sdk[a2a]
     uv add thenvoi-sdk[codex]
 """
@@ -51,6 +52,10 @@ if TYPE_CHECKING:
     from thenvoi.converters.codex import (
         CodexHistoryConverter as CodexHistoryConverter,
     )
+    from thenvoi.converters.gemini import (
+        GeminiHistoryConverter as GeminiHistoryConverter,
+        GeminiMessages as GeminiMessages,
+    )
 
 __all__ = [
     "LangChainHistoryConverter",
@@ -67,6 +72,8 @@ __all__ = [
     "A2AHistoryConverter",
     "GatewayHistoryConverter",
     "CodexHistoryConverter",
+    "GeminiHistoryConverter",
+    "GeminiMessages",
 ]
 
 
@@ -140,5 +147,11 @@ def __getattr__(name: str) -> type:
         from thenvoi.converters.codex import CodexHistoryConverter
 
         return CodexHistoryConverter
+    elif name in ("GeminiHistoryConverter", "GeminiMessages"):
+        from thenvoi.converters.gemini import GeminiHistoryConverter, GeminiMessages
+
+        if name == "GeminiHistoryConverter":
+            return GeminiHistoryConverter
+        return GeminiMessages
 
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

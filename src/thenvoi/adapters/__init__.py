@@ -9,6 +9,7 @@ Install the extra you need::
     uv add thenvoi-sdk[claude_sdk]
     uv add thenvoi-sdk[parlant]
     uv add thenvoi-sdk[crewai]
+    uv add thenvoi-sdk[gemini]
     uv add thenvoi-sdk[a2a]
     uv add thenvoi-sdk[a2a_gateway]
     uv add thenvoi-sdk[codex]
@@ -30,6 +31,7 @@ if TYPE_CHECKING:
     from thenvoi.adapters.a2a_gateway import A2AGatewayAdapter as A2AGatewayAdapter
     from thenvoi.adapters.codex import CodexAdapter as CodexAdapter
     from thenvoi.adapters.codex import CodexAdapterConfig as CodexAdapterConfig
+    from thenvoi.adapters.gemini import GeminiAdapter as GeminiAdapter
 
 __all__ = [
     "LangGraphAdapter",
@@ -42,6 +44,7 @@ __all__ = [
     "A2AGatewayAdapter",
     "CodexAdapter",
     "CodexAdapterConfig",
+    "GeminiAdapter",
 ]
 
 
@@ -87,4 +90,8 @@ def __getattr__(name: str) -> type:
         from thenvoi.adapters.codex import CodexAdapterConfig
 
         return CodexAdapterConfig
+    elif name == "GeminiAdapter":
+        from thenvoi.adapters.gemini import GeminiAdapter
+
+        return GeminiAdapter
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

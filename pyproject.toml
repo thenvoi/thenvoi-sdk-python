@@ -67,6 +67,9 @@ crewai = [
     "openai>=1.0.0",
     "nest-asyncio>=1.6.0",  # Required for sync-to-async bridging in CrewAI tools
 ]
+gemini = [
+    "google-genai>=1.43.0",
+]
 a2a = [
     "a2a-sdk>=0.3.22",  # Official A2A Python SDK
 ]
@@ -119,6 +122,8 @@ dev = [
     # Include crewai for testing
     "crewai>=0.80.0",
     "nest-asyncio>=1.6.0",  # Required for CrewAI adapter sync-to-async bridging
+    # Include Gemini SDK for testing
+    "google-genai>=1.43.0",
     # Include bridge deps for testing
     "aiohttp>=3.9,<4",
     # Development tools
