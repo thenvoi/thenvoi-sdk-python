@@ -222,6 +222,38 @@ class TestTextMessageConversion:
         assert result[0].role == "model"
         assert result[0].parts[0].text == "I am the bot"
 
+    def test_skips_own_agent_text_inside_tool_turn(self):
+        converter = GeminiHistoryConverter(agent_name="MyBot")
+        raw = [
+            {
+                "role": "assistant",
+                "content": '{"name": "thenvoi_send_message", "args": {"content": "Hello"}, "tool_call_id": "tc_1"}',
+                "sender_name": "MyBot",
+                "message_type": "tool_call",
+            },
+            {
+                "role": "assistant",
+                "content": "Hello",
+                "sender_name": "MyBot",
+                "message_type": "text",
+            },
+            {
+                "role": "assistant",
+                "content": '{"name": "thenvoi_send_message", "output": {"status": "sent"}, "tool_call_id": "tc_1"}',
+                "sender_name": "MyBot",
+                "message_type": "tool_result",
+            },
+        ]
+
+        result = converter.convert(raw)
+
+        assert len(result) == 2
+        assert result[0].role == "model"
+        assert result[0].parts[0].function_call is not None
+        assert result[0].parts[0].text is None
+        assert result[1].role == "user"
+        assert result[1].parts[0].function_response is not None
+
     def test_keeps_other_agent_assistant_messages(self):
         converter = GeminiHistoryConverter(agent_name="MyBot")
         raw = [

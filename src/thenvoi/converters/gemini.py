@@ -131,21 +131,29 @@ class GeminiHistoryConverter(HistoryConverter[GeminiMessages]):
             if message_type != "text":
                 continue
 
-            _flush_pending_tool_calls(messages, pending_tool_calls)
-            _flush_pending_tool_results(messages, pending_tool_results)
-
             role = hist.get("role", "user")
             sender_name = hist.get("sender_name", "")
             if role == "assistant" and sender_name == self._agent_name:
-                # Keep own-agent text as model role to maintain turn alternation.
-                # Gemini requires strict user/model alternation; skipping this
-                # would create consecutive user messages after tool results.
+                if pending_tool_calls or pending_tool_results:
+                    # Skip own-agent chat text when it is part of an in-flight
+                    # tool turn. The tool call/result pair is the canonical AFC
+                    # history, and replaying both can distort turn ordering.
+                    continue
+
+                _flush_pending_tool_calls(messages, pending_tool_calls)
+                _flush_pending_tool_results(messages, pending_tool_results)
+
+                # Keep standalone own-agent text as model role to maintain turn
+                # alternation for non-tool replies.
                 messages.append(
                     types.Content(
                         role="model", parts=[types.Part.from_text(text=content)]
                     )
                 )
                 continue
+
+            _flush_pending_tool_calls(messages, pending_tool_calls)
+            _flush_pending_tool_results(messages, pending_tool_results)
 
             formatted = f"[{sender_name}]: {content}" if sender_name else content
             messages.append(

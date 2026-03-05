@@ -301,6 +301,64 @@ class TestOnCleanup:
         adapter._trim_history("room-1")
         assert len(adapter._message_history["room-1"]) == 1
 
+    def test_trim_history_drops_leading_model_entry(self):
+        adapter = GeminiAdapter(gemini_api_key="test-key", max_history_messages=3)
+        adapter._message_history["room-1"] = [
+            types.Content(role="user", parts=[types.Part.from_text(text="msg-0")]),
+            types.Content(role="model", parts=[types.Part.from_text(text="reply-0")]),
+            types.Content(role="user", parts=[types.Part.from_text(text="msg-1")]),
+            types.Content(role="model", parts=[types.Part.from_text(text="reply-1")]),
+        ]
+
+        adapter._trim_history("room-1")
+
+        trimmed = adapter._message_history["room-1"]
+        assert len(trimmed) == 2
+        assert trimmed[0].role == "user"
+        assert trimmed[0].parts[0].text == "msg-1"
+        assert trimmed[1].role == "model"
+        assert trimmed[1].parts[0].text == "reply-1"
+
+    def test_trim_history_strips_orphaned_leading_tool_response_parts(self):
+        adapter = GeminiAdapter(gemini_api_key="test-key", max_history_messages=3)
+        adapter._message_history["room-1"] = [
+            types.Content(role="user", parts=[types.Part.from_text(text="msg-0")]),
+            types.Content(
+                role="model",
+                parts=[
+                    types.Part.from_function_call(
+                        name="thenvoi_send_message",
+                        args={"content": "hello"},
+                    )
+                ],
+            ),
+            types.Content(
+                role="user",
+                parts=[
+                    types.Part(
+                        function_response=types.FunctionResponse(
+                            id="tc_1",
+                            name="thenvoi_send_message",
+                            response={"output": {"status": "sent"}},
+                        )
+                    ),
+                    types.Part.from_text(text="[Alice]: follow-up"),
+                ],
+            ),
+            types.Content(role="model", parts=[types.Part.from_text(text="reply-1")]),
+        ]
+
+        adapter._trim_history("room-1")
+
+        trimmed = adapter._message_history["room-1"]
+        assert len(trimmed) == 2
+        assert trimmed[0].role == "user"
+        assert len(trimmed[0].parts) == 1
+        assert trimmed[0].parts[0].function_response is None
+        assert trimmed[0].parts[0].text == "[Alice]: follow-up"
+        assert trimmed[1].role == "model"
+        assert trimmed[1].parts[0].text == "reply-1"
+
     @pytest.mark.asyncio
     async def test_cleanup_before_any_messages(self):
         adapter = GeminiAdapter(gemini_api_key="test-key")

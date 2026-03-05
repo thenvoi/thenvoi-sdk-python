@@ -182,8 +182,8 @@ class GeminiAdapter(SimpleAdapter[GeminiMessages]):
     def _trim_history(self, room_id: str) -> None:
         """Trim message history to stay within ``max_history_messages``.
 
-        After slicing, drops leading orphaned tool responses (function_response
-        parts without a preceding function_call) to avoid Gemini API errors.
+        After slicing, realigns to the next user turn and drops orphaned
+        function responses that no longer have their matching function call.
         """
         history = self._message_history.get(room_id)
         if not history or len(history) <= self.max_history_messages:
@@ -192,10 +192,21 @@ class GeminiAdapter(SimpleAdapter[GeminiMessages]):
         trimmed_count = len(history) - self.max_history_messages
         trimmed = history[-self.max_history_messages :]
 
-        # Drop leading orphaned tool responses
-        while trimmed and self._is_tool_response(trimmed[0]):
-            trimmed.pop(0)
-            trimmed_count += 1
+        while trimmed:
+            first = trimmed[0]
+            if first.role == "model":
+                trimmed.pop(0)
+                trimmed_count += 1
+                continue
+
+            normalized = self._drop_leading_tool_response_parts(first)
+            if normalized is None:
+                trimmed.pop(0)
+                trimmed_count += 1
+                continue
+
+            trimmed[0] = normalized
+            break
 
         self._message_history[room_id] = trimmed
         logger.debug(
@@ -204,6 +215,28 @@ class GeminiAdapter(SimpleAdapter[GeminiMessages]):
             trimmed_count,
             len(trimmed),
         )
+
+    @staticmethod
+    def _drop_leading_tool_response_parts(
+        content: types.Content,
+    ) -> types.Content | None:
+        """Remove orphaned leading function_response parts from a user turn."""
+        parts = list(content.parts or [])
+        first_non_response_index = 0
+        while (
+            first_non_response_index < len(parts)
+            and parts[first_non_response_index].function_response is not None
+        ):
+            first_non_response_index += 1
+
+        if first_non_response_index == 0:
+            return content
+
+        remaining_parts = parts[first_non_response_index:]
+        if not remaining_parts:
+            return None
+
+        return types.Content(role=content.role, parts=remaining_parts)
 
     @staticmethod
     def _is_tool_response(content: types.Content) -> bool:
