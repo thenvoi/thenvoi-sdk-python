@@ -29,12 +29,17 @@ class ContactTools:
         - AgentTools: Room-bound. Used by LLM agents in chat rooms.
           Has full tool suite including contacts, but tied to a room.
 
-    Example (HUB_ROOM - LLM decides on contact requests):
+    Example (CALLBACK - programmatic contact handling):
+        async def handle_contact(event, tools):
+            if isinstance(event, ContactRequestReceivedEvent):
+                # Custom logic to decide whether to approve
+                await tools.respond_contact_request("approve", request_id=event.payload.id)
+
         agent = Agent.create(
             adapter=...,
             contact_config=ContactEventConfig(
-                strategy=ContactEventStrategy.HUB_ROOM,
-                broadcast_changes=True,
+                strategy=ContactEventStrategy.CALLBACK,
+                on_event=handle_contact,
             ),
         )
     """

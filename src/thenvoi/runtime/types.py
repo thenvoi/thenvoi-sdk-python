@@ -153,7 +153,7 @@ class ContactEventConfig:
     """Configuration for contact event handling.
 
     Composable modes:
-    - CALLBACK + broadcast_changes=True: Auto-handle + awareness everywhere
+    - CALLBACK + broadcast_changes=True: Programmatic handling + awareness everywhere
     - HUB_ROOM + broadcast_changes=True: LLM decides + awareness everywhere
     - DISABLED + broadcast_changes=True: Just awareness, manual handling
 

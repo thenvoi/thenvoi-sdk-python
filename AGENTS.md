@@ -105,60 +105,7 @@ Each event has: `type` (literal), `room_id`, `payload`, `raw`
 
 ## Contact Event Handling
 
-The SDK supports three strategies for handling contact WebSocket events via `ContactEventConfig`:
-
-### Strategies
-
-| Strategy | Description | Use Case |
-|----------|-------------|----------|
-| `DISABLED` (default) | Ignores contact events | Agents that don't manage contacts |
-| `CALLBACK` | Calls programmatic callback | Auto-approve bots, custom logic |
-| `HUB_ROOM` | Routes to dedicated chat room | LLM-based contact management |
-
-### Configuration
-
-```python
-from thenvoi.runtime.types import ContactEventConfig, ContactEventStrategy
-
-# CALLBACK strategy - programmatic handling
-async def auto_approve(event, tools):
-    if isinstance(event, ContactRequestReceivedEvent):
-        await tools.respond_contact_request("approve", request_id=event.payload.id)
-
-agent = Agent.create(
-    adapter=adapter,
-    contact_config=ContactEventConfig(
-        strategy=ContactEventStrategy.CALLBACK,
-        on_event=auto_approve,
-    ),
-)
-
-# HUB_ROOM strategy - LLM handles contacts in dedicated room
-agent = Agent.create(
-    adapter=adapter,
-    contact_config=ContactEventConfig(
-        strategy=ContactEventStrategy.HUB_ROOM,
-        hub_task_id="optional-task-id",  # Links hub room to a task
-    ),
-)
-
-# Broadcast contact changes to all rooms (composable with any strategy)
-agent = Agent.create(
-    adapter=adapter,
-    contact_config=ContactEventConfig(
-        strategy=ContactEventStrategy.DISABLED,
-        broadcast_changes=True,  # Inject "[Contacts]: X is now a contact" messages
-    ),
-)
-```
-
-### HUB_ROOM Details
-
-- Creates dedicated chat room at agent startup
-- Injects system prompt with contact management instructions
-- Converts contact events to synthetic `MessageEvent` for LLM processing
-- Posts task events to room for persistence/visibility
-- Enriches `ContactRequestUpdatedEvent` with sender info via cache + API fallback
+See `AGENTS.md` for full configuration details.
 
 ## A2A Protocol Integration
 
