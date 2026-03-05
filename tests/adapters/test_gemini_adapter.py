@@ -267,6 +267,20 @@ class TestOnCleanup:
         await adapter.on_cleanup("room-1")
         assert "room-1" not in adapter._message_history
 
+    @pytest.mark.asyncio
+    async def test_cleanup_twice_is_idempotent(self):
+        adapter = GeminiAdapter(gemini_api_key="test-key")
+        adapter._message_history["room-1"] = []
+        await adapter.on_cleanup("room-1")
+        await adapter.on_cleanup("room-1")  # Should not raise
+        assert "room-1" not in adapter._message_history
+
+    @pytest.mark.asyncio
+    async def test_cleanup_unknown_room_is_noop(self):
+        adapter = GeminiAdapter(gemini_api_key="test-key")
+        await adapter.on_cleanup("nonexistent-room")  # Should not raise
+        assert "nonexistent-room" not in adapter._message_history
+
     def test_trim_history_caps_at_max(self):
         adapter = GeminiAdapter(gemini_api_key="test-key", max_history_messages=5)
         adapter._message_history["room-1"] = [
@@ -275,6 +289,7 @@ class TestOnCleanup:
         ]
         adapter._trim_history("room-1")
         assert len(adapter._message_history["room-1"]) == 5
+        # Keeps the most recent messages
         assert adapter._message_history["room-1"][0].parts[0].text == "msg-5"
 
     def test_trim_history_noop_when_under_limit(self):
@@ -286,24 +301,10 @@ class TestOnCleanup:
         assert len(adapter._message_history["room-1"]) == 1
 
     @pytest.mark.asyncio
-    async def test_cleanup_twice_is_idempotent(self):
-        adapter = GeminiAdapter(gemini_api_key="test-key")
-        adapter._message_history["room-1"] = []
-        await adapter.on_cleanup("room-1")
-        await adapter.on_cleanup("room-1")
-        assert "room-1" not in adapter._message_history
-
-    @pytest.mark.asyncio
-    async def test_cleanup_unknown_room_is_noop(self):
-        adapter = GeminiAdapter(gemini_api_key="test-key")
-        await adapter.on_cleanup("nonexistent-room")
-        assert "nonexistent-room" not in adapter._message_history
-
-    @pytest.mark.asyncio
     async def test_cleanup_before_any_messages(self):
         adapter = GeminiAdapter(gemini_api_key="test-key")
         await adapter.on_started("TestBot", "Test bot")
-        await adapter.on_cleanup("room-never-used")
+        await adapter.on_cleanup("room-never-used")  # Should not raise
 
 
 class TestValidationErrorHandling:

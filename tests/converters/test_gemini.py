@@ -278,6 +278,7 @@ class TestTextMessageConversion:
         ]
         result = converter.convert(raw)
         assert len(result) == 4
+        # text -> tool_call (model) -> tool_result (user) -> text
         assert result[0].role == "user"
         assert "[Alice]: Search for cats" in result[0].parts[0].text
         assert result[1].role == "model"
