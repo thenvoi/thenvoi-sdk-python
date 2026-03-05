@@ -228,6 +228,8 @@ CONVERTER_EXCLUDED_MODULES: frozenset[str] = frozenset(
         "_tool_parsing",
         "a2a",
         "a2a_gateway",
+        "acp_client",
+        "acp_server",
         "codex",
     }
 )

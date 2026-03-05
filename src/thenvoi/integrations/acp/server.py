@@ -1,0 +1,323 @@
+"""ACP protocol handler for Thenvoi platform."""
+
+from __future__ import annotations
+
+import logging
+from typing import TYPE_CHECKING, Any
+
+from acp import (
+    Agent,
+    InitializeResponse,
+    NewSessionResponse,
+    PromptResponse,
+)
+from acp.schema import (
+    AuthenticateResponse,
+    Implementation,
+    ListSessionsResponse,
+    LoadSessionResponse,
+    SessionInfo,
+    SetSessionModeResponse,
+    SetSessionModelResponse,
+)
+
+from thenvoi import __version__
+
+if TYPE_CHECKING:
+    from acp.interfaces import Client
+
+    from thenvoi.integrations.acp.server_adapter import ThenvoiACPServerAdapter
+
+logger = logging.getLogger(__name__)
+
+
+class ACPServer(Agent):
+    """ACP protocol handler that delegates to ThenvoiACPServerAdapter.
+
+    Subclasses the ACP SDK's Agent class to handle ACP JSON-RPC protocol
+    methods (initialize, new_session, prompt, cancel) and delegates the
+    actual Thenvoi platform interaction to the adapter.
+
+    This follows the same two-layer pattern as the A2A Gateway:
+    - ACPServer: Protocol handler (like GatewayServer)
+    - ThenvoiACPServerAdapter: Platform bridge (like A2AGatewayAdapter)
+    """
+
+    def __init__(self, adapter: ThenvoiACPServerAdapter) -> None:
+        """Initialize ACP server.
+
+        Args:
+            adapter: The Thenvoi ACP server adapter for platform interaction.
+        """
+        self._adapter = adapter
+        self._conn: Client | None = None
+
+    def on_connect(self, conn: Client) -> None:
+        """Store client reference for sending session_update notifications.
+
+        Called by the ACP SDK when a client connects.
+
+        Args:
+            conn: The connected ACP client interface.
+        """
+        self._conn = conn
+        self._adapter.set_acp_client(conn)
+
+    async def initialize(
+        self,
+        protocol_version: int,
+        client_capabilities: Any = None,
+        client_info: Any = None,
+        **kwargs: Any,
+    ) -> InitializeResponse:
+        """Handle ACP initialize request.
+
+        Returns Thenvoi agent capabilities and info.
+
+        Args:
+            protocol_version: ACP protocol version from client.
+            client_capabilities: Optional client capabilities.
+            client_info: Optional client implementation info.
+            **kwargs: Additional keyword arguments.
+
+        Returns:
+            InitializeResponse with agent info and protocol version.
+        """
+        logger.info(
+            "ACP initialize: protocol_version=%d, client_info=%s",
+            protocol_version,
+            client_info,
+        )
+        return InitializeResponse(  # type: ignore[call-arg]  # Pydantic alias: protocolVersion
+            protocol_version=protocol_version,
+            agent_info=Implementation(
+                name="thenvoi-agent",
+                title=self._adapter.agent_name or "Thenvoi Agent",
+                version=__version__,
+            ),
+        )
+
+    async def new_session(
+        self,
+        cwd: str,
+        mcp_servers: list[Any] | None = None,
+        **kwargs: Any,
+    ) -> NewSessionResponse:
+        """Handle ACP new_session request.
+
+        Creates a Thenvoi room and maps it to the ACP session.
+
+        Args:
+            cwd: Working directory from the editor.
+            mcp_servers: Optional list of MCP servers from the editor.
+            **kwargs: Additional keyword arguments.
+
+        Returns:
+            NewSessionResponse with the session identifier.
+        """
+        session_id = await self._adapter.create_session()
+        logger.info("Created ACP session %s", session_id)
+        return NewSessionResponse(session_id=session_id)  # type: ignore[call-arg]  # Pydantic alias: sessionId
+
+    async def load_session(
+        self,
+        cwd: str,
+        session_id: str,
+        mcp_servers: list[Any] | None = None,
+        **kwargs: Any,
+    ) -> LoadSessionResponse | None:
+        """Handle ACP load_session request.
+
+        Returns a LoadSessionResponse if the session exists in the
+        adapter's active mappings, or None if not found.
+
+        Args:
+            cwd: Working directory from the editor.
+            session_id: The ACP session to load.
+            mcp_servers: Optional list of MCP servers from the editor.
+            **kwargs: Additional keyword arguments.
+
+        Returns:
+            LoadSessionResponse if session exists, None otherwise.
+        """
+        if not self._adapter.has_session(session_id):
+            logger.debug("load_session: session %s not found", session_id)
+            return None
+
+        logger.info("Loaded ACP session %s", session_id)
+        return LoadSessionResponse()
+
+    async def list_sessions(
+        self,
+        cursor: str | None = None,
+        cwd: str | None = None,
+        **kwargs: Any,
+    ) -> ListSessionsResponse:
+        """Handle ACP list_sessions request.
+
+        Returns session info for each active session in the adapter.
+
+        Args:
+            cursor: Optional pagination cursor (not used).
+            cwd: Optional working directory filter (not used).
+            **kwargs: Additional keyword arguments.
+
+        Returns:
+            ListSessionsResponse with active sessions.
+        """
+        sessions = [
+            SessionInfo(session_id=sid, cwd=".")  # type: ignore[call-arg]  # Pydantic alias: sessionId
+            for sid in self._adapter.get_session_ids()
+        ]
+        logger.debug("list_sessions: returning %d sessions", len(sessions))
+        return ListSessionsResponse(sessions=sessions)
+
+    async def set_session_mode(
+        self,
+        mode_id: str,
+        session_id: str,
+        **kwargs: Any,
+    ) -> SetSessionModeResponse | None:
+        """Handle ACP set_session_mode request.
+
+        Stores the mode for the session in the adapter's state.
+
+        Args:
+            mode_id: The mode identifier to set.
+            session_id: The ACP session identifier.
+            **kwargs: Additional keyword arguments.
+
+        Returns:
+            SetSessionModeResponse acknowledgement.
+        """
+        self._adapter.set_session_mode(session_id, mode_id)
+        logger.info("Set session mode: session=%s, mode=%s", session_id, mode_id)
+        return SetSessionModeResponse()
+
+    async def set_session_model(
+        self,
+        model_id: str,
+        session_id: str,
+        **kwargs: Any,
+    ) -> SetSessionModelResponse | None:
+        """Handle ACP set_session_model request.
+
+        Stores the model for the session in the adapter's state.
+
+        Args:
+            model_id: The model identifier to set.
+            session_id: The ACP session identifier.
+            **kwargs: Additional keyword arguments.
+
+        Returns:
+            SetSessionModelResponse acknowledgement.
+        """
+        self._adapter.set_session_model(session_id, model_id)
+        logger.info("Set session model: session=%s, model=%s", session_id, model_id)
+        return SetSessionModelResponse()
+
+    async def authenticate(
+        self,
+        method_id: str,
+        **kwargs: Any,
+    ) -> AuthenticateResponse | None:
+        """Handle ACP authenticate request.
+
+        Validates API key by calling the Thenvoi identity endpoint.
+
+        Args:
+            method_id: The authentication method (only "api_key" supported).
+            **kwargs: Additional keyword arguments.
+
+        Returns:
+            AuthenticateResponse if successful, None if authentication fails.
+        """
+        if method_id == "api_key":
+            if await self._adapter.verify_credentials():
+                logger.info("Authentication successful via api_key")
+                return AuthenticateResponse()
+            logger.warning("Authentication failed via api_key")
+            return None
+        logger.debug("Unsupported auth method: %s", method_id)
+        return None
+
+    async def ext_method(self, method: str, params: dict[str, Any]) -> dict[str, Any]:
+        """Handle ACP extension method.
+
+        Args:
+            method: The extension method name (e.g., "thenvoi/status").
+            params: Method parameters.
+
+        Returns:
+            Response dict with result or error.
+        """
+        logger.debug("Extension method: %s, params=%s", method, params)
+        return {"error": f"Unknown extension method: {method}"}
+
+    async def ext_notification(self, method: str, params: dict[str, Any]) -> None:
+        """Handle ACP extension notification (fire-and-forget).
+
+        Args:
+            method: The extension notification name.
+            params: Notification parameters.
+        """
+        logger.debug("Extension notification: %s, params=%s", method, params)
+
+    async def prompt(
+        self,
+        prompt: list[Any],
+        session_id: str,
+        **kwargs: Any,
+    ) -> PromptResponse:
+        """Handle ACP prompt request.
+
+        Extracts text from content blocks, forwards to Thenvoi platform,
+        and waits for the response to be streamed back via session_update.
+
+        Args:
+            prompt: List of ACP content blocks (TextContentBlock, etc.).
+            session_id: The ACP session identifier.
+            **kwargs: Additional keyword arguments.
+
+        Returns:
+            PromptResponse with stop reason.
+        """
+        text = self._extract_text(prompt)
+        logger.debug("ACP prompt for session %s: %s", session_id, text[:100])
+        await self._adapter.handle_prompt(session_id, text)
+        return PromptResponse(stop_reason="end_turn")  # type: ignore[call-arg]  # Pydantic alias: stopReason
+
+    async def cancel(self, session_id: str, **kwargs: Any) -> None:
+        """Handle ACP cancel request.
+
+        Cancels a pending prompt for the given session.
+
+        Args:
+            session_id: The ACP session identifier.
+            **kwargs: Additional keyword arguments.
+        """
+        logger.info("ACP cancel for session %s", session_id)
+        await self._adapter.cancel_prompt(session_id)
+
+    @staticmethod
+    def _extract_text(prompt: list[Any]) -> str:
+        """Extract text from ACP content blocks.
+
+        Phase 1 handles text content only. Future phases will handle
+        image, audio, and resource content blocks.
+
+        Args:
+            prompt: List of ACP content blocks.
+
+        Returns:
+            Concatenated text from all text content blocks.
+        """
+        parts: list[str] = []
+        for block in prompt:
+            if isinstance(block, dict):
+                text = block.get("text", "")
+            else:
+                text = getattr(block, "text", "")
+            if text:
+                parts.append(str(text))
+        return "\n".join(parts)

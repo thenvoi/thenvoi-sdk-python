@@ -80,6 +80,9 @@ a2a_gateway_demo = [
     "langchain-openai>=0.3.0",  # OpenAI model for LLM
     "click>=8.0.0",         # CLI for demo orchestrator
 ]
+acp = [
+    "agent-client-protocol>=0.8.0",  # ACP Python SDK
+]
 bridge = [
     "aiohttp>=3.9,<4",      # Health check HTTP server
 ]
@@ -116,6 +119,8 @@ dev = [
     # Include crewai for testing
     "crewai>=0.80.0",
     "nest-asyncio>=1.6.0",  # Required for CrewAI adapter sync-to-async bridging
+    # Include ACP deps for testing
+    "agent-client-protocol>=0.8.0",
     # Include bridge deps for testing
     "aiohttp>=3.9,<4",
     # Development tools

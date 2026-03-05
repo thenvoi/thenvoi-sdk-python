@@ -1,0 +1,449 @@
+"""ACP Server Adapter that bridges ACP protocol to Thenvoi platform."""
+
+from __future__ import annotations
+
+import asyncio
+import logging
+from collections.abc import Iterator
+from typing import TYPE_CHECKING
+from uuid import uuid4
+
+from thenvoi.client.rest import (
+    AsyncRestClient,
+    ChatEventRequest,
+    ChatMessageRequest,
+    ChatMessageRequestMentionsItem,
+    ChatRoomRequest,
+    DEFAULT_REQUEST_OPTIONS,
+)
+from thenvoi.converters.acp_server import ACPServerHistoryConverter
+from thenvoi.core.protocols import AgentToolsProtocol
+from thenvoi.core.simple_adapter import SimpleAdapter
+from thenvoi.core.types import PlatformMessage
+from thenvoi.integrations.acp.event_converter import EventConverter
+from thenvoi.integrations.acp.types import ACPSessionState, PendingACPPrompt
+
+if TYPE_CHECKING:
+    from acp.interfaces import Client
+
+    from thenvoi.integrations.acp.push_handler import ACPPushHandler
+    from thenvoi.integrations.acp.router import AgentRouter
+
+logger = logging.getLogger(__name__)
+
+# Maximum time (seconds) to wait for a Thenvoi peer to respond to a prompt.
+# Prevents infinite hangs if the peer is unreachable or unresponsive.
+_PROMPT_TIMEOUT_SECONDS = 300
+
+
+class ThenvoiACPServerAdapter(SimpleAdapter[ACPSessionState]):
+    """Bridge between ACP protocol and Thenvoi platform.
+
+    This adapter enables editors (Zed, Cursor, JetBrains, Neovim) to
+    interact with Thenvoi platform peers through the ACP protocol. It acts
+    as the "Super-Agent" facade: a single ACP agent that routes to
+    multiple Thenvoi peers.
+
+    Uses direct REST client (not AgentToolsProtocol) because:
+    - AgentToolsProtocol is room-bound (passed in on_message with room context)
+    - ACP server receives requests outside of on_message() context
+    - Server needs to send messages to SPECIFIC rooms
+
+    Example:
+        from thenvoi import Agent
+        from thenvoi.integrations.acp import ThenvoiACPServerAdapter, ACPServer
+
+        adapter = ThenvoiACPServerAdapter(
+            rest_url="https://app.thenvoi.com",
+            api_key="your-api-key",
+        )
+        server = ACPServer(adapter)
+        agent = Agent.create(adapter=adapter, agent_id="...", api_key="...")
+        await agent.start()
+        await run_agent(server)
+    """
+
+    def __init__(
+        self,
+        rest_url: str = "https://app.thenvoi.com",
+        api_key: str = "",
+    ) -> None:
+        """Initialize ACP server adapter.
+
+        Args:
+            rest_url: Base URL for Thenvoi REST API.
+            api_key: API key for authentication.
+        """
+        super().__init__(history_converter=ACPServerHistoryConverter())
+
+        # Direct REST client for room/message operations
+        self._rest = AsyncRestClient(base_url=rest_url, api_key=api_key)
+
+        # Session state (all dicts guarded by _state_lock)
+        self._session_to_room: dict[str, str] = {}  # ACP session_id -> room_id
+        self._room_to_session: dict[str, str] = {}  # room_id -> session_id
+        self._pending_prompts: dict[str, PendingACPPrompt] = {}  # room_id -> pending
+        self._session_modes: dict[str, str] = {}  # session_id -> mode_id
+        self._session_models: dict[str, str] = {}  # session_id -> model_id
+        self._state_lock = asyncio.Lock()
+
+        # ACP client reference for sending session_update
+        self._acp_client: Client | None = None
+
+        # Agent identity (set in on_started, used for mention filtering)
+        self._agent_id: str | None = None
+
+        # Router for slash commands and mode-based routing (Phase 3)
+        self._router: AgentRouter | None = None
+
+        # Push handler for unsolicited updates (Phase 4)
+        self._push_handler: ACPPushHandler | None = None
+
+    # ── Public accessors (used by ACPServer and ACPPushHandler) ──
+
+    def set_acp_client(self, client: Client) -> None:
+        """Store ACP client reference for sending session_update.
+
+        Args:
+            client: The connected ACP client interface.
+        """
+        self._acp_client = client
+
+    def get_acp_client(self) -> Client | None:
+        """Return the connected ACP client, or None if not connected."""
+        return self._acp_client
+
+    def has_session(self, session_id: str) -> bool:
+        """Check whether an ACP session is active."""
+        return session_id in self._session_to_room
+
+    def get_session_ids(self) -> Iterator[str]:
+        """Iterate over all active ACP session IDs."""
+        return iter(self._session_to_room)
+
+    def set_session_mode(self, session_id: str, mode_id: str) -> None:
+        """Record the session mode chosen by the editor."""
+        self._session_modes[session_id] = mode_id
+
+    def set_session_model(self, session_id: str, model_id: str) -> None:
+        """Record the model chosen by the editor."""
+        self._session_models[session_id] = model_id
+
+    def get_session_for_room(self, room_id: str) -> str | None:
+        """Return the ACP session_id for a room, or None."""
+        return self._room_to_session.get(room_id)
+
+    async def verify_credentials(self) -> bool:
+        """Validate API key by calling the Thenvoi identity endpoint."""
+        try:
+            await self._rest.agent_api_identity.get_agent_identity(
+                request_options=DEFAULT_REQUEST_OPTIONS,
+            )
+            return True
+        except Exception:
+            logger.warning("Credential verification failed", exc_info=True)
+            return False
+
+    async def close(self) -> None:
+        """Close the REST client connection pool."""
+        if hasattr(self._rest, "_client") and self._rest._client:
+            await self._rest._client.aclose()
+        logger.debug("ACP server adapter closed")
+
+    # ── Composition setters ──
+
+    def set_router(self, router: AgentRouter) -> None:
+        """Set the agent router for slash commands and mode-based routing.
+
+        Args:
+            router: The router instance.
+        """
+        self._router = router
+
+    def set_push_handler(self, handler: ACPPushHandler) -> None:
+        """Set the push handler for unsolicited session updates.
+
+        Args:
+            handler: The push handler instance.
+        """
+        self._push_handler = handler
+
+    async def on_started(self, agent_name: str, agent_description: str) -> None:
+        """Store agent metadata.
+
+        Args:
+            agent_name: Name of this agent.
+            agent_description: Description of this agent.
+        """
+        await super().on_started(agent_name, agent_description)
+
+        # Fetch own agent ID for mention filtering
+        try:
+            identity = await self._rest.agent_api_identity.get_agent_identity(
+                request_options=DEFAULT_REQUEST_OPTIONS,
+            )
+            self._agent_id = identity.data.id
+        except Exception:
+            logger.warning("Could not fetch agent identity for mention filtering")
+
+        logger.info("ACP server adapter started: %s", agent_name)
+
+    async def create_session(self) -> str:
+        """Create a Thenvoi room and map it to an ACP session.
+
+        Returns:
+            The ACP session_id.
+
+        Raises:
+            Exception: If room creation or event emission fails.
+                State is rolled back on failure to prevent orphaned rooms.
+        """
+        session_id = uuid4().hex
+
+        response = await self._rest.agent_api_chats.create_agent_chat(
+            chat=ChatRoomRequest(),
+            request_options=DEFAULT_REQUEST_OPTIONS,
+        )
+        room_id = response.data.id
+
+        async with self._state_lock:
+            self._session_to_room[session_id] = room_id
+            self._room_to_session[room_id] = session_id
+
+        try:
+            await self._emit_session_event(room_id, session_id)
+        except Exception:
+            async with self._state_lock:
+                self._session_to_room.pop(session_id, None)
+                self._room_to_session.pop(room_id, None)
+            logger.exception(
+                "Failed to emit session event for session %s (room %s), "
+                "rolling back mappings",
+                session_id,
+                room_id,
+            )
+            raise
+
+        logger.info(
+            "Created ACP session %s -> room %s",
+            session_id,
+            room_id,
+        )
+
+        return session_id
+
+    async def handle_prompt(self, session_id: str, text: str) -> None:
+        """Send message to Thenvoi room and wait for response.
+
+        The response is streamed back to the editor via on_message() ->
+        session_update, not returned directly from this method.
+
+        Args:
+            session_id: The ACP session identifier.
+            text: The user's prompt text.
+
+        Raises:
+            KeyError: If session_id is not mapped to a room.
+        """
+        async with self._state_lock:
+            room_id = self._session_to_room.get(session_id)
+            if room_id is None:
+                raise KeyError(
+                    f"Unknown ACP session: {session_id}. "
+                    "Session may have been cleaned up or never created."
+                )
+            pending = PendingACPPrompt(session_id=session_id)
+            self._pending_prompts[room_id] = pending
+
+            # Read routing state while holding lock
+            current_mode = self._session_modes.get(session_id)
+
+        # Route via slash commands or session modes (no lock needed — pure)
+        cleaned_text = text
+        target_peer: str | None = None
+        if self._router:
+            cleaned_text, target_peer = self._router.resolve(text, current_mode)
+
+        # Get participants for mentions
+        participants = (
+            await self._rest.agent_api_participants.list_agent_chat_participants(
+                chat_id=room_id,
+                request_options=DEFAULT_REQUEST_OPTIONS,
+            )
+        )
+
+        # Filter mentions: exclude only self, not all agents
+        if target_peer:
+            mentions = [
+                ChatMessageRequestMentionsItem(id=p.id, name=p.name)
+                for p in participants.data
+                if p.id != self._agent_id and p.name == target_peer
+            ]
+        else:
+            mentions = [
+                ChatMessageRequestMentionsItem(id=p.id, name=p.name)
+                for p in participants.data
+                if p.id != self._agent_id
+            ]
+        mention_text = " ".join(f"@{m.name}" for m in mentions)
+
+        await self._rest.agent_api_messages.create_agent_chat_message(
+            chat_id=room_id,
+            message=ChatMessageRequest(
+                content=f"{mention_text} {cleaned_text}".strip(),
+                mentions=mentions,
+            ),
+            request_options=DEFAULT_REQUEST_OPTIONS,
+        )
+
+        logger.debug("Sent prompt to room %s, awaiting response", room_id)
+
+        # Wait for on_message() to signal completion, with timeout to prevent
+        # infinite hangs if the peer never responds.
+        try:
+            await asyncio.wait_for(
+                pending.done_event.wait(),
+                timeout=_PROMPT_TIMEOUT_SECONDS,
+            )
+        except asyncio.TimeoutError:
+            async with self._state_lock:
+                self._pending_prompts.pop(room_id, None)
+            logger.error(
+                "Prompt timed out after %ds for session %s (room %s)",
+                _PROMPT_TIMEOUT_SECONDS,
+                session_id,
+                room_id,
+            )
+            raise
+
+    async def on_message(
+        self,
+        msg: PlatformMessage,
+        tools: AgentToolsProtocol,
+        history: ACPSessionState,
+        participants_msg: str | None,
+        contacts_msg: str | None,
+        *,
+        is_session_bootstrap: bool,
+        room_id: str,
+    ) -> None:
+        """Receive Thenvoi response, stream to editor via ACP session_update.
+
+        Args:
+            msg: Platform message from peer.
+            tools: Agent tools (not used - we use REST client).
+            history: Converted history as ACPSessionState.
+            participants_msg: Participants update message, or None.
+            contacts_msg: Contact changes broadcast message, or None.
+            is_session_bootstrap: True if this is first message from room.
+            room_id: The room identifier.
+        """
+        # Rehydrate on bootstrap
+        if is_session_bootstrap and history:
+            async with self._state_lock:
+                self._rehydrate(history)
+
+        # Find pending prompt for this room
+        async with self._state_lock:
+            pending = self._pending_prompts.get(room_id)
+
+        if pending and self._acp_client:
+            # Convert message to rich ACP chunk
+            chunk = EventConverter.convert(msg)
+            if chunk is not None:
+                await self._acp_client.session_update(
+                    session_id=pending.session_id,
+                    update=chunk,
+                )
+
+            # Only text and error messages signal completion
+            message_type = getattr(msg, "message_type", "text")
+            if message_type in ("text", "error"):
+                pending.done_event.set()
+                async with self._state_lock:
+                    self._pending_prompts.pop(room_id, None)
+        elif self._acp_client and self._push_handler:
+            # No pending prompt — push unsolicited update
+            await self._push_handler.handle_push_event(msg, room_id)
+        else:
+            logger.debug(
+                "Dropping message for room %s: no ACP client or pending prompt",
+                room_id,
+            )
+
+    async def on_cleanup(self, room_id: str) -> None:
+        """Remove all state for a room. Idempotent.
+
+        Args:
+            room_id: The room identifier.
+        """
+        async with self._state_lock:
+            # Unblock any waiting handle_prompt before removing state
+            pending = self._pending_prompts.pop(room_id, None)
+            if pending:
+                pending.done_event.set()
+
+            # Clean session mappings for this room
+            session_id = self._room_to_session.pop(room_id, None)
+            if session_id:
+                self._session_to_room.pop(session_id, None)
+                self._session_modes.pop(session_id, None)
+                self._session_models.pop(session_id, None)
+
+        logger.debug("Cleaned up ACP server resources for room %s", room_id)
+
+    async def cancel_prompt(self, session_id: str) -> None:
+        """Cancel a pending prompt by setting done_event.
+
+        Args:
+            session_id: The ACP session identifier.
+        """
+        async with self._state_lock:
+            room_id = self._session_to_room.get(session_id)
+            if room_id:
+                pending = self._pending_prompts.pop(room_id, None)
+                if pending:
+                    pending.done_event.set()
+                    logger.info("Cancelled prompt for session %s", session_id)
+
+    def _rehydrate(self, history: ACPSessionState) -> None:
+        """Restore session state from history.
+
+        Args:
+            history: Session state extracted from platform history.
+        """
+        for session_id, room_id in history.session_to_room.items():
+            if session_id not in self._session_to_room:
+                self._session_to_room[session_id] = room_id
+                self._room_to_session[room_id] = session_id
+                logger.debug(
+                    "Restored ACP session mapping: %s -> %s",
+                    session_id,
+                    room_id,
+                )
+
+        logger.info(
+            "Rehydrated ACP server state: %d sessions",
+            len(self._session_to_room),
+        )
+
+    async def _emit_session_event(self, room_id: str, session_id: str) -> None:
+        """Emit a task event to persist session mapping in history.
+
+        This enables session rehydration when the agent rejoins.
+
+        Args:
+            room_id: The room ID.
+            session_id: The ACP session ID.
+        """
+        await self._rest.agent_api_events.create_agent_chat_event(
+            chat_id=room_id,
+            event=ChatEventRequest(
+                content="ACP session context",
+                message_type="task",
+                metadata={
+                    "acp_session_id": session_id,
+                    "acp_room_id": room_id,
+                },
+            ),
+        )
