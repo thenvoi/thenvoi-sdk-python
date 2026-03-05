@@ -745,3 +745,74 @@ class TestThenvoiACPClientCursorExtensions:
 
         # No session_id → no chunks collected
         assert client.get_collected_chunks() == []
+
+
+class TestACPClientAdapterDeadConnectionRecovery:
+    """Tests for dead connection recovery after subprocess crash."""
+
+    @pytest.mark.asyncio
+    async def test_prompt_error_clears_connection(self) -> None:
+        """Should stop connection on prompt error so next message respawns."""
+        adapter = ACPClientAdapter(command="codex")
+        adapter._conn = AsyncMock()
+        adapter._conn.prompt = AsyncMock(
+            side_effect=RuntimeError("Process died")
+        )
+        mock_session = MagicMock()
+        mock_session.session_id = "sess-1"
+        adapter._conn.new_session = AsyncMock(return_value=mock_session)
+        adapter._client = ThenvoiACPClient()
+
+        mock_ctx = MagicMock()
+        mock_ctx.__aexit__ = AsyncMock(return_value=None)
+        adapter._ctx = mock_ctx
+
+        tools = FakeAgentTools()
+        msg = make_platform_message("Hello", room_id="room-1")
+
+        await adapter.on_message(
+            msg, tools, ACPClientSessionState(), None, None,
+            is_session_bootstrap=False, room_id="room-1",
+        )
+
+        # Connection should be cleared after error
+        assert adapter._conn is None
+        assert adapter._ctx is None
+
+        # Error event should be sent
+        error_events = [
+            e for e in tools.events_sent if e.get("message_type") == "error"
+        ]
+        assert len(error_events) == 1
+
+
+class TestACPClientAdapterInjectToolsWarning:
+    """Tests for inject_thenvoi_tools warning when no api_key."""
+
+    def test_inject_tools_without_api_key_logs_warning(self, caplog: pytest.LogCaptureFixture) -> None:
+        """Should warn when inject_thenvoi_tools=True but no api_key."""
+        import logging
+
+        with caplog.at_level(logging.WARNING):
+            adapter = ACPClientAdapter(
+                command="codex",
+                inject_thenvoi_tools=True,
+                api_key="",
+            )
+
+        assert not adapter._inject_thenvoi_tools
+        assert "inject_thenvoi_tools=True but no api_key" in caplog.text
+
+    def test_inject_tools_with_api_key_no_warning(self, caplog: pytest.LogCaptureFixture) -> None:
+        """Should not warn when api_key is provided."""
+        import logging
+
+        with caplog.at_level(logging.WARNING):
+            adapter = ACPClientAdapter(
+                command="codex",
+                inject_thenvoi_tools=True,
+                api_key="test-key",
+            )
+
+        assert adapter._inject_thenvoi_tools
+        assert "inject_thenvoi_tools" not in caplog.text

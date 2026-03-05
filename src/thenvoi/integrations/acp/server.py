@@ -297,7 +297,6 @@ class ACPServer(Agent):
         Cursor notifications:
         - cursor/update_todos: Todo list state changes
         - cursor/task: Subagent task completion
-        - cursor/generate_image: Generated image output
 
         Args:
             method: The extension notification name.

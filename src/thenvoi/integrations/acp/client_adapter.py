@@ -84,6 +84,11 @@ class ACPClientAdapter(SimpleAdapter[ACPClientSessionState]):
         self._api_key = api_key or ""
         self._rest_url = rest_url or "https://app.thenvoi.com"
         self._inject_thenvoi_tools = inject_thenvoi_tools and bool(self._api_key)
+        if inject_thenvoi_tools and not self._api_key:
+            logger.warning(
+                "inject_thenvoi_tools=True but no api_key provided; "
+                "Thenvoi MCP tools will not be injected"
+            )
         self._auth_method = auth_method
 
         # ACP connection state
@@ -192,10 +197,13 @@ class ACPClientAdapter(SimpleAdapter[ACPClientSessionState]):
 
         # Build prompt with system context on first message per session
         prompt_text = msg.content
-        if session_id not in self._bootstrapped_sessions:
+        async with self._session_lock:
+            needs_bootstrap = session_id not in self._bootstrapped_sessions
+            if needs_bootstrap:
+                self._bootstrapped_sessions.add(session_id)
+        if needs_bootstrap:
             system_context = self._build_system_context(room_id, msg)
             prompt_text = f"{system_context}\n\n{msg.content}"
-            self._bootstrapped_sessions.add(session_id)
 
         # Send prompt to external ACP agent
         try:
@@ -238,6 +246,8 @@ class ACPClientAdapter(SimpleAdapter[ACPClientSessionState]):
 
         except Exception as e:
             logger.exception("ACP agent error: %s", e)
+            # Clean up dead connection so next on_message triggers respawn
+            await self.stop()
             await tools.send_event(
                 content=f"ACP agent error: {e}",
                 message_type="error",
