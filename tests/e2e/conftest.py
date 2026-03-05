@@ -17,13 +17,19 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 import pytest
+from dotenv import load_dotenv
 from pydantic import ValidationError
 from thenvoi_rest import AsyncRestClient
 from thenvoi_testing.settings import ThenvoiTestSettings
 
-from thenvoi.client.streaming import WebSocketClient
+# Load .env.test into os.environ so LLM libraries (langchain, anthropic, etc.)
+# can pick up OPENAI_API_KEY, ANTHROPIC_API_KEY, and other keys.
+_ENV_TEST_PATH = Path(__file__).parent.parent.parent / ".env.test"
+load_dotenv(_ENV_TEST_PATH, override=False)
 
-from tests.e2e.helpers import (
+from thenvoi.client.streaming import WebSocketClient  # noqa: E402
+
+from tests.e2e.helpers import (  # noqa: E402
     TrackingWebSocketClient,
     create_room_with_user,
 )
@@ -32,6 +38,23 @@ if TYPE_CHECKING:
     from tests.e2e.adapters.conftest import AdapterFactory
 
 logger = logging.getLogger(__name__)
+
+
+def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
+    """Ensure all E2E async tests use the session-scoped event loop.
+
+    Fixtures already default to the session loop via
+    ``asyncio_default_fixture_loop_scope = "session"`` in pyproject.toml,
+    but test functions default to function-scoped loops. This mismatch
+    causes "Future attached to a different loop" errors when tests call
+    into session-scoped WS/REST clients. Applying ``loop_scope="session"``
+    to every E2E test aligns them with the fixture loop.
+    """
+    session_marker = pytest.mark.asyncio(loop_scope="session")
+    for item in items:
+        if "e2e" in str(item.fspath):
+            item.add_marker(session_marker)
+
 
 # Platform limits agents to 10 active chat rooms; cap room searches accordingly.
 _MAX_ROOMS_TO_SEARCH = 10
@@ -290,21 +313,22 @@ async def ws_client(
 ) -> AsyncGenerator[TrackingWebSocketClient, None]:
     """WebSocket client for observing agent responses.
 
-    Note: This creates a second WebSocket connection alongside the Agent's own
-    connection for the same agent_id. The platform broadcasts messages to all
-    connections for an agent, so both the agent and this test observer receive
-    messages. This is intentional for test observability.
+    Connects as the **User** (via ``thenvoi_api_key_user``) rather than
+    the agent. The platform enforces one WS connection per agent, so a
+    second agent connection would kill the Agent's own connection. The
+    User is a room participant and receives the same ``message_created``
+    events, making it a safe observer that coexists with the Agent.
 
     Wraps the raw WebSocketClient in a TrackingWebSocketClient that tracks
     joined channels and explicitly leaves them on teardown.
     """
-    if not e2e_config.thenvoi_api_key:
-        pytest.skip("THENVOI_API_KEY not set")
+    if not e2e_config.thenvoi_api_key_user:
+        pytest.skip("THENVOI_API_KEY_USER not set (needed for WS observer)")
 
     ws = WebSocketClient(
         ws_url=e2e_config.thenvoi_ws_url,
-        api_key=e2e_config.thenvoi_api_key,
-        agent_id=e2e_config.test_agent_id,
+        api_key=e2e_config.thenvoi_api_key_user,
+        agent_id=None,  # User connection, not agent
     )
 
     async with ws:

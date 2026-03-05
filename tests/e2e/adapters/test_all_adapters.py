@@ -70,7 +70,6 @@ class TestAdapterE2E:
         ws_client: TrackingWebSocketClient,
         running_agent: tuple[str, Agent],
         api_client: AsyncRestClient,
-        e2e_agent_id: str,
     ):
         """Smoke test: agent starts, receives a message, and responds."""
         adapter_name, agent = running_agent
@@ -80,8 +79,8 @@ class TestAdapterE2E:
             ws_client,
             api_client,
             chat_id,
-            agent.agent_name,
-            e2e_agent_id,
+            user_name,
+            user_id,
             timeout=e2e_config.e2e_timeout,
             adapter_name=adapter_name,
         )
@@ -94,7 +93,6 @@ class TestAdapterE2E:
         ws_client: TrackingWebSocketClient,
         running_agent: tuple[str, Agent],
         api_client: AsyncRestClient,
-        e2e_agent_id: str,
     ):
         """Verify the agent uses thenvoi_send_message tool to respond."""
         adapter_name, agent = running_agent
@@ -104,8 +102,8 @@ class TestAdapterE2E:
             ws_client,
             api_client,
             chat_id,
-            agent.agent_name,
-            e2e_agent_id,
+            user_name,
+            user_id,
             timeout=e2e_config.e2e_timeout,
             adapter_name=adapter_name,
         )

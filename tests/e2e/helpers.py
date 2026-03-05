@@ -69,32 +69,32 @@ async def send_user_message(
     client: AsyncRestClient,
     room_id: str,
     content: str,
-    agent_name: str,
-    agent_id: str,
+    mention_name: str,
+    mention_id: str,
 ) -> str:
-    """Send a message mentioning an agent, return message_id.
+    """Send a message to a room, mentioning a participant.
 
-    Uses the agent API to send a message with a self-mention. The platform
-    treats self-mentions as triggering events, so this simulates an incoming
-    user message that causes the agent to process and respond. This approach
-    avoids needing separate user credentials for E2E tests.
+    The agent API sends the message as the agent. The mention targets another
+    room participant (typically the User peer) to satisfy the platform's
+    "at least one mention" requirement. The agent still processes the message
+    because it is a room participant.
 
     Args:
-        client: REST API client for sending messages.
+        client: REST API client (agent credentials).
         room_id: Chat room to send the message in.
-        content: Message content (agent name will be @mentioned).
-        agent_name: Name of the agent to mention.
-        agent_id: ID of the agent to mention.
+        content: Message content.
+        mention_name: Name of the participant to @mention.
+        mention_id: ID of the participant to @mention.
 
     Returns:
         The message ID of the sent message.
     """
-    message_content = f"@{agent_name} {content}"
+    message_content = f"@{mention_name} {content}"
     response = await client.agent_api_messages.create_agent_chat_message(
         room_id,
         message=ChatMessageRequest(
             content=message_content,
-            mentions=[Mention(id=agent_id, name=agent_name)],
+            mentions=[Mention(id=mention_id, name=mention_name)],
         ),
     )
     message_id = response.data.id
@@ -263,8 +263,8 @@ async def run_smoke_test(
     ws_client: TrackingWebSocketClient,
     api_client: AsyncRestClient,
     chat_id: str,
-    agent_name: str,
-    e2e_agent_id: str,
+    user_name: str,
+    user_id: str,
     timeout: float,
     adapter_name: str,
 ) -> list[MessageCreatedPayload]:
@@ -275,9 +275,7 @@ async def run_smoke_test(
     async with listening_for_agent_responses(
         ws_client, chat_id, timeout=timeout
     ) as wait:
-        await send_user_message(
-            api_client, chat_id, "Say hello", agent_name, e2e_agent_id
-        )
+        await send_user_message(api_client, chat_id, "Say hello", user_name, user_id)
         received = await wait()
 
     assert len(received) > 0, (
@@ -295,8 +293,8 @@ async def run_tool_execution_test(
     ws_client: TrackingWebSocketClient,
     api_client: AsyncRestClient,
     chat_id: str,
-    agent_name: str,
-    e2e_agent_id: str,
+    user_name: str,
+    user_id: str,
     timeout: float,
     adapter_name: str,
 ) -> list[MessageCreatedPayload]:
@@ -312,8 +310,8 @@ async def run_tool_execution_test(
             api_client,
             chat_id,
             "Reply with the word PINEAPPLE",
-            agent_name,
-            e2e_agent_id,
+            user_name,
+            user_id,
         )
         received = await wait()
 

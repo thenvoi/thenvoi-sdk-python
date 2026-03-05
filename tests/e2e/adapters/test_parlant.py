@@ -89,7 +89,6 @@ class TestParlantE2E:
         ws_client: TrackingWebSocketClient,
         running_parlant_agent: Agent,
         api_client: AsyncRestClient,
-        e2e_agent_id: str,
     ):
         """Smoke test: agent starts, receives a message, and responds."""
         chat_id, user_id, user_name = e2e_chat_room_with_user
@@ -98,8 +97,8 @@ class TestParlantE2E:
             ws_client,
             api_client,
             chat_id,
-            running_parlant_agent.agent_name,
-            e2e_agent_id,
+            user_name,
+            user_id,
             timeout=e2e_config.e2e_timeout,
             adapter_name="parlant",
         )
@@ -112,7 +111,6 @@ class TestParlantE2E:
         ws_client: TrackingWebSocketClient,
         running_parlant_agent: Agent,
         api_client: AsyncRestClient,
-        e2e_agent_id: str,
     ):
         """Verify the agent uses thenvoi_send_message tool to respond."""
         chat_id, user_id, user_name = e2e_chat_room_with_user
@@ -121,8 +119,8 @@ class TestParlantE2E:
             ws_client,
             api_client,
             chat_id,
-            running_parlant_agent.agent_name,
-            e2e_agent_id,
+            user_name,
+            user_id,
             timeout=e2e_config.e2e_timeout,
             adapter_name="parlant",
         )

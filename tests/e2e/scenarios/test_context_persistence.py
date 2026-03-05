@@ -47,7 +47,6 @@ class TestContextPersistence:
         ws_client: TrackingWebSocketClient,
         adapter_entry: tuple[str, AdapterFactory],
         api_client: AsyncRestClient,
-        e2e_agent_id: str,
     ):
         """Agent removed then re-added remembers context via platform history.
 
@@ -83,8 +82,6 @@ class TestContextPersistence:
         )
 
         async with agent:
-            agent_name = agent.agent_name
-
             async with listening_for_agent_responses(
                 ws_client, chat_id, timeout=timeout, raise_on_timeout=True
             ) as wait:
@@ -92,8 +89,8 @@ class TestContextPersistence:
                     api_client,
                     chat_id,
                     f"Remember this secret code: {secret_code}. Respond confirming you remember it.",
-                    agent_name,
-                    e2e_agent_id,
+                    user_name,
+                    user_id,
                 )
                 phase1_received = await wait()
 
@@ -115,8 +112,6 @@ class TestContextPersistence:
         )
 
         async with agent2:
-            agent_name2 = agent2.agent_name
-
             async with listening_for_agent_responses(
                 ws_client, chat_id, timeout=timeout, raise_on_timeout=True
             ) as wait:
@@ -124,8 +119,8 @@ class TestContextPersistence:
                     api_client,
                     chat_id,
                     "What was the secret code I told you to remember? Reply with just the code.",
-                    agent_name2,
-                    e2e_agent_id,
+                    user_name,
+                    user_id,
                 )
                 phase2_received = await wait()
 

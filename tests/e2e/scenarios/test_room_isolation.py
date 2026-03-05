@@ -46,7 +46,6 @@ class TestRoomIsolation:
         ws_client: TrackingWebSocketClient,
         adapter_entry: tuple[str, AdapterFactory],
         api_client: AsyncRestClient,
-        e2e_agent_id: str,
         e2e_isolation_room_pair: tuple[tuple[str, str, str], tuple[str, str, str]],
     ):
         """Agents in different rooms don't see each other's context.
@@ -78,8 +77,6 @@ class TestRoomIsolation:
         )
 
         async with agent:
-            agent_name = agent.agent_name
-
             # --- Phase 1: Set context in both rooms sequentially ---
             # Sequential to avoid flakiness: a single agent processes one
             # room at a time, so concurrent sends can cause timeouts.
@@ -90,8 +87,8 @@ class TestRoomIsolation:
                     api_client,
                     room_a_id,
                     "Remember: the secret code is APPLE. Confirm you remember it.",
-                    agent_name,
-                    e2e_agent_id,
+                    user_name,
+                    user_id,
                 )
                 room_a_phase1 = await wait()
 
@@ -102,8 +99,8 @@ class TestRoomIsolation:
                     api_client,
                     room_b_id,
                     "Remember: the secret code is BANANA. Confirm you remember it.",
-                    agent_name,
-                    e2e_agent_id,
+                    user_name,
+                    user_id,
                 )
                 room_b_phase1 = await wait()
 
@@ -122,8 +119,8 @@ class TestRoomIsolation:
                     api_client,
                     room_a_id,
                     "What is the secret code? Reply with just the code word.",
-                    agent_name,
-                    e2e_agent_id,
+                    user_name,
+                    user_id,
                 )
                 room_a_received = await wait()
 
@@ -134,8 +131,8 @@ class TestRoomIsolation:
                     api_client,
                     room_b_id,
                     "What is the secret code? Reply with just the code word.",
-                    agent_name,
-                    e2e_agent_id,
+                    user_name,
+                    user_id,
                 )
                 room_b_received = await wait()
 
