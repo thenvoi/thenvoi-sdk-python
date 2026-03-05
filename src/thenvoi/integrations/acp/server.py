@@ -238,11 +238,11 @@ class ACPServer(Agent):
         Returns:
             AuthenticateResponse if successful, None if authentication fails.
         """
-        if method_id == "api_key":
+        if method_id in ("api_key", "cursor_login"):
             if await self._adapter.verify_credentials():
-                logger.info("Authentication successful via api_key")
+                logger.info("Authentication successful via %s", method_id)
                 return AuthenticateResponse()
-            logger.warning("Authentication failed via api_key")
+            logger.warning("Authentication failed via %s", method_id)
             return None
         logger.debug("Unsupported auth method: %s", method_id)
         return None
@@ -250,24 +250,93 @@ class ACPServer(Agent):
     async def ext_method(self, method: str, params: dict[str, Any]) -> dict[str, Any]:
         """Handle ACP extension method.
 
+        Handles Cursor-specific extension methods and Thenvoi extensions.
+
+        Cursor extensions:
+        - cursor/ask_question: Present options to user (auto-selects first)
+        - cursor/create_plan: Approve a plan (auto-approves)
+
         Args:
-            method: The extension method name (e.g., "thenvoi/status").
+            method: The extension method name.
             params: Method parameters.
 
         Returns:
             Response dict with result or error.
         """
         logger.debug("Extension method: %s, params=%s", method, params)
+
+        # Cursor: ask_question — present multiple-choice options
+        # Auto-select first option since Thenvoi platform doesn't have
+        # interactive UI prompts (the agent should just proceed).
+        if method == "cursor/ask_question":
+            options = params.get("options", [])
+            if options:
+                selected = options[0]
+                option_id = selected.get("optionId") or selected.get("id") or "0"
+                logger.info(
+                    "cursor/ask_question: auto-selected option %s",
+                    option_id,
+                )
+                return {"outcome": {"type": "selected", "optionId": option_id}}
+            return {"outcome": {"type": "cancelled"}}
+
+        # Cursor: create_plan — request plan approval
+        # Auto-approve since the Thenvoi platform agent should proceed.
+        if method == "cursor/create_plan":
+            logger.info("cursor/create_plan: auto-approved")
+            return {"outcome": {"type": "approved"}}
+
         return {"error": f"Unknown extension method: {method}"}
 
     async def ext_notification(self, method: str, params: dict[str, Any]) -> None:
         """Handle ACP extension notification (fire-and-forget).
+
+        Handles Cursor-specific notifications by forwarding relevant
+        information to the Thenvoi platform as events.
+
+        Cursor notifications:
+        - cursor/update_todos: Todo list state changes
+        - cursor/task: Subagent task completion
+        - cursor/generate_image: Generated image output
 
         Args:
             method: The extension notification name.
             params: Notification parameters.
         """
         logger.debug("Extension notification: %s, params=%s", method, params)
+
+        # Forward Cursor notifications as platform events if we have
+        # an active session for the notification's context.
+        if method.startswith("cursor/"):
+            session_id = params.get("sessionId") or params.get("session_id")
+            if session_id and self._adapter.has_session(session_id):
+                acp_client = self._adapter.get_acp_client()
+                if acp_client:
+                    from acp import update_agent_message_text
+
+                    # Forward as informational text update
+                    match method:
+                        case "cursor/update_todos":
+                            todos = params.get("todos", [])
+                            if todos:
+                                summary = "\n".join(
+                                    f"- [{'x' if t.get('completed') else ' '}] "
+                                    f"{t.get('content', '')}"
+                                    for t in todos
+                                )
+                                await acp_client.session_update(
+                                    session_id=session_id,
+                                    update=update_agent_message_text(summary),
+                                )
+                        case "cursor/task":
+                            task_result = params.get("result", "")
+                            if task_result:
+                                await acp_client.session_update(
+                                    session_id=session_id,
+                                    update=update_agent_message_text(
+                                        f"[Task completed] {task_result}"
+                                    ),
+                                )
 
     async def prompt(
         self,

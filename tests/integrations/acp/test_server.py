@@ -427,3 +427,87 @@ class TestACPServerExtNotification:
 
         # Should not raise
         await server.ext_notification("thenvoi/status", {"status": "ok"})
+
+
+class TestACPServerCursorExtensions:
+    """Tests for Cursor-specific ACP extension handling."""
+
+    @pytest.mark.asyncio
+    async def test_cursor_ask_question_selects_first_option(self) -> None:
+        """Should auto-select the first option for cursor/ask_question."""
+        adapter = ThenvoiACPServerAdapter()
+        server = ACPServer(adapter)
+
+        result = await server.ext_method(
+            "cursor/ask_question",
+            {
+                "options": [
+                    {"optionId": "opt1", "name": "Option A"},
+                    {"optionId": "opt2", "name": "Option B"},
+                ],
+            },
+        )
+
+        assert result["outcome"]["type"] == "selected"
+        assert result["outcome"]["optionId"] == "opt1"
+
+    @pytest.mark.asyncio
+    async def test_cursor_ask_question_cancels_when_no_options(self) -> None:
+        """Should cancel if no options are provided."""
+        adapter = ThenvoiACPServerAdapter()
+        server = ACPServer(adapter)
+
+        result = await server.ext_method("cursor/ask_question", {"options": []})
+
+        assert result["outcome"]["type"] == "cancelled"
+
+    @pytest.mark.asyncio
+    async def test_cursor_create_plan_auto_approves(self) -> None:
+        """Should auto-approve cursor/create_plan."""
+        adapter = ThenvoiACPServerAdapter()
+        server = ACPServer(adapter)
+
+        result = await server.ext_method("cursor/create_plan", {"plan": "Do stuff"})
+
+        assert result["outcome"]["type"] == "approved"
+
+    @pytest.mark.asyncio
+    async def test_cursor_login_auth_method(self) -> None:
+        """Should accept cursor_login as an auth method."""
+        adapter = ThenvoiACPServerAdapter()
+        adapter.verify_credentials = AsyncMock(return_value=True)
+        server = ACPServer(adapter)
+
+        result = await server.authenticate(method_id="cursor_login")
+
+        assert result is not None
+        adapter.verify_credentials.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_cursor_update_todos_notification(self) -> None:
+        """Should handle cursor/update_todos without crashing."""
+        adapter = ThenvoiACPServerAdapter()
+        server = ACPServer(adapter)
+
+        # No active session — should just log and return
+        await server.ext_notification(
+            "cursor/update_todos",
+            {
+                "sessionId": "nonexistent",
+                "todos": [
+                    {"content": "Read code", "completed": True},
+                    {"content": "Write tests", "completed": False},
+                ],
+            },
+        )
+
+    @pytest.mark.asyncio
+    async def test_cursor_task_notification(self) -> None:
+        """Should handle cursor/task without crashing."""
+        adapter = ThenvoiACPServerAdapter()
+        server = ACPServer(adapter)
+
+        await server.ext_notification(
+            "cursor/task",
+            {"sessionId": "nonexistent", "result": "Task completed"},
+        )

@@ -177,6 +177,83 @@ class ThenvoiACPClient(Client):  # type: ignore[misc]  # ACP Client has optional
             return list(self._session_chunks.get(session_id, []))
         return [c for cs in self._session_chunks.values() for c in cs]
 
+    async def ext_method(
+        self, method: str, params: dict[str, object]
+    ) -> dict[str, object]:
+        """Handle extension methods from ACP agents (e.g., Cursor).
+
+        Cursor sends extension methods like cursor/ask_question and
+        cursor/create_plan that require a response. We auto-approve
+        these since there's no interactive UI in the Thenvoi bridge.
+
+        Args:
+            method: Extension method name.
+            params: Method parameters.
+
+        Returns:
+            Response dict.
+        """
+        logger.debug("Client ext_method: %s, params=%s", method, params)
+
+        if method == "cursor/ask_question":
+            options = params.get("options", [])
+            if options:
+                first = options[0] if isinstance(options, list) else options
+                option_id = (
+                    first.get("optionId", "0")
+                    if isinstance(first, dict)
+                    else getattr(first, "optionId", "0")
+                )
+                return {"outcome": {"type": "selected", "optionId": option_id}}
+            return {"outcome": {"type": "cancelled"}}
+
+        if method == "cursor/create_plan":
+            return {"outcome": {"type": "approved"}}
+
+        return {}
+
+    async def ext_notification(self, method: str, params: dict[str, object]) -> None:
+        """Handle extension notifications from ACP agents (e.g., Cursor).
+
+        Cursor sends notifications like cursor/update_todos and
+        cursor/task. We collect these as chunks so the adapter can
+        forward them to the Thenvoi platform.
+
+        Args:
+            method: Extension notification name.
+            params: Notification parameters.
+        """
+        logger.debug("Client ext_notification: %s, params=%s", method, params)
+
+        session_id = str(params.get("sessionId") or params.get("session_id") or "")
+        if not session_id:
+            return
+
+        if method == "cursor/update_todos":
+            todos = params.get("todos", [])
+            if todos and isinstance(todos, list):
+                lines = []
+                for t in todos:
+                    if isinstance(t, dict):
+                        done = t.get("completed", False)
+                        text = t.get("content", "")
+                        lines.append(f"- [{'x' if done else ' '}] {text}")
+                if lines:
+                    chunk = CollectedChunk(
+                        chunk_type="plan",
+                        content="\n".join(lines),
+                    )
+                    self._session_chunks.setdefault(session_id, []).append(chunk)
+
+        elif method == "cursor/task":
+            result = str(params.get("result", ""))
+            if result:
+                chunk = CollectedChunk(
+                    chunk_type="text",
+                    content=f"[Task completed] {result}",
+                )
+                self._session_chunks.setdefault(session_id, []).append(chunk)
+
     @staticmethod
     def _extract_text_from_content(update: object) -> str:
         """Extract text from a session_update's content field.

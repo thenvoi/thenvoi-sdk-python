@@ -646,3 +646,102 @@ class TestACPClientAdapterStop:
         # Should not raise
         await adapter.stop()
         assert adapter._ctx is None
+
+
+class TestThenvoiACPClientCursorExtensions:
+    """Tests for Cursor-specific extension handling in ThenvoiACPClient."""
+
+    @pytest.mark.asyncio
+    async def test_ext_method_cursor_ask_question(self) -> None:
+        """Should auto-select first option for cursor/ask_question."""
+        client = ThenvoiACPClient()
+
+        result = await client.ext_method(
+            "cursor/ask_question",
+            {
+                "options": [
+                    {"optionId": "a", "name": "Option A"},
+                    {"optionId": "b", "name": "Option B"},
+                ],
+            },
+        )
+
+        assert result["outcome"]["type"] == "selected"
+        assert result["outcome"]["optionId"] == "a"
+
+    @pytest.mark.asyncio
+    async def test_ext_method_cursor_ask_question_empty_options(self) -> None:
+        """Should cancel when no options provided."""
+        client = ThenvoiACPClient()
+
+        result = await client.ext_method("cursor/ask_question", {"options": []})
+
+        assert result["outcome"]["type"] == "cancelled"
+
+    @pytest.mark.asyncio
+    async def test_ext_method_cursor_create_plan(self) -> None:
+        """Should auto-approve cursor/create_plan."""
+        client = ThenvoiACPClient()
+
+        result = await client.ext_method("cursor/create_plan", {"plan": "stuff"})
+
+        assert result["outcome"]["type"] == "approved"
+
+    @pytest.mark.asyncio
+    async def test_ext_method_unknown_returns_empty(self) -> None:
+        """Should return empty dict for unknown extension methods."""
+        client = ThenvoiACPClient()
+
+        result = await client.ext_method("unknown/method", {})
+
+        assert result == {}
+
+    @pytest.mark.asyncio
+    async def test_ext_notification_cursor_update_todos(self) -> None:
+        """Should collect todo updates as plan chunks."""
+        client = ThenvoiACPClient()
+
+        await client.ext_notification(
+            "cursor/update_todos",
+            {
+                "sessionId": "sess-1",
+                "todos": [
+                    {"content": "Read code", "completed": True},
+                    {"content": "Write tests", "completed": False},
+                ],
+            },
+        )
+
+        chunks = client.get_collected_chunks("sess-1")
+        assert len(chunks) == 1
+        assert chunks[0].chunk_type == "plan"
+        assert "[x] Read code" in chunks[0].content
+        assert "[ ] Write tests" in chunks[0].content
+
+    @pytest.mark.asyncio
+    async def test_ext_notification_cursor_task(self) -> None:
+        """Should collect task results as text chunks."""
+        client = ThenvoiACPClient()
+
+        await client.ext_notification(
+            "cursor/task",
+            {"sessionId": "sess-1", "result": "Refactored the module"},
+        )
+
+        chunks = client.get_collected_chunks("sess-1")
+        assert len(chunks) == 1
+        assert chunks[0].chunk_type == "text"
+        assert "Refactored the module" in chunks[0].content
+
+    @pytest.mark.asyncio
+    async def test_ext_notification_no_session_id_is_noop(self) -> None:
+        """Should do nothing when no session_id is present."""
+        client = ThenvoiACPClient()
+
+        await client.ext_notification(
+            "cursor/update_todos",
+            {"todos": [{"content": "Test", "completed": False}]},
+        )
+
+        # No session_id → no chunks collected
+        assert client.get_collected_chunks() == []
