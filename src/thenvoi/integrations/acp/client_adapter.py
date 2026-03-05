@@ -56,6 +56,7 @@ class ACPClientAdapter(SimpleAdapter[ACPClientSessionState]):
         api_key: str | None = None,
         rest_url: str | None = None,
         inject_thenvoi_tools: bool = True,
+        auth_method: str | None = None,
     ) -> None:
         """Initialize ACP client adapter.
 
@@ -71,6 +72,9 @@ class ACPClientAdapter(SimpleAdapter[ACPClientSessionState]):
             rest_url: Thenvoi REST API base URL (default: https://app.thenvoi.com).
             inject_thenvoi_tools: Whether to auto-inject Thenvoi MCP tools
                                   into each session. Requires api_key.
+            auth_method: ACP authentication method to call after initialize.
+                         Required for agents that need auth (e.g., "cursor_login"
+                         for Cursor). Set to None to skip authentication.
         """
         super().__init__(history_converter=ACPClientHistoryConverter())
         self._command = command if isinstance(command, list) else [command]
@@ -80,6 +84,7 @@ class ACPClientAdapter(SimpleAdapter[ACPClientSessionState]):
         self._api_key = api_key or ""
         self._rest_url = rest_url or "https://app.thenvoi.com"
         self._inject_thenvoi_tools = inject_thenvoi_tools and bool(self._api_key)
+        self._auth_method = auth_method
 
         # ACP connection state
         self._conn: Any = None  # ACP agent connection
@@ -124,6 +129,9 @@ class ACPClientAdapter(SimpleAdapter[ACPClientSessionState]):
         try:
             self._conn, _ = await self._ctx.__aenter__()
             await self._conn.initialize(protocol_version=1)
+            if self._auth_method:
+                await self._conn.authenticate(method_id=self._auth_method)
+                logger.info("Authenticated with method: %s", self._auth_method)
         except Exception:
             # Ensure subprocess is cleaned up if init fails
             try:
