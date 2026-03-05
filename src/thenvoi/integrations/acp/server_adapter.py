@@ -163,7 +163,7 @@ class ThenvoiACPServerAdapter(SimpleAdapter[ACPSessionState]):
     async def verify_credentials(self) -> bool:
         """Validate API key by calling the Thenvoi identity endpoint."""
         try:
-            await self._rest.agent_api_identity.get_agent_identity(
+            await self._rest.agent_api_identity.get_agent_me(
                 request_options=DEFAULT_REQUEST_OPTIONS,
             )
             return True
@@ -214,7 +214,7 @@ class ThenvoiACPServerAdapter(SimpleAdapter[ACPSessionState]):
 
         # Fetch own agent ID for mention filtering
         try:
-            identity = await self._rest.agent_api_identity.get_agent_identity(
+            identity = await self._rest.agent_api_identity.get_agent_me(
                 request_options=DEFAULT_REQUEST_OPTIONS,
             )
             self._agent_id = identity.data.id

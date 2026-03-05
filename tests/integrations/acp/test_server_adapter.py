@@ -741,7 +741,7 @@ class TestThenvoiACPServerAdapterPublicAccessors:
         """Should return True when identity endpoint succeeds."""
         adapter = ThenvoiACPServerAdapter()
         adapter._rest = MagicMock()
-        adapter._rest.agent_api_identity.get_agent_identity = AsyncMock()
+        adapter._rest.agent_api_identity.get_agent_me = AsyncMock()
 
         assert await adapter.verify_credentials() is True
 
@@ -750,7 +750,7 @@ class TestThenvoiACPServerAdapterPublicAccessors:
         """Should return False when identity endpoint fails."""
         adapter = ThenvoiACPServerAdapter()
         adapter._rest = MagicMock()
-        adapter._rest.agent_api_identity.get_agent_identity = AsyncMock(
+        adapter._rest.agent_api_identity.get_agent_me = AsyncMock(
             side_effect=Exception("401 Unauthorized")
         )
 

@@ -368,7 +368,7 @@ class TestACPServerAuthenticate:
         """Should return AuthenticateResponse for valid key."""
         adapter = ThenvoiACPServerAdapter()
         mock_rest = MagicMock()
-        mock_rest.agent_api_identity.get_agent_identity = AsyncMock()
+        mock_rest.agent_api_identity.get_agent_me = AsyncMock()
         adapter._rest = mock_rest
         server = ACPServer(adapter)
 
@@ -381,7 +381,7 @@ class TestACPServerAuthenticate:
         """Should return None for invalid key."""
         adapter = ThenvoiACPServerAdapter()
         mock_rest = MagicMock()
-        mock_rest.agent_api_identity.get_agent_identity = AsyncMock(
+        mock_rest.agent_api_identity.get_agent_me = AsyncMock(
             side_effect=RuntimeError("Unauthorized")
         )
         adapter._rest = mock_rest
