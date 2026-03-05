@@ -6,25 +6,27 @@
 # thenvoi-sdk = { git = "https://github.com/thenvoi/thenvoi-sdk-python.git" }
 # ///
 """
-Cursor ACP Server - Let Cursor use Thenvoi as an ACP agent.
+JetBrains ACP Server - Use Thenvoi as an ACP agent in JetBrains IDEs.
 
-This example starts Thenvoi as an ACP agent that Cursor connects to.
-When Cursor sends prompts, they are routed to Thenvoi platform peers
-(other agents in the room) and responses stream back to Cursor's UI.
+This example starts Thenvoi as an ACP agent that JetBrains IDEs (IntelliJ,
+PyCharm, WebStorm, etc.) can connect to via the ACP protocol. When you type
+prompts in the JetBrains AI Chat, they are routed to Thenvoi platform peers
+and responses stream back to the IDE.
 
 Architecture:
-    Cursor IDE
+    JetBrains IDE (AI Chat)
       -> spawns this process as ACP agent
         -> ACPServer (ACP JSON-RPC over stdio)
           -> ThenvoiACPServerAdapter
             -> Thenvoi Platform (creates room, sends message)
               -> Peer agents respond via WebSocket
-            -> Streams responses back to Cursor via session_update
+            -> Streams responses back to IDE via session_update
 
-Cursor Configuration (~/.cursor/mcp.json):
+JetBrains Configuration (~/.jetbrains/acp.json):
     {
-        "mcpServers": {
-            "thenvoi": {
+        "default_mcp_settings": {},
+        "agent_servers": {
+            "Thenvoi": {
                 "command": "thenvoi-acp",
                 "args": ["--agent-id", "YOUR_AGENT_ID"],
                 "env": {
@@ -34,13 +36,16 @@ Cursor Configuration (~/.cursor/mcp.json):
         }
     }
 
-    Or configure as a custom agent in Cursor settings:
+    Or if running from source:
     {
+        "default_mcp_settings": {},
         "agent_servers": {
             "Thenvoi": {
-                "type": "custom",
-                "command": "thenvoi-acp",
-                "args": ["--agent-id", "YOUR_AGENT_ID"],
+                "command": "uv",
+                "args": [
+                    "run", "--extra", "acp",
+                    "thenvoi-acp", "--agent-id", "YOUR_AGENT_ID"
+                ],
                 "env": {
                     "THENVOI_API_KEY": "YOUR_API_KEY"
                 }
@@ -53,7 +58,7 @@ Prerequisites:
     2. Set THENVOI_API_KEY and THENVOI_AGENT_ID
 
 Run standalone for testing:
-    THENVOI_API_KEY=... THENVOI_AGENT_ID=... uv run examples/acp/07_cursor_server.py
+    THENVOI_API_KEY=... THENVOI_AGENT_ID=... uv run examples/acp/07_jetbrains_server.py
 """
 
 from __future__ import annotations
@@ -91,7 +96,7 @@ async def main() -> None:
 
     if not api_key:
         raise ValueError(
-            "THENVOI_API_KEY is required. Set it in Cursor's agent_servers env config."
+            "THENVOI_API_KEY is required. Set it in ~/.jetbrains/acp.json env config."
         )
     if not agent_id:
         raise ValueError(
@@ -105,7 +110,7 @@ async def main() -> None:
     )
 
     # Optional: configure routing for slash commands
-    # Users can type "/codex fix bug" in Cursor to route to a specific peer
+    # Users can type "/codex fix bug" in the AI Chat to route to a specific peer
     router = AgentRouter(
         slash_commands={
             "codex": "codex",
@@ -130,8 +135,8 @@ async def main() -> None:
         rest_url=rest_url,
     )
 
-    logger.info("Starting Thenvoi ACP server for Cursor...")
-    logger.info("Cursor will connect via stdio ACP protocol.")
+    logger.info("Starting Thenvoi ACP server for JetBrains...")
+    logger.info("IDE will connect via stdio ACP protocol.")
 
     await agent.start()
     try:

@@ -8,10 +8,19 @@
 """
 Cursor ACP Client - Use Cursor's AI agent from Thenvoi.
 
-This example spawns Cursor's CLI agent via the ACP protocol and bridges it
+Spawns Cursor's CLI agent (`cursor agent acp`) as a subprocess and bridges it
 to the Thenvoi platform. Messages from Thenvoi rooms are forwarded to Cursor,
 and Cursor's responses (including tool calls, plans, and streaming text) are
 posted back to the room.
+
+Note: Cursor IDE does NOT yet support connecting to external ACP agents (i.e.,
+you cannot add Thenvoi as an agent inside Cursor's UI). This integration works
+the other direction — Thenvoi spawns Cursor's agent as a backend.
+
+For the reverse direction (IDE connects to Thenvoi), see:
+- JetBrains: examples/acp/07_jetbrains_server.py
+- Zed: examples/acp/01_basic_acp_server.py
+- Any ACP client: thenvoi-acp CLI
 
 Architecture:
     Thenvoi Platform (message arrives in room)

@@ -33,8 +33,8 @@ Editor Configuration:
     Zed (settings.json):
         {"agent_servers": {"Thenvoi": {"type": "custom", "command": "uv run examples/acp/01_basic_acp_server.py"}}}
 
-    Cursor (~/.cursor/mcp.json):
-        {"agent_servers": {"Thenvoi": {"type": "custom", "command": "uv run examples/acp/01_basic_acp_server.py"}}}
+    JetBrains (~/.jetbrains/acp.json):
+        {"agent_servers": {"Thenvoi": {"command": "thenvoi-acp", "args": ["--agent-id", "..."], "env": {"THENVOI_API_KEY": "..."}}}}
 
 Run with:
     uv run examples/acp/01_basic_acp_server.py
