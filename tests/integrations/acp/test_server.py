@@ -64,7 +64,9 @@ class TestACPServerNewSession:
         response = await server.new_session(cwd="/workspace")
 
         assert response.session_id == "session-abc123"
-        adapter.create_session.assert_called_once()
+        adapter.create_session.assert_called_once_with(
+            cwd="/workspace", mcp_servers=None
+        )
 
     @pytest.mark.asyncio
     async def test_new_session_with_mcp_servers(self) -> None:
@@ -73,12 +75,16 @@ class TestACPServerNewSession:
         adapter.create_session = AsyncMock(return_value="session-xyz")
         server = ACPServer(adapter)
 
+        mcp_servers = [{"type": "stdio", "command": "some-mcp-server"}]
         response = await server.new_session(
             cwd="/workspace",
-            mcp_servers=[{"type": "stdio", "command": "some-mcp-server"}],
+            mcp_servers=mcp_servers,
         )
 
         assert response.session_id == "session-xyz"
+        adapter.create_session.assert_called_once_with(
+            cwd="/workspace", mcp_servers=mcp_servers
+        )
 
 
 class TestACPServerPrompt:
@@ -122,13 +128,15 @@ class TestACPServerPrompt:
         server = ACPServer(adapter)
 
         prompt_blocks = [
-            {"text": "Hello"},
-            {"type": "image", "data": "base64..."},  # No text field
-            {"text": "World"},
+            {"type": "text", "text": "Hello"},
+            {"type": "image", "data": "base64..."},
+            {"type": "text", "text": "World"},
         ]
         await server.prompt(prompt=prompt_blocks, session_id="session-1")
 
-        adapter.handle_prompt.assert_called_once_with("session-1", "Hello\nWorld")
+        adapter.handle_prompt.assert_called_once_with(
+            "session-1", "Hello\n[Image]\nWorld"
+        )
 
     @pytest.mark.asyncio
     async def test_prompt_with_object_blocks(self) -> None:
@@ -137,8 +145,9 @@ class TestACPServerPrompt:
         adapter.handle_prompt = AsyncMock()
         server = ACPServer(adapter)
 
-        # Simulate object-style content blocks
+        # Simulate object-style content blocks (TextContentBlock)
         block = MagicMock()
+        block.type = "text"
         block.text = "Object block text"
 
         await server.prompt(prompt=[block], session_id="session-1")
@@ -186,25 +195,79 @@ class TestACPServerExtractText:
 
     def test_extract_text_single_dict(self) -> None:
         """Should extract text from single dict block."""
+        assert ACPServer._extract_text([{"type": "text", "text": "Hello"}]) == "Hello"
+
+    def test_extract_text_single_dict_no_type(self) -> None:
+        """Should default to text type when type field is missing."""
         assert ACPServer._extract_text([{"text": "Hello"}]) == "Hello"
 
     def test_extract_text_single_object(self) -> None:
         """Should extract text from single object block."""
         block = MagicMock()
+        block.type = "text"
         block.text = "Hello"
         assert ACPServer._extract_text([block]) == "Hello"
 
     def test_extract_text_mixed(self) -> None:
         """Should handle mix of dict and object blocks."""
         obj_block = MagicMock()
+        obj_block.type = "text"
         obj_block.text = "Object"
-        blocks = [{"text": "Dict"}, obj_block]
+        blocks = [{"type": "text", "text": "Dict"}, obj_block]
         assert ACPServer._extract_text(blocks) == "Dict\nObject"
 
     def test_extract_text_skips_empty(self) -> None:
         """Should skip blocks with no text."""
-        blocks = [{"text": ""}, {"text": "Hello"}, {"other": "data"}]
+        blocks = [
+            {"type": "text", "text": ""},
+            {"type": "text", "text": "Hello"},
+        ]
         assert ACPServer._extract_text(blocks) == "Hello"
+
+    def test_extract_text_image_block_dict(self) -> None:
+        """Should represent image blocks with URI."""
+        blocks = [{"type": "image", "uri": "file:///screenshot.png"}]
+        assert ACPServer._extract_text(blocks) == "[Image: file:///screenshot.png]"
+
+    def test_extract_text_image_block_no_uri(self) -> None:
+        """Should represent image blocks without URI."""
+        blocks = [{"type": "image", "data": "base64..."}]
+        assert ACPServer._extract_text(blocks) == "[Image]"
+
+    def test_extract_text_resource_block_dict(self) -> None:
+        """Should represent resource blocks with title and description."""
+        blocks = [
+            {
+                "type": "resource",
+                "title": "README.md",
+                "uri": "file:///workspace/README.md",
+                "description": "Project readme",
+            }
+        ]
+        assert ACPServer._extract_text(blocks) == "[Resource: README.md] Project readme"
+
+    def test_extract_text_resource_block_object(self) -> None:
+        """Should handle resource blocks as objects."""
+        block = MagicMock()
+        block.type = "resource"
+        block.title = "config.yaml"
+        block.name = ""
+        block.uri = "file:///config.yaml"
+        block.description = ""
+        assert ACPServer._extract_text([block]) == "[Resource: config.yaml]"
+
+    def test_extract_text_mixed_content_types(self) -> None:
+        """Should handle a mix of text, image, and resource blocks."""
+        blocks = [
+            {"type": "text", "text": "Check this file:"},
+            {"type": "resource", "title": "main.py", "uri": "file:///main.py"},
+            {"type": "text", "text": "And this image:"},
+            {"type": "image", "uri": "file:///screenshot.png"},
+        ]
+        result = ACPServer._extract_text(blocks)
+        assert "[Resource: main.py]" in result
+        assert "[Image: file:///screenshot.png]" in result
+        assert "Check this file:" in result
 
 
 class TestACPServerLoadSession:
@@ -237,10 +300,12 @@ class TestACPServerListSessions:
 
     @pytest.mark.asyncio
     async def test_list_sessions_returns_active(self) -> None:
-        """Should return all active sessions."""
+        """Should return all active sessions with correct cwd."""
         adapter = ThenvoiACPServerAdapter()
         adapter._session_to_room["session-1"] = "room-1"
         adapter._session_to_room["session-2"] = "room-2"
+        adapter._session_cwd["session-1"] = "/workspace/project-a"
+        adapter._session_cwd["session-2"] = "/workspace/project-b"
         server = ACPServer(adapter)
 
         response = await server.list_sessions()
@@ -248,6 +313,9 @@ class TestACPServerListSessions:
         assert len(response.sessions) == 2
         session_ids = {s.session_id for s in response.sessions}
         assert session_ids == {"session-1", "session-2"}
+        cwd_map = {s.session_id: s.cwd for s in response.sessions}
+        assert cwd_map["session-1"] == "/workspace/project-a"
+        assert cwd_map["session-2"] == "/workspace/project-b"
 
     @pytest.mark.asyncio
     async def test_list_sessions_empty(self) -> None:

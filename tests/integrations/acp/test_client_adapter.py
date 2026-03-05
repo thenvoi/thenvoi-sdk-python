@@ -192,9 +192,10 @@ class TestACPClientAdapterOnMessage:
     ) -> None:
         """Should post collected response back to Thenvoi room."""
 
-        # Make prompt() populate the client buffer (simulating session_update)
+        # Make prompt() populate the per-session buffer (simulating session_update)
         async def mock_prompt(**kwargs):
-            adapter_with_mocks._client._collected_chunks = [
+            session_id = kwargs.get("session_id", "acp-session-123")
+            adapter_with_mocks._client._session_chunks[session_id] = [
                 CollectedChunk(chunk_type="text", content="The weather is sunny.")
             ]
 
@@ -224,7 +225,8 @@ class TestACPClientAdapterOnMessage:
         """Should post thought chunks as thought events."""
 
         async def mock_prompt(**kwargs):
-            adapter_with_mocks._client._collected_chunks = [
+            session_id = kwargs.get("session_id", "acp-session-123")
+            adapter_with_mocks._client._session_chunks[session_id] = [
                 CollectedChunk(chunk_type="thought", content="Let me think...")
             ]
 
@@ -256,7 +258,8 @@ class TestACPClientAdapterOnMessage:
         """Should post tool_call chunks as tool_call events."""
 
         async def mock_prompt(**kwargs):
-            adapter_with_mocks._client._collected_chunks = [
+            session_id = kwargs.get("session_id", "acp-session-123")
+            adapter_with_mocks._client._session_chunks[session_id] = [
                 CollectedChunk(
                     chunk_type="tool_call",
                     content="search",
@@ -292,7 +295,8 @@ class TestACPClientAdapterOnMessage:
         """Should post plan chunks as task events."""
 
         async def mock_prompt(**kwargs):
-            adapter_with_mocks._client._collected_chunks = [
+            session_id = kwargs.get("session_id", "acp-session-123")
+            adapter_with_mocks._client._session_chunks[session_id] = [
                 CollectedChunk(chunk_type="plan", content="Step 1: Do stuff")
             ]
 

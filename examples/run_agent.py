@@ -1013,13 +1013,10 @@ Examples:
         args.agent = default_agents.get(args.example, "simple_agent")
 
     # Load URLs from environment
-    rest_url = os.getenv("THENVOI_REST_URL")
-    ws_url = os.getenv("THENVOI_WS_URL")
-
-    if not rest_url:
-        parser.error("THENVOI_REST_URL environment variable is required")
-    if not ws_url:
-        parser.error("THENVOI_WS_URL environment variable is required")
+    rest_url = os.getenv("THENVOI_REST_URL", "https://app.thenvoi.com")
+    ws_url = os.getenv(
+        "THENVOI_WS_URL", "wss://app.thenvoi.com/api/v1/socket/websocket"
+    )
 
     # Load agent credentials
     try:

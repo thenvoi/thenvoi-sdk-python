@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import sys
 from typing import Any
 
 from acp import spawn_agent_process, text_block
+from acp.schema import EnvVariable, McpServerStdio
 
 from thenvoi.converters.acp_client import ACPClientHistoryConverter
 from thenvoi.core.protocols import AgentToolsProtocol
@@ -51,6 +53,9 @@ class ACPClientAdapter(SimpleAdapter[ACPClientSessionState]):
         env: dict[str, str] | None = None,
         cwd: str | None = None,
         mcp_servers: list[dict[str, Any]] | None = None,
+        api_key: str | None = None,
+        rest_url: str | None = None,
+        inject_thenvoi_tools: bool = True,
     ) -> None:
         """Initialize ACP client adapter.
 
@@ -60,12 +65,21 @@ class ACPClientAdapter(SimpleAdapter[ACPClientSessionState]):
             env: Optional environment variables for the subprocess.
             cwd: Working directory for ACP sessions (default: ".").
             mcp_servers: Optional list of MCP server configs to pass to agent.
+            api_key: Thenvoi API key for tool authentication. If provided,
+                     Thenvoi platform tools are automatically injected as an
+                     MCP server so the external agent can call them.
+            rest_url: Thenvoi REST API base URL (default: https://app.thenvoi.com).
+            inject_thenvoi_tools: Whether to auto-inject Thenvoi MCP tools
+                                  into each session. Requires api_key.
         """
         super().__init__(history_converter=ACPClientHistoryConverter())
         self._command = command if isinstance(command, list) else [command]
         self._env = env
         self._cwd = cwd or "."
         self._mcp_servers = mcp_servers or []
+        self._api_key = api_key or ""
+        self._rest_url = rest_url or "https://app.thenvoi.com"
+        self._inject_thenvoi_tools = inject_thenvoi_tools and bool(self._api_key)
 
         # ACP connection state
         self._conn: Any = None  # ACP agent connection
@@ -75,6 +89,9 @@ class ACPClientAdapter(SimpleAdapter[ACPClientSessionState]):
 
         # Room -> session mapping and prompt serialization (guarded by _session_lock)
         self._room_to_session: dict[str, str] = {}
+        self._bootstrapped_sessions: set[str] = (
+            set()
+        )  # Sessions that received system prompt
         self._session_lock = asyncio.Lock()
 
     async def on_started(self, agent_name: str, agent_description: str) -> None:
@@ -85,7 +102,15 @@ class ACPClientAdapter(SimpleAdapter[ACPClientSessionState]):
             agent_description: Description of this agent.
         """
         await super().on_started(agent_name, agent_description)
-        self._client = ThenvoiACPClient()  # type: ignore[abstract]  # ACP Client optional methods not needed for Phase 1
+        await self._spawn_process()
+
+    async def _spawn_process(self) -> None:
+        """Spawn or respawn the ACP agent subprocess.
+
+        Safe to call when the process is already stopped — creates a
+        fresh ThenvoiACPClient and enters the context manager.
+        """
+        self._client = ThenvoiACPClient()  # type: ignore[abstract]  # ACP Client optional methods not all implemented
 
         # Use ACP SDK to spawn and connect
         # Note: spawn_agent_process is an async context manager -
@@ -96,8 +121,19 @@ class ACPClientAdapter(SimpleAdapter[ACPClientSessionState]):
             *self._command[1:],
             env=self._env,
         )
-        self._conn, _ = await self._ctx.__aenter__()
-        await self._conn.initialize(protocol_version=1)
+        try:
+            self._conn, _ = await self._ctx.__aenter__()
+            await self._conn.initialize(protocol_version=1)
+        except Exception:
+            # Ensure subprocess is cleaned up if init fails
+            try:
+                await self._ctx.__aexit__(None, None, None)
+            except Exception:
+                logger.exception("Error cleaning up ACP subprocess after init failure")
+            self._ctx = None
+            self._conn = None
+            raise
+        self._stopping = False
         logger.info("Connected to ACP agent: %s", " ".join(self._command))
 
     async def on_message(
@@ -123,7 +159,13 @@ class ACPClientAdapter(SimpleAdapter[ACPClientSessionState]):
             room_id: The room identifier.
         """
         if self._conn is None:
-            raise RuntimeError("ACP client not initialized. Call on_started first.")
+            # Respawn subprocess if it was previously stopped (e.g., all
+            # rooms were cleaned up and a new room arrived).
+            if self._ctx is None and self.agent_name:
+                logger.info("Respawning ACP agent subprocess for new room")
+                await self._spawn_process()
+            else:
+                raise RuntimeError("ACP client not initialized. Call on_started first.")
 
         if is_session_bootstrap and history:
             async with self._session_lock:
@@ -132,64 +174,70 @@ class ACPClientAdapter(SimpleAdapter[ACPClientSessionState]):
         # Get or create ACP session for this room
         session_id = await self._get_or_create_session(room_id)
 
-        # Serialize prompt + response collection to prevent buffer races
-        # across concurrent rooms sharing the same _client instance.
-        async with self._session_lock:
-            # Reset client response buffer and wire up permission handler
+        # Per-session buffer: reset before prompt, collect after.
+        # No global lock needed — each session has its own buffer in ThenvoiACPClient.
+        if self._client:
+            self._client.reset_session(session_id)
+            self._client.set_permission_handler(
+                self._make_permission_handler(tools, room_id)
+            )
+
+        # Build prompt with system context on first message per session
+        prompt_text = msg.content
+        if session_id not in self._bootstrapped_sessions:
+            system_context = self._build_system_context(room_id, msg)
+            prompt_text = f"{system_context}\n\n{msg.content}"
+            self._bootstrapped_sessions.add(session_id)
+
+        # Send prompt to external ACP agent
+        try:
+            await self._conn.prompt(
+                session_id=session_id,
+                prompt=[text_block(prompt_text)],
+            )
+
+            # Collect rich response chunks from per-session buffer
             if self._client:
-                self._client.reset()
-                self._client.set_permission_handler(
-                    self._make_permission_handler(tools, room_id)
-                )
-
-            # Send prompt to external ACP agent
-            try:
-                await self._conn.prompt(
-                    session_id=session_id,
-                    prompt=[text_block(msg.content)],
-                )
-
-                # Collect rich response chunks from ThenvoiACPClient's buffer
-                if self._client:
-                    chunks = self._client.get_collected_chunks()
-                    mentions = [{"id": msg.sender_id, "name": msg.sender_name or ""}]
-                    for chunk in chunks:
-                        match chunk.chunk_type:
-                            case "text":
-                                if chunk.content:
-                                    await tools.send_message(
-                                        content=chunk.content,
-                                        mentions=mentions,
-                                    )
-                            case "thought":
-                                await tools.send_event(
+                chunks = self._client.get_collected_chunks(session_id)
+                sender_name = msg.sender_name or msg.sender_id or "Unknown"
+                mentions = [{"id": msg.sender_id, "name": sender_name}]
+                for chunk in chunks:
+                    match chunk.chunk_type:
+                        case "text":
+                            if chunk.content:
+                                await tools.send_message(
                                     content=chunk.content,
-                                    message_type="thought",
-                                    metadata=chunk.metadata,
+                                    mentions=mentions,
                                 )
-                            case "tool_call" | "tool_result":
-                                await tools.send_event(
-                                    content=chunk.content,
-                                    message_type=chunk.chunk_type,
-                                    metadata=chunk.metadata,
-                                )
-                            case "plan":
-                                await tools.send_event(
-                                    content=chunk.content,
-                                    message_type="task",
-                                    metadata=chunk.metadata,
-                                )
+                        case "thought":
+                            await tools.send_event(
+                                content=chunk.content,
+                                message_type="thought",
+                                metadata=chunk.metadata,
+                            )
+                        case "tool_call" | "tool_result":
+                            await tools.send_event(
+                                content=chunk.content,
+                                message_type=chunk.chunk_type,
+                                metadata=chunk.metadata,
+                            )
+                        case "plan":
+                            await tools.send_event(
+                                content=chunk.content,
+                                message_type="task",
+                                metadata=chunk.metadata,
+                            )
 
-            except Exception as e:
-                logger.exception("ACP agent error: %s", e)
-                await tools.send_event(
-                    content=f"ACP agent error: {e}",
-                    message_type="error",
-                    metadata={"acp_error": str(e)},
-                )
-                return
+        except Exception as e:
+            logger.exception("ACP agent error: %s", e)
+            await tools.send_event(
+                content=f"ACP agent error: {e}",
+                message_type="error",
+                metadata={"acp_error": str(e)},
+            )
+            return
 
-        # Emit task event for session rehydration (outside lock — no shared state)
+        # Emit task event for session rehydration
         await tools.send_event(
             content="ACP client session",
             message_type="task",
@@ -249,6 +297,64 @@ class ACPClientAdapter(SimpleAdapter[ACPClientSessionState]):
 
         return handler
 
+    def _build_system_context(self, room_id: str, msg: PlatformMessage) -> str:
+        """Build system context to prepend to the first prompt in a session.
+
+        Provides the external ACP agent with identity, room context, and
+        tool usage instructions so it can interact with the Thenvoi platform.
+
+        Args:
+            room_id: The Thenvoi room identifier.
+            msg: The first platform message (used for sender context).
+
+        Returns:
+            System context string to prepend to the prompt.
+        """
+        from thenvoi.runtime.prompts import render_system_prompt
+
+        agent_name = self.agent_name or "Agent"
+        agent_desc = self.agent_description or "An AI assistant"
+
+        # Render the standard system prompt (identity + instructions)
+        system_prompt = render_system_prompt(
+            agent_name=agent_name,
+            agent_description=agent_desc,
+        )
+
+        # Add room-specific context
+        room_context = (
+            f"\n## Room Context\n"
+            f"You are in room_id: {room_id}\n"
+            f"Use this room_id when calling Thenvoi tools.\n"
+        )
+
+        return f"[System Context]\n{system_prompt}\n{room_context}"
+
+    def _build_thenvoi_mcp_server(self, room_id: str) -> McpServerStdio:
+        """Build McpServerStdio config for the Thenvoi tools MCP server.
+
+        Creates a config that tells the external ACP agent to spawn our
+        MCP server subprocess, which exposes Thenvoi platform tools
+        (send_message, send_event, add_participant, etc.).
+
+        Args:
+            room_id: Room ID for tool execution context.
+
+        Returns:
+            McpServerStdio config for the Thenvoi MCP tools server.
+        """
+        return McpServerStdio(
+            type="stdio",
+            name="thenvoi",
+            command=sys.executable,
+            args=["-m", "thenvoi.integrations.acp.mcp_server"],
+            env=[
+                EnvVariable(name="THENVOI_API_KEY", value=self._api_key),
+                EnvVariable(name="THENVOI_REST_URL", value=self._rest_url),
+                EnvVariable(name="THENVOI_ROOM_ID", value=room_id),
+            ],
+        )
+
     async def _get_or_create_session(self, room_id: str) -> str:
         """Get existing session for room or create new one.
 
@@ -270,37 +376,44 @@ class ACPClientAdapter(SimpleAdapter[ACPClientSessionState]):
             if room_id in self._room_to_session:
                 return self._room_to_session[room_id]
 
+            # Build MCP servers list, injecting Thenvoi tools if configured
+            mcp_servers: list[Any] = list(self._mcp_servers)
+            if self._inject_thenvoi_tools:
+                mcp_servers.append(self._build_thenvoi_mcp_server(room_id))
+
             session = await self._conn.new_session(
                 cwd=self._cwd,
-                mcp_servers=self._mcp_servers,
+                mcp_servers=mcp_servers,
             )
             self._room_to_session[room_id] = session.session_id
             logger.info(
-                "Created ACP session %s for room %s",
+                "Created ACP session %s for room %s (mcp_servers=%d)",
                 session.session_id,
                 room_id,
+                len(mcp_servers),
             )
             return session.session_id
 
     async def on_cleanup(self, room_id: str) -> None:
-        """Remove room -> session mapping. Stops subprocess on last room.
+        """Remove room -> session mapping and bootstrap state.
 
         Args:
             room_id: The room identifier.
         """
-        should_stop = False
         async with self._session_lock:
-            self._room_to_session.pop(room_id, None)
-            if not self._room_to_session and self._ctx:
-                should_stop = True
+            session_id = self._room_to_session.pop(room_id, None)
+            if session_id:
+                self._bootstrapped_sessions.discard(session_id)
 
         logger.debug("Cleaned up ACP client resources for room %s", room_id)
 
-        if should_stop:
-            await self.stop()
-
     async def stop(self) -> None:
-        """Clean shutdown of ACP agent process. Idempotent."""
+        """Clean shutdown of ACP agent process. Idempotent.
+
+        After stop(), the subprocess can be respawned by calling
+        ``_spawn_process()`` again (triggered by the next ``on_message``
+        when ``_conn is None``).
+        """
         if self._stopping or not self._ctx:
             return
         self._stopping = True
@@ -310,7 +423,6 @@ class ACPClientAdapter(SimpleAdapter[ACPClientSessionState]):
             logger.exception("Error during ACP agent shutdown")
         self._ctx = None
         self._conn = None
-        self._stopping = False
         logger.info("ACP client adapter stopped")
 
     def _rehydrate(self, room_id: str, history: ACPClientSessionState) -> None:

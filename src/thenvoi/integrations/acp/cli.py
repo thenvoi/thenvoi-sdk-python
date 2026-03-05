@@ -110,4 +110,11 @@ async def main(args: argparse.Namespace | None = None) -> None:
 
 def entry_point() -> None:
     """CLI entry point for the thenvoi-acp command."""
-    asyncio.run(main())
+    import sys
+
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        pass
+    except ValueError as e:
+        sys.exit(f"Error: {e}")

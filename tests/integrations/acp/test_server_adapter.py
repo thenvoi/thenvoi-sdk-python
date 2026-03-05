@@ -139,11 +139,13 @@ class TestThenvoiACPServerAdapterHandlePrompt:
 
         # Make pending prompt complete immediately via on_message
         async def auto_complete():
-            # Wait a tiny bit for pending to be registered
-            await asyncio.sleep(0.01)
-            pending = adapter._pending_prompts.get("room-123")
-            if pending:
-                pending.done_event.set()
+            for _ in range(200):
+                pending = adapter._pending_prompts.get("room-123")
+                if pending:
+                    pending.done_event.set()
+                    return
+                await asyncio.sleep(0.001)
+            pytest.fail("Pending prompt never registered")
 
         task = asyncio.create_task(auto_complete())
         await adapter.handle_prompt("session-1", "Hello world")
@@ -162,17 +164,17 @@ class TestThenvoiACPServerAdapterHandlePrompt:
 
         # Complete immediately
         async def auto_complete():
-            await asyncio.sleep(0.01)
-            pending = adapter._pending_prompts.get("room-123")
-            if pending:
-                pending.done_event.set()
+            for _ in range(200):
+                pending = adapter._pending_prompts.get("room-123")
+                if pending:
+                    pending.done_event.set()
+                    return
+                await asyncio.sleep(0.001)
+            pytest.fail("Pending prompt never registered")
 
         task = asyncio.create_task(auto_complete())
         await adapter.handle_prompt("session-1", "Test")
         await task
-
-        # After completion, pending should be cleared by on_message or still there
-        # (depends on whether on_message was called)
 
     @pytest.mark.asyncio
     async def test_handle_prompt_unknown_session_raises(self) -> None:
@@ -519,6 +521,7 @@ class TestThenvoiACPServerAdapterCleanup:
         await adapter.on_cleanup("room-123")
 
         assert "room-123" not in adapter._pending_prompts
+        assert pending.done_event.is_set()
 
 
 class TestThenvoiACPServerAdapterCancelPrompt:
@@ -637,10 +640,13 @@ class TestThenvoiACPServerAdapterRouting:
         adapter.set_router(router)
 
         async def auto_complete():
-            await asyncio.sleep(0.01)
-            pending = adapter._pending_prompts.get("room-123")
-            if pending:
-                pending.done_event.set()
+            for _ in range(200):
+                pending = adapter._pending_prompts.get("room-123")
+                if pending:
+                    pending.done_event.set()
+                    return
+                await asyncio.sleep(0.001)
+            pytest.fail("Pending prompt never registered")
 
         task = asyncio.create_task(auto_complete())
         await adapter.handle_prompt("session-1", "/codex fix bug")
@@ -664,10 +670,13 @@ class TestThenvoiACPServerAdapterRouting:
         adapter._session_to_room["session-1"] = "room-123"
 
         async def auto_complete():
-            await asyncio.sleep(0.01)
-            pending = adapter._pending_prompts.get("room-123")
-            if pending:
-                pending.done_event.set()
+            for _ in range(200):
+                pending = adapter._pending_prompts.get("room-123")
+                if pending:
+                    pending.done_event.set()
+                    return
+                await asyncio.sleep(0.001)
+            pytest.fail("Pending prompt never registered")
 
         task = asyncio.create_task(auto_complete())
         await adapter.handle_prompt("session-1", "Hello")
@@ -804,5 +813,7 @@ class TestThenvoiACPServerAdapterCreateSessionRollback:
             await adapter.create_session()
 
         # Mappings should be rolled back
-        assert len(adapter._session_to_room) == 0
-        assert len(adapter._room_to_session) == 0
+        assert adapter._session_to_room == {}
+        assert adapter._room_to_session == {}
+        assert adapter._session_cwd == {}
+        assert adapter._session_mcp_servers == {}

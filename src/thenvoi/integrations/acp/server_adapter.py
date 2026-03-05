@@ -4,8 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import Iterator
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
 from thenvoi.client.rest import (
@@ -85,6 +84,10 @@ class ThenvoiACPServerAdapter(SimpleAdapter[ACPSessionState]):
         self._pending_prompts: dict[str, PendingACPPrompt] = {}  # room_id -> pending
         self._session_modes: dict[str, str] = {}  # session_id -> mode_id
         self._session_models: dict[str, str] = {}  # session_id -> model_id
+        self._session_cwd: dict[str, str] = {}  # session_id -> cwd
+        self._session_mcp_servers: dict[
+            str, list[Any]
+        ] = {}  # session_id -> mcp_servers
         self._state_lock = asyncio.Lock()
 
         # ACP client reference for sending session_update
@@ -93,13 +96,19 @@ class ThenvoiACPServerAdapter(SimpleAdapter[ACPSessionState]):
         # Agent identity (set in on_started, used for mention filtering)
         self._agent_id: str | None = None
 
-        # Router for slash commands and mode-based routing (Phase 3)
+        # Router for slash commands and mode-based routing
         self._router: AgentRouter | None = None
 
-        # Push handler for unsolicited updates (Phase 4)
+        # Push handler for unsolicited updates
         self._push_handler: ACPPushHandler | None = None
 
     # ── Public accessors (used by ACPServer and ACPPushHandler) ──
+    #
+    # These accessors read/write dicts guarded by _state_lock. Since they
+    # are called from sync ACP protocol handlers (which cannot await the
+    # lock), they use snapshot copies for reads and best-effort writes.
+    # The async methods (create_session, on_cleanup, etc.) use the lock
+    # directly.
 
     def set_acp_client(self, client: Client) -> None:
         """Store ACP client reference for sending session_update.
@@ -117,9 +126,13 @@ class ThenvoiACPServerAdapter(SimpleAdapter[ACPSessionState]):
         """Check whether an ACP session is active."""
         return session_id in self._session_to_room
 
-    def get_session_ids(self) -> Iterator[str]:
-        """Iterate over all active ACP session IDs."""
-        return iter(self._session_to_room)
+    def get_session_ids(self) -> list[str]:
+        """Return a snapshot list of all active ACP session IDs.
+
+        Returns a copy to prevent RuntimeError from concurrent dict
+        mutation during iteration.
+        """
+        return list(self._session_to_room)
 
     def set_session_mode(self, session_id: str, mode_id: str) -> None:
         """Record the session mode chosen by the editor."""
@@ -128,6 +141,10 @@ class ThenvoiACPServerAdapter(SimpleAdapter[ACPSessionState]):
     def set_session_model(self, session_id: str, model_id: str) -> None:
         """Record the model chosen by the editor."""
         self._session_models[session_id] = model_id
+
+    def get_session_cwd(self, session_id: str) -> str:
+        """Return the working directory for a session, or '.' if unknown."""
+        return self._session_cwd.get(session_id, ".")
 
     def get_session_for_room(self, room_id: str) -> str | None:
         """Return the ACP session_id for a room, or None."""
@@ -145,9 +162,17 @@ class ThenvoiACPServerAdapter(SimpleAdapter[ACPSessionState]):
             return False
 
     async def close(self) -> None:
-        """Close the REST client connection pool."""
-        if hasattr(self._rest, "_client") and self._rest._client:
-            await self._rest._client.aclose()
+        """Close the REST client connection pool.
+
+        Note: accesses Fern-generated client internal ``_client`` because
+        the generated ``AsyncRestClient`` does not expose a public close
+        method. The ``hasattr`` guard prevents breakage if internals change.
+        """
+        try:
+            if hasattr(self._rest, "_client") and self._rest._client:
+                await self._rest._client.aclose()
+        except Exception:
+            logger.exception("Error closing REST client")
         logger.debug("ACP server adapter closed")
 
     # ── Composition setters ──
@@ -184,12 +209,24 @@ class ThenvoiACPServerAdapter(SimpleAdapter[ACPSessionState]):
             )
             self._agent_id = identity.data.id
         except Exception:
-            logger.warning("Could not fetch agent identity for mention filtering")
+            logger.error(
+                "Could not fetch agent identity for mention filtering. "
+                "Self-mention filtering will be disabled.",
+                exc_info=True,
+            )
 
         logger.info("ACP server adapter started: %s", agent_name)
 
-    async def create_session(self) -> str:
+    async def create_session(
+        self,
+        cwd: str = ".",
+        mcp_servers: list[Any] | None = None,
+    ) -> str:
         """Create a Thenvoi room and map it to an ACP session.
+
+        Args:
+            cwd: Working directory from the editor.
+            mcp_servers: Optional MCP server configs from the editor.
 
         Returns:
             The ACP session_id.
@@ -209,6 +246,9 @@ class ThenvoiACPServerAdapter(SimpleAdapter[ACPSessionState]):
         async with self._state_lock:
             self._session_to_room[session_id] = room_id
             self._room_to_session[room_id] = session_id
+            self._session_cwd[session_id] = cwd
+            if mcp_servers:
+                self._session_mcp_servers[session_id] = mcp_servers
 
         try:
             await self._emit_session_event(room_id, session_id)
@@ -216,6 +256,8 @@ class ThenvoiACPServerAdapter(SimpleAdapter[ACPSessionState]):
             async with self._state_lock:
                 self._session_to_room.pop(session_id, None)
                 self._room_to_session.pop(room_id, None)
+                self._session_cwd.pop(session_id, None)
+                self._session_mcp_servers.pop(session_id, None)
             logger.exception(
                 "Failed to emit session event for session %s (room %s), "
                 "rolling back mappings",
@@ -225,9 +267,10 @@ class ThenvoiACPServerAdapter(SimpleAdapter[ACPSessionState]):
             raise
 
         logger.info(
-            "Created ACP session %s -> room %s",
+            "Created ACP session %s -> room %s (cwd=%s)",
             session_id,
             room_id,
+            cwd,
         )
 
         return session_id
@@ -364,7 +407,10 @@ class ThenvoiACPServerAdapter(SimpleAdapter[ACPSessionState]):
                     self._pending_prompts.pop(room_id, None)
         elif self._acp_client and self._push_handler:
             # No pending prompt — push unsolicited update
-            await self._push_handler.handle_push_event(msg, room_id)
+            try:
+                await self._push_handler.handle_push_event(msg, room_id)
+            except Exception:
+                logger.exception("Push handler failed for room %s", room_id)
         else:
             logger.debug(
                 "Dropping message for room %s: no ACP client or pending prompt",
@@ -389,6 +435,8 @@ class ThenvoiACPServerAdapter(SimpleAdapter[ACPSessionState]):
                 self._session_to_room.pop(session_id, None)
                 self._session_modes.pop(session_id, None)
                 self._session_models.pop(session_id, None)
+                self._session_cwd.pop(session_id, None)
+                self._session_mcp_servers.pop(session_id, None)
 
         logger.debug("Cleaned up ACP server resources for room %s", room_id)
 

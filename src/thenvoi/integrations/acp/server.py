@@ -105,18 +105,24 @@ class ACPServer(Agent):
     ) -> NewSessionResponse:
         """Handle ACP new_session request.
 
-        Creates a Thenvoi room and maps it to the ACP session.
+        Creates a Thenvoi room and maps it to the ACP session. The
+        ``cwd`` and ``mcp_servers`` are stored per-session in the adapter
+        so they can be returned in ``list_sessions`` and used for
+        workspace context.
 
         Args:
             cwd: Working directory from the editor.
-            mcp_servers: Optional list of MCP servers from the editor.
+            mcp_servers: Optional MCP server configs from the editor.
             **kwargs: Additional keyword arguments.
 
         Returns:
             NewSessionResponse with the session identifier.
         """
-        session_id = await self._adapter.create_session()
-        logger.info("Created ACP session %s", session_id)
+        session_id = await self._adapter.create_session(
+            cwd=cwd,
+            mcp_servers=mcp_servers,
+        )
+        logger.info("Created ACP session %s (cwd=%s)", session_id, cwd)
         return NewSessionResponse(session_id=session_id)  # type: ignore[call-arg]  # Pydantic alias: sessionId
 
     async def load_session(
@@ -166,7 +172,7 @@ class ACPServer(Agent):
             ListSessionsResponse with active sessions.
         """
         sessions = [
-            SessionInfo(session_id=sid, cwd=".")  # type: ignore[call-arg]  # Pydantic alias: sessionId
+            SessionInfo(session_id=sid, cwd=self._adapter.get_session_cwd(sid))  # type: ignore[call-arg]  # Pydantic alias: sessionId
             for sid in self._adapter.get_session_ids()
         ]
         logger.debug("list_sessions: returning %d sessions", len(sessions))
@@ -303,21 +309,50 @@ class ACPServer(Agent):
     def _extract_text(prompt: list[Any]) -> str:
         """Extract text from ACP content blocks.
 
-        Phase 1 handles text content only. Future phases will handle
-        image, audio, and resource content blocks.
+        Handles TextContentBlock, ImageContentBlock (via URI/description),
+        and ResourceContentBlock (via title/URI). Unknown block types are
+        skipped with a debug log.
 
         Args:
             prompt: List of ACP content blocks.
 
         Returns:
-            Concatenated text from all text content blocks.
+            Concatenated text representation of all content blocks.
         """
         parts: list[str] = []
         for block in prompt:
             if isinstance(block, dict):
-                text = block.get("text", "")
+                block_type = block.get("type", "text")
+                if block_type == "text":
+                    text = block.get("text", "")
+                    if text:
+                        parts.append(str(text))
+                elif block_type == "image":
+                    uri = block.get("uri", "")
+                    parts.append(f"[Image: {uri}]" if uri else "[Image]")
+                elif block_type == "resource":
+                    title = block.get("title") or block.get("name") or ""
+                    uri = block.get("uri", "")
+                    desc = block.get("description", "")
+                    label = title or uri or "resource"
+                    parts.append(f"[Resource: {label}]" + (f" {desc}" if desc else ""))
+                else:
+                    logger.debug("Unknown content block type: %s", block_type)
             else:
-                text = getattr(block, "text", "")
-            if text:
-                parts.append(str(text))
+                block_type = getattr(block, "type", "text")
+                if block_type == "text":
+                    text = getattr(block, "text", "")
+                    if text:
+                        parts.append(str(text))
+                elif block_type == "image":
+                    uri = getattr(block, "uri", "")
+                    parts.append(f"[Image: {uri}]" if uri else "[Image]")
+                elif block_type == "resource":
+                    title = getattr(block, "title", "") or getattr(block, "name", "")
+                    uri = getattr(block, "uri", "")
+                    desc = getattr(block, "description", "")
+                    label = title or uri or "resource"
+                    parts.append(f"[Resource: {label}]" + (f" {desc}" if desc else ""))
+                else:
+                    logger.debug("Unknown content block type: %s", block_type)
         return "\n".join(parts)

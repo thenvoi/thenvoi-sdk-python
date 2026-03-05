@@ -63,6 +63,8 @@ async def main() -> None:
         "THENVOI_WS_URL", "wss://app.thenvoi.com/api/v1/socket/websocket"
     )
     rest_url = os.getenv("THENVOI_REST_URL", "https://app.thenvoi.com")
+    # ACP server examples check env vars first because editors (Zed, Cursor)
+    # typically inject credentials via environment when spawning the subprocess.
     api_key = os.getenv("THENVOI_API_KEY")
 
     if not api_key:
@@ -75,11 +77,6 @@ async def main() -> None:
             )
     else:
         agent_id = os.getenv("THENVOI_AGENT_ID", "acp-server")
-
-    if not ws_url:
-        raise ValueError("THENVOI_WS_URL environment variable is required")
-    if not rest_url:
-        raise ValueError("THENVOI_REST_URL environment variable is required")
 
     # Configure routing: slash commands and mode-based routing
     router = AgentRouter(

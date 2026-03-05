@@ -55,13 +55,10 @@ logger = logging.getLogger(__name__)
 
 async def main() -> None:
     load_dotenv()
-    ws_url = os.getenv("THENVOI_WS_URL")
-    rest_url = os.getenv("THENVOI_REST_URL")
-
-    if not ws_url:
-        raise ValueError("THENVOI_WS_URL environment variable is required")
-    if not rest_url:
-        raise ValueError("THENVOI_REST_URL environment variable is required")
+    ws_url = os.getenv(
+        "THENVOI_WS_URL", "wss://app.thenvoi.com/api/v1/socket/websocket"
+    )
+    rest_url = os.getenv("THENVOI_REST_URL", "https://app.thenvoi.com")
 
     # Load agent configuration from agent_config.yaml
     agent_id, api_key = load_agent_config("rag_agent")
