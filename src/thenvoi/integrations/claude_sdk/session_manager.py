@@ -31,7 +31,7 @@ logger = logging.getLogger(__name__)
 class _SessionCommand:
     """Command to be processed by the session manager task."""
 
-    action: str  # "create", "cleanup", "cleanup_all", "stop"
+    action: str  # "create", "cleanup", "cleanup_all", "invalidate", "stop"
     room_id: str | None = None
     resume_session_id: str | None = None
     result_future: asyncio.Future[Any] | None = None
@@ -101,7 +101,7 @@ class ClaudeSessionManager:
             return
 
         # Send stop command
-        stop_future: asyncio.Future[None] = asyncio.get_event_loop().create_future()
+        stop_future: asyncio.Future[None] = asyncio.get_running_loop().create_future()
         await self._command_queue.put(
             _SessionCommand(action="stop", result_future=stop_future)
         )
@@ -138,6 +138,11 @@ class ClaudeSessionManager:
 
                 elif cmd.action == "cleanup":
                     await self._do_cleanup_session(cmd.room_id)
+                    if cmd.result_future:
+                        cmd.result_future.set_result(None)
+
+                elif cmd.action == "invalidate":
+                    self._do_invalidate_session(cmd.room_id)
                     if cmd.result_future:
                         cmd.result_future.set_result(None)
 
@@ -214,6 +219,23 @@ class ClaudeSessionManager:
 
         return self._sessions[room_id]
 
+    def _do_invalidate_session(self, room_id: str | None) -> None:
+        """Evict a dead session without calling disconnect() (runs in background task).
+
+        Use this when the CLI process has already terminated — calling
+        disconnect() on a dead process would raise or hang.
+        """
+        if not room_id or room_id not in self._sessions:
+            logger.debug("No session to invalidate for room: %s", room_id)
+            return
+
+        del self._sessions[room_id]
+        logger.info(
+            "Invalidated dead session for room %s (remaining sessions: %s)",
+            room_id,
+            len(self._sessions),
+        )
+
     async def _do_cleanup_session(self, room_id: str | None) -> None:
         """Cleanup single session (runs in background task)."""
         if not room_id or room_id not in self._sessions:
@@ -267,7 +289,7 @@ class ClaudeSessionManager:
             await self.start()
 
         result_future: asyncio.Future[ClaudeSDKClient] = (
-            asyncio.get_event_loop().create_future()
+            asyncio.get_running_loop().create_future()
         )
         await self._command_queue.put(
             _SessionCommand(
@@ -294,10 +316,34 @@ class ClaudeSessionManager:
         if not self._started:
             return
 
-        result_future: asyncio.Future[None] = asyncio.get_event_loop().create_future()
+        result_future: asyncio.Future[None] = asyncio.get_running_loop().create_future()
         await self._command_queue.put(
             _SessionCommand(
                 action="cleanup",
+                room_id=room_id,
+                result_future=result_future,
+            )
+        )
+        await result_future
+
+    async def invalidate_session(self, room_id: str) -> None:
+        """
+        Evict a dead session without calling disconnect().
+
+        Use this when the CLI subprocess has already exited — calling
+        disconnect() on a dead process would raise or hang.  After
+        invalidation, ``get_or_create_session`` will create a fresh client.
+
+        Args:
+            room_id: Thenvoi chat room ID
+        """
+        if not self._started:
+            return
+
+        result_future: asyncio.Future[None] = asyncio.get_running_loop().create_future()
+        await self._command_queue.put(
+            _SessionCommand(
+                action="invalidate",
                 room_id=room_id,
                 result_future=result_future,
             )
@@ -314,7 +360,7 @@ class ClaudeSessionManager:
         if not self._started:
             return
 
-        result_future: asyncio.Future[None] = asyncio.get_event_loop().create_future()
+        result_future: asyncio.Future[None] = asyncio.get_running_loop().create_future()
         await self._command_queue.put(
             _SessionCommand(
                 action="cleanup_all",

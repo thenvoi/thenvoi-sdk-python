@@ -96,8 +96,8 @@ async def test_skips_invalid_room_removed_payload(caplog):
     class MockMessage:
         event = "room_removed"
         payload = {
-            "id": "room-123",
-            # Missing: status, type, title, removed_at
+            # Missing required field: id
+            "status": "closed",
         }
 
     async def dummy_callback(payload):

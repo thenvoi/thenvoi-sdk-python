@@ -24,9 +24,9 @@ class Mention(BaseModel):
     model_config = ConfigDict(extra="allow")
 
     id: str
+    username: str | None = None
     handle: str | None = None
     name: str | None = None
-    username: str | None = None
 
 
 class MessageMetadata(BaseModel):
@@ -34,7 +34,8 @@ class MessageMetadata(BaseModel):
 
     model_config = ConfigDict(extra="allow")
 
-    mentions: list[Mention] | None = None
+    mentions: list[Mention] = []
+    status: str | None = None
 
 
 class MessageCreatedPayload(BaseModel):
@@ -72,14 +73,14 @@ class RoomAddedPayload(BaseModel):
 
     id: str
     title: str | None = None
-    task_id: str | None = None
-    inserted_at: str | None = None
-    updated_at: str | None = None
     owner: RoomOwner | None = None
     status: str | None = None
     type: str | None = None
     created_at: str | None = None
     participant_role: str | None = None
+    task_id: str | None = None
+    inserted_at: str | None = None
+    updated_at: str | None = None
 
 
 class RoomRemovedPayload(BaseModel):
@@ -88,10 +89,10 @@ class RoomRemovedPayload(BaseModel):
     model_config = ConfigDict(extra="allow")
 
     id: str
-    status: str
-    type: str
-    title: str
-    removed_at: str
+    status: str | None = None
+    type: str | None = None
+    title: str | None = None
+    removed_at: str | None = None
 
 
 class ParticipantAddedPayload(BaseModel):

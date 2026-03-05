@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Protocol
+from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 if TYPE_CHECKING:
     from thenvoi.runtime.tools import AgentTools
 
 
-class BaseHandler(Protocol):
+@runtime_checkable
+class Handler(Protocol):
     """Protocol for bridge message handlers.
 
     Implement this to create handlers for specific agents.
@@ -40,5 +41,13 @@ class BaseHandler(Protocol):
             sender_type: Type of sender ("User", "Agent", "System").
             mentioned_agent: The agent name that was @mentioned.
             tools: AgentTools instance bound to the room for sending responses.
+        """
+        ...
+
+    async def close(self) -> None:
+        """Clean up handler resources (e.g. HTTP clients).
+
+        Safe to call multiple times.  Handlers that don't own external
+        resources can leave this as a no-op.
         """
         ...

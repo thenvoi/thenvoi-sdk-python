@@ -27,6 +27,7 @@ from dataclasses import dataclass
 
 import pytest
 from thenvoi_rest import AsyncRestClient, ChatMessageRequest, ChatRoomRequest
+from thenvoi_rest.core.api_error import ApiError
 from thenvoi_rest.types import (
     ChatMessageRequestMentionsItem as Mention,
     ParticipantRequest,
@@ -65,12 +66,17 @@ class DynamicAgentManager:
         unique_suffix = uuid.uuid4().hex[:8]
         agent_name = f"{name_prefix} {unique_suffix}"
 
-        response = await self.user_client.human_api_agents.register_my_agent(
-            agent=AgentRegisterRequest(
-                name=agent_name,
-                description="Created by SDK permission tests - will be deleted",
+        try:
+            response = await self.user_client.human_api_agents.register_my_agent(
+                agent=AgentRegisterRequest(
+                    name=agent_name,
+                    description="Created by SDK permission tests - will be deleted",
+                )
             )
-        )
+        except ApiError as e:
+            if e.status_code == 403:
+                pytest.skip("Enterprise plan required for Human API agent registration")
+            raise
 
         agent = response.data.agent
         credentials = response.data.credentials
@@ -101,18 +107,6 @@ class DynamicAgentManager:
                 logger.warning("Failed to delete agent %s: %s", agent.agent_id, e)
 
         self.created_agents.clear()
-
-
-@pytest.fixture(scope="module")
-def event_loop():
-    """Create an event loop for the module scope."""
-    import asyncio
-
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    yield loop
-    loop.close()
-    asyncio.set_event_loop(None)
 
 
 @pytest.fixture(scope="module")

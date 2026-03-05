@@ -30,7 +30,7 @@ from .session import InMemorySessionStore
 if TYPE_CHECKING:
     from thenvoi.client.streaming import MessageCreatedPayload
 
-    from .handler import BaseHandler
+    from .handler import Handler
 
 logger = logging.getLogger(__name__)
 
@@ -228,7 +228,7 @@ class ThenvoiBridge:
     def __init__(
         self,
         config: BridgeConfig,
-        handlers: dict[str, BaseHandler],
+        handlers: dict[str, Handler],
         reconnect_config: ReconnectConfig | None = None,
     ) -> None:
         """Initialize the bridge.
@@ -686,7 +686,7 @@ class ThenvoiBridge:
         ]
 
 
-async def main(handlers: dict[str, BaseHandler]) -> None:
+async def main(handlers: dict[str, Handler]) -> None:
     """Bridge entry point.
 
     Users should call this from their own script with registered handlers::

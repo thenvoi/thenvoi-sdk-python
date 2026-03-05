@@ -231,6 +231,7 @@ CONVERTER_EXCLUDED_MODULES: frozenset[str] = frozenset(
         "acp_client",
         "acp_server",
         "codex",
+        "letta",
     }
 )
 

@@ -29,6 +29,7 @@ if TYPE_CHECKING:
     from thenvoi.adapters.a2a import A2AAdapter as A2AAdapter
     from thenvoi.adapters.a2a_gateway import A2AGatewayAdapter as A2AGatewayAdapter
     from thenvoi.adapters.codex import CodexAdapter as CodexAdapter
+    from thenvoi.adapters.codex import CodexAdapterConfig as CodexAdapterConfig
     from thenvoi.adapters.acp import (
         ACPClientAdapter as ACPClientAdapter,
         ACPServer as ACPServer,
@@ -45,6 +46,7 @@ __all__ = [
     "A2AAdapter",
     "A2AGatewayAdapter",
     "CodexAdapter",
+    "CodexAdapterConfig",
     "ACPClientAdapter",
     "ACPServer",
     "ThenvoiACPServerAdapter",
@@ -89,6 +91,10 @@ def __getattr__(name: str) -> type:
         from thenvoi.adapters.codex import CodexAdapter
 
         return CodexAdapter
+    elif name == "CodexAdapterConfig":
+        from thenvoi.adapters.codex import CodexAdapterConfig
+
+        return CodexAdapterConfig
     elif name in ("ACPClientAdapter", "ACPServer", "ThenvoiACPServerAdapter"):
         from thenvoi.adapters.acp import (
             ACPClientAdapter,

@@ -73,6 +73,11 @@ class AgentToolsProtocol(Protocol):
         """Remove a participant from the current room by name."""
         ...
 
+    @property
+    def participants(self) -> list[dict[str, Any]]:
+        """Read-only snapshot of cached room participants."""
+        ...
+
     async def get_participants(self) -> list[dict[str, Any]]:
         """Get participants in the current room."""
         ...
