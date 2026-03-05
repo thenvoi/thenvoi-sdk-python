@@ -179,9 +179,8 @@ class GeminiAdapter(SimpleAdapter[GeminiMessages]):
 
     async def on_cleanup(self, room_id: str) -> None:
         """Clean up message history when the agent leaves a room."""
-        if room_id in self._message_history:
-            del self._message_history[room_id]
-            logger.debug("Room %s: Cleaned up Gemini history", room_id)
+        self._message_history.pop(room_id, None)
+        logger.debug("Room %s: Cleaned up Gemini history", room_id)
 
     def _trim_history(self, room_id: str) -> None:
         """Trim message history to stay within ``max_history_messages``."""

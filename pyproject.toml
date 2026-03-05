@@ -68,7 +68,7 @@ crewai = [
     "nest-asyncio>=1.6.0",  # Required for sync-to-async bridging in CrewAI tools
 ]
 gemini = [
-    "google-genai>=1.43.0",
+    "google-genai>=1.43.0",  # httpx is a transitive dep used for retry exception types
 ]
 a2a = [
     "a2a-sdk>=0.3.22",  # Official A2A Python SDK

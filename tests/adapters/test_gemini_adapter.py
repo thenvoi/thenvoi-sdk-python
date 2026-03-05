@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import httpx
 import pytest
 from google.genai import types
 from google.genai.errors import ServerError
@@ -338,3 +339,219 @@ class TestValidationErrorHandling:
         assert resp is not None
         assert "Invalid arguments for thenvoi_send_message" in resp.response["error"]
         assert "content" in resp.response["error"]
+
+
+class TestMaxToolRounds:
+    @pytest.mark.asyncio
+    async def test_raises_runtime_error_when_max_rounds_exceeded(
+        self, sample_message, mock_tools
+    ):
+        adapter = GeminiAdapter(
+            max_tool_rounds=2,
+            gemini_api_key="test-key",
+        )
+        await adapter.on_started("TestBot", "Test bot")
+
+        # Always return a function call so the loop never terminates naturally
+        with patch.object(
+            adapter,
+            "_call_gemini",
+            AsyncMock(
+                return_value=_response_with_function_call(
+                    "thenvoi_lookup_peers", {"page": "1"}, "call_1"
+                )
+            ),
+        ):
+            with pytest.raises(RuntimeError, match="Exceeded max tool rounds"):
+                await adapter.on_message(
+                    msg=sample_message,
+                    tools=mock_tools,
+                    history=[],
+                    participants_msg=None,
+                    contacts_msg=None,
+                    is_session_bootstrap=True,
+                    room_id="room-123",
+                )
+
+
+class TestHttpxRetries:
+    @pytest.mark.asyncio
+    async def test_retries_on_timeout_exception(self):
+        adapter = GeminiAdapter(
+            max_retries=1,
+            retry_base_delay_s=0,
+            gemini_api_key="test-key",
+        )
+        adapter._system_prompt = "system"
+        adapter.client = MagicMock()
+        adapter.client.aio.models.generate_content = AsyncMock(
+            side_effect=[
+                httpx.TimeoutException("timeout"),
+                _response_with_text("ok"),
+            ]
+        )
+
+        with patch.object(
+            adapter.client.aio.models,  # type: ignore[union-attr]
+            "generate_content",
+            adapter.client.aio.models.generate_content,
+        ) as mocked:
+            response = await adapter._call_gemini(
+                contents=[
+                    types.Content(role="user", parts=[types.Part.from_text(text="x")])
+                ],
+                tools=[],
+            )
+
+        assert mocked.call_count == 2
+        assert response.candidates[0].content.parts[0].text == "ok"
+
+    @pytest.mark.asyncio
+    async def test_retries_on_transport_error(self):
+        adapter = GeminiAdapter(
+            max_retries=1,
+            retry_base_delay_s=0,
+            gemini_api_key="test-key",
+        )
+        adapter._system_prompt = "system"
+        adapter.client = MagicMock()
+        adapter.client.aio.models.generate_content = AsyncMock(
+            side_effect=[
+                httpx.TransportError("connection reset"),
+                _response_with_text("ok"),
+            ]
+        )
+
+        with patch.object(
+            adapter.client.aio.models,  # type: ignore[union-attr]
+            "generate_content",
+            adapter.client.aio.models.generate_content,
+        ) as mocked:
+            response = await adapter._call_gemini(
+                contents=[
+                    types.Content(role="user", parts=[types.Part.from_text(text="x")])
+                ],
+                tools=[],
+            )
+
+        assert mocked.call_count == 2
+        assert response.candidates[0].content.parts[0].text == "ok"
+
+    @pytest.mark.asyncio
+    async def test_raises_after_exhausting_retries(self):
+        adapter = GeminiAdapter(
+            max_retries=1,
+            retry_base_delay_s=0,
+            gemini_api_key="test-key",
+        )
+        adapter._system_prompt = "system"
+        adapter.client = MagicMock()
+        adapter.client.aio.models.generate_content = AsyncMock(
+            side_effect=httpx.TimeoutException("timeout")
+        )
+
+        with patch.object(
+            adapter.client.aio.models,  # type: ignore[union-attr]
+            "generate_content",
+            adapter.client.aio.models.generate_content,
+        ):
+            with pytest.raises(httpx.TimeoutException):
+                await adapter._call_gemini(
+                    contents=[
+                        types.Content(
+                            role="user", parts=[types.Part.from_text(text="x")]
+                        )
+                    ],
+                    tools=[],
+                )
+
+
+class TestParticipantsContactsInjection:
+    @pytest.mark.asyncio
+    async def test_participants_msg_injected_into_history(
+        self, sample_message, mock_tools
+    ):
+        adapter = GeminiAdapter(gemini_api_key="test-key")
+        await adapter.on_started("TestBot", "Test bot")
+
+        with patch.object(
+            adapter, "_call_gemini", AsyncMock(return_value=_response_with_text("ok"))
+        ):
+            await adapter.on_message(
+                msg=sample_message,
+                tools=mock_tools,
+                history=[],
+                participants_msg="Alice, Bob are in the room",
+                contacts_msg=None,
+                is_session_bootstrap=True,
+                room_id="room-123",
+            )
+
+        history = adapter._message_history["room-123"]
+        # First entry should be participants system message
+        assert "[System]: Alice, Bob are in the room" in history[0].parts[0].text
+
+    @pytest.mark.asyncio
+    async def test_contacts_msg_injected_into_history(self, sample_message, mock_tools):
+        adapter = GeminiAdapter(gemini_api_key="test-key")
+        await adapter.on_started("TestBot", "Test bot")
+
+        with patch.object(
+            adapter, "_call_gemini", AsyncMock(return_value=_response_with_text("ok"))
+        ):
+            await adapter.on_message(
+                msg=sample_message,
+                tools=mock_tools,
+                history=[],
+                participants_msg=None,
+                contacts_msg="Charlie is now a contact",
+                is_session_bootstrap=True,
+                room_id="room-123",
+            )
+
+        history = adapter._message_history["room-123"]
+        assert "[System]: Charlie is now a contact" in history[0].parts[0].text
+
+    @pytest.mark.asyncio
+    async def test_both_participants_and_contacts_injected(
+        self, sample_message, mock_tools
+    ):
+        adapter = GeminiAdapter(gemini_api_key="test-key")
+        await adapter.on_started("TestBot", "Test bot")
+
+        with patch.object(
+            adapter, "_call_gemini", AsyncMock(return_value=_response_with_text("ok"))
+        ):
+            await adapter.on_message(
+                msg=sample_message,
+                tools=mock_tools,
+                history=[],
+                participants_msg="Alice, Bob",
+                contacts_msg="Charlie added",
+                is_session_bootstrap=True,
+                room_id="room-123",
+            )
+
+        history = adapter._message_history["room-123"]
+        assert "[System]: Alice, Bob" in history[0].parts[0].text
+        assert "[System]: Charlie added" in history[1].parts[0].text
+
+
+class TestEmptyCandidates:
+    def test_extract_candidate_content_returns_none_for_empty_response(self):
+        adapter = GeminiAdapter(gemini_api_key="test-key")
+        response = MagicMock()
+        response.candidates = []
+        response.function_calls = []
+
+        content = adapter._extract_candidate_content(response)
+        assert content is None
+
+    def test_extract_candidate_content_returns_none_when_no_candidates(self):
+        adapter = GeminiAdapter(gemini_api_key="test-key")
+        response = MagicMock()
+        response.candidates = None
+        response.function_calls = []
+
+        content = adapter._extract_candidate_content(response)
+        assert content is None

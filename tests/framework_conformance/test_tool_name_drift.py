@@ -178,6 +178,33 @@ class TestPydanticAIToolDrift:
         )
 
 
+class TestGeminiToolDrift:
+    """Gemini adapter (adapters/gemini.py) must cover all tools.
+
+    The Gemini adapter derives tool declarations dynamically from
+    ``get_openai_tool_schemas()`` so individual tool names do not appear as
+    string literals.  Instead we verify it uses the dynamic schema mechanism.
+    """
+
+    _FILE = _SRC_ROOT / "adapters" / "gemini.py"
+
+    def test_derives_tools_from_openai_schemas(self):
+        """Verify the adapter builds tools via get_openai_tool_schemas()."""
+        source = self._FILE.read_text()
+        assert "get_openai_tool_schemas" in source, (
+            "Gemini adapter should use get_openai_tool_schemas() to derive "
+            "tool declarations dynamically from the central registry."
+        )
+
+    def test_supports_memory_tools_toggle(self):
+        """Verify include_memory is wired through to get_openai_tool_schemas."""
+        source = self._FILE.read_text()
+        assert "include_memory" in source, (
+            "Gemini adapter should pass include_memory to "
+            "get_openai_tool_schemas() so memory tools can be toggled."
+        )
+
+
 class TestParlantToolDrift:
     """Parlant integration (integrations/parlant/tools.py) — chat tools only."""
 
