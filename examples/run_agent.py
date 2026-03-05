@@ -17,7 +17,6 @@ Usage:
     uv run python examples/run_agent.py --example langgraph
     uv run python examples/run_agent.py --example pydantic_ai
     uv run python examples/run_agent.py --example pydantic_ai --streaming  # With tool_call/tool_result events
-    uv run python examples/run_agent.py --example pydantic_ai --contacts auto      # Auto-approve contacts (CALLBACK)
     uv run python examples/run_agent.py --example pydantic_ai --contacts hub       # LLM decides in hub room
     uv run python examples/run_agent.py --example pydantic_ai --contacts broadcast # Broadcast-only awareness
     uv run python examples/run_agent.py --example pydantic_ai_contacts     # Contact management via chat (legacy)
@@ -68,8 +67,6 @@ from dotenv import load_dotenv
 
 from thenvoi import Agent
 from thenvoi.config import load_agent_config
-from thenvoi.platform.event import ContactRequestReceivedEvent, ContactEvent
-from thenvoi.runtime.contact_tools import ContactTools
 from thenvoi.runtime.types import ContactEventConfig, ContactEventStrategy
 
 # Load environment from .env
@@ -78,39 +75,17 @@ load_dotenv()
 
 def build_contact_config(
     mode: str | None,
-    logger: logging.Logger,
 ) -> ContactEventConfig | None:
     """Build ContactEventConfig based on mode.
 
     Args:
-        mode: Contact mode (none, auto, hub, broadcast)
-        logger: Logger for auto-approve callback
+        mode: Contact mode (none, hub, broadcast)
 
     Returns:
         ContactEventConfig or None if mode is "none"
     """
     if mode is None or mode == "none":
         return None
-
-    if mode == "auto":
-
-        async def auto_approve(event: ContactEvent, tools: ContactTools) -> None:
-            """Auto-approve all contact requests."""
-            if isinstance(event, ContactRequestReceivedEvent):
-                if event.payload:
-                    logger.info(
-                        "Auto-approving contact request from %s",
-                        event.payload.from_handle,
-                    )
-                    await tools.respond_contact_request(
-                        "approve", request_id=event.payload.id
-                    )
-
-        return ContactEventConfig(
-            strategy=ContactEventStrategy.CALLBACK,
-            on_event=auto_approve,
-            broadcast_changes=True,
-        )
 
     if mode == "hub":
         return ContactEventConfig(
@@ -168,7 +143,6 @@ CREWAI_DEFAULTS = {
 # explicitly to bypass this.
 _DEFAULT_MODELS: dict[str, str] = {
     "pydantic_ai_contacts": "anthropic:claude-sonnet-4-5",
-    "contacts_auto": "anthropic:claude-sonnet-4-5",
     "contacts_hub": "anthropic:claude-sonnet-4-5",
     "contacts_broadcast": "anthropic:claude-sonnet-4-5",
     "anthropic": "claude-sonnet-4-5-20250929",
@@ -557,63 +531,6 @@ async def run_pydantic_ai_contacts_agent(
     await agent.run()
 
 
-async def run_contacts_auto_agent(
-    agent_id: str,
-    api_key: str,
-    rest_url: str,
-    ws_url: str,
-    model: str,
-    logger: logging.Logger,
-) -> None:
-    """Run agent with CALLBACK strategy that auto-approves contact requests.
-
-    This example demonstrates:
-    - ContactEventConfig with CALLBACK strategy
-    - Auto-approve logic for contact requests
-    - broadcast_changes=True to notify all rooms of contact updates
-    """
-    from thenvoi.adapters import PydanticAIAdapter
-    from thenvoi.platform.event import ContactRequestReceivedEvent
-
-    async def auto_approve(event: "ContactEvent", tools: "ContactTools") -> None:
-        """Auto-approve all contact requests."""
-        if isinstance(event, ContactRequestReceivedEvent):
-            if event.payload:
-                logger.info(
-                    "Auto-approving contact request from %s", event.payload.from_handle
-                )
-                await tools.respond_contact_request(
-                    "approve", request_id=event.payload.id
-                )
-
-    config = ContactEventConfig(
-        strategy=ContactEventStrategy.CALLBACK,
-        on_event=auto_approve,
-        broadcast_changes=True,  # All rooms see "[Contacts]: @X is now a contact"
-    )
-
-    adapter = PydanticAIAdapter(
-        model=model,
-        custom_section="""You are a helpful assistant. Contact requests are handled automatically.
-When you see system messages about new contacts, acknowledge them to the user.""",
-        enable_execution_reporting=True,
-    )
-
-    agent = Agent.create(
-        adapter=adapter,
-        agent_id=agent_id,
-        api_key=api_key,
-        ws_url=ws_url,
-        rest_url=rest_url,
-        contact_config=config,
-    )
-
-    logger.info("Starting contacts auto-approve agent with model: %s", model)
-    logger.info("Contact requests will be automatically approved")
-    logger.info("All rooms will see broadcast: '@handle (name) is now a contact'")
-    await agent.run()
-
-
 async def run_contacts_hub_agent(
     agent_id: str,
     api_key: str,
@@ -815,10 +732,8 @@ Examples:
   uv run python examples/run_agent.py --example pydantic_ai               # Pydantic AI with OpenAI
   uv run python examples/run_agent.py --example pydantic_ai --streaming   # With tool_call/tool_result events
   uv run python examples/run_agent.py --example pydantic_ai --model anthropic:claude-sonnet-4-5
-  uv run python examples/run_agent.py --example pydantic_ai --contacts auto      # Auto-approve contacts
   uv run python examples/run_agent.py --example pydantic_ai --contacts hub       # LLM decides in hub room
   uv run python examples/run_agent.py --example pydantic_ai --contacts broadcast # Broadcast-only awareness
-  uv run python examples/run_agent.py --example anthropic --contacts auto        # Anthropic with auto-approve
   uv run python examples/run_agent.py --example claude_sdk --contacts hub        # Claude SDK with hub room
   uv run python examples/run_agent.py --example anthropic                 # Anthropic SDK
   uv run python examples/run_agent.py --example anthropic --streaming     # With tool_call/tool_result events
@@ -850,7 +765,6 @@ Examples:
             "langgraph",
             "pydantic_ai",
             "pydantic_ai_contacts",
-            "contacts_auto",
             "contacts_hub",
             "contacts_broadcast",
             "anthropic",
@@ -983,9 +897,9 @@ Examples:
     )
     parser.add_argument(
         "--contacts",
-        choices=["none", "auto", "hub", "broadcast"],
+        choices=["none", "hub", "broadcast"],
         default="none",
-        help="Contact handling strategy: none (disabled), auto (auto-approve), "
+        help="Contact handling strategy: none (disabled), "
         "hub (LLM decides in hub room), broadcast (awareness only)",
     )
 
@@ -998,7 +912,6 @@ Examples:
         "langgraph": "simple_agent",
         "pydantic_ai": "simple_agent",
         "pydantic_ai_contacts": "simple_agent",
-        "contacts_auto": "simple_agent",
         "contacts_hub": "simple_agent",
         "contacts_broadcast": "simple_agent",
         "anthropic": "anthropic_agent",
@@ -1033,7 +946,7 @@ Examples:
     logger.info("WS URL: %s", ws_url)
 
     # Build contact config if specified
-    contact_config = build_contact_config(args.contacts, logger)
+    contact_config = build_contact_config(args.contacts)
     if contact_config:
         logger.info(
             "Contacts: %s (broadcast=%s)",
@@ -1071,15 +984,6 @@ Examples:
             )
         elif args.example == "pydantic_ai_contacts":
             await run_pydantic_ai_contacts_agent(
-                agent_id=agent_id,
-                api_key=api_key,
-                rest_url=rest_url,
-                ws_url=ws_url,
-                model=model,
-                logger=logger,
-            )
-        elif args.example == "contacts_auto":
-            await run_contacts_auto_agent(
                 agent_id=agent_id,
                 api_key=api_key,
                 rest_url=rest_url,

@@ -157,20 +157,21 @@ class ContactEventConfig:
     - HUB_ROOM + broadcast_changes=True: LLM decides + awareness everywhere
     - DISABLED + broadcast_changes=True: Just awareness, manual handling
 
-    Example (auto-approve all requests):
-        async def auto_approve(event: ContactEvent, tools: ContactTools) -> None:
+    Example (LLM decides in hub room):
+        config = ContactEventConfig(
+            strategy=ContactEventStrategy.HUB_ROOM,
+            broadcast_changes=True,
+        )
+
+    Example (programmatic callback):
+        async def handle_contact(event: ContactEvent, tools: ContactTools) -> None:
             if isinstance(event, ContactRequestReceivedEvent):
+                # Custom logic to decide whether to approve
                 await tools.respond_contact_request("approve", request_id=event.payload.id)
 
         config = ContactEventConfig(
             strategy=ContactEventStrategy.CALLBACK,
-            on_event=auto_approve,
-            broadcast_changes=True,
-        )
-
-    Example (LLM decides in hub room):
-        config = ContactEventConfig(
-            strategy=ContactEventStrategy.HUB_ROOM,
+            on_event=handle_contact,
             broadcast_changes=True,
         )
     """
