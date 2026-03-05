@@ -44,7 +44,7 @@ class GeminiAdapter(SimpleAdapter[GeminiMessages]):
 
     def __init__(
         self,
-        model: str = "gemini-2.5-pro",
+        model: str = "gemini-2.5-flash",
         gemini_api_key: str | None = None,
         system_prompt: str | None = None,
         custom_section: str | None = None,
@@ -203,7 +203,7 @@ class GeminiAdapter(SimpleAdapter[GeminiMessages]):
         if self.model.startswith(deprecated_prefixes):
             logger.warning(
                 "Configured Gemini model '%s' appears deprecated. "
-                "Use a current 2.5 or newer model alias.",
+                "Consider using gemini-2.5-flash or a newer model.",
                 self.model,
             )
 
