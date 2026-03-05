@@ -13,7 +13,6 @@ from thenvoi.client.streaming import (
     ParticipantAddedPayload,
     ParticipantRemovedPayload,
     RoomAddedPayload,
-    RoomOwner,
     RoomRemovedPayload,
 )
 from thenvoi.platform.event import (
@@ -352,11 +351,6 @@ class TestThenvoiBridgeHandleEvent:
                 title="New Room",
                 inserted_at="2024-01-01T00:00:00Z",
                 updated_at="2024-01-01T00:00:00Z",
-                owner=RoomOwner(id="user-1", name="User", type="User"),
-                status="active",
-                type="direct",
-                created_at="2024-01-01T00:00:00Z",
-                participant_role="member",
             ),
         )
 
@@ -402,11 +396,6 @@ class TestThenvoiBridgeHandleEvent:
                 title="New Room",
                 inserted_at="2024-01-01T00:00:00Z",
                 updated_at="2024-01-01T00:00:00Z",
-                owner=RoomOwner(id="user-1", name="User", type="User"),
-                status="active",
-                type="direct",
-                created_at="2024-01-01T00:00:00Z",
-                participant_role="member",
             ),
         )
 
@@ -586,11 +575,6 @@ class TestThenvoiBridgeHandleEvent:
                 title="New Room",
                 inserted_at="2024-01-01T00:00:00Z",
                 updated_at="2024-01-01T00:00:00Z",
-                owner=RoomOwner(id="user-1", name="User", type="User"),
-                status="active",
-                type="direct",
-                created_at="2024-01-01T00:00:00Z",
-                participant_role="member",
             ),
         )
 
@@ -1015,11 +999,6 @@ class TestConnectAndConsume:
                 title="Room",
                 inserted_at="2024-01-01T00:00:00Z",
                 updated_at="2024-01-01T00:00:00Z",
-                owner=RoomOwner(id="u1", name="User", type="User"),
-                status="active",
-                type="direct",
-                created_at="2024-01-01T00:00:00Z",
-                participant_role="member",
             ),
         )
         event2 = RoomAddedEvent(
@@ -1029,11 +1008,6 @@ class TestConnectAndConsume:
                 title="Room 2",
                 inserted_at="2024-01-01T00:00:00Z",
                 updated_at="2024-01-01T00:00:00Z",
-                owner=RoomOwner(id="u1", name="User", type="User"),
-                status="active",
-                type="direct",
-                created_at="2024-01-01T00:00:00Z",
-                participant_role="member",
             ),
         )
 
@@ -1158,11 +1132,6 @@ class TestConnectAndConsume:
                 title="Room",
                 inserted_at="2024-01-01T00:00:00Z",
                 updated_at="2024-01-01T00:00:00Z",
-                owner=RoomOwner(id="u1", name="User", type="User"),
-                status="active",
-                type="direct",
-                created_at="2024-01-01T00:00:00Z",
-                participant_role="member",
             ),
         )
         event2 = RoomAddedEvent(
@@ -1172,11 +1141,6 @@ class TestConnectAndConsume:
                 title="Room 2",
                 inserted_at="2024-01-01T00:00:00Z",
                 updated_at="2024-01-01T00:00:00Z",
-                owner=RoomOwner(id="u1", name="User", type="User"),
-                status="active",
-                type="direct",
-                created_at="2024-01-01T00:00:00Z",
-                participant_role="member",
             ),
         )
 
@@ -1249,11 +1213,6 @@ class TestConnectAndConsumeShutdownCancelsHandler:
                         title="Room",
                         inserted_at="2024-01-01T00:00:00Z",
                         updated_at="2024-01-01T00:00:00Z",
-                        owner=RoomOwner(id="u1", name="User", type="User"),
-                        status="active",
-                        type="direct",
-                        created_at="2024-01-01T00:00:00Z",
-                        participant_role="member",
                     ),
                 )
             # Should not be reached — shutdown fires during handler
@@ -1297,11 +1256,6 @@ class TestConnectAndConsumeShutdownCancelsHandler:
                 title="Room",
                 inserted_at="2024-01-01T00:00:00Z",
                 updated_at="2024-01-01T00:00:00Z",
-                owner=RoomOwner(id="u1", name="User", type="User"),
-                status="active",
-                type="direct",
-                created_at="2024-01-01T00:00:00Z",
-                participant_role="member",
             ),
         )
 

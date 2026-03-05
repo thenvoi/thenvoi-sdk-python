@@ -58,14 +58,6 @@ class MessageCreatedPayload(BaseModel):
     updated_at: str
 
 
-class RoomOwner(BaseModel):
-    """Owner object within room_added payload."""
-
-    id: str
-    name: str
-    type: str
-
-
 class RoomAddedPayload(BaseModel):
     """Payload for room_added events.
 
@@ -84,7 +76,11 @@ class RoomAddedPayload(BaseModel):
 
 
 class RoomRemovedPayload(BaseModel):
-    """Payload for room_removed events (observed from real WebSocket)."""
+    """Payload for room_removed events.
+
+    WebSocket-only event with no Fern-generated model; all fields except
+    ``id`` are kept optional as a defensive default.
+    """
 
     model_config = ConfigDict(extra="allow")
 
