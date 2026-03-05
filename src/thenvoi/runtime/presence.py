@@ -300,11 +300,7 @@ class RoomPresence:
 
             for room in response.data:
                 room_id = room.id
-                payload = (
-                    room.model_dump(exclude_none=True)
-                    if hasattr(room, "model_dump")
-                    else {"id": room_id}
-                )
+                payload = room.model_dump(exclude_none=True)
 
                 # Apply filter if configured
                 if self.room_filter and not self.room_filter(payload):
