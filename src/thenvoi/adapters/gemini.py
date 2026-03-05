@@ -302,8 +302,12 @@ class GeminiAdapter(SimpleAdapter[GeminiMessages]):
             for call in function_calls:
                 if call.name:
                     parts.append(
-                        types.Part.from_function_call(
-                            name=call.name, args=dict(call.args or {})
+                        types.Part(
+                            function_call=types.FunctionCall(
+                                id=call.id,
+                                name=call.name,
+                                args=dict(call.args or {}),
+                            )
                         )
                     )
             if parts:

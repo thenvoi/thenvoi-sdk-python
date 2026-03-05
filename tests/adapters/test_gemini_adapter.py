@@ -181,6 +181,25 @@ class TestOnMessage:
 
         mock_tools.execute_tool_call.assert_called_once()
 
+    def test_extract_candidate_content_preserves_function_call_id_in_fallback(self):
+        adapter = GeminiAdapter(gemini_api_key="test-key")
+        response = MagicMock()
+        response.candidates = [MagicMock(content=None)]
+        response.function_calls = [
+            types.FunctionCall(name="thenvoi_lookup_peers", args={"page": "1"}, id="c1")
+        ]
+
+        content = adapter._extract_candidate_content(response)
+
+        assert content is not None
+        assert content.role == "model"
+        assert len(content.parts) == 1
+        function_call = content.parts[0].function_call
+        assert function_call is not None
+        assert function_call.id == "c1"
+        assert function_call.name == "thenvoi_lookup_peers"
+        assert function_call.args == {"page": "1"}
+
 
 class TestRetries:
     @pytest.mark.asyncio
