@@ -24,12 +24,13 @@ import logging
 import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import pytest
 import pytest_asyncio
 from dotenv import load_dotenv
 from thenvoi_rest import AsyncRestClient, ChatRoomRequest
+from thenvoi_rest.core.api_error import ApiError
 from thenvoi_rest.types import ParticipantRequest
 from thenvoi_testing.markers import skip_without_env, skip_without_envs
 from thenvoi_testing.settings import ThenvoiTestSettings
@@ -187,14 +188,14 @@ async def fetch_all_context(
     client: AsyncRestClient,
     chat_id: str,
     page_size: int = MAX_CONTEXT_PAGE_SIZE,
-) -> list:
+) -> list[Any]:
     """Fetch all context items across all pages.
 
     The context API defaults to page_size=50, oldest-first.  Shared test
     rooms accumulate messages across runs, so new items may be on page 2+.
     This helper paginates through all pages and returns the full list.
     """
-    all_items: list = []
+    all_items: list[Any] = []
     page = 1
     while True:
         response = await client.agent_api_context.get_agent_chat_context(
@@ -368,7 +369,7 @@ async def _is_room_alive(api_client: AsyncRestClient, chat_id: str) -> bool:
     try:
         response = await api_client.agent_api_chats.get_agent_chat(id=chat_id)
         return response.data is not None
-    except Exception:
+    except (ApiError, ConnectionError):
         return False
 
 

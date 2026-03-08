@@ -19,9 +19,9 @@ from typing import TYPE_CHECKING
 import pytest
 from dotenv import load_dotenv
 from pydantic import ValidationError
-from thenvoi_rest import AsyncRestClient, ChatMessageRequest, ChatRoomRequest
+from thenvoi_rest import AsyncRestClient, ChatRoomRequest
+from thenvoi_rest.core.api_error import ApiError
 from thenvoi_rest.types import (
-    ChatMessageRequestMentionsItem as MentionItem,
     ParticipantRequest,
 )
 from thenvoi_testing.settings import ThenvoiTestSettings
@@ -194,12 +194,13 @@ def api_client(
 # Per-Adapter Room Allocation
 # =============================================================================
 
+
 async def _is_room_alive(api_client: AsyncRestClient, chat_id: str) -> bool:
     """Check whether a room is usable (not deleted) by fetching its details."""
     try:
         response = await api_client.agent_api_chats.get_agent_chat(id=chat_id)
         return response.data is not None
-    except Exception:
+    except (ApiError, ConnectionError):
         return False
 
 
@@ -256,16 +257,6 @@ async def e2e_room_allocator(
 
     used_room_ids: set[str] = set()
 
-    async def _tag_room(room_id: str, name: str) -> None:
-        """Send an identifying message to the room so it's clear which adapter uses it."""
-        await client.agent_api_messages.create_agent_chat_message(
-            room_id,
-            message=ChatMessageRequest(
-                content=f"sdk integration - {name}",
-                mentions=[MentionItem(id=user_peer.id, name=user_peer.name)],
-            ),
-        )
-
     async def allocate(name: str) -> tuple[str, str, str]:
         if name in cache:
             return cache[name]
@@ -277,7 +268,6 @@ async def e2e_room_allocator(
                 result = (room_id, user_peer.id, user_peer.name)
                 cache[name] = result
                 logger.info("E2E: Reusing room %s for '%s'", room_id, name)
-                await _tag_room(room_id, name)
                 return result
 
         # No existing room available — create one
@@ -298,7 +288,6 @@ async def e2e_room_allocator(
             room_id,
             name,
         )
-        await _tag_room(room_id, name)
         return result
 
     return allocate

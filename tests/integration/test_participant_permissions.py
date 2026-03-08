@@ -251,7 +251,7 @@ class TestParticipantRemovalPermissions:
             f"Member should NOT be able to remove owner, got: {result}"
         )
 
-    async def test_admin_removes_member_agent(
+    async def test_admin_can_remove_self(
         self,
         session_api_client: AsyncRestClient,
         session_api_client_2: AsyncRestClient,
@@ -259,19 +259,12 @@ class TestParticipantRemovalPermissions:
         shared_agent1_info: AgentInfo,
         shared_agent2_info: AgentInfo,
     ):
-        """Admin (agent2) removes member (agent1 re-added as member) -> expect success.
+        """Admin (agent2) can remove self (leave room) -> expect success.
 
-        To test this with only 2 agents, we temporarily promote agent2 to admin
-        and verify it can remove a member-role peer. We use the User peer as the
-        target since it's always present as member — but agents can't remove
-        users (403). Instead we add agent1 as member in a helper room... Since
-        agent1 owns the room, we can't change its role. We verify the admin
-        permission indirectly: agent2 as admin tries to remove user (still 403
-        due to platform restriction, not role restriction).
+        Promotes agent2 to admin and verifies it can leave the room.
 
-        Note: With only 2 agents we can't fully test admin-removes-member-agent
-        because agent1 is always the owner. This test verifies the admin role
-        is correctly assigned and the admin can attempt operations.
+        Note: With only 2 agents we can't test admin-removes-member-agent
+        because agent1 is always the owner and its role can't be changed.
         """
         if shared_multi_agent_room is None:
             pytest.skip("shared_multi_agent_room not available")
