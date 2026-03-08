@@ -331,17 +331,20 @@ async def e2e_agent_id(e2e_session_client: AsyncRestClient) -> str:
     return agent_me.data.id
 
 
-@pytest.fixture
+@pytest.fixture(scope="session")
 async def ws_client(
     e2e_config: E2ESettings,
 ) -> AsyncGenerator[TrackingWebSocketClient, None]:
-    """WebSocket client for observing agent responses.
+    """Session-scoped WebSocket client for observing agent responses.
 
     Connects as the **User** (via ``thenvoi_api_key_user``) rather than
     the agent. The platform enforces one WS connection per agent, so a
     second agent connection would kill the Agent's own connection. The
     User is a room participant and receives the same ``message_created``
     events, making it a safe observer that coexists with the Agent.
+
+    Session-scoped to avoid creating/tearing down a WS connection per test,
+    which adds latency and can cause flakiness.
 
     Wraps the raw WebSocketClient in a TrackingWebSocketClient that tracks
     joined channels and explicitly leaves them on teardown.

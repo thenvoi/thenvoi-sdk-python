@@ -1,21 +1,14 @@
-"""Integration tests for basic agent operations and User API management.
+"""Integration tests for basic agent operations.
 
-Tests are split into two classes:
-
-1. TestAgentWorkflow — validates core agent operations (identity, peers,
-   chat creation, messaging, agent-to-agent communication) using the
-   pre-existing agents defined in .env.test.  No Enterprise plan required.
-
-2. TestUserAgentManagement — validates Human API endpoints
-   (list_my_agents, list_my_peers).  These require Enterprise plan and
-   skip gracefully with a 403.
+Validates core agent operations (identity, peers, chat creation,
+messaging, agent-to-agent communication) using the pre-existing
+agents defined in .env.test.  No Enterprise plan required.
 
 Run with: uv run pytest tests/integration/test_dynamic_agent.py -v -s
 
 Prerequisites:
 - THENVOI_API_KEY / TEST_AGENT_ID  (agent 1)
 - THENVOI_API_KEY_2 / TEST_AGENT_ID_2  (agent 2)
-- THENVOI_API_KEY_USER  (user — only for TestUserAgentManagement)
 """
 
 from __future__ import annotations
