@@ -1,5 +1,7 @@
 """Tests for AgentRuntime."""
 
+from __future__ import annotations
+
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -28,8 +30,6 @@ def mock_link():
     # REST client mock
     link.rest = MagicMock()
     link.rest.agent_api_chats = MagicMock()
-    link.rest.agent_api_participants = MagicMock()
-    link.rest.agent_api_context = MagicMock()
     link.rest.agent_api_chats.list_agent_chats = AsyncMock(
         return_value=MagicMock(data=[])
     )
@@ -46,9 +46,11 @@ def mock_link():
         yield
 
     link.__aiter__ = lambda self: empty_aiter()
+    link.rest.agent_api_participants = MagicMock()
     link.rest.agent_api_participants.list_agent_chat_participants = AsyncMock(
         return_value=MagicMock(data=[])
     )
+    link.rest.agent_api_context = MagicMock()
     link.rest.agent_api_context.get_agent_chat_context = AsyncMock(
         return_value=MagicMock(data=[])
     )

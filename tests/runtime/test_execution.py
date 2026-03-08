@@ -1,5 +1,7 @@
 """Tests for ExecutionContext."""
 
+from __future__ import annotations
+
 import asyncio
 from unittest.mock import AsyncMock, MagicMock
 
@@ -24,14 +26,13 @@ def mock_link():
 
     # REST client mock
     link.rest = MagicMock()
-    link.rest.agent_api_participants = MagicMock()
-    link.rest.agent_api_context = MagicMock()
 
     # Mock list_agent_chat_participants
     participant1 = MagicMock()
     participant1.id = "user-1"
     participant1.name = "User One"
     participant1.type = "User"
+    link.rest.agent_api_participants = MagicMock()
     link.rest.agent_api_participants.list_agent_chat_participants = AsyncMock(
         return_value=MagicMock(data=[participant1])
     )
@@ -45,6 +46,7 @@ def mock_link():
     msg1.sender_name = "User One"
     msg1.message_type = "text"
     msg1.inserted_at = "2024-01-01T00:00:00Z"
+    link.rest.agent_api_context = MagicMock()
     link.rest.agent_api_context.get_agent_chat_context = AsyncMock(
         return_value=MagicMock(data=[msg1])
     )
@@ -400,13 +402,13 @@ class TestCrashRecoverySync:
         link = MagicMock()
         link.agent_id = "agent-123"
         link.rest = MagicMock()
-        link.rest.agent_api_participants = MagicMock()
-        link.rest.agent_api_context = MagicMock()
 
         # Default: no messages
+        link.rest.agent_api_participants = MagicMock()
         link.rest.agent_api_participants.list_agent_chat_participants = AsyncMock(
             return_value=MagicMock(data=[])
         )
+        link.rest.agent_api_context = MagicMock()
         link.rest.agent_api_context.get_agent_chat_context = AsyncMock(
             return_value=MagicMock(data=[])
         )
@@ -416,6 +418,7 @@ class TestCrashRecoverySync:
         link.mark_processed = AsyncMock()
         link.mark_failed = AsyncMock()
         link.get_next_message = AsyncMock(return_value=None)  # No backlog by default
+        link.get_stale_processing_messages = AsyncMock(return_value=[])  # No stale msgs
 
         return link
 
@@ -502,10 +505,10 @@ class TestCrashRecoverySync:
 
         await ctx.stop()
 
-    async def test_sync_point_clears_marker_and_cache(
+    async def test_sync_point_clears_marker_and_keeps_dedupe_cache(
         self, mock_link_with_next, mock_handler
     ):
-        """When sync point reached, marker and cache should be cleared."""
+        """When sync point is reached, marker is cleared and dedupe is preserved."""
         from datetime import datetime, timezone
         from thenvoi.runtime.types import PlatformMessage
 
@@ -542,15 +545,15 @@ class TestCrashRecoverySync:
 
         # Marker should be cleared
         assert ctx._first_ws_msg_id is None
-        # Dedupe cache should be cleared
-        assert len(ctx._processed_ids) == 0
+        # Dedupe cache should keep processed sync id to avoid WS reprocessing
+        assert "msg-sync-001" in ctx._processed_ids
 
         await ctx.stop()
 
     async def test_sync_removes_duplicate_from_ws_queue(
         self, mock_link_with_next, mock_handler
     ):
-        """Sync should remove duplicate from WS queue after sync point."""
+        """Sync should dedupe when non-message events are ahead of sync-point WS copy."""
         from datetime import datetime, timezone
         from thenvoi.runtime.types import PlatformMessage
 
@@ -566,7 +569,7 @@ class TestCrashRecoverySync:
             created_at=datetime.now(timezone.utc),
         )
 
-        mock_link_with_next.get_next_message = AsyncMock(return_value=sync_msg)
+        mock_link_with_next.get_next_message = AsyncMock(side_effect=[sync_msg, None])
 
         ctx = ExecutionContext(
             "room-123",
@@ -575,22 +578,50 @@ class TestCrashRecoverySync:
             config=SessionConfig(enable_context_hydration=False),
         )
 
-        # Enqueue the same message via WS
+        # Enqueue non-message event first so sync-point duplicate isn't queue head
+        participant_event = make_participant_added_event(
+            room_id="room-123",
+            participant_id="user-2",
+            name="User Two",
+            type="User",
+        )
+        await ctx.on_event(participant_event)
+
+        # Enqueue the same message via WS (sync-point duplicate)
         ws_event = make_message_event(room_id="room-123", msg_id="msg-sync-001")
         await ctx.on_event(ws_event)
 
-        # Queue should have 1 item
-        assert ctx.queue.qsize() == 1
+        # Queue should contain both events
+        assert ctx.queue.qsize() == 2
 
         # Start triggers sync
         await ctx.start()
         await asyncio.sleep(0.2)
 
-        # Duplicate should be removed from queue
-        # (queue may be empty or have other non-duplicate events)
-        # Check that sync point was reached
+        # Sync point reached and duplicate removed from WS phase
         assert ctx._first_ws_msg_id is None
         assert ctx._sync_complete is True
+        mock_link_with_next.mark_processing.assert_called_once_with(
+            "room-123", "msg-sync-001"
+        )
+        mock_link_with_next.mark_processed.assert_called_once_with(
+            "room-123", "msg-sync-001"
+        )
+        mock_link_with_next.mark_failed.assert_not_called()
+
+        # Message handler should run once for sync message, and participant once.
+        processed_message_ids = [
+            call.args[1].payload.id
+            for call in mock_handler.call_args_list
+            if call.args[1].type == "message_created" and call.args[1].payload
+        ]
+        assert processed_message_ids.count("msg-sync-001") == 1
+        participant_events = [
+            call
+            for call in mock_handler.call_args_list
+            if call.args[1].type == "participant_added"
+        ]
+        assert len(participant_events) == 1
 
         await ctx.stop()
 
@@ -770,10 +801,10 @@ class TestCancellationDuringProcessing:
 class TestContextHydrationConfig:
     """Test context hydration behavior with config."""
 
-    async def test_get_context_skips_api_when_hydration_disabled(
+    async def test_get_context_skips_history_api_when_hydration_disabled(
         self, mock_link, mock_handler
     ):
-        """get_context() should return empty when hydration disabled."""
+        """get_context() should skip history but still load participants when hydration disabled."""
         ctx = ExecutionContext(
             "room-123",
             mock_link,
@@ -783,10 +814,13 @@ class TestContextHydrationConfig:
 
         context = await ctx.get_context()
 
-        # Should return empty context without calling API
+        # History should be empty (skipped)
         assert context.messages == []
-        assert context.participants == []
         mock_link.rest.agent_api_context.get_agent_chat_context.assert_not_called()
+        # Participants should still be loaded
+        assert len(context.participants) == 1
+        assert context.participants[0]["name"] == "User One"
+        mock_link.rest.agent_api_participants.list_agent_chat_participants.assert_called_once()
 
     async def test_get_context_calls_api_when_hydration_enabled(
         self, mock_link, mock_handler
@@ -816,11 +850,72 @@ class TestContextHydrationConfig:
             config=SessionConfig(enable_context_hydration=False),
         )
 
-        # Must hydrate first (but with disabled config, returns empty)
+        # Must hydrate first (but with disabled config, returns empty history)
         await ctx.get_context()
         history = ctx.get_history_for_llm()
 
         assert history == []
+
+    async def test_hydrate_loads_participants_when_hydration_disabled(
+        self, mock_link, mock_handler
+    ):
+        """hydrate() should load participants even when context hydration is disabled."""
+        ctx = ExecutionContext(
+            "room-123",
+            mock_link,
+            mock_handler,
+            config=SessionConfig(enable_context_hydration=False),
+        )
+
+        await ctx.hydrate()
+
+        # Participants should be loaded
+        assert len(ctx.participants) == 1
+        assert ctx.participants[0]["name"] == "User One"
+        mock_link.rest.agent_api_participants.list_agent_chat_participants.assert_called_once()
+
+    async def test_build_participants_message_works_when_hydration_disabled(
+        self, mock_link, mock_handler
+    ):
+        """build_participants_message() should work with participants loaded via hydrate()."""
+        ctx = ExecutionContext(
+            "room-123",
+            mock_link,
+            mock_handler,
+            config=SessionConfig(enable_context_hydration=False),
+        )
+
+        await ctx.hydrate()
+        msg = ctx.build_participants_message()
+
+        # Should contain participant info
+        assert "User One" in msg
+
+    async def test_participants_preserved_when_history_hydration_fails(
+        self, mock_link, mock_handler
+    ):
+        """Participants should be preserved even when history loading fails."""
+        # Make history API fail
+        mock_link.rest.agent_api_context.get_agent_chat_context = AsyncMock(
+            side_effect=Exception("API error")
+        )
+
+        ctx = ExecutionContext(
+            "room-123",
+            mock_link,
+            mock_handler,
+            config=SessionConfig(enable_context_hydration=True),
+        )
+
+        await ctx.hydrate()
+
+        # Participants should still be loaded despite history failure
+        assert len(ctx.participants) == 1
+        assert ctx.participants[0]["name"] == "User One"
+        # Context should have empty messages but populated participants
+        context = ctx.build_context()
+        assert context.messages == []
+        assert len(context.participants) == 1
 
 
 class TestGracefulStopWithTimeout:

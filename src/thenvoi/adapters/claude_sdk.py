@@ -12,6 +12,8 @@ from __future__ import annotations
 
 import json
 import logging
+import warnings
+from pathlib import Path
 from typing import Any, Literal
 
 try:
@@ -27,6 +29,7 @@ try:
         tool,
         create_sdk_mcp_server,
     )
+    from claude_agent_sdk._errors import CLIConnectionError
 except ImportError as e:
     raise ImportError(
         "claude-agent-sdk is required for Claude SDK examples.\n"
@@ -37,7 +40,10 @@ except ImportError as e:
 from thenvoi.core.protocols import AgentToolsProtocol
 from thenvoi.core.simple_adapter import SimpleAdapter
 from thenvoi.core.types import PlatformMessage
-from thenvoi.converters.claude_sdk import ClaudeSDKHistoryConverter
+from thenvoi.converters.claude_sdk import (
+    ClaudeSDKHistoryConverter,
+    ClaudeSDKSessionState,
+)
 from thenvoi.integrations.claude_sdk.session_manager import ClaudeSessionManager
 from thenvoi.integrations.claude_sdk.prompts import generate_claude_sdk_agent_prompt
 from thenvoi.runtime.custom_tools import (
@@ -45,43 +51,43 @@ from thenvoi.runtime.custom_tools import (
     execute_custom_tool,
     get_custom_tool_name,
 )
-from thenvoi.runtime.tools import get_tool_description
+from thenvoi.runtime.tools import (
+    ALL_TOOL_NAMES,
+    BASE_TOOL_NAMES,
+    MEMORY_TOOL_NAMES,
+    get_tool_description,
+    mcp_tool_names,
+)
 
 logger = logging.getLogger(__name__)
 
 
 # Tool names as constants (MCP naming convention: mcp__{server}__{tool})
-# Base platform tools (always included)
-THENVOI_BASE_TOOLS = [
-    "mcp__thenvoi__thenvoi_send_message",
-    "mcp__thenvoi__thenvoi_send_event",
-    "mcp__thenvoi__thenvoi_add_participant",
-    "mcp__thenvoi__thenvoi_remove_participant",
-    "mcp__thenvoi__thenvoi_get_participants",
-    "mcp__thenvoi__thenvoi_lookup_peers",
-    "mcp__thenvoi__thenvoi_create_chatroom",
-    # Contact management tools
-    "mcp__thenvoi__thenvoi_list_contacts",
-    "mcp__thenvoi__thenvoi_add_contact",
-    "mcp__thenvoi__thenvoi_remove_contact",
-    "mcp__thenvoi__thenvoi_list_contact_requests",
-    "mcp__thenvoi__thenvoi_respond_contact_request",
-]
+# Derived from TOOL_MODELS — single source of truth
+THENVOI_BASE_TOOLS: list[str] = mcp_tool_names(BASE_TOOL_NAMES)
+THENVOI_MEMORY_TOOLS: list[str] = mcp_tool_names(MEMORY_TOOL_NAMES)
+# All tools: chat + contacts + memory (17 total). For chat-only tools (7),
+# see thenvoi.integrations.claude_sdk.tools.THENVOI_CHAT_TOOLS.
+THENVOI_ALL_TOOLS: list[str] = mcp_tool_names(ALL_TOOL_NAMES)
 
-# Memory management tools (enterprise only - opt-in)
-THENVOI_MEMORY_TOOLS = [
-    "mcp__thenvoi__thenvoi_list_memories",
-    "mcp__thenvoi__thenvoi_store_memory",
-    "mcp__thenvoi__thenvoi_get_memory",
-    "mcp__thenvoi__thenvoi_supersede_memory",
-    "mcp__thenvoi__thenvoi_archive_memory",
-]
-
-# All tools combined (for backwards compatibility)
-THENVOI_TOOLS = THENVOI_BASE_TOOLS + THENVOI_MEMORY_TOOLS
+_THENVOI_TOOLS: list[str] = THENVOI_ALL_TOOLS
 
 
-class ClaudeSDKAdapter(SimpleAdapter[str]):
+def __getattr__(name: str) -> Any:
+    if name == "THENVOI_TOOLS":
+        warnings.warn(
+            "THENVOI_TOOLS is deprecated, use THENVOI_ALL_TOOLS instead. "
+            f"Note: this contains all {len(_THENVOI_TOOLS)} tools (chat + contacts + memory). "
+            "For chat-only tools, use "
+            "thenvoi.integrations.claude_sdk.tools.THENVOI_CHAT_TOOLS.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return _THENVOI_TOOLS
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
+class ClaudeSDKAdapter(SimpleAdapter[ClaudeSDKSessionState]):
     """
     Claude Agent SDK adapter using SimpleAdapter pattern.
 
@@ -111,6 +117,7 @@ class ClaudeSDKAdapter(SimpleAdapter[str]):
         enable_memory_tools: bool = False,
         history_converter: ClaudeSDKHistoryConverter | None = None,
         additional_tools: list[CustomToolDef] | None = None,
+        cwd: str | None = None,
     ):
         """
         Initialize the Claude SDK adapter.
@@ -126,6 +133,8 @@ class ClaudeSDKAdapter(SimpleAdapter[str]):
             history_converter: Optional custom history converter
             additional_tools: Optional list of custom tools as (PydanticModel, callable)
                 tuples. These are converted to MCP tools internally.
+            cwd: Working directory for Claude Code sessions. If set, Claude Code
+                will operate in this directory (e.g., a mounted git repo).
         """
         super().__init__(
             history_converter=history_converter or ClaudeSDKHistoryConverter()
@@ -137,6 +146,9 @@ class ClaudeSDKAdapter(SimpleAdapter[str]):
         self.permission_mode: ClaudeSDKAdapter.PermissionMode = permission_mode
         self.enable_execution_reporting = enable_execution_reporting
         self.enable_memory_tools = enable_memory_tools
+        if cwd and not Path(cwd).is_dir():
+            raise ValueError(f"cwd does not exist or is not a directory: {cwd}")
+        self.cwd = cwd
 
         # Session manager and MCP server (created after start)
         self._session_manager: ClaudeSessionManager | None = None
@@ -190,6 +202,10 @@ class ClaudeSDKAdapter(SimpleAdapter[str]):
         # Add extended thinking if configured
         if self.max_thinking_tokens:
             sdk_options.max_thinking_tokens = self.max_thinking_tokens
+
+        # Set working directory if configured
+        if self.cwd:
+            sdk_options.cwd = self.cwd
 
         # Create session manager
         self._session_manager = ClaudeSessionManager(sdk_options)
@@ -265,7 +281,7 @@ class ClaudeSDKAdapter(SimpleAdapter[str]):
                 return _make_result({"status": "success", "message": "Message sent"})
 
             except Exception as e:
-                logger.error("send_message failed: %s", e, exc_info=True)
+                logger.exception("send_message failed: %s", e)
                 return _make_error(str(e))
 
         @tool(
@@ -289,7 +305,7 @@ class ClaudeSDKAdapter(SimpleAdapter[str]):
                 return _make_result({"status": "success", "message": "Event sent"})
 
             except Exception as e:
-                logger.error("send_event failed: %s", e, exc_info=True)
+                logger.exception("send_event failed: %s", e)
                 return _make_error(str(e))
 
         @tool(
@@ -319,7 +335,7 @@ class ClaudeSDKAdapter(SimpleAdapter[str]):
                 )
 
             except Exception as e:
-                logger.error("add_participant failed: %s", e, exc_info=True)
+                logger.exception("add_participant failed: %s", e)
                 return _make_error(str(e))
 
         @tool(
@@ -348,7 +364,7 @@ class ClaudeSDKAdapter(SimpleAdapter[str]):
                 )
 
             except Exception as e:
-                logger.error("remove_participant failed: %s", e, exc_info=True)
+                logger.exception("remove_participant failed: %s", e)
                 return _make_error(str(e))
 
         @tool(
@@ -376,7 +392,7 @@ class ClaudeSDKAdapter(SimpleAdapter[str]):
                 )
 
             except Exception as e:
-                logger.error("get_participants failed: %s", e, exc_info=True)
+                logger.exception("get_participants failed: %s", e)
                 return _make_error(str(e))
 
         @tool(
@@ -400,7 +416,7 @@ class ClaudeSDKAdapter(SimpleAdapter[str]):
                 return _make_result({"status": "success", **result})
 
             except Exception as e:
-                logger.error("lookup_peers failed: %s", e, exc_info=True)
+                logger.exception("lookup_peers failed: %s", e)
                 return _make_error(str(e))
 
         @tool(
@@ -429,12 +445,7 @@ class ClaudeSDKAdapter(SimpleAdapter[str]):
                 )
 
             except Exception as e:
-                logger.error(
-                    "create_chatroom failed (task_id=%s): %s",
-                    task_id,
-                    e,
-                    exc_info=True,
-                )
+                logger.exception("create_chatroom failed (task_id=%s): %s", task_id, e)
                 return _make_error(str(e))
 
         # Contact management tools
@@ -458,7 +469,7 @@ class ClaudeSDKAdapter(SimpleAdapter[str]):
                 return _make_result({"status": "success", **result})
 
             except Exception as e:
-                logger.error("list_contacts failed: %s", e, exc_info=True)
+                logger.exception("list_contacts failed: %s", e)
                 return _make_error(str(e))
 
         @tool(
@@ -481,7 +492,7 @@ class ClaudeSDKAdapter(SimpleAdapter[str]):
                 return _make_result({"status": "success", **result})
 
             except Exception as e:
-                logger.error("add_contact failed: %s", e, exc_info=True)
+                logger.exception("add_contact failed: %s", e)
                 return _make_error(str(e))
 
         @tool(
@@ -504,7 +515,7 @@ class ClaudeSDKAdapter(SimpleAdapter[str]):
                 return _make_result({"status": "success", **result})
 
             except Exception as e:
-                logger.error("remove_contact failed: %s", e, exc_info=True)
+                logger.exception("remove_contact failed: %s", e)
                 return _make_error(str(e))
 
         @tool(
@@ -528,7 +539,7 @@ class ClaudeSDKAdapter(SimpleAdapter[str]):
                 return _make_result({"status": "success", **result})
 
             except Exception as e:
-                logger.error("list_contact_requests failed: %s", e, exc_info=True)
+                logger.exception("list_contact_requests failed: %s", e)
                 return _make_error(str(e))
 
         @tool(
@@ -552,7 +563,7 @@ class ClaudeSDKAdapter(SimpleAdapter[str]):
                 return _make_result({"status": "success", **result})
 
             except Exception as e:
-                logger.error("respond_contact_request failed: %s", e, exc_info=True)
+                logger.exception("respond_contact_request failed: %s", e)
                 return _make_error(str(e))
 
         # Memory management tools
@@ -601,7 +612,7 @@ class ClaudeSDKAdapter(SimpleAdapter[str]):
                 return _make_result({"status": "success", **result})
 
             except Exception as e:
-                logger.error("list_memories failed: %s", e, exc_info=True)
+                logger.exception("list_memories failed: %s", e)
                 return _make_error(str(e))
 
         @tool(
@@ -646,7 +657,7 @@ class ClaudeSDKAdapter(SimpleAdapter[str]):
                 return _make_result({"status": "success", **result})
 
             except Exception as e:
-                logger.error("store_memory failed: %s", e, exc_info=True)
+                logger.exception("store_memory failed: %s", e)
                 return _make_error(str(e))
 
         @tool(
@@ -668,7 +679,7 @@ class ClaudeSDKAdapter(SimpleAdapter[str]):
                 return _make_result({"status": "success", **result})
 
             except Exception as e:
-                logger.error("get_memory failed: %s", e, exc_info=True)
+                logger.exception("get_memory failed: %s", e)
                 return _make_error(str(e))
 
         @tool(
@@ -690,7 +701,7 @@ class ClaudeSDKAdapter(SimpleAdapter[str]):
                 return _make_result({"status": "success", **result})
 
             except Exception as e:
-                logger.error("supersede_memory failed: %s", e, exc_info=True)
+                logger.exception("supersede_memory failed: %s", e)
                 return _make_error(str(e))
 
         @tool(
@@ -712,7 +723,7 @@ class ClaudeSDKAdapter(SimpleAdapter[str]):
                 return _make_result({"status": "success", **result})
 
             except Exception as e:
-                logger.error("archive_memory failed: %s", e, exc_info=True)
+                logger.exception("archive_memory failed: %s", e)
                 return _make_error(str(e))
 
         # Start with platform tools
@@ -818,7 +829,7 @@ class ClaudeSDKAdapter(SimpleAdapter[str]):
         self,
         msg: PlatformMessage,
         tools: AgentToolsProtocol,
-        history: str,  # We ignore this, handle history ourselves
+        history: ClaudeSDKSessionState,
         participants_msg: str | None,
         contacts_msg: str | None,
         *,
@@ -836,33 +847,50 @@ class ClaudeSDKAdapter(SimpleAdapter[str]):
         logger.debug("Handling message %s in room %s", msg.id, room_id)
 
         if not self._session_manager:
-            logger.error("Session manager not initialized")
-            return
+            raise RuntimeError(
+                "ClaudeSDKAdapter session manager not initialized — was on_started() called?"
+            )
 
         # Store tools for MCP server access
         self._room_tools[room_id] = tools
 
-        # Get stored session_id for potential resume (only on bootstrap/reconnect)
-        stored_session_id = (
-            self._session_ids.get(room_id) if is_session_bootstrap else None
-        )
+        # Determine session_id for resume: prefer history (persisted) then
+        # in-memory cache.  Only used on bootstrap/reconnect.
+        stored_session_id: str | None = None
+        if is_session_bootstrap:
+            stored_session_id = history.session_id or self._session_ids.get(room_id)
 
         # Get or create Claude SDK client for this room (optionally resuming)
-        client = await self._session_manager.get_or_create_session(
-            room_id, resume_session_id=stored_session_id
-        )
+        try:
+            client = await self._session_manager.get_or_create_session(
+                room_id, resume_session_id=stored_session_id
+            )
+        except Exception as resume_exc:
+            if stored_session_id:
+                logger.warning(
+                    "Room %s: Session resume failed (session_id=%s): %s. "
+                    "Creating new session",
+                    room_id,
+                    stored_session_id,
+                    resume_exc,
+                )
+                client = await self._session_manager.get_or_create_session(
+                    room_id, resume_session_id=None
+                )
+            else:
+                raise
 
         # Add room_id context (Claude needs this for tool calls)
         room_context = f"[room_id: {room_id}]"
 
         # Initialize history for this room on first message
         if is_session_bootstrap:
-            if history:  # Already converted to text by SimpleAdapter
-                self._session_context[room_id] = history
+            if history.text:  # Already converted to text by SimpleAdapter
+                self._session_context[room_id] = history.text
                 logger.info(
                     "Room %s: Loaded historical context (%s chars)",
                     room_id,
-                    len(history),
+                    len(history.text),
                 )
             else:
                 self._session_context[room_id] = ""
@@ -910,8 +938,22 @@ class ClaudeSDKAdapter(SimpleAdapter[str]):
             # Process streaming response (MCP tools handle execution)
             await self._process_response(client, room_id, tools)
 
+        except CLIConnectionError as e:
+            # CLI process is dead — evict the cached session so the next
+            # message creates a fresh one instead of reusing the corpse.
+            logger.error(
+                "Room %s: CLI process terminated: %s — invalidating session",
+                room_id,
+                e,
+            )
+            await self._session_manager.invalidate_session(room_id)
+            self._session_ids.pop(room_id, None)
+
+            await self._report_error(tools, str(e))
+            raise
+
         except Exception as e:
-            logger.error("Error processing message: %s", e, exc_info=True)
+            logger.exception("Error processing message: %s", e)
             await self._report_error(tools, str(e))
             raise
 
@@ -1008,12 +1050,29 @@ class ClaudeSDKAdapter(SimpleAdapter[str]):
                 )
                 # Capture session_id for potential resume
                 if sdk_message.session_id:
+                    prev_session_id = self._session_ids.get(room_id)
                     self._session_ids[room_id] = sdk_message.session_id
                     logger.debug(
                         "Room %s: Captured session_id %s",
                         room_id,
                         sdk_message.session_id,
                     )
+                    # Persist session_id as task event (best-effort, only on change)
+                    if sdk_message.session_id != prev_session_id:
+                        try:
+                            await tools.send_event(
+                                content="Claude SDK session",
+                                message_type="task",
+                                metadata={
+                                    "claude_sdk_session_id": sdk_message.session_id,
+                                },
+                            )
+                        except Exception as e:
+                            logger.warning(
+                                "Room %s: Failed to persist session_id: %s",
+                                room_id,
+                                e,
+                            )
                 break
 
     # --- Copied from ThenvoiClaudeSDKAgent._cleanup_session ---
@@ -1021,12 +1080,9 @@ class ClaudeSDKAdapter(SimpleAdapter[str]):
         """Clean up Claude SDK session and stored tools when agent leaves a room."""
         if self._session_manager:
             await self._session_manager.cleanup_session(room_id)
-        if room_id in self._room_tools:
-            del self._room_tools[room_id]
-        if room_id in self._session_context:
-            del self._session_context[room_id]
-        if room_id in self._session_ids:
-            del self._session_ids[room_id]
+        self._room_tools.pop(room_id, None)
+        self._session_context.pop(room_id, None)
+        self._session_ids.pop(room_id, None)
         logger.debug("Room %s: Cleaned up Claude SDK session", room_id)
 
     # --- Copied from BaseFrameworkAgent._report_error ---
@@ -1035,7 +1091,7 @@ class ClaudeSDKAdapter(SimpleAdapter[str]):
         try:
             await tools.send_event(content=f"Error: {error}", message_type="error")
         except Exception:
-            pass
+            logger.debug("Failed to send error event", exc_info=True)
 
     async def cleanup_all(self) -> None:
         """Cleanup all sessions (call on stop)."""

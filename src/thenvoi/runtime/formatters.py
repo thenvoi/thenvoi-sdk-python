@@ -71,7 +71,7 @@ def format_history_for_llm(
         List of formatted message dicts
     """
     return [
-        format_message_for_llm(m, participants)
+        format_message_for_llm(m, participants=participants)
         for m in messages
         if m.get("id") != exclude_id
     ]
@@ -97,13 +97,13 @@ def build_participants_message(participants: list[dict]) -> str:
         p_type = p.get("type", "Unknown")
         p_name = p.get("name", "Unknown")
         p_handle = p.get("handle", "Unknown")
-        lines.append(f"- {p_name} ({p_type}) - handle: {p_handle}")
+        lines.append(f"- @{p_handle} — {p_name} ({p_type})")
 
     lines.append("")
     lines.append(
-        "To mention a participant in thenvoi_send_message, use their handle: "
-        "@<username> for users (e.g., '@john'), "
-        "@<username>/<agent-name> for agents (e.g., '@john/weather-agent')."
+        "IMPORTANT: In thenvoi_send_message mentions, always use the exact "
+        "handle shown above (e.g. '@john' for users, '@john/weather-agent' "
+        "for agents), NOT the display name. Handles are lowercase with no spaces."
     )
 
     return "\n".join(lines)

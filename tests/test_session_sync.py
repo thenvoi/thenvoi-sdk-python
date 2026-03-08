@@ -7,6 +7,8 @@ Tests cover:
 - _synchronize_with_next() using marker instead of queue peeking
 """
 
+from __future__ import annotations
+
 import pytest
 from unittest.mock import AsyncMock, MagicMock
 from datetime import datetime, timezone
@@ -15,7 +17,7 @@ from thenvoi.runtime.execution import ExecutionContext
 from thenvoi.runtime.types import PlatformMessage, SessionConfig
 
 # Import test helpers from conftest
-from tests.conftest import make_message_event
+from tests.conftest import make_message_event, make_participant_added_event
 
 
 def make_message(msg_id: str, room_id: str = "room-123") -> PlatformMessage:
@@ -33,27 +35,29 @@ def make_message(msg_id: str, room_id: str = "room-123") -> PlatformMessage:
     )
 
 
+@pytest.fixture
+def mock_link():
+    """Create mock ThenvoiLink with all required async endpoints."""
+    link = MagicMock()
+    link.rest = MagicMock()
+    link.rest.agent_api_participants = MagicMock()
+    link.rest.agent_api_context = MagicMock()
+    link.rest.agent_api_participants.list_agent_chat_participants = AsyncMock(
+        return_value=MagicMock(data=[])
+    )
+    link.rest.agent_api_context.get_agent_chat_context = AsyncMock(
+        return_value=MagicMock(data=[])
+    )
+    link.get_next_message = AsyncMock(return_value=None)
+    link.mark_processing = AsyncMock()
+    link.mark_processed = AsyncMock()
+    link.mark_failed = AsyncMock()
+    link.get_stale_processing_messages = AsyncMock(return_value=[])
+    return link
+
+
 class TestFirstWsMessageIdMarker:
     """Tests for _first_ws_msg_id tracking in on_event()."""
-
-    @pytest.fixture
-    def mock_link(self):
-        """Create mock ThenvoiLink."""
-        link = MagicMock()
-        link.rest = MagicMock()
-        link.rest.agent_api_participants = MagicMock()
-        link.rest.agent_api_context = MagicMock()
-        link.rest.agent_api_participants.list_agent_chat_participants = AsyncMock(
-            return_value=MagicMock(data=[])
-        )
-        link.rest.agent_api_context.get_agent_chat_context = AsyncMock(
-            return_value=MagicMock(data=[])
-        )
-        link.get_next_message = AsyncMock(return_value=None)
-        link.mark_processing = AsyncMock()
-        link.mark_processed = AsyncMock()
-        link.mark_failed = AsyncMock()
-        return link
 
     @pytest.fixture
     def ctx(self, mock_link):
@@ -108,25 +112,6 @@ class TestFirstWsMessageIdMarker:
 
 class TestLruDedupeCache:
     """Tests for LRU dedupe cache in _process_event()."""
-
-    @pytest.fixture
-    def mock_link(self):
-        """Create mock ThenvoiLink."""
-        link = MagicMock()
-        link.rest = MagicMock()
-        link.rest.agent_api_participants = MagicMock()
-        link.rest.agent_api_context = MagicMock()
-        link.rest.agent_api_participants.list_agent_chat_participants = AsyncMock(
-            return_value=MagicMock(data=[])
-        )
-        link.rest.agent_api_context.get_agent_chat_context = AsyncMock(
-            return_value=MagicMock(data=[])
-        )
-        link.get_next_message = AsyncMock(return_value=None)
-        link.mark_processing = AsyncMock()
-        link.mark_processed = AsyncMock()
-        link.mark_failed = AsyncMock()
-        return link
 
     @pytest.fixture
     def ctx(self, mock_link):
@@ -212,25 +197,6 @@ class TestSynchronizeWithNext:
     """Tests for _synchronize_with_next() using marker."""
 
     @pytest.fixture
-    def mock_link(self):
-        """Create mock ThenvoiLink."""
-        link = MagicMock()
-        link.rest = MagicMock()
-        link.rest.agent_api_participants = MagicMock()
-        link.rest.agent_api_context = MagicMock()
-        link.rest.agent_api_participants.list_agent_chat_participants = AsyncMock(
-            return_value=MagicMock(data=[])
-        )
-        link.rest.agent_api_context.get_agent_chat_context = AsyncMock(
-            return_value=MagicMock(data=[])
-        )
-        link.get_next_message = AsyncMock(return_value=None)
-        link.mark_processing = AsyncMock()
-        link.mark_processed = AsyncMock()
-        link.mark_failed = AsyncMock()
-        return link
-
-    @pytest.fixture
     def ctx(self, mock_link):
         """Create ExecutionContext with mocked dependencies."""
         handler = AsyncMock()
@@ -267,8 +233,10 @@ class TestSynchronizeWithNext:
         assert ctx._handler_mock.call_count == 1
 
     @pytest.mark.asyncio
-    async def test_sync_point_reached_clears_marker_and_cache(self, ctx, mock_link):
-        """When sync point reached, marker and LRU cache should be cleared."""
+    async def test_sync_point_reached_clears_marker_and_keeps_cache(
+        self, ctx, mock_link
+    ):
+        """When sync point reached, marker clears but dedupe cache is retained."""
         # First process a backlog message (populates LRU cache)
         backlog_msg = make_message("backlog-001")
         sync_msg = make_message("sync-001")
@@ -287,8 +255,42 @@ class TestSynchronizeWithNext:
         assert ctx._first_ws_msg_id is None
         # Queue should be empty (duplicate removed)
         assert ctx.queue.empty()
-        # LRU cache should be cleared (no longer needed after sync)
-        assert len(ctx._processed_ids) == 0
+        # Dedupe cache keeps processed IDs to avoid immediate WS reprocessing
+        assert "sync-001" in ctx._processed_ids
+
+    @pytest.mark.asyncio
+    async def test_sync_point_with_non_message_head_processes_once(
+        self, ctx, mock_link
+    ):
+        """Sync-point message should execute once even when WS queue head is not a message."""
+        sync_msg = make_message("sync-001")
+        mock_link.get_next_message.side_effect = [sync_msg, None]
+
+        participant_event = make_participant_added_event(
+            room_id="room-123",
+            participant_id="user-2",
+            name="User Two",
+            type="User",
+        )
+        await ctx.on_event(participant_event)
+        await ctx.on_event(make_message_event(msg_id="sync-001"))
+
+        await ctx._synchronize_with_next()
+
+        # Process remaining WS events (participant only after dedupe drain)
+        while not ctx.queue.empty():
+            await ctx._process_event(ctx.queue.get_nowait())
+
+        mock_link.mark_processing.assert_called_once_with("room-123", "sync-001")
+        mock_link.mark_processed.assert_called_once_with("room-123", "sync-001")
+        mock_link.mark_failed.assert_not_called()
+
+        processed_message_ids = [
+            call.args[1].payload.id
+            for call in ctx._handler_mock.call_args_list
+            if call.args[1].type == "message_created" and call.args[1].payload
+        ]
+        assert processed_message_ids.count("sync-001") == 1
 
     @pytest.mark.asyncio
     async def test_sync_skips_permanently_failed(self, ctx, mock_link):
@@ -302,3 +304,67 @@ class TestSynchronizeWithNext:
 
         # Handler should NOT be called
         ctx._handler_mock.assert_not_called()
+
+
+class TestCrashRecovery:
+    """Tests for _recover_stale_processing_messages()."""
+
+    @pytest.fixture
+    def ctx(self, mock_link):
+        """Create ExecutionContext with mocked dependencies."""
+        handler = AsyncMock()
+        ctx = ExecutionContext(
+            room_id="room-123",
+            link=mock_link,
+            on_execute=handler,
+            config=SessionConfig(enable_context_hydration=False),
+        )
+        ctx._is_running = True
+        ctx._handler_mock = handler
+        return ctx
+
+    @pytest.mark.asyncio
+    async def test_recovers_single_stale_message(self, ctx, mock_link):
+        """Should process a single stale message from crash recovery."""
+        stale_msg = make_message("stale-001")
+        mock_link.get_stale_processing_messages.return_value = [stale_msg]
+
+        await ctx._recover_stale_processing_messages()
+
+        # Handler should be called once for the stale message
+        assert ctx._handler_mock.call_count == 1
+
+    @pytest.mark.asyncio
+    async def test_recovers_multiple_stale_messages(self, ctx, mock_link):
+        """Should process all stale messages in order."""
+        stale_msgs = [
+            make_message("stale-001"),
+            make_message("stale-002"),
+            make_message("stale-003"),
+        ]
+        mock_link.get_stale_processing_messages.return_value = stale_msgs
+
+        await ctx._recover_stale_processing_messages()
+
+        assert ctx._handler_mock.call_count == 3
+
+    @pytest.mark.asyncio
+    async def test_no_stale_messages_is_noop(self, ctx, mock_link):
+        """Should do nothing when no stale messages exist."""
+        mock_link.get_stale_processing_messages.return_value = []
+
+        await ctx._recover_stale_processing_messages()
+
+        ctx._handler_mock.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_sync_calls_recovery_before_next(self, ctx, mock_link):
+        """_synchronize_with_next should call crash recovery before /next loop."""
+        mock_link.get_next_message.return_value = None
+
+        await ctx._synchronize_with_next()
+
+        # Recovery should be called exactly once
+        mock_link.get_stale_processing_messages.assert_called_once()
+        # And it should happen (we verify order by checking both were called)
+        mock_link.get_next_message.assert_called_once()

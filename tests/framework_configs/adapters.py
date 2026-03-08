@@ -242,6 +242,18 @@ def _parlant_factory(**kw: Any) -> Any:
     return ParlantAdapter(**kw)
 
 
+def _codex_factory(**kw: Any) -> Any:
+    from thenvoi.adapters.codex import CodexAdapter
+
+    return CodexAdapter(**kw)
+
+
+def _letta_factory(**kw: Any) -> Any:
+    from thenvoi.adapters.letta import LettaAdapter
+
+    return LettaAdapter(**kw)
+
+
 # ---------------------------------------------------------------------------
 # Registry  (built lazily to avoid top-level adapter imports)
 # ---------------------------------------------------------------------------
@@ -443,15 +455,63 @@ def _build_parlant_config() -> AdapterConfig:
     )
 
 
+def _build_codex_config() -> AdapterConfig:
+    from thenvoi.adapters.codex import CodexAdapterConfig
+
+    return AdapterConfig(
+        framework_id="codex",
+        display_name="Codex",
+        adapter_factory=_codex_factory,
+        expected_initial_values={
+            "_custom_tools": [],
+            "config": CodexAdapterConfig(),
+        },
+        custom_kwargs={
+            "config": CodexAdapterConfig(enable_execution_reporting=True),
+        },
+        custom_expected={
+            "config": CodexAdapterConfig(enable_execution_reporting=True),
+        },
+        has_custom_tools_attr=True,
+        custom_tools_attr="_custom_tools",
+        skip_on_started_conformance=True,  # on_started creates live Codex client
+    )
+
+
+def _build_letta_config() -> AdapterConfig:
+    from thenvoi.adapters.letta import LettaAdapterConfig
+
+    return AdapterConfig(
+        framework_id="letta",
+        display_name="Letta",
+        adapter_factory=_letta_factory,
+        expected_initial_values={
+            "config": LettaAdapterConfig(),
+        },
+        custom_kwargs={
+            "config": LettaAdapterConfig(
+                enable_execution_reporting=True,
+                mode="shared",
+                mcp_server_url="http://mcp:9000/sse",
+            ),
+        },
+        custom_expected={
+            "config": LettaAdapterConfig(
+                enable_execution_reporting=True,
+                mode="shared",
+                mcp_server_url="http://mcp:9000/sse",
+            ),
+        },
+        has_custom_tools_attr=False,
+        skip_on_started_conformance=True,  # on_started registers MCP server + creates live Letta client
+    )
+
+
 # Adapter modules intentionally excluded from conformance tests.
 # a2a / a2a_gateway use the A2A protocol (Google Agent-to-Agent) which has a
 # fundamentally different lifecycle than framework adapters (no on_message /
 # on_cleanup contract), so they cannot share the same conformance tests.
-# claude_code_desktop invokes Claude Code CLI as a subprocess rather than
-# calling an LLM API, so it cannot share the standard conformance tests.
-ADAPTER_EXCLUDED_MODULES: frozenset[str] = frozenset(
-    {"a2a", "a2a_gateway", "claude_code_desktop"}
-)
+ADAPTER_EXCLUDED_MODULES: frozenset[str] = frozenset({"a2a", "a2a_gateway"})
 
 _ADAPTER_CONFIG_BUILDERS: list[Callable[[], AdapterConfig]] = [
     _build_anthropic_config,
@@ -460,6 +520,8 @@ _ADAPTER_CONFIG_BUILDERS: list[Callable[[], AdapterConfig]] = [
     _build_claude_sdk_config,
     _build_pydantic_ai_config,
     _build_parlant_config,
+    _build_codex_config,
+    _build_letta_config,
 ]
 
 

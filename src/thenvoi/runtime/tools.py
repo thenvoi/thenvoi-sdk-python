@@ -286,14 +286,54 @@ TOOL_MODELS: dict[str, type[BaseModel]] = {
     "thenvoi_archive_memory": ArchiveMemoryInput,
 }
 
-# Memory tools - optional, only available for enterprise customers
-MEMORY_TOOL_NAMES: set[str] = {
-    "thenvoi_list_memories",
-    "thenvoi_store_memory",
-    "thenvoi_get_memory",
-    "thenvoi_supersede_memory",
-    "thenvoi_archive_memory",
-}
+# Memory tools - optional, only available for enterprise customers.
+# Explicitly listed (not derived by heuristic) because memory is an opt-in
+# enterprise feature and accidental inclusion of a non-memory tool would
+# expose functionality that should be gated.
+MEMORY_TOOL_NAMES: frozenset[str] = frozenset(
+    {
+        "thenvoi_list_memories",
+        "thenvoi_store_memory",
+        "thenvoi_get_memory",
+        "thenvoi_supersede_memory",
+        "thenvoi_archive_memory",
+    }
+)
+
+# Contact tools - explicitly listed (not derived by heuristic) because a
+# future tool whose name happens to contain "contact" (e.g.
+# thenvoi_get_contact_context) would be silently misclassified.
+CONTACT_TOOL_NAMES: frozenset[str] = frozenset(
+    {
+        "thenvoi_list_contacts",
+        "thenvoi_add_contact",
+        "thenvoi_remove_contact",
+        "thenvoi_list_contact_requests",
+        "thenvoi_respond_contact_request",
+    }
+)
+
+# Derived from TOOL_MODELS — single source of truth
+ALL_TOOL_NAMES: frozenset[str] = frozenset(TOOL_MODELS.keys())
+
+# Fail fast on typos — catch at import time, not in a test run.
+# Use explicit checks instead of ``assert`` so they are not stripped by -O.
+if MEMORY_TOOL_NAMES - ALL_TOOL_NAMES:
+    raise ValueError(f"Unknown memory tools: {MEMORY_TOOL_NAMES - ALL_TOOL_NAMES}")
+if CONTACT_TOOL_NAMES - ALL_TOOL_NAMES:
+    raise ValueError(f"Unknown contact tools: {CONTACT_TOOL_NAMES - ALL_TOOL_NAMES}")
+
+BASE_TOOL_NAMES: frozenset[str] = ALL_TOOL_NAMES - MEMORY_TOOL_NAMES
+CHAT_TOOL_NAMES: frozenset[str] = BASE_TOOL_NAMES - CONTACT_TOOL_NAMES
+MCP_TOOL_PREFIX: str = "mcp__thenvoi__"
+
+
+def mcp_tool_names(names: frozenset[str]) -> list[str]:
+    """Convert base tool names to MCP-prefixed names for Claude SDK.
+
+    Returns a sorted list for deterministic ordering across runs.
+    """
+    return [f"{MCP_TOOL_PREFIX}{name}" for name in sorted(names)]
 
 
 def get_tool_description(name: str) -> str:
@@ -375,6 +415,11 @@ class AgentTools(AgentToolsProtocol):
         self.room_id = room_id
         self.rest = rest
         self._participants = participants or []
+
+    @property
+    def participants(self) -> list[dict[str, Any]]:
+        """Return a shallow copy of the cached participant list."""
+        return list(self._participants)
 
     @classmethod
     def from_context(cls, ctx: "ExecutionContext") -> "AgentTools":

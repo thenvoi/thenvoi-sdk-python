@@ -135,6 +135,12 @@ Thumbs.db
 
 # Project specific
 agents.json
+agent_config.yaml
+
+# Docker multi-agent credentials (real keys)
+docker/multi-agent/claude-planner.yaml
+docker/multi-agent/.env
+examples/coding_agents/claude-planner.yaml
 *.log
 phx_events_debug.log
 
@@ -147,10 +153,15 @@ run_test_agent.py
 # Agent configuration files
 agent_config.yaml
 examples/claude_sdk_docker/agent*.yaml
+examples/claude_sdk_docker/planner.yaml
+examples/claude_sdk_docker/reviewer.yaml
+examples/claude_sdk_docker/implementer.yaml
+examples/claude_sdk_docker/.agent_ids.txt
 !examples/claude_sdk_docker/example_agent.yaml
 
 # Parlant local data (sessions, cache, databases)
 parlant-data/
+.letta/
 
 uv.toml
 .obsidian/
