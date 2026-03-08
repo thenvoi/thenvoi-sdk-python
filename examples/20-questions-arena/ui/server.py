@@ -53,13 +53,15 @@ async def index(request: Request) -> HTMLResponse:
 
 
 async def get_config(request: Request) -> JSONResponse:
-    return JSONResponse({
-        "thinker_agent_id": THINKER_AGENT_ID,
-        "thinker_default_model": "claude-sonnet-4-5-20250929",
-        "guessers": GUESSER_REGISTRY,
-        "models": MODEL_OPTIONS,
-        "rest_url": DEFAULT_REST_URL,
-    })
+    return JSONResponse(
+        {
+            "thinker_agent_id": THINKER_AGENT_ID,
+            "thinker_default_model": "claude-sonnet-4-5-20250929",
+            "guessers": GUESSER_REGISTRY,
+            "models": MODEL_OPTIONS,
+            "rest_url": DEFAULT_REST_URL,
+        }
+    )
 
 
 async def start_game(request: Request) -> JSONResponse:
@@ -72,9 +74,7 @@ async def start_game(request: Request) -> JSONResponse:
     if not user_api_key:
         return JSONResponse({"error": "API key is required"}, status_code=400)
     if not guesser_selections:
-        return JSONResponse(
-            {"error": "Select at least one guesser"}, status_code=400
-        )
+        return JSONResponse({"error": "Select at least one guesser"}, status_code=400)
 
     try:
         game = await manager.create_game(
@@ -87,12 +87,14 @@ async def start_game(request: Request) -> JSONResponse:
         logger.exception("Failed to start game")
         return JSONResponse({"error": str(exc)}, status_code=500)
 
-    return JSONResponse({
-        "game_id": game.game_id,
-        "chat_id": game.chat_id,
-        "guessers": game.guesser_configs,
-        "thinker_model": game.thinker_model,
-    })
+    return JSONResponse(
+        {
+            "game_id": game.game_id,
+            "chat_id": game.chat_id,
+            "guessers": game.guesser_configs,
+            "thinker_model": game.thinker_model,
+        }
+    )
 
 
 async def game_events(request: Request) -> StreamingResponse:
@@ -116,7 +118,9 @@ async def game_events(request: Request) -> StreamingResponse:
                 for msg in messages:
                     logger.info(
                         "SSE >> %s: [%s] %s",
-                        game_id, msg.get("sender_name"), msg.get("content", "")[:60],
+                        game_id,
+                        msg.get("sender_name"),
+                        msg.get("content", "")[:60],
                     )
                     yield f"event: message\ndata: {json.dumps(msg)}\n\n"
             except Exception:
@@ -161,9 +165,7 @@ async def debug_poll(request: Request) -> JSONResponse:
         raw = await http.get(url, headers=headers, params={"page_size": 10})
 
     # Also try Fern client for comparison
-    fern_client = AsyncRestClient(
-        api_key=game.user_api_key, base_url=game.rest_url
-    )
+    fern_client = AsyncRestClient(api_key=game.user_api_key, base_url=game.rest_url)
     try:
         fern_resp = await fern_client.human_api_messages.list_my_chat_messages(
             game.chat_id, page_size=10
@@ -182,20 +184,24 @@ async def debug_poll(request: Request) -> JSONResponse:
     except Exception:
         pass
 
-    return JSONResponse({
-        "game_id": game.game_id,
-        "chat_id": game.chat_id,
-        "rest_url": game.rest_url,
-        "api_url": url,
-        "api_key_prefix": game.user_api_key[:8] + "..." if game.user_api_key else "EMPTY",
-        "seen_count": len(game.seen_message_ids),
-        "all_messages_count": len(game.all_messages),
-        "raw_status": raw.status_code,
-        "raw_data_count": raw_data_count,
-        "raw_body": raw.text[:3000],
-        "fern_count": fern_count,
-        "fern_error": fern_error,
-    })
+    return JSONResponse(
+        {
+            "game_id": game.game_id,
+            "chat_id": game.chat_id,
+            "rest_url": game.rest_url,
+            "api_url": url,
+            "api_key_prefix": game.user_api_key[:8] + "..."
+            if game.user_api_key
+            else "EMPTY",
+            "seen_count": len(game.seen_message_ids),
+            "all_messages_count": len(game.all_messages),
+            "raw_status": raw.status_code,
+            "raw_data_count": raw_data_count,
+            "raw_body": raw.text[:3000],
+            "fern_count": fern_count,
+            "fern_error": fern_error,
+        }
+    )
 
 
 async def analyze_game(request: Request) -> JSONResponse:
@@ -216,10 +222,12 @@ async def analyze_game(request: Request) -> JSONResponse:
 
     def resolve_mentions(text: str) -> str:
         """Replace @[[uuid]] mention tags with actual agent names."""
+
         def _replace(m: re.Match) -> str:
             uuid = m.group(1)
             name = agent_names.get(uuid)
             return f"@{name}" if name else "@agent"
+
         return re.sub(r"@\[\[([\w-]+)\]\]", _replace, text)
 
     # Build transcript from visible messages only
@@ -234,7 +242,9 @@ async def analyze_game(request: Request) -> JSONResponse:
             transcript_lines.append(f"[{sender}]: {content}")
 
     if not transcript_lines:
-        return JSONResponse({"error": "No visible messages to analyze"}, status_code=400)
+        return JSONResponse(
+            {"error": "No visible messages to analyze"}, status_code=400
+        )
 
     guesser_info = "\n".join(
         f"  - {gc.get('name') or gc['label']} (model: {gc['model']})"
@@ -245,9 +255,7 @@ async def analyze_game(request: Request) -> JSONResponse:
         f"Game Setup:\n"
         f"- Game Master (Thinker): model {game.thinker_model}\n"
         f"- Guessers:\n{guesser_info}\n\n"
-        f"Full Game Transcript:\n"
-        + "\n".join(transcript_lines)
-        + "\n\n"
+        f"Full Game Transcript:\n" + "\n".join(transcript_lines) + "\n\n"
         "Provide a concise, insightful analysis covering:\n"
         "1. The secret word and whether the Thinker played fairly "
         "(gave accurate yes/no answers)\n"
@@ -292,7 +300,9 @@ async def analyze_game(request: Request) -> JSONResponse:
 
     if analysis is None:
         return JSONResponse(
-            {"error": "No LLM API key available. Set ANTHROPIC_API_KEY or OPENAI_API_KEY."},
+            {
+                "error": "No LLM API key available. Set ANTHROPIC_API_KEY or OPENAI_API_KEY."
+            },
             status_code=500,
         )
 
@@ -309,12 +319,14 @@ async def current_game(request: Request) -> JSONResponse:
     game = manager.current_game
     if not game:
         return JSONResponse({"active": False})
-    return JSONResponse({
-        "active": True,
-        "game_id": game.game_id,
-        "guessers": game.guesser_configs,
-        "thinker_model": game.thinker_model,
-    })
+    return JSONResponse(
+        {
+            "active": True,
+            "game_id": game.game_id,
+            "guessers": game.guesser_configs,
+            "thinker_model": game.thinker_model,
+        }
+    )
 
 
 # ── App setup ───────────────────────────────────────────────────────────────

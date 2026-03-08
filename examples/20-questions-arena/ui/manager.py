@@ -66,8 +66,16 @@ MODEL_OPTIONS: list[dict[str, str]] = [
     {"id": "gpt-5-nano", "name": "GPT 5 Nano", "provider": "OpenAI"},
     {"id": "claude-opus-4-6", "name": "Claude Opus 4.6", "provider": "Anthropic"},
     {"id": "claude-sonnet-4-6", "name": "Claude Sonnet 4.6", "provider": "Anthropic"},
-    {"id": "claude-haiku-4-5-20251001", "name": "Claude Haiku 4.5", "provider": "Anthropic"},
-    {"id": "claude-sonnet-4-5-20250929", "name": "Claude Sonnet 4.5", "provider": "Anthropic"},
+    {
+        "id": "claude-haiku-4-5-20251001",
+        "name": "Claude Haiku 4.5",
+        "provider": "Anthropic",
+    },
+    {
+        "id": "claude-sonnet-4-5-20250929",
+        "name": "Claude Sonnet 4.5",
+        "provider": "Anthropic",
+    },
 ]
 
 AGENT_STARTUP_DELAY = 8  # seconds to wait for agents to connect
@@ -122,13 +130,15 @@ class GameManager:
         guesser_configs = []
         for sel in guesser_selections:
             reg = registry_map[sel["key"]]
-            guesser_configs.append({
-                "key": reg["key"],
-                "agent_id": reg["agent_id"],
-                "model": sel.get("model", reg["default_model"]),
-                "label": reg["label"],
-                "color": reg["color"],
-            })
+            guesser_configs.append(
+                {
+                    "key": reg["key"],
+                    "agent_id": reg["agent_id"],
+                    "model": sel.get("model", reg["default_model"]),
+                    "label": reg["label"],
+                    "color": reg["color"],
+                }
+            )
 
         # --- Start agent subprocesses ---
         # Use `uv run python <script>` (not `uv run <script>`) so that the
@@ -140,7 +150,9 @@ class GameManager:
         processes: list[asyncio.subprocess.Process] = []
 
         thinker_cmd = [
-            uv_bin, "run", "python",
+            uv_bin,
+            "run",
+            "python",
             str(REPO_ROOT / "examples" / "20-questions-arena" / "thinker_agent.py"),
         ]
         if thinker_model:
@@ -158,10 +170,14 @@ class GameManager:
 
         for gc in guesser_configs:
             guesser_cmd = [
-                uv_bin, "run", "python",
+                uv_bin,
+                "run",
+                "python",
                 str(REPO_ROOT / "examples" / "20-questions-arena" / "guesser_agent.py"),
-                "--config", gc["key"],
-                "--model", gc["model"],
+                "--config",
+                gc["key"],
+                "--model",
+                gc["model"],
             ]
             logger.info("Starting guesser: %s", " ".join(guesser_cmd))
             proc = await asyncio.create_subprocess_exec(
@@ -344,7 +360,10 @@ class GameManager:
                     is_new = mid not in game.seen_message_ids
                     logger.info(
                         "WS %s message_updated: id=%s type=%s new=%s content=%s",
-                        game.game_id, mid[:8], mtype, is_new,
+                        game.game_id,
+                        mid[:8],
+                        mtype,
+                        is_new,
                         str(payload.get("content", ""))[:60],
                     )
                     if is_new:
@@ -366,13 +385,16 @@ class GameManager:
                 else:
                     logger.info(
                         "WS %s: event=%s keys=%s",
-                        game.game_id, event, list(payload.keys()),
+                        game.game_id,
+                        event,
+                        list(payload.keys()),
                     )
 
             await ws.client.subscribe_to_topic(topic, raw_handler)
             logger.info(
                 "WebSocket listener connected for game %s (room %s)",
-                game.game_id, game.chat_id,
+                game.game_id,
+                game.chat_id,
             )
         except Exception:
             logger.exception(

@@ -466,7 +466,9 @@ class AgentTools(AgentToolsProtocol):
             self._participants = await self.get_participants()
         logger.info(
             "[send_message] room=%s mentions=%s content_preview=%s participants=%s",
-            self.room_id, mentions, (content or "")[:80],
+            self.room_id,
+            mentions,
+            (content or "")[:80],
             [p.get("handle") or p.get("name") for p in self._participants],
         )
         resolved_mentions = self._resolve_mentions(mentions or [])
