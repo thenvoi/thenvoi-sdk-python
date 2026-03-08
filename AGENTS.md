@@ -278,7 +278,7 @@ uv run pyrefly check
 - `ANTHROPIC_API_KEY`: Anthropic API key (for Anthropic/Claude SDK examples)
 - `E2E_TESTS_ENABLED`: Set to `true` to enable E2E tests (default: disabled)
 - `E2E_LLM_MODEL`: OpenAI model for E2E tests (default: `gpt-4o-mini`)
-- `E2E_ANTHROPIC_MODEL`: Anthropic model for E2E tests (default: `claude-sonnet-4-20250514`)
+- `E2E_ANTHROPIC_MODEL`: Anthropic model for E2E tests (default: `claude-3-haiku-20240307`)
 - `E2E_TIMEOUT`: Response timeout in seconds for E2E tests (default: `30`)
 
 ## Adding a New Framework Integration

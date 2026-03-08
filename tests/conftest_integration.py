@@ -41,6 +41,10 @@ if TYPE_CHECKING:
 # Pytest Plugin Hooks
 # =============================================================================
 
+# Integration tests hit real APIs — allow more time than the default 30s
+# pytest-timeout setting in pyproject.toml.
+pytestmark = pytest.mark.timeout(120)
+
 logger = logging.getLogger(__name__)
 
 

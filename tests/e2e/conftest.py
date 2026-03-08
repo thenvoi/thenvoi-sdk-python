@@ -38,6 +38,10 @@ from tests.e2e.helpers import TrackingWebSocketClient  # noqa: E402
 if TYPE_CHECKING:
     from tests.e2e.adapters.conftest import AdapterFactory
 
+# E2E tests interact with live platforms and LLMs — allow more time than
+# the default 30s pytest-timeout setting in pyproject.toml.
+pytestmark = pytest.mark.timeout(120)
+
 logger = logging.getLogger(__name__)
 
 
@@ -53,7 +57,7 @@ def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
     """
     session_marker = pytest.mark.asyncio(loop_scope="session")
     for item in items:
-        if "e2e" in str(item.fspath):
+        if "/e2e/" in str(item.fspath):
             item.add_marker(session_marker)
 
 
@@ -190,6 +194,15 @@ def api_client(
 # Per-Adapter Room Allocation
 # =============================================================================
 
+async def _is_room_alive(api_client: AsyncRestClient, chat_id: str) -> bool:
+    """Check whether a room is usable (not deleted) by fetching its details."""
+    try:
+        response = await api_client.agent_api_chats.get_agent_chat(id=chat_id)
+        return response.data is not None
+    except Exception:
+        return False
+
+
 # Async callable: adapter_name -> (room_id, user_id, user_name)
 RoomAllocator = Callable[[str], Awaitable[tuple[str, str, str]]]
 
@@ -219,10 +232,15 @@ async def e2e_room_allocator(
     if user_peer is None:
         pytest.skip("No User peer available for E2E tests")
 
-    # Collect existing rooms that already have this User peer
+    # Collect existing rooms that are alive and already have this User peer.
+    # Rooms can be auto-deleted by the platform's 10-room limit, so we
+    # validate each room before considering it reusable.
     chats_response = await client.agent_api_chats.list_agent_chats()
     available_rooms: list[str] = []
     for room in (chats_response.data or [])[:_MAX_ROOMS_TO_SEARCH]:
+        if not await _is_room_alive(client, room.id):
+            logger.warning("E2E: Room %s is deleted, skipping", room.id)
+            continue
         participants_response = (
             await client.agent_api_participants.list_agent_chat_participants(room.id)
         )
