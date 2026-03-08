@@ -270,6 +270,8 @@ async def e2e_room_allocator(
         response = await client.agent_api_chats.create_agent_chat(
             chat=ChatRoomRequest()
         )
+        if response.data is None:
+            pytest.fail("create_agent_chat returned no data")
         room_id = response.data.id
         await client.agent_api_participants.add_agent_chat_participant(
             room_id,

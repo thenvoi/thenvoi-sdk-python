@@ -42,10 +42,6 @@ if TYPE_CHECKING:
 # Pytest Plugin Hooks
 # =============================================================================
 
-# Integration tests hit real APIs — allow more time than the default 30s
-# pytest-timeout setting in pyproject.toml.
-pytestmark = pytest.mark.timeout(120)
-
 logger = logging.getLogger(__name__)
 
 
@@ -182,6 +178,7 @@ class PeerInfo:
 # =============================================================================
 
 MAX_CONTEXT_PAGE_SIZE = 100
+_MAX_CONTEXT_PAGES = 50
 
 
 async def fetch_all_context(
@@ -194,10 +191,11 @@ async def fetch_all_context(
     The context API defaults to page_size=50, oldest-first.  Shared test
     rooms accumulate messages across runs, so new items may be on page 2+.
     This helper paginates through all pages and returns the full list.
+    Stops after ``_MAX_CONTEXT_PAGES`` pages as a safety net.
     """
     all_items: list[Any] = []
     page = 1
-    while True:
+    while page <= _MAX_CONTEXT_PAGES:
         response = await client.agent_api_context.get_agent_chat_context(
             chat_id, page=page, page_size=page_size
         )

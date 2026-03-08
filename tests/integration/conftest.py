@@ -6,6 +6,8 @@ Credentials are loaded from .env.test automatically.
 See tests/conftest_integration.py for cleanup behavior documentation.
 """
 
+import pytest
+
 from tests.conftest_integration import (
     # Pytest hooks (must be re-exported for pytest to find them)
     pytest_addoption,
@@ -45,6 +47,10 @@ from tests.conftest_integration import (
     fetch_all_context,
     is_room_alive,
 )
+
+# Integration tests hit real APIs — allow more time than the default 30s
+# pytest-timeout setting in pyproject.toml.
+pytestmark = pytest.mark.timeout(120)
 
 __all__ = [
     # Pytest hooks

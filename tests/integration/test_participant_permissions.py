@@ -74,7 +74,7 @@ async def _ensure_in_room(
             chat_id,
             participant=ParticipantRequest(participant_id=participant_id, role=role),
         )
-    except Exception:
+    except ApiError:
         # Restore the previous role so test state isn't corrupted
         if current_role is not None:
             logger.warning(
@@ -83,12 +83,18 @@ async def _ensure_in_room(
                 role,
                 current_role,
             )
-            await owner_client.agent_api_participants.add_agent_chat_participant(
-                chat_id,
-                participant=ParticipantRequest(
-                    participant_id=participant_id, role=current_role
-                ),
-            )
+            try:
+                await owner_client.agent_api_participants.add_agent_chat_participant(
+                    chat_id,
+                    participant=ParticipantRequest(
+                        participant_id=participant_id, role=current_role
+                    ),
+                )
+            except ApiError:
+                logger.error(
+                    "Restore also failed for %s, room state may be corrupted",
+                    participant_id,
+                )
         raise
     logger.info("Ensured %s in room %s as %s", participant_id, chat_id, role)
 
@@ -118,7 +124,9 @@ async def _try_remove(client: AsyncRestClient, chat_id: str, target_id: str) -> 
         "403" if forbidden
         "404" if not found
         "409" if conflict
-        "error:<message>" for other errors
+
+    Raises:
+        ApiError: For unexpected status codes.
     """
     try:
         await client.agent_api_participants.remove_agent_chat_participant(
@@ -144,7 +152,9 @@ async def _try_add(
         "success" if add succeeded
         "403" if forbidden
         "409" if already a participant
-        "error:<message>" for other errors
+
+    Raises:
+        ApiError: For unexpected status codes.
     """
     try:
         await client.agent_api_participants.add_agent_chat_participant(
