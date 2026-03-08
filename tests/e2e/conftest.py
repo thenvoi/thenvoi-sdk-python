@@ -25,15 +25,15 @@ from thenvoi_rest.types import (
 )
 from thenvoi_testing.settings import ThenvoiTestSettings
 
+from thenvoi.client.streaming import WebSocketClient
+
+from tests.conftest_integration import is_room_alive
+from tests.e2e.helpers import TrackingWebSocketClient
+
 # Load .env.test into os.environ so LLM libraries (langchain, anthropic, etc.)
 # can pick up OPENAI_API_KEY, ANTHROPIC_API_KEY, and other keys.
 _ENV_TEST_PATH = Path(__file__).parent.parent.parent / ".env.test"
 load_dotenv(_ENV_TEST_PATH, override=False)
-
-from thenvoi.client.streaming import WebSocketClient  # noqa: E402
-
-from tests.conftest_integration import is_room_alive  # noqa: E402
-from tests.e2e.helpers import TrackingWebSocketClient  # noqa: E402
 
 if TYPE_CHECKING:
     from tests.e2e.adapters.conftest import AdapterFactory
