@@ -73,7 +73,7 @@ async def test_skips_invalid_room_added_payload(caplog):
     class MockMessage:
         event = "room_added"
         payload = {
-            # Missing: id (the only required field)
+            # Missing required fields: id, inserted_at, updated_at
             "title": "Test Room",
         }
 
@@ -85,6 +85,30 @@ async def test_skips_invalid_room_added_payload(caplog):
         await client._handle_events(MockMessage(), {"room_added": dummy_callback})
 
     assert not callback_called, "Callback should not be called for invalid payload"
+    assert "Invalid room_added payload" in caplog.text
+
+
+async def test_rejects_room_added_missing_timestamps(caplog):
+    """Regression test for INT-186: room_added without inserted_at/updated_at must be rejected."""
+    client = WebSocketClient("ws://localhost", "test-key", "agent-123")
+    callback_called = False
+
+    class MockMessage:
+        event = "room_added"
+        payload = {
+            "id": "room-123",
+            "title": "Test Room",
+            # Missing required: inserted_at, updated_at
+        }
+
+    async def dummy_callback(payload):
+        nonlocal callback_called
+        callback_called = True
+
+    with caplog.at_level(logging.ERROR):
+        await client._handle_events(MockMessage(), {"room_added": dummy_callback})
+
+    assert not callback_called, "Callback should not be called without timestamps"
     assert "Invalid room_added payload" in caplog.text
 
 
