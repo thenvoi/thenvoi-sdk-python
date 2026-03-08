@@ -15,6 +15,7 @@ Run with:
 from __future__ import annotations
 
 import logging
+import uuid
 
 import pytest
 from thenvoi_rest import AsyncRestClient
@@ -51,15 +52,29 @@ class TestRoomIsolation:
     ):
         """Agents in different rooms don't see each other's context.
 
-        Room A (adapter's dedicated room): Send "The code is APPLE"
-        Room B (shared isolation room): Send "The code is BANANA"
-        Room A: Ask "What's the code?" -> Assert "APPLE", not "BANANA"
-        Room B: Ask "What's the code?" -> Assert "BANANA", not "APPLE"
+        Room A (adapter's dedicated room): Send "The code is <unique_a>"
+        Room B (shared isolation room): Send "The code is <unique_b>"
+        Room A: Ask "What's the code?" -> Assert unique_a, not unique_b
+        Room B: Ask "What's the code?" -> Assert unique_b, not unique_a
+
+        Uses unique keywords per adapter+run to avoid cross-adapter and
+        cross-run contamination in shared rooms that persist across sessions.
         """
         adapter_name, factory = adapter_entry
         timeout = e2e_config.e2e_timeout
 
-        logger.info("Testing room isolation with %s adapter", adapter_name)
+        # Unique keywords per adapter AND per run to prevent stale history
+        # from confusing the LLM in rooms that persist across test sessions.
+        run_id = uuid.uuid4().hex[:6]
+        code_a = f"ALPHA_{adapter_name.upper()}_{run_id}"
+        code_b = f"BRAVO_{adapter_name.upper()}_{run_id}"
+
+        logger.info(
+            "Testing room isolation with %s adapter (A=%s, B=%s)",
+            adapter_name,
+            code_a,
+            code_b,
+        )
 
         room_a_id, user_id, user_name = e2e_adapter_room
         room_b_id = e2e_isolation_room_b[0]
@@ -85,7 +100,7 @@ class TestRoomIsolation:
                 await send_user_message(
                     api_client,
                     room_a_id,
-                    "Remember: the secret code is APPLE. Confirm you remember it.",
+                    f"Remember: the secret code is {code_a}. Confirm you remember it.",
                     user_name,
                     user_id,
                 )
@@ -97,7 +112,7 @@ class TestRoomIsolation:
                 await send_user_message(
                     api_client,
                     room_b_id,
-                    "Remember: the secret code is BANANA. Confirm you remember it.",
+                    f"Remember: the secret code is {code_b}. Confirm you remember it.",
                     user_name,
                     user_id,
                 )
@@ -135,13 +150,13 @@ class TestRoomIsolation:
                 )
                 room_b_received = await wait()
 
-            # Verify Room A knows APPLE but not BANANA
-            assert_content_contains(room_a_received, "APPLE")
-            assert_no_content_contains(room_a_received, "BANANA")
+            # Verify Room A knows code_a but not code_b
+            assert_content_contains(room_a_received, code_a)
+            assert_no_content_contains(room_a_received, code_b)
 
-            # Verify Room B knows BANANA but not APPLE
-            assert_content_contains(room_b_received, "BANANA")
-            assert_no_content_contains(room_b_received, "APPLE")
+            # Verify Room B knows code_b but not code_a
+            assert_content_contains(room_b_received, code_b)
+            assert_no_content_contains(room_b_received, code_a)
 
         logger.info(
             "[%s] Room isolation test PASSED: rooms are correctly isolated",
