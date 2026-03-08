@@ -25,6 +25,8 @@ class Mention(BaseModel):
 
     id: str
     username: str | None = None
+    handle: str | None = None
+    name: str | None = None
 
 
 class MessageMetadata(BaseModel):
@@ -49,10 +51,11 @@ class MessageCreatedPayload(BaseModel):
     metadata: MessageMetadata | None = None
     sender_id: str
     sender_type: str
+    sender_name: str | None = None
     chat_room_id: str | None = None
     thread_id: str | None = None
-    inserted_at: str | None = None
-    updated_at: str | None = None
+    inserted_at: str
+    updated_at: str
 
 
 class RoomAddedPayload(BaseModel):
@@ -66,15 +69,10 @@ class RoomAddedPayload(BaseModel):
     model_config = ConfigDict(extra="allow")
 
     id: str
+    inserted_at: str
+    updated_at: str
     title: str | None = None
-    owner: RoomOwner | None = None
-    status: str | None = None
-    type: str | None = None
-    created_at: str | None = None
-    participant_role: str | None = None
     task_id: str | None = None
-    inserted_at: str | None = None
-    updated_at: str | None = None
 
 
 class RoomRemovedPayload(BaseModel):

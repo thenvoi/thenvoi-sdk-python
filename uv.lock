@@ -5695,6 +5695,7 @@ requires-dist = [
     { name = "parlant", marker = "extra == 'dev'", specifier = ">=3.0.0" },
     { name = "parlant", marker = "extra == 'parlant'", specifier = ">=3.0.0" },
     { name = "phoenix-channels-python-client", git = "https://github.com/thenvoi/phoenix-channels-python-client-alpha.git?rev=08dae88" },
+    { name = "pillow", marker = "extra == 'crewai'", specifier = ">=12.1.1" },
     { name = "pre-commit", marker = "extra == 'dev'", specifier = ">=3.0.0" },
     { name = "protobuf", marker = "extra == 'a2a'", specifier = ">=6.33.5" },
     { name = "protobuf", marker = "extra == 'a2a-gateway'", specifier = ">=6.33.5" },

@@ -12,14 +12,15 @@ Configuration is loaded from .env.test with E2E-specific overrides from env vars
 from __future__ import annotations
 
 import logging
-from collections.abc import AsyncGenerator, Generator
+from collections.abc import AsyncGenerator, Awaitable, Callable, Generator
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 import pytest
 from dotenv import load_dotenv
 from pydantic import ValidationError
-from thenvoi_rest import AsyncRestClient
+from thenvoi_rest import AsyncRestClient, ChatRoomRequest
+from thenvoi_rest.types import ParticipantRequest
 from thenvoi_testing.settings import ThenvoiTestSettings
 
 # Load .env.test into os.environ so LLM libraries (langchain, anthropic, etc.)
@@ -29,10 +30,7 @@ load_dotenv(_ENV_TEST_PATH, override=False)
 
 from thenvoi.client.streaming import WebSocketClient  # noqa: E402
 
-from tests.e2e.helpers import (  # noqa: E402
-    TrackingWebSocketClient,
-    create_room_with_user,
-)
+from tests.e2e.helpers import TrackingWebSocketClient  # noqa: E402
 
 if TYPE_CHECKING:
     from tests.e2e.adapters.conftest import AdapterFactory
@@ -133,8 +131,8 @@ def e2e_config() -> E2ESettings:
 def e2e_created_room_ids() -> list[str]:
     """Session-scoped list tracking room IDs created during the E2E run.
 
-    Passed to ``create_room_with_user()`` so the helper can record new rooms
-    without relying on module-level mutable state.
+    Passed to the room allocator so it can record new rooms without
+    relying on module-level mutable state.
     """
     return []
 
@@ -185,113 +183,126 @@ def api_client(
     return e2e_session_client
 
 
-async def _find_room_with_participant(
-    client: AsyncRestClient,
-    participant_id: str,
-    exclude_ids: set[str] | None = None,
-) -> str | None:
-    """Find an existing room that contains the given participant.
+# =============================================================================
+# Per-Adapter Room Allocation
+# =============================================================================
 
-    Searches at most ``_MAX_ROOMS_TO_SEARCH`` rooms to avoid excessive API
-    calls for agents with many rooms.  Returns the room ID or ``None`` if
-    no match.
-    """
-    chats_response = await client.agent_api_chats.list_agent_chats()
-    existing_rooms = chats_response.data or []
-
-    checked = 0
-    for room in existing_rooms:
-        if exclude_ids and room.id in exclude_ids:
-            continue
-        if checked >= _MAX_ROOMS_TO_SEARCH:
-            break
-        checked += 1
-        participants_response = (
-            await client.agent_api_participants.list_agent_chat_participants(room.id)
-        )
-        participant_ids = [p.id for p in (participants_response.data or [])]
-        if participant_id in participant_ids:
-            return room.id
-
-    return None
+# Async callable: adapter_name -> (room_id, user_id, user_name)
+RoomAllocator = Callable[[str], Awaitable[tuple[str, str, str]]]
 
 
 @pytest.fixture(scope="session")
-async def e2e_shared_room(
+async def e2e_room_allocator(
     e2e_session_client: AsyncRestClient,
     e2e_created_room_ids: list[str],
-) -> tuple[str, str, str]:
-    """Session-scoped shared chat room with a User peer.
+) -> RoomAllocator:
+    """Lazy per-adapter room allocator (session-scoped).
 
-    Returns (chat_id, user_id, user_name) tuple. Reuses an existing room
-    from prior runs when possible to avoid room accumulation (the platform
-    has no delete API for agents).
+    Returns an async function ``allocate(name) -> (room_id, user_id, user_name)``
+    that assigns a dedicated room to each adapter. Reuses existing rooms from
+    prior runs where possible; creates new rooms only when needed.
 
-    Tests that check WS responses (smoke, tool execution) can safely share
-    this room because each agent only processes messages arriving while it's
-    connected. Context hydration may include prior messages, but assertions
-    target the specific WS response, not room history.
+    The platform limits agents to 10 active rooms, and rooms persist (no delete
+    API). Each adapter gets its own room to avoid cross-adapter contamination
+    in room history. Expected allocation: 5 standard adapters + 1 Parlant +
+    1 isolation Room B = 7 rooms max (well within the 10-room limit).
     """
     client = e2e_session_client
+    cache: dict[str, tuple[str, str, str]] = {}
 
-    # Find a User peer
+    # Find User peer once
     peers_response = await client.agent_api_peers.list_agent_peers()
     user_peer = next((p for p in peers_response.data if p.type == "User"), None)
     if user_peer is None:
         pytest.skip("No User peer available for E2E tests")
 
-    # Try to reuse an existing room that has this User peer
-    room_id = await _find_room_with_participant(client, user_peer.id)
-    if room_id is not None:
-        logger.info(
-            "E2E: Reusing existing room %s with user %s", room_id, user_peer.name
+    # Collect existing rooms that already have this User peer
+    chats_response = await client.agent_api_chats.list_agent_chats()
+    available_rooms: list[str] = []
+    for room in (chats_response.data or [])[:_MAX_ROOMS_TO_SEARCH]:
+        participants_response = (
+            await client.agent_api_participants.list_agent_chat_participants(room.id)
         )
-        return room_id, user_peer.id, user_peer.name
+        participant_ids = [p.id for p in (participants_response.data or [])]
+        if user_peer.id in participant_ids:
+            available_rooms.append(room.id)
 
-    # No suitable room found — create one
-    return await create_room_with_user(client, room_tracker=e2e_created_room_ids)
-
-
-@pytest.fixture(scope="session")
-async def e2e_isolation_room_pair(
-    e2e_session_client: AsyncRestClient,
-    e2e_shared_room: tuple[str, str, str],
-    e2e_created_room_ids: list[str],
-) -> tuple[tuple[str, str, str], tuple[str, str, str]]:
-    """Session-scoped pair of rooms for isolation tests.
-
-    Returns ((room_a_id, user_id, user_name), (room_b_id, user_id, user_name)).
-    Room A reuses e2e_shared_room. Room B reuses a second existing room or
-    creates one (once per session). This limits room accumulation to at most
-    1 new room instead of 2 per adapter × 5 adapters = 10.
-    """
-    room_a_id, user_id, user_name = e2e_shared_room
-    client = e2e_session_client
-
-    # Try to find a second existing room (different from room A) with User peer
-    room_b_id = await _find_room_with_participant(
-        client, user_id, exclude_ids={room_a_id}
+    logger.info(
+        "E2E: Found %d existing room(s) with User peer %s",
+        len(available_rooms),
+        user_peer.name,
     )
-    if room_b_id is not None:
-        logger.info("E2E: Reusing existing room %s as isolation room B", room_b_id)
-        return (room_a_id, user_id, user_name), (room_b_id, user_id, user_name)
 
-    # No suitable second room found — create one
-    room_b = await create_room_with_user(client, room_tracker=e2e_created_room_ids)
-    return (room_a_id, user_id, user_name), room_b
+    used_room_ids: set[str] = set()
+
+    async def allocate(name: str) -> tuple[str, str, str]:
+        if name in cache:
+            return cache[name]
+
+        # Try to reuse an unassigned existing room
+        for room_id in available_rooms:
+            if room_id not in used_room_ids:
+                used_room_ids.add(room_id)
+                result = (room_id, user_peer.id, user_peer.name)
+                cache[name] = result
+                logger.info("E2E: Reusing room %s for '%s'", room_id, name)
+                return result
+
+        # No existing room available — create one
+        response = await client.agent_api_chats.create_agent_chat(
+            chat=ChatRoomRequest()
+        )
+        room_id = response.data.id
+        await client.agent_api_participants.add_agent_chat_participant(
+            room_id,
+            participant=ParticipantRequest(participant_id=user_peer.id, role="member"),
+        )
+        used_room_ids.add(room_id)
+        e2e_created_room_ids.append(room_id)
+        result = (room_id, user_peer.id, user_peer.name)
+        cache[name] = result
+        logger.info(
+            "E2E: Created room %s for '%s' (will persist, no delete API)",
+            room_id,
+            name,
+        )
+        return result
+
+    return allocate
 
 
 @pytest.fixture
-def e2e_chat_room_with_user(
-    e2e_shared_room: tuple[str, str, str],
+async def e2e_adapter_room(
+    adapter_entry: tuple[str, AdapterFactory],
+    e2e_room_allocator: RoomAllocator,
 ) -> tuple[str, str, str]:
-    """Provide a chat room with a User peer (delegates to session-scoped shared room).
+    """Dedicated room for the current parametrized adapter.
 
-    Returns (chat_id, user_id, user_name) tuple. Uses the session-scoped
-    shared room to avoid creating rooms per test. Tests check WS responses
-    which are unaffected by prior room history.
+    Returns (room_id, user_id, user_name). Each adapter gets its own room
+    to avoid cross-adapter contamination in room history.
     """
-    return e2e_shared_room
+    name, _ = adapter_entry
+    return await e2e_room_allocator(name)
+
+
+@pytest.fixture
+async def e2e_parlant_room(
+    e2e_room_allocator: RoomAllocator,
+) -> tuple[str, str, str]:
+    """Dedicated room for Parlant adapter tests."""
+    return await e2e_room_allocator("parlant")
+
+
+@pytest.fixture
+async def e2e_isolation_room_b(
+    e2e_room_allocator: RoomAllocator,
+) -> tuple[str, str, str]:
+    """Shared Room B for room isolation tests.
+
+    All adapters' isolation tests share this as their second room.
+    Room A is the adapter's own room (``e2e_adapter_room``).
+    """
+    return await e2e_room_allocator("_isolation_b")
 
 
 @pytest.fixture(scope="session")

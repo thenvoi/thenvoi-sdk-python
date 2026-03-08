@@ -46,24 +46,23 @@ class TestRoomIsolation:
         ws_client: TrackingWebSocketClient,
         adapter_entry: tuple[str, AdapterFactory],
         api_client: AsyncRestClient,
-        e2e_isolation_room_pair: tuple[tuple[str, str, str], tuple[str, str, str]],
+        e2e_adapter_room: tuple[str, str, str],
+        e2e_isolation_room_b: tuple[str, str, str],
     ):
         """Agents in different rooms don't see each other's context.
 
-        Room A: Send "The code is APPLE"
-        Room B: Send "The code is BANANA"
+        Room A (adapter's dedicated room): Send "The code is APPLE"
+        Room B (shared isolation room): Send "The code is BANANA"
         Room A: Ask "What's the code?" -> Assert "APPLE", not "BANANA"
         Room B: Ask "What's the code?" -> Assert "BANANA", not "APPLE"
-
-        Uses session-scoped room pair (``e2e_isolation_room_pair``) to avoid
-        creating 2 rooms per adapter. At most 1 new room is created per session.
         """
         adapter_name, factory = adapter_entry
         timeout = e2e_config.e2e_timeout
 
         logger.info("Testing room isolation with %s adapter", adapter_name)
 
-        (room_a_id, user_id, user_name), (room_b_id, _, _) = e2e_isolation_room_pair
+        room_a_id, user_id, user_name = e2e_adapter_room
+        room_b_id = e2e_isolation_room_b[0]
         logger.info("Room A: %s, Room B: %s", room_a_id, room_b_id)
 
         # Create adapter and agent (single agent, two rooms)

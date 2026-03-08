@@ -43,7 +43,7 @@ class TestContextPersistence:
     async def test_agent_remembers_context_after_rejoin(
         self,
         e2e_config: E2ESettings,
-        e2e_chat_room_with_user: tuple[str, str, str],
+        e2e_adapter_room: tuple[str, str, str],
         ws_client: TrackingWebSocketClient,
         adapter_entry: tuple[str, AdapterFactory],
         api_client: AsyncRestClient,
@@ -58,7 +58,7 @@ class TestContextPersistence:
         when sharing a room across parametrized runs.
         """
         adapter_name, factory = adapter_entry
-        chat_id, user_id, user_name = e2e_chat_room_with_user
+        chat_id, user_id, user_name = e2e_adapter_room
         timeout = e2e_config.e2e_timeout
         # Unique code per adapter AND per run to prevent cross-run contamination
         # in shared rooms that persist across test sessions.

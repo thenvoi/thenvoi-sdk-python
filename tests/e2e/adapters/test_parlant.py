@@ -85,13 +85,13 @@ class TestParlantE2E:
     async def test_smoke_responds_to_message(
         self,
         e2e_config: E2ESettings,
-        e2e_chat_room_with_user: tuple[str, str, str],
+        e2e_parlant_room: tuple[str, str, str],
         ws_client: TrackingWebSocketClient,
         running_parlant_agent: Agent,
         api_client: AsyncRestClient,
     ):
         """Smoke test: agent starts, receives a message, and responds."""
-        chat_id, user_id, user_name = e2e_chat_room_with_user
+        chat_id, user_id, user_name = e2e_parlant_room
 
         await run_smoke_test(
             ws_client,
@@ -107,13 +107,13 @@ class TestParlantE2E:
     async def test_tool_execution_send_message(
         self,
         e2e_config: E2ESettings,
-        e2e_chat_room_with_user: tuple[str, str, str],
+        e2e_parlant_room: tuple[str, str, str],
         ws_client: TrackingWebSocketClient,
         running_parlant_agent: Agent,
         api_client: AsyncRestClient,
     ):
         """Verify the agent uses thenvoi_send_message tool to respond."""
-        chat_id, user_id, user_name = e2e_chat_room_with_user
+        chat_id, user_id, user_name = e2e_parlant_room
 
         await run_tool_execution_test(
             ws_client,
