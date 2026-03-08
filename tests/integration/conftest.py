@@ -43,6 +43,7 @@ from tests.conftest_integration import (
     PeerInfo,
     # Helpers
     fetch_all_context,
+    is_room_alive,
 )
 
 __all__ = [
@@ -82,4 +83,5 @@ __all__ = [
     "PeerInfo",
     # Helpers
     "fetch_all_context",
+    "is_room_alive",
 ]

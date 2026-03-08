@@ -364,7 +364,7 @@ async def _ensure_participant(
         logger.info("Added participant %s to room %s", participant_id, chat_id)
 
 
-async def _is_room_alive(api_client: AsyncRestClient, chat_id: str) -> bool:
+async def is_room_alive(api_client: AsyncRestClient, chat_id: str) -> bool:
     """Check whether a room is usable (not deleted) by fetching its details."""
     try:
         response = await api_client.agent_api_chats.get_agent_chat(id=chat_id)
@@ -397,7 +397,7 @@ async def shared_room(
 
     chat_id: str | None = None
     for room in reversed(existing_rooms):
-        if await _is_room_alive(session_api_client, room.id):
+        if await is_room_alive(session_api_client, room.id):
             chat_id = room.id
             logger.info("Reusing existing room for shared_room: %s", chat_id)
             break
@@ -444,7 +444,7 @@ async def shared_multi_agent_room(
 
     chat_id: str | None = None
     for room in reversed(existing_rooms):
-        if not await _is_room_alive(session_api_client, room.id):
+        if not await is_room_alive(session_api_client, room.id):
             logger.warning("Room %s is deleted, skipping", room.id)
             continue
         participants_response = await session_api_client.agent_api_participants.list_agent_chat_participants(

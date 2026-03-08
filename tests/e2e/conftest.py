@@ -20,7 +20,6 @@ import pytest
 from dotenv import load_dotenv
 from pydantic import ValidationError
 from thenvoi_rest import AsyncRestClient, ChatRoomRequest
-from thenvoi_rest.core.api_error import ApiError
 from thenvoi_rest.types import (
     ParticipantRequest,
 )
@@ -33,6 +32,7 @@ load_dotenv(_ENV_TEST_PATH, override=False)
 
 from thenvoi.client.streaming import WebSocketClient  # noqa: E402
 
+from tests.conftest_integration import is_room_alive  # noqa: E402
 from tests.e2e.helpers import TrackingWebSocketClient  # noqa: E402
 
 if TYPE_CHECKING:
@@ -195,15 +195,6 @@ def api_client(
 # =============================================================================
 
 
-async def _is_room_alive(api_client: AsyncRestClient, chat_id: str) -> bool:
-    """Check whether a room is usable (not deleted) by fetching its details."""
-    try:
-        response = await api_client.agent_api_chats.get_agent_chat(id=chat_id)
-        return response.data is not None
-    except (ApiError, ConnectionError):
-        return False
-
-
 # Async callable: adapter_name -> (room_id, user_id, user_name)
 RoomAllocator = Callable[[str], Awaitable[tuple[str, str, str]]]
 
@@ -239,7 +230,7 @@ async def e2e_room_allocator(
     chats_response = await client.agent_api_chats.list_agent_chats()
     available_rooms: list[str] = []
     for room in (chats_response.data or [])[:_MAX_ROOMS_TO_SEARCH]:
-        if not await _is_room_alive(client, room.id):
+        if not await is_room_alive(client, room.id):
             logger.warning("E2E: Room %s is deleted, skipping", room.id)
             continue
         participants_response = (

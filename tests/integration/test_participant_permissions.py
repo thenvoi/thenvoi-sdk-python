@@ -374,6 +374,26 @@ class TestParticipantRemovalPermissions:
             session_api_client, chat_id, shared_agent2_info.id, "member"
         )
 
+    async def test_owner_cannot_remove_self(
+        self,
+        session_api_client: AsyncRestClient,
+        shared_multi_agent_room: str | None,
+        shared_agent1_info: AgentInfo,
+    ):
+        """Owner cannot remove themselves from room -> expect 403 or 409.
+
+        Room owners must transfer ownership before leaving.
+        """
+        if shared_multi_agent_room is None:
+            pytest.skip("shared_multi_agent_room not available")
+
+        chat_id = shared_multi_agent_room
+        result = await _try_remove(session_api_client, chat_id, shared_agent1_info.id)
+        logger.info("Owner removes self: %s", result)
+        assert result in ("403", "409"), (
+            f"Owner should NOT be able to remove self, got: {result}"
+        )
+
 
 # =============================================================================
 # Agent Add Permission Tests
@@ -530,4 +550,31 @@ class TestParticipantAddPermissions:
         logger.info("Member adds self as admin: %s", result)
         assert result == "403", (
             f"Member should NOT be able to elevate to admin, got: {result}"
+        )
+
+    async def test_add_duplicate_participant_returns_409(
+        self,
+        session_api_client: AsyncRestClient,
+        shared_multi_agent_room: str | None,
+        shared_agent2_info: AgentInfo,
+    ):
+        """Adding a participant who is already in the room -> expect 409.
+
+        Verifies the platform rejects duplicate add requests with a conflict.
+        """
+        if shared_multi_agent_room is None:
+            pytest.skip("shared_multi_agent_room not available")
+
+        chat_id = shared_multi_agent_room
+        await _ensure_in_room(
+            session_api_client, chat_id, shared_agent2_info.id, "member"
+        )
+
+        # Try to add agent2 again (already a participant)
+        result = await _try_add(
+            session_api_client, chat_id, shared_agent2_info.id, "member"
+        )
+        logger.info("Add duplicate participant: %s", result)
+        assert result == "409", (
+            f"Adding duplicate participant should return 409, got: {result}"
         )

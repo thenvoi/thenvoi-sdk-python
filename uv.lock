@@ -3881,9 +3881,13 @@ wheels = [
 [[package]]
 name = "phoenix-channels-python-client"
 version = "0.1.5"
-source = { git = "https://github.com/thenvoi/phoenix-channels-python-client-alpha.git?rev=08dae88#08dae88d35d2ed1d70f07575cc3454b5aa7bbbec" }
+source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "websockets" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/df/df/6b043c8aeb0011d32efcc9efd1b02a7d78b8e83cb3d0f1bace30332de475/phoenix_channels_python_client-0.1.5.tar.gz", hash = "sha256:c8fc33027bc2f71283b300d3836148f8b66ec2d269569cb9d3f709392d36e3ab", size = 17916, upload-time = "2026-02-25T14:45:47.328Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/c9/69/8e2f014afd816a6515a7103da8b9a149a0e2811c3a194e24585ce70c980b/phoenix_channels_python_client-0.1.5-py3-none-any.whl", hash = "sha256:988ba35969bfdc68ed668655821bf9d0e993990521bd914eaa5ebef22db340f5", size = 17729, upload-time = "2026-02-25T14:45:48.072Z" },
 ]
 
 [[package]]
@@ -5694,7 +5698,7 @@ requires-dist = [
     { name = "openai", marker = "extra == 'pydantic-ai'", specifier = ">=1.0.0" },
     { name = "parlant", marker = "extra == 'dev'", specifier = ">=3.0.0" },
     { name = "parlant", marker = "extra == 'parlant'", specifier = ">=3.0.0" },
-    { name = "phoenix-channels-python-client", git = "https://github.com/thenvoi/phoenix-channels-python-client-alpha.git?rev=08dae88" },
+    { name = "phoenix-channels-python-client", specifier = ">=0.1.5" },
     { name = "pillow", marker = "extra == 'crewai'", specifier = ">=12.1.1" },
     { name = "pre-commit", marker = "extra == 'dev'", specifier = ">=3.0.0" },
     { name = "protobuf", marker = "extra == 'a2a'", specifier = ">=6.33.5" },

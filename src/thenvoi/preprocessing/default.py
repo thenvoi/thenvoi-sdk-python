@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Any
 
 from thenvoi.core.protocols import Preprocessor
@@ -72,9 +72,7 @@ class DefaultPreprocessor(Preprocessor):
             metadata=msg_data.metadata,  # Pass through as-is (Any type)
             created_at=datetime.fromisoformat(
                 msg_data.inserted_at.replace("Z", "+00:00")
-            )
-            if msg_data.inserted_at
-            else self._fallback_timestamp(msg_data.id),
+            ),
         )
 
         is_bootstrap = not ctx.is_llm_initialized
@@ -115,21 +113,6 @@ class DefaultPreprocessor(Preprocessor):
         if not messages:
             return None
         return "\n".join(messages)
-
-    @staticmethod
-    def _fallback_timestamp(message_id: str) -> datetime:
-        """Return current UTC time as fallback when inserted_at is missing.
-
-        Note: Multiple messages arriving without timestamps will get near-identical
-        fallback times, which may affect ordering in history. This is acceptable
-        since missing timestamps indicate a backend issue that should be fixed
-        at the source.
-        """
-        logger.warning(
-            "Message %s has no inserted_at timestamp, using current UTC time",
-            message_id,
-        )
-        return datetime.now(timezone.utc)
 
     def _lookup_sender_name(self, ctx: ExecutionContext, sender_id: str) -> str | None:
         """Look up sender name from participants list by sender_id."""
