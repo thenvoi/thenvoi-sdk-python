@@ -55,9 +55,10 @@ def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
     into session-scoped WS/REST clients. Applying ``loop_scope="session"``
     to every E2E test aligns them with the fixture loop.
     """
+    e2e_dir = Path(__file__).parent
     session_marker = pytest.mark.asyncio(loop_scope="session")
     for item in items:
-        if "/e2e/" in str(item.fspath):
+        if Path(item.fspath).is_relative_to(e2e_dir):
             item.add_marker(session_marker)
 
 

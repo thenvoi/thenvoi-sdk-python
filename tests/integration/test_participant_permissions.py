@@ -490,37 +490,53 @@ class TestParticipantAddPermissions:
         assert role is not None, "User peer should be a participant in the room"
         logger.info("User peer is present with role: %s", role)
 
-    async def test_admin_adds_agent_as_member(
+    async def test_admin_adds_removed_agent_back(
         self,
         session_api_client: AsyncRestClient,
         session_api_client_2: AsyncRestClient,
         shared_multi_agent_room: str | None,
         shared_agent2_info: AgentInfo,
     ):
-        """Admin (agent2) adds agent as member -> expect success.
+        """Admin (agent2) can re-add itself after being removed -> expect success.
 
-        Promotes agent2 to admin, has it remove itself (to prove admin can leave),
-        then re-adds itself as admin and verifies it can add back as member.
-        Since we only have 2 agents, we verify the admin add permission by
-        having agent2-as-admin remove itself and re-add via owner.
+        With only 2 agents we cannot test "admin adds a third agent". Instead
+        we verify that an admin-privileged agent can add a participant by:
+        1. Owner removes agent2
+        2. Owner re-adds agent2 as admin
+        3. Agent2 (admin) removes itself
+        4. Agent2 adds itself back as member (tests the add permission)
         """
         if shared_multi_agent_room is None:
             pytest.skip("shared_multi_agent_room not available")
 
         chat_id = shared_multi_agent_room
+
+        # 1. Ensure agent2 is admin
         await _ensure_in_room(
             session_api_client, chat_id, shared_agent2_info.id, "admin"
         )
-
         role = await _get_participant_role(
             session_api_client, chat_id, shared_agent2_info.id
         )
         assert role == "admin", f"Agent2 should be admin, got: {role}"
 
-        # Restore to member for subsequent tests
-        await _ensure_in_room(
-            session_api_client, chat_id, shared_agent2_info.id, "member"
+        # 2. Agent2 (admin) leaves the room
+        result = await _try_remove(session_api_client_2, chat_id, shared_agent2_info.id)
+        assert result == "success", f"Admin should be able to leave, got: {result}"
+
+        # 3. Agent2 adds itself back as member (tests add permission)
+        result = await _try_add(
+            session_api_client_2, chat_id, shared_agent2_info.id, "member"
         )
+        logger.info("Admin adds self back as member: %s", result)
+        assert result == "success", (
+            f"Agent should be able to add itself back to room, got: {result}"
+        )
+
+        role = await _get_participant_role(
+            session_api_client, chat_id, shared_agent2_info.id
+        )
+        assert role == "member"
 
     async def test_member_cannot_add_agent_as_admin(
         self,
