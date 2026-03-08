@@ -58,6 +58,9 @@ async def _ensure_in_room(
 
     Adds if missing, removes and re-adds if role differs.
     Only works for agent participants (not users).
+
+    If the add fails after removal, attempts to restore the previous role
+    so that subsequent tests aren't left with corrupted fixture state.
     """
     current_role = await _get_participant_role(owner_client, chat_id, participant_id)
     if current_role == role:
@@ -66,10 +69,27 @@ async def _ensure_in_room(
         await owner_client.agent_api_participants.remove_agent_chat_participant(
             chat_id, participant_id
         )
-    await owner_client.agent_api_participants.add_agent_chat_participant(
-        chat_id,
-        participant=ParticipantRequest(participant_id=participant_id, role=role),
-    )
+    try:
+        await owner_client.agent_api_participants.add_agent_chat_participant(
+            chat_id,
+            participant=ParticipantRequest(participant_id=participant_id, role=role),
+        )
+    except Exception:
+        # Restore the previous role so test state isn't corrupted
+        if current_role is not None:
+            logger.warning(
+                "Add failed for %s as %s, restoring previous role %s",
+                participant_id,
+                role,
+                current_role,
+            )
+            await owner_client.agent_api_participants.add_agent_chat_participant(
+                chat_id,
+                participant=ParticipantRequest(
+                    participant_id=participant_id, role=current_role
+                ),
+            )
+        raise
     logger.info("Ensured %s in room %s as %s", participant_id, chat_id, role)
 
 
@@ -545,11 +565,10 @@ class TestParticipantAddPermissions:
         shared_multi_agent_room: str | None,
         shared_agent2_info: AgentInfo,
     ):
-        """Member (agent2) cannot add another agent as admin -> expect 403.
+        """Member (agent2) cannot self-escalate to admin -> expect 403.
 
-        Agent2 is a member and should not be able to elevate privileges.
-        We test by removing agent2, re-adding as member, then having
-        agent2 try to add itself as admin (which requires owner/admin role).
+        Agent2 is a member and attempts to re-add itself with admin role,
+        which should be rejected since members cannot elevate privileges.
         """
         if shared_multi_agent_room is None:
             pytest.skip("shared_multi_agent_room not available")

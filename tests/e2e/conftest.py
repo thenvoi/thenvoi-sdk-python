@@ -58,7 +58,9 @@ def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
     e2e_dir = Path(__file__).parent
     session_marker = pytest.mark.asyncio(loop_scope="session")
     for item in items:
-        if Path(item.fspath).is_relative_to(e2e_dir):
+        # item.path is the modern pytest API; item.fspath is deprecated.
+        item_path = Path(item.path) if hasattr(item, "path") else Path(item.fspath)
+        if item_path.is_relative_to(e2e_dir):
             item.add_marker(session_marker)
 
 
@@ -137,10 +139,12 @@ def e2e_config() -> E2ESettings:
 
 @pytest.fixture(scope="session")
 def e2e_created_room_ids() -> list[str]:
-    """Session-scoped list tracking room IDs created during the E2E run.
+    """Session-scoped mutable list tracking room IDs created during the E2E run.
 
-    Passed to the room allocator so it can record new rooms without
-    relying on module-level mutable state.
+    A mutable container is needed because session-scoped fixtures (like the
+    room allocator) append to this list during the run, and the room summary
+    fixture reads it at teardown.  Using a list (not a set) preserves
+    creation order for the summary log.
     """
     return []
 
