@@ -32,7 +32,7 @@ from thenvoi_rest.types import (
 )
 
 from thenvoi.client.streaming import MessageCreatedPayload, WebSocketClient
-from tests.integration.conftest import requires_multi_agent
+from tests.integration.conftest import fetch_all_context, requires_multi_agent
 
 logger = logging.getLogger(__name__)
 
@@ -104,8 +104,7 @@ class TestMultiAgentChatRoom:
 
         # Agent 2 queries /context for the chat
         logger.info("\nAgent 2 querying /context for chat %s...", chat_id)
-        response = await api_client_2.agent_api_context.get_agent_chat_context(chat_id)
-        context = response.data or []
+        context = await fetch_all_context(api_client_2, chat_id)
         logger.info("Agent 2 received %s items in context", len(context))
 
         # Check if Agent 1's message is in Agent 2's context
@@ -251,8 +250,7 @@ class TestMultiAgentChatRoom:
         await asyncio.sleep(0.5)
 
         # Agent 2 queries /context
-        response = await api_client_2.agent_api_context.get_agent_chat_context(chat_id)
-        context = response.data or []
+        context = await fetch_all_context(api_client_2, chat_id)
         logger.info("Agent 2 received %s items in context", len(context))
 
         # Check if Agent 1's message is visible
@@ -338,8 +336,7 @@ class TestMultiAgentChatRoom:
 
         # Agent 1 queries /context - should see its own events
         logger.info("\n--- Agent 1 querying /context ---")
-        response = await api_client.agent_api_context.get_agent_chat_context(chat_id)
-        agent1_context = response.data or []
+        agent1_context = await fetch_all_context(api_client, chat_id)
         agent1_context_ids = {item.id for item in agent1_context if hasattr(item, "id")}
         logger.info("Agent 1 received %s items in context", len(agent1_context))
 
@@ -355,8 +352,7 @@ class TestMultiAgentChatRoom:
 
         # Agent 2 queries /context - should NOT see Agent 1's events
         logger.info("\n--- Agent 2 querying /context ---")
-        response = await api_client_2.agent_api_context.get_agent_chat_context(chat_id)
-        agent2_context = response.data or []
+        agent2_context = await fetch_all_context(api_client_2, chat_id)
         agent2_context_ids = {item.id for item in agent2_context if hasattr(item, "id")}
         logger.info("Agent 2 received %s items in context", len(agent2_context))
 
@@ -417,8 +413,7 @@ class TestMultiAgentChatRoom:
 
         # Agent 1 queries /context
         logger.info("\n--- Agent 1 querying /context ---")
-        response = await api_client.agent_api_context.get_agent_chat_context(chat_id)
-        agent1_context = response.data or []
+        agent1_context = await fetch_all_context(api_client, chat_id)
         agent1_context_ids = {item.id for item in agent1_context if hasattr(item, "id")}
 
         agent1_sees_own_thought = agent1_thought_id in agent1_context_ids
@@ -428,8 +423,7 @@ class TestMultiAgentChatRoom:
 
         # Agent 2 queries /context
         logger.info("\n--- Agent 2 querying /context ---")
-        response = await api_client_2.agent_api_context.get_agent_chat_context(chat_id)
-        agent2_context = response.data or []
+        agent2_context = await fetch_all_context(api_client_2, chat_id)
         agent2_context_ids = {item.id for item in agent2_context if hasattr(item, "id")}
 
         agent2_sees_own_thought = agent2_thought_id in agent2_context_ids

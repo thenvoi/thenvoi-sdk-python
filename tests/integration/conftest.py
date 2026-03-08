@@ -41,6 +41,8 @@ from tests.conftest_integration import (
     # Data classes
     AgentInfo,
     PeerInfo,
+    # Helpers
+    fetch_all_context,
 )
 
 __all__ = [
@@ -78,4 +80,6 @@ __all__ = [
     # Data classes
     "AgentInfo",
     "PeerInfo",
+    # Helpers
+    "fetch_all_context",
 ]

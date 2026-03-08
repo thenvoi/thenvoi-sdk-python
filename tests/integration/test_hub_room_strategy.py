@@ -21,7 +21,11 @@ from thenvoi.platform.link import ThenvoiLink
 from thenvoi.runtime.contact_handler import ContactEventHandler
 from thenvoi.runtime.contact_tools import ContactTools
 from thenvoi.runtime.types import ContactEventConfig, ContactEventStrategy
-from tests.integration.conftest import requires_api, requires_multi_agent
+from tests.integration.conftest import (
+    fetch_all_context,
+    requires_api,
+    requires_multi_agent,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -486,10 +490,7 @@ class TestHubRoomIsolation:
         assert injected_room_id == shared_room
 
         # 2. Verify the task event was posted to the hub room's context
-        response = await api_client.agent_api_context.get_agent_chat_context(
-            shared_room
-        )
-        context_items = response.data or []
+        context_items = await fetch_all_context(api_client, shared_room)
         task_events = [
             item
             for item in context_items

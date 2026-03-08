@@ -26,7 +26,7 @@ import pytest
 from thenvoi_rest import ChatEventRequest, ChatMessageRequest
 from thenvoi_rest.types import ChatMessageRequestMentionsItem as Mention
 
-from tests.integration.conftest import requires_api
+from tests.integration.conftest import fetch_all_context, requires_api
 
 logger = logging.getLogger(__name__)
 
@@ -136,10 +136,8 @@ class TestAnthropicConverterIntegration:
         logger.info("Created tool_result event")
 
         # === STEP 4: Fetch history from platform ===
-        context_response = await api_client.agent_api_context.get_agent_chat_context(
-            chat_id
-        )
-        raw_history = [msg.model_dump() for msg in context_response.data]
+        context_items = await fetch_all_context(api_client, chat_id)
+        raw_history = [msg.model_dump() for msg in context_items]
         logger.info("Fetched %d messages from platform", len(raw_history))
 
         # === STEP 5: Convert using Anthropic converter ===
@@ -230,10 +228,8 @@ class TestAnthropicConverterIntegration:
         )
 
         # === Fetch and convert ===
-        context_response = await api_client.agent_api_context.get_agent_chat_context(
-            chat_id
-        )
-        raw_history = [msg.model_dump() for msg in context_response.data]
+        context_items = await fetch_all_context(api_client, chat_id)
+        raw_history = [msg.model_dump() for msg in context_items]
 
         converter = AnthropicHistoryConverter(agent_name=agent_name)
         result = converter.convert(raw_history)
@@ -337,10 +333,8 @@ class TestPydanticAIConverterIntegration:
         )
 
         # === Fetch and convert ===
-        context_response = await api_client.agent_api_context.get_agent_chat_context(
-            chat_id
-        )
-        raw_history = [msg.model_dump() for msg in context_response.data]
+        context_items = await fetch_all_context(api_client, chat_id)
+        raw_history = [msg.model_dump() for msg in context_items]
 
         converter = PydanticAIHistoryConverter(agent_name=agent_name)
         result = converter.convert(raw_history)
@@ -461,10 +455,8 @@ class TestMixedConversationIntegration:
         )
 
         # === Fetch and convert ===
-        context_response = await api_client.agent_api_context.get_agent_chat_context(
-            chat_id
-        )
-        raw_history = [msg.model_dump() for msg in context_response.data]
+        context_items = await fetch_all_context(api_client, chat_id)
+        raw_history = [msg.model_dump() for msg in context_items]
 
         converter = AnthropicHistoryConverter(agent_name=agent_name)
         result = converter.convert(raw_history)
@@ -538,10 +530,8 @@ class TestEdgeCasesIntegration:
         )
 
         # Fetch and convert
-        context_response = await api_client.agent_api_context.get_agent_chat_context(
-            chat_id
-        )
-        raw_history = [msg.model_dump() for msg in context_response.data]
+        context_items = await fetch_all_context(api_client, chat_id)
+        raw_history = [msg.model_dump() for msg in context_items]
 
         converter = AnthropicHistoryConverter()
         result = converter.convert(raw_history)
@@ -586,10 +576,8 @@ class TestEdgeCasesIntegration:
         )
 
         # Fetch and convert
-        context_response = await api_client.agent_api_context.get_agent_chat_context(
-            chat_id
-        )
-        raw_history = [msg.model_dump() for msg in context_response.data]
+        context_items = await fetch_all_context(api_client, chat_id)
+        raw_history = [msg.model_dump() for msg in context_items]
 
         converter = AnthropicHistoryConverter()
         result = converter.convert(raw_history)
@@ -654,10 +642,8 @@ class TestMentionReplacementIntegration:
         logger.info("Sent message: %s (with mention in array)", message_content)
 
         # Verify raw history contains UUID format
-        context_response = await api_client.agent_api_context.get_agent_chat_context(
-            chat_id
-        )
-        raw_history = [msg.model_dump() for msg in context_response.data]
+        context_items = await fetch_all_context(api_client, chat_id)
+        raw_history = [msg.model_dump() for msg in context_items]
         logger.info("Fetched %d messages from platform", len(raw_history))
 
         raw_message = next(
