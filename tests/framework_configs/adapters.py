@@ -254,6 +254,12 @@ def _letta_factory(**kw: Any) -> Any:
     return LettaAdapter(**kw)
 
 
+def _google_adk_factory(**kw: Any) -> Any:
+    from thenvoi.adapters.google_adk import GoogleADKAdapter
+
+    return GoogleADKAdapter(**kw)
+
+
 # ---------------------------------------------------------------------------
 # Registry  (built lazily to avoid top-level adapter imports)
 # ---------------------------------------------------------------------------
@@ -513,6 +519,34 @@ def _build_letta_config() -> AdapterConfig:
 # on_cleanup contract), so they cannot share the same conformance tests.
 ADAPTER_EXCLUDED_MODULES: frozenset[str] = frozenset({"a2a", "a2a_gateway"})
 
+
+def _build_google_adk_config() -> AdapterConfig:
+    from thenvoi.adapters.google_adk import GoogleADKAdapter
+
+    return AdapterConfig(
+        framework_id="google_adk",
+        display_name="GoogleADK",
+        adapter_factory=_google_adk_factory,
+        expected_initial_values={
+            "model": _default_from_init(GoogleADKAdapter, "model"),
+            "enable_execution_reporting": _default_from_init(
+                GoogleADKAdapter, "enable_execution_reporting"
+            ),
+        },
+        custom_kwargs={
+            "model": "gemini-2.5-pro",
+            "custom_section": "Be helpful.",
+            "enable_execution_reporting": True,
+        },
+        custom_expected={
+            "model": "gemini-2.5-pro",
+            "custom_section": "Be helpful.",
+            "enable_execution_reporting": True,
+        },
+        skip_on_started_conformance=True,  # on_started creates ADK agent; tested in test_google_adk_adapter
+    )
+
+
 _ADAPTER_CONFIG_BUILDERS: list[Callable[[], AdapterConfig]] = [
     _build_anthropic_config,
     _build_langgraph_config,
@@ -522,6 +556,7 @@ _ADAPTER_CONFIG_BUILDERS: list[Callable[[], AdapterConfig]] = [
     _build_parlant_config,
     _build_codex_config,
     _build_letta_config,
+    _build_google_adk_config,
 ]
 
 
