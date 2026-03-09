@@ -333,6 +333,27 @@ class TestToolBridge:
         )
         assert bridge.description == "A test tool"
 
+    def test_get_declaration(self):
+        """Should build a FunctionDeclaration with stripped additionalProperties."""
+        bridge = _ThenvoiToolBridge(
+            tool_name="my_tool",
+            tool_description="Does things",
+            parameters_schema={
+                "type": "object",
+                "properties": {"x": {"type": "string"}},
+                "additionalProperties": False,
+            },
+            tools=MagicMock(),
+            custom_tools=[],
+        )
+
+        decl = bridge._get_declaration()
+
+        assert decl.name == "my_tool"
+        assert decl.description == "Does things"
+        # additionalProperties should be stripped for Gemini compatibility
+        assert "additionalProperties" not in (decl.parameters or {})
+
     @pytest.mark.asyncio
     async def test_executes_platform_tool(self):
         """Should delegate to AgentToolsProtocol."""

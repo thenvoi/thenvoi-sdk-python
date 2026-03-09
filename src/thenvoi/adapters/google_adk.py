@@ -121,7 +121,11 @@ class _ThenvoiToolBridge(_BaseTool):
         self._custom_tools = custom_tools
 
     def _get_declaration(self) -> _types.FunctionDeclaration:
-        """Build a FunctionDeclaration from the OpenAI-format schema."""
+        """Build a FunctionDeclaration from the OpenAI-format schema.
+
+        Note: ``_get_declaration`` is a BaseTool internal that ADK calls to
+        register tools with the Gemini API.  Pinned to google-adk >=1.0,<2.
+        """
         return _types.FunctionDeclaration(
             name=self.name,
             description=self.description,

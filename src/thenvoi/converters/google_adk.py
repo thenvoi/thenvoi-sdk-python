@@ -132,15 +132,15 @@ class GoogleADKHistoryConverter(HistoryConverter[GoogleADKMessages]):
                 if role == "assistant" and sender_name == self._agent_name:
                     # Skip THIS agent's text (redundant with tool results)
                     continue
-                else:
-                    messages.append(
-                        {
-                            "role": "user",
-                            "content": f"[{sender_name}]: {content}"
-                            if sender_name
-                            else content,
-                        }
-                    )
+
+                messages.append(
+                    {
+                        "role": "user",
+                        "content": f"[{sender_name}]: {content}"
+                        if sender_name
+                        else content,
+                    }
+                )
 
         # Flush any remaining pending tool calls and results
         _flush_pending_tool_calls(messages, pending_tool_calls)
