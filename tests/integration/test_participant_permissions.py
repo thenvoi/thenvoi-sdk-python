@@ -10,6 +10,11 @@ within the platform's chat room limit.
 Note: Agent API cannot remove User participants from rooms (403), so
 user-related tests only verify add and presence, not removal.
 
+History: The previous version used 4 dynamically created agents (via the
+Enterprise-only Human API) to cover all role permutations. This rewrite uses
+2 pre-existing agents to eliminate the Enterprise plan dependency. See the
+class docstrings for specific coverage gaps that require 3+ agents.
+
 Run with: uv run pytest tests/integration/test_participant_permissions.py -v -s
 """
 
@@ -182,6 +187,12 @@ class TestParticipantRemovalPermissions:
 
     Agent 1 (owner of room), Agent 2 (added with varying roles).
     Each test sets up the required state, runs the assertion, then restores.
+
+    Coverage gaps (require 3+ agents to test, not available with 2):
+    - admin removes member agent
+    - admin removes other admin
+    - member removes other member agent
+    - member removes other member user
     """
 
     async def test_owner_removes_member_agent(
@@ -438,6 +449,12 @@ class TestParticipantAddPermissions:
     Agent 1 (owner of room). Tests manage agent2 participant state.
     User-add tests verify presence only (agents cannot remove users
     to reset state).
+
+    Coverage gaps (require 3+ agents to test, not available with 2):
+    - admin adds agent as member (tested indirectly via admin-adds-self-back)
+    - admin adds agent as admin
+    - member adds agent as member
+    - member adds user as member
     """
 
     async def test_owner_adds_agent_as_member(

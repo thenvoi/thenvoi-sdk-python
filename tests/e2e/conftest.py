@@ -58,9 +58,7 @@ def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
     e2e_dir = Path(__file__).parent
     session_marker = pytest.mark.asyncio(loop_scope="session")
     for item in items:
-        # item.path is the modern pytest API; item.fspath is deprecated.
-        item_path = Path(item.path) if hasattr(item, "path") else Path(item.fspath)
-        if item_path.is_relative_to(e2e_dir):
+        if Path(item.path).is_relative_to(e2e_dir):
             item.add_marker(session_marker)
 
 

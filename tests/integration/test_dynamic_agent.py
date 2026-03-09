@@ -9,6 +9,16 @@ Run with: uv run pytest tests/integration/test_dynamic_agent.py -v -s
 Prerequisites:
 - THENVOI_API_KEY / TEST_AGENT_ID  (agent 1)
 - THENVOI_API_KEY_2 / TEST_AGENT_ID_2  (agent 2)
+
+History:
+- TestDynamicAgentWorkflow replaced the old dynamic-agent flow that required
+  Enterprise plan (Human API register_my_agent / delete_my_agent).
+- TestUserAgentManagement (list_my_agents, list_my_peers) was removed because
+  it exercised the Human API which requires Enterprise plan access. User API
+  coverage belongs in the platform's own test suite, not the SDK.
+- test_letta_live.py was removed because the Letta adapter is deprecated and
+  scheduled for removal. The Letta SDK's Conversations API changed upstream,
+  making the live tests unmaintainable.
 """
 
 from __future__ import annotations

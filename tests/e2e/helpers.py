@@ -63,7 +63,7 @@ class TrackingWebSocketClient:
         self._joined_rooms.clear()
 
 
-async def send_message_to_agent(
+async def send_agent_message(
     client: AsyncRestClient,
     room_id: str,
     content: str,
@@ -117,7 +117,7 @@ async def listening_for_agent_responses(
     Usage::
 
         async with listening_for_agent_responses(ws, room_id) as wait:
-            await send_message_to_agent(client, room_id, "Hello", ...)
+            await send_agent_message(client, room_id, "Hello", ...)
             received = await wait()
 
     Args:
@@ -233,9 +233,7 @@ async def run_smoke_test(
     async with listening_for_agent_responses(
         ws_client, chat_id, timeout=timeout
     ) as wait:
-        await send_message_to_agent(
-            api_client, chat_id, "Say hello", user_name, user_id
-        )
+        await send_agent_message(api_client, chat_id, "Say hello", user_name, user_id)
         received = await wait()
 
     assert len(received) > 0, (
@@ -266,7 +264,7 @@ async def run_tool_execution_test(
     async with listening_for_agent_responses(
         ws_client, chat_id, timeout=timeout
     ) as wait:
-        await send_message_to_agent(
+        await send_agent_message(
             api_client,
             chat_id,
             "Reply with the word PINEAPPLE",

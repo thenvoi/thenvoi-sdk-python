@@ -28,7 +28,7 @@ from tests.e2e.helpers import (
     TrackingWebSocketClient,
     assert_content_contains,
     listening_for_agent_responses,
-    send_message_to_agent,
+    send_agent_message,
 )
 
 logger = logging.getLogger(__name__)
@@ -85,7 +85,7 @@ class TestContextPersistence:
             async with listening_for_agent_responses(
                 ws_client, chat_id, timeout=timeout, raise_on_timeout=True
             ) as wait:
-                await send_message_to_agent(
+                await send_agent_message(
                     api_client,
                     chat_id,
                     f"Remember this secret code: {secret_code}. Respond confirming you remember it.",
@@ -115,7 +115,7 @@ class TestContextPersistence:
             async with listening_for_agent_responses(
                 ws_client, chat_id, timeout=timeout, raise_on_timeout=True
             ) as wait:
-                await send_message_to_agent(
+                await send_agent_message(
                     api_client,
                     chat_id,
                     "What was the secret code I told you to remember? Reply with just the code.",

@@ -29,7 +29,7 @@ from tests.e2e.helpers import (
     assert_content_contains,
     assert_no_content_contains,
     listening_for_agent_responses,
-    send_message_to_agent,
+    send_agent_message,
 )
 
 logger = logging.getLogger(__name__)
@@ -97,7 +97,7 @@ class TestRoomIsolation:
             async with listening_for_agent_responses(
                 ws_client, room_a_id, timeout=timeout, raise_on_timeout=True
             ) as wait:
-                await send_message_to_agent(
+                await send_agent_message(
                     api_client,
                     room_a_id,
                     f"Remember: the secret code is {code_a}. Confirm you remember it.",
@@ -109,7 +109,7 @@ class TestRoomIsolation:
             async with listening_for_agent_responses(
                 ws_client, room_b_id, timeout=timeout, raise_on_timeout=True
             ) as wait:
-                await send_message_to_agent(
+                await send_agent_message(
                     api_client,
                     room_b_id,
                     f"Remember: the secret code is {code_b}. Confirm you remember it.",
@@ -129,7 +129,7 @@ class TestRoomIsolation:
             async with listening_for_agent_responses(
                 ws_client, room_a_id, timeout=timeout, raise_on_timeout=True
             ) as wait:
-                await send_message_to_agent(
+                await send_agent_message(
                     api_client,
                     room_a_id,
                     "What is the secret code? Reply with just the code word.",
@@ -141,7 +141,7 @@ class TestRoomIsolation:
             async with listening_for_agent_responses(
                 ws_client, room_b_id, timeout=timeout, raise_on_timeout=True
             ) as wait:
-                await send_message_to_agent(
+                await send_agent_message(
                     api_client,
                     room_b_id,
                     "What is the secret code? Reply with just the code word.",

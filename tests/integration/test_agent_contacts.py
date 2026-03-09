@@ -1,6 +1,12 @@
 """Integration tests for Agent contact event handling.
 
 These tests require real API access and are skipped in CI.
+
+Note: TestAgentHubRoomFlow was removed because HUB_ROOM strategy creates a
+dedicated chat room at startup, which accumulates orphaned rooms across runs
+(no delete API). The HUB_ROOM code path is covered by unit tests in
+tests/runtime/test_contact_handler.py; live validation is deferred until the
+platform supports room deletion.
 """
 
 import asyncio
