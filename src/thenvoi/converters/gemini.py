@@ -6,7 +6,7 @@ import logging
 from typing import Any
 
 try:
-    from google.genai import types
+    from google.genai import types  # type: ignore[missing-import]
 except ImportError as e:
     raise ImportError(
         "Google GenAI dependencies not installed. "

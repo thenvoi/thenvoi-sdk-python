@@ -11,9 +11,9 @@ import httpx
 from pydantic import ValidationError
 
 try:
-    from google import genai
-    from google.genai import types
-    from google.genai.errors import ServerError
+    from google import genai  # type: ignore[missing-module-attribute]
+    from google.genai import types  # type: ignore[missing-import]
+    from google.genai.errors import ServerError  # type: ignore[missing-import]
 except ImportError as e:
     raise ImportError(
         "google-genai is required for Gemini adapter.\n"
