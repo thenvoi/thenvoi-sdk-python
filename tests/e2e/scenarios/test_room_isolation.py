@@ -29,7 +29,7 @@ from tests.e2e.helpers import (
     assert_content_contains,
     assert_no_content_contains,
     listening_for_agent_responses,
-    send_agent_message,
+    send_trigger_message,
 )
 
 logger = logging.getLogger(__name__)
@@ -59,6 +59,9 @@ class TestRoomIsolation:
 
         Uses unique keywords per adapter+run to avoid cross-adapter and
         cross-run contamination in shared rooms that persist across sessions.
+        Note: Room B is shared across all adapters; stale history accumulates
+        across runs. If LLMs start confusing old codes with new ones, prune
+        the room or create a fresh agent.
         """
         adapter_name, factory = adapter_entry
         timeout = e2e_config.e2e_timeout
@@ -97,7 +100,7 @@ class TestRoomIsolation:
             async with listening_for_agent_responses(
                 ws_client, room_a_id, timeout=timeout, raise_on_timeout=True
             ) as wait:
-                await send_agent_message(
+                await send_trigger_message(
                     api_client,
                     room_a_id,
                     f"Remember: the secret code is {code_a}. Confirm you remember it.",
@@ -109,7 +112,7 @@ class TestRoomIsolation:
             async with listening_for_agent_responses(
                 ws_client, room_b_id, timeout=timeout, raise_on_timeout=True
             ) as wait:
-                await send_agent_message(
+                await send_trigger_message(
                     api_client,
                     room_b_id,
                     f"Remember: the secret code is {code_b}. Confirm you remember it.",
@@ -129,7 +132,7 @@ class TestRoomIsolation:
             async with listening_for_agent_responses(
                 ws_client, room_a_id, timeout=timeout, raise_on_timeout=True
             ) as wait:
-                await send_agent_message(
+                await send_trigger_message(
                     api_client,
                     room_a_id,
                     "What is the secret code? Reply with just the code word.",
@@ -141,7 +144,7 @@ class TestRoomIsolation:
             async with listening_for_agent_responses(
                 ws_client, room_b_id, timeout=timeout, raise_on_timeout=True
             ) as wait:
-                await send_agent_message(
+                await send_trigger_message(
                     api_client,
                     room_b_id,
                     "What is the secret code? Reply with just the code word.",

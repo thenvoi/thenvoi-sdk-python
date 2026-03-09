@@ -193,6 +193,7 @@ class TestParticipantRemovalPermissions:
     - admin removes other admin
     - member removes other member agent
     - member removes other member user
+    TODO(INT-38): Expand when 3+ pre-existing agents are available.
     """
 
     async def test_owner_removes_member_agent(
@@ -455,6 +456,7 @@ class TestParticipantAddPermissions:
     - admin adds agent as admin
     - member adds agent as member
     - member adds user as member
+    TODO(INT-38): Expand when 3+ pre-existing agents are available.
     """
 
     async def test_owner_adds_agent_as_member(

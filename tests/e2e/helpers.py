@@ -63,19 +63,19 @@ class TrackingWebSocketClient:
         self._joined_rooms.clear()
 
 
-async def send_agent_message(
+async def send_trigger_message(
     client: AsyncRestClient,
     room_id: str,
     content: str,
     mention_name: str,
     mention_id: str,
 ) -> str:
-    """Send a message to a room on behalf of the agent, mentioning a participant.
+    """Send a message that triggers the agent's processing loop.
 
-    Despite the agent being the sender (using agent API credentials), this
-    simulates user-like input that triggers the agent's processing loop.
-    The mention targets another room participant (typically the User peer)
-    to satisfy the platform's "at least one mention" requirement.
+    Uses agent API credentials to post a message mentioning another room
+    participant (typically the User peer).  The mention satisfies the
+    platform's "at least one mention" requirement.  Despite the agent
+    being the technical sender, this simulates incoming user input.
 
     Args:
         client: REST API client (agent credentials).
@@ -117,7 +117,7 @@ async def listening_for_agent_responses(
     Usage::
 
         async with listening_for_agent_responses(ws, room_id) as wait:
-            await send_agent_message(client, room_id, "Hello", ...)
+            await send_trigger_message(client, room_id, "Hello", ...)
             received = await wait()
 
     Args:
@@ -233,7 +233,7 @@ async def run_smoke_test(
     async with listening_for_agent_responses(
         ws_client, chat_id, timeout=timeout
     ) as wait:
-        await send_agent_message(api_client, chat_id, "Say hello", user_name, user_id)
+        await send_trigger_message(api_client, chat_id, "Say hello", user_name, user_id)
         received = await wait()
 
     assert len(received) > 0, (
@@ -264,7 +264,7 @@ async def run_tool_execution_test(
     async with listening_for_agent_responses(
         ws_client, chat_id, timeout=timeout
     ) as wait:
-        await send_agent_message(
+        await send_trigger_message(
             api_client,
             chat_id,
             "Reply with the word PINEAPPLE",
