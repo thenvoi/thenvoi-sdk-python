@@ -11,6 +11,7 @@ Install the extra you need::
     uv add thenvoi-sdk[crewai]
     uv add thenvoi-sdk[a2a]
     uv add thenvoi-sdk[codex]
+    uv add thenvoi-sdk[google_adk]
 """
 
 from __future__ import annotations

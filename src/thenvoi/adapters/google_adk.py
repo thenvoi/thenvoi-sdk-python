@@ -88,15 +88,8 @@ def _strip_additional_properties(
     for key, value in openai_params.items():
         if key == "additionalProperties":
             continue
-        if isinstance(value, dict):
+        if isinstance(value, (dict, list)):
             cleaned[key] = _strip_additional_properties(value)
-        elif isinstance(value, list):
-            cleaned[key] = [
-                _strip_additional_properties(item)
-                if isinstance(item, (dict, list))
-                else item
-                for item in value
-            ]
         else:
             cleaned[key] = value
     return cleaned
