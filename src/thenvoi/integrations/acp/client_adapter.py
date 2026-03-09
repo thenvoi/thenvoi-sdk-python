@@ -214,7 +214,11 @@ class ACPClientAdapter(SimpleAdapter[ACPClientSessionState]):
 
         # Send prompt to external ACP agent
         try:
-            await self._conn.prompt(
+            conn = self._conn
+            if conn is None:
+                raise RuntimeError("ACP client connection dropped before prompt")
+
+            await conn.prompt(
                 session_id=session_id,
                 prompt=[text_block(prompt_text)],
             )

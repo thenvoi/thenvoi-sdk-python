@@ -13,10 +13,13 @@ from acp import (
 )
 from acp.schema import (
     AuthenticateResponse,
+    ForkSessionResponse,
     Implementation,
     ListSessionsResponse,
     LoadSessionResponse,
+    ResumeSessionResponse,
     SessionInfo,
+    SetSessionConfigOptionResponse,
     SetSessionModeResponse,
     SetSessionModelResponse,
 )
@@ -222,6 +225,26 @@ class ACPServer(Agent):
         logger.info("Set session model: session=%s, model=%s", session_id, model_id)
         return SetSessionModelResponse()
 
+    async def set_config_option(
+        self,
+        config_id: str,
+        session_id: str,
+        value: str,
+        **kwargs: Any,
+    ) -> SetSessionConfigOptionResponse | None:
+        """Handle ACP set_config_option request.
+
+        Thenvoi ACP adapter does not currently expose configurable ACP
+        session options, so we acknowledge the request with ``None``.
+        """
+        logger.info(
+            "Ignoring unsupported session config option: session=%s, config=%s, value=%s",
+            session_id,
+            config_id,
+            value,
+        )
+        return None
+
     async def authenticate(
         self,
         method_id: str,
@@ -246,6 +269,50 @@ class ACPServer(Agent):
             return None
         logger.debug("Unsupported auth method: %s", method_id)
         return None
+
+    async def fork_session(
+        self,
+        cwd: str,
+        session_id: str,
+        mcp_servers: list[Any] | None = None,
+        **kwargs: Any,
+    ) -> ForkSessionResponse:
+        """Handle ACP fork_session request.
+
+        Creates a new Thenvoi-backed ACP session as a fork target.
+        """
+        if not self._adapter.has_session(session_id):
+            raise KeyError(f"Cannot fork unknown ACP session: {session_id}")
+
+        forked_session_id = await self._adapter.create_session(
+            cwd=cwd,
+            mcp_servers=mcp_servers,
+        )
+        logger.info(
+            "Forked ACP session %s -> %s (cwd=%s)",
+            session_id,
+            forked_session_id,
+            cwd,
+        )
+        return ForkSessionResponse(session_id=forked_session_id)  # type: ignore[call-arg]  # Pydantic alias: sessionId
+
+    async def resume_session(
+        self,
+        cwd: str,
+        session_id: str,
+        mcp_servers: list[Any] | None = None,
+        **kwargs: Any,
+    ) -> ResumeSessionResponse:
+        """Handle ACP resume_session request.
+
+        The in-memory adapter can only resume active sessions.
+        """
+        _ = cwd, mcp_servers, kwargs
+        if not self._adapter.has_session(session_id):
+            raise KeyError(f"Cannot resume unknown ACP session: {session_id}")
+
+        logger.info("Resumed ACP session %s", session_id)
+        return ResumeSessionResponse()
 
     async def ext_method(self, method: str, params: dict[str, Any]) -> dict[str, Any]:
         """Handle ACP extension method.
