@@ -159,6 +159,9 @@ class _ThenvoiToolBridge(_BaseTool):
             msg = f"Invalid arguments for {self.name}: {errors}"
             logger.error("Tool %s validation failed: %s", self.name, msg)
             return msg
+        except ValueError as e:
+            logger.error("Invalid arguments for %s: %s", self.name, e)
+            return str(e)
         except Exception as e:
             logger.error("Tool %s failed: %s", self.name, e)
             return f"Error: {e}"
@@ -372,7 +375,10 @@ class GoogleADKAdapter(SimpleAdapter[GoogleADKMessages]):
             ):
                 # Report tool calls/results if enabled
                 if self.enable_execution_reporting:
-                    await self._report_event(event, tools)
+                    try:
+                        await self._report_event(event, tools)
+                    except Exception as e:
+                        logger.warning("Failed to report event: %s", e)
 
                 if event.is_final_response():
                     # Extract text from the final response for history tracking
