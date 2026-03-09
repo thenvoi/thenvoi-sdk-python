@@ -495,74 +495,6 @@ class TestAgentToolsExecuteToolCall:
         assert "Error executing" in result
 
 
-class TestEmptyMentionsValidation:
-    """Test that empty mentions return a helpful error with participant names."""
-
-    async def test_returns_error_with_participant_names(
-        self, mock_rest_client, participants
-    ):
-        """Should return error listing available participants when mentions empty."""
-        tools = AgentTools("room-123", mock_rest_client, participants)
-
-        result = await tools.send_message("Hello!", mentions=[])
-
-        assert isinstance(result, dict)
-        assert "error" in result
-        assert "At least one mention is required" in result["error"]
-        assert "@user-one" in result["error"]
-        assert "@user-two" in result["error"]
-        # Should NOT have called the API
-        mock_rest_client.agent_api_messages.create_agent_chat_message.assert_not_called()
-
-    async def test_returns_error_when_mentions_none(
-        self, mock_rest_client, participants
-    ):
-        """Should return error when mentions is None."""
-        tools = AgentTools("room-123", mock_rest_client, participants)
-
-        result = await tools.send_message("Hello!", mentions=None)
-
-        assert isinstance(result, dict)
-        assert "error" in result
-        assert "At least one mention is required" in result["error"]
-
-    async def test_uses_name_when_no_handle(self, mock_rest_client):
-        """Should fall back to participant name when handle is missing."""
-        participants = [
-            {"id": "user-1", "name": "User One", "type": "User", "handle": None},
-        ]
-        tools = AgentTools("room-123", mock_rest_client, participants)
-
-        result = await tools.send_message("Hello!", mentions=[])
-
-        assert "User One" in result["error"]
-
-    async def test_no_error_when_mentions_provided(
-        self, mock_rest_client, participants
-    ):
-        """Should proceed normally when mentions are provided."""
-        tools = AgentTools("room-123", mock_rest_client, participants)
-
-        result = await tools.send_message("Hello!", mentions=["User One"])
-
-        assert "id" in result  # Normal response
-        mock_rest_client.agent_api_messages.create_agent_chat_message.assert_called_once()
-
-    async def test_execute_tool_call_returns_helpful_error(
-        self, mock_rest_client, participants
-    ):
-        """execute_tool_call should surface the helpful error for empty mentions."""
-        tools = AgentTools("room-123", mock_rest_client, participants)
-
-        result = await tools.execute_tool_call(
-            "thenvoi_send_message", {"content": "Hello!", "mentions": []}
-        )
-
-        assert isinstance(result, dict)
-        assert "At least one mention is required" in result["error"]
-        assert "@user-one" in result["error"]
-
-
 class TestMentionResolution:
     """Test mention resolution logic."""
 
@@ -672,10 +604,10 @@ class TestToolInputModels:
         assert model.content == "Hello"
         assert model.mentions == ["User"]
 
-    def test_send_message_input_accepts_empty_mentions(self):
-        """SendMessageInput allows empty mentions (runtime validates instead)."""
-        model = SendMessageInput(content="Hello", mentions=[])
-        assert model.mentions == []
+    def test_send_message_input_requires_mention(self):
+        """SendMessageInput should require at least one mention."""
+        with pytest.raises(Exception):  # Pydantic validation
+            SendMessageInput(content="Hello", mentions=[])
 
     def test_send_event_input_validation(self):
         """SendEventInput should validate fields."""

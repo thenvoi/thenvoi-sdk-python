@@ -39,6 +39,7 @@ class SendMessageInput(BaseModel):
     content: str = Field(..., description="The message content to send")
     mentions: list[str] = Field(
         ...,
+        min_length=1,
         description=(
             "List of participant handles to @mention. At least one required. "
             "For users: @<username> (e.g., '@john'). "
@@ -461,27 +462,17 @@ class AgentTools(AgentToolsProtocol):
 
         # Auto-refresh participants cache if empty (common on first message)
         if not self._participants:
-            logger.debug("Participants cache empty, fetching for room %s", self.room_id)
+            logger.info("[send_message] participants cache empty, fetching...")
             self._participants = await self.get_participants()
-
+        logger.info(
+            "[send_message] room=%s mentions=%s content_preview=%s participants=%s",
+            self.room_id,
+            mentions,
+            (content or "")[:80],
+            [p.get("handle") or p.get("name") for p in self._participants],
+        )
         resolved_mentions = self._resolve_mentions(mentions or [])
-
-        # Validate mentions are not empty — API requires ≥1 mention.
-        # Return a helpful error so the LLM can retry with proper mentions.
-        if not resolved_mentions:
-            participant_names = [
-                p.get("handle") or p["name"]
-                for p in self._participants
-            ]
-            return {
-                "error": (
-                    "At least one mention is required. "
-                    f"Available participants: {participant_names}. "
-                    "Please retry with mentions specifying who this message is for."
-                )
-            }
-
-        logger.debug("Sending message to room %s", self.room_id)
+        logger.info("[send_message] resolved mentions: %s", resolved_mentions)
 
         # Convert to API format - use handle (not name) for mentions
         mention_items = [
@@ -489,11 +480,13 @@ class AgentTools(AgentToolsProtocol):
             for m in resolved_mentions
         ]
 
+        logger.info("[send_message] calling create_agent_chat_message...")
         response = await self.rest.agent_api_messages.create_agent_chat_message(
             chat_id=self.room_id,
             message=ChatMessageRequest(content=content, mentions=mention_items),
             request_options=DEFAULT_REQUEST_OPTIONS,
         )
+        logger.info("[send_message] response: %s", response.data)
         if not response.data:
             raise RuntimeError("Failed to send message - no response data")
         return response.data.model_dump()
