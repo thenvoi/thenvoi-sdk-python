@@ -185,7 +185,7 @@ class GoogleADKAdapter(SimpleAdapter[GoogleADKMessages]):
         )
 
         self.model = model
-        self.system_prompt = system_prompt
+        self._system_prompt_override = system_prompt
         self.custom_section = custom_section
         self.enable_execution_reporting = enable_execution_reporting
         self.enable_memory_tools = enable_memory_tools
@@ -193,17 +193,18 @@ class GoogleADKAdapter(SimpleAdapter[GoogleADKMessages]):
         # Custom tools (user-provided)
         self._custom_tools: list[CustomToolDef] = additional_tools or []
 
-        # Rendered system prompt (set after start)
+        # Effective system prompt (rendered in on_started)
         self._system_prompt: str = ""
 
-        # Per-room session IDs.  Safe for concurrent access because the
-        # adapter runs on a single asyncio event loop (no parallel mutation).
+        # Per-room session IDs for logging/debugging.  A fresh InMemoryRunner
+        # is created per message so session IDs are not reused across runners;
+        # continuity comes from the transcript injection, not from runner state.
         self._room_sessions: dict[str, str] = {}
 
     async def on_started(self, agent_name: str, agent_description: str) -> None:
         """Render system prompt and create ADK agent after metadata is fetched."""
         await super().on_started(agent_name, agent_description)
-        self._system_prompt = self.system_prompt or render_system_prompt(
+        self._system_prompt = self._system_prompt_override or render_system_prompt(
             agent_name=agent_name,
             agent_description=agent_description,
             custom_section=self.custom_section or "",
@@ -226,11 +227,11 @@ class GoogleADKAdapter(SimpleAdapter[GoogleADKMessages]):
                     tool_description=func_def.get("description", ""),
                     parameters_schema=func_def.get("parameters", {}),
                     tools=tools,
-                    custom_tools=self._custom_tools,
+                    custom_tools=[],
                 )
             )
 
-        # Add custom tool bridges
+        # Add custom tool bridges (only these need the custom tools list)
         if self._custom_tools:
             custom_schemas = custom_tools_to_schemas(self._custom_tools, "openai")
             for schema in custom_schemas:
@@ -285,18 +286,13 @@ class GoogleADKAdapter(SimpleAdapter[GoogleADKMessages]):
         # A fresh runner is created per message because InMemoryRunner
         # accumulates session history internally and tool schemas may change
         # between calls.  History is injected as a text transcript instead.
-        # The per-room session_id is kept for ADK's internal session store
-        # lookup, but effective state continuity comes from the transcript
-        # injection above, not from the runner's in-memory state.
         runner = self._create_runner(tools)
 
-        # Get or create session for this room
-        if is_session_bootstrap or room_id not in self._room_sessions:
-            session_id = str(uuid.uuid4())
-            self._room_sessions[room_id] = session_id
-            logger.info("Room %s: Created new ADK session %s", room_id, session_id)
-        else:
-            session_id = self._room_sessions[room_id]
+        # Always create a new session ID — each runner is fresh, so there is
+        # no in-memory state to resume.  The ID is stored for cleanup tracking.
+        session_id = str(uuid.uuid4())
+        self._room_sessions[room_id] = session_id
+        logger.info("Room %s: Created new ADK session %s", room_id, session_id)
 
         # Build the user message content
         parts: list[str] = []

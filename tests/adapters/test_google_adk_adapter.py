@@ -86,9 +86,9 @@ class TestInitialization:
         assert adapter.model == "gemini-2.5-pro"
 
     def test_system_prompt_override(self):
-        """Should use custom system_prompt if provided."""
+        """Should store custom system_prompt override."""
         adapter = GoogleADKAdapter(system_prompt="You are a custom assistant.")
-        assert adapter.system_prompt == "You are a custom assistant."
+        assert adapter._system_prompt_override == "You are a custom assistant."
 
     def test_custom_section(self):
         """Should store custom section."""
@@ -174,10 +174,10 @@ class TestOnMessage:
             assert "room-123" in adapter._room_sessions
 
     @pytest.mark.asyncio
-    async def test_reuses_session_on_subsequent_messages(
+    async def test_creates_new_session_on_each_message(
         self, sample_message, mock_tools
     ):
-        """Should reuse existing session for same room."""
+        """Should create a fresh session per message (runner is ephemeral)."""
         adapter = GoogleADKAdapter()
         await adapter.on_started("TestBot", "Test bot")
 
@@ -212,7 +212,7 @@ class TestOnMessage:
             )
 
             session_id_2 = adapter._room_sessions["room-123"]
-            assert session_id_1 == session_id_2
+            assert session_id_1 != session_id_2
 
     @pytest.mark.asyncio
     async def test_injects_participants_message(self, sample_message, mock_tools):
