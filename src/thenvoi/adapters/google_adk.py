@@ -33,8 +33,13 @@ logger = logging.getLogger(__name__)
 _APP_NAME = "thenvoi"
 
 
-def _import_adk() -> tuple:
-    """Lazily import Google ADK dependencies.
+def _require_adk() -> tuple:
+    """Import Google ADK dependencies, raising a clear error if missing.
+
+    Called at module level because ``_ThenvoiToolBridge`` needs ``BaseTool``
+    as its base class at class-definition time.  The module-level
+    ``__getattr__`` in ``thenvoi.adapters.__init__`` ensures this module is
+    only loaded when ``GoogleADKAdapter`` is actually requested.
 
     Returns:
         (ADKAgent, InMemoryRunner, BaseTool, types) tuple.
@@ -55,9 +60,7 @@ def _import_adk() -> tuple:
     return ADKAgent, InMemoryRunner, BaseTool, types
 
 
-# Resolve base class lazily — BaseTool is needed at class-definition time
-# for _ThenvoiToolBridge, so we import it eagerly but guard with a clear error.
-_ADKAgent, _InMemoryRunner, _BaseTool, _types = _import_adk()
+_ADKAgent, _InMemoryRunner, _BaseTool, _types = _require_adk()
 
 
 class _ThenvoiToolBridge(_BaseTool):
@@ -408,43 +411,44 @@ class GoogleADKAdapter(SimpleAdapter[GoogleADKMessages]):
 
     async def _report_event(self, event: Any, tools: AgentToolsProtocol) -> None:
         """Report ADK event as tool_call/tool_result if applicable."""
-        try:
-            function_calls = event.get_function_calls()
-            if function_calls:
-                for fc in function_calls:
-                    try:
-                        await tools.send_event(
-                            content=json.dumps(
-                                {
-                                    "name": fc.name,
-                                    "args": dict(fc.args) if fc.args else {},
-                                    "tool_call_id": fc.id if hasattr(fc, "id") else "",
-                                }
-                            ),
-                            message_type="tool_call",
-                        )
-                    except Exception as e:
-                        logger.warning("Failed to send tool_call event: %s", e)
+        if not hasattr(event, "get_function_calls") or not hasattr(
+            event, "get_function_responses"
+        ):
+            return
 
-            function_responses = event.get_function_responses()
-            if function_responses:
-                for fr in function_responses:
-                    try:
-                        await tools.send_event(
-                            content=json.dumps(
-                                {
-                                    "name": fr.name,
-                                    "output": str(fr.response) if fr.response else "",
-                                    "tool_call_id": fr.id if hasattr(fr, "id") else "",
-                                }
-                            ),
-                            message_type="tool_result",
-                        )
-                    except Exception as e:
-                        logger.warning("Failed to send tool_result event: %s", e)
-        except AttributeError:
-            # Event may not have get_function_calls/get_function_responses — that's OK
-            pass
+        function_calls = event.get_function_calls()
+        if function_calls:
+            for fc in function_calls:
+                try:
+                    await tools.send_event(
+                        content=json.dumps(
+                            {
+                                "name": fc.name,
+                                "args": dict(fc.args) if fc.args else {},
+                                "tool_call_id": fc.id if hasattr(fc, "id") else "",
+                            }
+                        ),
+                        message_type="tool_call",
+                    )
+                except Exception as e:
+                    logger.warning("Failed to send tool_call event: %s", e)
+
+        function_responses = event.get_function_responses()
+        if function_responses:
+            for fr in function_responses:
+                try:
+                    await tools.send_event(
+                        content=json.dumps(
+                            {
+                                "name": fr.name,
+                                "output": str(fr.response) if fr.response else "",
+                                "tool_call_id": fr.id if hasattr(fr, "id") else "",
+                            }
+                        ),
+                        message_type="tool_result",
+                    )
+                except Exception as e:
+                    logger.warning("Failed to send tool_result event: %s", e)
 
     async def _report_error(self, tools: AgentToolsProtocol, error: str) -> None:
         """Send error event (best effort)."""
