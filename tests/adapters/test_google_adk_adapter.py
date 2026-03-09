@@ -402,6 +402,31 @@ class TestStripAdditionalProperties:
         assert cleaned["properties"]["name"] == {"type": "string"}
         assert cleaned["required"] == ["name"]
 
+    def test_handles_top_level_list(self):
+        """Should recurse into top-level list items (e.g. anyOf/oneOf schemas)."""
+        schema_list = [
+            {"type": "string", "additionalProperties": False},
+            {
+                "type": "object",
+                "properties": {"x": {"type": "integer"}},
+                "additionalProperties": False,
+            },
+        ]
+
+        cleaned = _strip_additional_properties(schema_list)
+
+        assert isinstance(cleaned, list)
+        assert len(cleaned) == 2
+        assert "additionalProperties" not in cleaned[0]
+        assert "additionalProperties" not in cleaned[1]
+        assert cleaned[1]["properties"]["x"] == {"type": "integer"}
+
+    def test_handles_non_dict_input(self):
+        """Should return non-dict/non-list input as-is."""
+        assert _strip_additional_properties("string") == "string"
+        assert _strip_additional_properties(42) == 42
+        assert _strip_additional_properties(None) is None
+
 
 class TestBuildADKTools:
     """Tests for _build_adk_tools."""

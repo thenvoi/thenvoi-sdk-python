@@ -31,6 +31,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 _APP_NAME = "thenvoi"
+_MAX_TOOL_OUTPUT_PREVIEW = 200
 
 
 def _require_adk() -> tuple[type, type, type, Any]:
@@ -63,7 +64,9 @@ def _require_adk() -> tuple[type, type, type, Any]:
 _ADKAgent, _InMemoryRunner, _BaseTool, _types = _require_adk()
 
 
-def _strip_additional_properties(openai_params: dict[str, Any]) -> dict[str, Any]:
+def _strip_additional_properties(
+    openai_params: dict[str, Any] | list[Any] | Any,
+) -> Any:
     """Convert OpenAI JSON Schema parameters to Gemini format.
 
     Gemini does not support the ``additionalProperties`` key in function
@@ -71,6 +74,13 @@ def _strip_additional_properties(openai_params: dict[str, Any]) -> dict[str, Any
     declaration with a validation error.  This helper strips the key
     recursively so the schema is compatible.
     """
+    if isinstance(openai_params, list):
+        return [
+            _strip_additional_properties(item)
+            if isinstance(item, (dict, list))
+            else item
+            for item in openai_params
+        ]
     if not isinstance(openai_params, dict):
         return openai_params
 
@@ -191,7 +201,8 @@ class GoogleADKAdapter(SimpleAdapter[GoogleADKMessages]):
         # Rendered system prompt (set after start)
         self._system_prompt: str = ""
 
-        # Per-room session IDs
+        # Per-room session IDs.  Safe for concurrent access because the
+        # adapter runs on a single asyncio event loop (no parallel mutation).
         self._room_sessions: dict[str, str] = {}
 
     async def on_started(self, agent_name: str, agent_description: str) -> None:
@@ -279,6 +290,9 @@ class GoogleADKAdapter(SimpleAdapter[GoogleADKMessages]):
         # A fresh runner is created per message because InMemoryRunner
         # accumulates session history internally and tool schemas may change
         # between calls.  History is injected as a text transcript instead.
+        # The per-room session_id is kept for ADK's internal session store
+        # lookup, but effective state continuity comes from the transcript
+        # injection above, not from the runner's in-memory state.
         runner = self._create_runner(tools)
 
         # Get or create session for this room
@@ -381,7 +395,9 @@ class GoogleADKAdapter(SimpleAdapter[GoogleADKMessages]):
                         elif block_type == "function_response":
                             output = str(block.get("output", ""))
                             truncated = (
-                                output[:200] + "..." if len(output) > 200 else output
+                                output[:_MAX_TOOL_OUTPUT_PREVIEW] + "..."
+                                if len(output) > _MAX_TOOL_OUTPUT_PREVIEW
+                                else output
                             )
                             lines.append(
                                 f"[Tool Result] {block.get('name', 'unknown')}: "

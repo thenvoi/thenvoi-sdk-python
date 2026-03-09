@@ -93,7 +93,7 @@ bridge = [
     "aiohttp>=3.9,<4",      # Health check HTTP server
 ]
 google_adk = [
-    "google-adk>=1.0.0",
+    "google-adk>=1.0.0,<2",
 ]
 bridge_langchain = [
     "httpx>=0.24.0",
@@ -134,7 +134,7 @@ dev = [
     "crewai>=0.80.0",
     "nest-asyncio>=1.6.0",  # Required for CrewAI adapter sync-to-async bridging
     # Include google-adk for testing
-    "google-adk>=1.0.0",
+    "google-adk>=1.0.0,<2",
     # Include bridge deps for testing
     "aiohttp>=3.9,<4",
     # Development tools
