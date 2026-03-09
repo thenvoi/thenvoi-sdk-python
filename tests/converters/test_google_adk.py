@@ -301,6 +301,36 @@ class TestEdgeCases:
         assert len(result) == 1
         assert result[0]["content"] == "Hello"
 
+    def test_skips_thought_messages(self):
+        """Should skip thought message types."""
+        converter = GoogleADKHistoryConverter()
+        result = converter.convert(
+            [
+                {
+                    "role": "assistant",
+                    "content": "Thinking about the problem...",
+                    "sender_name": "TestBot",
+                    "message_type": "thought",
+                }
+            ]
+        )
+        assert len(result) == 0
+
+    def test_skips_error_messages(self):
+        """Should skip error message types."""
+        converter = GoogleADKHistoryConverter()
+        result = converter.convert(
+            [
+                {
+                    "role": "assistant",
+                    "content": "Error: something went wrong",
+                    "sender_name": "TestBot",
+                    "message_type": "error",
+                }
+            ]
+        )
+        assert len(result) == 0
+
     def test_malformed_tool_call_json(self):
         """Should skip malformed tool call JSON."""
         converter = GoogleADKHistoryConverter()

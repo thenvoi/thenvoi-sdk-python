@@ -158,6 +158,13 @@ class GoogleADKAdapter(SimpleAdapter[GoogleADKMessages]):
     Uses Google's Agent Development Kit with Gemini models for agent
     interactions, with automatic tool bridging and session management.
 
+    Tool bridges (``_ThenvoiToolBridge``) are created each time a runner is
+    built and need access to the *current* ``AgentToolsProtocol`` for the
+    message being handled.  Because the bridges are instantiated before
+    ``on_message`` receives the ``tools`` argument, the adapter stores
+    ``_tools_ref`` and ``_custom_tools_ref`` as single-element mutable lists
+    so the bridges can read an up-to-date reference without being recreated.
+
     Example:
         adapter = GoogleADKAdapter(
             model="gemini-2.5-flash",
@@ -286,7 +293,9 @@ class GoogleADKAdapter(SimpleAdapter[GoogleADKMessages]):
         self._tools_ref[0] = tools
         self._custom_tools_ref[0] = self._custom_tools
 
-        # Create a fresh runner per message to ensure tools context is current
+        # A fresh runner is created per message because InMemoryRunner
+        # accumulates session history internally and tool schemas may change
+        # between calls.  History is injected as a text transcript instead.
         runner = self._create_runner(tools)
 
         # Get or create session for this room
@@ -384,7 +393,7 @@ class GoogleADKAdapter(SimpleAdapter[GoogleADKMessages]):
                         if block_type == "function_call":
                             lines.append(
                                 f"[Tool Call] {block.get('name', 'unknown')}"
-                                f"({json.dumps(block.get('args', {}), default=str)})"
+                                f" ({json.dumps(block.get('args', {}), default=str)})"
                             )
                         elif block_type == "function_response":
                             output = str(block.get("output", ""))
@@ -433,8 +442,8 @@ class GoogleADKAdapter(SimpleAdapter[GoogleADKMessages]):
                         )
                     except Exception as e:
                         logger.warning("Failed to send tool_result event: %s", e)
-        except Exception:
-            # Event may not have function calls/responses - that's OK
+        except AttributeError:
+            # Event may not have get_function_calls/get_function_responses — that's OK
             pass
 
     async def _report_error(self, tools: AgentToolsProtocol, error: str) -> None:

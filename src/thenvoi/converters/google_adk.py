@@ -118,6 +118,10 @@ class GoogleADKHistoryConverter(HistoryConverter[GoogleADKMessages]):
                         tool_result_block["is_error"] = True
                     pending_tool_results.append(tool_result_block)
 
+            elif message_type in ("thought", "error"):
+                # Thought and error events are not included in LLM history
+                continue
+
             elif message_type == "text":
                 _flush_pending_tool_calls(messages, pending_tool_calls)
                 _flush_pending_tool_results(messages, pending_tool_results)

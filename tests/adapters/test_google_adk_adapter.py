@@ -153,7 +153,7 @@ class TestOnMessage:
 
         with patch.object(adapter, "_create_runner") as mock_create:
             mock_runner = AsyncMock()
-            mock_runner.run_async = MagicMock(return_value=_empty_async_iter())
+            mock_runner.run_async = _empty_async_iter
             mock_runner.close = AsyncMock()
             mock_create.return_value = mock_runner
 
@@ -179,7 +179,7 @@ class TestOnMessage:
 
         with patch.object(adapter, "_create_runner") as mock_create:
             mock_runner = AsyncMock()
-            mock_runner.run_async = MagicMock(return_value=_empty_async_iter())
+            mock_runner.run_async = _empty_async_iter
             mock_runner.close = AsyncMock()
             mock_create.return_value = mock_runner
 
