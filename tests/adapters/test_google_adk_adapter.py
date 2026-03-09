@@ -15,7 +15,11 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from pydantic import BaseModel, Field
 
-from thenvoi.adapters.google_adk import GoogleADKAdapter, _ThenvoiToolBridge
+from thenvoi.adapters.google_adk import (
+    GoogleADKAdapter,
+    _ThenvoiToolBridge,
+    _strip_additional_properties,
+)
 from thenvoi.core.types import PlatformMessage
 
 
@@ -313,8 +317,8 @@ class TestToolBridge:
             tool_name="thenvoi_send_message",
             tool_description="Send a message",
             parameters_schema={},
-            tools_ref=[None],
-            custom_tools_ref=[[]],
+            tools=MagicMock(),
+            custom_tools=[],
         )
         assert bridge.name == "thenvoi_send_message"
 
@@ -324,8 +328,8 @@ class TestToolBridge:
             tool_name="test_tool",
             tool_description="A test tool",
             parameters_schema={},
-            tools_ref=[None],
-            custom_tools_ref=[[]],
+            tools=MagicMock(),
+            custom_tools=[],
         )
         assert bridge.description == "A test tool"
 
@@ -339,8 +343,8 @@ class TestToolBridge:
             tool_name="thenvoi_send_message",
             tool_description="Send a message",
             parameters_schema={},
-            tools_ref=[mock_tools],
-            custom_tools_ref=[[]],
+            tools=mock_tools,
+            custom_tools=[],
         )
 
         result = await bridge.run_async(
@@ -354,21 +358,6 @@ class TestToolBridge:
         assert "sent" in result
 
     @pytest.mark.asyncio
-    async def test_returns_error_when_no_tools_context(self):
-        """Should return error when tools context is not set."""
-        bridge = _ThenvoiToolBridge(
-            tool_name="test_tool",
-            tool_description="Test",
-            parameters_schema={},
-            tools_ref=[None],
-            custom_tools_ref=[[]],
-        )
-
-        result = await bridge.run_async(args={}, tool_context=MagicMock())
-        assert isinstance(result, dict)
-        assert "error" in result
-
-    @pytest.mark.asyncio
     async def test_handles_tool_error(self):
         """Should return error string on tool failure."""
         mock_tools = MagicMock()
@@ -378,13 +367,17 @@ class TestToolBridge:
             tool_name="failing_tool",
             tool_description="Fails",
             parameters_schema={},
-            tools_ref=[mock_tools],
-            custom_tools_ref=[[]],
+            tools=mock_tools,
+            custom_tools=[],
         )
 
         result = await bridge.run_async(args={}, tool_context=MagicMock())
         assert "Error" in result
         assert "Tool failed!" in result
+
+
+class TestStripAdditionalProperties:
+    """Tests for _strip_additional_properties module-level function."""
 
     def test_strips_additional_properties(self):
         """Should strip additionalProperties from schema for Gemini compatibility."""
@@ -402,7 +395,7 @@ class TestToolBridge:
             "required": ["name"],
         }
 
-        cleaned = _ThenvoiToolBridge._convert_parameters(schema)
+        cleaned = _strip_additional_properties(schema)
 
         assert "additionalProperties" not in cleaned
         assert "additionalProperties" not in cleaned["properties"]["nested"]
@@ -477,8 +470,8 @@ class TestCustomTools:
             tool_name="echo",
             tool_description="Echo back the message",
             parameters_schema={},
-            tools_ref=[mock_tools],
-            custom_tools_ref=[[(EchoInput, echo)]],
+            tools=mock_tools,
+            custom_tools=[(EchoInput, echo)],
         )
 
         result = await bridge.run_async(
@@ -489,6 +482,118 @@ class TestCustomTools:
         # Should NOT have called platform tool
         mock_tools.execute_tool_call.assert_not_called()
         assert "Echo: Hello" in result
+
+
+class TestContactsInjection:
+    """Tests for contacts_msg injection."""
+
+    @pytest.mark.asyncio
+    async def test_injects_contacts_message(self, sample_message, mock_tools):
+        """Should include contacts broadcast in message."""
+        adapter = GoogleADKAdapter()
+        await adapter.on_started("TestBot", "Test bot")
+
+        captured_messages = []
+
+        with patch.object(adapter, "_create_runner") as mock_create:
+            mock_runner = AsyncMock()
+
+            def capture_run(**kwargs):
+                captured_messages.append(kwargs.get("new_message"))
+                return _empty_async_iter()
+
+            mock_runner.run_async = capture_run
+            mock_runner.close = AsyncMock()
+            mock_create.return_value = mock_runner
+
+            await adapter.on_message(
+                msg=sample_message,
+                tools=mock_tools,
+                history=[],
+                participants_msg=None,
+                contacts_msg="Bob is now a contact",
+                is_session_bootstrap=True,
+                room_id="room-123",
+            )
+
+        assert len(captured_messages) == 1
+        text = captured_messages[0].parts[0].text
+        assert "[System]: Bob is now a contact" in text
+
+
+class TestExecutionReporting:
+    """Tests for _report_event execution reporting."""
+
+    @pytest.mark.asyncio
+    async def test_reports_function_calls(self, mock_tools):
+        """Should report function calls as tool_call events."""
+        adapter = GoogleADKAdapter(enable_execution_reporting=True)
+
+        mock_fc = MagicMock()
+        mock_fc.name = "thenvoi_send_message"
+        mock_fc.args = {"content": "Hello"}
+        mock_fc.id = "fc-1"
+
+        event = MagicMock()
+        event.get_function_calls.return_value = [mock_fc]
+        event.get_function_responses.return_value = []
+
+        await adapter._report_event(event, mock_tools)
+
+        mock_tools.send_event.assert_called_once()
+        call_args = mock_tools.send_event.call_args
+        assert call_args.kwargs["message_type"] == "tool_call"
+        assert "thenvoi_send_message" in call_args.kwargs["content"]
+
+    @pytest.mark.asyncio
+    async def test_reports_function_responses(self, mock_tools):
+        """Should report function responses as tool_result events."""
+        adapter = GoogleADKAdapter(enable_execution_reporting=True)
+
+        mock_fr = MagicMock()
+        mock_fr.name = "thenvoi_send_message"
+        mock_fr.response = {"status": "sent"}
+        mock_fr.id = "fc-1"
+
+        event = MagicMock()
+        event.get_function_calls.return_value = []
+        event.get_function_responses.return_value = [mock_fr]
+
+        await adapter._report_event(event, mock_tools)
+
+        mock_tools.send_event.assert_called_once()
+        call_args = mock_tools.send_event.call_args
+        assert call_args.kwargs["message_type"] == "tool_result"
+        assert "thenvoi_send_message" in call_args.kwargs["content"]
+
+    @pytest.mark.asyncio
+    async def test_skips_event_without_function_methods(self, mock_tools):
+        """Should skip events that lack function call/response methods."""
+        adapter = GoogleADKAdapter(enable_execution_reporting=True)
+
+        event = MagicMock(spec=[])  # No attributes
+
+        await adapter._report_event(event, mock_tools)
+
+        mock_tools.send_event.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_handles_report_failure_gracefully(self, mock_tools):
+        """Should not raise when event reporting fails."""
+        adapter = GoogleADKAdapter(enable_execution_reporting=True)
+        mock_tools.send_event = AsyncMock(side_effect=Exception("Network error"))
+
+        mock_fc = MagicMock()
+        mock_fc.name = "test_tool"
+        mock_fc.args = {}
+        mock_fc.id = "fc-1"
+
+        event = MagicMock()
+        event.get_function_calls.return_value = [mock_fc]
+        event.get_function_responses.return_value = []
+
+        # Should not raise
+        await adapter._report_event(event, mock_tools)
 
 
 class TestErrorHandling:
@@ -505,7 +610,7 @@ class TestErrorHandling:
 
             async def failing_run(**kwargs):
                 raise Exception("Runner Error")
-                yield  # Make it an async generator  # noqa: E501
+                yield  # noqa: B901 - yield after raise to make async generator
 
             mock_runner.run_async = failing_run
             mock_runner.close = AsyncMock()

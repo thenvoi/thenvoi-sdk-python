@@ -33,7 +33,7 @@ logger = logging.getLogger(__name__)
 _APP_NAME = "thenvoi"
 
 
-def _require_adk() -> tuple:
+def _require_adk() -> tuple[type, type, type, Any]:
     """Import Google ADK dependencies, raising a clear error if missing.
 
     Called at module level because ``_ThenvoiToolBridge`` needs ``BaseTool``
@@ -63,6 +63,33 @@ def _require_adk() -> tuple:
 _ADKAgent, _InMemoryRunner, _BaseTool, _types = _require_adk()
 
 
+def _strip_additional_properties(openai_params: dict[str, Any]) -> dict[str, Any]:
+    """Convert OpenAI JSON Schema parameters to Gemini format.
+
+    Gemini does not support the ``additionalProperties`` key in function
+    parameter schemas.  Passing it causes ``google.genai`` to reject the
+    declaration with a validation error.  This helper strips the key
+    recursively so the schema is compatible.
+    """
+    if not isinstance(openai_params, dict):
+        return openai_params
+
+    cleaned: dict[str, Any] = {}
+    for key, value in openai_params.items():
+        if key == "additionalProperties":
+            continue
+        if isinstance(value, dict):
+            cleaned[key] = _strip_additional_properties(value)
+        elif isinstance(value, list):
+            cleaned[key] = [
+                _strip_additional_properties(item) if isinstance(item, dict) else item
+                for item in value
+            ]
+        else:
+            cleaned[key] = value
+    return cleaned
+
+
 class _ThenvoiToolBridge(_BaseTool):
     """Bridges a Thenvoi platform tool to Google ADK.
 
@@ -80,21 +107,20 @@ class _ThenvoiToolBridge(_BaseTool):
         tool_name: str,
         tool_description: str,
         parameters_schema: dict[str, Any],
-        tools_ref: list[AgentToolsProtocol | None],
-        custom_tools_ref: list[list[CustomToolDef]],
+        tools: AgentToolsProtocol,
+        custom_tools: list[CustomToolDef],
     ):
         super().__init__(name=tool_name, description=tool_description)
         self._parameters_schema = parameters_schema
-        # Mutable lists holding current references (updated per on_message)
-        self._tools_ref = tools_ref
-        self._custom_tools_ref = custom_tools_ref
+        self._tools = tools
+        self._custom_tools = custom_tools
 
     def _get_declaration(self) -> _types.FunctionDeclaration:
         """Build a FunctionDeclaration from the OpenAI-format schema."""
         return _types.FunctionDeclaration(
             name=self.name,
             description=self.description,
-            parameters=self._convert_parameters(self._parameters_schema),
+            parameters=_strip_additional_properties(self._parameters_schema),
         )
 
     async def run_async(
@@ -104,18 +130,12 @@ class _ThenvoiToolBridge(_BaseTool):
         tool_context: ToolContext,
     ) -> Any:
         """Execute the tool via Thenvoi's AgentToolsProtocol."""
-        tools = self._tools_ref[0]
-        if tools is None:
-            return {"error": "Tool execution context not available"}
-
-        custom_tools = self._custom_tools_ref[0]
-
         try:
-            custom_tool = find_custom_tool(custom_tools, self.name)
+            custom_tool = find_custom_tool(self._custom_tools, self.name)
             if custom_tool:
                 result = await execute_custom_tool(custom_tool, args)
             else:
-                result = await tools.execute_tool_call(self.name, args)
+                result = await self._tools.execute_tool_call(self.name, args)
 
             if not isinstance(result, str):
                 return json.dumps(result, default=str)
@@ -123,35 +143,6 @@ class _ThenvoiToolBridge(_BaseTool):
         except Exception as e:
             logger.error("Tool %s failed: %s", self.name, e)
             return f"Error: {e}"
-
-    @staticmethod
-    def _convert_parameters(openai_params: dict[str, Any]) -> dict[str, Any]:
-        """Convert OpenAI JSON Schema parameters to Gemini format.
-
-        Gemini does not support the ``additionalProperties`` key in function
-        parameter schemas.  Passing it causes ``google.genai`` to reject the
-        declaration with a validation error.  This helper strips the key
-        recursively so the schema is compatible.
-        """
-        if not isinstance(openai_params, dict):
-            return openai_params
-
-        cleaned: dict[str, Any] = {}
-        for key, value in openai_params.items():
-            if key == "additionalProperties":
-                continue
-            if isinstance(value, dict):
-                cleaned[key] = _ThenvoiToolBridge._convert_parameters(value)
-            elif isinstance(value, list):
-                cleaned[key] = [
-                    _ThenvoiToolBridge._convert_parameters(item)
-                    if isinstance(item, dict)
-                    else item
-                    for item in value
-                ]
-            else:
-                cleaned[key] = value
-        return cleaned
 
 
 class GoogleADKAdapter(SimpleAdapter[GoogleADKMessages]):
@@ -161,12 +152,9 @@ class GoogleADKAdapter(SimpleAdapter[GoogleADKMessages]):
     Uses Google's Agent Development Kit with Gemini models for agent
     interactions, with automatic tool bridging and session management.
 
-    Tool bridges (``_ThenvoiToolBridge``) are created each time a runner is
-    built and need access to the *current* ``AgentToolsProtocol`` for the
-    message being handled.  Because the bridges are instantiated before
-    ``on_message`` receives the ``tools`` argument, the adapter stores
-    ``_tools_ref`` and ``_custom_tools_ref`` as single-element mutable lists
-    so the bridges can read an up-to-date reference without being recreated.
+    Tool bridges (``_ThenvoiToolBridge``) are created per ``on_message`` call
+    with direct references to the current ``AgentToolsProtocol`` and custom
+    tools, so each invocation is self-contained and safe for concurrent use.
 
     Example:
         adapter = GoogleADKAdapter(
@@ -206,10 +194,6 @@ class GoogleADKAdapter(SimpleAdapter[GoogleADKMessages]):
         # Per-room session IDs
         self._room_sessions: dict[str, str] = {}
 
-        # Mutable reference holders for tool bridge (updated per on_message)
-        self._tools_ref: list[AgentToolsProtocol | None] = [None]
-        self._custom_tools_ref: list[list[CustomToolDef]] = [self._custom_tools]
-
     async def on_started(self, agent_name: str, agent_description: str) -> None:
         """Render system prompt and create ADK agent after metadata is fetched."""
         await super().on_started(agent_name, agent_description)
@@ -235,8 +219,8 @@ class GoogleADKAdapter(SimpleAdapter[GoogleADKMessages]):
                     tool_name=func_def["name"],
                     tool_description=func_def.get("description", ""),
                     parameters_schema=func_def.get("parameters", {}),
-                    tools_ref=self._tools_ref,
-                    custom_tools_ref=self._custom_tools_ref,
+                    tools=tools,
+                    custom_tools=self._custom_tools,
                 )
             )
 
@@ -250,8 +234,8 @@ class GoogleADKAdapter(SimpleAdapter[GoogleADKMessages]):
                         tool_name=func_def["name"],
                         tool_description=func_def.get("description", ""),
                         parameters_schema=func_def.get("parameters", {}),
-                        tools_ref=self._tools_ref,
-                        custom_tools_ref=self._custom_tools_ref,
+                        tools=tools,
+                        custom_tools=self._custom_tools,
                     )
                 )
 
@@ -291,10 +275,6 @@ class GoogleADKAdapter(SimpleAdapter[GoogleADKMessages]):
         LLM calls, tool execution, and conversation management.
         """
         logger.debug("Handling message %s in room %s", msg.id, room_id)
-
-        # Update mutable tool references for the bridge
-        self._tools_ref[0] = tools
-        self._custom_tools_ref[0] = self._custom_tools
 
         # A fresh runner is created per message because InMemoryRunner
         # accumulates session history internally and tool schemas may change
