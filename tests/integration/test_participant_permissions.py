@@ -156,6 +156,7 @@ async def _try_add(
     Returns:
         "success" if add succeeded
         "403" if forbidden
+        "404" if room not found (e.g. caller is not a participant)
         "409" if already a participant
 
     Raises:
@@ -170,6 +171,8 @@ async def _try_add(
     except ApiError as e:
         if e.status_code == 403:
             return "403"
+        if e.status_code == 404:
+            return "404"
         if e.status_code == 409:
             return "409"
         raise
@@ -539,21 +542,24 @@ class TestParticipantAddPermissions:
         assert role is not None, "User peer should be a participant in the room"
         logger.info("User peer is present with role: %s", role)
 
-    async def test_admin_adds_removed_agent_back(
+    async def test_removed_agent_cannot_self_add(
         self,
         session_api_client: AsyncRestClient,
         session_api_client_2: AsyncRestClient,
         shared_multi_agent_room: str | None,
         shared_agent2_info: AgentInfo,
     ):
-        """Admin (agent2) can re-add itself after being removed -> expect success.
+        """An agent that left a room cannot add itself back -> expect 404.
 
-        With only 2 agents we cannot test "admin adds a third agent". Instead
-        we verify that an admin-privileged agent can add a participant by:
-        1. Owner removes agent2
-        2. Owner re-adds agent2 as admin
-        3. Agent2 (admin) removes itself
-        4. Agent2 adds itself back as member (tests the add permission)
+        Once an agent is no longer a participant, the platform returns 404
+        because the room is invisible to that agent. Re-adding requires
+        action from a current participant (owner/admin).
+
+        Steps:
+        1. Ensure agent2 is admin
+        2. Agent2 (admin) leaves the room
+        3. Agent2 tries to add itself back -> 404
+        4. Owner re-adds agent2 (cleanup)
         """
         if shared_multi_agent_room is None:
             pytest.skip("shared_multi_agent_room not available")
@@ -573,19 +579,19 @@ class TestParticipantAddPermissions:
         result = await _try_remove(session_api_client_2, chat_id, shared_agent2_info.id)
         assert result == "success", f"Admin should be able to leave, got: {result}"
 
-        # 3. Agent2 adds itself back as member (tests add permission)
+        # 3. Agent2 tries to add itself back — room is invisible, expect 404
         result = await _try_add(
             session_api_client_2, chat_id, shared_agent2_info.id, "member"
         )
-        logger.info("Admin adds self back as member: %s", result)
-        assert result == "success", (
-            f"Agent should be able to add itself back to room, got: {result}"
+        logger.info("Removed agent tries self-add: %s", result)
+        assert result == "404", (
+            f"Removed agent should get 404 when trying to self-add, got: {result}"
         )
 
-        role = await _get_participant_role(
-            session_api_client, chat_id, shared_agent2_info.id
+        # 4. Restore: owner adds agent2 back
+        await _ensure_in_room(
+            session_api_client, chat_id, shared_agent2_info.id, "member"
         )
-        assert role == "member"
 
     async def test_member_cannot_add_agent_as_admin(
         self,
