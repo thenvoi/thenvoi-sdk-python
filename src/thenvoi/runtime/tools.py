@@ -465,8 +465,7 @@ class AgentTools(AgentToolsProtocol):
         # Return a helpful error so the LLM can retry with proper mentions.
         if not resolved_mentions:
             participant_names = [
-                p.get("handle") or p["name"]
-                for p in self._participants
+                p.get("handle") or p["name"] for p in self._participants
             ]
             return {
                 "error": (
