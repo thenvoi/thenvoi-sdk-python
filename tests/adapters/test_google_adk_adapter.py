@@ -523,6 +523,8 @@ class TestErrorHandling:
                 )
 
             mock_tools.send_event.assert_called()
+            # Runner should be closed even on error (via finally)
+            mock_runner.close.assert_called_once()
 
 
 class TestHistoryTranscript:

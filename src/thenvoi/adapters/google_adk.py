@@ -166,7 +166,6 @@ class GoogleADKAdapter(SimpleAdapter[GoogleADKMessages]):
     def __init__(
         self,
         model: str = "gemini-2.5-flash",
-        google_api_key: str | None = None,
         system_prompt: str | None = None,
         custom_section: str | None = None,
         enable_execution_reporting: bool = False,
@@ -179,7 +178,6 @@ class GoogleADKAdapter(SimpleAdapter[GoogleADKMessages]):
         )
 
         self.model = model
-        self.google_api_key = google_api_key
         self.system_prompt = system_prompt
         self.custom_section = custom_section
         self.enable_execution_reporting = enable_execution_reporting
@@ -197,9 +195,6 @@ class GoogleADKAdapter(SimpleAdapter[GoogleADKMessages]):
         # Mutable reference holders for tool bridge (updated per on_message)
         self._tools_ref: list[AgentToolsProtocol | None] = [None]
         self._custom_tools_ref: list[list[CustomToolDef]] = [self._custom_tools]
-
-        # ADK components (created in on_started)
-        self._runner: _InMemoryRunner | None = None
 
     async def on_started(self, agent_name: str, agent_description: str) -> None:
         """Render system prompt and create ADK agent after metadata is fetched."""
@@ -359,8 +354,8 @@ class GoogleADKAdapter(SimpleAdapter[GoogleADKMessages]):
             logger.error("Error running ADK agent: %s", e, exc_info=True)
             await self._report_error(tools, str(e))
             raise
-
-        await runner.close()
+        finally:
+            await runner.close()
 
         logger.debug("Message %s processed successfully", msg.id)
 
@@ -388,7 +383,7 @@ class GoogleADKAdapter(SimpleAdapter[GoogleADKMessages]):
                                 f"({json.dumps(block.get('args', {}), default=str)})"
                             )
                         elif block_type == "function_response":
-                            output = block.get("output", "")
+                            output = str(block.get("output", ""))
                             truncated = (
                                 output[:200] + "..." if len(output) > 200 else output
                             )
