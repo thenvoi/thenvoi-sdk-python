@@ -12,6 +12,9 @@ This is the simplest way to create a Thenvoi agent using the Google Agent
 Development Kit (ADK) with Gemini models. The adapter handles conversation
 history, tool calling, and platform integration via ADK's built-in Runner.
 
+Requires GOOGLE_API_KEY (or GOOGLE_GENAI_API_KEY) environment variable for
+Gemini authentication, in addition to the Thenvoi credentials.
+
 Run with:
     uv run examples/google_adk/01_basic_agent.py
 """

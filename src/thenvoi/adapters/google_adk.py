@@ -92,7 +92,9 @@ def _strip_additional_properties(
             cleaned[key] = _strip_additional_properties(value)
         elif isinstance(value, list):
             cleaned[key] = [
-                _strip_additional_properties(item) if isinstance(item, dict) else item
+                _strip_additional_properties(item)
+                if isinstance(item, (dict, list))
+                else item
                 for item in value
             ]
         else:
