@@ -12,12 +12,19 @@ from acp import (
     PromptResponse,
 )
 from acp.schema import (
+    AgentCapabilities,
     AuthenticateResponse,
+    AuthMethod,
     ForkSessionResponse,
     Implementation,
     ListSessionsResponse,
     LoadSessionResponse,
+    PromptCapabilities,
     ResumeSessionResponse,
+    SessionCapabilities,
+    SessionForkCapabilities,
+    SessionListCapabilities,
+    SessionResumeCapabilities,
     SessionInfo,
     SetSessionConfigOptionResponse,
     SetSessionModeResponse,
@@ -93,11 +100,38 @@ class ACPServer(Agent):
         )
         return InitializeResponse(  # type: ignore[call-arg]  # Pydantic alias: protocolVersion
             protocol_version=protocol_version,
+            agent_capabilities=AgentCapabilities(
+                load_session=True,
+                prompt_capabilities=PromptCapabilities(
+                    # Thenvoi supports rich text and tool/thought updates.
+                    # It does not currently consume image/audio prompt blocks.
+                    image=False,
+                    audio=False,
+                    embedded_context=True,
+                ),
+                session_capabilities=SessionCapabilities(
+                    list=SessionListCapabilities(),
+                    resume=SessionResumeCapabilities(),
+                    fork=SessionForkCapabilities(),
+                ),
+                field_meta={
+                    "streaming": True,
+                    "tools": True,
+                    "modes": ["default", "code"],
+                },
+            ),
             agent_info=Implementation(
                 name="thenvoi-agent",
                 title=self._adapter.agent_name or "Thenvoi Agent",
                 version=__version__,
             ),
+            auth_methods=[
+                AuthMethod(
+                    id="api_key",
+                    name="API Key",
+                    description="Authenticate with THENVOI_API_KEY.",
+                ),
+            ],
         )
 
     async def new_session(

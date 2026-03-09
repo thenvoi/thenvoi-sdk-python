@@ -1,7 +1,7 @@
-"""Allow running the ACP MCP server as: python -m thenvoi.integrations.acp"""
+"""Allow running the ACP stdio server as: python -m thenvoi.integrations.acp."""
 
 from __future__ import annotations
 
-from thenvoi.integrations.acp.mcp_server import main
+from thenvoi.integrations.acp.cli import entry_point
 
-main()
+entry_point()
