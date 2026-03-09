@@ -532,6 +532,10 @@ def _build_google_adk_config() -> AdapterConfig:
             "enable_execution_reporting": _default_from_init(
                 GoogleADKAdapter, "enable_execution_reporting"
             ),
+            "enable_memory_tools": _default_from_init(
+                GoogleADKAdapter, "enable_memory_tools"
+            ),
+            "custom_section": _default_from_init(GoogleADKAdapter, "custom_section"),
         },
         custom_kwargs={
             "model": "gemini-2.5-pro",
@@ -543,7 +547,7 @@ def _build_google_adk_config() -> AdapterConfig:
             "custom_section": "Be helpful.",
             "enable_execution_reporting": True,
         },
-        skip_on_started_conformance=True,  # on_started creates ADK agent; tested in test_google_adk_adapter
+        skip_on_started_conformance=True,  # on_started renders system prompt; tested in test_google_adk_adapter
     )
 
 

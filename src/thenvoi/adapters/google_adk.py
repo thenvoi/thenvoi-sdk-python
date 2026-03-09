@@ -13,6 +13,8 @@ import logging
 import uuid
 from typing import TYPE_CHECKING, Any
 
+from pydantic import ValidationError
+
 from thenvoi.core.protocols import AgentToolsProtocol
 from thenvoi.core.simple_adapter import SimpleAdapter
 from thenvoi.core.types import PlatformMessage
@@ -149,6 +151,14 @@ class _ThenvoiToolBridge(_BaseTool):
             if not isinstance(result, str):
                 return json.dumps(result, default=str)
             return result
+        except ValidationError as e:
+            errors = "; ".join(
+                f"{'.'.join(str(x) for x in err['loc'])}: {err['msg']}"
+                for err in e.errors()
+            )
+            msg = f"Invalid arguments for {self.name}: {errors}"
+            logger.error("Tool %s validation failed: %s", self.name, msg)
+            return msg
         except Exception as e:
             logger.error("Tool %s failed: %s", self.name, e)
             return f"Error: {e}"
@@ -200,9 +210,12 @@ class GoogleADKAdapter(SimpleAdapter[GoogleADKMessages]):
         # Effective system prompt (rendered in on_started)
         self._system_prompt: str = ""
 
-        # Per-room session IDs for logging/debugging.  A fresh InMemoryRunner
-        # is created per message so session IDs are not reused across runners;
-        # continuity comes from the transcript injection, not from runner state.
+        # Per-room accumulated message history for transcript injection.
+        # A fresh InMemoryRunner is created per message, so continuity comes
+        # from injecting the accumulated transcript, not from runner state.
+        self._room_history: dict[str, GoogleADKMessages] = {}
+
+        # Per-room session IDs for logging/debugging.
         self._room_sessions: dict[str, str] = {}
 
     async def on_started(self, agent_name: str, agent_description: str) -> None:
@@ -287,6 +300,19 @@ class GoogleADKAdapter(SimpleAdapter[GoogleADKMessages]):
         """
         logger.debug("Handling message %s in room %s", msg.id, room_id)
 
+        # Initialize or seed per-room history
+        if is_session_bootstrap:
+            self._room_history[room_id] = list(history) if history else []
+            if history:
+                logger.info(
+                    "Room %s: Loaded %s historical messages",
+                    room_id,
+                    len(history),
+                )
+        elif room_id not in self._room_history:
+            # Safety: ensure history exists even if not first message
+            self._room_history[room_id] = []
+
         # A fresh runner is created per message because InMemoryRunner
         # accumulates session history internally and tool schemas may change
         # between calls.  History is injected as a text transcript instead.
@@ -301,19 +327,15 @@ class GoogleADKAdapter(SimpleAdapter[GoogleADKMessages]):
         # Build the user message content
         parts: list[str] = []
 
-        # Inject history context on bootstrap
-        if is_session_bootstrap and history:
-            transcript = self._format_history_transcript(history)
+        # Always inject accumulated history as transcript for context
+        room_history = self._room_history[room_id]
+        if room_history:
+            transcript = self._format_history_transcript(room_history)
             if transcript:
                 parts.append(
                     f"[Previous conversation context]\n{transcript}\n"
                     f"[End of previous context]\n\n"
                 )
-            logger.info(
-                "Room %s: Injected %s historical messages as context",
-                room_id,
-                len(history),
-            )
 
         # Inject participants update
         if participants_msg:
@@ -334,12 +356,14 @@ class GoogleADKAdapter(SimpleAdapter[GoogleADKMessages]):
         )
 
         logger.info(
-            "Room %s: Running ADK agent (bootstrap=%s)",
+            "Room %s: Running ADK agent (bootstrap=%s, history_size=%s)",
             room_id,
             is_session_bootstrap,
+            len(room_history),
         )
 
         # Run the ADK agent - it handles the full tool loop
+        final_response_text = ""
         try:
             async for event in runner.run_async(
                 user_id=room_id,
@@ -351,6 +375,8 @@ class GoogleADKAdapter(SimpleAdapter[GoogleADKMessages]):
                     await self._report_event(event, tools)
 
                 if event.is_final_response():
+                    # Extract text from the final response for history tracking
+                    final_response_text = self._extract_event_text(event)
                     logger.debug(
                         "Room %s: ADK agent completed with final response",
                         room_id,
@@ -362,10 +388,20 @@ class GoogleADKAdapter(SimpleAdapter[GoogleADKMessages]):
         finally:
             await runner.close()
 
+        # Accumulate message history for future transcript injection
+        self._room_history[room_id].append(
+            {"role": "user", "content": msg.format_for_llm()}
+        )
+        if final_response_text:
+            self._room_history[room_id].append(
+                {"role": "model", "content": final_response_text}
+            )
+
         logger.debug("Message %s processed successfully", msg.id)
 
     async def on_cleanup(self, room_id: str) -> None:
-        """Clean up session when agent leaves a room."""
+        """Clean up session and history when agent leaves a room."""
+        self._room_history.pop(room_id, None)
         if room_id in self._room_sessions:
             del self._room_sessions[room_id]
             logger.debug("Room %s: Cleaned up ADK session", room_id)
@@ -400,6 +436,21 @@ class GoogleADKAdapter(SimpleAdapter[GoogleADKMessages]):
                             )
         return "\n".join(lines)
 
+    @staticmethod
+    def _extract_event_text(event: Any) -> str:
+        """Extract text content from an ADK event for history tracking."""
+        if not hasattr(event, "content") or not event.content:
+            return ""
+        parts = getattr(event.content, "parts", None)
+        if not parts:
+            return ""
+        texts: list[str] = []
+        for part in parts:
+            text = getattr(part, "text", None)
+            if text:
+                texts.append(text)
+        return " ".join(texts)
+
     async def _report_event(self, event: Any, tools: AgentToolsProtocol) -> None:
         """Report ADK event as tool_call/tool_result if applicable."""
         if not hasattr(event, "get_function_calls") or not hasattr(
@@ -411,11 +462,15 @@ class GoogleADKAdapter(SimpleAdapter[GoogleADKMessages]):
         if function_calls:
             for fc in function_calls:
                 try:
+                    try:
+                        args = dict(fc.args) if fc.args else {}
+                    except (TypeError, ValueError):
+                        args = {"raw": str(fc.args)} if fc.args else {}
                     await tools.send_event(
                         content=json.dumps(
                             {
                                 "name": fc.name,
-                                "args": dict(fc.args) if fc.args else {},
+                                "args": args,
                                 "tool_call_id": fc.id if hasattr(fc, "id") else "",
                             }
                         ),

@@ -376,7 +376,7 @@ class TestToolBridge:
         mock_tools.execute_tool_call.assert_called_once_with(
             "thenvoi_send_message", {"content": "Hello", "mentions": ["@alice"]}
         )
-        assert "sent" in result
+        assert result == '{"status": "sent"}'
 
     @pytest.mark.asyncio
     async def test_handles_tool_error(self):
@@ -528,6 +528,123 @@ class TestCustomTools:
         # Should NOT have called platform tool
         mock_tools.execute_tool_call.assert_not_called()
         assert "Echo: Hello" in result
+
+    @pytest.mark.asyncio
+    async def test_sync_custom_tool_execution(self):
+        """Sync custom tool should be executed via bridge."""
+
+        class CalcInput(BaseModel):
+            """Calculate sum."""
+
+            a: int = Field(description="First number")
+            b: int = Field(description="Second number")
+
+        def calculate(args: CalcInput) -> str:
+            return f"Result: {args.a + args.b}"
+
+        mock_tools = MagicMock()
+        mock_tools.execute_tool_call = AsyncMock()
+
+        # Tool name derived from model: CalcInput -> "calc"
+        bridge = _ThenvoiToolBridge(
+            tool_name="calc",
+            tool_description="Calculate sum",
+            parameters_schema={},
+            tools=mock_tools,
+            custom_tools=[(CalcInput, calculate)],
+        )
+
+        result = await bridge.run_async(
+            args={"a": 3, "b": 4},
+            tool_context=MagicMock(),
+        )
+
+        mock_tools.execute_tool_call.assert_not_called()
+        assert "Result: 7" in result
+
+    @pytest.mark.asyncio
+    async def test_custom_tool_validation_error(self):
+        """Should return formatted validation error for invalid arguments."""
+
+        class StrictInput(BaseModel):
+            """Requires a name field."""
+
+            name: str = Field(description="Required name")
+
+        async def strict_tool(args: StrictInput) -> str:
+            return f"Hello, {args.name}"
+
+        mock_tools = MagicMock()
+        mock_tools.execute_tool_call = AsyncMock()
+
+        bridge = _ThenvoiToolBridge(
+            tool_name="strict",
+            tool_description="Requires name",
+            parameters_schema={},
+            tools=mock_tools,
+            custom_tools=[(StrictInput, strict_tool)],
+        )
+
+        # Pass empty args - missing required 'name' field
+        result = await bridge.run_async(
+            args={},
+            tool_context=MagicMock(),
+        )
+
+        assert "Invalid arguments" in result
+        assert "name" in result
+
+    @pytest.mark.asyncio
+    async def test_multiple_custom_tools_execution(self):
+        """Multiple custom tools should be independently executable."""
+
+        class EchoInput(BaseModel):
+            """Echo back the message."""
+
+            message: str = Field(description="Message to echo")
+
+        class CalcInput(BaseModel):
+            """Calculate sum."""
+
+            a: int = Field(description="First number")
+            b: int = Field(description="Second number")
+
+        async def echo(args: EchoInput) -> str:
+            return f"Echo: {args.message}"
+
+        def calculate(args: CalcInput) -> str:
+            return f"Sum: {args.a + args.b}"
+
+        custom_tools = [(EchoInput, echo), (CalcInput, calculate)]
+        mock_tools = MagicMock()
+        mock_tools.execute_tool_call = AsyncMock()
+
+        echo_bridge = _ThenvoiToolBridge(
+            tool_name="echo",
+            tool_description="Echo",
+            parameters_schema={},
+            tools=mock_tools,
+            custom_tools=custom_tools,
+        )
+        # Tool name derived from model: CalcInput -> "calc"
+        calc_bridge = _ThenvoiToolBridge(
+            tool_name="calc",
+            tool_description="Calc",
+            parameters_schema={},
+            tools=mock_tools,
+            custom_tools=custom_tools,
+        )
+
+        echo_result = await echo_bridge.run_async(
+            args={"message": "Hi"}, tool_context=MagicMock()
+        )
+        calc_result = await calc_bridge.run_async(
+            args={"a": 2, "b": 3}, tool_context=MagicMock()
+        )
+
+        assert "Echo: Hi" in echo_result
+        assert "Sum: 5" in calc_result
+        mock_tools.execute_tool_call.assert_not_called()
 
 
 class TestContactsInjection:
@@ -740,6 +857,206 @@ class TestHistoryTranscript:
         """Should return empty string for empty history."""
         adapter = GoogleADKAdapter()
         assert adapter._format_history_transcript([]) == ""
+
+
+class TestHistoryAccumulation:
+    """Tests for per-room history accumulation across messages."""
+
+    @pytest.mark.asyncio
+    async def test_non_bootstrap_uses_accumulated_history(
+        self, sample_message, mock_tools
+    ):
+        """Non-bootstrap messages should still inject accumulated history."""
+        adapter = GoogleADKAdapter()
+        await adapter.on_started("TestBot", "Test bot")
+
+        captured_messages = []
+
+        with patch.object(adapter, "_create_runner") as mock_create:
+            mock_runner = AsyncMock()
+
+            def capture_run(**kwargs):
+                captured_messages.append(kwargs.get("new_message"))
+                return _empty_async_iter()
+
+            mock_runner.run_async = capture_run
+            mock_runner.close = AsyncMock()
+            mock_create.return_value = mock_runner
+
+            # First message (bootstrap) seeds history
+            await adapter.on_message(
+                msg=sample_message,
+                tools=mock_tools,
+                history=[
+                    {"role": "user", "content": "[Bob]: Previous message"},
+                ],
+                participants_msg=None,
+                contacts_msg=None,
+                is_session_bootstrap=True,
+                room_id="room-123",
+            )
+
+            # Second message (non-bootstrap) should still have history
+            await adapter.on_message(
+                msg=sample_message,
+                tools=mock_tools,
+                history=[],  # History param ignored on non-bootstrap
+                participants_msg=None,
+                contacts_msg=None,
+                is_session_bootstrap=False,
+                room_id="room-123",
+            )
+
+        # Second message should contain accumulated history
+        assert len(captured_messages) == 2
+        text = captured_messages[1].parts[0].text
+        assert "Previous conversation context" in text
+        # Should also have the first user message accumulated
+        assert "Hello, agent!" in text
+
+    @pytest.mark.asyncio
+    async def test_non_bootstrap_no_history_injection_when_empty(
+        self, sample_message, mock_tools
+    ):
+        """Non-bootstrap with no prior history should not inject transcript."""
+        adapter = GoogleADKAdapter()
+        await adapter.on_started("TestBot", "Test bot")
+
+        captured_messages = []
+
+        with patch.object(adapter, "_create_runner") as mock_create:
+            mock_runner = AsyncMock()
+
+            def capture_run(**kwargs):
+                captured_messages.append(kwargs.get("new_message"))
+                return _empty_async_iter()
+
+            mock_runner.run_async = capture_run
+            mock_runner.close = AsyncMock()
+            mock_create.return_value = mock_runner
+
+            # Bootstrap with empty history
+            await adapter.on_message(
+                msg=sample_message,
+                tools=mock_tools,
+                history=[],
+                participants_msg=None,
+                contacts_msg=None,
+                is_session_bootstrap=True,
+                room_id="room-123",
+            )
+
+            # Non-bootstrap - accumulated history only has the first msg
+            await adapter.on_message(
+                msg=sample_message,
+                tools=mock_tools,
+                history=[],
+                participants_msg=None,
+                contacts_msg=None,
+                is_session_bootstrap=False,
+                room_id="room-123",
+            )
+
+        # Second message should have context from first message
+        text = captured_messages[1].parts[0].text
+        assert "Previous conversation context" in text
+
+    @pytest.mark.asyncio
+    async def test_cleanup_removes_room_history(self):
+        """on_cleanup should remove accumulated history."""
+        adapter = GoogleADKAdapter()
+        adapter._room_history["room-123"] = [
+            {"role": "user", "content": "test"},
+        ]
+        adapter._room_sessions["room-123"] = "session-abc"
+
+        await adapter.on_cleanup("room-123")
+
+        assert "room-123" not in adapter._room_history
+        assert "room-123" not in adapter._room_sessions
+
+
+class TestFinalResponseCapture:
+    """Tests for capturing final text response from ADK events."""
+
+    @pytest.mark.asyncio
+    async def test_captures_final_response_in_history(self, sample_message, mock_tools):
+        """Should capture final response text and add to room history."""
+        adapter = GoogleADKAdapter()
+        await adapter.on_started("TestBot", "Test bot")
+
+        mock_event = MagicMock()
+        mock_event.is_final_response.return_value = True
+        mock_part = MagicMock()
+        mock_part.text = "Here is my response"
+        mock_event.content.parts = [mock_part]
+
+        async def iter_with_response(**kwargs):
+            yield mock_event
+
+        with patch.object(adapter, "_create_runner") as mock_create:
+            mock_runner = AsyncMock()
+            mock_runner.run_async = iter_with_response
+            mock_runner.close = AsyncMock()
+            mock_create.return_value = mock_runner
+
+            await adapter.on_message(
+                msg=sample_message,
+                tools=mock_tools,
+                history=[],
+                participants_msg=None,
+                contacts_msg=None,
+                is_session_bootstrap=True,
+                room_id="room-123",
+            )
+
+        # History should contain both user message and model response
+        history = adapter._room_history["room-123"]
+        assert len(history) == 2
+        assert history[0]["role"] == "user"
+        assert history[1]["role"] == "model"
+        assert history[1]["content"] == "Here is my response"
+
+    def test_extract_event_text_with_content(self):
+        """Should extract text from event content parts."""
+        mock_event = MagicMock()
+        mock_part = MagicMock()
+        mock_part.text = "response text"
+        mock_event.content.parts = [mock_part]
+
+        result = GoogleADKAdapter._extract_event_text(mock_event)
+        assert result == "response text"
+
+    def test_extract_event_text_no_content(self):
+        """Should return empty string when event has no content."""
+        mock_event = MagicMock()
+        mock_event.content = None
+
+        result = GoogleADKAdapter._extract_event_text(mock_event)
+        assert result == ""
+
+    def test_extract_event_text_no_text_parts(self):
+        """Should return empty string when parts have no text."""
+        mock_event = MagicMock()
+        mock_part = MagicMock()
+        mock_part.text = None
+        mock_event.content.parts = [mock_part]
+
+        result = GoogleADKAdapter._extract_event_text(mock_event)
+        assert result == ""
+
+
+class TestReportErrorFailure:
+    """Tests for _report_error own failure handling."""
+
+    @pytest.mark.asyncio
+    async def test_report_error_handles_own_failure(self, mock_tools):
+        """Should not raise when _report_error itself fails."""
+        adapter = GoogleADKAdapter()
+        mock_tools.send_event = AsyncMock(side_effect=Exception("Network down"))
+
+        # Should not raise
+        await adapter._report_error(mock_tools, "some error")
 
 
 # Helper for creating empty async iterators in tests

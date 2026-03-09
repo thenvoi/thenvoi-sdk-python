@@ -1,5 +1,7 @@
 """Shared logging configuration for examples."""
 
+from __future__ import annotations
+
 import logging
 
 

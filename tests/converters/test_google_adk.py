@@ -138,13 +138,16 @@ class TestToolEvents:
                 }
             ]
         )
-        assert len(result) == 1
+        # Orphan patching adds a synthetic response for the unmatched call
+        assert len(result) == 2
         assert result[0]["role"] == "model"
         blocks = result[0]["content"]
         assert len(blocks) == 1
         assert blocks[0]["type"] == "function_call"
         assert blocks[0]["name"] == "thenvoi_send_message"
         assert blocks[0]["args"] == {"content": "Hello"}
+        # Synthetic error response
+        assert result[1]["role"] == "user"
 
     def test_tool_result_conversion(self):
         """Should convert tool_result to user message with function_response block."""
@@ -238,9 +241,12 @@ class TestToolEvents:
                 },
             ]
         )
-        assert len(result) == 1
+        # Orphan patching adds a synthetic response for unmatched calls
+        assert len(result) == 2
         assert result[0]["role"] == "model"
         assert len(result[0]["content"]) == 2
+        # Synthetic error responses for both orphaned calls
+        assert result[1]["role"] == "user"
 
     def test_error_tool_result(self):
         """Should include is_error flag on error results."""
@@ -346,6 +352,81 @@ class TestEdgeCases:
         )
         assert len(result) == 0
 
+    def test_malformed_tool_result_json(self):
+        """Should skip malformed tool result JSON."""
+        converter = GoogleADKHistoryConverter()
+        result = converter.convert(
+            [
+                {
+                    "role": "assistant",
+                    "content": "not json at all",
+                    "sender_name": "TestBot",
+                    "message_type": "tool_result",
+                }
+            ]
+        )
+        assert len(result) == 0
+
+    def test_batches_multiple_tool_results(self):
+        """Should batch consecutive tool results into single user message."""
+        converter = GoogleADKHistoryConverter()
+        result = converter.convert(
+            [
+                {
+                    "role": "assistant",
+                    "content": json.dumps(
+                        {
+                            "name": "tool_a",
+                            "output": "result_a",
+                            "tool_call_id": "tc-1",
+                        }
+                    ),
+                    "sender_name": "TestBot",
+                    "message_type": "tool_result",
+                },
+                {
+                    "role": "assistant",
+                    "content": json.dumps(
+                        {
+                            "name": "tool_b",
+                            "output": "result_b",
+                            "tool_call_id": "tc-2",
+                        }
+                    ),
+                    "sender_name": "TestBot",
+                    "message_type": "tool_result",
+                },
+            ]
+        )
+        assert len(result) == 1
+        assert result[0]["role"] == "user"
+        assert len(result[0]["content"]) == 2
+
+    def test_trailing_pending_tool_calls(self):
+        """Should flush trailing tool calls at end of history."""
+        converter = GoogleADKHistoryConverter()
+        result = converter.convert(
+            [
+                {
+                    "role": "assistant",
+                    "content": json.dumps(
+                        {
+                            "name": "search",
+                            "args": {"q": "test"},
+                            "tool_call_id": "tc-1",
+                        }
+                    ),
+                    "sender_name": "TestBot",
+                    "message_type": "tool_call",
+                },
+            ]
+        )
+        # Model message from pending flush + synthetic response from orphan patch
+        assert len(result) == 2
+        assert result[0]["role"] == "model"
+        assert result[0]["content"][0]["type"] == "function_call"
+        assert result[1]["role"] == "user"
+
     def test_mixed_messages_and_tools(self):
         """Should handle interleaved text messages and tool events."""
         converter = GoogleADKHistoryConverter()
@@ -394,3 +475,120 @@ class TestEdgeCases:
         assert result[1]["role"] == "model"
         assert result[2]["role"] == "user"
         assert result[3]["role"] == "user"
+
+
+class TestOrphanedToolCallPatching:
+    """Tests for orphaned function_call patching."""
+
+    def test_patches_orphaned_tool_call_no_result(self):
+        """Should inject synthetic error response for tool call without result."""
+        converter = GoogleADKHistoryConverter()
+        result = converter.convert(
+            [
+                {
+                    "role": "assistant",
+                    "content": json.dumps(
+                        {
+                            "name": "search",
+                            "args": {"q": "test"},
+                            "tool_call_id": "tc-orphan",
+                        }
+                    ),
+                    "sender_name": "TestBot",
+                    "message_type": "tool_call",
+                },
+                {
+                    "role": "user",
+                    "content": "Follow up",
+                    "sender_name": "Alice",
+                    "message_type": "text",
+                },
+            ]
+        )
+        # Should have: model (tool call), user (synthetic result + text), user (follow up)
+        # The orphan patch inserts a synthetic response into or before the next user msg
+        assert len(result) >= 2
+        assert result[0]["role"] == "model"
+        # The second message should contain the synthetic function_response
+        user_msg = result[1]
+        assert user_msg["role"] == "user"
+        content = user_msg["content"]
+        assert isinstance(content, list)
+        has_synthetic = any(
+            isinstance(b, dict)
+            and b.get("type") == "function_response"
+            and "interrupted" in b.get("output", "")
+            for b in content
+        )
+        assert has_synthetic
+
+    def test_no_patch_when_result_present(self):
+        """Should not patch when tool call has matching result."""
+        converter = GoogleADKHistoryConverter()
+        result = converter.convert(
+            [
+                {
+                    "role": "assistant",
+                    "content": json.dumps(
+                        {
+                            "name": "search",
+                            "args": {"q": "test"},
+                            "tool_call_id": "tc-1",
+                        }
+                    ),
+                    "sender_name": "TestBot",
+                    "message_type": "tool_call",
+                },
+                {
+                    "role": "assistant",
+                    "content": json.dumps(
+                        {
+                            "name": "search",
+                            "output": "found it",
+                            "tool_call_id": "tc-1",
+                        }
+                    ),
+                    "sender_name": "TestBot",
+                    "message_type": "tool_result",
+                },
+            ]
+        )
+        assert len(result) == 2
+        # No synthetic responses should be added
+        user_content = result[1]["content"]
+        assert isinstance(user_content, list)
+        for block in user_content:
+            if isinstance(block, dict) and block.get("type") == "function_response":
+                assert "interrupted" not in block.get("output", "")
+
+    def test_patches_orphan_at_end_of_history(self):
+        """Should patch orphaned tool call at end of history with no following message."""
+        converter = GoogleADKHistoryConverter()
+        result = converter.convert(
+            [
+                {
+                    "role": "assistant",
+                    "content": json.dumps(
+                        {
+                            "name": "search",
+                            "args": {"q": "test"},
+                            "tool_call_id": "tc-end",
+                        }
+                    ),
+                    "sender_name": "TestBot",
+                    "message_type": "tool_call",
+                },
+            ]
+        )
+        # Should have model message + injected user message with synthetic response
+        assert len(result) == 2
+        assert result[0]["role"] == "model"
+        assert result[1]["role"] == "user"
+        content = result[1]["content"]
+        assert isinstance(content, list)
+        assert any(
+            b.get("type") == "function_response"
+            and "interrupted" in b.get("output", "")
+            for b in content
+            if isinstance(b, dict)
+        )

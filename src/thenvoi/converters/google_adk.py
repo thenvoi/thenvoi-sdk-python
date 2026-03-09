@@ -15,6 +15,88 @@ logger = logging.getLogger(__name__)
 GoogleADKMessages = list[dict[str, Any]]
 
 
+def _patch_orphaned_tool_calls(messages: GoogleADKMessages) -> None:
+    """Inject synthetic function_response blocks for orphaned function_call blocks.
+
+    Gemini expects every ``function_call`` in a model message to have a
+    corresponding ``function_response`` in the next user message.  When
+    history is corrupted (e.g. interrupted tool execution), some calls may
+    lack results.  This function injects error responses so the history is
+    valid for transcript rendering.
+
+    Mutations happen in-place via list insertion.
+    """
+    i = 0
+    while i < len(messages):
+        msg = messages[i]
+        if msg.get("role") != "model" or not isinstance(msg.get("content"), list):
+            i += 1
+            continue
+
+        # Collect function_call IDs in this model message
+        call_ids = {
+            block["id"]
+            for block in msg["content"]
+            if isinstance(block, dict) and block.get("type") == "function_call"
+        }
+
+        if not call_ids:
+            i += 1
+            continue
+
+        # Check the next message for matching function_responses
+        next_msg = messages[i + 1] if i + 1 < len(messages) else None
+        matched_ids: set[str] = set()
+
+        if (
+            next_msg
+            and next_msg.get("role") == "user"
+            and isinstance(next_msg.get("content"), list)
+        ):
+            matched_ids = {
+                block["tool_call_id"]
+                for block in next_msg["content"]
+                if isinstance(block, dict)
+                and block.get("type") == "function_response"
+                and block.get("tool_call_id") in call_ids
+            }
+
+        orphaned_ids = call_ids - matched_ids
+
+        if orphaned_ids:
+            sorted_ids = sorted(orphaned_ids)
+            logger.warning(
+                "Patching %d orphaned function_call block(s): %s",
+                len(sorted_ids),
+                sorted_ids,
+            )
+            synthetic_results = [
+                {
+                    "type": "function_response",
+                    "tool_call_id": uid,
+                    "name": "",
+                    "output": "Error: tool execution was interrupted",
+                    "is_error": True,
+                }
+                for uid in sorted_ids
+            ]
+
+            if next_msg is not None and next_msg.get("role") == "user":
+                if isinstance(next_msg["content"], str):
+                    next_msg["content"] = synthetic_results + [
+                        {"type": "text", "text": next_msg["content"]}
+                    ]
+                elif isinstance(next_msg["content"], list):
+                    next_msg["content"] = synthetic_results + next_msg["content"]
+            else:
+                messages.insert(
+                    i + 1,
+                    {"role": "user", "content": synthetic_results},
+                )
+
+        i += 1
+
+
 def _flush_pending_tool_calls(
     messages: GoogleADKMessages, pending_tool_calls: list[dict[str, Any]]
 ) -> None:
@@ -145,5 +227,9 @@ class GoogleADKHistoryConverter(HistoryConverter[GoogleADKMessages]):
         # Flush any remaining pending tool calls and results
         _flush_pending_tool_calls(messages, pending_tool_calls)
         _flush_pending_tool_results(messages, pending_tool_results)
+
+        # Patch orphaned function_call blocks that lack matching
+        # function_response blocks (e.g. interrupted tool execution).
+        _patch_orphaned_tool_calls(messages)
 
         return messages
