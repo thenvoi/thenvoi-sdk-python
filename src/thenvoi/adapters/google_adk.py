@@ -68,6 +68,10 @@ class _ThenvoiToolBridge(_BaseTool):
     execute_tool_call method.
     """
 
+    # Inherited from BaseTool (declared for pyrefly visibility)
+    name: str
+    description: str
+
     def __init__(
         self,
         tool_name: str,
