@@ -7,9 +7,13 @@ Provides prompt generators for the Thinker (word picker) and Guesser
 from __future__ import annotations
 
 import os
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from langchain_core.language_models import BaseChatModel
 
 
-def create_llm():
+def create_llm() -> BaseChatModel:
     """Select an LLM based on available API keys.
 
     Checks for ANTHROPIC_API_KEY first, then OPENAI_API_KEY.
@@ -39,7 +43,7 @@ def create_llm():
         raise ValueError("Either ANTHROPIC_API_KEY or OPENAI_API_KEY must be set")
 
 
-def create_llm_by_name(model: str):
+def create_llm_by_name(model: str) -> BaseChatModel:
     """Create a LangChain chat model for a specific model name.
 
     Detects the provider from the model name prefix:

@@ -1,47 +1,89 @@
-"""Start a 20 Questions Arena game as a user by creating a room, adding all agents, and sending a message."""
+# /// script
+# requires-python = ">=3.11"
+# dependencies = ["thenvoi-sdk[langgraph]"]
+#
+# [tool.uv.sources]
+# thenvoi-sdk = { git = "https://github.com/thenvoi/thenvoi-sdk-python.git" }
+# ///
+"""Start a 20 Questions Arena game as a user by creating a room, adding all agents, and sending a message.
+
+Run with:
+    uv run examples/20-questions-arena/start_game.py <user_api_key>
+"""
 
 from __future__ import annotations
 
 import asyncio
+import logging
+import os
 import sys
 
+from dotenv import load_dotenv
 from thenvoi_rest import AsyncRestClient, ChatMessageRequest, ParticipantRequest
 from thenvoi_rest.human_api_chats.types.create_my_chat_room_request_chat import (
     CreateMyChatRoomRequestChat,
 )
 from thenvoi_rest.types import ChatMessageRequestMentionsItem as Mention
 
-THINKER_AGENT_ID = "3f39b82c-b6ab-4300-bfd6-f3ff5792e348"
-GUESSER_AGENT_IDS = [
-    "f00d355b-df9b-4659-aa8e-9f5abad4fb5d",  # Guesser GPT 5-nano
-    "8b6510bc-b678-4ee4-8f71-d84de19b43b8",  # Guesser GPT 5.2 pro
-    "c10a872d-075a-488b-8611-8d9eda3a0b94",  # Guesser Haiku 4.5
-]
-REST_URL = "https://app.thenvoi.com"
+from setup_logging import setup_logging
+from thenvoi.config import load_agent_config
+
+logger = logging.getLogger(__name__)
+
+
+def _load_agent_id(config_key: str) -> str | None:
+    """Load agent_id from agent_config.yaml, returning None if missing."""
+    try:
+        agent_id, _ = load_agent_config(config_key)
+        return agent_id
+    except (ValueError, KeyError):
+        return None
 
 
 async def start_game(user_api_key: str) -> str:
-    client = AsyncRestClient(api_key=user_api_key, base_url=REST_URL)
+    rest_url = os.getenv("THENVOI_REST_URL")
+    if not rest_url:
+        raise ValueError("THENVOI_REST_URL environment variable is required")
+
+    thinker_agent_id = _load_agent_id("arena_thinker")
+    if not thinker_agent_id:
+        raise ValueError("arena_thinker config key is required in agent_config.yaml")
+
+    guesser_agent_ids = []
+    for key in ("arena_guesser", "arena_guesser_2", "arena_guesser_3"):
+        gid = _load_agent_id(key)
+        if gid:
+            guesser_agent_ids.append(gid)
+        else:
+            logger.info("Skipping %s (not configured)", key)
+
+    if not guesser_agent_ids:
+        raise ValueError(
+            "At least one guesser config key (arena_guesser, arena_guesser_2, arena_guesser_3) "
+            "is required in agent_config.yaml"
+        )
+
+    client = AsyncRestClient(api_key=user_api_key, base_url=rest_url)
 
     # Create a chat room
     chat_resp = await client.human_api_chats.create_my_chat_room(
         chat=CreateMyChatRoomRequestChat(),
     )
     chat_id = chat_resp.data.id
-    print(f"Created chat room: {chat_id}")
+    logger.info("Created chat room: %s", chat_id)
 
     # Add thinker agent to the room
     await client.human_api_participants.add_my_chat_participant(
         chat_id,
         participant=ParticipantRequest(
-            participant_id=THINKER_AGENT_ID,
+            participant_id=thinker_agent_id,
             role="member",
         ),
     )
-    print("Added Thinker to room")
+    logger.info("Added Thinker to room")
 
     # Add all guesser agents to the room
-    for guesser_id in GUESSER_AGENT_IDS:
+    for guesser_id in guesser_agent_ids:
         await client.human_api_participants.add_my_chat_participant(
             chat_id,
             participant=ParticipantRequest(
@@ -49,7 +91,7 @@ async def start_game(user_api_key: str) -> str:
                 role="member",
             ),
         )
-    print(f"Added {len(GUESSER_AGENT_IDS)} guessers to room")
+    logger.info("Added %s guessers to room", len(guesser_agent_ids))
 
     # Get participants to build mention list
     parts_resp = await client.human_api_participants.list_my_chat_participants(chat_id)
@@ -60,21 +102,21 @@ async def start_game(user_api_key: str) -> str:
         pid = str(p.id)
         agents[pid] = p
 
-    thinker = agents.get(THINKER_AGENT_ID)
+    thinker = agents.get(thinker_agent_id)
     thinker_name = thinker.name if thinker else "Thinker"
-    thinker_id = str(thinker.id) if thinker else THINKER_AGENT_ID
+    thinker_id = str(thinker.id) if thinker else thinker_agent_id
 
     # Build mentions for thinker + all guessers
     mentions = [Mention(id=thinker_id, name=thinker_name)]
     guesser_names = []
-    for gid in GUESSER_AGENT_IDS:
+    for gid in guesser_agent_ids:
         g = agents.get(gid)
         if g:
             mentions.append(Mention(id=str(g.id), name=g.name))
             guesser_names.append(g.name)
 
-    print(f"Thinker: {thinker_name}")
-    print(f"Guessers: {', '.join(guesser_names)}")
+    logger.info("Thinker: %s", thinker_name)
+    logger.info("Guessers: %s", ", ".join(guesser_names))
 
     # Send "start a game" message mentioning everyone
     msg_resp = await client.human_api_messages.send_my_chat_message(
@@ -84,18 +126,20 @@ async def start_game(user_api_key: str) -> str:
             mentions=mentions,
         ),
     )
-    print(f"Sent start message: {msg_resp.data.id}")
+    logger.info("Sent start message: %s", msg_resp.data.id)
     return chat_id
 
 
 async def main() -> None:
+    load_dotenv()
+    setup_logging(agent_tag="start_game")
+
     user_api_key = sys.argv[1] if len(sys.argv) > 1 else ""
     if not user_api_key:
-        print("Usage: python start_game.py <user_api_key>")
-        sys.exit(1)
+        raise ValueError("Usage: python start_game.py <user_api_key>")
 
     chat_id = await start_game(user_api_key)
-    print(f"\nGame started in room: {chat_id}")
+    logger.info("Game started in room: %s", chat_id)
 
 
 if __name__ == "__main__":

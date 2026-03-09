@@ -460,19 +460,8 @@ class AgentTools(AgentToolsProtocol):
             ChatMessageRequestMentionsItem,
         )
 
-        # Auto-refresh participants cache if empty (common on first message)
-        if not self._participants:
-            logger.info("[send_message] participants cache empty, fetching...")
-            self._participants = await self.get_participants()
-        logger.info(
-            "[send_message] room=%s mentions=%s content_preview=%s participants=%s",
-            self.room_id,
-            mentions,
-            (content or "")[:80],
-            [p.get("handle") or p.get("name") for p in self._participants],
-        )
         resolved_mentions = self._resolve_mentions(mentions or [])
-        logger.info("[send_message] resolved mentions: %s", resolved_mentions)
+        logger.debug("Sending message to room %s", self.room_id)
 
         # Convert to API format - use handle (not name) for mentions
         mention_items = [
@@ -480,13 +469,11 @@ class AgentTools(AgentToolsProtocol):
             for m in resolved_mentions
         ]
 
-        logger.info("[send_message] calling create_agent_chat_message...")
         response = await self.rest.agent_api_messages.create_agent_chat_message(
             chat_id=self.room_id,
             message=ChatMessageRequest(content=content, mentions=mention_items),
             request_options=DEFAULT_REQUEST_OPTIONS,
         )
-        logger.info("[send_message] response: %s", response.data)
         if not response.data:
             raise RuntimeError("Failed to send message - no response data")
         return response.data.model_dump()

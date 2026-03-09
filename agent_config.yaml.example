@@ -165,8 +165,17 @@ arena_thinker:
   agent_id: ""
   api_key: ""
 
-# Guesser agent - asks yes/no questions to guess the word
+# Guesser agents - ask yes/no questions to guess the word
+# Run multiple guessers with different models for a competitive game
 arena_guesser:
+  agent_id: ""
+  api_key: ""
+
+arena_guesser_2:
+  agent_id: ""
+  api_key: ""
+
+arena_guesser_3:
   agent_id: ""
   api_key: ""
 
