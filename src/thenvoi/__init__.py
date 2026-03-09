@@ -23,7 +23,7 @@ Example (SDK-heavy pattern):
     async def handle_event(ctx: ExecutionContext, event: PlatformEvent):
         tools = AgentTools.from_context(ctx)
         # Your LLM logic here
-        await tools.send_message("Hello!", mentions=["User"])
+        await tools.send_message("Hello!", mentions=["@john"])
 
     link = ThenvoiLink(agent_id="...", api_key="...", ws_url="...", rest_url="...")
     runtime = AgentRuntime(link, agent_id="...", on_execute=handle_event)
@@ -62,6 +62,13 @@ from .runtime import (
     ConversationContext,
     render_system_prompt,
     TOOL_MODELS,
+    ALL_TOOL_NAMES,
+    BASE_TOOL_NAMES,
+    CHAT_TOOL_NAMES,
+    CONTACT_TOOL_NAMES,
+    MEMORY_TOOL_NAMES,
+    MCP_TOOL_PREFIX,
+    mcp_tool_names,
     # Formatters
     format_message_for_llm,
     format_history_for_llm,
@@ -96,6 +103,13 @@ __all__ = [
     "render_system_prompt",
     # Runtime - Tools
     "TOOL_MODELS",
+    "ALL_TOOL_NAMES",
+    "BASE_TOOL_NAMES",
+    "CHAT_TOOL_NAMES",
+    "CONTACT_TOOL_NAMES",
+    "MEMORY_TOOL_NAMES",
+    "MCP_TOOL_PREFIX",
+    "mcp_tool_names",
     # Runtime - Formatters
     "format_message_for_llm",
     "format_history_for_llm",

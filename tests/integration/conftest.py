@@ -20,17 +20,27 @@ from tests.conftest_integration import (
     get_user_api_key,
     get_ws_url,
     integration_settings,
+    is_no_clean_mode,
     # Skip markers
     requires_api,
     requires_multi_agent,
     requires_user_api,
+    # Session-scoped fixtures
+    session_api_client,
+    session_api_client_2,
+    shared_agent1_info,
+    shared_agent2_info,
+    shared_multi_agent_room,
+    shared_room,
+    shared_user_peer,
     # Test fixtures
     test_chat,
     test_peer_id,
     test_settings,
     user_api_client,
-    # Cleanup helper
-    is_no_clean_mode,
+    # Data classes
+    AgentInfo,
+    PeerInfo,
 )
 
 __all__ = [
@@ -47,15 +57,25 @@ __all__ = [
     "get_user_api_key",
     "get_ws_url",
     "integration_settings",
+    "is_no_clean_mode",
     # Skip markers
     "requires_api",
     "requires_multi_agent",
     "requires_user_api",
+    # Session-scoped fixtures
+    "session_api_client",
+    "session_api_client_2",
+    "shared_agent1_info",
+    "shared_agent2_info",
+    "shared_multi_agent_room",
+    "shared_room",
+    "shared_user_peer",
     # Test fixtures
     "test_chat",
     "test_peer_id",
     "test_settings",
     "user_api_client",
-    # Cleanup helper
-    "is_no_clean_mode",
+    # Data classes
+    "AgentInfo",
+    "PeerInfo",
 ]

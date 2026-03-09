@@ -268,6 +268,7 @@ class TestOnMessage:
             tools=mock_tools,
             history=[],
             participants_msg=None,
+            contacts_msg=None,
             is_session_bootstrap=True,
             room_id="room-123",
         )
@@ -292,6 +293,7 @@ class TestOnMessage:
             tools=mock_tools,
             history=existing_history,
             participants_msg=None,
+            contacts_msg=None,
             is_session_bootstrap=True,
             room_id="room-123",
         )
@@ -311,6 +313,7 @@ class TestOnMessage:
             tools=mock_tools,
             history=[],
             participants_msg=None,
+            contacts_msg=None,
             is_session_bootstrap=True,
             room_id="room-123",
         )
@@ -349,6 +352,7 @@ class TestErrorHandling:
                 tools=mock_tools,
                 history=[],
                 participants_msg=None,
+                contacts_msg=None,
                 is_session_bootstrap=True,
                 room_id="room-123",
             )
@@ -369,6 +373,7 @@ class TestErrorHandling:
                 tools=mock_tools,
                 history=[],
                 participants_msg=None,
+                contacts_msg=None,
                 is_session_bootstrap=True,
                 room_id="room-123",
             )
@@ -460,6 +465,7 @@ class TestParticipantsUpdate:
             tools=mock_tools,
             history=[],
             participants_msg="Alice joined the room",
+            contacts_msg=None,
             is_session_bootstrap=True,
             room_id="room-123",
         )
@@ -622,6 +628,31 @@ class TestExecutionReporting:
             send_message_tool._run(content="Hello!", mentions="[]")
 
         assert mock_tools.send_event.call_count >= 2
+
+    @pytest.mark.asyncio
+    async def test_report_tool_call_403_does_not_crash(
+        self, CrewAIAdapter, crewai_mocks, mock_tools
+    ):
+        """send_event 403 in _report_tool_call should not propagate."""
+        adapter = CrewAIAdapter(enable_execution_reporting=True)
+        mock_tools.send_event.side_effect = Exception("403 Forbidden")
+
+        # Should not raise
+        await adapter._report_tool_call(mock_tools, "search", {"q": "test"})
+
+    @pytest.mark.asyncio
+    async def test_report_tool_result_403_does_not_crash(
+        self, CrewAIAdapter, crewai_mocks, mock_tools
+    ):
+        """send_event 403 in _report_tool_result should not propagate."""
+        adapter = CrewAIAdapter(enable_execution_reporting=True)
+        mock_tools.send_event.side_effect = Exception("403 Forbidden")
+
+        # Should not raise
+        await adapter._report_tool_result(mock_tools, "search", "some result")
+        await adapter._report_tool_result(
+            mock_tools, "search", "some error", is_error=True
+        )
 
 
 class TestLazyNestAsyncio:

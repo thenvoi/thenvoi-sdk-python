@@ -16,7 +16,7 @@ class TestSmokeIntegration:
 
     async def test_can_fetch_agent_me(self, api_client):
         """Verify agent identity can be fetched from real API."""
-        response = await api_client.agent_api.get_agent_me()
+        response = await api_client.agent_api_identity.get_agent_me()
         assert response.data is not None
         assert response.data.name is not None
         assert response.data.id is not None
@@ -26,12 +26,12 @@ class TestSmokeIntegration:
 
     async def test_can_list_chats(self, api_client):
         """Verify agent can list its chats."""
-        response = await api_client.agent_api.list_agent_chats()
+        response = await api_client.agent_api_chats.list_agent_chats()
         assert response.data is not None
         logger.info("Agent has %s chats", len(response.data))
 
     async def test_can_list_peers(self, api_client):
         """Verify agent can list available peers."""
-        response = await api_client.agent_api.list_agent_peers()
+        response = await api_client.agent_api_peers.list_agent_peers()
         assert response.data is not None
         logger.info("Agent can see %s peers", len(response.data))

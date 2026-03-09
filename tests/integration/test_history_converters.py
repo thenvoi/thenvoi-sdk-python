@@ -5,87 +5,21 @@ history from the platform. This catches any mismatches between the expected
 format in the converters and the actual format stored by the platform.
 
 Run with: uv run pytest tests/integration/test_history_converters.py -v -s
-
-Skip cleanup (for debugging):
-    uv run pytest tests/integration/test_history_converters.py -v -s --no-clean
 """
 
 from __future__ import annotations
 
 import json
 import logging
-from contextlib import asynccontextmanager
+import uuid
 
 import pytest
-from thenvoi_rest import (
-    AsyncRestClient,
-    ChatEventRequest,
-    ChatMessageRequest,
-    ChatRoomRequest,
-)
-from thenvoi_rest.types import (
-    ChatMessageRequestMentionsItem as Mention,
-    ParticipantRequest,
-)
+from thenvoi_rest import ChatEventRequest, ChatMessageRequest
+from thenvoi_rest.types import ChatMessageRequestMentionsItem as Mention
 
 from tests.integration.conftest import requires_api
 
 logger = logging.getLogger(__name__)
-
-
-def pytest_addoption(parser):
-    """Add --no-clean option to pytest."""
-    try:
-        parser.addoption(
-            "--no-clean",
-            action="store_true",
-            default=False,
-            help="Skip cleanup of test chats (for debugging)",
-        )
-    except ValueError:
-        # Option already added (e.g., by conftest.py)
-        pass
-
-
-@pytest.fixture
-def no_clean(request):
-    """Fixture to check if --no-clean flag was passed."""
-    return request.config.getoption("--no-clean", default=False)
-
-
-@asynccontextmanager
-async def create_test_chat(api_client: AsyncRestClient, skip_cleanup: bool = False):
-    """Context manager that creates a chat and cleans up by leaving it.
-
-    Since the API doesn't support deleting chats, cleanup is done by
-    having the agent leave the chat (remove itself as participant).
-
-    Args:
-        api_client: The API client to use
-        skip_cleanup: If True, skip cleanup (for debugging with --no-clean flag)
-    """
-    # Create chat
-    response = await api_client.agent_api.create_agent_chat(chat=ChatRoomRequest())
-    chat_id = response.data.id
-    logger.info("Created test chat: %s", chat_id)
-
-    # Get agent ID for cleanup
-    agent_me = await api_client.agent_api.get_agent_me()
-    agent_id = agent_me.data.id
-
-    try:
-        yield chat_id, agent_me.data
-    finally:
-        if skip_cleanup:
-            logger.info("Skipping cleanup for chat %s (--no-clean)", chat_id)
-            return
-
-        # Cleanup: agent leaves the chat
-        try:
-            await api_client.agent_api.remove_agent_chat_participant(chat_id, agent_id)
-            logger.info("Cleanup: left chat %s", chat_id)
-        except Exception as e:
-            logger.warning("Cleanup failed for chat %s: %s", chat_id, e)
 
 
 def _create_tool_call_content(
@@ -94,10 +28,6 @@ def _create_tool_call_content(
     tool_call_id: str,
 ) -> str:
     """Create tool_call content in the format adapters use.
-
-    This is the same format used by:
-    - AnthropicAdapter (anthropic.py:310-317)
-    - PydanticAIAdapter (pydantic_ai.py:273-282)
 
     Format: {"name": "...", "args": {...}, "tool_call_id": "..."}
     """
@@ -117,10 +47,6 @@ def _create_tool_result_content(
 ) -> str:
     """Create tool_result content in the format adapters use.
 
-    This is the same format used by:
-    - AnthropicAdapter (anthropic.py:340-348)
-    - PydanticAIAdapter (pydantic_ai.py:288-297)
-
     Format: {"name": "...", "output": "...", "tool_call_id": "..."}
     """
     return json.dumps(
@@ -132,542 +58,638 @@ def _create_tool_result_content(
     )
 
 
+def _unique_id(prefix: str = "toolu") -> str:
+    """Generate a unique tool call ID for this test run."""
+    return f"{prefix}_{uuid.uuid4().hex[:8]}"
+
+
 @requires_api
 class TestAnthropicConverterIntegration:
     """Integration tests for AnthropicHistoryConverter with real platform data."""
 
-    async def test_converter_with_real_tool_history(self, api_client, no_clean):
+    async def test_converter_with_real_tool_history(
+        self, api_client, shared_room, shared_agent1_info, shared_user_peer
+    ):
         """Verify Anthropic converter handles real platform tool history."""
+        if shared_room is None or shared_agent1_info is None:
+            pytest.skip("shared_room or shared_agent1_info not available")
+
         from thenvoi.converters.anthropic import AnthropicHistoryConverter
 
-        async with create_test_chat(api_client, skip_cleanup=no_clean) as (
+        chat_id = shared_room
+        agent_name = shared_agent1_info.name
+
+        # Use unique tool_call_id per run to avoid conflicts
+        tc_id = _unique_id("toolu_real")
+
+        assert shared_user_peer is not None, "Need at least one peer"
+        peer_id = shared_user_peer.id
+        peer_name = shared_user_peer.name
+
+        # === STEP 1: Send a user message (with mention to trigger it) ===
+        await api_client.agent_api_messages.create_agent_chat_message(
             chat_id,
-            agent_me,
-        ):
-            agent_name = agent_me.name
+            message=ChatMessageRequest(
+                content=f"@{peer_name} What's the weather in Tokyo?",
+                mentions=[Mention(id=peer_id, name=peer_name)],
+            ),
+        )
+        logger.info("Sent initial message")
 
-            # Add a peer to the chat
-            peers = await api_client.agent_api.list_agent_peers()
-            assert peers.data and len(peers.data) > 0, "Need at least one peer"
-            peer = peers.data[0]
-            await api_client.agent_api.add_agent_chat_participant(
-                chat_id,
-                participant=ParticipantRequest(participant_id=peer.id, role="member"),
-            )
-            logger.info("Added peer: %s", peer.name)
+        # === STEP 2: Create tool_call event ===
+        tool_call_content = _create_tool_call_content(
+            tool_name="get_weather",
+            args={"location": "Tokyo", "unit": "celsius"},
+            tool_call_id=tc_id,
+        )
+        await api_client.agent_api_events.create_agent_chat_event(
+            chat_id,
+            event=ChatEventRequest(
+                content=tool_call_content,
+                message_type="tool_call",
+            ),
+        )
+        logger.info("Created tool_call event with id %s", tc_id)
 
-            # === STEP 1: Send a user message (with mention to trigger it) ===
-            await api_client.agent_api.create_agent_chat_message(
-                chat_id,
-                message=ChatMessageRequest(
-                    content=f"@{peer.name} What's the weather in Tokyo?",
-                    mentions=[Mention(id=peer.id, name=peer.name)],
-                ),
-            )
-            logger.info("Sent initial message")
+        # === STEP 3: Create tool_result event ===
+        tool_result_content = _create_tool_result_content(
+            tool_name="get_weather",
+            output="Tokyo is 22C and sunny",
+            tool_call_id=tc_id,
+        )
+        await api_client.agent_api_events.create_agent_chat_event(
+            chat_id,
+            event=ChatEventRequest(
+                content=tool_result_content,
+                message_type="tool_result",
+            ),
+        )
+        logger.info("Created tool_result event")
 
-            # === STEP 2: Create tool_call event ===
-            tool_call_content = _create_tool_call_content(
-                tool_name="get_weather",
-                args={"location": "Tokyo", "unit": "celsius"},
-                tool_call_id="toolu_test_123",
-            )
-            await api_client.agent_api.create_agent_chat_event(
-                chat_id,
-                event=ChatEventRequest(
-                    content=tool_call_content,
-                    message_type="tool_call",
-                ),
-            )
-            logger.info("Created tool_call event")
+        # === STEP 4: Fetch history from platform ===
+        context_response = await api_client.agent_api_context.get_agent_chat_context(
+            chat_id
+        )
+        raw_history = [msg.model_dump() for msg in context_response.data]
+        logger.info("Fetched %d messages from platform", len(raw_history))
 
-            # === STEP 3: Create tool_result event ===
-            tool_result_content = _create_tool_result_content(
-                tool_name="get_weather",
-                output="Tokyo is 22°C and sunny",
-                tool_call_id="toolu_test_123",
-            )
-            await api_client.agent_api.create_agent_chat_event(
-                chat_id,
-                event=ChatEventRequest(
-                    content=tool_result_content,
-                    message_type="tool_result",
-                ),
-            )
-            logger.info("Created tool_result event")
+        # === STEP 5: Convert using Anthropic converter ===
+        converter = AnthropicHistoryConverter(agent_name=agent_name)
+        result = converter.convert(raw_history)
+        logger.info("Converted to %d Anthropic messages", len(result))
 
-            # === STEP 4: Fetch history from platform ===
-            context_response = await api_client.agent_api.get_agent_chat_context(
-                chat_id
-            )
-            raw_history = [msg.model_dump() for msg in context_response.data]
-            logger.info("Fetched %d messages from platform", len(raw_history))
+        # === STEP 6: Verify conversion (find our specific tool_call_id) ===
+        tool_use_blocks = [
+            b
+            for m in result
+            if m.get("role") == "assistant" and isinstance(m.get("content"), list)
+            for b in m["content"]
+            if b.get("type") == "tool_use" and b.get("id") == tc_id
+        ]
+        assert len(tool_use_blocks) >= 1, f"Should find tool_use block with id {tc_id}"
+        assert tool_use_blocks[0]["name"] == "get_weather"
+        assert tool_use_blocks[0]["input"] == {"location": "Tokyo", "unit": "celsius"}
 
-            # === STEP 5: Convert using Anthropic converter ===
-            converter = AnthropicHistoryConverter(agent_name=agent_name)
-            result = converter.convert(raw_history)
-            logger.info("Converted to %d Anthropic messages", len(result))
+        tool_result_blocks = [
+            b
+            for m in result
+            if m.get("role") == "user" and isinstance(m.get("content"), list)
+            for b in m["content"]
+            if b.get("type") == "tool_result" and b.get("tool_use_id") == tc_id
+        ]
+        assert len(tool_result_blocks) >= 1, (
+            f"Should find tool_result block with tool_use_id {tc_id}"
+        )
+        assert tool_result_blocks[0]["content"] == "Tokyo is 22C and sunny"
 
-            # === STEP 6: Verify conversion ===
-            # Find tool_use message
-            tool_use_messages = [
-                m
-                for m in result
-                if m.get("role") == "assistant"
-                and isinstance(m.get("content"), list)
-                and any(b.get("type") == "tool_use" for b in m["content"])
-            ]
-            assert len(tool_use_messages) >= 1, (
-                "Should have at least one tool_use message"
-            )
+        logger.info("SUCCESS: Anthropic converter correctly handled real platform data")
 
-            tool_use_block = tool_use_messages[0]["content"][0]
-            assert tool_use_block["type"] == "tool_use"
-            assert tool_use_block["id"] == "toolu_test_123"
-            assert tool_use_block["name"] == "get_weather"
-            assert tool_use_block["input"] == {"location": "Tokyo", "unit": "celsius"}
-
-            # Find tool_result message
-            tool_result_messages = [
-                m
-                for m in result
-                if m.get("role") == "user"
-                and isinstance(m.get("content"), list)
-                and any(b.get("type") == "tool_result" for b in m["content"])
-            ]
-            assert len(tool_result_messages) >= 1, (
-                "Should have at least one tool_result message"
-            )
-
-            tool_result_block = tool_result_messages[0]["content"][0]
-            assert tool_result_block["type"] == "tool_result"
-            assert tool_result_block["tool_use_id"] == "toolu_test_123"
-            assert tool_result_block["content"] == "Tokyo is 22°C and sunny"
-
-            logger.info(
-                "SUCCESS: Anthropic converter correctly handled real platform data"
-            )
-
-    async def test_converter_batches_parallel_tool_calls(self, api_client, no_clean):
+    async def test_converter_batches_parallel_tool_calls(
+        self, api_client, shared_room, shared_agent1_info
+    ):
         """Verify converter batches parallel tool calls from platform."""
+        if shared_room is None or shared_agent1_info is None:
+            pytest.skip("shared_room or shared_agent1_info not available")
+
         from thenvoi.converters.anthropic import AnthropicHistoryConverter
 
-        async with create_test_chat(api_client, skip_cleanup=no_clean) as (
+        chat_id = shared_room
+        agent_name = shared_agent1_info.name
+
+        # Use unique IDs per run
+        tc_id_1 = _unique_id("toolu_batch1")
+        tc_id_2 = _unique_id("toolu_batch2")
+
+        # === Create multiple tool_call events (simulating parallel tool use) ===
+        await api_client.agent_api_events.create_agent_chat_event(
             chat_id,
-            agent_me,
-        ):
-            agent_name = agent_me.name
-
-            # === Create multiple tool_call events (simulating parallel tool use) ===
-            await api_client.agent_api.create_agent_chat_event(
-                chat_id,
-                event=ChatEventRequest(
-                    content=_create_tool_call_content(
-                        "get_weather", {"location": "Tokyo"}, "toolu_1"
-                    ),
-                    message_type="tool_call",
+            event=ChatEventRequest(
+                content=_create_tool_call_content(
+                    "get_weather", {"location": "Tokyo"}, tc_id_1
                 ),
-            )
-            await api_client.agent_api.create_agent_chat_event(
-                chat_id,
-                event=ChatEventRequest(
-                    content=_create_tool_call_content(
-                        "get_weather", {"location": "London"}, "toolu_2"
-                    ),
-                    message_type="tool_call",
+                message_type="tool_call",
+            ),
+        )
+        await api_client.agent_api_events.create_agent_chat_event(
+            chat_id,
+            event=ChatEventRequest(
+                content=_create_tool_call_content(
+                    "get_weather", {"location": "London"}, tc_id_2
                 ),
-            )
+                message_type="tool_call",
+            ),
+        )
 
-            # === Create corresponding tool_result events ===
-            await api_client.agent_api.create_agent_chat_event(
-                chat_id,
-                event=ChatEventRequest(
-                    content=_create_tool_result_content(
-                        "get_weather", "Tokyo: 22°C", "toolu_1"
-                    ),
-                    message_type="tool_result",
+        # === Create corresponding tool_result events ===
+        await api_client.agent_api_events.create_agent_chat_event(
+            chat_id,
+            event=ChatEventRequest(
+                content=_create_tool_result_content(
+                    "get_weather", "Tokyo: 22C", tc_id_1
                 ),
-            )
-            await api_client.agent_api.create_agent_chat_event(
-                chat_id,
-                event=ChatEventRequest(
-                    content=_create_tool_result_content(
-                        "get_weather", "London: 15°C", "toolu_2"
-                    ),
-                    message_type="tool_result",
+                message_type="tool_result",
+            ),
+        )
+        await api_client.agent_api_events.create_agent_chat_event(
+            chat_id,
+            event=ChatEventRequest(
+                content=_create_tool_result_content(
+                    "get_weather", "London: 15C", tc_id_2
                 ),
-            )
+                message_type="tool_result",
+            ),
+        )
 
-            # === Fetch and convert ===
-            context_response = await api_client.agent_api.get_agent_chat_context(
-                chat_id
-            )
-            raw_history = [msg.model_dump() for msg in context_response.data]
+        # === Fetch and convert ===
+        context_response = await api_client.agent_api_context.get_agent_chat_context(
+            chat_id
+        )
+        raw_history = [msg.model_dump() for msg in context_response.data]
 
-            converter = AnthropicHistoryConverter(agent_name=agent_name)
-            result = converter.convert(raw_history)
+        converter = AnthropicHistoryConverter(agent_name=agent_name)
+        result = converter.convert(raw_history)
 
-            # === Verify batching ===
-            # Should have batched tool_use blocks in single assistant message
-            tool_use_messages = [
-                m
-                for m in result
-                if m.get("role") == "assistant"
-                and isinstance(m.get("content"), list)
-                and any(b.get("type") == "tool_use" for b in m["content"])
-            ]
-            assert len(tool_use_messages) == 1, (
-                "Should batch tool_use into single message"
-            )
-            assert len(tool_use_messages[0]["content"]) == 2, (
-                "Should have 2 tool_use blocks"
-            )
+        # === Verify batching (find the message containing our specific IDs) ===
+        # Find the assistant message that contains both our tool_use blocks
+        batched_message = None
+        for m in result:
+            if m.get("role") == "assistant" and isinstance(m.get("content"), list):
+                block_ids = {
+                    b.get("id") for b in m["content"] if b.get("type") == "tool_use"
+                }
+                if tc_id_1 in block_ids and tc_id_2 in block_ids:
+                    batched_message = m
+                    break
 
-            # Should have batched tool_result blocks in single user message
-            tool_result_messages = [
-                m
-                for m in result
-                if m.get("role") == "user"
-                and isinstance(m.get("content"), list)
-                and any(b.get("type") == "tool_result" for b in m["content"])
-            ]
-            assert len(tool_result_messages) == 1, (
-                "Should batch tool_result into single message"
-            )
-            assert len(tool_result_messages[0]["content"]) == 2, (
-                "Should have 2 tool_result blocks"
-            )
+        assert batched_message is not None, (
+            f"Should batch tool_use {tc_id_1} and {tc_id_2} into single message"
+        )
+        our_blocks = [
+            b
+            for b in batched_message["content"]
+            if b.get("type") == "tool_use" and b.get("id") in (tc_id_1, tc_id_2)
+        ]
+        assert len(our_blocks) == 2, "Should have 2 tool_use blocks in batch"
 
-            logger.info(
-                "SUCCESS: Anthropic converter correctly batches parallel tool calls"
-            )
+        # Verify tool_result blocks are also batched
+        batched_result_message = None
+        for m in result:
+            if m.get("role") == "user" and isinstance(m.get("content"), list):
+                result_ids = {
+                    b.get("tool_use_id")
+                    for b in m["content"]
+                    if b.get("type") == "tool_result"
+                }
+                if tc_id_1 in result_ids and tc_id_2 in result_ids:
+                    batched_result_message = m
+                    break
+
+        assert batched_result_message is not None, (
+            "Should batch tool_result into single message"
+        )
+
+        logger.info(
+            "SUCCESS: Anthropic converter correctly batches parallel tool calls"
+        )
 
 
 @requires_api
 class TestPydanticAIConverterIntegration:
     """Integration tests for PydanticAIHistoryConverter with real platform data."""
 
-    async def test_converter_with_real_tool_history(self, api_client, no_clean):
+    async def test_converter_with_real_tool_history(
+        self, api_client, shared_room, shared_agent1_info, shared_user_peer
+    ):
         """Verify PydanticAI converter handles real platform tool history."""
+        if shared_room is None or shared_agent1_info is None:
+            pytest.skip("shared_room or shared_agent1_info not available")
+
         pydantic_ai_messages = pytest.importorskip("pydantic_ai.messages")
         ModelRequest = pydantic_ai_messages.ModelRequest
         ModelResponse = pydantic_ai_messages.ModelResponse
 
         from thenvoi.converters.pydantic_ai import PydanticAIHistoryConverter
 
-        async with create_test_chat(api_client, skip_cleanup=no_clean) as (
+        chat_id = shared_room
+        agent_name = shared_agent1_info.name
+        tc_id = _unique_id("call_pai")
+
+        assert shared_user_peer is not None, "Need at least one peer"
+        peer_id = shared_user_peer.id
+        peer_name = shared_user_peer.name
+
+        # === Create tool events ===
+        await api_client.agent_api_messages.create_agent_chat_message(
             chat_id,
-            agent_me,
-        ):
-            agent_name = agent_me.name
+            message=ChatMessageRequest(
+                content=f"@{peer_name} Search for Python tutorials",
+                mentions=[Mention(id=peer_id, name=peer_name)],
+            ),
+        )
 
-            peers = await api_client.agent_api.list_agent_peers()
-            assert peers.data and len(peers.data) > 0, "Need at least one peer"
-            peer = peers.data[0]
-            await api_client.agent_api.add_agent_chat_participant(
-                chat_id,
-                participant=ParticipantRequest(participant_id=peer.id, role="member"),
-            )
-
-            # === Create tool events ===
-            await api_client.agent_api.create_agent_chat_message(
-                chat_id,
-                message=ChatMessageRequest(
-                    content=f"@{peer.name} Search for Python tutorials",
-                    mentions=[Mention(id=peer.id, name=peer.name)],
+        await api_client.agent_api_events.create_agent_chat_event(
+            chat_id,
+            event=ChatEventRequest(
+                content=_create_tool_call_content(
+                    "search", {"query": "Python tutorials"}, tc_id
                 ),
-            )
+                message_type="tool_call",
+            ),
+        )
 
-            await api_client.agent_api.create_agent_chat_event(
-                chat_id,
-                event=ChatEventRequest(
-                    content=_create_tool_call_content(
-                        "search", {"query": "Python tutorials"}, "call_abc123"
-                    ),
-                    message_type="tool_call",
+        await api_client.agent_api_events.create_agent_chat_event(
+            chat_id,
+            event=ChatEventRequest(
+                content=_create_tool_result_content(
+                    "search", '["tutorial1", "tutorial2"]', tc_id
                 ),
-            )
+                message_type="tool_result",
+            ),
+        )
 
-            await api_client.agent_api.create_agent_chat_event(
-                chat_id,
-                event=ChatEventRequest(
-                    content=_create_tool_result_content(
-                        "search", '["tutorial1", "tutorial2"]', "call_abc123"
-                    ),
-                    message_type="tool_result",
-                ),
-            )
+        # === Fetch and convert ===
+        context_response = await api_client.agent_api_context.get_agent_chat_context(
+            chat_id
+        )
+        raw_history = [msg.model_dump() for msg in context_response.data]
 
-            # === Fetch and convert ===
-            context_response = await api_client.agent_api.get_agent_chat_context(
-                chat_id
-            )
-            raw_history = [msg.model_dump() for msg in context_response.data]
+        converter = PydanticAIHistoryConverter(agent_name=agent_name)
+        result = converter.convert(raw_history)
 
-            converter = PydanticAIHistoryConverter(agent_name=agent_name)
-            result = converter.convert(raw_history)
+        # === Verify conversion (find our specific tool_call_id) ===
+        tool_call_parts = [
+            p
+            for m in result
+            if isinstance(m, ModelResponse)
+            for p in m.parts
+            if hasattr(p, "tool_call_id") and p.tool_call_id == tc_id
+        ]
+        assert len(tool_call_parts) >= 1, f"Should have ToolCallPart with id {tc_id}"
+        assert tool_call_parts[0].tool_name == "search"
+        assert tool_call_parts[0].args == {"query": "Python tutorials"}
 
-            # === Verify conversion ===
-            # Find ModelResponse with ToolCallPart
-            tool_call_responses = [m for m in result if isinstance(m, ModelResponse)]
-            assert len(tool_call_responses) >= 1, (
-                "Should have ModelResponse for tool_call"
-            )
+        tool_return_parts = [
+            p
+            for m in result
+            if isinstance(m, ModelRequest)
+            for p in m.parts
+            if hasattr(p, "tool_call_id")
+            and hasattr(p, "content")
+            and p.tool_call_id == tc_id
+        ]
+        assert len(tool_return_parts) >= 1, (
+            f"Should have ToolReturnPart with id {tc_id}"
+        )
+        assert tool_return_parts[0].tool_name == "search"
 
-            tool_call_parts = [
-                p
-                for r in tool_call_responses
-                for p in r.parts
-                if hasattr(p, "tool_call_id")
-            ]
-            assert len(tool_call_parts) >= 1, "Should have ToolCallPart"
-            assert tool_call_parts[0].tool_name == "search"
-            assert tool_call_parts[0].tool_call_id == "call_abc123"
-            assert tool_call_parts[0].args == {"query": "Python tutorials"}
-
-            # Find ModelRequest with ToolReturnPart
-            tool_result_requests = [
-                m
-                for m in result
-                if isinstance(m, ModelRequest)
-                and any(hasattr(p, "tool_call_id") for p in m.parts)
-            ]
-            assert len(tool_result_requests) >= 1, (
-                "Should have ModelRequest for tool_result"
-            )
-
-            tool_return_parts = [
-                p
-                for r in tool_result_requests
-                for p in r.parts
-                if hasattr(p, "tool_call_id") and hasattr(p, "content")
-            ]
-            assert len(tool_return_parts) >= 1, "Should have ToolReturnPart"
-            assert tool_return_parts[0].tool_name == "search"
-            assert tool_return_parts[0].tool_call_id == "call_abc123"
-
-            logger.info(
-                "SUCCESS: PydanticAI converter correctly handled real platform data"
-            )
+        logger.info(
+            "SUCCESS: PydanticAI converter correctly handled real platform data"
+        )
 
 
 @requires_api
 class TestMixedConversationIntegration:
     """Test converters with mixed conversation patterns (text + tools)."""
 
-    async def test_full_conversation_flow(self, api_client, no_clean):
+    async def test_full_conversation_flow(
+        self, api_client, shared_room, shared_agent1_info, shared_user_peer
+    ):
         """Test converter handles realistic conversation with multiple turns."""
+        if shared_room is None or shared_agent1_info is None:
+            pytest.skip("shared_room or shared_agent1_info not available")
+
         from thenvoi.converters.anthropic import AnthropicHistoryConverter
 
-        async with create_test_chat(api_client, skip_cleanup=no_clean) as (
+        chat_id = shared_room
+        agent_name = shared_agent1_info.name
+
+        assert shared_user_peer is not None
+        peer_id = shared_user_peer.id
+        peer_name = shared_user_peer.name
+
+        tc_id_1 = _unique_id("toolu_turn1")
+        tc_id_2 = _unique_id("toolu_turn2")
+
+        # === Simulate multi-turn conversation ===
+        # Turn 1: User asks question
+        await api_client.agent_api_messages.create_agent_chat_message(
             chat_id,
-            agent_me,
-        ):
-            agent_name = agent_me.name
+            message=ChatMessageRequest(
+                content=f"@{peer_name} What's the weather in NYC?",
+                mentions=[Mention(id=peer_id, name=peer_name)],
+            ),
+        )
 
-            peers = await api_client.agent_api.list_agent_peers()
-            assert peers.data and len(peers.data) > 0
-            peer = peers.data[0]
-            await api_client.agent_api.add_agent_chat_participant(
-                chat_id,
-                participant=ParticipantRequest(participant_id=peer.id, role="member"),
-            )
-
-            # === Simulate multi-turn conversation ===
-            # Turn 1: User asks question
-            await api_client.agent_api.create_agent_chat_message(
-                chat_id,
-                message=ChatMessageRequest(
-                    content=f"@{peer.name} What's the weather in NYC?",
-                    mentions=[Mention(id=peer.id, name=peer.name)],
+        # Turn 1: Agent uses tool
+        await api_client.agent_api_events.create_agent_chat_event(
+            chat_id,
+            event=ChatEventRequest(
+                content=_create_tool_call_content(
+                    "get_weather", {"location": "NYC"}, tc_id_1
                 ),
-            )
+                message_type="tool_call",
+            ),
+        )
 
-            # Turn 1: Agent uses tool
-            await api_client.agent_api.create_agent_chat_event(
-                chat_id,
-                event=ChatEventRequest(
-                    content=_create_tool_call_content(
-                        "get_weather", {"location": "NYC"}, "toolu_turn1"
-                    ),
-                    message_type="tool_call",
+        await api_client.agent_api_events.create_agent_chat_event(
+            chat_id,
+            event=ChatEventRequest(
+                content=_create_tool_result_content(
+                    "get_weather", "NYC: 18C, cloudy", tc_id_1
                 ),
-            )
+                message_type="tool_result",
+            ),
+        )
 
-            await api_client.agent_api.create_agent_chat_event(
-                chat_id,
-                event=ChatEventRequest(
-                    content=_create_tool_result_content(
-                        "get_weather", "NYC: 18°C, cloudy", "toolu_turn1"
-                    ),
-                    message_type="tool_result",
+        # Turn 2: User asks follow-up
+        await api_client.agent_api_messages.create_agent_chat_message(
+            chat_id,
+            message=ChatMessageRequest(
+                content=f"@{peer_name} What about San Francisco?",
+                mentions=[Mention(id=peer_id, name=peer_name)],
+            ),
+        )
+
+        # Turn 2: Agent uses tool again
+        await api_client.agent_api_events.create_agent_chat_event(
+            chat_id,
+            event=ChatEventRequest(
+                content=_create_tool_call_content(
+                    "get_weather", {"location": "San Francisco"}, tc_id_2
                 ),
-            )
+                message_type="tool_call",
+            ),
+        )
 
-            # Turn 2: User asks follow-up
-            await api_client.agent_api.create_agent_chat_message(
-                chat_id,
-                message=ChatMessageRequest(
-                    content=f"@{peer.name} What about San Francisco?",
-                    mentions=[Mention(id=peer.id, name=peer.name)],
+        await api_client.agent_api_events.create_agent_chat_event(
+            chat_id,
+            event=ChatEventRequest(
+                content=_create_tool_result_content(
+                    "get_weather", "SF: 15C, foggy", tc_id_2
                 ),
-            )
+                message_type="tool_result",
+            ),
+        )
 
-            # Turn 2: Agent uses tool again
-            await api_client.agent_api.create_agent_chat_event(
-                chat_id,
-                event=ChatEventRequest(
-                    content=_create_tool_call_content(
-                        "get_weather", {"location": "San Francisco"}, "toolu_turn2"
-                    ),
-                    message_type="tool_call",
-                ),
-            )
+        # === Fetch and convert ===
+        context_response = await api_client.agent_api_context.get_agent_chat_context(
+            chat_id
+        )
+        raw_history = [msg.model_dump() for msg in context_response.data]
 
-            await api_client.agent_api.create_agent_chat_event(
-                chat_id,
-                event=ChatEventRequest(
-                    content=_create_tool_result_content(
-                        "get_weather", "SF: 15°C, foggy", "toolu_turn2"
-                    ),
-                    message_type="tool_result",
-                ),
-            )
+        converter = AnthropicHistoryConverter(agent_name=agent_name)
+        result = converter.convert(raw_history)
 
-            # === Fetch and convert ===
-            context_response = await api_client.agent_api.get_agent_chat_context(
-                chat_id
-            )
-            raw_history = [msg.model_dump() for msg in context_response.data]
+        # === Verify our specific tool calls are present ===
+        our_tool_use_ids = set()
+        for m in result:
+            if m.get("role") == "assistant" and isinstance(m.get("content"), list):
+                for b in m["content"]:
+                    if b.get("type") == "tool_use" and b.get("id") in (
+                        tc_id_1,
+                        tc_id_2,
+                    ):
+                        our_tool_use_ids.add(b["id"])
 
-            converter = AnthropicHistoryConverter(agent_name=agent_name)
-            result = converter.convert(raw_history)
+        assert tc_id_1 in our_tool_use_ids, f"Should find tool_use {tc_id_1}"
+        assert tc_id_2 in our_tool_use_ids, f"Should find tool_use {tc_id_2}"
 
-            # === Verify structure ===
-            user_messages = [
-                m
-                for m in result
-                if m.get("role") == "user" and isinstance(m.get("content"), str)
-            ]
-            tool_use_count = sum(
-                1
-                for m in result
-                if m.get("role") == "assistant"
-                and isinstance(m.get("content"), list)
-                and any(b.get("type") == "tool_use" for b in m["content"])
-            )
-            tool_result_count = sum(
-                1
-                for m in result
-                if m.get("role") == "user"
-                and isinstance(m.get("content"), list)
-                and any(b.get("type") == "tool_result" for b in m["content"])
-            )
+        our_tool_result_ids = set()
+        for m in result:
+            if m.get("role") == "user" and isinstance(m.get("content"), list):
+                for b in m["content"]:
+                    if b.get("type") == "tool_result" and b.get("tool_use_id") in (
+                        tc_id_1,
+                        tc_id_2,
+                    ):
+                        our_tool_result_ids.add(b["tool_use_id"])
 
-            assert len(user_messages) >= 2, "Should have at least 2 user messages"
-            assert tool_use_count == 2, "Should have 2 tool_use messages"
-            assert tool_result_count == 2, "Should have 2 tool_result messages"
+        assert tc_id_1 in our_tool_result_ids, f"Should find tool_result for {tc_id_1}"
+        assert tc_id_2 in our_tool_result_ids, f"Should find tool_result for {tc_id_2}"
 
-            logger.info(
-                "SUCCESS: Converter handled multi-turn conversation "
-                "(user=%d, tool_use=%d, tool_result=%d)",
-                len(user_messages),
-                tool_use_count,
-                tool_result_count,
-            )
+        logger.info(
+            "SUCCESS: Converter handled multi-turn conversation with tool calls"
+        )
 
 
 @requires_api
 class TestEdgeCasesIntegration:
     """Test converter edge cases with real platform data."""
 
-    async def test_handles_thought_events(self, api_client, no_clean):
+    async def test_handles_thought_events(
+        self, api_client, shared_room, shared_agent1_info
+    ):
         """Verify thought events are properly skipped."""
+        if shared_room is None:
+            pytest.skip("shared_room not available")
+
         from thenvoi.converters.anthropic import AnthropicHistoryConverter
 
-        async with create_test_chat(api_client, skip_cleanup=no_clean) as (
+        chat_id = shared_room
+        marker = uuid.uuid4().hex[:8]
+        thought_content = f"Let me think about this request {marker}..."
+        tc_id = _unique_id("toolu_thought")
+
+        # Create thought event
+        await api_client.agent_api_events.create_agent_chat_event(
             chat_id,
-            _agent_me,
-        ):
-            # Create thought event
-            await api_client.agent_api.create_agent_chat_event(
-                chat_id,
-                event=ChatEventRequest(
-                    content="Let me think about this request...",
-                    message_type="thought",
-                ),
-            )
+            event=ChatEventRequest(
+                content=thought_content,
+                message_type="thought",
+            ),
+        )
 
-            # Create tool_call event
-            await api_client.agent_api.create_agent_chat_event(
-                chat_id,
-                event=ChatEventRequest(
-                    content=_create_tool_call_content(
-                        "analyze", {"text": "hello"}, "toolu_thought_test"
-                    ),
-                    message_type="tool_call",
-                ),
-            )
+        # Create tool_call event
+        await api_client.agent_api_events.create_agent_chat_event(
+            chat_id,
+            event=ChatEventRequest(
+                content=_create_tool_call_content("analyze", {"text": "hello"}, tc_id),
+                message_type="tool_call",
+            ),
+        )
 
-            # Fetch and convert
-            context_response = await api_client.agent_api.get_agent_chat_context(
-                chat_id
-            )
-            raw_history = [msg.model_dump() for msg in context_response.data]
+        # Fetch and convert
+        context_response = await api_client.agent_api_context.get_agent_chat_context(
+            chat_id
+        )
+        raw_history = [msg.model_dump() for msg in context_response.data]
 
-            converter = AnthropicHistoryConverter()
-            result = converter.convert(raw_history)
+        converter = AnthropicHistoryConverter()
+        result = converter.convert(raw_history)
 
-            # Verify thought is not in output
-            for msg in result:
-                if isinstance(msg.get("content"), str):
-                    assert "Let me think" not in msg["content"], (
-                        "Thought event should be skipped"
-                    )
+        # Verify our specific thought is not in output
+        for msg in result:
+            if isinstance(msg.get("content"), str):
+                assert marker not in msg["content"], "Thought event should be skipped"
 
-            # But tool_call should be present
-            tool_use_count = sum(
-                1
-                for m in result
-                if m.get("role") == "assistant"
-                and isinstance(m.get("content"), list)
-                and any(b.get("type") == "tool_use" for b in m["content"])
-            )
-            assert tool_use_count >= 1, "Tool call should be present"
+        # But tool_call should be present
+        tool_use_blocks = [
+            b
+            for m in result
+            if m.get("role") == "assistant" and isinstance(m.get("content"), list)
+            for b in m["content"]
+            if b.get("type") == "tool_use" and b.get("id") == tc_id
+        ]
+        assert len(tool_use_blocks) >= 1, f"Tool call {tc_id} should be present"
 
-            logger.info("SUCCESS: Thought events are properly skipped")
+        logger.info("SUCCESS: Thought events are properly skipped")
 
-    async def test_handles_error_events(self, api_client, no_clean):
+    async def test_handles_error_events(
+        self, api_client, shared_room, shared_agent1_info
+    ):
         """Verify error events are properly skipped."""
+        if shared_room is None:
+            pytest.skip("shared_room not available")
+
         from thenvoi.converters.anthropic import AnthropicHistoryConverter
 
-        async with create_test_chat(api_client, skip_cleanup=no_clean) as (
-            chat_id,
-            _agent_me,
-        ):
-            # Create error event
-            await api_client.agent_api.create_agent_chat_event(
-                chat_id,
-                event=ChatEventRequest(
-                    content="Error: API rate limit exceeded",
-                    message_type="error",
-                ),
-            )
+        chat_id = shared_room
+        marker = uuid.uuid4().hex[:8]
+        error_content = f"Error: API rate limit exceeded {marker}"
 
-            # Fetch and convert
-            context_response = await api_client.agent_api.get_agent_chat_context(
+        # Create error event
+        await api_client.agent_api_events.create_agent_chat_event(
+            chat_id,
+            event=ChatEventRequest(
+                content=error_content,
+                message_type="error",
+            ),
+        )
+
+        # Fetch and convert
+        context_response = await api_client.agent_api_context.get_agent_chat_context(
+            chat_id
+        )
+        raw_history = [msg.model_dump() for msg in context_response.data]
+
+        converter = AnthropicHistoryConverter()
+        result = converter.convert(raw_history)
+
+        # Verify our specific error is not in output
+        for msg in result:
+            if isinstance(msg.get("content"), str):
+                assert marker not in msg["content"], "Error event should be skipped"
+
+        logger.info("SUCCESS: Error events are properly skipped")
+
+
+@requires_api
+class TestMentionReplacementIntegration:
+    """Integration tests for UUID mention replacement in message history."""
+
+    async def test_replaces_uuid_mentions_with_handles(
+        self, api_client, shared_room, shared_user_peer
+    ):
+        """Verify platform stores mentions as UUIDs and SDK converts back to handles."""
+        if shared_room is None or shared_user_peer is None:
+            pytest.skip("shared_room or shared_user_peer not available")
+
+        from thenvoi.runtime.formatters import format_history_for_llm
+
+        chat_id = shared_room
+        peer_id = shared_user_peer.id
+        peer_name = shared_user_peer.name
+        marker = uuid.uuid4().hex[:8]
+
+        # Get participants to find peer's handle
+        participants_response = (
+            await api_client.agent_api_participants.list_agent_chat_participants(
                 chat_id
             )
-            raw_history = [msg.model_dump() for msg in context_response.data]
+        )
+        participants = [
+            {
+                "id": p.id,
+                "name": p.name,
+                "type": p.type,
+                "handle": getattr(p, "handle", None),
+            }
+            for p in participants_response.data
+        ]
 
-            converter = AnthropicHistoryConverter()
-            result = converter.convert(raw_history)
+        peer_participant = next((p for p in participants if p["id"] == peer_id), None)
+        assert peer_participant is not None, "Peer should be in participants"
+        peer_handle = peer_participant.get("handle")
+        assert peer_handle, "Peer must have a handle for this test"
+        logger.info("Peer: %s (id: %s, handle: %s)", peer_name, peer_id, peer_handle)
 
-            # Verify error is not in output (error message_type is not 'text')
-            for msg in result:
-                if isinstance(msg.get("content"), str):
-                    assert "rate limit" not in msg["content"], (
-                        "Error event should be skipped"
-                    )
+        # Send message with unique marker and mention
+        message_content = f"Hey {marker}, can you help me?"
+        await api_client.agent_api_messages.create_agent_chat_message(
+            chat_id,
+            message=ChatMessageRequest(
+                content=message_content,
+                mentions=[Mention(id=peer_id, name=peer_name)],
+            ),
+        )
+        logger.info("Sent message: %s (with mention in array)", message_content)
 
-            logger.info("SUCCESS: Error events are properly skipped")
+        # Verify raw history contains UUID format
+        context_response = await api_client.agent_api_context.get_agent_chat_context(
+            chat_id
+        )
+        raw_history = [msg.model_dump() for msg in context_response.data]
+        logger.info("Fetched %d messages from platform", len(raw_history))
+
+        raw_message = next(
+            (m for m in raw_history if marker in m.get("content", "")),
+            None,
+        )
+        assert raw_message is not None, (
+            f"Should find the message with marker {marker} in raw history"
+        )
+        raw_content = raw_message["content"]
+        logger.info("Raw content from platform: %s", raw_content)
+
+        # Platform prepends @[[uuid]] to content
+        assert f"@[[{peer_id}]]" in raw_content, (
+            f"Raw content should contain UUID mention @[[{peer_id}]], "
+            f"got: {raw_content}"
+        )
+
+        # Verify formatted history converts UUID to handle
+        formatted_history = format_history_for_llm(
+            raw_history, participants=participants
+        )
+
+        formatted_message = next(
+            (m for m in formatted_history if marker in m["content"]),
+            None,
+        )
+        assert formatted_message is not None, "Should find formatted message"
+        formatted_content = formatted_message["content"]
+
+        # UUID should be replaced with @handle
+        assert f"@[[{peer_id}]]" not in formatted_content, (
+            f"Formatted content should NOT contain UUID @[[{peer_id}]], "
+            f"got: {formatted_content}"
+        )
+        assert f"@{peer_handle}" in formatted_content, (
+            f"Formatted content should contain @{peer_handle}, got: {formatted_content}"
+        )
+
+        logger.info(
+            "SUCCESS: Platform stored @[[%s]], SDK converted to @%s",
+            peer_id,
+            peer_handle,
+        )

@@ -1,9 +1,12 @@
 """Unit tests for pure formatting functions."""
 
+from __future__ import annotations
+
 from thenvoi.runtime.formatters import (
     format_message_for_llm,
     format_history_for_llm,
     build_participants_message,
+    replace_uuid_mentions,
 )
 
 
@@ -159,13 +162,118 @@ class TestBuildParticipantsMessage:
         assert "User" in result
 
     def test_includes_mention_instruction(self):
-        participants = [{"id": "1", "name": "Test", "type": "User"}]
+        participants = [{"id": "1", "name": "Test", "type": "User", "handle": "test"}]
         result = build_participants_message(participants)
         assert "thenvoi_send_message" in result
-        # Instruction now says to use EXACT name, not ID
-        assert "EXACT name" in result
+        # Instruction emphasizes using exact handles, not display names
+        assert "handle" in result
+        assert "NOT the display name" in result
 
     def test_handles_missing_fields(self):
         participants = [{"id": "1"}]  # Missing name and type
         result = build_participants_message(participants)
         assert "Unknown" in result  # Default for missing name/type
+
+
+class TestReplaceUuidMentions:
+    def test_replaces_single_uuid_mention(self):
+        content = "Hey @[[550e8400-e29b-41d4-a716-446655440000]], check this"
+        participants = [
+            {"id": "550e8400-e29b-41d4-a716-446655440000", "handle": "john"}
+        ]
+        result = replace_uuid_mentions(content, participants)
+        assert result == "Hey @john, check this"
+
+    def test_replaces_multiple_uuid_mentions(self):
+        content = "Hi @[[uuid1]] and @[[uuid2]]"
+        participants = [
+            {"id": "uuid1", "handle": "alice"},
+            {"id": "uuid2", "handle": "bob"},
+        ]
+        result = replace_uuid_mentions(content, participants)
+        assert result == "Hi @alice and @bob"
+
+    def test_preserves_content_when_no_participants(self):
+        content = "Hello @[[some-uuid]]"
+        result = replace_uuid_mentions(content, [])
+        assert result == "Hello @[[some-uuid]]"
+
+    def test_preserves_unmatched_uuids(self):
+        content = "@[[unknown-uuid]] hello"
+        participants = [{"id": "different-uuid", "handle": "john"}]
+        result = replace_uuid_mentions(content, participants)
+        assert result == "@[[unknown-uuid]] hello"
+
+    def test_handles_missing_handle(self):
+        content = "@[[uuid1]] hello"
+        participants = [{"id": "uuid1", "name": "John"}]  # No handle
+        result = replace_uuid_mentions(content, participants)
+        assert result == "@[[uuid1]] hello"  # Preserved
+
+    def test_handles_empty_content(self):
+        result = replace_uuid_mentions("", [{"id": "uuid1", "handle": "john"}])
+        assert result == ""
+
+    def test_handles_none_participants(self):
+        # Verify behavior when participants is falsy
+        content = "Hello @[[uuid1]]"
+        result = replace_uuid_mentions(content, [])
+        assert result == "Hello @[[uuid1]]"
+
+
+class TestFormatMessageForLlmWithParticipants:
+    def test_replaces_mentions_when_participants_provided(self):
+        msg = {
+            "sender_type": "User",
+            "content": "Hey @[[uuid1]]",
+            "sender_name": "Alice",
+        }
+        participants = [{"id": "uuid1", "handle": "bob"}]
+        result = format_message_for_llm(msg, participants)
+        assert result["content"] == "Hey @bob"
+
+    def test_works_without_participants(self):
+        msg = {"sender_type": "User", "content": "Hello", "sender_name": "Alice"}
+        result = format_message_for_llm(msg)
+        assert result["content"] == "Hello"
+
+    def test_works_with_none_participants(self):
+        msg = {
+            "sender_type": "User",
+            "content": "Hello @[[uuid]]",
+            "sender_name": "Alice",
+        }
+        result = format_message_for_llm(msg, None)
+        assert result["content"] == "Hello @[[uuid]]"
+
+
+class TestFormatHistoryForLlmWithParticipants:
+    def test_replaces_mentions_in_history(self):
+        messages = [
+            {
+                "id": "1",
+                "sender_type": "User",
+                "content": "Hey @[[uuid1]]",
+                "sender_name": "Alice",
+            },
+            {
+                "id": "2",
+                "sender_type": "Agent",
+                "content": "Hi @[[uuid2]]",
+                "sender_name": "Bot",
+            },
+        ]
+        participants = [
+            {"id": "uuid1", "handle": "bob"},
+            {"id": "uuid2", "handle": "alice"},
+        ]
+        result = format_history_for_llm(messages, participants=participants)
+        assert result[0]["content"] == "Hey @bob"
+        assert result[1]["content"] == "Hi @alice"
+
+    def test_works_without_participants(self):
+        messages = [
+            {"id": "1", "sender_type": "User", "content": "Hello", "sender_name": "A"}
+        ]
+        result = format_history_for_llm(messages)
+        assert result[0]["content"] == "Hello"

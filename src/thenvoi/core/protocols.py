@@ -73,6 +73,11 @@ class AgentToolsProtocol(Protocol):
         """Remove a participant from the current room by name."""
         ...
 
+    @property
+    def participants(self) -> list[dict[str, Any]]:
+        """Read-only snapshot of cached room participants."""
+        ...
+
     async def get_participants(self) -> list[dict[str, Any]]:
         """Get participants in the current room."""
         ...
@@ -85,20 +90,102 @@ class AgentToolsProtocol(Protocol):
         """Create a new chat room."""
         ...
 
-    def get_tool_schemas(self, format: str) -> list[dict[str, Any]] | list["ToolParam"]:
+    def get_tool_schemas(
+        self, format: str, *, include_memory: bool = False
+    ) -> list[dict[str, Any]] | list["ToolParam"]:
         """Get tool schemas in provider-specific format (openai/anthropic)."""
         ...
 
-    def get_anthropic_tool_schemas(self) -> list["ToolParam"]:
+    def get_anthropic_tool_schemas(
+        self, *, include_memory: bool = False
+    ) -> list["ToolParam"]:
         """Get tool schemas in Anthropic format (strongly typed)."""
         ...
 
-    def get_openai_tool_schemas(self) -> list[dict[str, Any]]:
+    def get_openai_tool_schemas(
+        self, *, include_memory: bool = False
+    ) -> list[dict[str, Any]]:
         """Get tool schemas in OpenAI format (strongly typed)."""
         ...
 
     async def execute_tool_call(self, tool_name: str, arguments: dict[str, Any]) -> Any:
         """Execute a tool call by name with validated arguments."""
+        ...
+
+    # Contact management tools
+    async def list_contacts(self, page: int = 1, page_size: int = 50) -> dict[str, Any]:
+        """List agent's contacts with pagination."""
+        ...
+
+    async def add_contact(
+        self, handle: str, message: str | None = None
+    ) -> dict[str, Any]:
+        """Send a contact request to add someone as a contact."""
+        ...
+
+    async def remove_contact(
+        self, handle: str | None = None, contact_id: str | None = None
+    ) -> dict[str, Any]:
+        """Remove an existing contact by handle or ID."""
+        ...
+
+    async def list_contact_requests(
+        self,
+        page: int = 1,
+        page_size: int = 50,
+        sent_status: str = "pending",
+    ) -> dict[str, Any]:
+        """List received and sent contact requests."""
+        ...
+
+    async def respond_contact_request(
+        self,
+        action: str,
+        handle: str | None = None,
+        request_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Respond to a contact request (approve, reject, or cancel)."""
+        ...
+
+    # Memory management tools (enterprise only)
+    async def list_memories(
+        self,
+        subject_id: str | None = None,
+        scope: str | None = None,
+        system: str | None = None,
+        type: str | None = None,
+        segment: str | None = None,
+        content_query: str | None = None,
+        page_size: int = 50,
+        status: str | None = None,
+    ) -> dict[str, Any]:
+        """List memories accessible to the agent."""
+        ...
+
+    async def store_memory(
+        self,
+        content: str,
+        system: str,
+        type: str,
+        segment: str,
+        thought: str,
+        scope: str = "subject",
+        subject_id: str | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Store a new memory entry."""
+        ...
+
+    async def get_memory(self, memory_id: str) -> dict[str, Any]:
+        """Retrieve a specific memory by ID."""
+        ...
+
+    async def supersede_memory(self, memory_id: str) -> dict[str, Any]:
+        """Mark a memory as superseded (soft delete)."""
+        ...
+
+    async def archive_memory(self, memory_id: str) -> dict[str, Any]:
+        """Archive a memory (hide but preserve)."""
         ...
 
 

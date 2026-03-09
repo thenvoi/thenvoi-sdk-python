@@ -27,7 +27,7 @@ VALID_MESSAGE_CREATED_PAYLOAD: dict = {
     "content": "@TestBot hi",
     "message_type": "text",
     "metadata": {
-        "mentions": [{"id": "agent-123", "username": "TestBot"}],
+        "mentions": [{"id": "agent-123", "handle": "testbot", "name": "TestBot"}],
         "status": "sent",
     },
     "sender_id": "user-456",
@@ -73,8 +73,8 @@ async def test_skips_invalid_room_added_payload(caplog):
     class MockMessage:
         event = "room_added"
         payload = {
-            "id": "room-123",
-            # Missing: owner, status, type, title, etc.
+            # Missing required fields: id, inserted_at, updated_at
+            "title": "Test Room",
         }
 
     async def dummy_callback(payload):
@@ -88,6 +88,30 @@ async def test_skips_invalid_room_added_payload(caplog):
     assert "Invalid room_added payload" in caplog.text
 
 
+async def test_rejects_room_added_missing_timestamps(caplog):
+    """Regression test for INT-186: room_added without inserted_at/updated_at must be rejected."""
+    client = WebSocketClient("ws://localhost", "test-key", "agent-123")
+    callback_called = False
+
+    class MockMessage:
+        event = "room_added"
+        payload = {
+            "id": "room-123",
+            "title": "Test Room",
+            # Missing required: inserted_at, updated_at
+        }
+
+    async def dummy_callback(payload):
+        nonlocal callback_called
+        callback_called = True
+
+    with caplog.at_level(logging.ERROR):
+        await client._handle_events(MockMessage(), {"room_added": dummy_callback})
+
+    assert not callback_called, "Callback should not be called without timestamps"
+    assert "Invalid room_added payload" in caplog.text
+
+
 async def test_skips_invalid_room_removed_payload(caplog):
     """Should log error and skip when room_removed payload is missing required fields."""
     client = WebSocketClient("ws://localhost", "test-key", "agent-123")
@@ -96,8 +120,8 @@ async def test_skips_invalid_room_removed_payload(caplog):
     class MockMessage:
         event = "room_removed"
         payload = {
-            "id": "room-123",
-            # Missing: status, type, title, removed_at
+            # Missing required field: id
+            "status": "closed",
         }
 
     async def dummy_callback(payload):
@@ -194,12 +218,10 @@ async def test_accepts_valid_room_added_payload():
         event = "room_added"
         payload = {
             "id": "room-123",
-            "owner": {"id": "user-456", "name": "Test User", "type": "User"},
-            "status": "active",
-            "type": "direct",
             "title": "Test Room",
-            "created_at": "2025-11-17T09:05:35.642172Z",
-            "participant_role": "member",
+            "task_id": None,
+            "inserted_at": "2025-11-17T09:05:35.642172Z",
+            "updated_at": "2025-11-17T09:05:35.642172Z",
         }
 
     await client._handle_events(MockMessage(), {"room_added": test_callback})
@@ -284,7 +306,7 @@ async def test_accepts_valid_participant_removed_payload():
                 "content": "hi",
                 "message_type": "text",
                 "metadata": {
-                    "mentions": [{"id": "a-1", "username": "Bot"}],
+                    "mentions": [{"id": "a-1", "handle": "bot", "name": "Bot"}],
                     "status": "sent",
                 },
                 "sender_id": "u-1",
@@ -305,7 +327,8 @@ async def test_accepts_valid_participant_removed_payload():
                 "status": "active",
                 "type": "direct",
                 "title": "Room",
-                "created_at": "2025-11-17T09:05:35Z",
+                "inserted_at": "2025-11-17T09:05:35Z",
+                "updated_at": "2025-11-17T09:05:35Z",
                 "participant_role": "member",
             },
             RoomAddedPayload,

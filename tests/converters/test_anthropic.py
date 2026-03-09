@@ -13,7 +13,11 @@ class TestToolEventConversion:
     """Tests for tool_call and tool_result conversion."""
 
     def test_converts_tool_call_to_assistant_message(self):
-        """tool_call messages become assistant messages with tool_use content."""
+        """tool_call messages become assistant messages with tool_use content.
+
+        An orphaned tool_use (no matching tool_result) also gets a synthetic
+        error tool_result appended so the history satisfies the Anthropic API.
+        """
         converter = AnthropicHistoryConverter()
         raw = [
             {
@@ -25,13 +29,19 @@ class TestToolEventConversion:
 
         result = converter.convert(raw)
 
-        assert len(result) == 1
+        # assistant tool_use + synthetic user tool_result (orphan patching)
+        assert len(result) == 2
         assert result[0]["role"] == "assistant"
         assert isinstance(result[0]["content"], list)
         assert result[0]["content"][0]["type"] == "tool_use"
         assert result[0]["content"][0]["id"] == "toolu_123"
         assert result[0]["content"][0]["name"] == "search"
         assert result[0]["content"][0]["input"] == {"query": "test"}
+        # Synthetic tool_result for the orphan
+        assert result[1]["role"] == "user"
+        assert result[1]["content"][0]["type"] == "tool_result"
+        assert result[1]["content"][0]["tool_use_id"] == "toolu_123"
+        assert result[1]["content"][0]["is_error"] is True
 
     def test_converts_tool_result_to_user_message(self):
         """tool_result messages become user messages with tool_result content."""
@@ -305,7 +315,10 @@ class TestToolEventConversion:
         assert "Skipping tool_result with missing name" in caplog.text
 
     def test_flushes_trailing_tool_calls(self):
-        """Trailing tool_call messages at end of history are properly flushed."""
+        """Trailing tool_call messages at end of history are properly flushed.
+
+        Orphaned tool_use blocks also get synthetic tool_results.
+        """
         converter = AnthropicHistoryConverter()
         raw = [
             {
@@ -322,12 +335,17 @@ class TestToolEventConversion:
 
         result = converter.convert(raw)
 
-        # Both tool calls should be batched into a single assistant message
-        assert len(result) == 1
+        # Both tool calls batched into one assistant message + synthetic results
+        assert len(result) == 2
         assert result[0]["role"] == "assistant"
         assert len(result[0]["content"]) == 2
         assert result[0]["content"][0]["name"] == "tool1"
         assert result[0]["content"][1]["name"] == "tool2"
+        # Synthetic tool_results for both orphans
+        assert result[1]["role"] == "user"
+        assert len(result[1]["content"]) == 2
+        result_ids = {b["tool_use_id"] for b in result[1]["content"]}
+        assert result_ids == {"toolu_1", "toolu_2"}
 
     def test_preserves_is_error_field_when_true(self):
         """tool_result with is_error=True includes the field in output."""
@@ -375,6 +393,169 @@ class TestToolEventConversion:
         tool_result_block = result[1]["content"][0]
         assert tool_result_block["type"] == "tool_result"
         assert "is_error" not in tool_result_block  # Field should be omitted when False
+
+
+class TestOrphanedToolUseSanitization:
+    """Tests for orphaned tool_use block handling."""
+
+    def test_patches_trailing_orphaned_tool_use(self):
+        """tool_use at end of history without tool_result gets synthetic result."""
+        converter = AnthropicHistoryConverter()
+        raw = [
+            {
+                "role": "assistant",
+                "content": '{"name": "search", "args": {"q": "test"}, "tool_call_id": "toolu_1"}',
+                "message_type": "tool_call",
+            },
+        ]
+
+        result = converter.convert(raw)
+
+        # Should have: assistant tool_use + synthetic user tool_result
+        assert len(result) == 2
+        assert result[0]["role"] == "assistant"
+        assert result[0]["content"][0]["type"] == "tool_use"
+        assert result[1]["role"] == "user"
+        assert result[1]["content"][0]["type"] == "tool_result"
+        assert result[1]["content"][0]["tool_use_id"] == "toolu_1"
+        assert result[1]["content"][0]["is_error"] is True
+        assert "interrupted" in result[1]["content"][0]["content"]
+
+    def test_patches_multiple_orphaned_tool_uses(self):
+        """Multiple orphaned tool_use blocks all get synthetic results."""
+        converter = AnthropicHistoryConverter()
+        raw = [
+            {
+                "role": "assistant",
+                "content": '{"name": "tool1", "args": {}, "tool_call_id": "toolu_1"}',
+                "message_type": "tool_call",
+            },
+            {
+                "role": "assistant",
+                "content": '{"name": "tool2", "args": {}, "tool_call_id": "toolu_2"}',
+                "message_type": "tool_call",
+            },
+        ]
+
+        result = converter.convert(raw)
+
+        # Should have: batched assistant tool_use + synthetic user tool_results
+        assert len(result) == 2
+        assert result[0]["role"] == "assistant"
+        assert len(result[0]["content"]) == 2
+        assert result[1]["role"] == "user"
+        assert len(result[1]["content"]) == 2
+        result_ids = {b["tool_use_id"] for b in result[1]["content"]}
+        assert result_ids == {"toolu_1", "toolu_2"}
+
+    def test_patches_partial_orphan_in_batch(self):
+        """When some tool_uses have results and some don't, patches only orphans."""
+        converter = AnthropicHistoryConverter()
+        raw = [
+            {
+                "role": "assistant",
+                "content": '{"name": "tool1", "args": {}, "tool_call_id": "toolu_1"}',
+                "message_type": "tool_call",
+            },
+            {
+                "role": "assistant",
+                "content": '{"name": "tool2", "args": {}, "tool_call_id": "toolu_2"}',
+                "message_type": "tool_call",
+            },
+            # Only tool1 has a result; tool2 is orphaned
+            {
+                "role": "assistant",
+                "content": '{"name": "tool1", "output": "ok", "tool_call_id": "toolu_1"}',
+                "message_type": "tool_result",
+            },
+        ]
+
+        result = converter.convert(raw)
+
+        # Should have: batched assistant tool_use + user tool_results (real + synthetic)
+        assert len(result) == 2
+        assert result[0]["role"] == "assistant"
+        assert len(result[0]["content"]) == 2
+
+        assert result[1]["role"] == "user"
+        result_blocks = result[1]["content"]
+        result_map = {b["tool_use_id"]: b for b in result_blocks}
+        # tool1 has real result
+        assert result_map["toolu_1"]["content"] == "ok"
+        assert "is_error" not in result_map["toolu_1"]
+        # tool2 has synthetic error result
+        assert result_map["toolu_2"]["is_error"] is True
+        assert "interrupted" in result_map["toolu_2"]["content"]
+
+    def test_no_patch_when_all_results_present(self):
+        """Complete tool_use/tool_result pairs are left untouched."""
+        converter = AnthropicHistoryConverter()
+        raw = [
+            {
+                "role": "assistant",
+                "content": '{"name": "search", "args": {}, "tool_call_id": "toolu_1"}',
+                "message_type": "tool_call",
+            },
+            {
+                "role": "assistant",
+                "content": '{"name": "search", "output": "found it", "tool_call_id": "toolu_1"}',
+                "message_type": "tool_result",
+            },
+        ]
+
+        result = converter.convert(raw)
+
+        assert len(result) == 2
+        assert result[1]["content"][0]["content"] == "found it"
+        assert "is_error" not in result[1]["content"][0]
+
+    def test_patches_orphan_followed_by_text(self):
+        """tool_use followed by text (no tool_result) merges into user msg."""
+        converter = AnthropicHistoryConverter()
+        raw = [
+            {
+                "role": "assistant",
+                "content": '{"name": "search", "args": {}, "tool_call_id": "toolu_1"}',
+                "message_type": "tool_call",
+            },
+            # Text message instead of tool_result
+            {
+                "role": "user",
+                "content": "What happened?",
+                "sender_name": "Alice",
+                "message_type": "text",
+            },
+        ]
+
+        result = converter.convert(raw)
+
+        # Should merge synthetic tool_result into the user message
+        # to avoid consecutive user messages (violates alternating turns)
+        assert len(result) == 2
+        assert result[0]["role"] == "assistant"
+        assert result[0]["content"][0]["type"] == "tool_use"
+        # User message has synthetic tool_result prepended + converted text
+        assert result[1]["role"] == "user"
+        assert isinstance(result[1]["content"], list)
+        assert result[1]["content"][0]["type"] == "tool_result"
+        assert result[1]["content"][0]["is_error"] is True
+        assert result[1]["content"][1]["type"] == "text"
+        assert "[Alice]" in result[1]["content"][1]["text"]
+
+    def test_logs_warning_for_orphaned_tool_uses(self, caplog):
+        """Should log warning when patching orphaned tool_use blocks."""
+        converter = AnthropicHistoryConverter()
+        raw = [
+            {
+                "role": "assistant",
+                "content": '{"name": "search", "args": {}, "tool_call_id": "toolu_1"}',
+                "message_type": "tool_call",
+            },
+        ]
+
+        converter.convert(raw)
+
+        assert "orphaned tool_use" in caplog.text.lower()
 
 
 class TestMixedHistory:

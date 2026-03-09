@@ -12,11 +12,17 @@ This module provides the same tools as LangGraph/Claude adapters:
 - lookup_peers: Find available agents
 - get_participants: List current participants
 - create_chatroom: Create new rooms
+- list_contacts: List agent's contacts
+- add_contact: Send a contact request
+- remove_contact: Remove an existing contact
+- list_contact_requests: List received and sent requests
+- respond_contact_request: Approve, reject, or cancel requests
 
 NOTE: We intentionally do NOT use `from __future__ import annotations` here
 because Parlant's @p.tool decorator checks annotation types at runtime.
 """
 
+import json
 import logging
 import warnings
 from typing import Any, Optional
@@ -118,7 +124,7 @@ def create_parlant_tools() -> list[Any]:
         Args:
             context: Parlant tool context (automatically provided)
             content: The message content to send
-            mentions: Comma-separated list of participant names to @mention (e.g., "Alice, Bob")
+            mentions: Comma-separated list of participant handles to @mention (e.g., "@alice, @bob/agent")
 
         Returns:
             Confirmation of message sent or error
@@ -425,6 +431,238 @@ def create_parlant_tools() -> list[Any]:
             logger.error("[Parlant Tool] Error creating chatroom: %s", e, exc_info=True)
             return ToolResult(data=f"Error creating chatroom: {e}")
 
+    @p.tool
+    async def thenvoi_list_contacts(
+        context: ToolContext,
+        page: int = 1,
+        page_size: int = 50,
+    ) -> ToolResult:
+        """
+        List agent's contacts with pagination.
+
+        Args:
+            context: Parlant tool context (automatically provided)
+            page: Page number (default 1)
+            page_size: Items per page (default 50, max 100)
+
+        Returns:
+            JSON with contacts list and pagination metadata
+        """
+        logger.info(
+            "[Parlant Tool] list_contacts called: session=%s, page=%s",
+            context.session_id,
+            page,
+        )
+        tools = get_session_tools(context.session_id)
+        if not tools:
+            logger.error(
+                "[Parlant Tool] list_contacts: No tools available for session %s",
+                context.session_id,
+            )
+            return ToolResult(data="Error: No tools available in current context")
+
+        try:
+            result = await tools.list_contacts(page, page_size)
+            return ToolResult(data=json.dumps(result, default=str))
+        except Exception as e:
+            logger.error("[Parlant Tool] Error listing contacts: %s", e, exc_info=True)
+            return ToolResult(data=f"Error listing contacts: {e}")
+
+    @p.tool
+    async def thenvoi_add_contact(
+        context: ToolContext,
+        handle: str,
+        message: str = "",
+    ) -> ToolResult:
+        """
+        Send a contact request to add someone as a contact.
+
+        Returns 'pending' when request is created, 'approved' when inverse
+        request existed and was auto-accepted.
+
+        Args:
+            context: Parlant tool context (automatically provided)
+            handle: Handle of user/agent to add (e.g., '@john' or '@john/agent-name')
+            message: Optional message with the request
+
+        Returns:
+            Status of the contact request
+        """
+        logger.info(
+            "[Parlant Tool] add_contact called: session=%s, handle=%s",
+            context.session_id,
+            handle,
+        )
+        tools = get_session_tools(context.session_id)
+        if not tools:
+            logger.error(
+                "[Parlant Tool] add_contact: No tools available for session %s",
+                context.session_id,
+            )
+            return ToolResult(data="Error: No tools available in current context")
+
+        try:
+            result = await tools.add_contact(handle, message if message else None)
+            status = result.get("status", "pending")
+            return ToolResult(data=f"Contact request to {handle}: {status}")
+        except Exception as e:
+            logger.error("[Parlant Tool] Error adding contact: %s", e, exc_info=True)
+            return ToolResult(data=f"Error adding contact: {e}")
+
+    @p.tool
+    async def thenvoi_remove_contact(
+        context: ToolContext,
+        handle: str = "",
+        contact_id: str = "",
+    ) -> ToolResult:
+        """
+        Remove an existing contact by handle or contact ID.
+
+        Provide either handle or contact_id (at least one required).
+
+        Args:
+            context: Parlant tool context (automatically provided)
+            handle: Contact's handle (e.g., '@john')
+            contact_id: Or contact record ID (UUID)
+
+        Returns:
+            Confirmation of contact removal
+        """
+        logger.info(
+            "[Parlant Tool] remove_contact called: session=%s, handle=%s, contact_id=%s",
+            context.session_id,
+            handle,
+            contact_id,
+        )
+        tools = get_session_tools(context.session_id)
+        if not tools:
+            logger.error(
+                "[Parlant Tool] remove_contact: No tools available for session %s",
+                context.session_id,
+            )
+            return ToolResult(data="Error: No tools available in current context")
+
+        h = handle if handle else None
+        cid = contact_id if contact_id else None
+        if not h and not cid:
+            return ToolResult(
+                data="Error: Either handle or contact_id must be provided"
+            )
+
+        try:
+            await tools.remove_contact(h, cid)
+            identifier = handle or contact_id
+            return ToolResult(data=f"Contact '{identifier}' removed successfully")
+        except Exception as e:
+            logger.error("[Parlant Tool] Error removing contact: %s", e, exc_info=True)
+            return ToolResult(data=f"Error removing contact: {e}")
+
+    @p.tool
+    async def thenvoi_list_contact_requests(
+        context: ToolContext,
+        page: int = 1,
+        page_size: int = 50,
+        sent_status: str = "pending",
+    ) -> ToolResult:
+        """
+        List both received and sent contact requests.
+
+        Received requests are always filtered to pending status.
+        Sent requests can be filtered by status.
+
+        Args:
+            context: Parlant tool context (automatically provided)
+            page: Page number (default 1)
+            page_size: Items per page per direction (default 50, max 100)
+            sent_status: Filter sent requests by status: 'pending', 'approved', 'rejected', 'cancelled', or 'all'
+
+        Returns:
+            JSON with received and sent request lists and metadata
+        """
+        logger.info(
+            "[Parlant Tool] list_contact_requests called: session=%s, sent_status=%s",
+            context.session_id,
+            sent_status,
+        )
+        tools = get_session_tools(context.session_id)
+        if not tools:
+            logger.error(
+                "[Parlant Tool] list_contact_requests: No tools available for session %s",
+                context.session_id,
+            )
+            return ToolResult(data="Error: No tools available in current context")
+
+        try:
+            result = await tools.list_contact_requests(page, page_size, sent_status)
+            return ToolResult(data=json.dumps(result, default=str))
+        except Exception as e:
+            logger.error(
+                "[Parlant Tool] Error listing contact requests: %s", e, exc_info=True
+            )
+            return ToolResult(data=f"Error listing contact requests: {e}")
+
+    @p.tool
+    async def thenvoi_respond_contact_request(
+        context: ToolContext,
+        action: str,
+        handle: str = "",
+        request_id: str = "",
+    ) -> ToolResult:
+        """
+        Respond to a contact request.
+
+        Actions:
+        - 'approve'/'reject': For requests you RECEIVED (handle = requester's handle)
+        - 'cancel': For requests you SENT (handle = recipient's handle)
+
+        Provide either handle or request_id (at least one required).
+
+        Args:
+            context: Parlant tool context (automatically provided)
+            action: Action to take - 'approve', 'reject', or 'cancel'
+            handle: Other party's handle
+            request_id: Or request ID (UUID)
+
+        Returns:
+            Status of the response action
+        """
+        logger.info(
+            "[Parlant Tool] respond_contact_request called: session=%s, action=%s",
+            context.session_id,
+            action,
+        )
+        tools = get_session_tools(context.session_id)
+        if not tools:
+            logger.error(
+                "[Parlant Tool] respond_contact_request: No tools available for session %s",
+                context.session_id,
+            )
+            return ToolResult(data="Error: No tools available in current context")
+
+        h = handle if handle else None
+        rid = request_id if request_id else None
+        if not h and not rid:
+            return ToolResult(
+                data="Error: Either handle or request_id must be provided"
+            )
+
+        if action not in ("approve", "reject", "cancel"):
+            return ToolResult(
+                data=f"Error: Invalid action '{action}'. Use 'approve', 'reject', or 'cancel'"
+            )
+
+        try:
+            result = await tools.respond_contact_request(action, h, rid)
+            status = result.get("status", action)
+            return ToolResult(data=f"Contact request {action}d: {status}")
+        except Exception as e:
+            logger.error(
+                "[Parlant Tool] Error responding to contact request: %s",
+                e,
+                exc_info=True,
+            )
+            return ToolResult(data=f"Error responding to contact request: {e}")
+
     return [
         thenvoi_send_message,
         thenvoi_send_event,
@@ -433,4 +671,9 @@ def create_parlant_tools() -> list[Any]:
         thenvoi_lookup_peers,
         thenvoi_get_participants,
         thenvoi_create_chatroom,
+        thenvoi_list_contacts,
+        thenvoi_add_contact,
+        thenvoi_remove_contact,
+        thenvoi_list_contact_requests,
+        thenvoi_respond_contact_request,
     ]

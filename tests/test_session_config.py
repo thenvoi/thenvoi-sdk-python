@@ -7,6 +7,8 @@ Tests cover:
 - Event processing skips hydration when disabled
 """
 
+from __future__ import annotations
+
 import pytest
 from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock
@@ -45,11 +47,12 @@ class TestGetHistoryForLLMHydrationDisabled:
         """Create a mock ThenvoiLink."""
         link = MagicMock()
         link.rest = MagicMock()
-        link.rest.agent_api = MagicMock()
-        link.rest.agent_api.list_agent_chat_participants = AsyncMock(
+        link.rest.agent_api_participants = MagicMock()
+        link.rest.agent_api_participants.list_agent_chat_participants = AsyncMock(
             return_value=MagicMock(data=[])
         )
-        link.rest.agent_api.get_agent_chat_context = AsyncMock(
+        link.rest.agent_api_context = MagicMock()
+        link.rest.agent_api_context.get_agent_chat_context = AsyncMock(
             return_value=MagicMock(data=[])
         )
         link.get_next_message = AsyncMock(return_value=None)
@@ -106,8 +109,8 @@ class TestGetHistoryForLLMHydrationEnabled:
         """Create a mock ThenvoiLink with context data."""
         link = MagicMock()
         link.rest = MagicMock()
-        link.rest.agent_api = MagicMock()
-        link.rest.agent_api.list_agent_chat_participants = AsyncMock(
+        link.rest.agent_api_participants = MagicMock()
+        link.rest.agent_api_participants.list_agent_chat_participants = AsyncMock(
             return_value=MagicMock(data=[])
         )
 
@@ -130,7 +133,8 @@ class TestGetHistoryForLLMHydrationEnabled:
         mock_msg2.message_type = "text"
         mock_msg2.inserted_at = datetime.now(timezone.utc).isoformat()
 
-        link.rest.agent_api.get_agent_chat_context = AsyncMock(
+        link.rest.agent_api_context = MagicMock()
+        link.rest.agent_api_context.get_agent_chat_context = AsyncMock(
             return_value=MagicMock(data=[mock_msg1, mock_msg2])
         )
         link.get_next_message = AsyncMock(return_value=None)
@@ -171,7 +175,7 @@ class TestGetHistoryForLLMHydrationEnabled:
         assert history[1]["role"] == "assistant"
         assert history[1]["content"] == "Hi there!"
         # Should have called get_agent_chat_context
-        mock_link.rest.agent_api.get_agent_chat_context.assert_called_once()
+        mock_link.rest.agent_api_context.get_agent_chat_context.assert_called_once()
 
 
 class TestProcessEventHydration:
@@ -182,11 +186,12 @@ class TestProcessEventHydration:
         """Create a mock ThenvoiLink."""
         link = MagicMock()
         link.rest = MagicMock()
-        link.rest.agent_api = MagicMock()
-        link.rest.agent_api.list_agent_chat_participants = AsyncMock(
+        link.rest.agent_api_participants = MagicMock()
+        link.rest.agent_api_participants.list_agent_chat_participants = AsyncMock(
             return_value=MagicMock(data=[])
         )
-        link.rest.agent_api.get_agent_chat_context = AsyncMock(
+        link.rest.agent_api_context = MagicMock()
+        link.rest.agent_api_context.get_agent_chat_context = AsyncMock(
             return_value=MagicMock(data=[])
         )
         link.get_next_message = AsyncMock(return_value=None)
@@ -227,7 +232,7 @@ class TestProcessEventHydration:
 
         assert handler_called
         # Should NOT have fetched context
-        mock_link.rest.agent_api.get_agent_chat_context.assert_not_called()
+        mock_link.rest.agent_api_context.get_agent_chat_context.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_hydrates_context_when_enabled(self, mock_link, sample_event):
@@ -250,4 +255,4 @@ class TestProcessEventHydration:
 
         assert handler_called
         # Should have fetched context
-        mock_link.rest.agent_api.get_agent_chat_context.assert_called_once()
+        mock_link.rest.agent_api_context.get_agent_chat_context.assert_called_once()

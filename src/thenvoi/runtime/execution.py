@@ -36,7 +36,13 @@ from thenvoi.platform.event import (
     PlatformEvent,
 )
 
-from .types import ConversationContext, PlatformMessage, SessionConfig
+from .types import (
+    ConversationContext,
+    PlatformMessage,
+    SessionConfig,
+    SYNTHETIC_SENDER_TYPE,
+    SYNTHETIC_CONTACT_EVENTS_SENDER_ID,
+)
 from .retry_tracker import MessageRetryTracker
 
 if TYPE_CHECKING:
@@ -95,6 +101,14 @@ class Execution(Protocol):
 
         Returns:
             True if stopped gracefully, False if cancelled mid-processing.
+        """
+        ...
+
+    def inject_system_message(self, message: str) -> None:
+        """
+        Queue a system message for injection on next processing.
+
+        Used by ContactEventHandler to broadcast contact changes.
         """
         ...
 
@@ -184,6 +198,9 @@ class ExecutionContext:
         # Graceful shutdown: event signaled when state becomes idle
         self._idle_event: asyncio.Event = asyncio.Event()
         self._idle_event.set()  # Start as idle
+
+        # Pending system messages to inject (e.g., contact broadcasts)
+        self._pending_system_messages: list[str] = []
 
     @property
     def thread_id(self) -> str:
@@ -347,6 +364,7 @@ class ExecutionContext:
                 "id": participant.get("id"),
                 "name": participant.get("name"),
                 "type": participant.get("type"),
+                "handle": participant.get("handle"),
             }
         )
         logger.debug(
@@ -382,19 +400,53 @@ class ExecutionContext:
         """Mark current participants as sent to LLM."""
         self._last_participants_sent = self._participants.copy()
 
+    def inject_system_message(self, message: str) -> None:
+        """
+        Queue a system message for injection on next processing.
+
+        Used by ContactEventHandler to broadcast contact changes
+        into all active sessions.
+
+        Args:
+            message: System message to inject
+        """
+        self._pending_system_messages.append(message)
+        logger.debug(
+            "ExecutionContext %s: Queued system message: %s",
+            self.room_id,
+            message[:50],
+        )
+
+    def get_pending_system_messages(self) -> list[str]:
+        """
+        Get and clear pending system messages.
+
+        Returns:
+            List of pending messages (cleared after call)
+        """
+        messages = self._pending_system_messages.copy()
+        self._pending_system_messages.clear()
+        return messages
+
     async def load_participants(self) -> list[dict[str, Any]]:
         """Load participants from API."""
         if self._participants_loaded:
             return self._participants
 
         try:
-            response = await self.link.rest.agent_api.list_agent_chat_participants(
+            response = await self.link.rest.agent_api_participants.list_agent_chat_participants(
                 chat_id=self.room_id,
                 request_options=DEFAULT_REQUEST_OPTIONS,
             )
             if response.data:
                 self._participants = [
-                    {"id": p.id, "name": p.name, "type": p.type} for p in response.data
+                    {
+                        "id": p.id,
+                        "name": p.name,
+                        "type": p.type,
+                        "handle": getattr(p, "handle", None),
+                    }
+                    for p in response.data
                 ]
             self._participants_loaded = True
         except Exception as e:
@@ -411,22 +463,26 @@ class ExecutionContext:
         """
         Hydrate conversation context for this room.
 
-        Called lazily on first event to load conversation history
-        and participant list.
+        Called lazily on first event to load participant list and
+        (optionally) conversation history.
 
-        If enable_context_hydration is False, skips API call and returns
-        empty context (useful for agents that manage their own state like Letta).
+        Participants are always loaded (lightweight, universally needed).
+        If enable_context_hydration is False, skips history loading
+        (useful for agents that manage their own state like Letta).
         """
         if self._context_hydrated:
             return
 
-        # Skip hydration if disabled
+        # Always load participants (lightweight, universally needed)
+        await self.load_participants()
+
+        # Skip history hydration if disabled
         if not self.config.enable_context_hydration:
-            logger.debug("Context hydration disabled for room: %s", self.room_id)
+            logger.debug("History hydration disabled for room: %s", self.room_id)
             self._context_cache = ConversationContext(
                 room_id=self.room_id,
                 messages=[],
-                participants=[],
+                participants=self._participants,
                 hydrated_at=datetime.now(timezone.utc),
             )
             self._context_hydrated = True
@@ -435,13 +491,12 @@ class ExecutionContext:
         logger.debug("Hydrating context for room: %s", self.room_id)
 
         try:
-            # Load participants first
-            await self.load_participants()
-
             # Load context from API
-            context_response = await self.link.rest.agent_api.get_agent_chat_context(
-                chat_id=self.room_id,
-                request_options=DEFAULT_REQUEST_OPTIONS,
+            context_response = (
+                await self.link.rest.agent_api_context.get_agent_chat_context(
+                    chat_id=self.room_id,
+                    request_options=DEFAULT_REQUEST_OPTIONS,
+                )
             )
 
             messages = []
@@ -482,7 +537,7 @@ class ExecutionContext:
             self._context_cache = ConversationContext(
                 room_id=self.room_id,
                 messages=[],
-                participants=[],
+                participants=self._participants,
                 hydrated_at=datetime.now(timezone.utc),
             )
             self._context_hydrated = True
@@ -545,6 +600,7 @@ class ExecutionContext:
         return format_history_for_llm(
             self._context_cache.messages,
             exclude_id=exclude_message_id,
+            participants=self._participants,
         )
 
     def build_participants_message(self) -> str:
@@ -595,18 +651,25 @@ class ExecutionContext:
         """
         Synchronize backlog via /next API until caught up with WebSocket.
 
+        First recovers any messages stuck in 'processing' state from a
+        previous crash, then processes pending messages via /next.
+
         Uses _first_ws_msg_id marker:
-        1. Call /next to get next unprocessed message
-        2. If None → no backlog, we're synced
-        3. Check if message ID matches _first_ws_msg_id (first WebSocket message)
-        4. If match → synced! Process this message, pop duplicate from queue
-        5. If no match → process /next message, repeat from step 1
+        1. Recover stale processing messages (crash recovery)
+        2. Call /next to get next unprocessed message
+        3. If None → no backlog, we're synced
+        4. Check if message ID matches _first_ws_msg_id (first WebSocket message)
+        5. If match → synced! Process this message, pop duplicate from queue
+        6. If no match → process /next message, repeat from step 1
         """
         logger.debug(
             "ExecutionContext %s: Starting /next synchronization", self.room_id
         )
 
         try:
+            # Recover messages stuck in 'processing' state from a previous crash.
+            # The /next endpoint skips these, so we must handle them explicitly.
+            await self._recover_stale_processing_messages()
             while True:  # Cancellation handles exit
                 next_msg = await self._get_next_message()
 
@@ -632,23 +695,11 @@ class ExecutionContext:
                         next_msg.id,
                     )
                     await self._process_backlog_message(next_msg)
-
-                    # Pop duplicate from queue
-                    try:
-                        head = self.queue.get_nowait()
-                        head_id = (
-                            head.payload.id
-                            if hasattr(head, "payload") and head.payload
-                            else None
-                        )
-                        if head_id != next_msg.id:
-                            # Put it back if it's not the duplicate
-                            self.queue.put_nowait(head)
-                    except asyncio.QueueEmpty:
-                        pass
+                    # Remove all WS copies of the sync-point message while
+                    # preserving the relative order of other queued events.
+                    self._drain_duplicate_from_queue(next_msg.id)
 
                     self._first_ws_msg_id = None  # Clear marker
-                    self._processed_ids.clear()  # No longer needed after sync
                     break
 
                 logger.debug(
@@ -673,6 +724,40 @@ class ExecutionContext:
 
         logger.debug("ExecutionContext %s: Synchronization complete", self.room_id)
         self._sync_complete = True
+
+    async def _recover_stale_processing_messages(self) -> None:
+        """
+        Recover messages stuck in 'processing' state from a previous crash.
+
+        When an agent crashes mid-processing, the message stays in 'processing'
+        state on the server. The /next endpoint skips these messages, so the
+        agent would never pick them up again. This method finds such messages
+        and re-processes them by calling mark_processing (creates a new attempt).
+        """
+        stale_messages = await self.link.get_stale_processing_messages(self.room_id)
+        if not stale_messages:
+            return
+
+        logger.info(
+            "ExecutionContext %s: Recovering %d stale processing message(s)",
+            self.room_id,
+            len(stale_messages),
+        )
+
+        for msg in stale_messages:
+            logger.info(
+                "ExecutionContext %s: Re-processing stale message %s",
+                self.room_id,
+                msg.id,
+            )
+            try:
+                await self._process_backlog_message(msg)
+            except Exception:
+                logger.exception(
+                    "ExecutionContext %s: Failed to recover stale message %s",
+                    self.room_id,
+                    msg.id,
+                )
 
     async def _get_next_message(self) -> PlatformMessage | None:
         """
@@ -731,8 +816,9 @@ class ExecutionContext:
             # Mark as processing on server BEFORE we start
             await self.link.mark_processing(self.room_id, msg_id)
 
-            # Hydrate context on first message if enabled
-            if not self._context_hydrated and self.config.enable_context_hydration:
+            # Hydrate context on first message (loads participants always,
+            # history only if enable_context_hydration is True)
+            if not self._context_hydrated:
                 await self.hydrate()
 
             # Format timestamps for MessageCreatedPayload validation
@@ -856,24 +942,38 @@ class ExecutionContext:
                 logger.debug("Skipping self-message %s", msg_id)
                 return
 
-            # Skip permanently failed messages
-            if self._retry_tracker.is_permanently_failed(msg_id):
-                logger.debug("Skipping permanently failed message %s", msg_id)
-                return
+            # Detect synthetic messages (e.g., contact events injected into hub room)
+            # These don't exist in the database, so skip all tracking and marking
+            is_synthetic = (
+                payload.sender_type == SYNTHETIC_SENDER_TYPE
+                and payload.sender_id == SYNTHETIC_CONTACT_EVENTS_SENDER_ID
+            )
+            if is_synthetic:
+                logger.debug("Processing synthetic contact event message")
+                msg_id = None  # Clear to skip message marking later
+                # Skip all tracking for synthetic messages - go directly to processing
+            else:
+                # Only track retries and duplicates for real messages
+                # Skip permanently failed messages
+                if self._retry_tracker.is_permanently_failed(msg_id):
+                    logger.debug("Skipping permanently failed message %s", msg_id)
+                    return
 
-            # Skip duplicates
-            if msg_id in self._processed_ids:
-                self._processed_ids.move_to_end(msg_id)
-                logger.debug("Skipping duplicate message %s", msg_id)
-                return
+                # Skip duplicates
+                if msg_id in self._processed_ids:
+                    self._processed_ids.move_to_end(msg_id)
+                    logger.debug("Skipping duplicate message %s", msg_id)
+                    return
 
-            # Track attempts
-            attempts, exceeded = self._retry_tracker.record_attempt(msg_id)
-            if exceeded:
-                logger.warning(
-                    "Message %s exceeded max retries (%s attempts)", msg_id, attempts
-                )
-                return
+                # Track attempts
+                attempts, exceeded = self._retry_tracker.record_attempt(msg_id)
+                if exceeded:
+                    logger.warning(
+                        "Message %s exceeded max retries (%s attempts)",
+                        msg_id,
+                        attempts,
+                    )
+                    return
 
         self._set_state("processing")
         logger.debug("Processing %s in room %s", event.type, self.room_id)
@@ -883,8 +983,9 @@ class ExecutionContext:
             if isinstance(event, MessageEvent) and msg_id:
                 await self.link.mark_processing(self.room_id, msg_id)
 
-            # Hydrate context on first event if enabled
-            if not self._context_hydrated and self.config.enable_context_hydration:
+            # Hydrate context on first event (loads participants always,
+            # history only if enable_context_hydration is True)
+            if not self._context_hydrated:
                 await self.hydrate()
 
             # Handle participant events internally

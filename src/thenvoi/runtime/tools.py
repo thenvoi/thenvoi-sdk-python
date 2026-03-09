@@ -39,7 +39,11 @@ class SendMessageInput(BaseModel):
     content: str = Field(..., description="The message content to send")
     mentions: list[str] = Field(
         ...,
-        description="List of participant names to @mention. At least one required.",
+        description=(
+            "List of participant handles to @mention. At least one required. "
+            "For users: @<username> (e.g., '@john'). "
+            "For agents: @<username>/<agent-name> (e.g., '@john/weather-agent')."
+        ),
     )
 
 
@@ -112,6 +116,154 @@ class CreateChatroomInput(BaseModel):
     )
 
 
+class ListContactsInput(BaseModel):
+    """List agent's contacts with pagination."""
+
+    page: int = Field(1, description="Page number", ge=1)
+    page_size: int = Field(50, description="Items per page", ge=1, le=100)
+
+
+class AddContactInput(BaseModel):
+    """Send a contact request to add someone as a contact.
+
+    Returns 'pending' when request is created.
+    Returns 'approved' when inverse request existed and was auto-accepted.
+    """
+
+    handle: str = Field(
+        ...,
+        description="Handle of user/agent to add (e.g., '@john' or '@john/agent-name')",
+    )
+    message: str | None = Field(None, description="Optional message with the request")
+
+
+class RemoveContactInput(BaseModel):
+    """Remove an existing contact by handle or ID."""
+
+    handle: str | None = Field(None, description="Contact's handle")
+    contact_id: str | None = Field(None, description="Or contact record ID (UUID)")
+
+
+class ListContactRequestsInput(BaseModel):
+    """List both received and sent contact requests.
+
+    Received requests are always filtered to pending status.
+    Sent requests can be filtered by status.
+    """
+
+    page: int = Field(1, description="Page number", ge=1)
+    page_size: int = Field(
+        50, description="Items per page per direction (max 100)", ge=1, le=100
+    )
+    sent_status: Literal["pending", "approved", "rejected", "cancelled", "all"] = Field(
+        "pending", description="Filter sent requests by status"
+    )
+
+
+class RespondContactRequestInput(BaseModel):
+    """Respond to a contact request.
+
+    Actions:
+    - 'approve'/'reject': For requests you RECEIVED (handle = requester's handle)
+    - 'cancel': For requests you SENT (handle = recipient's handle)
+    """
+
+    action: Literal["approve", "reject", "cancel"] = Field(
+        ..., description="Action to take"
+    )
+    handle: str | None = Field(None, description="Other party's handle")
+    request_id: str | None = Field(None, description="Or request ID (UUID)")
+
+
+class ListMemoriesInput(BaseModel):
+    """List memories accessible to the agent.
+
+    Returns memories about the specified subject (cross-agent sharing)
+    and organization-wide shared memories.
+    """
+
+    subject_id: str | None = Field(
+        None, description="Filter by subject UUID (required for subject-scoped queries)"
+    )
+    scope: Literal["subject", "organization", "all"] | None = Field(
+        None, description="Filter by scope"
+    )
+    system: Literal["sensory", "working", "long_term"] | None = Field(
+        None, description="Filter by memory system"
+    )
+    type: (
+        Literal["iconic", "echoic", "haptic", "episodic", "semantic", "procedural"]
+        | None
+    ) = Field(None, description="Filter by memory type")
+    segment: Literal["user", "agent", "tool", "guideline"] | None = Field(
+        None, description="Filter by segment"
+    )
+    content_query: str | None = Field(None, description="Full-text search query")
+    page_size: int = Field(50, description="Number of results per page", ge=1, le=50)
+    status: Literal["active", "superseded", "archived", "all"] | None = Field(
+        None, description="Filter by status"
+    )
+
+
+class StoreMemoryInput(BaseModel):
+    """Store a new memory entry.
+
+    The memory will be associated with the authenticated agent as the source.
+    For subject-scoped memories, provide a subject_id.
+    For organization-scoped memories, omit subject_id.
+    """
+
+    content: str = Field(..., description="The memory content")
+    system: Literal["sensory", "working", "long_term"] = Field(
+        ..., description="Memory system tier"
+    )
+    type: Literal[
+        "iconic", "echoic", "haptic", "episodic", "semantic", "procedural"
+    ] = Field(..., description="Memory type (must be valid for selected system)")
+    segment: Literal["user", "agent", "tool", "guideline"] = Field(
+        ..., description="Logical segment"
+    )
+    thought: str = Field(..., description="Agent's reasoning for storing this memory")
+    scope: Literal["subject", "organization"] = Field(
+        "subject", description="Visibility scope"
+    )
+    subject_id: str | None = Field(
+        None,
+        description="UUID of the subject this memory is about (required for subject scope)",
+    )
+    metadata: dict[str, Any] | None = Field(
+        None, description="Additional metadata (tags, references)"
+    )
+
+
+class GetMemoryInput(BaseModel):
+    """Retrieve a specific memory by ID."""
+
+    memory_id: str = Field(..., description="Memory ID (UUID)")
+
+
+class SupersedeMemoryInput(BaseModel):
+    """Mark a memory as superseded (soft delete).
+
+    Use when information is outdated or incorrect.
+    The memory remains for audit trail but won't appear in normal queries.
+    Only the source agent can supersede.
+    """
+
+    memory_id: str = Field(..., description="Memory ID (UUID)")
+
+
+class ArchiveMemoryInput(BaseModel):
+    """Archive a memory (hide but preserve).
+
+    Use when memory is valid but not currently needed.
+    Archived memories can be restored later by humans.
+    Only the source agent can archive.
+    """
+
+    memory_id: str = Field(..., description="Memory ID (UUID)")
+
+
 # Registry mapping tool names to their input models
 TOOL_MODELS: dict[str, type[BaseModel]] = {
     "thenvoi_send_message": SendMessageInput,
@@ -121,7 +273,66 @@ TOOL_MODELS: dict[str, type[BaseModel]] = {
     "thenvoi_lookup_peers": LookupPeersInput,
     "thenvoi_get_participants": GetParticipantsInput,
     "thenvoi_create_chatroom": CreateChatroomInput,
+    "thenvoi_list_contacts": ListContactsInput,
+    "thenvoi_add_contact": AddContactInput,
+    "thenvoi_remove_contact": RemoveContactInput,
+    "thenvoi_list_contact_requests": ListContactRequestsInput,
+    "thenvoi_respond_contact_request": RespondContactRequestInput,
+    "thenvoi_list_memories": ListMemoriesInput,
+    "thenvoi_store_memory": StoreMemoryInput,
+    "thenvoi_get_memory": GetMemoryInput,
+    "thenvoi_supersede_memory": SupersedeMemoryInput,
+    "thenvoi_archive_memory": ArchiveMemoryInput,
 }
+
+# Memory tools - optional, only available for enterprise customers.
+# Explicitly listed (not derived by heuristic) because memory is an opt-in
+# enterprise feature and accidental inclusion of a non-memory tool would
+# expose functionality that should be gated.
+MEMORY_TOOL_NAMES: frozenset[str] = frozenset(
+    {
+        "thenvoi_list_memories",
+        "thenvoi_store_memory",
+        "thenvoi_get_memory",
+        "thenvoi_supersede_memory",
+        "thenvoi_archive_memory",
+    }
+)
+
+# Contact tools - explicitly listed (not derived by heuristic) because a
+# future tool whose name happens to contain "contact" (e.g.
+# thenvoi_get_contact_context) would be silently misclassified.
+CONTACT_TOOL_NAMES: frozenset[str] = frozenset(
+    {
+        "thenvoi_list_contacts",
+        "thenvoi_add_contact",
+        "thenvoi_remove_contact",
+        "thenvoi_list_contact_requests",
+        "thenvoi_respond_contact_request",
+    }
+)
+
+# Derived from TOOL_MODELS — single source of truth
+ALL_TOOL_NAMES: frozenset[str] = frozenset(TOOL_MODELS.keys())
+
+# Fail fast on typos — catch at import time, not in a test run.
+# Use explicit checks instead of ``assert`` so they are not stripped by -O.
+if MEMORY_TOOL_NAMES - ALL_TOOL_NAMES:
+    raise ValueError(f"Unknown memory tools: {MEMORY_TOOL_NAMES - ALL_TOOL_NAMES}")
+if CONTACT_TOOL_NAMES - ALL_TOOL_NAMES:
+    raise ValueError(f"Unknown contact tools: {CONTACT_TOOL_NAMES - ALL_TOOL_NAMES}")
+
+BASE_TOOL_NAMES: frozenset[str] = ALL_TOOL_NAMES - MEMORY_TOOL_NAMES
+CHAT_TOOL_NAMES: frozenset[str] = BASE_TOOL_NAMES - CONTACT_TOOL_NAMES
+MCP_TOOL_PREFIX: str = "mcp__thenvoi__"
+
+
+def mcp_tool_names(names: frozenset[str]) -> list[str]:
+    """Convert base tool names to MCP-prefixed names for Claude SDK.
+
+    Returns a sorted list for deterministic ordering across runs.
+    """
+    return [f"{MCP_TOOL_PREFIX}{name}" for name in sorted(names)]
 
 
 def get_tool_description(name: str) -> str:
@@ -160,19 +371,26 @@ def get_tool_description(name: str) -> str:
 
 class AgentTools(AgentToolsProtocol):
     """
-    Tools for LLM platform interaction.
+    Room-bound tools for LLM platform interaction.
 
     Uses AsyncRestClient directly for API calls.
     Bound to a specific room_id. Passed to execution handlers.
 
     This class provides:
     - Tool methods (send_message, add_participant, etc.)
+    - Contact management methods (list_contacts, add_contact, etc.)
     - Schema converters for different LLM frameworks
     - execute_tool_call() for programmatic dispatch
 
+    Note: AgentTools vs ContactTools
+        - AgentTools: Room-bound. Used by LLM agents in chat rooms.
+          Has full tool suite including messaging, participants, AND contacts.
+        - ContactTools: Agent-level. Used by ContactEventHandler for
+          programmatic contact handling in CALLBACK strategy. Contact-only.
+
     Example (from ExecutionContext):
         tools = AgentTools.from_context(ctx)
-        await tools.send_message("Hello!", mentions=["User"])
+        await tools.send_message("Hello!", mentions=["@john"])
 
     Example (manual construction):
         tools = AgentTools(room_id, rest_client, participants=[...])
@@ -196,6 +414,11 @@ class AgentTools(AgentToolsProtocol):
         self.room_id = room_id
         self.rest = rest
         self._participants = participants or []
+
+    @property
+    def participants(self) -> list[dict[str, Any]]:
+        """Return a shallow copy of the cached participant list."""
+        return list(self._participants)
 
     @classmethod
     def from_context(cls, ctx: "ExecutionContext") -> "AgentTools":
@@ -222,13 +445,14 @@ class AgentTools(AgentToolsProtocol):
 
         Args:
             content: Message content to send
-            mentions: List of participant names (strings). SDK resolves names to IDs.
+            mentions: List of participant handles (strings). SDK resolves handles to IDs.
+                      Format: @<username> for users, @<username>/<agent-name> for agents.
 
         Returns:
             Full API response dict with message details (id, content, sender, etc.)
 
         Raises:
-            ValueError: If a mentioned name is not found in participants
+            ValueError: If a mentioned handle is not found in participants
         """
         from thenvoi.client.rest import (
             ChatMessageRequest,
@@ -254,13 +478,13 @@ class AgentTools(AgentToolsProtocol):
 
         logger.debug("Sending message to room %s", self.room_id)
 
-        # Convert to API format
+        # Convert to API format - use handle (not name) for mentions
         mention_items = [
-            ChatMessageRequestMentionsItem(id=m["id"], name=m["name"])
+            ChatMessageRequestMentionsItem(id=m["id"], handle=m["handle"])
             for m in resolved_mentions
         ]
 
-        response = await self.rest.agent_api.create_agent_chat_message(
+        response = await self.rest.agent_api_messages.create_agent_chat_message(
             chat_id=self.room_id,
             message=ChatMessageRequest(content=content, mentions=mention_items),
             request_options=DEFAULT_REQUEST_OPTIONS,
@@ -292,7 +516,7 @@ class AgentTools(AgentToolsProtocol):
 
         logger.debug("Sending %s event to room %s", message_type, self.room_id)
 
-        response = await self.rest.agent_api.create_agent_chat_event(
+        response = await self.rest.agent_api_events.create_agent_chat_event(
             chat_id=self.room_id,
             event=ChatEventRequest(
                 content=content,
@@ -316,7 +540,7 @@ class AgentTools(AgentToolsProtocol):
             Room ID of the created room
         """
         logger.debug("Creating chatroom with task_id=%s", task_id)
-        response = await self.rest.agent_api.create_agent_chat(
+        response = await self.rest.agent_api_chats.create_agent_chat(
             chat=ChatRoomRequest(task_id=task_id),
             request_options=DEFAULT_REQUEST_OPTIONS,
         )
@@ -367,7 +591,7 @@ class AgentTools(AgentToolsProtocol):
         participant_id = participant["id"]
         logger.debug("Resolved '%s' to ID: %s", name, participant_id)
 
-        await self.rest.agent_api.add_agent_chat_participant(
+        await self.rest.agent_api_participants.add_agent_chat_participant(
             chat_id=self.room_id,
             participant=ParticipantRequest(participant_id=participant_id, role=role),
             request_options=DEFAULT_REQUEST_OPTIONS,
@@ -380,6 +604,7 @@ class AgentTools(AgentToolsProtocol):
             "id": participant_id,
             "name": name,
             "type": participant.get("type", "Agent"),
+            "handle": participant.get("handle"),
         }
         self._participants.append(new_participant)
         logger.debug(
@@ -424,7 +649,7 @@ class AgentTools(AgentToolsProtocol):
         participant_id = participant["id"]
         logger.debug("Resolved '%s' to ID: %s", name, participant_id)
 
-        await self.rest.agent_api.remove_agent_chat_participant(
+        await self.rest.agent_api_participants.remove_agent_chat_participant(
             self.room_id,
             participant_id,
             request_options=DEFAULT_REQUEST_OPTIONS,
@@ -462,7 +687,7 @@ class AgentTools(AgentToolsProtocol):
             Dict with 'peers' list and 'metadata' (page, page_size, total_count, total_pages)
         """
         logger.debug("Looking up peers: page=%s, page_size=%s", page, page_size)
-        response = await self.rest.agent_api.list_agent_peers(
+        response = await self.rest.agent_api_peers.list_agent_peers(
             page=page,
             page_size=page_size,
             not_in_chat=self.room_id,
@@ -476,6 +701,7 @@ class AgentTools(AgentToolsProtocol):
                     "id": peer.id,
                     "name": peer.name,
                     "type": getattr(peer, "type", "Agent"),
+                    "handle": getattr(peer, "handle", None),
                     "description": peer.description,
                 }
                 for peer in response.data
@@ -502,7 +728,7 @@ class AgentTools(AgentToolsProtocol):
             List of participant information dictionaries
         """
         logger.debug("Getting participants for room %s", self.room_id)
-        response = await self.rest.agent_api.list_agent_chat_participants(
+        response = await self.rest.agent_api_participants.list_agent_chat_participants(
             chat_id=self.room_id,
             request_options=DEFAULT_REQUEST_OPTIONS,
         )
@@ -514,9 +740,449 @@ class AgentTools(AgentToolsProtocol):
                 "id": p.id,
                 "name": p.name,
                 "type": p.type,
+                "handle": getattr(p, "handle", None),
             }
             for p in response.data
         ]
+
+    # --- Contact management tools ---
+
+    async def list_contacts(self, page: int = 1, page_size: int = 50) -> dict[str, Any]:
+        """
+        List agent's contacts with pagination.
+
+        Args:
+            page: Page number (default 1)
+            page_size: Items per page (default 50, max 100)
+
+        Returns:
+            Dict with 'contacts' list and 'metadata' (page, page_size, total_count, total_pages)
+        """
+        logger.debug("Listing contacts: page=%s, page_size=%s", page, page_size)
+        response = await self.rest.agent_api_contacts.list_agent_contacts(
+            page=page, page_size=page_size
+        )
+
+        contacts = []
+        if response.data:
+            contacts = [
+                {
+                    "id": c.id,
+                    "handle": c.handle,
+                    "name": c.name,
+                    "type": c.type,
+                }
+                for c in response.data
+            ]
+
+        metadata = {
+            "page": response.metadata.page if response.metadata else page,
+            "page_size": response.metadata.page_size
+            if response.metadata
+            else page_size,
+            "total_count": response.metadata.total_count
+            if response.metadata
+            else len(contacts),
+            "total_pages": response.metadata.total_pages if response.metadata else 1,
+        }
+
+        return {"contacts": contacts, "metadata": metadata}
+
+    async def add_contact(
+        self, handle: str, message: str | None = None
+    ) -> dict[str, Any]:
+        """
+        Send a contact request to add someone as a contact.
+
+        Args:
+            handle: Handle of user/agent to add (e.g., '@john' or '@john/agent-name')
+            message: Optional message with the request
+
+        Returns:
+            Dict with id and status ('pending' or 'approved')
+        """
+        logger.debug("Adding contact: handle=%s", handle)
+        response = await self.rest.agent_api_contacts.add_agent_contact(
+            handle=handle, message=message
+        )
+        if not response.data:
+            raise RuntimeError("Failed to add contact - no response data")
+        return {
+            "id": response.data.id,
+            "status": response.data.status,
+        }
+
+    async def remove_contact(
+        self, handle: str | None = None, contact_id: str | None = None
+    ) -> dict[str, Any]:
+        """
+        Remove an existing contact by handle or ID.
+
+        Args:
+            handle: Contact's handle
+            contact_id: Or contact record ID (UUID)
+
+        Returns:
+            Dict with status ('removed')
+
+        Raises:
+            ValueError: If neither handle nor contact_id is provided
+        """
+        if handle is None and contact_id is None:
+            raise ValueError("Either handle or contact_id must be provided")
+
+        logger.debug("Removing contact: handle=%s, contact_id=%s", handle, contact_id)
+
+        # Build kwargs dynamically to avoid sending null values
+        # The REST client uses OMIT for optional params, but passing None sends null
+        kwargs: dict[str, Any] = {}
+        if handle is not None:
+            kwargs["handle"] = handle
+        if contact_id is not None:
+            kwargs["contact_id"] = contact_id
+
+        response = await self.rest.agent_api_contacts.remove_agent_contact(**kwargs)
+        if not response.data:
+            raise RuntimeError("Failed to remove contact - no response data")
+        return {"status": response.data.status}
+
+    async def list_contact_requests(
+        self, page: int = 1, page_size: int = 50, sent_status: str = "pending"
+    ) -> dict[str, Any]:
+        """
+        List both received and sent contact requests.
+
+        Args:
+            page: Page number (default 1)
+            page_size: Items per page per direction (default 50, max 100)
+            sent_status: Filter sent requests by status (default 'pending')
+
+        Returns:
+            Dict with 'received', 'sent' lists and 'metadata'
+        """
+        logger.debug(
+            "Listing contact requests: page=%s, page_size=%s, sent_status=%s",
+            page,
+            page_size,
+            sent_status,
+        )
+        response = await self.rest.agent_api_contacts.list_agent_contact_requests(
+            page=page, page_size=page_size, sent_status=sent_status
+        )
+
+        received = []
+        if response.data and response.data.received:
+            received = [
+                {
+                    "id": r.id,
+                    "from_handle": r.from_handle,
+                    "from_name": r.from_name,
+                    "message": r.message,
+                    "status": r.status,
+                    "inserted_at": str(r.inserted_at) if r.inserted_at else None,
+                }
+                for r in response.data.received
+            ]
+
+        sent = []
+        if response.data and response.data.sent:
+            sent = [
+                {
+                    "id": s.id,
+                    "to_handle": s.to_handle,
+                    "to_name": s.to_name,
+                    "message": s.message,
+                    "status": s.status,
+                    "inserted_at": str(s.inserted_at) if s.inserted_at else None,
+                }
+                for s in response.data.sent
+            ]
+
+        metadata = {
+            "page": response.metadata.page if response.metadata else page,
+            "page_size": response.metadata.page_size
+            if response.metadata
+            else page_size,
+            "received": {
+                "total": response.metadata.received.total
+                if response.metadata and response.metadata.received
+                else 0,
+                "total_pages": response.metadata.received.total_pages
+                if response.metadata and response.metadata.received
+                else 0,
+            },
+            "sent": {
+                "total": response.metadata.sent.total
+                if response.metadata and response.metadata.sent
+                else 0,
+                "total_pages": response.metadata.sent.total_pages
+                if response.metadata and response.metadata.sent
+                else 0,
+            },
+        }
+
+        return {"received": received, "sent": sent, "metadata": metadata}
+
+    async def respond_contact_request(
+        self, action: str, handle: str | None = None, request_id: str | None = None
+    ) -> dict[str, Any]:
+        """
+        Respond to a contact request (approve, reject, or cancel).
+
+        Args:
+            action: Action to take ('approve', 'reject', 'cancel')
+            handle: Other party's handle
+            request_id: Or request ID (UUID)
+
+        Returns:
+            Dict with id and status
+
+        Raises:
+            ValueError: If neither handle nor request_id is provided
+        """
+        if handle is None and request_id is None:
+            raise ValueError("Either handle or request_id must be provided")
+
+        logger.debug(
+            "Responding to contact request: action=%s, handle=%s, request_id=%s",
+            action,
+            handle,
+            request_id,
+        )
+
+        # Build kwargs dynamically to avoid sending null values
+        # The REST client uses OMIT for optional params, but passing None sends null
+        kwargs: dict[str, Any] = {"action": action}
+        if handle is not None:
+            kwargs["handle"] = handle
+        if request_id is not None:
+            kwargs["request_id"] = request_id
+
+        response = await self.rest.agent_api_contacts.respond_to_agent_contact_request(
+            **kwargs
+        )
+        if not response.data:
+            raise RuntimeError(
+                "Failed to respond to contact request - no response data"
+            )
+        return {
+            "id": response.data.id,
+            "status": response.data.status,
+        }
+
+    # --- Memory management tools ---
+
+    async def list_memories(
+        self,
+        subject_id: str | None = None,
+        scope: str | None = None,
+        system: str | None = None,
+        type: str | None = None,
+        segment: str | None = None,
+        content_query: str | None = None,
+        page_size: int = 50,
+        status: str | None = None,
+    ) -> dict[str, Any]:
+        """
+        List memories accessible to the agent.
+
+        Args:
+            subject_id: Filter by subject UUID
+            scope: Filter by scope (subject, organization, all)
+            system: Filter by memory system (sensory, working, long_term)
+            type: Filter by memory type
+            segment: Filter by segment (user, agent, tool, guideline)
+            content_query: Full-text search query
+            page_size: Number of results per page (max 50)
+            status: Filter by status (active, superseded, archived, all)
+
+        Returns:
+            Dict with memories list and metadata
+        """
+        logger.debug(
+            "Listing memories: subject_id=%s, scope=%s, system=%s",
+            subject_id,
+            scope,
+            system,
+        )
+        response = await self.rest.agent_api_memories.list_agent_memories(
+            subject_id=subject_id,
+            scope=scope,
+            system=system,
+            type=type,
+            segment=segment,
+            content_query=content_query,
+            page_size=page_size,
+            status=status,
+        )
+
+        memories = []
+        if response.data:
+            memories = [
+                {
+                    "id": m.id,
+                    "content": m.content,
+                    "system": m.system,
+                    "type": m.type,
+                    "segment": m.segment,
+                    "scope": m.scope,
+                    "status": m.status,
+                    "thought": m.thought,
+                    "subject_id": str(m.subject_id) if m.subject_id else None,
+                    "source_agent_id": str(m.source_agent_id)
+                    if m.source_agent_id
+                    else None,
+                    "inserted_at": str(m.inserted_at) if m.inserted_at else None,
+                }
+                for m in response.data
+            ]
+
+        metadata = {
+            "page_size": response.meta.page_size if response.meta else page_size,
+            "total_count": response.meta.total_count
+            if response.meta
+            else len(memories),
+        }
+
+        return {"memories": memories, "metadata": metadata}
+
+    async def store_memory(
+        self,
+        content: str,
+        system: str,
+        type: str,
+        segment: str,
+        thought: str,
+        scope: str = "subject",
+        subject_id: str | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """
+        Store a new memory entry.
+
+        Args:
+            content: The memory content
+            system: Memory system tier (sensory, working, long_term)
+            type: Memory type (iconic, echoic, haptic, episodic, semantic, procedural)
+            segment: Logical segment (user, agent, tool, guideline)
+            thought: Agent's reasoning for storing this memory
+            scope: Visibility scope (subject, organization)
+            subject_id: UUID of the subject (required for subject scope)
+            metadata: Additional metadata (tags, references)
+
+        Returns:
+            Dict with created memory details
+        """
+        from thenvoi.client.rest import MemoryCreateRequest
+
+        logger.debug(
+            "Storing memory: system=%s, type=%s, segment=%s, scope=%s",
+            system,
+            type,
+            segment,
+            scope,
+        )
+        response = await self.rest.agent_api_memories.create_agent_memory(
+            memory=MemoryCreateRequest(
+                content=content,
+                system=system,
+                type=type,
+                segment=segment,
+                thought=thought,
+                scope=scope,
+                subject_id=subject_id,
+                metadata=metadata,
+            )
+        )
+        if not response.data:
+            raise RuntimeError("Failed to store memory - no response data")
+        return {
+            "id": response.data.id,
+            "content": response.data.content,
+            "system": response.data.system,
+            "type": response.data.type,
+            "segment": response.data.segment,
+            "scope": response.data.scope,
+            "status": response.data.status,
+            "thought": response.data.thought,
+            "inserted_at": str(response.data.inserted_at)
+            if response.data.inserted_at
+            else None,
+        }
+
+    async def get_memory(self, memory_id: str) -> dict[str, Any]:
+        """
+        Retrieve a specific memory by ID.
+
+        Args:
+            memory_id: Memory ID (UUID)
+
+        Returns:
+            Dict with memory details
+        """
+        logger.debug("Getting memory: id=%s", memory_id)
+        response = await self.rest.agent_api_memories.get_agent_memory(id=memory_id)
+        if not response.data:
+            raise RuntimeError("Failed to get memory - no response data")
+        return {
+            "id": response.data.id,
+            "content": response.data.content,
+            "system": response.data.system,
+            "type": response.data.type,
+            "segment": response.data.segment,
+            "scope": response.data.scope,
+            "status": response.data.status,
+            "thought": response.data.thought,
+            "subject_id": str(response.data.subject_id)
+            if response.data.subject_id
+            else None,
+            "source_agent_id": str(response.data.source_agent_id)
+            if response.data.source_agent_id
+            else None,
+            "inserted_at": str(response.data.inserted_at)
+            if response.data.inserted_at
+            else None,
+        }
+
+    async def supersede_memory(self, memory_id: str) -> dict[str, Any]:
+        """
+        Mark a memory as superseded (soft delete).
+
+        Args:
+            memory_id: Memory ID (UUID)
+
+        Returns:
+            Dict with updated memory details
+        """
+        logger.debug("Superseding memory: id=%s", memory_id)
+        response = await self.rest.agent_api_memories.supersede_agent_memory(
+            id=memory_id
+        )
+        if not response.data:
+            raise RuntimeError("Failed to supersede memory - no response data")
+        return {
+            "id": response.data.id,
+            "status": response.data.status,
+        }
+
+    async def archive_memory(self, memory_id: str) -> dict[str, Any]:
+        """
+        Archive a memory (hide but preserve).
+
+        Args:
+            memory_id: Memory ID (UUID)
+
+        Returns:
+            Dict with updated memory details
+        """
+        logger.debug("Archiving memory: id=%s", memory_id)
+        response = await self.rest.agent_api_memories.archive_agent_memory(id=memory_id)
+        if not response.data:
+            raise RuntimeError("Failed to archive memory - no response data")
+        return {
+            "id": response.data.id,
+            "status": response.data.status,
+        }
 
     # --- Mention resolution ---
 
@@ -524,38 +1190,62 @@ class AgentTools(AgentToolsProtocol):
         self, mentions: list[str] | list[dict[str, str]]
     ) -> list[dict[str, str]]:
         """
-        Resolve mention names to {id, name} dicts using cached participants.
+        Resolve mention handles, names, or IDs to {id, handle} dicts using cached participants.
+
+        Lookup priority:
+        1. Handle (unique identifier like @john or @john/agent-name)
+        2. Name (display name, may not be unique)
+        3. ID (UUID - for robustness when LLM passes IDs directly)
 
         Args:
-            mentions: List of names (strings) or already-resolved dicts
+            mentions: List of handles/names/IDs (strings) or already-resolved dicts
 
         Returns:
-            List of {id, name} dicts
+            List of {id, handle} dicts
 
         Raises:
-            ValueError: If a name is not found in participants
+            ValueError: If handle/name/ID is not found in participants
         """
-        # Build name -> id lookup from cached participants
-        name_to_id = {p.get("name"): p.get("id") for p in self._participants}
+        # Build lookup tables from cached participants
+        # Strip @ prefix from handles for consistent matching (backend may or may not include @)
+        handle_to_participant = {
+            (p.get("handle") or "").lstrip("@"): p for p in self._participants
+        }
+        name_to_participant = {p.get("name"): p for p in self._participants}
+        id_to_participant = {p.get("id"): p for p in self._participants}
 
         resolved = []
         for mention in mentions:
             if isinstance(mention, str):
-                name = mention
+                # Strip @ prefix if present (LLMs often include it)
+                identifier = mention.lstrip("@")
             else:
-                name = mention.get("name", "")
+                # Already-resolved dict with ID and handle
                 if mention.get("id"):
-                    resolved.append({"id": mention["id"], "name": name})
+                    resolved.append(
+                        {"id": mention["id"], "handle": mention.get("handle", "")}
+                    )
                     continue
+                raw_identifier = mention.get("handle") or mention.get("name", "")
+                identifier = raw_identifier.lstrip("@")
 
-            participant_id = name_to_id.get(name)
-            if not participant_id:
-                available = list(name_to_id.keys())
+            # Try handle lookup first (handles are unique), then name, then ID
+            participant = handle_to_participant.get(identifier)
+            if not participant:
+                participant = name_to_participant.get(identifier)
+            if not participant:
+                participant = id_to_participant.get(identifier)
+
+            if not participant:
+                available_handles = list(handle_to_participant.keys())
                 raise ValueError(
-                    f"Unknown participant '{name}'. Available: {available}"
+                    f"Unknown participant '{identifier}'. "
+                    f"Available handles: {available_handles}"
                 )
 
-            resolved.append({"id": participant_id, "name": name})
+            resolved.append(
+                {"id": participant["id"], "handle": participant.get("handle", "")}
+            )
 
         return resolved
 
@@ -591,12 +1281,15 @@ class AgentTools(AgentToolsProtocol):
         """Get Pydantic models for all tools."""
         return TOOL_MODELS
 
-    def get_tool_schemas(self, format: str) -> list[dict[str, Any]] | list["ToolParam"]:
+    def get_tool_schemas(
+        self, format: str, *, include_memory: bool = False
+    ) -> list[dict[str, Any]] | list["ToolParam"]:
         """
         Get tool schemas in provider-specific format.
 
         Args:
             format: Target format - "openai" or "anthropic"
+            include_memory: If True, include memory tools (enterprise only)
 
         Returns:
             List of tool definitions in the requested format
@@ -611,6 +1304,10 @@ class AgentTools(AgentToolsProtocol):
 
         tools: list[Any] = []
         for name, model in TOOL_MODELS.items():
+            # Skip memory tools if not enabled
+            if not include_memory and name in MEMORY_TOOL_NAMES:
+                continue
+
             schema = model.model_json_schema()
             # Remove Pydantic-specific keys
             schema.pop("title", None)
@@ -636,13 +1333,23 @@ class AgentTools(AgentToolsProtocol):
                 )
         return tools
 
-    def get_anthropic_tool_schemas(self) -> list["ToolParam"]:
+    def get_anthropic_tool_schemas(
+        self, *, include_memory: bool = False
+    ) -> list["ToolParam"]:
         """Get tool schemas in Anthropic format (strongly typed)."""
-        return cast(list["ToolParam"], self.get_tool_schemas("anthropic"))
+        return cast(
+            list["ToolParam"],
+            self.get_tool_schemas("anthropic", include_memory=include_memory),
+        )
 
-    def get_openai_tool_schemas(self) -> list[dict[str, Any]]:
+    def get_openai_tool_schemas(
+        self, *, include_memory: bool = False
+    ) -> list[dict[str, Any]]:
         """Get tool schemas in OpenAI format (strongly typed)."""
-        return cast(list[dict[str, Any]], self.get_tool_schemas("openai"))
+        return cast(
+            list[dict[str, Any]],
+            self.get_tool_schemas("openai", include_memory=include_memory),
+        )
 
     async def execute_tool_call(self, tool_name: str, arguments: dict[str, Any]) -> Any:
         """
@@ -697,6 +1404,54 @@ class AgentTools(AgentToolsProtocol):
             "thenvoi_get_participants": lambda: self.get_participants(),
             "thenvoi_create_chatroom": lambda: self.create_chatroom(
                 arguments.get("task_id")
+            ),
+            "thenvoi_list_contacts": lambda: self.list_contacts(
+                arguments.get("page", 1), arguments.get("page_size", 50)
+            ),
+            "thenvoi_add_contact": lambda: self.add_contact(
+                arguments["handle"], arguments.get("message")
+            ),
+            "thenvoi_remove_contact": lambda: self.remove_contact(
+                arguments.get("handle"), arguments.get("contact_id")
+            ),
+            "thenvoi_list_contact_requests": lambda: self.list_contact_requests(
+                arguments.get("page", 1),
+                arguments.get("page_size", 50),
+                arguments.get("sent_status", "pending"),
+            ),
+            "thenvoi_respond_contact_request": lambda: self.respond_contact_request(
+                arguments["action"],
+                arguments.get("handle"),
+                arguments.get("request_id"),
+            ),
+            "thenvoi_list_memories": lambda: self.list_memories(
+                subject_id=arguments.get("subject_id"),
+                scope=arguments.get("scope"),
+                system=arguments.get("system"),
+                type=arguments.get("type"),
+                segment=arguments.get("segment"),
+                content_query=arguments.get("content_query"),
+                page_size=arguments.get("page_size", 50),
+                status=arguments.get("status"),
+            ),
+            "thenvoi_store_memory": lambda: self.store_memory(
+                content=arguments["content"],
+                system=arguments["system"],
+                type=arguments["type"],
+                segment=arguments["segment"],
+                thought=arguments["thought"],
+                scope=arguments.get("scope", "subject"),
+                subject_id=arguments.get("subject_id"),
+                metadata=arguments.get("metadata"),
+            ),
+            "thenvoi_get_memory": lambda: self.get_memory(
+                memory_id=arguments["memory_id"],
+            ),
+            "thenvoi_supersede_memory": lambda: self.supersede_memory(
+                memory_id=arguments["memory_id"],
+            ),
+            "thenvoi_archive_memory": lambda: self.archive_memory(
+                memory_id=arguments["memory_id"],
             ),
         }
 

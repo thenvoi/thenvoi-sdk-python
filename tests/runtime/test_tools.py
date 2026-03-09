@@ -1,5 +1,7 @@
 """Tests for AgentTools."""
 
+from __future__ import annotations
+
 from unittest.mock import AsyncMock, MagicMock, Mock
 
 import pytest
@@ -20,7 +22,6 @@ from thenvoi.runtime.tools import (
 def mock_rest_client():
     """Mock AsyncRestClient for testing AgentTools."""
     client = MagicMock()
-    client.agent_api = MagicMock()
 
     # Mock create_agent_chat_message
     message_response = MagicMock()
@@ -30,7 +31,7 @@ def mock_rest_client():
         "content": "Hello",
         "sender_id": "agent-1",
     }
-    client.agent_api.create_agent_chat_message = AsyncMock(
+    client.agent_api_messages.create_agent_chat_message = AsyncMock(
         return_value=message_response
     )
 
@@ -42,14 +43,16 @@ def mock_rest_client():
         "content": "Thinking...",
         "message_type": "thought",
     }
-    client.agent_api.create_agent_chat_event = AsyncMock(return_value=event_response)
+    client.agent_api_events.create_agent_chat_event = AsyncMock(
+        return_value=event_response
+    )
 
     # Mock list_agent_chat_participants
     participant1 = MagicMock()
     participant1.id = "user-1"
     participant1.name = "User One"
     participant1.type = "User"
-    client.agent_api.list_agent_chat_participants = AsyncMock(
+    client.agent_api_participants.list_agent_chat_participants = AsyncMock(
         return_value=MagicMock(data=[participant1])
     )
 
@@ -66,13 +69,13 @@ def mock_rest_client():
     peers_response.metadata.page_size = 50
     peers_response.metadata.total_count = 1
     peers_response.metadata.total_pages = 1
-    client.agent_api.list_agent_peers = AsyncMock(return_value=peers_response)
+    client.agent_api_peers.list_agent_peers = AsyncMock(return_value=peers_response)
 
     # Mock add_agent_chat_participant
-    client.agent_api.add_agent_chat_participant = AsyncMock()
+    client.agent_api_participants.add_agent_chat_participant = AsyncMock()
 
     # Mock remove_agent_chat_participant
-    client.agent_api.remove_agent_chat_participant = AsyncMock()
+    client.agent_api_participants.remove_agent_chat_participant = AsyncMock()
 
     return client
 
@@ -81,8 +84,8 @@ def mock_rest_client():
 def participants():
     """Sample participants list."""
     return [
-        {"id": "user-1", "name": "User One", "type": "User"},
-        {"id": "user-2", "name": "User Two", "type": "User"},
+        {"id": "user-1", "name": "User One", "type": "User", "handle": "@user-one"},
+        {"id": "user-2", "name": "User Two", "type": "User", "handle": "@user-two"},
     ]
 
 
@@ -143,19 +146,21 @@ class TestAgentToolsSendMessage:
         result = await tools.send_message("Hello!", mentions=["User One"])
 
         assert result["id"] == "msg-123"
-        mock_rest_client.agent_api.create_agent_chat_message.assert_called_once()
+        mock_rest_client.agent_api_messages.create_agent_chat_message.assert_called_once()
 
     async def test_send_message_resolves_mentions(self, mock_rest_client, participants):
-        """send_message() should resolve mention names to IDs."""
+        """send_message() should resolve mention names to IDs and handles."""
         tools = AgentTools("room-123", mock_rest_client, participants)
 
         await tools.send_message("Hello @User One!", mentions=["User One"])
 
-        call_args = mock_rest_client.agent_api.create_agent_chat_message.call_args
+        call_args = (
+            mock_rest_client.agent_api_messages.create_agent_chat_message.call_args
+        )
         message = call_args.kwargs["message"]
         assert len(message.mentions) == 1
         assert message.mentions[0].id == "user-1"
-        assert message.mentions[0].name == "User One"
+        assert message.mentions[0].handle == "@user-one"
 
     async def test_send_message_unknown_mention_raises(
         self, mock_rest_client, participants
@@ -170,8 +175,8 @@ class TestAgentToolsSendMessage:
         self, mock_rest_client, participants
     ):
         """send_message() should raise if no response data."""
-        mock_rest_client.agent_api.create_agent_chat_message.return_value = MagicMock(
-            data=None
+        mock_rest_client.agent_api_messages.create_agent_chat_message.return_value = (
+            MagicMock(data=None)
         )
         tools = AgentTools("room-123", mock_rest_client, participants)
 
@@ -189,7 +194,7 @@ class TestAgentToolsSendEvent:
         result = await tools.send_event("Thinking...", "thought")
 
         assert result["message_type"] == "thought"
-        mock_rest_client.agent_api.create_agent_chat_event.assert_called_once()
+        mock_rest_client.agent_api_events.create_agent_chat_event.assert_called_once()
 
     async def test_send_event_with_metadata(self, mock_rest_client):
         """send_event() should pass metadata."""
@@ -197,14 +202,14 @@ class TestAgentToolsSendEvent:
 
         await tools.send_event("Error!", "error", metadata={"code": 500})
 
-        call_args = mock_rest_client.agent_api.create_agent_chat_event.call_args
+        call_args = mock_rest_client.agent_api_events.create_agent_chat_event.call_args
         event = call_args.kwargs["event"]
         assert event.metadata == {"code": 500}
 
     async def test_send_event_no_response_raises(self, mock_rest_client):
         """send_event() should raise if no response data."""
-        mock_rest_client.agent_api.create_agent_chat_event.return_value = MagicMock(
-            data=None
+        mock_rest_client.agent_api_events.create_agent_chat_event.return_value = (
+            MagicMock(data=None)
         )
         tools = AgentTools("room-123", mock_rest_client)
 
@@ -225,12 +230,12 @@ class TestAgentToolsAddParticipant:
         assert result["name"] == "Agent Two"
         assert result["role"] == "member"
         assert result["status"] == "added"
-        mock_rest_client.agent_api.add_agent_chat_participant.assert_called_once()
+        mock_rest_client.agent_api_participants.add_agent_chat_participant.assert_called_once()
 
     async def test_add_participant_not_found_raises(self, mock_rest_client):
         """add_participant() should raise if peer not found."""
         # Return empty peers
-        mock_rest_client.agent_api.list_agent_peers.return_value = MagicMock(
+        mock_rest_client.agent_api_peers.list_agent_peers.return_value = MagicMock(
             data=[], metadata=MagicMock(total_pages=1)
         )
         tools = AgentTools("room-123", mock_rest_client)
@@ -251,13 +256,13 @@ class TestAgentToolsRemoveParticipant:
         assert result["id"] == "user-1"
         assert result["name"] == "User One"
         assert result["status"] == "removed"
-        mock_rest_client.agent_api.remove_agent_chat_participant.assert_called_once()
+        mock_rest_client.agent_api_participants.remove_agent_chat_participant.assert_called_once()
 
     async def test_remove_participant_not_found_raises(self, mock_rest_client):
         """remove_participant() should raise if not in room."""
         # Return empty participants
-        mock_rest_client.agent_api.list_agent_chat_participants.return_value = (
-            MagicMock(data=[])
+        mock_rest_client.agent_api_participants.list_agent_chat_participants.return_value = MagicMock(
+            data=[]
         )
         tools = AgentTools("room-123", mock_rest_client)
 
@@ -284,7 +289,7 @@ class TestAgentToolsLookupPeers:
 
         await tools.lookup_peers()
 
-        call_args = mock_rest_client.agent_api.list_agent_peers.call_args
+        call_args = mock_rest_client.agent_api_peers.list_agent_peers.call_args
         assert call_args.kwargs["not_in_chat"] == "room-123"
 
 
@@ -302,8 +307,8 @@ class TestAgentToolsGetParticipants:
 
     async def test_get_participants_empty(self, mock_rest_client):
         """get_participants() should return empty list if none."""
-        mock_rest_client.agent_api.list_agent_chat_participants.return_value = (
-            MagicMock(data=None)
+        mock_rest_client.agent_api_participants.list_agent_chat_participants.return_value = MagicMock(
+            data=None
         )
         tools = AgentTools("room-123", mock_rest_client)
 
@@ -319,7 +324,7 @@ class TestAgentToolsCreateChatroom:
         """create_chatroom() should call REST API and return room ID."""
         mock_response = Mock()
         mock_response.data.id = "room-123"
-        mock_rest_client.agent_api.create_agent_chat = AsyncMock(
+        mock_rest_client.agent_api_chats.create_agent_chat = AsyncMock(
             return_value=mock_response
         )
 
@@ -327,13 +332,13 @@ class TestAgentToolsCreateChatroom:
         result = await tools.create_chatroom(task_id="task-789")
 
         assert result == "room-123"
-        mock_rest_client.agent_api.create_agent_chat.assert_called_once()
+        mock_rest_client.agent_api_chats.create_agent_chat.assert_called_once()
 
     async def test_create_chatroom_without_task_id(self, mock_rest_client):
         """create_chatroom() should work without task_id."""
         mock_response = Mock()
         mock_response.data.id = "room-abc"
-        mock_rest_client.agent_api.create_agent_chat = AsyncMock(
+        mock_rest_client.agent_api_chats.create_agent_chat = AsyncMock(
             return_value=mock_response
         )
 
@@ -363,12 +368,13 @@ class TestAgentToolsSchemas:
         assert tools.tool_models is TOOL_MODELS
 
     def test_get_tool_schemas_openai(self, mock_rest_client):
-        """get_tool_schemas('openai') should return OpenAI format."""
+        """get_tool_schemas('openai') should return OpenAI format (memory tools excluded by default)."""
         tools = AgentTools("room-123", mock_rest_client)
 
         schemas = tools.get_tool_schemas("openai")
 
-        assert len(schemas) == 7
+        # 12 base tools (7 basic + 5 contact), memory tools excluded by default
+        assert len(schemas) == 12
         send_msg = next(
             s for s in schemas if s["function"]["name"] == "thenvoi_send_message"
         )
@@ -376,16 +382,43 @@ class TestAgentToolsSchemas:
         assert "parameters" in send_msg["function"]
         assert "description" in send_msg["function"]
 
+    def test_get_tool_schemas_openai_with_memory(self, mock_rest_client):
+        """get_tool_schemas('openai', include_memory=True) should include memory tools."""
+        tools = AgentTools("room-123", mock_rest_client)
+
+        schemas = tools.get_tool_schemas("openai", include_memory=True)
+
+        # 17 tools (12 base + 5 memory)
+        assert len(schemas) == 17
+        # Verify memory tools are included
+        tool_names = [s["function"]["name"] for s in schemas]
+        assert "thenvoi_list_memories" in tool_names
+        assert "thenvoi_store_memory" in tool_names
+
     def test_get_tool_schemas_anthropic(self, mock_rest_client):
-        """get_tool_schemas('anthropic') should return Anthropic format."""
+        """get_tool_schemas('anthropic') should return Anthropic format (memory tools excluded by default)."""
         tools = AgentTools("room-123", mock_rest_client)
 
         schemas = tools.get_tool_schemas("anthropic")
 
-        assert len(schemas) == 7
+        # 12 base tools (7 basic + 5 contact), memory tools excluded by default
+        assert len(schemas) == 12
         send_msg = next(s for s in schemas if s["name"] == "thenvoi_send_message")
         assert "input_schema" in send_msg
         assert "description" in send_msg
+
+    def test_get_tool_schemas_anthropic_with_memory(self, mock_rest_client):
+        """get_tool_schemas('anthropic', include_memory=True) should include memory tools."""
+        tools = AgentTools("room-123", mock_rest_client)
+
+        schemas = tools.get_tool_schemas("anthropic", include_memory=True)
+
+        # 17 tools (12 base + 5 memory)
+        assert len(schemas) == 17
+        # Verify memory tools are included
+        tool_names = [s["name"] for s in schemas]
+        assert "thenvoi_list_memories" in tool_names
+        assert "thenvoi_store_memory" in tool_names
 
 
 class TestAgentToolsExecuteToolCall:
@@ -450,8 +483,8 @@ class TestAgentToolsExecuteToolCall:
 
     async def test_execute_runtime_error(self, mock_rest_client, participants):
         """execute_tool_call() should return execution error."""
-        mock_rest_client.agent_api.create_agent_chat_message.side_effect = Exception(
-            "Network error"
+        mock_rest_client.agent_api_messages.create_agent_chat_message.side_effect = (
+            Exception("Network error")
         )
         tools = AgentTools("room-123", mock_rest_client, participants)
 
@@ -476,10 +509,10 @@ class TestEmptyMentionsValidation:
         assert isinstance(result, dict)
         assert "error" in result
         assert "At least one mention is required" in result["error"]
-        assert "User One" in result["error"]
-        assert "User Two" in result["error"]
+        assert "@user-one" in result["error"]
+        assert "@user-two" in result["error"]
         # Should NOT have called the API
-        mock_rest_client.agent_api.create_agent_chat_message.assert_not_called()
+        mock_rest_client.agent_api_messages.create_agent_chat_message.assert_not_called()
 
     async def test_returns_error_when_mentions_none(
         self, mock_rest_client, participants
@@ -524,7 +557,7 @@ class TestEmptyMentionsValidation:
         result = await tools.send_message("Hello!", mentions=["User One"])
 
         assert "id" in result  # Normal response
-        mock_rest_client.agent_api.create_agent_chat_message.assert_called_once()
+        mock_rest_client.agent_api_messages.create_agent_chat_message.assert_called_once()
 
     async def test_execute_tool_call_returns_helpful_error(
         self, mock_rest_client, participants
@@ -544,30 +577,30 @@ class TestMentionResolution:
     """Test mention resolution logic."""
 
     def test_resolve_string_mentions(self, mock_rest_client, participants):
-        """Should resolve string mentions to dicts."""
+        """Should resolve string mentions to dicts with id and handle."""
         tools = AgentTools("room-123", mock_rest_client, participants)
 
         resolved = tools._resolve_mentions(["User One", "User Two"])
 
         assert len(resolved) == 2
-        assert resolved[0] == {"id": "user-1", "name": "User One"}
-        assert resolved[1] == {"id": "user-2", "name": "User Two"}
+        assert resolved[0] == {"id": "user-1", "handle": "@user-one"}
+        assert resolved[1] == {"id": "user-2", "handle": "@user-two"}
 
     def test_resolve_dict_mentions_with_id(self, mock_rest_client, participants):
-        """Should pass through dict mentions with ID."""
+        """Should pass through dict mentions with ID and handle."""
         tools = AgentTools("room-123", mock_rest_client, participants)
 
-        resolved = tools._resolve_mentions([{"id": "custom-id", "name": "Custom"}])
+        resolved = tools._resolve_mentions([{"id": "custom-id", "handle": "@custom"}])
 
-        assert resolved[0] == {"id": "custom-id", "name": "Custom"}
+        assert resolved[0] == {"id": "custom-id", "handle": "@custom"}
 
     def test_resolve_dict_mentions_without_id(self, mock_rest_client, participants):
-        """Should resolve dict mentions without ID."""
+        """Should resolve dict mentions without ID by name lookup."""
         tools = AgentTools("room-123", mock_rest_client, participants)
 
         resolved = tools._resolve_mentions([{"name": "User One"}])
 
-        assert resolved[0] == {"id": "user-1", "name": "User One"}
+        assert resolved[0] == {"id": "user-1", "handle": "@user-one"}
 
     def test_resolve_unknown_raises(self, mock_rest_client, participants):
         """Should raise for unknown mention."""
@@ -575,6 +608,69 @@ class TestMentionResolution:
 
         with pytest.raises(ValueError, match="Unknown participant"):
             tools._resolve_mentions(["Unknown Person"])
+
+
+class TestHandleMentionResolution:
+    """Test handle-based mention resolution."""
+
+    def test_resolve_by_handle(self, mock_rest_client, participants):
+        """Should resolve mentions by handle."""
+        tools = AgentTools("room-123", mock_rest_client, participants)
+
+        resolved = tools._resolve_mentions(["@user-one"])
+
+        assert len(resolved) == 1
+        assert resolved[0] == {"id": "user-1", "handle": "@user-one"}
+
+    def test_resolve_handle_takes_priority(self, mock_rest_client):
+        """Should try handle lookup before name lookup."""
+        # Participant with handle different from name
+        participants = [
+            {
+                "id": "agent-1",
+                "name": "Weather Agent",
+                "type": "Agent",
+                "handle": "@john/weather",
+            },
+        ]
+        tools = AgentTools("room-123", mock_rest_client, participants)
+
+        # Resolve by handle
+        resolved = tools._resolve_mentions(["@john/weather"])
+        assert resolved[0] == {"id": "agent-1", "handle": "@john/weather"}
+
+        # Resolve by name still works
+        resolved = tools._resolve_mentions(["Weather Agent"])
+        assert resolved[0] == {"id": "agent-1", "handle": "@john/weather"}
+
+    def test_resolve_mixed_handles_and_names(self, mock_rest_client, participants):
+        """Should resolve a mix of handles and names."""
+        tools = AgentTools("room-123", mock_rest_client, participants)
+
+        resolved = tools._resolve_mentions(["@user-one", "User Two"])
+
+        assert len(resolved) == 2
+        assert resolved[0] == {"id": "user-1", "handle": "@user-one"}
+        assert resolved[1] == {"id": "user-2", "handle": "@user-two"}
+
+    def test_resolve_unknown_handle_raises(self, mock_rest_client, participants):
+        """Should raise for unknown handle."""
+        tools = AgentTools("room-123", mock_rest_client, participants)
+
+        # @ prefix is stripped during normalization
+        with pytest.raises(ValueError, match="Unknown participant 'unknown'"):
+            tools._resolve_mentions(["@unknown"])
+
+    def test_resolve_participant_without_handle(self, mock_rest_client):
+        """Should resolve by name when participant has no handle."""
+        participants = [
+            {"id": "user-1", "name": "User One", "type": "User", "handle": None},
+        ]
+        tools = AgentTools("room-123", mock_rest_client, participants)
+
+        resolved = tools._resolve_mentions(["User One"])
+
+        assert resolved[0] == {"id": "user-1", "handle": None}
 
 
 class TestToolInputModels:

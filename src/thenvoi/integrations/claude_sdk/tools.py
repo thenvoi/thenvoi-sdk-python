@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 import logging
+import warnings
 from typing import Any, Protocol
 
 try:
@@ -27,7 +28,29 @@ except ImportError as e:
         "Or: uv add claude-agent-sdk"
     ) from e
 
+from thenvoi.runtime.tools import CHAT_TOOL_NAMES, mcp_tool_names
+
 logger = logging.getLogger(__name__)
+
+# Tool names as constants (MCP naming convention: mcp__{server}__{tool})
+# Derived from TOOL_MODELS — single source of truth (chat tools only, no contacts/memory)
+THENVOI_CHAT_TOOLS: list[str] = mcp_tool_names(CHAT_TOOL_NAMES)
+
+_THENVOI_TOOLS: list[str] = THENVOI_CHAT_TOOLS
+
+
+def __getattr__(name: str) -> Any:
+    if name == "THENVOI_TOOLS":
+        warnings.warn(
+            "THENVOI_TOOLS is deprecated, use THENVOI_CHAT_TOOLS instead. "
+            f"Note: this contains only chat tools ({len(_THENVOI_TOOLS)}). "
+            "For all tools including contacts and memory, use "
+            "thenvoi.adapters.claude_sdk.THENVOI_ALL_TOOLS.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return _THENVOI_TOOLS
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 class ThenvoiApiClient(Protocol):
@@ -57,6 +80,8 @@ class ThenvoiApiClient(Protocol):
         self, room_id: str, page: int = 1, page_size: int = 50
     ) -> dict[str, Any]: ...
 
+    async def create_chatroom(self, task_id: str | None = None) -> str: ...
+
 
 def create_thenvoi_mcp_server(agent: Any):
     """
@@ -76,7 +101,7 @@ def create_thenvoi_mcp_server(agent: Any):
 
         options = ClaudeAgentOptions(
             mcp_servers={"thenvoi": server},
-            allowed_tools=THENVOI_TOOLS
+            allowed_tools=THENVOI_CHAT_TOOLS
         )
 
     Note:
@@ -108,12 +133,12 @@ def create_thenvoi_mcp_server(agent: Any):
         participants = execution.participants if execution else []
         return AgentTools(room_id, agent.link.rest, participants)
 
-    def _get_participant_names(room_id: str) -> list[str]:
-        """Get list of participant names in room."""
+    def _get_participant_handles(room_id: str) -> list[str]:
+        """Get list of participant handles in room."""
         executions = agent.runtime.executions if agent.runtime else {}
         execution = executions.get(room_id)
         participants = execution.participants if execution else []
-        return [p.get("name", "") for p in participants if p.get("name")]
+        return [p.get("handle", "") for p in participants if p.get("handle")]
 
     @tool(
         "thenvoi_send_message",
@@ -121,7 +146,7 @@ def create_thenvoi_mcp_server(agent: Any):
         {
             "room_id": str,
             "content": str,
-            "mentions": str,  # JSON array of participant names, e.g. '["Alice", "Bob"]' or '[]'
+            "mentions": str,  # JSON array of participant handles, e.g. '["@alice", "@bob/agent"]' or '[]'
         },
     )
     async def send_message(args: dict[str, Any]) -> dict[str, Any]:
@@ -131,11 +156,11 @@ def create_thenvoi_mcp_server(agent: Any):
             content = args.get("content", "")
             mentions_str = args.get("mentions", "[]")
 
-            # Parse mentions JSON (names like ["Alice", "Bob"])
-            mention_names: list[str] = []
+            # Parse mentions JSON (handles like ["@alice", "@bob/agent"])
+            mention_handles: list[str] = []
             if mentions_str:
                 try:
-                    mention_names = (
+                    mention_handles = (
                         json.loads(mentions_str)
                         if isinstance(mentions_str, str)
                         else mentions_str
@@ -148,13 +173,13 @@ def create_thenvoi_mcp_server(agent: Any):
             # Get AgentTools for this room and send message
             tools = _get_tools(room_id)
             try:
-                await tools.send_message(content, mention_names)
+                await tools.send_message(content, mention_handles)
             except ValueError as e:
                 # Mention resolution failed
-                available = _get_participant_names(room_id)
+                available = _get_participant_handles(room_id)
                 return _make_error(
-                    f"{e}. Available participants: {available}. "
-                    f"Use exact participant names from the list."
+                    f"{e}. Available handles: {available}. "
+                    f"Use participant handles from the list."
                 )
 
             return _make_result(
@@ -363,6 +388,231 @@ def create_thenvoi_mcp_server(agent: Any):
             logger.error("lookup_peers failed: %s", e, exc_info=True)
             return _make_error(str(e))
 
+    @tool(
+        "thenvoi_create_chatroom",
+        "Create a new chat room. Optionally link it to a task by providing a task_id.",
+        {
+            "room_id": str,
+            "task_id": str,  # Optional task ID to associate with the room
+        },
+    )
+    async def create_chatroom(args: dict[str, Any]) -> dict[str, Any]:
+        """Create a new chat room via API."""
+        task_id = args.get("task_id") or None
+        try:
+            room_id = args.get("room_id", "")
+            logger.info("[%s] create_chatroom: task_id=%s", room_id, task_id)
+
+            tools = _get_tools(room_id)
+            new_room_id = await tools.create_chatroom(task_id)
+
+            return _make_result(
+                {
+                    "status": "success",
+                    "message": "Chat room created",
+                    "room_id": new_room_id,
+                }
+            )
+
+        except Exception as e:
+            logger.error(
+                "create_chatroom failed (task_id=%s): %s", task_id, e, exc_info=True
+            )
+            return _make_error(str(e))
+
+    @tool(
+        "thenvoi_list_contacts",
+        "List agent's contacts with pagination. Returns contacts list and metadata.",
+        {
+            "room_id": str,
+            "page": int,
+            "page_size": int,
+        },
+    )
+    async def list_contacts(args: dict[str, Any]) -> dict[str, Any]:
+        """List agent's contacts via API."""
+        try:
+            room_id = args.get("room_id", "")
+            page = args.get("page", 1)
+            page_size = args.get("page_size", 50)
+
+            logger.debug(
+                "[%s] list_contacts: page=%s, page_size=%s", room_id, page, page_size
+            )
+
+            tools = _get_tools(room_id)
+            result = await tools.list_contacts(page, page_size)
+
+            return _make_result(
+                {
+                    "status": "success",
+                    **result,
+                }
+            )
+
+        except Exception as e:
+            logger.error("list_contacts failed: %s", e, exc_info=True)
+            return _make_error(str(e))
+
+    @tool(
+        "thenvoi_add_contact",
+        "Send a contact request to add someone as a contact. Returns 'pending' when request is created, 'approved' when inverse request existed.",
+        {
+            "room_id": str,
+            "handle": str,
+            "message": str,
+        },
+    )
+    async def add_contact(args: dict[str, Any]) -> dict[str, Any]:
+        """Send contact request via API."""
+        try:
+            room_id = args.get("room_id", "")
+            handle = args.get("handle", "")
+            message = args.get("message") or None
+
+            logger.info("[%s] add_contact: handle=%s", room_id, handle)
+
+            tools = _get_tools(room_id)
+            result = await tools.add_contact(handle, message)
+
+            return _make_result(
+                {
+                    "status": "success",
+                    **result,
+                }
+            )
+
+        except Exception as e:
+            logger.error("add_contact failed: %s", e, exc_info=True)
+            return _make_error(str(e))
+
+    @tool(
+        "thenvoi_remove_contact",
+        "Remove an existing contact by handle or contact ID. Provide either handle or contact_id.",
+        {
+            "room_id": str,
+            "handle": str,
+            "contact_id": str,
+        },
+    )
+    async def remove_contact(args: dict[str, Any]) -> dict[str, Any]:
+        """Remove contact via API."""
+        try:
+            room_id = args.get("room_id", "")
+            handle = args.get("handle") or None
+            contact_id = args.get("contact_id") or None
+
+            if not handle and not contact_id:
+                return _make_error("Either handle or contact_id must be provided")
+
+            logger.info(
+                "[%s] remove_contact: handle=%s, contact_id=%s",
+                room_id,
+                handle,
+                contact_id,
+            )
+
+            tools = _get_tools(room_id)
+            result = await tools.remove_contact(handle, contact_id)
+
+            return _make_result(
+                {
+                    "status": "success",
+                    **result,
+                }
+            )
+
+        except Exception as e:
+            logger.error("remove_contact failed: %s", e, exc_info=True)
+            return _make_error(str(e))
+
+    @tool(
+        "thenvoi_list_contact_requests",
+        "List both received and sent contact requests. Received are always pending. Sent can be filtered by status.",
+        {
+            "room_id": str,
+            "page": int,
+            "page_size": int,
+            "sent_status": str,
+        },
+    )
+    async def list_contact_requests(args: dict[str, Any]) -> dict[str, Any]:
+        """List contact requests via API."""
+        try:
+            room_id = args.get("room_id", "")
+            page = args.get("page", 1)
+            page_size = args.get("page_size", 50)
+            sent_status = args.get("sent_status", "pending")
+
+            logger.debug(
+                "[%s] list_contact_requests: page=%s, sent_status=%s",
+                room_id,
+                page,
+                sent_status,
+            )
+
+            tools = _get_tools(room_id)
+            result = await tools.list_contact_requests(page, page_size, sent_status)
+
+            return _make_result(
+                {
+                    "status": "success",
+                    **result,
+                }
+            )
+
+        except Exception as e:
+            logger.error("list_contact_requests failed: %s", e, exc_info=True)
+            return _make_error(str(e))
+
+    @tool(
+        "thenvoi_respond_contact_request",
+        "Respond to a contact request. Actions: 'approve'/'reject' for received requests, 'cancel' for sent requests. Provide either handle or request_id.",
+        {
+            "room_id": str,
+            "action": str,
+            "handle": str,
+            "request_id": str,
+        },
+    )
+    async def respond_contact_request(args: dict[str, Any]) -> dict[str, Any]:
+        """Respond to contact request via API."""
+        try:
+            room_id = args.get("room_id", "")
+            action = args.get("action", "")
+            handle = args.get("handle") or None
+            request_id = args.get("request_id") or None
+
+            if not handle and not request_id:
+                return _make_error("Either handle or request_id must be provided")
+
+            if action not in ("approve", "reject", "cancel"):
+                return _make_error(
+                    f"Invalid action '{action}'. Use 'approve', 'reject', or 'cancel'"
+                )
+
+            logger.info(
+                "[%s] respond_contact_request: action=%s, handle=%s, request_id=%s",
+                room_id,
+                action,
+                handle,
+                request_id,
+            )
+
+            tools = _get_tools(room_id)
+            result = await tools.respond_contact_request(action, handle, request_id)
+
+            return _make_result(
+                {
+                    "status": "success",
+                    **result,
+                }
+            )
+
+        except Exception as e:
+            logger.error("respond_contact_request failed: %s", e, exc_info=True)
+            return _make_error(str(e))
+
     # Create MCP SDK server with all tools
     server = create_sdk_mcp_server(
         name="thenvoi",
@@ -374,20 +624,17 @@ def create_thenvoi_mcp_server(agent: Any):
             remove_participant,
             get_participants,
             lookup_peers,
+            create_chatroom,
+            list_contacts,
+            add_contact,
+            remove_contact,
+            list_contact_requests,
+            respond_contact_request,
         ],
     )
 
-    logger.info("Thenvoi MCP SDK server created with 6 real tools")
+    logger.info(
+        "Thenvoi MCP SDK server created with %d real tools", len(THENVOI_CHAT_TOOLS)
+    )
 
     return server
-
-
-# Tool names as constants (MCP naming convention: mcp__{server}__{tool})
-THENVOI_TOOLS = [
-    "mcp__thenvoi__send_message",
-    "mcp__thenvoi__send_event",
-    "mcp__thenvoi__add_participant",
-    "mcp__thenvoi__remove_participant",
-    "mcp__thenvoi__get_participants",
-    "mcp__thenvoi__lookup_peers",
-]
