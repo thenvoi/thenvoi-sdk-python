@@ -1,6 +1,5 @@
 """Tests for AgentTools."""
 
-import logging
 from unittest.mock import AsyncMock, MagicMock, Mock
 
 import pytest
@@ -463,124 +462,82 @@ class TestAgentToolsExecuteToolCall:
         assert "Error executing" in result
 
 
-class TestAutoPopulateMentions:
-    """Test auto-populate mentions logic."""
+class TestEmptyMentionsValidation:
+    """Test that empty mentions return a helpful error with participant names."""
 
-    async def test_auto_populates_when_enabled_and_mentions_empty(
+    async def test_returns_error_with_participant_names(
         self, mock_rest_client, participants
     ):
-        """Should auto-populate mentions from participants when enabled and mentions empty."""
-        tools = AgentTools(
-            "room-123",
-            mock_rest_client,
-            participants,
-            agent_id="agent-1",
-            auto_populate_mentions=True,
-        )
+        """Should return error listing available participants when mentions empty."""
+        tools = AgentTools("room-123", mock_rest_client, participants)
 
-        await tools.send_message("Hello!", mentions=[])
+        result = await tools.send_message("Hello!", mentions=[])
 
-        call_args = mock_rest_client.agent_api.create_agent_chat_message.call_args
-        message = call_args.kwargs["message"]
-        assert len(message.mentions) == 2
-        assert message.mentions[0].id == "user-1"
-        assert message.mentions[1].id == "user-2"
+        assert isinstance(result, dict)
+        assert "error" in result
+        assert "At least one mention is required" in result["error"]
+        assert "User One" in result["error"]
+        assert "User Two" in result["error"]
+        # Should NOT have called the API
+        mock_rest_client.agent_api.create_agent_chat_message.assert_not_called()
 
-    async def test_excludes_self_from_auto_populated_mentions(
-        self,
-        mock_rest_client,
+    async def test_returns_error_when_mentions_none(
+        self, mock_rest_client, participants
     ):
-        """Should exclude the agent's own ID from auto-populated mentions."""
+        """Should return error when mentions is None."""
+        tools = AgentTools("room-123", mock_rest_client, participants)
+
+        result = await tools.send_message("Hello!", mentions=None)
+
+        assert isinstance(result, dict)
+        assert "error" in result
+        assert "At least one mention is required" in result["error"]
+
+    async def test_uses_handle_when_available(self, mock_rest_client):
+        """Should prefer handle over name in error message."""
         participants = [
-            {"id": "agent-1", "name": "Self Agent", "type": "Agent"},
+            {"id": "user-1", "name": "User One", "type": "User", "handle": "@user-one"},
+        ]
+        tools = AgentTools("room-123", mock_rest_client, participants)
+
+        result = await tools.send_message("Hello!", mentions=[])
+
+        assert "@user-one" in result["error"]
+
+    async def test_uses_name_when_no_handle(self, mock_rest_client):
+        """Should fall back to participant name when handle is missing."""
+        participants = [
             {"id": "user-1", "name": "User One", "type": "User"},
         ]
-        tools = AgentTools(
-            "room-123",
-            mock_rest_client,
-            participants,
-            agent_id="agent-1",
-            auto_populate_mentions=True,
-        )
+        tools = AgentTools("room-123", mock_rest_client, participants)
 
-        await tools.send_message("Hello!", mentions=[])
+        result = await tools.send_message("Hello!", mentions=[])
 
-        call_args = mock_rest_client.agent_api.create_agent_chat_message.call_args
-        message = call_args.kwargs["message"]
-        assert len(message.mentions) == 1
-        assert message.mentions[0].id == "user-1"
+        assert "User One" in result["error"]
 
-    async def test_no_auto_populate_when_disabled(self, mock_rest_client, participants):
-        """Should NOT auto-populate when feature is disabled (default)."""
-        tools = AgentTools(
-            "room-123",
-            mock_rest_client,
-            participants,
-            agent_id="agent-1",
-            auto_populate_mentions=False,
-        )
-
-        await tools.send_message("Hello!", mentions=[])
-
-        call_args = mock_rest_client.agent_api.create_agent_chat_message.call_args
-        message = call_args.kwargs["message"]
-        assert len(message.mentions) == 0
-
-    async def test_no_auto_populate_when_mentions_provided(
+    async def test_no_error_when_mentions_provided(
         self, mock_rest_client, participants
     ):
-        """Should NOT auto-populate when LLM already provided mentions."""
-        tools = AgentTools(
-            "room-123",
-            mock_rest_client,
-            participants,
-            agent_id="agent-1",
-            auto_populate_mentions=True,
-        )
+        """Should proceed normally when mentions are provided."""
+        tools = AgentTools("room-123", mock_rest_client, participants)
 
-        await tools.send_message("Hello @User One!", mentions=["User One"])
+        result = await tools.send_message("Hello!", mentions=["User One"])
 
-        call_args = mock_rest_client.agent_api.create_agent_chat_message.call_args
-        message = call_args.kwargs["message"]
-        assert len(message.mentions) == 1
-        assert message.mentions[0].id == "user-1"
+        assert "id" in result  # Normal response
+        mock_rest_client.agent_api.create_agent_chat_message.assert_called_once()
 
-    async def test_warns_when_only_participant_is_self(self, mock_rest_client, caplog):
-        """Should log warning when auto-populate yields empty list (only self in room)."""
-        participants = [
-            {"id": "agent-1", "name": "Self Agent", "type": "Agent"},
-        ]
-        tools = AgentTools(
-            "room-123",
-            mock_rest_client,
-            participants,
-            agent_id="agent-1",
-            auto_populate_mentions=True,
-        )
-
-        with caplog.at_level(logging.WARNING, logger="thenvoi.runtime.tools"):
-            await tools.send_message("Hello!", mentions=[])
-
-        assert "no other participants" in caplog.text
-
-    async def test_no_auto_populate_when_no_participants(
-        self,
-        mock_rest_client,
+    async def test_execute_tool_call_returns_helpful_error(
+        self, mock_rest_client, participants
     ):
-        """Should NOT auto-populate when participants list is empty."""
-        tools = AgentTools(
-            "room-123",
-            mock_rest_client,
-            participants=None,
-            agent_id="agent-1",
-            auto_populate_mentions=True,
+        """execute_tool_call should surface the helpful error for empty mentions."""
+        tools = AgentTools("room-123", mock_rest_client, participants)
+
+        result = await tools.execute_tool_call(
+            "thenvoi_send_message", {"content": "Hello!", "mentions": []}
         )
 
-        await tools.send_message("Hello!", mentions=[])
-
-        call_args = mock_rest_client.agent_api.create_agent_chat_message.call_args
-        message = call_args.kwargs["message"]
-        assert len(message.mentions) == 0
+        assert isinstance(result, dict)
+        assert "At least one mention is required" in result["error"]
 
 
 class TestMentionResolution:
@@ -629,10 +586,10 @@ class TestToolInputModels:
         assert model.content == "Hello"
         assert model.mentions == ["User"]
 
-    def test_send_message_input_requires_mention(self):
-        """SendMessageInput should require at least one mention."""
-        with pytest.raises(Exception):  # Pydantic validation
-            SendMessageInput(content="Hello", mentions=[])
+    def test_send_message_input_accepts_empty_mentions(self):
+        """SendMessageInput allows empty mentions (runtime validates instead)."""
+        model = SendMessageInput(content="Hello", mentions=[])
+        assert model.mentions == []
 
     def test_send_event_input_validation(self):
         """SendEventInput should validate fields."""

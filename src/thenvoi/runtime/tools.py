@@ -39,7 +39,6 @@ class SendMessageInput(BaseModel):
     content: str = Field(..., description="The message content to send")
     mentions: list[str] = Field(
         ...,
-        min_length=1,
         description="List of participant names to @mention. At least one required.",
     )
 
@@ -185,8 +184,6 @@ class AgentTools(AgentToolsProtocol):
         room_id: str,
         rest: "AsyncRestClient",
         participants: list[dict[str, Any]] | None = None,
-        agent_id: str | None = None,
-        auto_populate_mentions: bool = False,
     ):
         """
         Initialize AgentTools for a specific room.
@@ -195,16 +192,10 @@ class AgentTools(AgentToolsProtocol):
             room_id: The room this tools instance is bound to
             rest: AsyncRestClient for API calls
             participants: Optional list of participants for mention resolution
-            agent_id: Optional agent ID to exclude self from auto-populated mentions
-            auto_populate_mentions: When True and the LLM sends a message without
-                mentions, automatically mention all other room participants.
-                Defaults to False.
         """
         self.room_id = room_id
         self.rest = rest
         self._participants = participants or []
-        self._agent_id = agent_id
-        self._auto_populate_mentions = auto_populate_mentions
 
     @classmethod
     def from_context(cls, ctx: "ExecutionContext") -> "AgentTools":
@@ -219,13 +210,7 @@ class AgentTools(AgentToolsProtocol):
         Returns:
             AgentTools instance bound to the context's room
         """
-        return cls(
-            ctx.room_id,
-            ctx.link.rest,
-            ctx.participants,
-            ctx._agent_id,
-            auto_populate_mentions=ctx.config.auto_populate_mentions,
-        )
+        return cls(ctx.room_id, ctx.link.rest, ctx.participants)
 
     # --- Tool methods ---
 
@@ -252,28 +237,20 @@ class AgentTools(AgentToolsProtocol):
 
         resolved_mentions = self._resolve_mentions(mentions or [])
 
-        # Auto-populate mentions from participants when empty (API requires ≥1)
-        if (
-            self._auto_populate_mentions
-            and not resolved_mentions
-            and self._participants
-        ):
-            resolved_mentions = [
-                {"id": p["id"], "name": p["name"]}
+        # Validate mentions are not empty — API requires ≥1 mention.
+        # Return a helpful error so the LLM can retry with proper mentions.
+        if not resolved_mentions:
+            participant_names = [
+                p.get("handle") or p["name"]
                 for p in self._participants
-                if p.get("id") != self._agent_id  # exclude self
             ]
-            if not resolved_mentions:
-                logger.warning(
-                    "Auto-populate mentions found no other participants in room %s "
-                    "(agent is the only participant); message may be rejected by API",
-                    self.room_id,
+            return {
+                "error": (
+                    "At least one mention is required. "
+                    f"Available participants: {participant_names}. "
+                    "Please retry with mentions specifying who this message is for."
                 )
-            else:
-                logger.debug(
-                    "Auto-populated %d mention(s) from room participants",
-                    len(resolved_mentions),
-                )
+            }
 
         logger.debug("Sending message to room %s", self.room_id)
 
