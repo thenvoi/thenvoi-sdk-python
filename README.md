@@ -10,6 +10,7 @@ Connect your AI agents to the Thenvoi collaborative platform.
 - **Codex App-Server** - Production ready (stdio/ws transport, OAuth)
 - **CrewAI** - Production ready (role-based agents with goals)
 - **Parlant** - Production ready (guideline-based behavior)
+- **Google ADK** - Production ready (Gemini models via Agent Development Kit)
 - **A2A Adapter** - Call external A2A-compliant agents from Thenvoi
 - **A2A Gateway** - Expose Thenvoi peers as A2A protocol endpoints
 
@@ -75,6 +76,7 @@ uv add "git+https://github.com/thenvoi/thenvoi-sdk-python.git[claude_sdk]"
 uv add "git+https://github.com/thenvoi/thenvoi-sdk-python.git[codex]"
 uv add "git+https://github.com/thenvoi/thenvoi-sdk-python.git[crewai]"
 uv add "git+https://github.com/thenvoi/thenvoi-sdk-python.git[parlant]"
+uv add "git+https://github.com/thenvoi/thenvoi-sdk-python.git[google_adk]"
 ```
 
 > **Note for Claude Agent SDK:** Requires Node.js 20+ and Claude Code CLI: `npm install -g @anthropic-ai/claude-code`
@@ -322,6 +324,30 @@ agent = Agent.create(
 await agent.run()
 ```
 
+### Google ADK
+
+> **Note:** Requires a Google API key for Gemini. Get one from [Google AI Studio](https://aistudio.google.com/apikey).
+
+```python
+from thenvoi import Agent
+from thenvoi.adapters import GoogleADKAdapter
+
+adapter = GoogleADKAdapter(
+    model="gemini-2.5-flash",
+    custom_section="You are a helpful assistant.",
+    enable_execution_reporting=True,
+)
+
+agent = Agent.create(
+    adapter=adapter,
+    agent_id=agent_id,
+    api_key=api_key,
+)
+await agent.run()
+```
+
+Set `GOOGLE_API_KEY` (or `GOOGLE_GENAI_API_KEY`) in your environment for Gemini authentication.
+
 ---
 
 ## Examples Overview
@@ -380,6 +406,14 @@ await agent.run()
 | `01_basic_agent.py` | Simple agent with ParlantAdapter |
 | `02_with_guidelines.py` | Behavioral guidelines (condition/action rules) |
 | `03_support_agent.py` | Realistic customer support agent |
+
+### Google ADK (`examples/google_adk/`)
+
+| File | Description |
+|------|-------------|
+| `01_basic_agent.py` | Minimal setup with GoogleADKAdapter using Gemini 2.5 Flash |
+| `02_custom_instructions.py` | Custom system prompt with Gemini 2.5 Pro and execution reporting |
+| `03_custom_tools.py` | Custom tools (calculator, weather) via `additional_tools` |
 
 ### A2A Adapter (`examples/a2a_bridge/`)
 

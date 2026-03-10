@@ -15,6 +15,7 @@ __all__ = [
     "BaseDictListOutputAdapter",
     "ClaudeSDKOutputAdapter",
     "DictListOutputAdapter",
+    "GoogleADKOutputAdapter",
     "LangChainOutputAdapter",
     "PydanticAIOutputAdapter",
     "StringOutputAdapter",
@@ -457,6 +458,58 @@ class ClaudeSDKOutputAdapter(OutputAdapter):
         sender_type: str | None = None,
     ) -> None:
         self._inner.assert_sender_metadata(result.text, index, sender_name, sender_type)
+
+
+class GoogleADKOutputAdapter(BaseDictListOutputAdapter):
+    """Adapter for Google ADK converter output (list[dict] with function_call blocks).
+
+    Similar to ``DictListOutputAdapter`` but uses ``"model"`` role instead of
+    ``"assistant"`` for tool call messages.  Maps ``"model"`` to ``"assistant"``
+    for conformance test assertions.
+    """
+
+    def get_content(self, result: list[dict[str, Any]], index: int) -> str:
+        content = result[index]["content"]
+        if isinstance(content, list):
+            # Function call/response blocks -- return first text or repr
+            for block in content:
+                if isinstance(block, dict) and block.get("type") == "text":
+                    return block["text"]
+            return str(content)
+        return content
+
+    def get_role(self, result: list[dict[str, Any]], index: int) -> str:
+        role = result[index]["role"]
+        # Map Google's "model" role to conformance "assistant"
+        if role == "model":
+            return "assistant"
+        return role
+
+    def content_contains(self, result: list[dict[str, Any]], substring: str) -> bool:
+        for msg in result:
+            content = msg["content"]
+            if isinstance(content, str) and substring in content:
+                return True
+            if isinstance(content, list):
+                for block in content:
+                    if isinstance(block, dict) and substring in str(block):
+                        return True
+        return False
+
+    def assert_element_type(
+        self, result: list[dict[str, Any]], index: int, expected_role: str
+    ) -> None:
+        msg = result[index]
+        assert isinstance(msg, dict), f"Expected dict, got {type(msg).__name__}"
+        assert "role" in msg, "Missing 'role' key"
+        assert "content" in msg, "Missing 'content' key"
+        actual_role = msg["role"]
+        # Map "model" to "assistant" for comparison
+        if actual_role == "model":
+            actual_role = "assistant"
+        assert actual_role == expected_role, (
+            f"Expected role={expected_role!r}, got {msg['role']!r} (mapped to {actual_role!r})"
+        )
 
 
 class SenderDictListAdapter(BaseDictListOutputAdapter):
