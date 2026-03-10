@@ -44,6 +44,7 @@ class TestContextPersistence:
         self,
         e2e_config: E2ESettings,
         e2e_adapter_room: tuple[str, str, str],
+        e2e_agent_info: tuple[str, str],
         ws_client: TrackingWebSocketClient,
         adapter_entry: tuple[str, AdapterFactory],
         api_client: AsyncRestClient,
@@ -58,7 +59,8 @@ class TestContextPersistence:
         when sharing a room across parametrized runs.
         """
         adapter_name, factory = adapter_entry
-        chat_id, user_id, user_name = e2e_adapter_room
+        chat_id, _user_id, _user_name = e2e_adapter_room
+        agent_id, agent_name = e2e_agent_info
         timeout = e2e_config.e2e_timeout
         # Unique code per adapter AND per run to prevent cross-run contamination
         # in shared rooms that persist across test sessions.
@@ -89,8 +91,8 @@ class TestContextPersistence:
                     api_client,
                     chat_id,
                     f"Remember this secret code: {secret_code}. Respond confirming you remember it.",
-                    user_name,
-                    user_id,
+                    agent_name,
+                    agent_id,
                 )
                 phase1_received = await wait()
 
@@ -119,8 +121,8 @@ class TestContextPersistence:
                     api_client,
                     chat_id,
                     "What was the secret code I told you to remember? Reply with just the code.",
-                    user_name,
-                    user_id,
+                    agent_name,
+                    agent_id,
                 )
                 phase2_received = await wait()
 

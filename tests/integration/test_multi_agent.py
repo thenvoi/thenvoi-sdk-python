@@ -612,8 +612,7 @@ class TestMultiAgentChatRoom:
         )
 
         if addable_peer is None:
-            logger.info("No addable peer available, skipping add test")
-            return
+            pytest.skip("No addable peer available to test admin add")
 
         # Agent 2 (admin) adds the peer
         logger.info("\n--- Agent 2 (admin) adds %s ---", addable_peer.name)

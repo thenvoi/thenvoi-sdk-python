@@ -61,14 +61,19 @@ await link.rest.agent_api_participants.list_agent_chat_participants(...)
 
 ### Payload Models (Pydantic)
 
+All models use `ConfigDict(extra="allow")` to accept additional fields from the backend.
+
 ```python
 MessageCreatedPayload:
-  id, content, message_type, sender_type, sender_id,
-  metadata?, chat_room_id?, thread_id?, inserted_at?, updated_at?
+  id, content, message_type, sender_id, sender_type,
+  sender_name?, metadata? (MessageMetadata), chat_room_id?,
+  thread_id?, inserted_at, updated_at
+
+MessageMetadata:
+  mentions (list[Mention]), status?
 
 RoomAddedPayload:
-  id, title?, owner?, status?, type?, created_at?, participant_role?,
-  task_id?, inserted_at?, updated_at?
+  id, inserted_at, updated_at, title?, task_id?
 
 RoomRemovedPayload:
   id, status?, type?, title?, removed_at?
@@ -80,7 +85,7 @@ ParticipantRemovedPayload:
   id
 
 Mention:
-  id, username?
+  id, username?, handle?, name?
 ```
 
 ### PlatformEvent Union (Tagged Union Pattern)
@@ -100,7 +105,7 @@ Each event has: `type` (literal), `room_id`, `payload`, `raw`
 |-------|----------------|
 | `contact_request_received` | `id`, `from_handle`, `from_name`, `message?`, `status`, `inserted_at` |
 | `contact_request_updated` | `id`, `status` |
-| `contact_added` | `id`, `handle`, `name`, `type` |
+| `contact_added` | `id`, `handle`, `name`, `type`, `description?`, `is_external?`, `inserted_at` |
 | `contact_removed` | `id` |
 
 ## Contact Event Handling
@@ -274,6 +279,7 @@ uv run pyrefly check
 
 - `THENVOI_REST_URL`: REST API URL (default: https://app.thenvoi.com)
 - `THENVOI_WS_URL`: WebSocket URL (default: wss://app.thenvoi.com/api/v1/socket/websocket)
+- `THENVOI_API_KEY_USER`: User API key for E2E WebSocket observer and trigger messages
 - `OPENAI_API_KEY`: OpenAI API key (for LangGraph examples)
 - `ANTHROPIC_API_KEY`: Anthropic API key (for Anthropic/Claude SDK examples)
 - `E2E_TESTS_ENABLED`: Set to `true` to enable E2E tests (default: disabled)

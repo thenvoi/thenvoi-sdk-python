@@ -154,7 +154,7 @@ asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "session"
 addopts = "-v"
 # Global safety net: catch runaway unit tests. Integration and E2E tests
-# override to 120s via pytestmark = pytest.mark.timeout(120) in their conftest.
+# override to 120s via pytest_collection_modifyitems in their conftest.
 timeout = 30
 markers = [
     "requires_api: marks tests as requiring real API credentials (skipped in CI)",

@@ -38,28 +38,33 @@ load_dotenv(_ENV_TEST_PATH, override=False)
 if TYPE_CHECKING:
     from tests.e2e.adapters.conftest import AdapterFactory
 
-# E2E tests interact with live platforms and LLMs — allow more time than
-# the default 30s pytest-timeout setting in pyproject.toml.
-pytestmark = pytest.mark.timeout(120)
+# NOTE: pytestmark in conftest.py is NOT applied to collected tests.
+# The 120s timeout is applied via pytest_collection_modifyitems below.
 
 logger = logging.getLogger(__name__)
 
 
 def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
-    """Ensure all E2E async tests use the session-scoped event loop.
+    """Apply E2E-specific markers to all collected tests in this directory.
 
-    Fixtures already default to the session loop via
-    ``asyncio_default_fixture_loop_scope = "session"`` in pyproject.toml,
-    but test functions default to function-scoped loops. This mismatch
-    causes "Future attached to a different loop" errors when tests call
-    into session-scoped WS/REST clients. Applying ``loop_scope="session"``
-    to every E2E test aligns them with the fixture loop.
+    1. ``asyncio(loop_scope="session")`` — Fixtures default to the session
+       loop via ``asyncio_default_fixture_loop_scope`` in pyproject.toml,
+       but test functions default to function-scoped loops. This mismatch
+       causes "Future attached to a different loop" errors when tests call
+       into session-scoped WS/REST clients.
+
+    2. ``timeout(120)`` — E2E tests interact with live platforms and LLMs,
+       so they need more time than the 30s default in pyproject.toml.
+       ``pytestmark`` in conftest.py is NOT applied to collected tests;
+       markers must be added here or directly on test items.
     """
     e2e_dir = Path(__file__).parent
     session_marker = pytest.mark.asyncio(loop_scope="session")
+    timeout_marker = pytest.mark.timeout(120)
     for item in items:
         if Path(item.path).is_relative_to(e2e_dir):
             item.add_marker(session_marker)
+            item.add_marker(timeout_marker)
 
 
 # Platform limits agents to 10 active chat rooms; cap room searches accordingly.
@@ -182,15 +187,36 @@ def e2e_session_client(
     )
 
 
+@pytest.fixture(scope="session")
+def e2e_user_client(
+    e2e_config: E2ESettings,
+) -> AsyncRestClient:
+    """Session-scoped REST client authenticated as the User.
+
+    Used by ``send_trigger_message`` so the trigger comes from the User
+    (not the agent). The agent runtime skips self-authored messages, so
+    using the agent client would silently fail to trigger processing.
+    """
+    if not e2e_config.thenvoi_api_key_user:
+        pytest.skip("THENVOI_API_KEY_USER not set (needed for user REST client)")
+
+    return AsyncRestClient(
+        api_key=e2e_config.thenvoi_api_key_user,
+        base_url=e2e_config.thenvoi_base_url,
+    )
+
+
 @pytest.fixture
 def api_client(
-    e2e_session_client: AsyncRestClient,
+    e2e_user_client: AsyncRestClient,
 ) -> AsyncRestClient:
-    """Function-scoped alias for the session REST client.
+    """Function-scoped alias for the user REST client.
 
-    Provides backward-compatible fixture name for tests that inject ``api_client``.
+    Tests inject ``api_client`` to send trigger messages. This now
+    resolves to the **user**-scoped client so the agent runtime correctly
+    processes the incoming message.
     """
-    return e2e_session_client
+    return e2e_user_client
 
 
 # =============================================================================
@@ -334,6 +360,16 @@ async def e2e_agent_id(e2e_session_client: AsyncRestClient) -> str:
     """
     agent_me = await e2e_session_client.agent_api_identity.get_agent_me()
     return agent_me.data.id
+
+
+@pytest.fixture(scope="session")
+async def e2e_agent_info(e2e_session_client: AsyncRestClient) -> tuple[str, str]:
+    """Get (agent_id, agent_name) for the test agent.
+
+    Used by tests that need to @mention the agent in trigger messages.
+    """
+    agent_me = await e2e_session_client.agent_api_identity.get_agent_me()
+    return agent_me.data.id, agent_me.data.name
 
 
 @pytest.fixture(scope="session")

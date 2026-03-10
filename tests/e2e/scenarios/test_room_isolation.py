@@ -49,6 +49,7 @@ class TestRoomIsolation:
         api_client: AsyncRestClient,
         e2e_adapter_room: tuple[str, str, str],
         e2e_isolation_room_b: tuple[str, str, str],
+        e2e_agent_info: tuple[str, str],
     ):
         """Agents in different rooms don't see each other's context.
 
@@ -65,6 +66,7 @@ class TestRoomIsolation:
         """
         adapter_name, factory = adapter_entry
         timeout = e2e_config.e2e_timeout
+        agent_id, agent_name = e2e_agent_info
 
         # Unique keywords per adapter AND per run to prevent stale history
         # from confusing the LLM in rooms that persist across test sessions.
@@ -79,7 +81,7 @@ class TestRoomIsolation:
             code_b,
         )
 
-        room_a_id, user_id, user_name = e2e_adapter_room
+        room_a_id, _user_id, _user_name = e2e_adapter_room
         room_b_id = e2e_isolation_room_b[0]
         logger.info("Room A: %s, Room B: %s", room_a_id, room_b_id)
 
@@ -104,8 +106,8 @@ class TestRoomIsolation:
                     api_client,
                     room_a_id,
                     f"Remember: the secret code is {code_a}. Confirm you remember it.",
-                    user_name,
-                    user_id,
+                    agent_name,
+                    agent_id,
                 )
                 room_a_phase1 = await wait()
 
@@ -116,8 +118,8 @@ class TestRoomIsolation:
                     api_client,
                     room_b_id,
                     f"Remember: the secret code is {code_b}. Confirm you remember it.",
-                    user_name,
-                    user_id,
+                    agent_name,
+                    agent_id,
                 )
                 room_b_phase1 = await wait()
 
@@ -136,8 +138,8 @@ class TestRoomIsolation:
                     api_client,
                     room_a_id,
                     "What is the secret code? Reply with just the code word.",
-                    user_name,
-                    user_id,
+                    agent_name,
+                    agent_id,
                 )
                 room_a_received = await wait()
 
@@ -148,8 +150,8 @@ class TestRoomIsolation:
                     api_client,
                     room_b_id,
                     "What is the secret code? Reply with just the code word.",
-                    user_name,
-                    user_id,
+                    agent_name,
+                    agent_id,
                 )
                 room_b_received = await wait()
 

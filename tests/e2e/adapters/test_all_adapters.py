@@ -67,20 +67,22 @@ class TestAdapterE2E:
         self,
         e2e_config: E2ESettings,
         e2e_adapter_room: tuple[str, str, str],
+        e2e_agent_info: tuple[str, str],
         ws_client: TrackingWebSocketClient,
         running_agent: tuple[str, Agent],
         api_client: AsyncRestClient,
     ):
         """Smoke test: agent starts, receives a message, and responds."""
         adapter_name, agent = running_agent
-        chat_id, user_id, user_name = e2e_adapter_room
+        chat_id, _user_id, _user_name = e2e_adapter_room
+        agent_id, agent_name = e2e_agent_info
 
         await run_smoke_test(
             ws_client,
             api_client,
             chat_id,
-            user_name,
-            user_id,
+            agent_name,
+            agent_id,
             timeout=e2e_config.e2e_timeout,
             adapter_name=adapter_name,
         )
@@ -90,20 +92,22 @@ class TestAdapterE2E:
         self,
         e2e_config: E2ESettings,
         e2e_adapter_room: tuple[str, str, str],
+        e2e_agent_info: tuple[str, str],
         ws_client: TrackingWebSocketClient,
         running_agent: tuple[str, Agent],
         api_client: AsyncRestClient,
     ):
         """Verify the agent uses thenvoi_send_message tool to respond."""
         adapter_name, agent = running_agent
-        chat_id, user_id, user_name = e2e_adapter_room
+        chat_id, _user_id, _user_name = e2e_adapter_room
+        agent_id, agent_name = e2e_agent_info
 
         await run_tool_execution_test(
             ws_client,
             api_client,
             chat_id,
-            user_name,
-            user_id,
+            agent_name,
+            agent_id,
             timeout=e2e_config.e2e_timeout,
             adapter_name=adapter_name,
         )

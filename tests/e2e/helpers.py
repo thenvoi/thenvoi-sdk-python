@@ -70,25 +70,26 @@ async def send_trigger_message(
     mention_name: str,
     mention_id: str,
 ) -> str:
-    """Send a message that triggers the agent's processing loop.
+    """Send a message from the User that triggers the agent's processing loop.
 
-    Uses agent API credentials to post a message mentioning another room
-    participant (typically the User peer).  The mention satisfies the
-    platform's "at least one mention" requirement.  Despite the agent
-    being the technical sender, this simulates incoming user input.
+    Uses **user** API credentials so the sender is the User, not the agent.
+    The agent's runtime skips self-authored messages, so the trigger must
+    come from a different participant.  The @mention targets the agent,
+    satisfying both the platform's "at least one mention" requirement and
+    ensuring the agent's preprocessor delivers the message.
 
     Args:
-        client: REST API client (agent credentials).
+        client: REST API client (**user** credentials).
         room_id: Chat room to send the message in.
         content: Message content.
-        mention_name: Name of the participant to @mention.
-        mention_id: ID of the participant to @mention.
+        mention_name: Name of the agent to @mention (trigger target).
+        mention_id: ID of the agent to @mention (trigger target).
 
     Returns:
         The message ID of the sent message.
     """
     message_content = f"@{mention_name} {content}"
-    response = await client.agent_api_messages.create_agent_chat_message(
+    response = await client.human_api_messages.send_my_chat_message(
         room_id,
         message=ChatMessageRequest(
             content=message_content,
@@ -221,19 +222,26 @@ async def run_smoke_test(
     ws_client: TrackingWebSocketClient,
     api_client: AsyncRestClient,
     chat_id: str,
-    user_name: str,
-    user_id: str,
+    agent_name: str,
+    agent_id: str,
     timeout: float,
     adapter_name: str,
 ) -> list[MessageCreatedPayload]:
     """Run a smoke test: send a message and verify the agent responds.
+
+    Args:
+        api_client: User-scoped REST client (sends the trigger message).
+        agent_name: Agent name for @mention (trigger target).
+        agent_id: Agent ID for @mention (trigger target).
 
     Returns the list of received agent messages for further inspection.
     """
     async with listening_for_agent_responses(
         ws_client, chat_id, timeout=timeout
     ) as wait:
-        await send_trigger_message(api_client, chat_id, "Say hello", user_name, user_id)
+        await send_trigger_message(
+            api_client, chat_id, "Say hello", agent_name, agent_id
+        )
         received = await wait()
 
     assert len(received) > 0, (
@@ -251,12 +259,17 @@ async def run_tool_execution_test(
     ws_client: TrackingWebSocketClient,
     api_client: AsyncRestClient,
     chat_id: str,
-    user_name: str,
-    user_id: str,
+    agent_name: str,
+    agent_id: str,
     timeout: float,
     adapter_name: str,
 ) -> list[MessageCreatedPayload]:
     """Run a tool execution test: verify agent uses thenvoi_send_message.
+
+    Args:
+        api_client: User-scoped REST client (sends the trigger message).
+        agent_name: Agent name for @mention (trigger target).
+        agent_id: Agent ID for @mention (trigger target).
 
     Asks the agent to reply with a specific keyword (PINEAPPLE) and asserts
     it appears in the response. Returns the received messages.
@@ -268,8 +281,8 @@ async def run_tool_execution_test(
             api_client,
             chat_id,
             "Reply with the word PINEAPPLE",
-            user_name,
-            user_id,
+            agent_name,
+            agent_id,
         )
         received = await wait()
 
