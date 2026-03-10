@@ -33,14 +33,15 @@ def _patch_orphaned_tool_calls(messages: GoogleADKMessages) -> None:
             i += 1
             continue
 
-        # Collect function_call IDs in this model message
-        call_ids = {
-            block["id"]
+        # Collect function_call IDs and their tool names in this model message
+        call_names: dict[str, str] = {
+            block["id"]: block.get("name", "")
             for block in msg["content"]
             if isinstance(block, dict)
             and block.get("type") == "function_call"
             and "id" in block
         }
+        call_ids = set(call_names)
 
         if not call_ids:
             i += 1
@@ -76,7 +77,7 @@ def _patch_orphaned_tool_calls(messages: GoogleADKMessages) -> None:
                 {
                     "type": "function_response",
                     "tool_call_id": uid,
-                    "name": "",
+                    "name": call_names.get(uid, ""),
                     "output": "Error: tool execution was interrupted",
                     "is_error": True,
                 }

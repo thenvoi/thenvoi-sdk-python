@@ -108,6 +108,13 @@ def _get_tool_bridge_class() -> type:
     """
     _, _, BaseTool, types = _require_adk()
 
+    if not hasattr(BaseTool, "_get_declaration"):
+        raise RuntimeError(
+            "google-adk BaseTool is missing the '_get_declaration' method. "
+            "This adapter relies on this internal API (pinned to google-adk "
+            ">=1.0,<2). Your installed version may be incompatible."
+        )
+
     class _ThenvoiToolBridge(BaseTool):
         """Bridges a Thenvoi platform tool to Google ADK.
 
@@ -540,9 +547,9 @@ class GoogleADKAdapter(SimpleAdapter[GoogleADKMessages]):
                     await tools.send_event(
                         content=json.dumps(
                             {
-                                "name": fc.name,
+                                "name": getattr(fc, "name", "unknown"),
                                 "args": args,
-                                "tool_call_id": fc.id if hasattr(fc, "id") else "",
+                                "tool_call_id": getattr(fc, "id", ""),
                             }
                         ),
                         message_type="tool_call",
@@ -557,9 +564,11 @@ class GoogleADKAdapter(SimpleAdapter[GoogleADKMessages]):
                     await tools.send_event(
                         content=json.dumps(
                             {
-                                "name": fr.name,
-                                "output": str(fr.response) if fr.response else "",
-                                "tool_call_id": fr.id if hasattr(fr, "id") else "",
+                                "name": getattr(fr, "name", "unknown"),
+                                "output": str(fr.response)
+                                if getattr(fr, "response", None)
+                                else "",
+                                "tool_call_id": getattr(fr, "id", ""),
                             }
                         ),
                         message_type="tool_result",

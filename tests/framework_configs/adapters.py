@@ -553,7 +553,7 @@ def _build_google_adk_config() -> AdapterConfig:
             "custom_section": "Be helpful.",
             "enable_execution_reporting": True,
         },
-        skip_on_started_conformance=True,  # on_started renders system prompt; tested in test_google_adk_adapter
+        skip_on_started_conformance=False,
     )
 
 
