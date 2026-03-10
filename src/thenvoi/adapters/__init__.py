@@ -12,6 +12,7 @@ Install the extra you need::
     uv add thenvoi-sdk[a2a]
     uv add thenvoi-sdk[a2a_gateway]
     uv add thenvoi-sdk[codex]
+    uv add thenvoi-sdk[opencode]
 """
 
 from __future__ import annotations
@@ -30,6 +31,8 @@ if TYPE_CHECKING:
     from thenvoi.adapters.a2a_gateway import A2AGatewayAdapter as A2AGatewayAdapter
     from thenvoi.adapters.codex import CodexAdapter as CodexAdapter
     from thenvoi.adapters.codex import CodexAdapterConfig as CodexAdapterConfig
+    from thenvoi.adapters.opencode import OpencodeAdapter as OpencodeAdapter
+    from thenvoi.adapters.opencode import OpencodeAdapterConfig as OpencodeAdapterConfig
 
 __all__ = [
     "LangGraphAdapter",
@@ -42,6 +45,8 @@ __all__ = [
     "A2AGatewayAdapter",
     "CodexAdapter",
     "CodexAdapterConfig",
+    "OpencodeAdapter",
+    "OpencodeAdapterConfig",
 ]
 
 
@@ -87,4 +92,12 @@ def __getattr__(name: str) -> type:
         from thenvoi.adapters.codex import CodexAdapterConfig
 
         return CodexAdapterConfig
+    elif name == "OpencodeAdapter":
+        from thenvoi.adapters.opencode import OpencodeAdapter
+
+        return OpencodeAdapter
+    elif name == "OpencodeAdapterConfig":
+        from thenvoi.adapters.opencode import OpencodeAdapterConfig
+
+        return OpencodeAdapterConfig
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

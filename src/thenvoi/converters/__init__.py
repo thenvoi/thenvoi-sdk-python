@@ -11,6 +11,7 @@ Install the extra you need::
     uv add thenvoi-sdk[crewai]
     uv add thenvoi-sdk[a2a]
     uv add thenvoi-sdk[codex]
+    uv add thenvoi-sdk[opencode]
 """
 
 from __future__ import annotations
@@ -51,6 +52,9 @@ if TYPE_CHECKING:
     from thenvoi.converters.codex import (
         CodexHistoryConverter as CodexHistoryConverter,
     )
+    from thenvoi.converters.opencode import (
+        OpencodeHistoryConverter as OpencodeHistoryConverter,
+    )
 
 __all__ = [
     "LangChainHistoryConverter",
@@ -67,6 +71,7 @@ __all__ = [
     "A2AHistoryConverter",
     "GatewayHistoryConverter",
     "CodexHistoryConverter",
+    "OpencodeHistoryConverter",
 ]
 
 
@@ -140,5 +145,9 @@ def __getattr__(name: str) -> type:
         from thenvoi.converters.codex import CodexHistoryConverter
 
         return CodexHistoryConverter
+    elif name == "OpencodeHistoryConverter":
+        from thenvoi.converters.opencode import OpencodeHistoryConverter
+
+        return OpencodeHistoryConverter
 
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
