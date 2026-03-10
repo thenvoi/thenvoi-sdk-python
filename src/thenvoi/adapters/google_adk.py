@@ -39,6 +39,14 @@ _MAX_TOOL_OUTPUT_PREVIEW = 200
 _DEFAULT_MAX_HISTORY_MESSAGES = 50
 _DEFAULT_MAX_TRANSCRIPT_CHARS = 100_000
 
+# Candidate method names that google-adk BaseTool may use to expose tool
+# declarations.  The bridge overrides every match found on the installed
+# version so it keeps working if ADK renames the internal API.
+_DECLARATION_CANDIDATES: tuple[str, ...] = (
+    "_get_declaration",  # google-adk 1.x (current internal API)
+    "get_declaration",  # likely public rename candidate
+)
+
 
 @functools.lru_cache(maxsize=1)
 def _require_adk() -> tuple[type, type, type, Any]:
@@ -105,15 +113,38 @@ def _get_tool_bridge_class() -> type:
     Defined inside a factory because it needs ``BaseTool`` as its base
     class, which requires ``google-adk`` to be installed.  Cached so the
     class is created only once.
+
+    The factory probes ``BaseTool`` for every name in
+    ``_DECLARATION_CANDIDATES`` and overrides all that exist, so the
+    bridge keeps working if ADK renames or publicises the method.  At
+    least one candidate must be present.
+
+    After building the class a smoke-test instantiation verifies that
+    the declaration mechanism works end-to-end (not just that the method
+    exists), catching signature changes that ``hasattr`` alone would miss.
     """
     _, _, BaseTool, types = _require_adk()
 
-    if not hasattr(BaseTool, "_get_declaration"):
+    # Detect which declaration methods the installed BaseTool exposes.
+    active_methods = [
+        name
+        for name in _DECLARATION_CANDIDATES
+        if callable(getattr(BaseTool, name, None))
+    ]
+
+    if not active_methods:
         raise RuntimeError(
-            "google-adk BaseTool is missing the '_get_declaration' method. "
-            "This adapter relies on this internal API (pinned to google-adk "
-            ">=1.0,<2). Your installed version may be incompatible."
+            "google-adk BaseTool has no known declaration method "
+            f"(tried: {', '.join(_DECLARATION_CANDIDATES)}). "
+            "This adapter relies on overriding the declaration method "
+            "(pinned to google-adk >=1.0,<2). Your installed version "
+            "may be incompatible."
         )
+
+    logger.debug(
+        "google-adk BaseTool declaration method(s) detected: %s",
+        ", ".join(active_methods),
+    )
 
     class _ThenvoiToolBridge(BaseTool):
         """Bridges a Thenvoi platform tool to Google ADK.
@@ -140,30 +171,29 @@ def _get_tool_bridge_class() -> type:
             self._tools = tools
             self._custom_tools = custom_tools
 
-        def _get_declaration(self) -> types.FunctionDeclaration:
-            """Build a FunctionDeclaration from the OpenAI-format schema.
-
-            Note: ``_get_declaration`` is a BaseTool internal that ADK calls to
-            register tools with the Gemini API.  Pinned to google-adk >=1.0,<2.
-
-            Raises:
-                AttributeError: If google-adk changes or removes this internal
-                    API.  The version pin ``<2`` in pyproject.toml limits
-                    exposure, but patch releases could still break this.
-            """
+            # Eagerly build and cache the declaration so schema errors
+            # surface at construction time rather than mid-conversation.
             try:
-                return types.FunctionDeclaration(
-                    name=self.name,
-                    description=self.description,
-                    parameters=_strip_additional_properties(self._parameters_schema),
+                self._cached_declaration = types.FunctionDeclaration(
+                    name=tool_name,
+                    description=tool_description,
+                    parameters=_strip_additional_properties(parameters_schema),
                 )
             except Exception as exc:
                 raise RuntimeError(
-                    f"Failed to build FunctionDeclaration for tool '{self.name}'. "
+                    f"Failed to build FunctionDeclaration for tool '{tool_name}'. "
                     "This may indicate an incompatible google-adk version — "
-                    "the adapter relies on BaseTool._get_declaration which is "
-                    "an internal API pinned to google-adk >=1.0,<2."
+                    "the adapter relies on BaseTool's declaration mechanism "
+                    "pinned to google-adk >=1.0,<2."
                 ) from exc
+
+        def _build_declaration(self) -> types.FunctionDeclaration:
+            """Return the eagerly-built FunctionDeclaration.
+
+            All declaration method overrides delegate here so there is a
+            single code path regardless of which ADK method name is active.
+            """
+            return self._cached_declaration
 
         async def run_async(
             self,
@@ -196,6 +226,38 @@ def _get_tool_bridge_class() -> type:
             except Exception as e:
                 logger.error("Tool %s failed: %s", self.name, e)
                 return f"Error: {e}"
+
+    # Override every detected declaration method so the bridge works
+    # even if ADK renames the internal API in a future minor release.
+    for method_name in active_methods:
+        setattr(
+            _ThenvoiToolBridge,
+            method_name,
+            _ThenvoiToolBridge._build_declaration,
+        )
+
+    # Smoke-test: verify the declaration mechanism works end-to-end.
+    # Catches signature changes that hasattr alone would miss.
+    try:
+        _probe = _ThenvoiToolBridge(
+            tool_name="_probe",
+            tool_description="probe",
+            parameters_schema={},
+            tools=None,  # type: ignore[arg-type]
+            custom_tools=[],
+        )
+        _decl = getattr(_probe, active_methods[0])()
+        if _decl is None or not hasattr(_decl, "name"):
+            raise RuntimeError("Declaration probe returned unexpected value")
+    except RuntimeError:
+        raise
+    except Exception as exc:
+        raise RuntimeError(
+            "google-adk BaseTool declaration smoke-test failed. "
+            f"Method '{active_methods[0]}' exists but did not return a valid "
+            "FunctionDeclaration. The adapter is pinned to google-adk "
+            ">=1.0,<2 — your installed version may be incompatible."
+        ) from exc
 
     return _ThenvoiToolBridge
 

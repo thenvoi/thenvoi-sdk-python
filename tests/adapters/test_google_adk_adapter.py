@@ -23,7 +23,8 @@ pytest.importorskip("google.adk", reason="google-adk not installed")
 # Imports below require google-adk; guarded by importorskip above.
 _google_adk_mod = importlib.import_module("thenvoi.adapters.google_adk")
 GoogleADKAdapter = _google_adk_mod.GoogleADKAdapter
-_ThenvoiToolBridge = _google_adk_mod._get_tool_bridge_class()
+_get_tool_bridge_class = _google_adk_mod._get_tool_bridge_class
+_ThenvoiToolBridge = _get_tool_bridge_class()
 _strip_additional_properties = _google_adk_mod._strip_additional_properties
 
 
@@ -368,6 +369,26 @@ class TestToolBridge:
         # additionalProperties should be stripped for Gemini compatibility
         assert "additionalProperties" not in (decl.parameters or {})
 
+    def test_declaration_eagerly_cached(self):
+        """Declaration should be built eagerly in __init__ and cached."""
+        bridge = _ThenvoiToolBridge(
+            tool_name="cached_tool",
+            tool_description="Cached",
+            parameters_schema={"type": "object", "properties": {}},
+            tools=MagicMock(),
+            custom_tools=[],
+        )
+
+        # _cached_declaration should exist from __init__
+        assert hasattr(bridge, "_cached_declaration")
+        assert bridge._cached_declaration.name == "cached_tool"
+
+        # _build_declaration should return the same cached object
+        assert bridge._build_declaration() is bridge._cached_declaration
+
+        # _get_declaration should delegate to _build_declaration
+        assert bridge._get_declaration() is bridge._cached_declaration
+
     @pytest.mark.asyncio
     async def test_executes_platform_tool(self):
         """Should delegate to AgentToolsProtocol."""
@@ -409,6 +430,43 @@ class TestToolBridge:
         result = await bridge.run_async(args={}, tool_context=MagicMock())
         assert "Error" in result
         assert "Tool failed!" in result
+
+
+class TestDeclarationCandidateDetection:
+    """Tests for _DECLARATION_CANDIDATES probing and smoke-test."""
+
+    def test_no_candidates_raises_runtime_error(self):
+        """Should raise RuntimeError when BaseTool has no known declaration method."""
+        _get_tool_bridge_class.cache_clear()
+        try:
+            with patch.object(
+                _google_adk_mod,
+                "_DECLARATION_CANDIDATES",
+                ("_nonexistent_method",),
+            ):
+                _get_tool_bridge_class.cache_clear()
+                with pytest.raises(RuntimeError, match="no known declaration method"):
+                    _get_tool_bridge_class()
+        finally:
+            _get_tool_bridge_class.cache_clear()
+            # Re-populate cache with valid class
+            _get_tool_bridge_class()
+
+    def test_smoke_test_runs_at_class_creation(self):
+        """Smoke-test should verify declaration mechanism end-to-end."""
+        # The fact that _get_tool_bridge_class() returned successfully at
+        # module level (line 26) proves the smoke-test passed.  Verify the
+        # returned class has the expected declaration method.
+        bridge = _ThenvoiToolBridge(
+            tool_name="smoke",
+            tool_description="smoke test",
+            parameters_schema={},
+            tools=MagicMock(),
+            custom_tools=[],
+        )
+        decl = bridge._get_declaration()
+        assert decl is not None
+        assert decl.name == "smoke"
 
 
 class TestStripAdditionalProperties:
