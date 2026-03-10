@@ -328,7 +328,7 @@ class GoogleADKAdapter(SimpleAdapter[GoogleADKMessages]):
         # no in-memory state to resume.  The ID is stored for cleanup tracking.
         session_id = str(uuid.uuid4())
         self._room_sessions[room_id] = session_id
-        logger.info("Room %s: Created new ADK session %s", room_id, session_id)
+        logger.debug("Room %s: Created new ADK session %s", room_id, session_id)
 
         # Build the user message content
         parts: list[str] = []
