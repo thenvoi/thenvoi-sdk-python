@@ -157,6 +157,17 @@ def event_permission(session_id: str, request_id: str) -> dict[str, Any]:
     }
 
 
+def event_question(session_id: str, request_id: str, *questions: str) -> dict[str, Any]:
+    return {
+        "type": "question.asked",
+        "properties": {
+            "id": request_id,
+            "sessionID": session_id,
+            "questions": [{"question": question} for question in questions],
+        },
+    }
+
+
 def event_session_idle(session_id: str) -> dict[str, Any]:
     return {"type": "session.idle", "properties": {"sessionID": session_id}}
 
@@ -181,7 +192,9 @@ class FakeOpencodeClient:
         *,
         prompt_event_sequences: list[list[dict[str, Any]]] | None = None,
         reply_permission_events: dict[str, list[dict[str, Any]]] | None = None,
+        reply_question_events: dict[str, list[dict[str, Any]]] | None = None,
         get_session_missing: set[str] | None = None,
+        prompt_exceptions: list[Exception] | None = None,
     ) -> None:
         self.created_sessions: list[dict[str, Any]] = []
         self.prompt_calls: list[dict[str, Any]] = []
@@ -194,7 +207,9 @@ class FakeOpencodeClient:
         self._queue: asyncio.Queue[dict[str, Any] | None] = asyncio.Queue()
         self._prompt_event_sequences = list(prompt_event_sequences or [])
         self._reply_permission_events = reply_permission_events or {}
+        self._reply_question_events = reply_question_events or {}
         self._get_session_missing = get_session_missing or set()
+        self._prompt_exceptions = list(prompt_exceptions or [])
 
     async def create_session(
         self,
@@ -237,6 +252,8 @@ class FakeOpencodeClient:
                 "variant": variant,
             }
         )
+        if self._prompt_exceptions:
+            raise self._prompt_exceptions.pop(0)
         if self._prompt_event_sequences:
             for event in self._prompt_event_sequences.pop(0):
                 await self._queue.put(event)
@@ -258,6 +275,8 @@ class FakeOpencodeClient:
         self, request_id: str, *, answers: list[list[str]]
     ) -> None:
         self.question_replies.append({"request_id": request_id, "answers": answers})
+        for event in self._reply_question_events.get(request_id, []):
+            await self._queue.put(event)
 
     async def reject_question(self, request_id: str) -> None:
         self.question_rejections.append(request_id)
@@ -391,6 +410,8 @@ class TestOpencodeAdapter:
                 for m in tools.messages_sent
             )
         )
+        await wait_for(lambda: first_turn.done())
+        assert all(msg["content"] != "Approved and done" for msg in tools.messages_sent)
 
         await adapter.on_message(
             make_platform_message(content="approve req-1"),
@@ -402,11 +423,159 @@ class TestOpencodeAdapter:
             room_id="room-1",
         )
         await first_turn
+        await wait_for(
+            lambda: any(
+                msg["content"] == "Approved and done" for msg in tools.messages_sent
+            )
+        )
 
         assert fake_client.permission_replies == [
             {"request_id": "req-1", "reply": "once", "message": None}
         ]
         assert any(msg["content"] == "Approved and done" for msg in tools.messages_sent)
+
+    @pytest.mark.asyncio
+    async def test_manual_question_reply_from_follow_up_message(self) -> None:
+        fake_client = FakeOpencodeClient(
+            prompt_event_sequences=[
+                [event_question("sess-1", "q-1", "What should I do next?")]
+            ],
+            reply_question_events={
+                "q-1": [
+                    event_message_updated("sess-1", "msg-4"),
+                    event_text_part("sess-1", "msg-4", "Question answered"),
+                    event_session_idle("sess-1"),
+                ]
+            },
+        )
+        adapter = OpencodeAdapter(client_factory=lambda _config: fake_client)
+        tools = FakeAgentTools()
+
+        await adapter.on_started("OpenCode Agent", "A coding agent")
+        first_turn = asyncio.create_task(
+            adapter.on_message(
+                make_platform_message(content="Need an answer"),
+                tools_protocol(tools),
+                OpencodeSessionState(),
+                participants_msg=None,
+                contacts_msg=None,
+                is_session_bootstrap=True,
+                room_id="room-1",
+            )
+        )
+
+        await wait_for(
+            lambda: any(
+                "asked question" in message["content"].lower()
+                for message in tools.messages_sent
+            )
+        )
+        await wait_for(lambda: first_turn.done())
+
+        await adapter.on_message(
+            make_platform_message(content="Ship the adapter"),
+            tools_protocol(tools),
+            OpencodeSessionState(session_id="sess-1", room_id="room-1"),
+            participants_msg=None,
+            contacts_msg=None,
+            is_session_bootstrap=False,
+            room_id="room-1",
+        )
+
+        await wait_for(
+            lambda: any(
+                message["content"] == "Question answered"
+                for message in tools.messages_sent
+            )
+        )
+        assert fake_client.question_replies == [
+            {"request_id": "q-1", "answers": [["Ship the adapter"]]}
+        ]
+
+    @pytest.mark.asyncio
+    async def test_prompt_submission_failure_does_not_leave_room_stuck(self) -> None:
+        fake_client = FakeOpencodeClient(
+            prompt_event_sequences=[
+                [
+                    event_message_updated("sess-1", "msg-5"),
+                    event_text_part("sess-1", "msg-5", "Recovered after failure"),
+                    event_session_idle("sess-1"),
+                ]
+            ],
+            prompt_exceptions=[AnyHTTPStatusError(500, "sess-1")],
+        )
+        adapter = OpencodeAdapter(client_factory=lambda _config: fake_client)
+        tools = FakeAgentTools()
+
+        await adapter.on_started("OpenCode Agent", "A coding agent")
+        await adapter.on_message(
+            make_platform_message(content="first try"),
+            tools_protocol(tools),
+            OpencodeSessionState(),
+            participants_msg=None,
+            contacts_msg=None,
+            is_session_bootstrap=True,
+            room_id="room-1",
+        )
+
+        await adapter.on_message(
+            make_platform_message(content="second try"),
+            tools_protocol(tools),
+            OpencodeSessionState(session_id="sess-1", room_id="room-1"),
+            participants_msg=None,
+            contacts_msg=None,
+            is_session_bootstrap=False,
+            room_id="room-1",
+        )
+
+        assert len(fake_client.prompt_calls) == 2
+        assert not any(
+            "still processing the previous request" in event["content"].lower()
+            for event in tools.events_sent
+        )
+        assert any(
+            message["content"] == "Recovered after failure"
+            for message in tools.messages_sent
+        )
+
+    @pytest.mark.asyncio
+    async def test_missing_session_replays_history_into_new_prompt(self) -> None:
+        fake_client = FakeOpencodeClient(
+            prompt_event_sequences=[
+                [
+                    event_message_updated("sess-1", "msg-6"),
+                    event_text_part("sess-1", "msg-6", "Session recreated"),
+                    event_session_idle("sess-1"),
+                ]
+            ],
+            get_session_missing={"sess-missing"},
+        )
+        adapter = OpencodeAdapter(client_factory=lambda _config: fake_client)
+        tools = FakeAgentTools()
+
+        await adapter.on_started("OpenCode Agent", "A coding agent")
+        await adapter.on_message(
+            make_platform_message(content="Continue from before"),
+            tools_protocol(tools),
+            OpencodeSessionState(
+                session_id="sess-missing",
+                room_id="room-1",
+                replay_messages=[
+                    "[Alice]: Earlier question",
+                    "[OpenCode Agent]: Earlier answer",
+                ],
+            ),
+            participants_msg=None,
+            contacts_msg=None,
+            is_session_bootstrap=False,
+            room_id="room-1",
+        )
+
+        prompt_text = fake_client.prompt_calls[0]["parts"][0]["text"]
+        assert fake_client.created_sessions[0]["id"] == "sess-1"
+        assert "Recovered room history" in prompt_text
+        assert "[Alice]: Earlier question" in prompt_text
+        assert "[OpenCode Agent]: Earlier answer" in prompt_text
 
     @pytest.mark.asyncio
     async def test_reports_tool_events_when_enabled(self) -> None:

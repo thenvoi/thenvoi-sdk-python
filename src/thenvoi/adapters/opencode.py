@@ -58,6 +58,8 @@ class _RoomState:
     session_id: str | None = None
     tools: AgentToolsProtocol | None = None
     turn_future: asyncio.Future[None] | None = None
+    turn_release_future: asyncio.Future[None] | None = None
+    turn_task: asyncio.Task[None] | None = None
     pending_mentions: list[dict[str, str]] = field(default_factory=list)
     text_parts: OrderedDict[str, str] = field(default_factory=OrderedDict)
     assistant_message_ids: set[str] = field(default_factory=set)
@@ -170,7 +172,9 @@ class OpencodeAdapter(SimpleAdapter[OpencodeSessionState]):
             raise RuntimeError("OpenCode client is not initialized")
 
         try:
-            session_id, created = await self._ensure_session(room_state, history)
+            session_id, created, restored_missing_session = await self._ensure_session(
+                room_state, history
+            )
             if self.config.enable_task_events and (
                 room_state.persisted_session_id != session_id or is_session_bootstrap
             ):
@@ -179,27 +183,40 @@ class OpencodeAdapter(SimpleAdapter[OpencodeSessionState]):
                     status="created" if created else "resumed",
                 )
 
-            room_state.turn_future = asyncio.get_running_loop().create_future()
-            room_state.pending_mentions = (
-                [{"id": msg.sender_id}] if msg.sender_id else []
-            )
-            room_state.text_parts.clear()
-            room_state.assistant_part_types.clear()
-            room_state.reported_tool_calls.clear()
-            room_state.reported_tool_results.clear()
-            room_state.last_error_message = None
+            self._begin_turn(room_state, sender_id=msg.sender_id)
+            try:
+                await client.prompt_async(
+                    session_id,
+                    parts=self._build_prompt_parts(
+                        msg,
+                        participants_msg,
+                        contacts_msg,
+                        replay_messages=(
+                            history.replay_messages
+                            if restored_missing_session
+                            else None
+                        ),
+                    ),
+                    system=self._system_prompt,
+                    model=self._build_model_payload(),
+                    agent=self.config.agent,
+                    variant=self.config.variant,
+                )
+            except Exception:
+                self._clear_turn_state(room_state)
+                raise
 
-            await client.prompt_async(
-                session_id,
-                parts=self._build_prompt_parts(msg, participants_msg, contacts_msg),
-                system=self._system_prompt,
-                model=self._build_model_payload(),
-                agent=self.config.agent,
-                variant=self.config.variant,
+            release_future = room_state.turn_release_future
+            turn_future = room_state.turn_future
+            turn_task = asyncio.create_task(
+                self._watch_turn_completion(room_state, room_id, turn_future)
             )
+            room_state.turn_task = turn_task
 
-            await asyncio.wait_for(room_state.turn_future, self.config.turn_timeout_s)
-            await self._deliver_fallback_text(room_state)
+            if release_future is not None:
+                await release_future
+            if turn_task.done():
+                await turn_task
         except asyncio.TimeoutError:
             logger.warning(
                 "OpenCode turn timed out for room %s (session=%s)",
@@ -230,9 +247,6 @@ class OpencodeAdapter(SimpleAdapter[OpencodeSessionState]):
                 "OpenCode failed while processing the message.",
                 "error",
             )
-        finally:
-            if room_state.turn_future and room_state.turn_future.done():
-                room_state.turn_future = None
 
     async def on_cleanup(self, room_id: str) -> None:
         room_state: _RoomState | None = None
@@ -245,8 +259,7 @@ class OpencodeAdapter(SimpleAdapter[OpencodeSessionState]):
             should_shutdown = not self._rooms
 
         if room_state:
-            self._cancel_pending_timeout(room_state.pending_permission)
-            self._cancel_pending_timeout(room_state.pending_question)
+            self._clear_turn_state(room_state)
 
         if should_shutdown:
             await self._shutdown_client()
@@ -356,13 +369,11 @@ class OpencodeAdapter(SimpleAdapter[OpencodeSessionState]):
             room_state.last_error_message = self._format_opencode_error(
                 properties.get("error")
             )
-            if room_state.turn_future and not room_state.turn_future.done():
-                room_state.turn_future.set_result(None)
+            self._finish_turn(room_state)
             return
 
         if event_type == "session.idle":
-            if room_state.turn_future and not room_state.turn_future.done():
-                room_state.turn_future.set_result(None)
+            self._finish_turn(room_state)
 
     async def _room_state_for_event(
         self, event_type: str, properties: dict[str, Any]
@@ -488,6 +499,7 @@ class OpencodeAdapter(SimpleAdapter[OpencodeSessionState]):
                     f"`always {request_id}`, or `reject {request_id}`."
                 )
             )
+        self._release_turn_wait(room_state)
 
     async def _handle_question_asked(
         self, room_state: _RoomState, properties: dict[str, Any]
@@ -514,6 +526,7 @@ class OpencodeAdapter(SimpleAdapter[OpencodeSessionState]):
         if room_state.tools:
             prompt = self._format_question_prompt(pending.questions, request_id)
             await room_state.tools.send_message(prompt)
+        self._release_turn_wait(room_state)
 
     async def _handle_control_message(
         self, room_state: _RoomState, msg: PlatformMessage
@@ -641,12 +654,13 @@ class OpencodeAdapter(SimpleAdapter[OpencodeSessionState]):
 
     async def _ensure_session(
         self, room_state: _RoomState, history: OpencodeSessionState
-    ) -> tuple[str, bool]:
+    ) -> tuple[str, bool, bool]:
         if self._client is None:
             raise RuntimeError("OpenCode client is not initialized")
 
         restored_session_id = room_state.session_id or history.session_id
         created = False
+        restored_missing_session = False
 
         if restored_session_id:
             try:
@@ -663,6 +677,7 @@ class OpencodeAdapter(SimpleAdapter[OpencodeSessionState]):
                     permission=self.config.session_permissions or None,
                 )
                 created = True
+                restored_missing_session = True
             session_id = str(session["id"])
         else:
             session = await self._client.create_session(
@@ -678,7 +693,98 @@ class OpencodeAdapter(SimpleAdapter[OpencodeSessionState]):
             room_state.session_id = session_id
             self._room_by_session[session_id] = room_state.room_id
 
-        return session_id, created
+        return session_id, created, restored_missing_session
+
+    def _begin_turn(self, room_state: _RoomState, *, sender_id: str | None) -> None:
+        loop = asyncio.get_running_loop()
+        room_state.turn_future = loop.create_future()
+        room_state.turn_release_future = loop.create_future()
+        room_state.turn_task = None
+        room_state.pending_mentions = [{"id": sender_id}] if sender_id else []
+        room_state.text_parts.clear()
+        room_state.assistant_message_ids.clear()
+        room_state.assistant_part_types.clear()
+        room_state.reported_tool_calls.clear()
+        room_state.reported_tool_results.clear()
+        room_state.last_error_message = None
+
+    async def _watch_turn_completion(
+        self,
+        room_state: _RoomState,
+        room_id: str,
+        turn_future: asyncio.Future[None] | None,
+    ) -> None:
+        if turn_future is None:
+            return
+
+        try:
+            await asyncio.wait_for(turn_future, self.config.turn_timeout_s)
+        except asyncio.TimeoutError:
+            logger.warning(
+                "OpenCode turn timed out for room %s (session=%s)",
+                room_id,
+                room_state.session_id,
+            )
+            if self._client and room_state.session_id:
+                try:
+                    await self._client.abort_session(room_state.session_id)
+                except Exception:
+                    logger.exception(
+                        "Failed to abort timed-out OpenCode session %s",
+                        room_state.session_id,
+                    )
+            if room_state.tools:
+                await room_state.tools.send_event(
+                    "OpenCode timed out before completing the turn.",
+                    "error",
+                )
+            self._release_turn_wait(room_state)
+        else:
+            await self._deliver_fallback_text(room_state)
+            self._release_turn_wait(room_state)
+        finally:
+            self._clear_turn_state(
+                room_state,
+                expected_future=turn_future,
+                expected_task=asyncio.current_task(),
+            )
+
+    def _release_turn_wait(self, room_state: _RoomState) -> None:
+        self._resolve_future(room_state.turn_release_future)
+
+    def _finish_turn(self, room_state: _RoomState) -> None:
+        self._resolve_future(room_state.turn_future)
+        self._resolve_future(room_state.turn_release_future)
+
+    def _clear_turn_state(
+        self,
+        room_state: _RoomState,
+        *,
+        expected_future: asyncio.Future[None] | None = None,
+        expected_task: asyncio.Task[None] | None = None,
+    ) -> None:
+        if (
+            expected_future is not None
+            and room_state.turn_future is not expected_future
+        ):
+            return
+
+        turn_task = room_state.turn_task
+        if turn_task is not None and turn_task is not expected_task:
+            turn_task.cancel()
+
+        self._cancel_pending_timeout(room_state.pending_permission)
+        self._cancel_pending_timeout(room_state.pending_question)
+        room_state.pending_permission = None
+        room_state.pending_question = None
+        room_state.turn_future = None
+        room_state.turn_release_future = None
+        room_state.turn_task = None
+
+    @staticmethod
+    def _resolve_future(future: asyncio.Future[None] | None) -> None:
+        if future is not None and not future.done():
+            future.set_result(None)
 
     async def _emit_session_task_event(
         self, room_state: _RoomState, *, status: str
@@ -793,8 +899,15 @@ class OpencodeAdapter(SimpleAdapter[OpencodeSessionState]):
         msg: PlatformMessage,
         participants_msg: str | None,
         contacts_msg: str | None,
+        *,
+        replay_messages: list[str] | None = None,
     ) -> list[dict[str, Any]]:
         lines: list[str] = []
+        if replay_messages:
+            lines.append(
+                "Previous OpenCode session state was missing. Recovered room history:"
+            )
+            lines.extend(replay_messages)
         if participants_msg:
             lines.append(f"[Participants]: {participants_msg}")
         if contacts_msg:
