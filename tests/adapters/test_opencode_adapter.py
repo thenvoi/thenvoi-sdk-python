@@ -118,13 +118,13 @@ def event_tool_part(
     call_id: str,
     status: str,
     input_data: dict[str, Any],
-    output: str | None = None,
+    output: Any = None,
 ) -> dict[str, Any]:
     state: dict[str, Any] = {"status": status, "input": input_data}
     if status == "running":
         state["time"] = {"start": 1}
     if status == "completed":
-        state["output"] = output or ""
+        state["output"] = "" if output is None else output
         state["title"] = tool
         state["metadata"] = {}
         state["time"] = {"start": 1, "end": 2}
@@ -628,6 +628,47 @@ class TestOpencodeAdapter:
         assert len(tool_results) == 1
         assert json.loads(tool_calls[0]["content"])["name"] == "bash"
         assert json.loads(tool_results[0]["content"])["output"] == "ok"
+
+    @pytest.mark.asyncio
+    async def test_preserves_falsy_tool_result_outputs_when_reporting(self) -> None:
+        fake_client = FakeOpencodeClient(
+            prompt_event_sequences=[
+                [
+                    event_tool_part(
+                        "sess-1",
+                        "msg-7",
+                        tool="bash",
+                        call_id="call-2",
+                        status="completed",
+                        input_data={"command": "printf 0"},
+                        output=0,
+                    ),
+                    event_session_idle("sess-1"),
+                ]
+            ]
+        )
+        adapter = OpencodeAdapter(
+            config=OpencodeAdapterConfig(enable_execution_reporting=True),
+            client_factory=lambda _config: fake_client,
+        )
+        tools = FakeAgentTools()
+
+        await adapter.on_started("OpenCode Agent", "A coding agent")
+        await adapter.on_message(
+            make_platform_message(),
+            tools_protocol(tools),
+            OpencodeSessionState(),
+            participants_msg=None,
+            contacts_msg=None,
+            is_session_bootstrap=True,
+            room_id="room-1",
+        )
+
+        tool_results = [
+            e for e in tools.events_sent if e["message_type"] == "tool_result"
+        ]
+        assert len(tool_results) == 1
+        assert json.loads(tool_results[0]["content"])["output"] == 0
 
     @pytest.mark.asyncio
     async def test_does_not_echo_user_text_parts_as_assistant_output(self) -> None:

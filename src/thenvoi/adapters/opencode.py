@@ -868,7 +868,7 @@ class OpencodeAdapter(SimpleAdapter[OpencodeSessionState]):
         if state.get("status") == "error":
             output = {"error": state.get("error") or "OpenCode tool failed"}
         else:
-            output = state.get("output") or ""
+            output = state["output"] if "output" in state else ""
 
         try:
             await room_state.tools.send_event(
