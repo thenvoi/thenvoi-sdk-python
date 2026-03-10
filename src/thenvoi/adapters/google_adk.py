@@ -224,8 +224,8 @@ def _get_tool_bridge_class() -> type:
                 logger.error("Invalid arguments for %s: %s", self.name, e)
                 return str(e)
             except Exception as e:
-                logger.error("Tool %s failed: %s", self.name, e)
-                return f"Error: {e}"
+                logger.exception("Tool %s failed", self.name)
+                return f"Error executing {self.name}: {e}"
 
     # Override every detected declaration method so the bridge works
     # even if ADK renames the internal API in a future minor release.
@@ -429,77 +429,77 @@ class GoogleADKAdapter(SimpleAdapter[GoogleADKMessages]):
         # accumulates session history internally and tool schemas may change
         # between calls.  History is injected as a text transcript instead.
         runner = self._create_runner(tools)
-
-        # Always create a new session ID — each runner is fresh, so there is
-        # no in-memory state to resume.  The ID is stored for cleanup tracking.
-        # The session must be pre-created in the runner's InMemorySessionService
-        # before calling run_async, which expects the session to already exist.
-        session_id = str(uuid.uuid4())
-        self._room_sessions[room_id] = session_id
-        await runner.session_service.create_session(
-            app_name=_APP_NAME,
-            user_id=room_id,
-            session_id=session_id,
-        )
-        logger.debug("Room %s: Created new ADK session %s", room_id, session_id)
-
-        # Build the user message content
-        parts: list[str] = []
-
-        # Inject recent accumulated history as transcript for context.
-        # Apply sliding window to avoid unbounded transcript growth.
-        room_history = self._room_history[room_id]
-        if room_history:
-            windowed = room_history[-self.max_history_messages :]
-            transcript = self._format_history_transcript(windowed)
-            if transcript:
-                if len(transcript) > self.max_transcript_chars:
-                    original_len = len(transcript)
-                    transcript = transcript[-self.max_transcript_chars :]
-                    # Cut to the next newline to avoid a partial first line
-                    nl = transcript.find("\n")
-                    if nl != -1:
-                        transcript = transcript[nl + 1 :]
-                    logger.warning(
-                        "Room %s: Transcript truncated from %d to %d chars "
-                        "to stay within token budget",
-                        room_id,
-                        original_len,
-                        len(transcript),
-                    )
-                parts.append(
-                    f"[Previous conversation context]\n{transcript}\n"
-                    f"[End of previous context]\n\n"
-                )
-
-        # Inject participants update
-        if participants_msg:
-            parts.append(f"[System]: {participants_msg}")
-            logger.info("Room %s: Participants updated", room_id)
-
-        # Inject contacts update
-        if contacts_msg:
-            parts.append(f"[System]: {contacts_msg}")
-            logger.info("Room %s: Contacts broadcast received", room_id)
-
-        # Add the actual message
-        parts.append(msg.format_for_llm())
-
-        user_content = types.Content(
-            role="user",
-            parts=[types.Part.from_text(text="\n".join(parts))],
-        )
-
-        logger.info(
-            "Room %s: Running ADK agent (bootstrap=%s, history_size=%s)",
-            room_id,
-            is_session_bootstrap,
-            len(room_history),
-        )
-
-        # Run the ADK agent - it handles the full tool loop
-        final_response_text = ""
         try:
+            # Always create a new session ID — each runner is fresh, so there
+            # is no in-memory state to resume.  The ID is stored for cleanup
+            # tracking.  The session must be pre-created in the runner's
+            # InMemorySessionService before calling run_async, which expects
+            # the session to already exist.
+            session_id = str(uuid.uuid4())
+            self._room_sessions[room_id] = session_id
+            await runner.session_service.create_session(
+                app_name=_APP_NAME,
+                user_id=room_id,
+                session_id=session_id,
+            )
+            logger.debug("Room %s: Created new ADK session %s", room_id, session_id)
+
+            # Build the user message content
+            parts: list[str] = []
+
+            # Inject recent accumulated history as transcript for context.
+            # Apply sliding window to avoid unbounded transcript growth.
+            room_history = self._room_history[room_id]
+            if room_history:
+                windowed = room_history[-self.max_history_messages :]
+                transcript = self._format_history_transcript(windowed)
+                if transcript:
+                    if len(transcript) > self.max_transcript_chars:
+                        original_len = len(transcript)
+                        transcript = transcript[-self.max_transcript_chars :]
+                        # Cut to the next newline to avoid a partial first line
+                        nl = transcript.find("\n")
+                        if nl != -1:
+                            transcript = transcript[nl + 1 :]
+                        logger.warning(
+                            "Room %s: Transcript truncated from %d to %d chars "
+                            "to stay within token budget",
+                            room_id,
+                            original_len,
+                            len(transcript),
+                        )
+                    parts.append(
+                        f"[Previous conversation context]\n{transcript}\n"
+                        f"[End of previous context]\n\n"
+                    )
+
+            # Inject participants update
+            if participants_msg:
+                parts.append(f"[System]: {participants_msg}")
+                logger.info("Room %s: Participants updated", room_id)
+
+            # Inject contacts update
+            if contacts_msg:
+                parts.append(f"[System]: {contacts_msg}")
+                logger.info("Room %s: Contacts broadcast received", room_id)
+
+            # Add the actual message
+            parts.append(msg.format_for_llm())
+
+            user_content = types.Content(
+                role="user",
+                parts=[types.Part.from_text(text="\n".join(parts))],
+            )
+
+            logger.info(
+                "Room %s: Running ADK agent (bootstrap=%s, history_size=%s)",
+                room_id,
+                is_session_bootstrap,
+                len(room_history),
+            )
+
+            # Run the ADK agent - it handles the full tool loop
+            final_response_text = ""
             async for event in runner.run_async(
                 user_id=room_id,
                 session_id=session_id,
@@ -520,7 +520,7 @@ class GoogleADKAdapter(SimpleAdapter[GoogleADKMessages]):
                         room_id,
                     )
         except Exception as e:
-            logger.error("Error running ADK agent: %s", e, exc_info=True)
+            logger.exception("Error running ADK agent in room %s", room_id)
             await self._report_error(tools, str(e))
             raise
         finally:
@@ -549,8 +549,8 @@ class GoogleADKAdapter(SimpleAdapter[GoogleADKMessages]):
     async def on_cleanup(self, room_id: str) -> None:
         """Clean up session and history when agent leaves a room."""
         self._room_history.pop(room_id, None)
-        if room_id in self._room_sessions:
-            del self._room_sessions[room_id]
+        removed = self._room_sessions.pop(room_id, None)
+        if removed is not None:
             logger.debug("Room %s: Cleaned up ADK session", room_id)
 
     def _format_history_transcript(self, history: GoogleADKMessages) -> str:
@@ -603,6 +603,10 @@ class GoogleADKAdapter(SimpleAdapter[GoogleADKMessages]):
         if not hasattr(event, "get_function_calls") or not hasattr(
             event, "get_function_responses"
         ):
+            logger.debug(
+                "Skipping event without function call/response methods: %s",
+                type(event).__name__,
+            )
             return
 
         function_calls = event.get_function_calls()
