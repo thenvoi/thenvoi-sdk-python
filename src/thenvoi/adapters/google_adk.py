@@ -62,7 +62,7 @@ def _require_adk() -> tuple[type, type, type, Any]:
     except ImportError as exc:
         raise ImportError(
             "google-adk is required for GoogleADKAdapter. "
-            "Install with: pip install thenvoi-sdk[google_adk]"
+            "Install with: uv add thenvoi-sdk[google_adk]"
         ) from exc
     return ADKAgent, InMemoryRunner, BaseTool, types
 

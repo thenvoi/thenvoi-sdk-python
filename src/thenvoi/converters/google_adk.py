@@ -37,7 +37,9 @@ def _patch_orphaned_tool_calls(messages: GoogleADKMessages) -> None:
         call_ids = {
             block["id"]
             for block in msg["content"]
-            if isinstance(block, dict) and block.get("type") == "function_call"
+            if isinstance(block, dict)
+            and block.get("type") == "function_call"
+            and "id" in block
         }
 
         if not call_ids:
