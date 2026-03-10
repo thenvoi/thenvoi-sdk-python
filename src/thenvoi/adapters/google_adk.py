@@ -37,6 +37,7 @@ logger = logging.getLogger(__name__)
 _APP_NAME = "thenvoi"
 _MAX_TOOL_OUTPUT_PREVIEW = 200
 _DEFAULT_MAX_HISTORY_MESSAGES = 50
+_DEFAULT_MAX_TRANSCRIPT_CHARS = 100_000
 
 
 @functools.lru_cache(maxsize=1)
@@ -209,6 +210,7 @@ class GoogleADKAdapter(SimpleAdapter[GoogleADKMessages]):
         history_converter: GoogleADKHistoryConverter | None = None,
         additional_tools: list[CustomToolDef] | None = None,
         max_history_messages: int = _DEFAULT_MAX_HISTORY_MESSAGES,
+        max_transcript_chars: int = _DEFAULT_MAX_TRANSCRIPT_CHARS,
     ):
         # Validate google-adk is installed early (cached, so cheap on repeat).
         _require_adk()
@@ -223,6 +225,7 @@ class GoogleADKAdapter(SimpleAdapter[GoogleADKMessages]):
         self.enable_execution_reporting = enable_execution_reporting
         self.enable_memory_tools = enable_memory_tools
         self.max_history_messages = max_history_messages
+        self.max_transcript_chars = max_transcript_chars
 
         # Custom tools (user-provided)
         self._custom_tools: list[CustomToolDef] = additional_tools or []
@@ -358,6 +361,20 @@ class GoogleADKAdapter(SimpleAdapter[GoogleADKMessages]):
             windowed = room_history[-self.max_history_messages :]
             transcript = self._format_history_transcript(windowed)
             if transcript:
+                if len(transcript) > self.max_transcript_chars:
+                    original_len = len(transcript)
+                    transcript = transcript[-self.max_transcript_chars :]
+                    # Cut to the next newline to avoid a partial first line
+                    nl = transcript.find("\n")
+                    if nl != -1:
+                        transcript = transcript[nl + 1 :]
+                    logger.warning(
+                        "Room %s: Transcript truncated from %d to %d chars "
+                        "to stay within token budget",
+                        room_id,
+                        original_len,
+                        len(transcript),
+                    )
                 parts.append(
                     f"[Previous conversation context]\n{transcript}\n"
                     f"[End of previous context]\n\n"

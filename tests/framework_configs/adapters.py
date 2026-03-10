@@ -539,6 +539,9 @@ def _build_google_adk_config() -> AdapterConfig:
             "max_history_messages": _default_from_init(
                 GoogleADKAdapter, "max_history_messages"
             ),
+            "max_transcript_chars": _default_from_init(
+                GoogleADKAdapter, "max_transcript_chars"
+            ),
         },
         custom_kwargs={
             "model": "gemini-2.5-pro",
