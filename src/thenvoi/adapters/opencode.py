@@ -215,7 +215,7 @@ class OpencodeAdapter(SimpleAdapter[OpencodeSessionState]):
 
             if release_future is not None:
                 await release_future
-            if turn_task.done():
+            if turn_future is not None and turn_future.done():
                 await turn_task
         except asyncio.TimeoutError:
             logger.warning(

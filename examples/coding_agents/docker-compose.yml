@@ -1,7 +1,7 @@
-# Multi-Agent Docker Compose: Claude SDK (planner) + Codex (reviewer)
+# Multi-Agent Docker Compose: Bridge coordinator + specialist agents
 #
-# Both agents share /workspace/repo and connect to the Thenvoi platform.
-# All agents read credentials from a single agent_config.yaml (keyed format).
+# All services share /workspace/repo and connect to the Thenvoi platform.
+# Agent credentials are loaded from a single keyed agent_config.yaml file.
 #
 # Named volumes (shared_repo, shared_notes, shared_state, shared_context) persist
 # after `docker compose down`.
@@ -13,6 +13,37 @@
 #   docker compose build
 #   docker compose up -d
 #   docker compose logs -f
+
+x-claude: &claude-base
+  restart: unless-stopped
+  build:
+    context: ../..
+    dockerfile: docker/claude_sdk/Dockerfile
+  env_file:
+    - path: .env
+      required: false
+  environment: &claude-env-base
+    AGENT_CONFIG: /app/config/agent_config.yaml
+    WORKSPACE: /workspace
+    GIT_SSH_STRICT_HOST_KEY_CHECKING: ${GIT_SSH_STRICT_HOST_KEY_CHECKING:-true}
+    REPO_INIT_LOCK_TIMEOUT_S: ${REPO_INIT_LOCK_TIMEOUT_S:-120}
+    THENVOI_REST_URL: ${THENVOI_REST_URL:-https://app.thenvoi.com}
+    THENVOI_WS_URL: ${THENVOI_WS_URL:-wss://app.thenvoi.com/api/v1/socket/websocket}
+  volumes: &claude-volumes
+    - ./agent_config.yaml:/app/config/agent_config.yaml:ro
+    - ./prompts:/app/config/prompts:ro
+    - shared_repo:/workspace/repo
+    - shared_notes:/workspace/notes
+    - shared_state:/workspace/state
+    - shared_context:/workspace/context
+    - ${HOME}/.ssh:/home/appuser/.ssh:ro
+    - ${HOME}/.gitconfig:/home/appuser/.gitconfig:ro
+    - ${HOME}/.config/gh:/home/appuser/.config/gh:ro
+  extra_hosts:
+    - "host.docker.internal:host-gateway"
+  working_dir: /workspace/repo
+  stdin_open: true
+  tty: true
 
 x-codex: &codex-base
   restart: unless-stopped
@@ -36,6 +67,7 @@ x-codex: &codex-base
     PHOENIX_CHANNELS_CLIENT_WHEEL: ${PHOENIX_CHANNELS_CLIENT_WHEEL:-}
   volumes: &codex-volumes
     - ./agent_config.yaml:/app/agent_config.yaml:ro
+    - ./prompts:/app/prompts:ro
     - shared_repo:/workspace/repo
     - shared_notes:/workspace/notes
     - shared_state:/workspace/state
@@ -54,41 +86,66 @@ x-codex: &codex-base
   tty: true
 
 services:
-  # ── Planner (Claude SDK) ────────────────────────────────────────────────
-  planner:
-    restart: unless-stopped
-    build:
-      context: ../..
-      dockerfile: docker/claude_sdk/Dockerfile
-    env_file:
-      - path: .env
-        required: false
+  # ── Bridge / Coordinator (Claude SDK) ──────────────────────────────────
+  bridge:
+    <<: *claude-base
     environment:
-      AGENT_CONFIG: /app/config/agent_config.yaml
-      AGENT_KEY: planner
-      AGENT_ROLE: planner
-      WORKSPACE: /workspace
-      GIT_SSH_STRICT_HOST_KEY_CHECKING: ${GIT_SSH_STRICT_HOST_KEY_CHECKING:-true}
-      REPO_INIT_LOCK_TIMEOUT_S: ${REPO_INIT_LOCK_TIMEOUT_S:-120}
-      THENVOI_REST_URL: ${THENVOI_REST_URL:-https://app.thenvoi.com}
-      THENVOI_WS_URL: ${THENVOI_WS_URL:-wss://app.thenvoi.com/api/v1/socket/websocket}
-      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
-    volumes:
-      - ./agent_config.yaml:/app/config/agent_config.yaml:ro
-      - ./prompts:/app/config/prompts:ro
-      - shared_repo:/workspace/repo
-      - shared_notes:/workspace/notes
-      - shared_state:/workspace/state
-      - shared_context:/workspace/context
-      - ${HOME}/.ssh:/home/appuser/.ssh:ro
-      - ${HOME}/.gitconfig:/home/appuser/.gitconfig:ro
-      - ${HOME}/.config/gh:/home/appuser/.config/gh:ro
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
+      <<: *claude-env-base
+      AGENT_KEY: ${BRIDGE_AGENT_KEY:-bridge}
+      AGENT_ROLE: bridge
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:?ANTHROPIC_API_KEY is required}
+      BRIDGE_HEALTH_HOST: ${BRIDGE_HEALTH_HOST:-0.0.0.0}
+      BRIDGE_HEALTH_PORT: ${BRIDGE_HEALTH_PORT:-18080}
+    command:
+      - /app/.venv/bin/python
+      - /app/examples/coding_agents/bridge_service.py
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:${BRIDGE_HEALTH_PORT:-18080}/health >/dev/null || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+      start_period: 15s
+    networks:
+      thenvoi_multi_agent:
+        aliases:
+          - bridge
+          - coordinator
 
-  # ── Reviewer (Codex) ───────────────────────────────────────────────────
+  # ── Planner Specialist (Claude SDK) ─────────────────────────────────────
+  planner:
+    <<: *claude-base
+    depends_on:
+      bridge:
+        condition: service_healthy
+    environment:
+      <<: *claude-env-base
+      AGENT_KEY: ${PLANNER_AGENT_KEY:-planner}
+      AGENT_ROLE: planner
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:?ANTHROPIC_API_KEY is required}
+      BRIDGE_HEALTH_URL: http://bridge:${BRIDGE_HEALTH_PORT:-18080}/health
+      BRIDGE_WAIT_TIMEOUT_S: ${BRIDGE_WAIT_TIMEOUT_S:-120}
+      BRIDGE_WAIT_INTERVAL_S: ${BRIDGE_WAIT_INTERVAL_S:-2}
+    command:
+      - bash
+      - -lc
+      - /app/examples/coding_agents/wait_for_bridge.sh && exec /app/.venv/bin/python /app/docker/claude_sdk/runner.py
+    healthcheck:
+      test: ["CMD-SHELL", "pgrep -f '/app/docker/claude_sdk/runner.py' >/dev/null || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    networks:
+      thenvoi_multi_agent:
+        aliases:
+          - planner
+
+  # ── Reviewer Specialist (Codex) ─────────────────────────────────────────
   reviewer:
     <<: *codex-base
+    depends_on:
+      bridge:
+        condition: service_healthy
     environment:
       <<: *codex-env-base
       AGENT_KEY: ${REVIEWER_AGENT_KEY:-reviewer}
@@ -97,7 +154,24 @@ services:
       CODEX_REASONING_EFFORT: ${REVIEWER_REASONING_EFFORT:-xhigh}
       CODEX_SANDBOX: ${REVIEWER_SANDBOX:-external-sandbox}
       CODEX_APPROVAL_MODE: ${REVIEWER_APPROVAL_MODE:-manual}
-      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:?OPENAI_API_KEY is required}
+      BRIDGE_HEALTH_URL: http://bridge:${BRIDGE_HEALTH_PORT:-18080}/health
+      BRIDGE_WAIT_TIMEOUT_S: ${BRIDGE_WAIT_TIMEOUT_S:-120}
+      BRIDGE_WAIT_INTERVAL_S: ${BRIDGE_WAIT_INTERVAL_S:-2}
+    command:
+      - bash
+      - -lc
+      - /app/examples/coding_agents/wait_for_bridge.sh && exec /app/.venv/bin/python /app/docker/codex/runner.py
+    healthcheck:
+      test: ["CMD-SHELL", "pgrep -f '/app/docker/codex/runner.py' >/dev/null || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    networks:
+      thenvoi_multi_agent:
+        aliases:
+          - reviewer
 
 volumes:
   codex_sessions:
@@ -105,3 +179,7 @@ volumes:
   shared_notes:
   shared_state:
   shared_context:
+
+networks:
+  thenvoi_multi_agent:
+    driver: bridge
