@@ -145,6 +145,12 @@ class GoogleADKHistoryConverter(HistoryConverter[GoogleADKMessages]):
     Tool events are stored in platform as JSON:
     - tool_call: {"name": "...", "args": {...}, "tool_call_id": "..."}
     - tool_result: {"name": "...", "output": "...", "tool_call_id": "...", "is_error": bool}
+
+    Note: The adapter creates a fresh InMemoryRunner per message and injects
+    history as a text transcript (via ``_format_history_transcript``), so the
+    structured function_call/function_response blocks produced here are
+    consumed only for transcript formatting and conformance validation, not
+    passed directly to ADK as ``Content`` objects.
     """
 
     def __init__(self, agent_name: str = ""):

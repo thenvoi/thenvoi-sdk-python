@@ -138,12 +138,25 @@ def _get_tool_bridge_class() -> type:
 
             Note: ``_get_declaration`` is a BaseTool internal that ADK calls to
             register tools with the Gemini API.  Pinned to google-adk >=1.0,<2.
+
+            Raises:
+                AttributeError: If google-adk changes or removes this internal
+                    API.  The version pin ``<2`` in pyproject.toml limits
+                    exposure, but patch releases could still break this.
             """
-            return types.FunctionDeclaration(
-                name=self.name,
-                description=self.description,
-                parameters=_strip_additional_properties(self._parameters_schema),
-            )
+            try:
+                return types.FunctionDeclaration(
+                    name=self.name,
+                    description=self.description,
+                    parameters=_strip_additional_properties(self._parameters_schema),
+                )
+            except Exception as exc:
+                raise RuntimeError(
+                    f"Failed to build FunctionDeclaration for tool '{self.name}'. "
+                    "This may indicate an incompatible google-adk version — "
+                    "the adapter relies on BaseTool._get_declaration which is "
+                    "an internal API pinned to google-adk >=1.0,<2."
+                ) from exc
 
         async def run_async(
             self,
@@ -236,6 +249,9 @@ class GoogleADKAdapter(SimpleAdapter[GoogleADKMessages]):
         # Per-room accumulated message history for transcript injection.
         # A fresh InMemoryRunner is created per message, so continuity comes
         # from injecting the accumulated transcript, not from runner state.
+        # Thread-safety: the runtime's ExecutionContext guarantees that
+        # on_message is called sequentially per room (single asyncio.Task per
+        # room with an asyncio.Queue), so no lock is needed here.
         self._room_history: dict[str, GoogleADKMessages] = {}
 
         # Per-room session IDs for logging/debugging.
