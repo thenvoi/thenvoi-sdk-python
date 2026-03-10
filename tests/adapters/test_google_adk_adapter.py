@@ -9,18 +9,21 @@ session management, tool bridging, custom tools, and error handling.
 
 from __future__ import annotations
 
+import importlib
 from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from pydantic import BaseModel, Field
-
-from thenvoi.adapters.google_adk import (
-    GoogleADKAdapter,
-    _ThenvoiToolBridge,
-    _strip_additional_properties,
-)
 from thenvoi.core.types import PlatformMessage
+
+pytest.importorskip("google.adk", reason="google-adk not installed")
+
+# Imports below require google-adk; guarded by importorskip above.
+_google_adk_mod = importlib.import_module("thenvoi.adapters.google_adk")
+GoogleADKAdapter = _google_adk_mod.GoogleADKAdapter
+_ThenvoiToolBridge = _google_adk_mod._ThenvoiToolBridge
+_strip_additional_properties = _google_adk_mod._strip_additional_properties
 
 
 @pytest.fixture
@@ -1027,6 +1030,42 @@ class TestHistoryAccumulation:
         # Older messages should be excluded
         assert "Message 0" not in text
         assert "Message 6" not in text
+
+    @pytest.mark.asyncio
+    async def test_history_trimmed_to_prevent_unbounded_growth(
+        self, sample_message, mock_tools
+    ):
+        """Should trim accumulated history when it exceeds 2x max_history_messages."""
+        adapter = GoogleADKAdapter(max_history_messages=3)
+        await adapter.on_started("TestBot", "Test bot")
+
+        # Seed room history just below the trim threshold (2 * 3 = 6)
+        adapter._room_history["room-123"] = [
+            {"role": "user", "content": f"[User]: Message {i}"} for i in range(6)
+        ]
+
+        with patch.object(adapter, "_create_runner") as mock_create:
+            mock_runner = AsyncMock()
+            mock_runner.run_async = _empty_async_iter
+            mock_runner.close = AsyncMock()
+            mock_create.return_value = mock_runner
+
+            await adapter.on_message(
+                msg=sample_message,
+                tools=mock_tools,
+                history=[],
+                participants_msg=None,
+                contacts_msg=None,
+                is_session_bootstrap=False,
+                room_id="room-123",
+            )
+
+        # 6 seeded + 1 new user message = 7 > threshold (6), triggers trim to 3
+        history = adapter._room_history["room-123"]
+        assert len(history) == 3
+        # Should keep the most recent messages
+        assert history[-1]["role"] == "user"
+        assert history[-1]["content"] == "[Alice]: Hello, agent!"
 
 
 class TestFinalResponseCapture:

@@ -250,11 +250,11 @@ class GoogleADKAdapter(SimpleAdapter[GoogleADKMessages]):
                     tool_description=func_def.get("description", ""),
                     parameters_schema=func_def.get("parameters", {}),
                     tools=tools,
-                    custom_tools=[],
+                    custom_tools=self._custom_tools,
                 )
             )
 
-        # Add custom tool bridges (only these need the custom tools list)
+        # Add custom tool bridges
         if self._custom_tools:
             custom_schemas = custom_tools_to_schemas(self._custom_tools, "openai")
             for schema in custom_schemas:
@@ -407,6 +407,15 @@ class GoogleADKAdapter(SimpleAdapter[GoogleADKMessages]):
             self._room_history[room_id].append(
                 {"role": "model", "content": final_response_text}
             )
+
+        # Trim accumulated history to prevent unbounded memory growth.
+        # Keep twice the window so the sliding window in the next call
+        # still has a full page of messages to work with.
+        trim_threshold = self.max_history_messages * 2
+        if len(self._room_history[room_id]) > trim_threshold:
+            self._room_history[room_id] = self._room_history[room_id][
+                -self.max_history_messages :
+            ]
 
         logger.debug("Message %s processed successfully", msg.id)
 
