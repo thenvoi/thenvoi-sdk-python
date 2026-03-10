@@ -23,7 +23,7 @@ pytest.importorskip("google.adk", reason="google-adk not installed")
 # Imports below require google-adk; guarded by importorskip above.
 _google_adk_mod = importlib.import_module("thenvoi.adapters.google_adk")
 GoogleADKAdapter = _google_adk_mod.GoogleADKAdapter
-_ThenvoiToolBridge = _google_adk_mod._ThenvoiToolBridge
+_ThenvoiToolBridge = _google_adk_mod._get_tool_bridge_class()
 _strip_additional_properties = _google_adk_mod._strip_additional_properties
 
 

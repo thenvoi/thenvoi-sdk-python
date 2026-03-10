@@ -8,6 +8,7 @@ management and session handling.
 
 from __future__ import annotations
 
+import functools
 import json
 import logging
 import uuid
@@ -28,6 +29,7 @@ from thenvoi.runtime.custom_tools import (
 from thenvoi.runtime.prompts import render_system_prompt
 
 if TYPE_CHECKING:
+    from google.adk.runners import InMemoryRunner
     from google.adk.tools import ToolContext
 
 logger = logging.getLogger(__name__)
@@ -37,13 +39,13 @@ _MAX_TOOL_OUTPUT_PREVIEW = 200
 _DEFAULT_MAX_HISTORY_MESSAGES = 50
 
 
+@functools.lru_cache(maxsize=1)
 def _require_adk() -> tuple[type, type, type, Any]:
-    """Import Google ADK dependencies, raising a clear error if missing.
+    """Import Google ADK dependencies lazily.
 
-    Called at module level because ``_ThenvoiToolBridge`` needs ``BaseTool``
-    as its base class at class-definition time.  The module-level
-    ``__getattr__`` in ``thenvoi.adapters.__init__`` ensures this module is
-    only loaded when ``GoogleADKAdapter`` is actually requested.
+    Cached after the first successful call so repeated access is free.
+    Only triggered when ``GoogleADKAdapter`` is instantiated, not at
+    module import time.
 
     Returns:
         (ADKAgent, InMemoryRunner, BaseTool, types) tuple.
@@ -62,9 +64,6 @@ def _require_adk() -> tuple[type, type, type, Any]:
             "Install with: pip install thenvoi-sdk[google_adk]"
         ) from exc
     return ADKAgent, InMemoryRunner, BaseTool, types
-
-
-_ADKAgent, _InMemoryRunner, _BaseTool, _types = _require_adk()
 
 
 def _strip_additional_properties(
@@ -98,74 +97,86 @@ def _strip_additional_properties(
     return cleaned
 
 
-class _ThenvoiToolBridge(_BaseTool):
-    """Bridges a Thenvoi platform tool to Google ADK.
+@functools.lru_cache(maxsize=1)
+def _get_tool_bridge_class() -> type:
+    """Build the ``_ThenvoiToolBridge`` class lazily.
 
-    Wraps a tool schema from AgentToolsProtocol into a BaseTool that ADK
-    can register with its agent. Execution delegates to the platform's
-    execute_tool_call method.
+    Defined inside a factory because it needs ``BaseTool`` as its base
+    class, which requires ``google-adk`` to be installed.  Cached so the
+    class is created only once.
     """
+    _, _, BaseTool, types = _require_adk()
 
-    # Inherited from BaseTool (declared for pyrefly visibility)
-    name: str
-    description: str
+    class _ThenvoiToolBridge(BaseTool):
+        """Bridges a Thenvoi platform tool to Google ADK.
 
-    def __init__(
-        self,
-        tool_name: str,
-        tool_description: str,
-        parameters_schema: dict[str, Any],
-        tools: AgentToolsProtocol,
-        custom_tools: list[CustomToolDef],
-    ):
-        super().__init__(name=tool_name, description=tool_description)
-        self._parameters_schema = parameters_schema
-        self._tools = tools
-        self._custom_tools = custom_tools
-
-    def _get_declaration(self) -> _types.FunctionDeclaration:
-        """Build a FunctionDeclaration from the OpenAI-format schema.
-
-        Note: ``_get_declaration`` is a BaseTool internal that ADK calls to
-        register tools with the Gemini API.  Pinned to google-adk >=1.0,<2.
+        Wraps a tool schema from AgentToolsProtocol into a BaseTool that ADK
+        can register with its agent. Execution delegates to the platform's
+        execute_tool_call method.
         """
-        return _types.FunctionDeclaration(
-            name=self.name,
-            description=self.description,
-            parameters=_strip_additional_properties(self._parameters_schema),
-        )
 
-    async def run_async(
-        self,
-        *,
-        args: dict[str, Any],
-        tool_context: ToolContext,
-    ) -> Any:
-        """Execute the tool via Thenvoi's AgentToolsProtocol."""
-        try:
-            custom_tool = find_custom_tool(self._custom_tools, self.name)
-            if custom_tool:
-                result = await execute_custom_tool(custom_tool, args)
-            else:
-                result = await self._tools.execute_tool_call(self.name, args)
+        # Inherited from BaseTool (declared for pyrefly visibility)
+        name: str
+        description: str
 
-            if not isinstance(result, str):
-                return json.dumps(result, default=str)
-            return result
-        except ValidationError as e:
-            errors = "; ".join(
-                f"{'.'.join(str(x) for x in err['loc'])}: {err['msg']}"
-                for err in e.errors()
+        def __init__(
+            self,
+            tool_name: str,
+            tool_description: str,
+            parameters_schema: dict[str, Any],
+            tools: AgentToolsProtocol,
+            custom_tools: list[CustomToolDef],
+        ):
+            super().__init__(name=tool_name, description=tool_description)
+            self._parameters_schema = parameters_schema
+            self._tools = tools
+            self._custom_tools = custom_tools
+
+        def _get_declaration(self) -> types.FunctionDeclaration:
+            """Build a FunctionDeclaration from the OpenAI-format schema.
+
+            Note: ``_get_declaration`` is a BaseTool internal that ADK calls to
+            register tools with the Gemini API.  Pinned to google-adk >=1.0,<2.
+            """
+            return types.FunctionDeclaration(
+                name=self.name,
+                description=self.description,
+                parameters=_strip_additional_properties(self._parameters_schema),
             )
-            msg = f"Invalid arguments for {self.name}: {errors}"
-            logger.error("Tool %s validation failed: %s", self.name, msg)
-            return msg
-        except ValueError as e:
-            logger.error("Invalid arguments for %s: %s", self.name, e)
-            return str(e)
-        except Exception as e:
-            logger.error("Tool %s failed: %s", self.name, e)
-            return f"Error: {e}"
+
+        async def run_async(
+            self,
+            *,
+            args: dict[str, Any],
+            tool_context: ToolContext,
+        ) -> Any:
+            """Execute the tool via Thenvoi's AgentToolsProtocol."""
+            try:
+                custom_tool = find_custom_tool(self._custom_tools, self.name)
+                if custom_tool:
+                    result = await execute_custom_tool(custom_tool, args)
+                else:
+                    result = await self._tools.execute_tool_call(self.name, args)
+
+                if not isinstance(result, str):
+                    return json.dumps(result, default=str)
+                return result
+            except ValidationError as e:
+                errors = "; ".join(
+                    f"{'.'.join(str(x) for x in err['loc'])}: {err['msg']}"
+                    for err in e.errors()
+                )
+                msg = f"Invalid arguments for {self.name}: {errors}"
+                logger.error("Tool %s validation failed: %s", self.name, msg)
+                return msg
+            except ValueError as e:
+                logger.error("Invalid arguments for %s: %s", self.name, e)
+                return str(e)
+            except Exception as e:
+                logger.error("Tool %s failed: %s", self.name, e)
+                return f"Error: {e}"
+
+    return _ThenvoiToolBridge
 
 
 class GoogleADKAdapter(SimpleAdapter[GoogleADKMessages]):
@@ -175,9 +186,9 @@ class GoogleADKAdapter(SimpleAdapter[GoogleADKMessages]):
     Uses Google's Agent Development Kit with Gemini models for agent
     interactions, with automatic tool bridging and session management.
 
-    Tool bridges (``_ThenvoiToolBridge``) are created per ``on_message`` call
-    with direct references to the current ``AgentToolsProtocol`` and custom
-    tools, so each invocation is self-contained and safe for concurrent use.
+    Tool bridges are created per ``on_message`` call with direct references
+    to the current ``AgentToolsProtocol`` and custom tools, so each
+    invocation is self-contained and safe for concurrent use.
 
     Example:
         adapter = GoogleADKAdapter(
@@ -199,6 +210,9 @@ class GoogleADKAdapter(SimpleAdapter[GoogleADKMessages]):
         additional_tools: list[CustomToolDef] | None = None,
         max_history_messages: int = _DEFAULT_MAX_HISTORY_MESSAGES,
     ):
+        # Validate google-adk is installed early (cached, so cheap on repeat).
+        _require_adk()
+
         super().__init__(
             history_converter=history_converter or GoogleADKHistoryConverter()
         )
@@ -235,17 +249,18 @@ class GoogleADKAdapter(SimpleAdapter[GoogleADKMessages]):
 
         logger.info("Google ADK adapter started for agent: %s", agent_name)
 
-    def _build_adk_tools(self, tools: AgentToolsProtocol) -> list[_ThenvoiToolBridge]:
+    def _build_adk_tools(self, tools: AgentToolsProtocol) -> list[Any]:
         """Build ADK tool bridges from Thenvoi tool schemas."""
+        ToolBridge = _get_tool_bridge_class()
         openai_schemas = tools.get_openai_tool_schemas(
             include_memory=self.enable_memory_tools
         )
 
-        adk_tools: list[_ThenvoiToolBridge] = []
+        adk_tools: list[Any] = []
         for schema in openai_schemas:
             func_def = schema["function"]
             adk_tools.append(
-                _ThenvoiToolBridge(
+                ToolBridge(
                     tool_name=func_def["name"],
                     tool_description=func_def.get("description", ""),
                     parameters_schema=func_def.get("parameters", {}),
@@ -260,7 +275,7 @@ class GoogleADKAdapter(SimpleAdapter[GoogleADKMessages]):
             for schema in custom_schemas:
                 func_def = schema["function"]
                 adk_tools.append(
-                    _ThenvoiToolBridge(
+                    ToolBridge(
                         tool_name=func_def["name"],
                         tool_description=func_def.get("description", ""),
                         parameters_schema=func_def.get("parameters", {}),
@@ -271,18 +286,19 @@ class GoogleADKAdapter(SimpleAdapter[GoogleADKMessages]):
 
         return adk_tools
 
-    def _create_runner(self, tools: AgentToolsProtocol) -> _InMemoryRunner:
+    def _create_runner(self, tools: AgentToolsProtocol) -> InMemoryRunner:
         """Create a fresh ADK InMemoryRunner with current tools."""
+        ADKAgent, InMemoryRunnerCls, _, _ = _require_adk()
         adk_tools = self._build_adk_tools(tools)
 
-        adk_agent = _ADKAgent(
+        adk_agent = ADKAgent(
             name=self.agent_name or "thenvoi_agent",
             model=self.model,
             instruction=self._system_prompt,
             tools=adk_tools,
         )
 
-        return _InMemoryRunner(
+        return InMemoryRunnerCls(
             agent=adk_agent,
             app_name=_APP_NAME,
         )
@@ -304,6 +320,8 @@ class GoogleADKAdapter(SimpleAdapter[GoogleADKMessages]):
         Uses ADK's Runner for the full tool loop. The runner handles
         LLM calls, tool execution, and conversation management.
         """
+        _, _, _, types = _require_adk()
+
         logger.debug("Handling message %s in room %s", msg.id, room_id)
 
         # Initialize or seed per-room history
@@ -358,9 +376,9 @@ class GoogleADKAdapter(SimpleAdapter[GoogleADKMessages]):
         # Add the actual message
         parts.append(msg.format_for_llm())
 
-        user_content = _types.Content(
+        user_content = types.Content(
             role="user",
-            parts=[_types.Part.from_text(text="\n".join(parts))],
+            parts=[types.Part.from_text(text="\n".join(parts))],
         )
 
         logger.info(
