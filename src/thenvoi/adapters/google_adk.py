@@ -432,8 +432,15 @@ class GoogleADKAdapter(SimpleAdapter[GoogleADKMessages]):
 
         # Always create a new session ID — each runner is fresh, so there is
         # no in-memory state to resume.  The ID is stored for cleanup tracking.
+        # The session must be pre-created in the runner's InMemorySessionService
+        # before calling run_async, which expects the session to already exist.
         session_id = str(uuid.uuid4())
         self._room_sessions[room_id] = session_id
+        await runner.session_service.create_session(
+            app_name=_APP_NAME,
+            user_id=room_id,
+            session_id=session_id,
+        )
         logger.debug("Room %s: Created new ADK session %s", room_id, session_id)
 
         # Build the user message content
