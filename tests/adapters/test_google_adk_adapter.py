@@ -115,6 +115,16 @@ class TestInitialization:
         adapter = GoogleADKAdapter()
         assert adapter.history_converter is not None
 
+    def test_max_history_messages_default(self):
+        """Should default max_history_messages to 50."""
+        adapter = GoogleADKAdapter()
+        assert adapter.max_history_messages == 50
+
+    def test_custom_max_history_messages(self):
+        """Should accept custom max_history_messages."""
+        adapter = GoogleADKAdapter(max_history_messages=100)
+        assert adapter.max_history_messages == 100
+
 
 class TestOnStarted:
     """Tests for on_started() method."""
@@ -974,6 +984,49 @@ class TestHistoryAccumulation:
 
         assert "room-123" not in adapter._room_history
         assert "room-123" not in adapter._room_sessions
+
+    @pytest.mark.asyncio
+    async def test_sliding_window_limits_transcript(self, sample_message, mock_tools):
+        """Should only inject the last max_history_messages in the transcript."""
+        adapter = GoogleADKAdapter(max_history_messages=3)
+        await adapter.on_started("TestBot", "Test bot")
+
+        # Seed room history with more messages than the window
+        adapter._room_history["room-123"] = [
+            {"role": "user", "content": f"[User]: Message {i}"} for i in range(10)
+        ]
+
+        captured_messages = []
+
+        with patch.object(adapter, "_create_runner") as mock_create:
+            mock_runner = AsyncMock()
+
+            def capture_run(**kwargs):
+                captured_messages.append(kwargs.get("new_message"))
+                return _empty_async_iter()
+
+            mock_runner.run_async = capture_run
+            mock_runner.close = AsyncMock()
+            mock_create.return_value = mock_runner
+
+            await adapter.on_message(
+                msg=sample_message,
+                tools=mock_tools,
+                history=[],
+                participants_msg=None,
+                contacts_msg=None,
+                is_session_bootstrap=False,
+                room_id="room-123",
+            )
+
+        text = captured_messages[0].parts[0].text
+        # Only the last 3 messages should be in the transcript
+        assert "Message 7" in text
+        assert "Message 8" in text
+        assert "Message 9" in text
+        # Older messages should be excluded
+        assert "Message 0" not in text
+        assert "Message 6" not in text
 
 
 class TestFinalResponseCapture:

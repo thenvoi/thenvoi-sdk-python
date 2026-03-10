@@ -536,6 +536,9 @@ def _build_google_adk_config() -> AdapterConfig:
                 GoogleADKAdapter, "enable_memory_tools"
             ),
             "custom_section": _default_from_init(GoogleADKAdapter, "custom_section"),
+            "max_history_messages": _default_from_init(
+                GoogleADKAdapter, "max_history_messages"
+            ),
         },
         custom_kwargs={
             "model": "gemini-2.5-pro",

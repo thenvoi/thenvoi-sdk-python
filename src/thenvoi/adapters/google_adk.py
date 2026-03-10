@@ -34,6 +34,7 @@ logger = logging.getLogger(__name__)
 
 _APP_NAME = "thenvoi"
 _MAX_TOOL_OUTPUT_PREVIEW = 200
+_DEFAULT_MAX_HISTORY_MESSAGES = 50
 
 
 def _require_adk() -> tuple[type, type, type, Any]:
@@ -196,6 +197,7 @@ class GoogleADKAdapter(SimpleAdapter[GoogleADKMessages]):
         enable_memory_tools: bool = False,
         history_converter: GoogleADKHistoryConverter | None = None,
         additional_tools: list[CustomToolDef] | None = None,
+        max_history_messages: int = _DEFAULT_MAX_HISTORY_MESSAGES,
     ):
         super().__init__(
             history_converter=history_converter or GoogleADKHistoryConverter()
@@ -206,6 +208,7 @@ class GoogleADKAdapter(SimpleAdapter[GoogleADKMessages]):
         self.custom_section = custom_section
         self.enable_execution_reporting = enable_execution_reporting
         self.enable_memory_tools = enable_memory_tools
+        self.max_history_messages = max_history_messages
 
         # Custom tools (user-provided)
         self._custom_tools: list[CustomToolDef] = additional_tools or []
@@ -330,10 +333,12 @@ class GoogleADKAdapter(SimpleAdapter[GoogleADKMessages]):
         # Build the user message content
         parts: list[str] = []
 
-        # Always inject accumulated history as transcript for context
+        # Inject recent accumulated history as transcript for context.
+        # Apply sliding window to avoid unbounded transcript growth.
         room_history = self._room_history[room_id]
         if room_history:
-            transcript = self._format_history_transcript(room_history)
+            windowed = room_history[-self.max_history_messages :]
+            transcript = self._format_history_transcript(windowed)
             if transcript:
                 parts.append(
                     f"[Previous conversation context]\n{transcript}\n"
