@@ -19,7 +19,6 @@ class OpencodeClientProtocol(Protocol):
         self,
         *,
         title: str | None = None,
-        permission: list[dict[str, str]] | None = None,
     ) -> dict[str, Any]: ...
 
     async def get_session(self, session_id: str) -> dict[str, Any]: ...
@@ -37,10 +36,10 @@ class OpencodeClientProtocol(Protocol):
 
     async def reply_permission(
         self,
-        request_id: str,
+        session_id: str,
+        permission_id: str,
         *,
-        reply: str,
-        message: str | None = None,
+        response: str,
     ) -> None: ...
 
     async def reply_question(
@@ -50,6 +49,10 @@ class OpencodeClientProtocol(Protocol):
     async def reject_question(self, request_id: str) -> None: ...
 
     async def abort_session(self, session_id: str) -> None: ...
+
+    async def register_mcp_server(self, *, name: str, url: str) -> dict[str, Any]: ...
+
+    async def deregister_mcp_server(self, name: str) -> None: ...
 
     def iter_events(self) -> AsyncIterator[dict[str, Any]]: ...
 
@@ -79,6 +82,7 @@ class HttpOpencodeClient(OpencodeClientProtocol):
 
         self._directory = directory
         self._workspace = workspace
+        self._last_event_id: str | None = None
         self._client = httpx.AsyncClient(
             base_url=base_url.rstrip("/"),
             headers=headers,
@@ -97,13 +101,10 @@ class HttpOpencodeClient(OpencodeClientProtocol):
         self,
         *,
         title: str | None = None,
-        permission: list[dict[str, str]] | None = None,
     ) -> dict[str, Any]:
         payload: dict[str, Any] = {}
         if title:
             payload["title"] = title
-        if permission:
-            payload["permission"] = permission
 
         response = await self._client.post(
             "/session",
@@ -150,21 +151,17 @@ class HttpOpencodeClient(OpencodeClientProtocol):
 
     async def reply_permission(
         self,
-        request_id: str,
+        session_id: str,
+        permission_id: str,
         *,
-        reply: str,
-        message: str | None = None,
+        response: str,
     ) -> None:
-        payload: dict[str, Any] = {"reply": reply}
-        if message:
-            payload["message"] = message
-
-        response = await self._client.post(
-            f"/permission/{request_id}/reply",
+        resp = await self._client.post(
+            f"/session/{session_id}/permissions/{permission_id}",
             params=self._query_params(),
-            json=payload,
+            json={"response": response},
         )
-        response.raise_for_status()
+        resp.raise_for_status()
 
     async def reply_question(
         self, request_id: str, *, answers: list[list[str]]
@@ -190,16 +187,41 @@ class HttpOpencodeClient(OpencodeClientProtocol):
         )
         response.raise_for_status()
 
+    async def register_mcp_server(self, *, name: str, url: str) -> dict[str, Any]:
+        response = await self._client.post(
+            "/mcp",
+            params=self._query_params(),
+            json={
+                "name": name,
+                "config": {"type": "remote", "url": url},
+            },
+        )
+        response.raise_for_status()
+        return response.json()
+
+    async def deregister_mcp_server(self, name: str) -> None:
+        response = await self._client.delete(
+            f"/mcp/{name}",
+            params=self._query_params(),
+        )
+        response.raise_for_status()
+
     async def iter_events(self) -> AsyncIterator[dict[str, Any]]:
+        headers: dict[str, str] = {}
+        if self._last_event_id:
+            headers["Last-Event-ID"] = self._last_event_id
+
         async with self._client.stream(
             "GET",
             "/event",
             params=self._query_params(),
-            timeout=None,
+            headers=headers,
+            timeout=httpx.Timeout(None, read=60.0),
         ) as response:
             response.raise_for_status()
 
             event_name: str | None = None
+            event_id: str | None = None
             data_lines: list[str] = []
 
             async for line in response.aiter_lines():
@@ -222,12 +244,19 @@ class HttpOpencodeClient(OpencodeClientProtocol):
                                 event["type"] = event_name
                             if isinstance(event, dict):
                                 yield event
+                        if event_id is not None:
+                            self._last_event_id = event_id
                     event_name = None
+                    event_id = None
                     data_lines = []
                     continue
 
                 if line.startswith("event:"):
                     event_name = line[6:].strip() or None
+                    continue
+
+                if line.startswith("id:"):
+                    event_id = line[3:].strip() or None
                     continue
 
                 if line.startswith("data:"):

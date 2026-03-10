@@ -57,6 +57,10 @@ class TestOpencodeHistoryConverter:
     def test_set_agent_name_is_noop(self) -> None:
         converter = OpencodeHistoryConverter()
         converter.set_agent_name("ignored")
+        # Converter still works after calling set_agent_name
+        state = converter.convert([])
+        assert state.session_id is None
+        assert state.replay_messages == []
 
     def test_convert_collects_replayable_text_history(self) -> None:
         converter = OpencodeHistoryConverter()

@@ -36,6 +36,9 @@ codex = [
 ]
 opencode = [
     "httpx>=0.24.0",
+    "mcp>=1.0.0",          # MCP SDK for custom tools bridge
+    "starlette>=0.40.0",   # HTTP server for MCP SSE transport
+    "uvicorn>=0.32.0",     # ASGI server for MCP bridge
 ]
 letta = [
     "letta-client>=0.1.0",

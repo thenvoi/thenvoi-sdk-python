@@ -12,12 +12,14 @@ from typing import Any, Callable, Literal
 
 import httpx
 
+from thenvoi.converters._utils import optional_str
 from thenvoi.converters.opencode import OpencodeHistoryConverter
 from thenvoi.core.protocols import AgentToolsProtocol
 from thenvoi.core.simple_adapter import SimpleAdapter
 from thenvoi.core.types import PlatformMessage
 from thenvoi.integrations.opencode import (
     HttpOpencodeClient,
+    McpToolBridge,
     OpencodeClientProtocol,
     OpencodeSessionState,
 )
@@ -95,11 +97,27 @@ class OpencodeAdapterConfig:
     question_mode: QuestionMode = "manual"
     question_wait_timeout_s: float = 300.0
     session_title_prefix: str = "Thenvoi"
-    session_permissions: list[dict[str, str]] = field(default_factory=list)
 
 
 class OpencodeAdapter(SimpleAdapter[OpencodeSessionState]):
-    """Thenvoi adapter for the OpenCode HTTP server."""
+    """Thenvoi adapter for the OpenCode HTTP server.
+
+    Maps each Thenvoi room to an OpenCode session. Messages from the room
+    are forwarded as prompts; SSE events from OpenCode are relayed back as
+    room messages, tool-call/result reports, and error events.
+
+    Approval lifecycle (``approval_mode``):
+      * ``manual`` -- permission prompts are forwarded to the room; the user
+        replies with ``approve``, ``always``, or ``reject`` before a
+        configurable timeout (``approval_wait_timeout_s``).
+      * ``auto_accept`` -- every permission is approved with ``once``.
+      * ``auto_decline`` -- every permission is rejected immediately.
+
+    Question lifecycle (``question_mode``):
+      * ``manual`` -- questions are forwarded to the room; the user replies
+        with answers or ``reject`` before ``question_wait_timeout_s``.
+      * ``auto_reject`` -- questions are rejected immediately.
+    """
 
     def __init__(
         self,
@@ -118,6 +136,7 @@ class OpencodeAdapter(SimpleAdapter[OpencodeSessionState]):
         self._client_factory = client_factory or self._default_client_factory
         self._client: OpencodeClientProtocol | None = None
         self._event_task: asyncio.Task[None] | None = None
+        self._mcp_bridge: McpToolBridge | None = None
         self._rooms: dict[str, _RoomState] = {}
         self._room_by_session: dict[str, str] = {}
         self._state_lock = asyncio.Lock()
@@ -137,10 +156,26 @@ class OpencodeAdapter(SimpleAdapter[OpencodeSessionState]):
         )
 
         if self._custom_tools:
-            logger.warning(
-                "OpenCode custom tools are currently ignored because the HTTP API "
-                "does not expose client-executed tool registration"
-            )
+            await self._start_mcp_bridge()
+
+        self._log_startup_config(agent_name)
+
+    def _log_startup_config(self, agent_name: str) -> None:
+        logger.info(
+            "OpenCode adapter started: agent=%s, base_url=%s, "
+            "provider=%s, model=%s, approval_mode=%s, "
+            "question_mode=%s, execution_reporting=%s, "
+            "task_events=%s, custom_tools=%d",
+            agent_name,
+            self.config.base_url,
+            self.config.provider_id or "default",
+            self.config.model_id or "default",
+            self.config.approval_mode,
+            self.config.question_mode,
+            self.config.enable_execution_reporting,
+            self.config.enable_task_events,
+            len(self._custom_tools),
+        )
 
     async def on_message(
         self,
@@ -283,12 +318,68 @@ class OpencodeAdapter(SimpleAdapter[OpencodeSessionState]):
             return state
 
     async def _ensure_client_started(self) -> None:
-        if self._client is None:
-            self._client = self._client_factory(self.config)
-        if self._event_task is None or self._event_task.done():
-            self._event_task = asyncio.create_task(self._run_event_loop())
+        async with self._state_lock:
+            was_new = self._client is None
+            if self._client is None:
+                self._client = self._client_factory(self.config)
+            if self._event_task is None or self._event_task.done():
+                self._event_task = asyncio.create_task(self._run_event_loop())
+
+        if was_new and self._mcp_bridge is not None:
+            await self._register_mcp_bridge()
+
+    async def _start_mcp_bridge(self) -> None:
+        """Start an MCP server bridge and register it with OpenCode."""
+        bridge = McpToolBridge(custom_tools=self._custom_tools)
+        url = await bridge.start()
+        self._mcp_bridge = bridge
+
+        # Registration happens when the client is first started, since the
+        # OpenCode server may not be running yet during on_started.
+        logger.info(
+            "MCP bridge ready at %s; will register with OpenCode on first connect",
+            url,
+        )
+
+    async def _register_mcp_bridge(self) -> None:
+        """Register the running MCP bridge with the OpenCode server."""
+        if self._mcp_bridge is None or self._client is None:
+            return
+        url = self._mcp_bridge.url
+        if url is None:
+            return
+        try:
+            await self._client.register_mcp_server(
+                name=self._mcp_bridge.server_name,
+                url=f"{url}/sse",
+            )
+            logger.info(
+                "Registered MCP server %s with OpenCode",
+                self._mcp_bridge.server_name,
+            )
+        except Exception:
+            logger.exception("Failed to register MCP bridge with OpenCode")
+
+    async def _stop_mcp_bridge(self) -> None:
+        """Deregister and stop the MCP bridge."""
+        bridge = self._mcp_bridge
+        self._mcp_bridge = None
+        if bridge is None:
+            return
+
+        if self._client is not None:
+            try:
+                await self._client.deregister_mcp_server(bridge.server_name)
+            except Exception:
+                logger.debug(
+                    "Failed to deregister MCP server %s (OpenCode may already be stopped)",
+                    bridge.server_name,
+                )
+        await bridge.stop()
 
     async def _shutdown_client(self) -> None:
+        await self._stop_mcp_bridge()
+
         event_task = self._event_task
         client = self._client
         self._event_task = None
@@ -308,18 +399,25 @@ class OpencodeAdapter(SimpleAdapter[OpencodeSessionState]):
                 logger.exception("Failed to close OpenCode client")
 
     async def _run_event_loop(self) -> None:
+        retry_delay = 1.0
+        max_retry_delay = 30.0
+
         while self._client is not None:
             try:
                 client = self._client
                 if client is None:
                     return
                 async for event in client.iter_events():
+                    retry_delay = 1.0  # reset on successful event
                     await self._handle_event(event)
             except asyncio.CancelledError:
                 raise
             except Exception:
-                logger.exception("OpenCode event stream failed; retrying")
-                await asyncio.sleep(1.0)
+                logger.exception(
+                    "OpenCode event stream failed; retrying in %.1fs", retry_delay
+                )
+                await asyncio.sleep(retry_delay)
+                retry_delay = min(retry_delay * 2, max_retry_delay)
             else:
                 await asyncio.sleep(0.25)
 
@@ -336,7 +434,7 @@ class OpencodeAdapter(SimpleAdapter[OpencodeSessionState]):
         if event_type == "message.updated":
             info = properties.get("info") or {}
             if isinstance(info, dict):
-                message_id = self._optional_str(info.get("id"))
+                message_id = optional_str(info.get("id"))
                 if info.get("role") == "assistant":
                     if message_id:
                         room_state.assistant_message_ids.add(message_id)
@@ -380,15 +478,15 @@ class OpencodeAdapter(SimpleAdapter[OpencodeSessionState]):
     ) -> _RoomState | None:
         session_id: str | None = None
         if "sessionID" in properties:
-            session_id = self._optional_str(properties.get("sessionID"))
+            session_id = optional_str(properties.get("sessionID"))
         elif event_type == "message.updated":
             info = properties.get("info") or {}
             if isinstance(info, dict):
-                session_id = self._optional_str(info.get("sessionID"))
+                session_id = optional_str(info.get("sessionID"))
         elif event_type == "message.part.updated":
             part = properties.get("part") or {}
             if isinstance(part, dict):
-                session_id = self._optional_str(part.get("sessionID"))
+                session_id = optional_str(part.get("sessionID"))
 
         if not session_id:
             return None
@@ -403,8 +501,8 @@ class OpencodeAdapter(SimpleAdapter[OpencodeSessionState]):
         self, room_state: _RoomState, part: dict[str, Any]
     ) -> None:
         part_type = part.get("type")
-        part_id = self._optional_str(part.get("id"))
-        message_id = self._optional_str(part.get("messageID"))
+        part_id = optional_str(part.get("id"))
+        message_id = optional_str(part.get("messageID"))
         if not part_id:
             return
 
@@ -428,8 +526,8 @@ class OpencodeAdapter(SimpleAdapter[OpencodeSessionState]):
         if not isinstance(state, dict):
             return
 
-        tool_name = self._optional_str(part.get("tool")) or "unknown"
-        call_id = self._optional_str(part.get("callID")) or part_id
+        tool_name = optional_str(part.get("tool")) or "unknown"
+        call_id = optional_str(part.get("callID")) or part_id
         if state.get("status") in {"pending", "running"}:
             if call_id not in room_state.reported_tool_calls:
                 room_state.reported_tool_calls.add(call_id)
@@ -449,8 +547,8 @@ class OpencodeAdapter(SimpleAdapter[OpencodeSessionState]):
     ) -> None:
         if properties.get("field") != "text":
             return
-        part_id = self._optional_str(properties.get("partID"))
-        message_id = self._optional_str(properties.get("messageID"))
+        part_id = optional_str(properties.get("partID"))
+        message_id = optional_str(properties.get("messageID"))
         if not part_id:
             return
         if not message_id or message_id not in room_state.assistant_message_ids:
@@ -463,13 +561,13 @@ class OpencodeAdapter(SimpleAdapter[OpencodeSessionState]):
     async def _handle_permission_asked(
         self, room_state: _RoomState, properties: dict[str, Any]
     ) -> None:
-        request_id = self._optional_str(properties.get("id"))
+        request_id = optional_str(properties.get("id"))
         if not request_id:
             return
 
         pending = _PendingPermission(
             request_id=request_id,
-            permission=self._optional_str(properties.get("permission")) or "unknown",
+            permission=optional_str(properties.get("permission")) or "unknown",
             patterns=[
                 str(pattern)
                 for pattern in properties.get("patterns") or []
@@ -504,7 +602,7 @@ class OpencodeAdapter(SimpleAdapter[OpencodeSessionState]):
     async def _handle_question_asked(
         self, room_state: _RoomState, properties: dict[str, Any]
     ) -> None:
-        request_id = self._optional_str(properties.get("id"))
+        request_id = optional_str(properties.get("id"))
         questions = properties.get("questions") or []
         if not request_id or not isinstance(questions, list):
             return
@@ -584,10 +682,18 @@ class OpencodeAdapter(SimpleAdapter[OpencodeSessionState]):
         pending = room_state.pending_permission
         if pending is None or self._client is None:
             return
+        if not room_state.session_id:
+            logger.warning(
+                "Cannot reply to permission %s: no session_id for room %s",
+                pending.request_id,
+                room_state.room_id,
+            )
+            return
         self._cancel_pending_timeout(pending)
         await self._client.reply_permission(
+            room_state.session_id,
             pending.request_id,
-            reply=reply,
+            response=reply,
         )
         room_state.pending_permission = None
 
@@ -674,7 +780,6 @@ class OpencodeAdapter(SimpleAdapter[OpencodeSessionState]):
                 )
                 session = await self._client.create_session(
                     title=self._build_session_title(room_state.room_id),
-                    permission=self.config.session_permissions or None,
                 )
                 created = True
                 restored_missing_session = True
@@ -682,7 +787,6 @@ class OpencodeAdapter(SimpleAdapter[OpencodeSessionState]):
         else:
             session = await self._client.create_session(
                 title=self._build_session_title(room_state.room_id),
-                permission=self.config.session_permissions or None,
             )
             session_id = str(session["id"])
             created = True
@@ -909,9 +1013,9 @@ class OpencodeAdapter(SimpleAdapter[OpencodeSessionState]):
             )
             lines.extend(replay_messages)
         if participants_msg:
-            lines.append(f"[Participants]: {participants_msg}")
+            lines.append(f"[System]: {participants_msg}")
         if contacts_msg:
-            lines.append(f"[Contacts]: {contacts_msg}")
+            lines.append(f"[System]: {contacts_msg}")
 
         sender_name = msg.sender_name or "Unknown"
         lines.append(f"[{sender_name}]: {msg.content}")
@@ -978,9 +1082,3 @@ class OpencodeAdapter(SimpleAdapter[OpencodeSessionState]):
             if message:
                 return f"{name}: {message}"
         return f"{name}: OpenCode reported an error."
-
-    @staticmethod
-    def _optional_str(value: Any) -> str | None:
-        if value is None:
-            return None
-        return str(value)

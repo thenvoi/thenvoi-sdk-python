@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime
 from typing import Any
 
+from thenvoi.converters._utils import optional_str, parse_iso_datetime
 from thenvoi.core.protocols import HistoryConverter
 from thenvoi.integrations.opencode.types import OpencodeSessionState
 
@@ -34,30 +34,15 @@ class OpencodeHistoryConverter(HistoryConverter["OpencodeSessionState"]):
             if not session_id:
                 continue
 
-            created_at = self._parse_iso_datetime(metadata.get("opencode_created_at"))
+            created_at = parse_iso_datetime(metadata.get("opencode_created_at"))
             return OpencodeSessionState(
                 session_id=str(session_id),
-                room_id=self._optional_str(metadata.get("opencode_room_id")),
+                room_id=optional_str(metadata.get("opencode_room_id")),
                 created_at=created_at,
                 replay_messages=replay_messages,
             )
 
         return OpencodeSessionState(replay_messages=replay_messages)
-
-    @staticmethod
-    def _parse_iso_datetime(value: Any) -> datetime | None:
-        if not isinstance(value, str) or not value:
-            return None
-        try:
-            return datetime.fromisoformat(value.replace("Z", "+00:00"))
-        except ValueError:
-            return None
-
-    @staticmethod
-    def _optional_str(value: Any) -> str | None:
-        if value is None:
-            return None
-        return str(value)
 
     @staticmethod
     def _build_replay_messages(raw: list[dict[str, Any]]) -> list[str]:
@@ -67,13 +52,13 @@ class OpencodeHistoryConverter(HistoryConverter["OpencodeSessionState"]):
             if msg.get("message_type") != "text":
                 continue
 
-            content = OpencodeHistoryConverter._optional_str(msg.get("content"))
+            content = optional_str(msg.get("content"))
             if not content:
                 continue
 
             sender_name = (
-                OpencodeHistoryConverter._optional_str(msg.get("sender_name"))
-                or OpencodeHistoryConverter._optional_str(msg.get("sender_type"))
+                optional_str(msg.get("sender_name"))
+                or optional_str(msg.get("sender_type"))
                 or "Unknown"
             )
             replay_messages.append(f"[{sender_name}]: {content}")

@@ -193,6 +193,7 @@ class FakeOpencodeClient:
         prompt_event_sequences: list[list[dict[str, Any]]] | None = None,
         reply_permission_events: dict[str, list[dict[str, Any]]] | None = None,
         reply_question_events: dict[str, list[dict[str, Any]]] | None = None,
+        reject_question_events: dict[str, list[dict[str, Any]]] | None = None,
         get_session_missing: set[str] | None = None,
         prompt_exceptions: list[Exception] | None = None,
     ) -> None:
@@ -208,6 +209,7 @@ class FakeOpencodeClient:
         self._prompt_event_sequences = list(prompt_event_sequences or [])
         self._reply_permission_events = reply_permission_events or {}
         self._reply_question_events = reply_question_events or {}
+        self._reject_question_events = reject_question_events or {}
         self._get_session_missing = get_session_missing or set()
         self._prompt_exceptions = list(prompt_exceptions or [])
 
@@ -215,13 +217,11 @@ class FakeOpencodeClient:
         self,
         *,
         title: str | None = None,
-        permission: list[dict[str, str]] | None = None,
     ) -> dict[str, Any]:
         self._session_counter += 1
         session = {
             "id": f"sess-{self._session_counter}",
             "title": title or "",
-            "permission": permission or [],
         }
         self.created_sessions.append(session)
         return session
@@ -260,15 +260,19 @@ class FakeOpencodeClient:
 
     async def reply_permission(
         self,
-        request_id: str,
+        session_id: str,
+        permission_id: str,
         *,
-        reply: str,
-        message: str | None = None,
+        response: str,
     ) -> None:
         self.permission_replies.append(
-            {"request_id": request_id, "reply": reply, "message": message}
+            {
+                "session_id": session_id,
+                "permission_id": permission_id,
+                "response": response,
+            }
         )
-        for event in self._reply_permission_events.get(request_id, []):
+        for event in self._reply_permission_events.get(permission_id, []):
             await self._queue.put(event)
 
     async def reply_question(
@@ -280,9 +284,17 @@ class FakeOpencodeClient:
 
     async def reject_question(self, request_id: str) -> None:
         self.question_rejections.append(request_id)
+        for event in self._reject_question_events.get(request_id, []):
+            await self._queue.put(event)
 
     async def abort_session(self, session_id: str) -> None:
         self.aborted_sessions.append(session_id)
+
+    async def register_mcp_server(self, *, name: str, url: str) -> dict[str, Any]:
+        return {"name": name, "url": url}
+
+    async def deregister_mcp_server(self, name: str) -> None:
+        pass
 
     async def iter_events(self):
         while True:
@@ -430,7 +442,7 @@ class TestOpencodeAdapter:
         )
 
         assert fake_client.permission_replies == [
-            {"request_id": "req-1", "reply": "once", "message": None}
+            {"session_id": "sess-1", "permission_id": "req-1", "response": "once"}
         ]
         assert any(msg["content"] == "Approved and done" for msg in tools.messages_sent)
 
@@ -797,3 +809,304 @@ class TestOpencodeAdapter:
         await adapter.on_cleanup("room-1")
         await adapter.on_cleanup("room-1")
         assert fake_client.closed is True
+
+    @pytest.mark.asyncio
+    async def test_auto_accept_approval_mode(self) -> None:
+        fake_client = FakeOpencodeClient(
+            prompt_event_sequences=[
+                [event_permission("sess-1", "perm-1")],
+            ],
+            reply_permission_events={
+                "perm-1": [
+                    event_message_updated("sess-1", "msg-auto"),
+                    event_text_part("sess-1", "msg-auto", "auto accepted"),
+                    event_session_idle("sess-1"),
+                ]
+            },
+        )
+        adapter = OpencodeAdapter(
+            config=OpencodeAdapterConfig(approval_mode="auto_accept"),
+            client_factory=lambda _config: fake_client,
+        )
+        tools = FakeAgentTools()
+
+        await adapter.on_started("OpenCode Agent", "A coding agent")
+        await adapter.on_message(
+            make_platform_message(),
+            tools_protocol(tools),
+            OpencodeSessionState(),
+            participants_msg=None,
+            contacts_msg=None,
+            is_session_bootstrap=True,
+            room_id="room-1",
+        )
+
+        assert fake_client.permission_replies == [
+            {"session_id": "sess-1", "permission_id": "perm-1", "response": "once"}
+        ]
+        # No approval prompt sent to user in auto_accept mode
+        assert not any(
+            "approval requested" in m["content"].lower() for m in tools.messages_sent
+        )
+
+    @pytest.mark.asyncio
+    async def test_auto_decline_approval_mode(self) -> None:
+        fake_client = FakeOpencodeClient(
+            prompt_event_sequences=[
+                [event_permission("sess-1", "perm-1")],
+            ],
+            reply_permission_events={"perm-1": [event_session_idle("sess-1")]},
+        )
+        adapter = OpencodeAdapter(
+            config=OpencodeAdapterConfig(approval_mode="auto_decline"),
+            client_factory=lambda _config: fake_client,
+        )
+        tools = FakeAgentTools()
+
+        await adapter.on_started("OpenCode Agent", "A coding agent")
+        await adapter.on_message(
+            make_platform_message(),
+            tools_protocol(tools),
+            OpencodeSessionState(),
+            participants_msg=None,
+            contacts_msg=None,
+            is_session_bootstrap=True,
+            room_id="room-1",
+        )
+
+        assert fake_client.permission_replies == [
+            {"session_id": "sess-1", "permission_id": "perm-1", "response": "reject"}
+        ]
+
+    @pytest.mark.asyncio
+    async def test_auto_reject_question_mode(self) -> None:
+        fake_client = FakeOpencodeClient(
+            prompt_event_sequences=[[event_question("sess-1", "q-1", "What to do?")]],
+            reject_question_events={"q-1": [event_session_idle("sess-1")]},
+        )
+        adapter = OpencodeAdapter(
+            config=OpencodeAdapterConfig(question_mode="auto_reject"),
+            client_factory=lambda _config: fake_client,
+        )
+        tools = FakeAgentTools()
+
+        await adapter.on_started("OpenCode Agent", "A coding agent")
+        await adapter.on_message(
+            make_platform_message(),
+            tools_protocol(tools),
+            OpencodeSessionState(),
+            participants_msg=None,
+            contacts_msg=None,
+            is_session_bootstrap=True,
+            room_id="room-1",
+        )
+
+        assert fake_client.question_rejections == ["q-1"]
+        assert not any(
+            "asked question" in m["content"].lower() for m in tools.messages_sent
+        )
+
+    @pytest.mark.asyncio
+    async def test_permission_timeout_expiry(self) -> None:
+        fake_client = FakeOpencodeClient(
+            prompt_event_sequences=[[event_permission("sess-1", "perm-timeout")]],
+            reply_permission_events={"perm-timeout": [event_session_idle("sess-1")]},
+        )
+        adapter = OpencodeAdapter(
+            config=OpencodeAdapterConfig(
+                approval_mode="manual",
+                approval_wait_timeout_s=0.1,
+                approval_timeout_reply="reject",
+            ),
+            client_factory=lambda _config: fake_client,
+        )
+        tools = FakeAgentTools()
+
+        await adapter.on_started("OpenCode Agent", "A coding agent")
+        await adapter.on_message(
+            make_platform_message(),
+            tools_protocol(tools),
+            OpencodeSessionState(),
+            participants_msg=None,
+            contacts_msg=None,
+            is_session_bootstrap=True,
+            room_id="room-1",
+        )
+
+        await wait_for(lambda: len(fake_client.permission_replies) > 0, timeout_s=3.0)
+        assert fake_client.permission_replies[0]["response"] == "reject"
+        error_events = [e for e in tools.events_sent if e["message_type"] == "error"]
+        assert any("timed out" in e["content"].lower() for e in error_events)
+
+    @pytest.mark.asyncio
+    async def test_question_timeout_expiry(self) -> None:
+        fake_client = FakeOpencodeClient(
+            prompt_event_sequences=[
+                [event_question("sess-1", "q-timeout", "Pick a color")]
+            ],
+            reply_question_events={"q-timeout": [event_session_idle("sess-1")]},
+        )
+        adapter = OpencodeAdapter(
+            config=OpencodeAdapterConfig(
+                question_mode="manual",
+                question_wait_timeout_s=0.1,
+            ),
+            client_factory=lambda _config: fake_client,
+        )
+        tools = FakeAgentTools()
+
+        await adapter.on_started("OpenCode Agent", "A coding agent")
+        await adapter.on_message(
+            make_platform_message(),
+            tools_protocol(tools),
+            OpencodeSessionState(),
+            participants_msg=None,
+            contacts_msg=None,
+            is_session_bootstrap=True,
+            room_id="room-1",
+        )
+
+        await wait_for(lambda: len(fake_client.question_rejections) > 0, timeout_s=3.0)
+        assert fake_client.question_rejections == ["q-timeout"]
+        error_events = [e for e in tools.events_sent if e["message_type"] == "error"]
+        assert any("timed out" in e["content"].lower() for e in error_events)
+
+    @pytest.mark.asyncio
+    async def test_concurrent_message_rejected(self) -> None:
+        """Sending a second message while a turn is active returns an error."""
+        # First prompt never completes (no session.idle event)
+        fake_client = FakeOpencodeClient(
+            prompt_event_sequences=[
+                [event_message_updated("sess-1", "msg-long")],
+                [],  # second prompt gets empty events
+            ]
+        )
+        adapter = OpencodeAdapter(client_factory=lambda _config: fake_client)
+        tools = FakeAgentTools()
+
+        await adapter.on_started("OpenCode Agent", "A coding agent")
+        first_task = asyncio.create_task(
+            adapter.on_message(
+                make_platform_message(content="first"),
+                tools_protocol(tools),
+                OpencodeSessionState(),
+                participants_msg=None,
+                contacts_msg=None,
+                is_session_bootstrap=True,
+                room_id="room-1",
+            )
+        )
+        # Wait for first turn to start
+        await wait_for(lambda: len(fake_client.prompt_calls) > 0)
+
+        # Send second message while first is active
+        await adapter.on_message(
+            make_platform_message(content="second"),
+            tools_protocol(tools),
+            OpencodeSessionState(session_id="sess-1", room_id="room-1"),
+            participants_msg=None,
+            contacts_msg=None,
+            is_session_bootstrap=False,
+            room_id="room-1",
+        )
+
+        # Second message should get rejected with "still processing" error
+        error_events = [e for e in tools.events_sent if e["message_type"] == "error"]
+        assert any("still processing" in e["content"].lower() for e in error_events)
+        assert len(fake_client.prompt_calls) == 1
+
+        # Clean up: cancel the first task
+        first_task.cancel()
+        try:
+            await first_task
+        except asyncio.CancelledError:
+            pass
+        await adapter.on_cleanup("room-1")
+
+    @pytest.mark.asyncio
+    async def test_cleanup_with_pending_permission(self) -> None:
+        """Cleanup mid-permission cancels timeout without crash."""
+        fake_client = FakeOpencodeClient(
+            prompt_event_sequences=[[event_permission("sess-1", "perm-cleanup")]],
+        )
+        adapter = OpencodeAdapter(
+            config=OpencodeAdapterConfig(approval_mode="manual"),
+            client_factory=lambda _config: fake_client,
+        )
+        tools = FakeAgentTools()
+
+        await adapter.on_started("OpenCode Agent", "A coding agent")
+        task = asyncio.create_task(
+            adapter.on_message(
+                make_platform_message(),
+                tools_protocol(tools),
+                OpencodeSessionState(),
+                participants_msg=None,
+                contacts_msg=None,
+                is_session_bootstrap=True,
+                room_id="room-1",
+            )
+        )
+
+        await wait_for(
+            lambda: any(
+                "approval requested" in m["content"].lower()
+                for m in tools.messages_sent
+            )
+        )
+
+        # Cleanup while permission is pending
+        await adapter.on_cleanup("room-1")
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+
+        # No permission reply should have been sent (just cleaned up)
+        assert fake_client.permission_replies == []
+
+    @pytest.mark.asyncio
+    async def test_cleanup_with_pending_question(self) -> None:
+        """Cleanup mid-question cancels timeout without crash."""
+        fake_client = FakeOpencodeClient(
+            prompt_event_sequences=[
+                [event_question("sess-1", "q-cleanup", "Something?")]
+            ],
+        )
+        adapter = OpencodeAdapter(
+            config=OpencodeAdapterConfig(question_mode="manual"),
+            client_factory=lambda _config: fake_client,
+        )
+        tools = FakeAgentTools()
+
+        await adapter.on_started("OpenCode Agent", "A coding agent")
+        task = asyncio.create_task(
+            adapter.on_message(
+                make_platform_message(),
+                tools_protocol(tools),
+                OpencodeSessionState(),
+                participants_msg=None,
+                contacts_msg=None,
+                is_session_bootstrap=True,
+                room_id="room-1",
+            )
+        )
+
+        await wait_for(
+            lambda: any(
+                "asked question" in m["content"].lower() for m in tools.messages_sent
+            )
+        )
+
+        # Cleanup while question is pending
+        await adapter.on_cleanup("room-1")
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+
+        # No question reply should have been sent
+        assert fake_client.question_replies == []
+        assert fake_client.question_rejections == []

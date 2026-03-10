@@ -226,6 +226,7 @@ def _build_parlant_config() -> ConverterConfig:
 CONVERTER_EXCLUDED_MODULES: frozenset[str] = frozenset(
     {
         "_tool_parsing",
+        "_utils",
         "a2a",
         "a2a_gateway",
         "codex",
