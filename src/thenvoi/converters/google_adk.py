@@ -93,6 +93,9 @@ def _patch_orphaned_tool_calls(messages: GoogleADKMessages) -> None:
                     i + 1,
                     {"role": "user", "content": synthetic_results},
                 )
+                # Skip past the newly inserted synthetic message so it is
+                # not re-examined (it contains no function_call blocks).
+                i += 1
 
         i += 1
 
