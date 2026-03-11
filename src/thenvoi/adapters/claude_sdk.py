@@ -222,7 +222,7 @@ class ClaudeSDKAdapter(SimpleAdapter[ClaudeSDKSessionState]):
         # Approval flow state
         # {room_id: {token: _PendingApproval, ...}}
         self._pending_approvals: dict[str, dict[str, _PendingApproval]] = {}
-        self._approval_seq: int = 0
+        self._approval_seq: dict[str, int] = {}  # per-room counters
         # Track last message sender per room (for approval mentions)
         self._room_last_sender: dict[str, dict[str, str]] = {}
 
@@ -931,7 +931,10 @@ class ClaudeSDKAdapter(SimpleAdapter[ClaudeSDKSessionState]):
         command = self._extract_command(msg.content)
         if command is not None:
             cmd, args = command
-            if cmd in {"approve", "decline", "approvals"}:
+            if (
+                cmd in {"approve", "decline", "approvals"}
+                and self.approval_mode is not None
+            ):
                 handled = await self._handle_approval_command(
                     tools=tools,
                     room_id=room_id,
@@ -1253,8 +1256,8 @@ class ClaudeSDKAdapter(SimpleAdapter[ClaudeSDKSessionState]):
                 f"Approval requested ({summary}). Policy decision: **{decision}**.",
                 mentions=mention,
             )
-        except Exception:
-            logger.exception("Failed to send approval policy notification")
+        except Exception as e:
+            logger.warning("Failed to send approval policy notification: %s", e)
 
     async def _resolve_manual_approval(
         self,
@@ -1265,7 +1268,7 @@ class ClaudeSDKAdapter(SimpleAdapter[ClaudeSDKSessionState]):
     ) -> PermissionResultAllow | PermissionResultDeny:
         """Block until a user approves / declines via ``/approve`` or ``/decline``."""
         loop = asyncio.get_running_loop()
-        token = self._next_approval_token()
+        token = self._next_approval_token(room_id)
 
         pending = _PendingApproval(
             tool_name=tool_name,
@@ -1345,10 +1348,13 @@ class ClaudeSDKAdapter(SimpleAdapter[ClaudeSDKSessionState]):
     def _extract_command(content: str) -> tuple[str, str] | None:
         """Check *content* for a ``/command`` in the first few tokens.
 
+        Only tokens starting with ``/`` are considered.
         Returns ``(command, rest)`` or ``None``.
         """
         tokens = content.split(None, 5)[:5]
         for token in tokens:
+            if not token.startswith("/"):
+                continue
             clean = token.lstrip("/")
             if clean.lower() in _LOCAL_CMDS:
                 idx = content.find(token)
@@ -1460,10 +1466,11 @@ class ClaudeSDKAdapter(SimpleAdapter[ClaudeSDKSessionState]):
             return f"{tool_name}: {file_path}"
         return tool_name
 
-    def _next_approval_token(self) -> str:
-        """Generate a short, incrementing approval token."""
-        self._approval_seq += 1
-        return f"a-{self._approval_seq}"
+    def _next_approval_token(self, room_id: str) -> str:
+        """Generate a short, per-room incrementing approval token."""
+        seq = self._approval_seq.get(room_id, 0) + 1
+        self._approval_seq[room_id] = seq
+        return f"a-{seq}"
 
     def _clear_pending_approval(self, room_id: str, token: str) -> None:
         """Remove a single pending approval from a room."""
@@ -1480,3 +1487,4 @@ class ClaudeSDKAdapter(SimpleAdapter[ClaudeSDKSessionState]):
         for item in room_pending.values():
             if not item.future.done():
                 item.future.set_result("decline")
+        self._approval_seq.pop(room_id, None)

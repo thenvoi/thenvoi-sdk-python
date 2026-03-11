@@ -6,6 +6,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from claude_agent_sdk import ClaudeAgentOptions
+
 
 @pytest.fixture
 def mock_options() -> MagicMock:
@@ -17,6 +19,18 @@ def mock_options() -> MagicMock:
     opts.allowed_tools = []
     opts.permission_mode = "acceptEdits"
     return opts
+
+
+@pytest.fixture
+def real_options() -> ClaudeAgentOptions:
+    """Create a real ClaudeAgentOptions dataclass for _build_options tests."""
+    return ClaudeAgentOptions(
+        model="claude-sonnet-4-5-20250929",
+        system_prompt="You are a test bot.",
+        mcp_servers={"thenvoi": MagicMock()},
+        allowed_tools=["mcp__thenvoi__thenvoi_send_message"],
+        permission_mode="acceptEdits",
+    )
 
 
 class TestInvalidateSession:
@@ -137,3 +151,64 @@ class TestInvalidateSession:
         assert manager._sessions["room-b"] is client_b
 
         await manager.stop()
+
+
+class TestBuildOptions:
+    """Tests for _build_options() using dataclasses.replace()."""
+
+    def test_preserves_all_base_fields(self, real_options: ClaudeAgentOptions) -> None:
+        """_build_options should preserve all base_options fields."""
+        from thenvoi.integrations.claude_sdk.session_manager import (
+            ClaudeSessionManager,
+        )
+
+        manager = ClaudeSessionManager(real_options)
+        result = manager._build_options("room-1")
+
+        assert result.model == real_options.model
+        assert result.system_prompt == real_options.system_prompt
+        assert result.mcp_servers == real_options.mcp_servers
+        assert result.allowed_tools == real_options.allowed_tools
+        assert result.permission_mode == real_options.permission_mode
+
+    def test_applies_resume_override(self, real_options: ClaudeAgentOptions) -> None:
+        """_build_options should set resume when session_id provided."""
+        from thenvoi.integrations.claude_sdk.session_manager import (
+            ClaudeSessionManager,
+        )
+
+        manager = ClaudeSessionManager(real_options)
+        result = manager._build_options("room-1", resume_session_id="sess-abc")
+
+        assert result.resume == "sess-abc"
+
+    def test_applies_can_use_tool_factory(
+        self, real_options: ClaudeAgentOptions
+    ) -> None:
+        """_build_options should bind can_use_tool from factory."""
+        from thenvoi.integrations.claude_sdk.session_manager import (
+            ClaudeSessionManager,
+        )
+
+        mock_callback = MagicMock()
+        factory = MagicMock(return_value=mock_callback)
+
+        manager = ClaudeSessionManager(real_options, can_use_tool_factory=factory)
+        result = manager._build_options("room-1")
+
+        factory.assert_called_once_with("room-1")
+        assert result.can_use_tool is mock_callback
+
+    def test_does_not_mutate_base_options(
+        self, real_options: ClaudeAgentOptions
+    ) -> None:
+        """_build_options should not mutate the original base_options."""
+        from thenvoi.integrations.claude_sdk.session_manager import (
+            ClaudeSessionManager,
+        )
+
+        manager = ClaudeSessionManager(real_options)
+        manager._build_options("room-1", resume_session_id="sess-abc")
+
+        # base_options should be unmodified
+        assert not hasattr(real_options, "resume") or real_options.resume is None

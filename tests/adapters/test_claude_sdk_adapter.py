@@ -888,6 +888,10 @@ class TestCommandExtraction:
     def test_case_insensitive(self):
         assert ClaudeSDKAdapter._extract_command("/Approve a-1") == ("approve", "a-1")
 
+    def test_bare_word_not_matched(self):
+        """Bare words like 'approve' without / prefix should not match."""
+        assert ClaudeSDKAdapter._extract_command("approve a-1") is None
+
     def test_command_anywhere_in_first_5_tokens(self):
         assert ClaudeSDKAdapter._extract_command("hey /approve a-1") == (
             "approve",
@@ -901,6 +905,27 @@ class TestCommandExtraction:
 
     def test_approve_without_token(self):
         assert ClaudeSDKAdapter._extract_command("/approve") == ("approve", "")
+
+
+class TestApprovalTokenCounter:
+    """Tests for per-room approval token counters."""
+
+    def test_tokens_are_per_room(self):
+        """Each room should have its own incrementing counter."""
+        adapter = ClaudeSDKAdapter(approval_mode="manual")
+        assert adapter._next_approval_token("room-1") == "a-1"
+        assert adapter._next_approval_token("room-1") == "a-2"
+        assert adapter._next_approval_token("room-2") == "a-1"  # separate counter
+        assert adapter._next_approval_token("room-1") == "a-3"
+
+    def test_counter_reset_on_room_cleanup(self):
+        """Counter should be reset when room pending approvals are cleared."""
+        adapter = ClaudeSDKAdapter(approval_mode="manual")
+        adapter._next_approval_token("room-1")
+        adapter._next_approval_token("room-1")
+        adapter._clear_pending_approvals_for_room("room-1")
+        # After cleanup, counter should restart
+        assert adapter._next_approval_token("room-1") == "a-1"
 
 
 class TestApprovalSummary:
@@ -1343,6 +1368,50 @@ class TestOnMessageCommandInterception:
         status_msg = mock_tools.send_message.call_args[0][0]
         assert "Claude SDK Status" in status_msg
         assert "manual" in status_msg
+
+    @pytest.mark.asyncio
+    async def test_approve_not_intercepted_when_approval_disabled(self, mock_tools):
+        """Approval commands should be forwarded to Claude when approval_mode is None."""
+        adapter = ClaudeSDKAdapter()  # approval_mode=None
+        mock_client = MagicMock()
+        mock_client.query = AsyncMock()
+        mock_manager = AsyncMock()
+        mock_manager.get_or_create_session = AsyncMock(return_value=mock_client)
+
+        msg = PlatformMessage(
+            id="msg-1",
+            room_id="room-1",
+            content="/approve a-1",
+            sender_id="user-1",
+            sender_type="User",
+            sender_name="Alice",
+            message_type="text",
+            metadata={},
+            created_at=datetime.now(timezone.utc),
+        )
+
+        with (
+            patch(
+                "thenvoi.adapters.claude_sdk.ClaudeSessionManager",
+                return_value=mock_manager,
+            ),
+            patch.object(adapter, "_process_response", new_callable=AsyncMock),
+        ):
+            await adapter.on_started(
+                agent_name="TestBot", agent_description="A test bot"
+            )
+            await adapter.on_message(
+                msg=msg,
+                tools=mock_tools,
+                history=ClaudeSDKSessionState(text=""),
+                participants_msg=None,
+                contacts_msg=None,
+                is_session_bootstrap=True,
+                room_id="room-1",
+            )
+
+            # Should have queried Claude (not intercepted)
+            mock_client.query.assert_awaited_once()
 
     @pytest.mark.asyncio
     async def test_normal_message_not_intercepted(self, sample_message, mock_tools):

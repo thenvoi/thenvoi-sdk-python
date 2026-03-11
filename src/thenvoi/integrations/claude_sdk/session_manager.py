@@ -11,6 +11,7 @@ connect() and disconnect() are always called from the same task context.
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 import logging
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -184,30 +185,18 @@ class ClaudeSessionManager:
     ) -> ClaudeAgentOptions:
         """Build ``ClaudeAgentOptions`` for a specific room session.
 
-        Copies all relevant fields from ``base_options`` and applies
-        room-specific overrides (resume, can_use_tool).
+        Uses ``dataclasses.replace()`` to shallow-copy all fields from
+        ``base_options``, then applies room-specific overrides.
         """
-        options = ClaudeAgentOptions(
-            model=self.base_options.model,
-            system_prompt=self.base_options.system_prompt,
-            mcp_servers=self.base_options.mcp_servers,
-            allowed_tools=self.base_options.allowed_tools,
-            permission_mode=self.base_options.permission_mode,
-        )
-
-        # Copy optional base fields
-        for attr in ("max_thinking_tokens", "cwd"):
-            value = getattr(self.base_options, attr, None)
-            if value is not None:
-                setattr(options, attr, value)
+        overrides: dict[str, Any] = {}
 
         if resume_session_id:
-            options.resume = resume_session_id
+            overrides["resume"] = resume_session_id
 
         if self._can_use_tool_factory:
-            options.can_use_tool = self._can_use_tool_factory(room_id)
+            overrides["can_use_tool"] = self._can_use_tool_factory(room_id)
 
-        return options
+        return dataclasses.replace(self.base_options, **overrides)
 
     async def _do_create_session(
         self, room_id: str | None, resume_session_id: str | None
