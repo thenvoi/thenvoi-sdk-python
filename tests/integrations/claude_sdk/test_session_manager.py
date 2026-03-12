@@ -10,15 +10,15 @@ from claude_agent_sdk import ClaudeAgentOptions
 
 
 @pytest.fixture
-def mock_options() -> MagicMock:
-    """Create mock ClaudeAgentOptions."""
-    opts = MagicMock()
-    opts.model = "claude-sonnet-4-5-20250929"
-    opts.system_prompt = "You are a test bot."
-    opts.mcp_servers = {}
-    opts.allowed_tools = []
-    opts.permission_mode = "acceptEdits"
-    return opts
+def mock_options() -> ClaudeAgentOptions:
+    """Create real ClaudeAgentOptions for tests that go through _build_options."""
+    return ClaudeAgentOptions(
+        model="claude-sonnet-4-5-20250929",
+        system_prompt="You are a test bot.",
+        mcp_servers={},
+        allowed_tools=[],
+        permission_mode="acceptEdits",
+    )
 
 
 @pytest.fixture
@@ -38,7 +38,7 @@ class TestInvalidateSession:
 
     @pytest.mark.asyncio
     async def test_invalidate_removes_session_without_disconnect(
-        self, mock_options: MagicMock
+        self, mock_options: ClaudeAgentOptions
     ) -> None:
         """invalidate_session should remove the client without calling disconnect()."""
         from thenvoi.integrations.claude_sdk.session_manager import (
@@ -62,7 +62,7 @@ class TestInvalidateSession:
 
     @pytest.mark.asyncio
     async def test_invalidate_nonexistent_room_is_noop(
-        self, mock_options: MagicMock
+        self, mock_options: ClaudeAgentOptions
     ) -> None:
         """invalidate_session on a room that doesn't exist should be a safe no-op."""
         from thenvoi.integrations.claude_sdk.session_manager import (
@@ -81,7 +81,7 @@ class TestInvalidateSession:
 
     @pytest.mark.asyncio
     async def test_get_or_create_after_invalidate_creates_fresh_client(
-        self, mock_options: MagicMock
+        self, mock_options: ClaudeAgentOptions
     ) -> None:
         """After invalidation, get_or_create_session should create a new client."""
         from thenvoi.integrations.claude_sdk.session_manager import (
@@ -116,7 +116,7 @@ class TestInvalidateSession:
 
     @pytest.mark.asyncio
     async def test_invalidate_when_not_started_is_noop(
-        self, mock_options: MagicMock
+        self, mock_options: ClaudeAgentOptions
     ) -> None:
         """invalidate_session before start() should return immediately."""
         from thenvoi.integrations.claude_sdk.session_manager import (
@@ -130,7 +130,7 @@ class TestInvalidateSession:
 
     @pytest.mark.asyncio
     async def test_invalidate_does_not_affect_other_rooms(
-        self, mock_options: MagicMock
+        self, mock_options: ClaudeAgentOptions
     ) -> None:
         """Invalidating one room should leave other rooms' sessions intact."""
         from thenvoi.integrations.claude_sdk.session_manager import (
@@ -170,6 +170,17 @@ class TestBuildOptions:
         assert result.mcp_servers == real_options.mcp_servers
         assert result.allowed_tools == real_options.allowed_tools
         assert result.permission_mode == real_options.permission_mode
+
+    def test_always_returns_copy(self, real_options: ClaudeAgentOptions) -> None:
+        """_build_options should return a copy even with no overrides."""
+        from thenvoi.integrations.claude_sdk.session_manager import (
+            ClaudeSessionManager,
+        )
+
+        manager = ClaudeSessionManager(real_options)
+        result = manager._build_options("room-1")
+
+        assert result is not real_options
 
     def test_applies_resume_override(self, real_options: ClaudeAgentOptions) -> None:
         """_build_options should set resume when session_id provided."""

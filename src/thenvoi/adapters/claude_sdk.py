@@ -239,8 +239,8 @@ class ClaudeSDKAdapter(SimpleAdapter[ClaudeSDKSessionState]):
         # {room_id: {token: _PendingApproval, ...}}
         self._pending_approvals: dict[str, dict[str, _PendingApproval]] = {}
         self._approval_seq: dict[str, int] = {}  # per-room counters
-        # Track last message sender per room (for approval mentions)
-        self._room_last_sender: dict[str, dict[str, str]] = {}
+        # Notification target per room (the last message sender, used for @mentions)
+        self._room_notify_target: dict[str, dict[str, str]] = {}
 
     # --- Adapted from ThenvoiClaudeSDKAgent._on_started ---
     async def on_started(self, agent_name: str, agent_description: str) -> None:
@@ -951,7 +951,7 @@ class ClaudeSDKAdapter(SimpleAdapter[ClaudeSDKSessionState]):
 
         # Track last sender for approval mentions (only when approval is enabled)
         if self.approval_mode is not None:
-            self._room_last_sender[room_id] = {
+            self._room_notify_target[room_id] = {
                 "id": msg.sender_id,
                 "name": msg.sender_name or msg.sender_type,
             }
@@ -961,7 +961,7 @@ class ClaudeSDKAdapter(SimpleAdapter[ClaudeSDKSessionState]):
             command = self._extract_command(msg.content)
             if command is not None:
                 cmd, args = command
-                sender = self._room_last_sender[room_id]
+                sender = self._room_notify_target[room_id]
                 if cmd in _APPROVAL_CMDS:
                     handled = await self._handle_approval_command(
                         tools=tools,
@@ -1210,7 +1210,7 @@ class ClaudeSDKAdapter(SimpleAdapter[ClaudeSDKSessionState]):
         self._room_tools.pop(room_id, None)
         self._session_context.pop(room_id, None)
         self._session_ids.pop(room_id, None)
-        self._room_last_sender.pop(room_id, None)
+        self._room_notify_target.pop(room_id, None)
         logger.debug("Room %s: Cleaned up Claude SDK session", room_id)
 
     # --- Copied from BaseFrameworkAgent._report_error ---
@@ -1231,7 +1231,7 @@ class ClaudeSDKAdapter(SimpleAdapter[ClaudeSDKSessionState]):
         self._room_tools.clear()
         self._session_context.clear()
         self._session_ids.clear()
-        self._room_last_sender.clear()
+        self._room_notify_target.clear()
 
     # ------------------------------------------------------------------
     # Chat-based approval flow
@@ -1280,7 +1280,7 @@ class ClaudeSDKAdapter(SimpleAdapter[ClaudeSDKSessionState]):
         tools = self._room_tools.get(room_id)
         if not tools:
             return
-        sender = self._room_last_sender.get(room_id)
+        sender = self._room_notify_target.get(room_id)
         mention = [sender["id"]] if sender else None
         try:
             await tools.send_message(
@@ -1327,7 +1327,7 @@ class ClaudeSDKAdapter(SimpleAdapter[ClaudeSDKSessionState]):
         # Notify user — if we can't deliver the prompt, decline immediately
         # so the caller isn't left waiting for a timeout nobody will see.
         tools = self._room_tools.get(room_id)
-        sender = self._room_last_sender.get(room_id)
+        sender = self._room_notify_target.get(room_id)
         mention = [sender["id"]] if sender else None
         if tools:
             try:
@@ -1382,20 +1382,19 @@ class ClaudeSDKAdapter(SimpleAdapter[ClaudeSDKSessionState]):
 
     @staticmethod
     def _extract_command(content: str) -> tuple[str, str] | None:
-        """Check *content* for a ``/command`` in the first few tokens.
+        """Check if *content* starts with a ``/command``.
 
-        Only tokens starting with ``/`` are considered.
+        Only the first token is considered to avoid false positives from
+        natural language like ``"don't /decline it"``.
         Returns ``(command, rest)`` or ``None``.
         """
-        tokens = content.split(None, 5)[:5]
-        for token in tokens:
-            if not token.startswith("/"):
-                continue
-            clean = token[1:]
-            if clean.lower() in _LOCAL_CMDS:
-                idx = content.find(token)
-                rest = content[idx + len(token) :].strip()
-                return (clean.lower(), rest)
+        stripped = content.lstrip()
+        if not stripped.startswith("/"):
+            return None
+        token, _, rest = stripped.partition(" ")
+        clean = token[1:]
+        if clean.lower() in _LOCAL_CMDS:
+            return (clean.lower(), rest.strip())
         return None
 
     async def _handle_approval_command(

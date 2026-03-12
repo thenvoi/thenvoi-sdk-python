@@ -196,9 +196,6 @@ class ClaudeSessionManager:
         if self._can_use_tool_factory:
             overrides["can_use_tool"] = self._can_use_tool_factory(room_id)
 
-        if not overrides:
-            return self.base_options
-
         return dataclasses.replace(self.base_options, **overrides)
 
     async def _do_create_session(
