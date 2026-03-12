@@ -196,6 +196,9 @@ class ClaudeSessionManager:
         if self._can_use_tool_factory:
             overrides["can_use_tool"] = self._can_use_tool_factory(room_id)
 
+        if not overrides:
+            return self.base_options
+
         return dataclasses.replace(self.base_options, **overrides)
 
     async def _do_create_session(
@@ -215,12 +218,7 @@ class ClaudeSessionManager:
                     "Creating new ClaudeSDKClient session for room: %s", room_id
                 )
 
-            # Build per-room options when factory or resume is active;
-            # otherwise reuse shared base_options.
-            if self._can_use_tool_factory or resume_session_id:
-                options = self._build_options(room_id, resume_session_id)
-            else:
-                options = self.base_options
+            options = self._build_options(room_id, resume_session_id)
 
             # Create new client with options
             client = ClaudeSDKClient(options=options)

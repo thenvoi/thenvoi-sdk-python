@@ -1284,6 +1284,29 @@ class TestCanUseToolCallback:
 
         assert isinstance(result, PermissionResultAllow)
 
+    @pytest.mark.asyncio
+    async def test_manual_mode_notification_failure_declines(self, mock_tools):
+        """If the approval notification can't be delivered, decline immediately."""
+        from claude_agent_sdk.types import (
+            PermissionResultDeny,
+            ToolPermissionContext,
+        )
+
+        adapter = ClaudeSDKAdapter(
+            approval_mode="manual",
+            approval_wait_timeout_s=5.0,
+        )
+        mock_tools.send_message = AsyncMock(side_effect=RuntimeError("network down"))
+        adapter._room_tools["room-1"] = mock_tools
+        adapter._room_last_sender["room-1"] = {"id": "u1", "name": "Bob"}
+
+        callback = adapter._make_can_use_tool("room-1")
+        result = await callback("Bash", {"command": "ls"}, ToolPermissionContext())
+
+        assert isinstance(result, PermissionResultDeny)
+        # Should not leave a dangling pending approval
+        assert len(adapter._pending_approvals.get("room-1", {})) == 0
+
 
 class TestOnMessageCommandInterception:
     """Tests for command interception in on_message()."""
@@ -1507,7 +1530,7 @@ class TestApprovalOnStarted:
                 agent_name="TestBot", agent_description="A test bot"
             )
 
-            call_kwargs = mock_cls.call_args[1]
+            call_kwargs = mock_cls.call_args.kwargs
             assert call_kwargs.get("can_use_tool_factory") is not None
 
     @pytest.mark.asyncio
@@ -1520,7 +1543,7 @@ class TestApprovalOnStarted:
                 agent_name="TestBot", agent_description="A test bot"
             )
 
-            call_kwargs = mock_cls.call_args[1]
+            call_kwargs = mock_cls.call_args.kwargs
             assert call_kwargs.get("can_use_tool_factory") is None
 
 

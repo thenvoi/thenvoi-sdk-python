@@ -34,6 +34,7 @@ try:
     )
     from claude_agent_sdk._errors import CLIConnectionError
     from claude_agent_sdk.types import (
+        CanUseTool,
         PermissionResultAllow,
         PermissionResultDeny,
         ToolPermissionContext,
@@ -85,7 +86,8 @@ ApprovalMode = Literal["auto_accept", "auto_decline", "manual"]
 ApprovalDecision = Literal["accept", "decline"]
 
 # Commands recognised as local (not forwarded to Claude)
-_LOCAL_CMDS = frozenset({"approve", "decline", "approvals", "status"})
+_APPROVAL_CMDS = frozenset({"approve", "decline", "approvals"})
+_LOCAL_CMDS = _APPROVAL_CMDS | {"status"}
 
 
 @dataclass
@@ -921,36 +923,36 @@ class ClaudeSDKAdapter(SimpleAdapter[ClaudeSDKSessionState]):
         # Store tools for MCP server access
         self._room_tools[room_id] = tools
 
-        # Track last sender for approval mentions
-        self._room_last_sender[room_id] = {
-            "id": msg.sender_id,
-            "name": msg.sender_name or msg.sender_type,
-        }
+        # Track last sender for approval mentions (only when approval is enabled)
+        if self.approval_mode is not None:
+            self._room_last_sender[room_id] = {
+                "id": msg.sender_id,
+                "name": msg.sender_name or msg.sender_type,
+            }
 
         # Intercept local commands (/approve, /decline, /approvals, /status)
-        command = self._extract_command(msg.content)
-        if command is not None:
-            cmd, args = command
-            if (
-                cmd in {"approve", "decline", "approvals"}
-                and self.approval_mode is not None
-            ):
-                handled = await self._handle_approval_command(
-                    tools=tools,
-                    room_id=room_id,
-                    command=cmd,
-                    args=args,
-                    sender=self._room_last_sender[room_id],
-                )
-                if handled:
+        if self.approval_mode is not None:
+            command = self._extract_command(msg.content)
+            if command is not None:
+                cmd, args = command
+                sender = self._room_last_sender[room_id]
+                if cmd in _APPROVAL_CMDS:
+                    handled = await self._handle_approval_command(
+                        tools=tools,
+                        room_id=room_id,
+                        command=cmd,
+                        args=args,
+                        sender=sender,
+                    )
+                    if handled:
+                        return
+                elif cmd == "status":
+                    await self._handle_status_command(
+                        tools=tools,
+                        room_id=room_id,
+                        sender=sender,
+                    )
                     return
-            elif cmd == "status" and self.approval_mode is not None:
-                await self._handle_status_command(
-                    tools=tools,
-                    room_id=room_id,
-                    sender=self._room_last_sender[room_id],
-                )
-                return
 
         # Determine session_id for resume: prefer history (persisted) then
         # in-memory cache.  Only used on bootstrap/reconnect.
@@ -1209,34 +1211,31 @@ class ClaudeSDKAdapter(SimpleAdapter[ClaudeSDKSessionState]):
     # Chat-based approval flow
     # ------------------------------------------------------------------
 
-    def _make_can_use_tool(
-        self, room_id: str
-    ):  # -> CanUseTool  (callback type from SDK)
+    def _make_can_use_tool(self, room_id: str) -> CanUseTool:
         """Return a room-bound ``can_use_tool`` callback for the Claude SDK."""
-        adapter = self  # capture for closure
 
         async def _can_use_tool(
             tool_name: str,
             tool_input: dict[str, Any],
             context: ToolPermissionContext,
         ) -> PermissionResultAllow | PermissionResultDeny:
-            summary = adapter._approval_summary(tool_name, tool_input)
+            summary = self._approval_summary(tool_name, tool_input)
 
             # --- auto modes ---------------------------------------------------
-            if adapter.approval_mode == "auto_accept":
-                if adapter.approval_text_notifications:
-                    await adapter._notify_auto_decision(room_id, summary, "accept")
+            if self.approval_mode == "auto_accept":
+                if self.approval_text_notifications:
+                    await self._notify_auto_decision(room_id, summary, "accept")
                 return PermissionResultAllow()
 
-            if adapter.approval_mode == "auto_decline":
-                if adapter.approval_text_notifications:
-                    await adapter._notify_auto_decision(room_id, summary, "decline")
+            if self.approval_mode == "auto_decline":
+                if self.approval_text_notifications:
+                    await self._notify_auto_decision(room_id, summary, "decline")
                 return PermissionResultDeny(
                     message=f"Tool use declined by policy: {summary}"
                 )
 
             # --- manual mode ---------------------------------------------------
-            return await adapter._resolve_manual_approval(
+            return await self._resolve_manual_approval(
                 room_id, tool_name, tool_input, summary
             )
 
@@ -1293,7 +1292,8 @@ class ClaudeSDKAdapter(SimpleAdapter[ClaudeSDKSessionState]):
             )
         room_pending[token] = pending
 
-        # Notify user
+        # Notify user — if we can't deliver the prompt, decline immediately
+        # so the caller isn't left waiting for a timeout nobody will see.
         tools = self._room_tools.get(room_id)
         sender = self._room_last_sender.get(room_id)
         mention = [sender] if sender else None
@@ -1306,8 +1306,12 @@ class ClaudeSDKAdapter(SimpleAdapter[ClaudeSDKSessionState]):
                     mentions=mention,
                 )
             except Exception:
-                logger.exception(
-                    "Room %s: Failed to send approval notification", room_id
+                logger.warning(
+                    "Room %s: Failed to send approval notification — declining", room_id
+                )
+                self._clear_pending_approval(room_id, token)
+                return PermissionResultDeny(
+                    message="Could not deliver approval prompt, tool use declined"
                 )
 
         # Wait for decision or timeout
