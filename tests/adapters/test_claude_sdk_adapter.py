@@ -19,6 +19,7 @@ import pytest
 from thenvoi.adapters.claude_sdk import (
     ClaudeSDKAdapter,
     _PendingApproval,
+    _pre_tool_use_continue_hook,
     THENVOI_ALL_TOOLS,
     THENVOI_BASE_TOOLS,
     THENVOI_MEMORY_TOOLS,
@@ -1545,6 +1546,45 @@ class TestApprovalOnStarted:
 
             call_kwargs = mock_cls.call_args.kwargs
             assert call_kwargs.get("can_use_tool_factory") is None
+
+    @pytest.mark.asyncio
+    async def test_sets_pre_tool_use_hook_when_approval_enabled(self):
+        """PreToolUse hook must be set so the SDK delegates to can_use_tool."""
+        adapter = ClaudeSDKAdapter(approval_mode="auto_accept")
+
+        with patch("thenvoi.adapters.claude_sdk.ClaudeSessionManager") as mock_cls:
+            mock_cls.return_value = MagicMock()
+            await adapter.on_started(
+                agent_name="TestBot", agent_description="A test bot"
+            )
+
+            # The first positional arg is the ClaudeAgentOptions
+            sdk_options = mock_cls.call_args.args[0]
+            assert sdk_options.hooks is not None
+            assert "PreToolUse" in sdk_options.hooks
+            assert len(sdk_options.hooks["PreToolUse"]) == 1
+
+    @pytest.mark.asyncio
+    async def test_no_hooks_when_approval_disabled(self):
+        adapter = ClaudeSDKAdapter()  # approval_mode=None
+
+        with patch("thenvoi.adapters.claude_sdk.ClaudeSessionManager") as mock_cls:
+            mock_cls.return_value = MagicMock()
+            await adapter.on_started(
+                agent_name="TestBot", agent_description="A test bot"
+            )
+
+            sdk_options = mock_cls.call_args.args[0]
+            assert sdk_options.hooks is None
+
+
+class TestPreToolUseHook:
+    """Tests for the PreToolUse hook that enables can_use_tool delegation."""
+
+    @pytest.mark.asyncio
+    async def test_hook_returns_continue_true(self):
+        result = await _pre_tool_use_continue_hook(None, None, None)
+        assert result == {"continue_": True}
 
 
 class TestApprovalCleanup:

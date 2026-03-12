@@ -35,6 +35,7 @@ try:
     from claude_agent_sdk._errors import CLIConnectionError
     from claude_agent_sdk.types import (
         CanUseTool,
+        HookMatcher,
         PermissionResultAllow,
         PermissionResultDeny,
         ToolPermissionContext,
@@ -88,6 +89,19 @@ ApprovalDecision = Literal["accept", "decline"]
 # Commands recognised as local (not forwarded to Claude)
 _APPROVAL_CMDS = frozenset({"approve", "decline", "approvals"})
 _LOCAL_CMDS = _APPROVAL_CMDS | {"status"}
+
+
+async def _pre_tool_use_continue_hook(
+    _hook_input: Any,
+    _tool_name: str | None,
+    _context: Any,
+) -> dict[str, Any]:
+    """PreToolUse hook that delegates every tool to ``can_use_tool``.
+
+    Returning ``{"continue_": True}`` tells the SDK to skip its built-in
+    permission resolution and call the ``can_use_tool`` callback instead.
+    """
+    return {"continue_": True}
 
 
 @dataclass
@@ -268,6 +282,18 @@ class ClaudeSDKAdapter(SimpleAdapter[ClaudeSDKSessionState]):
         # Set working directory if configured
         if self.cwd:
             sdk_options.cwd = self.cwd
+
+        # When approval_mode is set, add a PreToolUse hook that returns
+        # {"continue_": True} so the SDK delegates to can_use_tool instead
+        # of auto-resolving permissions via the permission_mode.
+        if self.approval_mode is not None:
+            sdk_options.hooks = {
+                "PreToolUse": [
+                    HookMatcher(
+                        hooks=[_pre_tool_use_continue_hook],
+                    ),
+                ],
+            }
 
         # Create session manager (with room-specific approval callback when enabled)
         can_use_tool_factory = (
@@ -1220,6 +1246,12 @@ class ClaudeSDKAdapter(SimpleAdapter[ClaudeSDKSessionState]):
             context: ToolPermissionContext,
         ) -> PermissionResultAllow | PermissionResultDeny:
             summary = self._approval_summary(tool_name, tool_input)
+            logger.debug(
+                "can_use_tool: %s in room %s (mode=%s)",
+                tool_name,
+                room_id,
+                self.approval_mode,
+            )
 
             # --- auto modes ---------------------------------------------------
             if self.approval_mode == "auto_accept":
