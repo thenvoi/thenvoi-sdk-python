@@ -1249,7 +1249,7 @@ class ClaudeSDKAdapter(SimpleAdapter[ClaudeSDKSessionState]):
         if not tools:
             return
         sender = self._room_last_sender.get(room_id)
-        mention = [sender] if sender else None
+        mention = [sender["id"]] if sender else None
         try:
             await tools.send_message(
                 f"Approval requested ({summary}). Policy decision: **{decision}**.",
@@ -1296,7 +1296,7 @@ class ClaudeSDKAdapter(SimpleAdapter[ClaudeSDKSessionState]):
         # so the caller isn't left waiting for a timeout nobody will see.
         tools = self._room_tools.get(room_id)
         sender = self._room_last_sender.get(room_id)
-        mention = [sender] if sender else None
+        mention = [sender["id"]] if sender else None
         if tools:
             try:
                 await tools.send_message(
@@ -1379,7 +1379,7 @@ class ClaudeSDKAdapter(SimpleAdapter[ClaudeSDKSessionState]):
         Returns ``True`` if the command was fully handled.
         """
         pending = self._pending_approvals.get(room_id, {})
-        mention: list[dict[str, str]] = [sender]
+        mention: list[str] = [sender["id"]]
 
         # --- /approvals: list pending ---
         if command == "approvals":
@@ -1451,7 +1451,7 @@ class ClaudeSDKAdapter(SimpleAdapter[ClaudeSDKSessionState]):
             f"- active_sessions: {session_count}",
             f"- session_id: `{session_id}`",
         ]
-        await tools.send_message("\n".join(lines), mentions=[sender])
+        await tools.send_message("\n".join(lines), mentions=[sender["id"]])
 
     # ------------------------------------------------------------------
     # Approval helpers
