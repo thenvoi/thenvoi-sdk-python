@@ -906,6 +906,10 @@ class TestCommandExtraction:
     def test_approve_without_token(self):
         assert ClaudeSDKAdapter._extract_command("/approve") == ("approve", "")
 
+    def test_multiple_slashes_not_matched(self):
+        """///approve should not be treated as /approve."""
+        assert ClaudeSDKAdapter._extract_command("///approve a-1") is None
+
 
 class TestApprovalTokenCounter:
     """Tests for per-room approval token counters."""
@@ -1382,6 +1386,50 @@ class TestOnMessageCommandInterception:
             id="msg-1",
             room_id="room-1",
             content="/approve a-1",
+            sender_id="user-1",
+            sender_type="User",
+            sender_name="Alice",
+            message_type="text",
+            metadata={},
+            created_at=datetime.now(timezone.utc),
+        )
+
+        with (
+            patch(
+                "thenvoi.adapters.claude_sdk.ClaudeSessionManager",
+                return_value=mock_manager,
+            ),
+            patch.object(adapter, "_process_response", new_callable=AsyncMock),
+        ):
+            await adapter.on_started(
+                agent_name="TestBot", agent_description="A test bot"
+            )
+            await adapter.on_message(
+                msg=msg,
+                tools=mock_tools,
+                history=ClaudeSDKSessionState(text=""),
+                participants_msg=None,
+                contacts_msg=None,
+                is_session_bootstrap=True,
+                room_id="room-1",
+            )
+
+            # Should have queried Claude (not intercepted)
+            mock_client.query.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_status_not_intercepted_when_approval_disabled(self, mock_tools):
+        """/status should be forwarded to Claude when approval_mode is None."""
+        adapter = ClaudeSDKAdapter()  # approval_mode=None
+        mock_client = MagicMock()
+        mock_client.query = AsyncMock()
+        mock_manager = AsyncMock()
+        mock_manager.get_or_create_session = AsyncMock(return_value=mock_client)
+
+        msg = PlatformMessage(
+            id="msg-1",
+            room_id="room-1",
+            content="/status",
             sender_id="user-1",
             sender_type="User",
             sender_name="Alice",

@@ -944,7 +944,7 @@ class ClaudeSDKAdapter(SimpleAdapter[ClaudeSDKSessionState]):
                 )
                 if handled:
                     return
-            elif cmd == "status":
+            elif cmd == "status" and self.approval_mode is not None:
                 await self._handle_status_command(
                     tools=tools,
                     room_id=room_id,
@@ -1355,7 +1355,7 @@ class ClaudeSDKAdapter(SimpleAdapter[ClaudeSDKSessionState]):
         for token in tokens:
             if not token.startswith("/"):
                 continue
-            clean = token.lstrip("/")
+            clean = token[1:]
             if clean.lower() in _LOCAL_CMDS:
                 idx = content.find(token)
                 rest = content[idx + len(token) :].strip()
