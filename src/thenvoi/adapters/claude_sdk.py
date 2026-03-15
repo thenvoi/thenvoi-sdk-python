@@ -129,6 +129,7 @@ class _PendingApproval:
     summary: str
     created_at: datetime
     future: asyncio.Future[str]
+    requester: dict[str, str]
 
 
 def __getattr__(name: str) -> Any:
@@ -1264,6 +1265,9 @@ class ClaudeSDKAdapter(SimpleAdapter[ClaudeSDKSessionState]):
             context: ToolPermissionContext,
         ) -> PermissionResultAllow | PermissionResultDeny:
             summary = self._approval_summary(tool_name, tool_input)
+            # Capture the sender now so it doesn't get overwritten by
+            # messages arriving while we wait for a decision.
+            requester = self._room_last_sender.get(room_id)
             logger.debug(
                 "can_use_tool: %s in room %s (mode=%s)",
                 tool_name,
@@ -1274,32 +1278,40 @@ class ClaudeSDKAdapter(SimpleAdapter[ClaudeSDKSessionState]):
             # --- auto modes ---------------------------------------------------
             if self.approval_mode == "auto_accept":
                 if self.approval_text_notifications:
-                    await self._notify_auto_decision(room_id, summary, "accept")
+                    await self._notify_auto_decision(
+                        room_id, summary, "accept", requester=requester
+                    )
                 return PermissionResultAllow()
 
             if self.approval_mode == "auto_decline":
                 if self.approval_text_notifications:
-                    await self._notify_auto_decision(room_id, summary, "decline")
+                    await self._notify_auto_decision(
+                        room_id, summary, "decline", requester=requester
+                    )
                 return PermissionResultDeny(
                     message=f"Tool use declined by policy: {summary}"
                 )
 
             # --- manual mode ---------------------------------------------------
             return await self._resolve_manual_approval(
-                room_id, tool_name, tool_input, summary
+                room_id, tool_name, tool_input, summary, requester=requester
             )
 
         return _can_use_tool
 
     async def _notify_auto_decision(
-        self, room_id: str, summary: str, decision: str
+        self,
+        room_id: str,
+        summary: str,
+        decision: str,
+        *,
+        requester: dict[str, str] | None = None,
     ) -> None:
         """Best-effort chat notification for auto-approve / auto-decline."""
         tools = self._room_tools.get(room_id)
         if not tools:
             return
-        sender = self._room_last_sender.get(room_id)
-        mention = [sender["id"]] if sender else None
+        mention = [requester["id"]] if requester else None
         try:
             await tools.send_message(
                 f"Approval requested ({summary}). Policy decision: **{decision}**.",
@@ -1314,6 +1326,8 @@ class ClaudeSDKAdapter(SimpleAdapter[ClaudeSDKSessionState]):
         tool_name: str,
         tool_input: dict[str, Any],
         summary: str,
+        *,
+        requester: dict[str, str] | None = None,
     ) -> PermissionResultAllow | PermissionResultDeny:
         """Block until a user approves / declines via ``/approve`` or ``/decline``."""
         loop = asyncio.get_running_loop()
@@ -1325,6 +1339,7 @@ class ClaudeSDKAdapter(SimpleAdapter[ClaudeSDKSessionState]):
             summary=summary,
             created_at=datetime.now(timezone.utc),
             future=loop.create_future(),
+            requester=requester or {"id": "", "name": ""},
         )
 
         # Store pending approval (evict oldest if capacity exceeded)
@@ -1345,8 +1360,7 @@ class ClaudeSDKAdapter(SimpleAdapter[ClaudeSDKSessionState]):
         # Notify user — if we can't deliver the prompt, decline immediately
         # so the caller isn't left waiting for a timeout nobody will see.
         tools = self._room_tools.get(room_id)
-        sender = self._room_last_sender.get(room_id)
-        mention = [sender["id"]] if sender else None
+        mention = [requester["id"]] if requester else None
         if tools:
             try:
                 await tools.send_message(

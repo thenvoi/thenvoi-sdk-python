@@ -1005,6 +1005,7 @@ class TestApprovalCommandHandling:
                 summary="Bash: `ls`",
                 created_at=datetime.now(timezone.utc),
                 future=loop.create_future(),
+                requester={"id": "test-user", "name": "Test"},
             ),
         }
         await adapter_with_approval._handle_approval_command(
@@ -1032,6 +1033,7 @@ class TestApprovalCommandHandling:
                 summary="Bash",
                 created_at=datetime.now(timezone.utc),
                 future=future,
+                requester={"id": "test-user", "name": "Test"},
             ),
         }
         await adapter_with_approval._handle_approval_command(
@@ -1058,6 +1060,7 @@ class TestApprovalCommandHandling:
                 summary="Bash",
                 created_at=datetime.now(timezone.utc),
                 future=future,
+                requester={"id": "test-user", "name": "Test"},
             ),
         }
         await adapter_with_approval._handle_approval_command(
@@ -1084,6 +1087,7 @@ class TestApprovalCommandHandling:
                 summary="Bash",
                 created_at=datetime.now(timezone.utc),
                 future=future,
+                requester={"id": "test-user", "name": "Test"},
             ),
         }
         await adapter_with_approval._handle_approval_command(
@@ -1108,6 +1112,7 @@ class TestApprovalCommandHandling:
                 summary="Bash",
                 created_at=datetime.now(timezone.utc),
                 future=loop.create_future(),
+                requester={"id": "test-user", "name": "Test"},
             ),
             "a-2": _PendingApproval(
                 tool_name="Edit",
@@ -1115,6 +1120,7 @@ class TestApprovalCommandHandling:
                 summary="Edit",
                 created_at=datetime.now(timezone.utc),
                 future=loop.create_future(),
+                requester={"id": "test-user", "name": "Test"},
             ),
         }
         await adapter_with_approval._handle_approval_command(
@@ -1138,6 +1144,7 @@ class TestApprovalCommandHandling:
                 summary="Bash",
                 created_at=datetime.now(timezone.utc),
                 future=loop.create_future(),
+                requester={"id": "test-user", "name": "Test"},
             ),
         }
         await adapter_with_approval._handle_approval_command(
@@ -1178,6 +1185,7 @@ class TestApprovalAuthorization:
                 summary="Bash",
                 created_at=datetime.now(timezone.utc),
                 future=future,
+                requester={"id": "test-user", "name": "Test"},
             ),
         }
         await adapter._handle_approval_command(
@@ -1205,6 +1213,7 @@ class TestApprovalAuthorization:
                 summary="Bash",
                 created_at=datetime.now(timezone.utc),
                 future=future,
+                requester={"id": "test-user", "name": "Test"},
             ),
         }
         await adapter._handle_approval_command(
@@ -1250,6 +1259,7 @@ class TestApprovalAuthorization:
                 summary="Bash",
                 created_at=datetime.now(timezone.utc),
                 future=future,
+                requester={"id": "test-user", "name": "Test"},
             ),
         }
         await adapter._handle_approval_command(
@@ -1448,6 +1458,7 @@ class TestOnMessageCommandInterception:
                 summary="Bash",
                 created_at=datetime.now(timezone.utc),
                 future=future,
+                requester={"id": "test-user", "name": "Test"},
             ),
         }
 
@@ -1726,6 +1737,7 @@ class TestApprovalCleanup:
                 summary="Bash",
                 created_at=datetime.now(timezone.utc),
                 future=future,
+                requester={"id": "test-user", "name": "Test"},
             ),
         }
 
@@ -1751,6 +1763,7 @@ class TestApprovalCleanup:
                 summary="Bash",
                 created_at=datetime.now(timezone.utc),
                 future=f1,
+                requester={"id": "test-user", "name": "Test"},
             ),
         }
         adapter._pending_approvals["room-2"] = {
@@ -1760,6 +1773,7 @@ class TestApprovalCleanup:
                 summary="Edit",
                 created_at=datetime.now(timezone.utc),
                 future=f2,
+                requester={"id": "test-user", "name": "Test"},
             ),
         }
 
@@ -1797,6 +1811,7 @@ class TestPendingApprovalEviction:
                 summary="Old",
                 created_at=datetime(2020, 1, 1, tzinfo=timezone.utc),
                 future=old_future,
+                requester={"id": "test-user", "name": "Test"},
             ),
         }
 
