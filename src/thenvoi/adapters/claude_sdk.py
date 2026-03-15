@@ -92,7 +92,19 @@ ApprovalDecision = Literal["accept", "decline"]
 
 # Commands recognised as local (not forwarded to Claude)
 _APPROVAL_CMDS = frozenset({"approve", "decline", "approvals"})
-_LOCAL_CMDS = _APPROVAL_CMDS | {"status"}
+_LOCAL_CMDS = _APPROVAL_CMDS | frozenset({"status"})
+
+# Patterns that look like secrets/tokens in shell commands
+_REDACT_RE = re.compile(
+    r"""(?x)
+    (?:                             # key=value style
+        (?:key|token|secret|password|passwd|pwd|auth|bearer|credential)
+        \s*[=:]\s*
+    )
+    \S+                             # the secret value
+    """,
+    re.IGNORECASE,
+)
 
 
 async def _pre_tool_use_continue_hook(
@@ -249,8 +261,8 @@ class ClaudeSDKAdapter(SimpleAdapter[ClaudeSDKSessionState]):
         # {room_id: {token: _PendingApproval, ...}}
         self._pending_approvals: dict[str, dict[str, _PendingApproval]] = {}
         self._approval_seq: dict[str, int] = {}  # per-room counters
-        # Notification target per room (the last message sender, used for @mentions)
-        self._room_notify_target: dict[str, dict[str, str]] = {}
+        # Last message sender per room (used for @mentions in approval notifications)
+        self._room_last_sender: dict[str, dict[str, str]] = {}
 
     # --- Adapted from ThenvoiClaudeSDKAgent._on_started ---
     async def on_started(self, agent_name: str, agent_description: str) -> None:
@@ -961,14 +973,14 @@ class ClaudeSDKAdapter(SimpleAdapter[ClaudeSDKSessionState]):
 
         # Approval flow: track notify target and intercept local commands
         if self.approval_mode is not None:
-            self._room_notify_target[room_id] = {
+            self._room_last_sender[room_id] = {
                 "id": msg.sender_id,
                 "name": msg.sender_name or msg.sender_type,
             }
             command = self._extract_command(msg.content)
             if command is not None:
                 cmd, args = command
-                sender = self._room_notify_target[room_id]
+                sender = self._room_last_sender[room_id]
                 if cmd in _APPROVAL_CMDS:
                     await self._handle_approval_command(
                         tools=tools,
@@ -1216,7 +1228,7 @@ class ClaudeSDKAdapter(SimpleAdapter[ClaudeSDKSessionState]):
         self._room_tools.pop(room_id, None)
         self._session_context.pop(room_id, None)
         self._session_ids.pop(room_id, None)
-        self._room_notify_target.pop(room_id, None)
+        self._room_last_sender.pop(room_id, None)
         logger.debug("Room %s: Cleaned up Claude SDK session", room_id)
 
     # --- Copied from BaseFrameworkAgent._report_error ---
@@ -1237,7 +1249,7 @@ class ClaudeSDKAdapter(SimpleAdapter[ClaudeSDKSessionState]):
         self._room_tools.clear()
         self._session_context.clear()
         self._session_ids.clear()
-        self._room_notify_target.clear()
+        self._room_last_sender.clear()
 
     # ------------------------------------------------------------------
     # Chat-based approval flow
@@ -1286,7 +1298,7 @@ class ClaudeSDKAdapter(SimpleAdapter[ClaudeSDKSessionState]):
         tools = self._room_tools.get(room_id)
         if not tools:
             return
-        sender = self._room_notify_target.get(room_id)
+        sender = self._room_last_sender.get(room_id)
         mention = [sender["id"]] if sender else None
         try:
             await tools.send_message(
@@ -1333,7 +1345,7 @@ class ClaudeSDKAdapter(SimpleAdapter[ClaudeSDKSessionState]):
         # Notify user — if we can't deliver the prompt, decline immediately
         # so the caller isn't left waiting for a timeout nobody will see.
         tools = self._room_tools.get(room_id)
-        sender = self._room_notify_target.get(room_id)
+        sender = self._room_last_sender.get(room_id)
         mention = [sender["id"]] if sender else None
         if tools:
             try:
@@ -1412,6 +1424,9 @@ class ClaudeSDKAdapter(SimpleAdapter[ClaudeSDKSessionState]):
         sender: dict[str, str],
     ) -> None:
         """Handle ``/approve``, ``/decline``, or ``/approvals``."""
+        # This is a reference to the live mutable dict for the room (or an
+        # empty dict if none exists).  Safe because the event loop is
+        # single-threaded, so no concurrent mutation can occur mid-handler.
         pending = self._pending_approvals.get(room_id, {})
         mention: list[str] = [sender["id"]]
 
@@ -1499,25 +1514,15 @@ class ClaudeSDKAdapter(SimpleAdapter[ClaudeSDKSessionState]):
     # Approval helpers
     # ------------------------------------------------------------------
 
-    # Patterns that look like secrets/tokens in shell commands
-    _REDACT_RE = re.compile(
-        r"""(?x)
-        (?:                             # key=value style
-            (?:key|token|secret|password|passwd|pwd|auth|bearer|credential)
-            \s*[=:]\s*
-        )
-        \S+                             # the secret value
-        """,
-        re.IGNORECASE,
-    )
-
     @staticmethod
     def _redact_command(command: str) -> str:
         """Redact values that look like secrets from a shell command."""
-        return ClaudeSDKAdapter._REDACT_RE.sub(
-            lambda m: m.group(0).split("=")[0] + "=***"
-            if "=" in m.group(0)
-            else m.group(0).split(":")[0] + ":***",
+        return _REDACT_RE.sub(
+            lambda m: (
+                m.group(0).split("=")[0] + "=***"
+                if "=" in m.group(0)
+                else m.group(0).split(":")[0] + ":***"
+            ),
             command,
         )
 

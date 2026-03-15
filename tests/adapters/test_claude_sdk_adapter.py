@@ -1276,7 +1276,7 @@ class TestCanUseToolCallback:
 
         adapter = ClaudeSDKAdapter(approval_mode="auto_accept")
         adapter._room_tools["room-1"] = mock_tools
-        adapter._room_notify_target["room-1"] = {"id": "u1", "name": "Bob"}
+        adapter._room_last_sender["room-1"] = {"id": "u1", "name": "Bob"}
 
         callback = adapter._make_can_use_tool("room-1")
         result = await callback("Bash", {"command": "ls"}, ToolPermissionContext())
@@ -1292,7 +1292,7 @@ class TestCanUseToolCallback:
             approval_mode="auto_accept", approval_text_notifications=True
         )
         adapter._room_tools["room-1"] = mock_tools
-        adapter._room_notify_target["room-1"] = {"id": "u1", "name": "Bob"}
+        adapter._room_last_sender["room-1"] = {"id": "u1", "name": "Bob"}
 
         callback = adapter._make_can_use_tool("room-1")
         await callback("Bash", {"command": "ls"}, ToolPermissionContext())
@@ -1311,7 +1311,7 @@ class TestCanUseToolCallback:
 
         adapter = ClaudeSDKAdapter(approval_mode="auto_decline")
         adapter._room_tools["room-1"] = mock_tools
-        adapter._room_notify_target["room-1"] = {"id": "u1", "name": "Bob"}
+        adapter._room_last_sender["room-1"] = {"id": "u1", "name": "Bob"}
 
         callback = adapter._make_can_use_tool("room-1")
         result = await callback("Bash", {"command": "ls"}, ToolPermissionContext())
@@ -1327,7 +1327,7 @@ class TestCanUseToolCallback:
             approval_mode="auto_accept", approval_text_notifications=False
         )
         adapter._room_tools["room-1"] = mock_tools
-        adapter._room_notify_target["room-1"] = {"id": "u1", "name": "Bob"}
+        adapter._room_last_sender["room-1"] = {"id": "u1", "name": "Bob"}
 
         callback = adapter._make_can_use_tool("room-1")
         await callback("Bash", {"command": "ls"}, ToolPermissionContext())
@@ -1344,7 +1344,7 @@ class TestCanUseToolCallback:
 
         adapter = ClaudeSDKAdapter(approval_mode="manual", approval_wait_timeout_s=1.0)
         adapter._room_tools["room-1"] = mock_tools
-        adapter._room_notify_target["room-1"] = {"id": "u1", "name": "Bob"}
+        adapter._room_last_sender["room-1"] = {"id": "u1", "name": "Bob"}
 
         callback = adapter._make_can_use_tool("room-1")
 
@@ -1378,7 +1378,7 @@ class TestCanUseToolCallback:
             approval_timeout_decision="decline",
         )
         adapter._room_tools["room-1"] = mock_tools
-        adapter._room_notify_target["room-1"] = {"id": "u1", "name": "Bob"}
+        adapter._room_last_sender["room-1"] = {"id": "u1", "name": "Bob"}
 
         callback = adapter._make_can_use_tool("room-1")
         result = await callback("Bash", {"command": "ls"}, ToolPermissionContext())
@@ -1399,7 +1399,7 @@ class TestCanUseToolCallback:
             approval_timeout_decision="accept",
         )
         adapter._room_tools["room-1"] = mock_tools
-        adapter._room_notify_target["room-1"] = {"id": "u1", "name": "Bob"}
+        adapter._room_last_sender["room-1"] = {"id": "u1", "name": "Bob"}
 
         callback = adapter._make_can_use_tool("room-1")
         result = await callback("Bash", {"command": "ls"}, ToolPermissionContext())
@@ -1420,7 +1420,7 @@ class TestCanUseToolCallback:
         )
         mock_tools.send_message = AsyncMock(side_effect=RuntimeError("network down"))
         adapter._room_tools["room-1"] = mock_tools
-        adapter._room_notify_target["room-1"] = {"id": "u1", "name": "Bob"}
+        adapter._room_last_sender["room-1"] = {"id": "u1", "name": "Bob"}
 
         callback = adapter._make_can_use_tool("room-1")
         result = await callback("Bash", {"command": "ls"}, ToolPermissionContext())
@@ -1785,7 +1785,7 @@ class TestPendingApprovalEviction:
             approval_timeout_decision="decline",
         )
         adapter._room_tools["room-1"] = mock_tools
-        adapter._room_notify_target["room-1"] = {"id": "u1", "name": "Bob"}
+        adapter._room_last_sender["room-1"] = {"id": "u1", "name": "Bob"}
 
         loop = asyncio.get_running_loop()
         # Pre-populate one pending approval
