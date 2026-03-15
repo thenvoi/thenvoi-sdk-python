@@ -362,7 +362,7 @@ class TestMentionRouterRoute:
             chat_room_id="room-1",
             inserted_at="2024-01-01T00:00:00Z",
             updated_at="2024-01-01T00:00:00Z",
-            metadata=MessageMetadata(mentions=None, status="sent"),
+            metadata=MessageMetadata(mentions=[], status="sent"),
         )
         tools = MagicMock()
 
