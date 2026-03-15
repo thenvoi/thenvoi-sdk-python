@@ -949,29 +949,25 @@ class ClaudeSDKAdapter(SimpleAdapter[ClaudeSDKSessionState]):
         # Store tools for MCP server access
         self._room_tools[room_id] = tools
 
-        # Track last sender for approval mentions (only when approval is enabled)
+        # Approval flow: track notify target and intercept local commands
         if self.approval_mode is not None:
             self._room_notify_target[room_id] = {
                 "id": msg.sender_id,
                 "name": msg.sender_name or msg.sender_type,
             }
-
-        # Intercept local commands (/approve, /decline, /approvals, /status)
-        if self.approval_mode is not None:
             command = self._extract_command(msg.content)
             if command is not None:
                 cmd, args = command
                 sender = self._room_notify_target[room_id]
                 if cmd in _APPROVAL_CMDS:
-                    handled = await self._handle_approval_command(
+                    await self._handle_approval_command(
                         tools=tools,
                         room_id=room_id,
                         command=cmd,
                         args=args,
                         sender=sender,
                     )
-                    if handled:
-                        return
+                    return
                 elif cmd == "status":
                     await self._handle_status_command(
                         tools=tools,
