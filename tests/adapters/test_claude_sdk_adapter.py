@@ -982,14 +982,13 @@ class TestApprovalCommandHandling:
     @pytest.mark.asyncio
     async def test_approvals_empty(self, adapter_with_approval, mock_tools, sender):
         """Should report no pending approvals."""
-        handled = await adapter_with_approval._handle_approval_command(
+        await adapter_with_approval._handle_approval_command(
             tools=mock_tools,
             room_id="room-1",
             command="approvals",
             args="",
             sender=sender,
         )
-        assert handled is True
         mock_tools.send_message.assert_awaited_once()
         assert "No pending" in mock_tools.send_message.call_args[0][0]
 
@@ -1008,14 +1007,13 @@ class TestApprovalCommandHandling:
                 future=loop.create_future(),
             ),
         }
-        handled = await adapter_with_approval._handle_approval_command(
+        await adapter_with_approval._handle_approval_command(
             tools=mock_tools,
             room_id="room-1",
             command="approvals",
             args="",
             sender=sender,
         )
-        assert handled is True
         msg = mock_tools.send_message.call_args[0][0]
         assert "a-1" in msg
         assert "Bash" in msg
@@ -1036,14 +1034,13 @@ class TestApprovalCommandHandling:
                 future=future,
             ),
         }
-        handled = await adapter_with_approval._handle_approval_command(
+        await adapter_with_approval._handle_approval_command(
             tools=mock_tools,
             room_id="room-1",
             command="approve",
             args="a-1",
             sender=sender,
         )
-        assert handled is True
         assert future.done()
         assert future.result() == "accept"
 
@@ -1063,14 +1060,13 @@ class TestApprovalCommandHandling:
                 future=future,
             ),
         }
-        handled = await adapter_with_approval._handle_approval_command(
+        await adapter_with_approval._handle_approval_command(
             tools=mock_tools,
             room_id="room-1",
             command="decline",
             args="a-1",
             sender=sender,
         )
-        assert handled is True
         assert future.done()
         assert future.result() == "decline"
 
@@ -1090,14 +1086,13 @@ class TestApprovalCommandHandling:
                 future=future,
             ),
         }
-        handled = await adapter_with_approval._handle_approval_command(
+        await adapter_with_approval._handle_approval_command(
             tools=mock_tools,
             room_id="room-1",
             command="approve",
             args="",
             sender=sender,
         )
-        assert handled is True
         assert future.result() == "accept"
 
     @pytest.mark.asyncio
@@ -1122,14 +1117,13 @@ class TestApprovalCommandHandling:
                 future=loop.create_future(),
             ),
         }
-        handled = await adapter_with_approval._handle_approval_command(
+        await adapter_with_approval._handle_approval_command(
             tools=mock_tools,
             room_id="room-1",
             command="approve",
             args="",
             sender=sender,
         )
-        assert handled is True
         msg = mock_tools.send_message.call_args[0][0]
         assert "specify" in msg.lower()
 
@@ -1146,14 +1140,13 @@ class TestApprovalCommandHandling:
                 future=loop.create_future(),
             ),
         }
-        handled = await adapter_with_approval._handle_approval_command(
+        await adapter_with_approval._handle_approval_command(
             tools=mock_tools,
             room_id="room-1",
             command="approve",
             args="bad-token",
             sender=sender,
         )
-        assert handled is True
         msg = mock_tools.send_message.call_args[0][0]
         assert "Unknown" in msg
         assert "a-1" in msg
@@ -1234,14 +1227,13 @@ class TestApprovalAuthorization:
             approval_mode="manual",
             approval_authorized_senders={"admin-1"},
         )
-        handled = await adapter._handle_approval_command(
+        await adapter._handle_approval_command(
             tools=mock_tools,
             room_id="room-1",
             command="approvals",
             args="",
             sender=unauthorized_sender,
         )
-        assert handled is True
         assert "No pending" in mock_tools.send_message.call_args[0][0]
 
     @pytest.mark.asyncio

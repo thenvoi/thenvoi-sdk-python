@@ -1407,11 +1407,8 @@ class ClaudeSDKAdapter(SimpleAdapter[ClaudeSDKSessionState]):
         command: str,
         args: str,
         sender: dict[str, str],
-    ) -> bool:
-        """Handle ``/approve``, ``/decline``, or ``/approvals``.
-
-        Returns ``True`` if the command was fully handled.
-        """
+    ) -> None:
+        """Handle ``/approve``, ``/decline``, or ``/approvals``."""
         pending = self._pending_approvals.get(room_id, {})
         mention: list[str] = [sender["id"]]
 
@@ -1422,20 +1419,20 @@ class ClaudeSDKAdapter(SimpleAdapter[ClaudeSDKSessionState]):
                     "You are not authorized to approve or decline tool use.",
                     mentions=mention,
                 )
-                return True
+                return
 
         # --- /approvals: list pending ---
         if command == "approvals":
             if not pending:
                 await tools.send_message("No pending approvals.", mentions=mention)
-                return True
+                return
             lines = ["Pending approvals:"]
             now = datetime.now(timezone.utc)
             for token, item in list(pending.items()):
                 age_s = int((now - item.created_at).total_seconds())
                 lines.append(f"- `{token}`: {item.summary} ({age_s}s ago)")
             await tools.send_message("\n".join(lines), mentions=mention)
-            return True
+            return
 
         # --- /approve [token] | /decline [token] ---
         token = args.strip() if args else ""
@@ -1449,19 +1446,19 @@ class ClaudeSDKAdapter(SimpleAdapter[ClaudeSDKSessionState]):
                     f"Unknown approval token `{token}`. Available: {available}.",
                     mentions=mention,
                 )
-                return True
+                return
         elif len(pending) == 1:
             token, selected = next(iter(pending.items()))
         elif len(pending) == 0:
             await tools.send_message("No pending approvals.", mentions=mention)
-            return True
+            return
         else:
             tokens_list = ", ".join(f"`{t}`" for t in pending)
             await tools.send_message(
                 f"Multiple pending approvals — please specify a token: {tokens_list}",
                 mentions=mention,
             )
-            return True
+            return
 
         decision: ApprovalDecision = "accept" if command == "approve" else "decline"
         if not selected.future.done():
@@ -1470,7 +1467,6 @@ class ClaudeSDKAdapter(SimpleAdapter[ClaudeSDKSessionState]):
             f"Approval `{token}` resolved as **{decision}**.",
             mentions=mention,
         )
-        return True
 
     async def _handle_status_command(
         self,
