@@ -1,0 +1,39 @@
+"""Manual test entry point for the AgentCore bridge handler.
+
+Run from the thenvoi-bridge directory:
+    uv run python run_agentcore.py
+
+Requires .env.test (or ENV_FILE) with:
+    THENVOI_AGENT_ID, THENVOI_API_KEY, AGENT_MAPPING,
+    AGENTCORE_RUNTIME_ARN, AWS_DEFAULT_REGION,
+    AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY
+"""
+
+from __future__ import annotations
+
+import asyncio
+import os
+
+from dotenv import load_dotenv
+
+load_dotenv(os.environ.get("ENV_FILE", "../.env.test"))
+
+from bridge_core.bridge import main  # noqa: E402
+from handlers.agentcore import AgentCoreHandler  # noqa: E402
+
+arn = os.environ.get("AGENTCORE_RUNTIME_ARN", "")
+region = os.environ.get("AWS_DEFAULT_REGION", "us-east-1")
+timeout = float(os.environ.get("AGENTCORE_TIMEOUT", "120"))
+mcp_tool = os.environ.get("AGENTCORE_MCP_TOOL")
+
+if not arn:
+    raise ValueError("AGENTCORE_RUNTIME_ARN is required in your .env file")
+
+handler = AgentCoreHandler(
+    agent_runtime_arn=arn,
+    region=region,
+    timeout=timeout,
+    mcp_tool_name=mcp_tool,
+)
+
+asyncio.run(main(handlers={"agentcore": handler}))

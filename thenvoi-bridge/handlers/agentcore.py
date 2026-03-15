@@ -42,6 +42,7 @@ class AgentCoreHandler:
         region: str,
         timeout: float = 120.0,
         max_response_bytes: int = _MAX_RESPONSE_BYTES,
+        mcp_tool_name: str = "chat",
         boto3_client: AgentCoreClient | None = None,
     ) -> None:
         if not agent_runtime_arn or not agent_runtime_arn.strip():
@@ -57,6 +58,7 @@ class AgentCoreHandler:
         self._region = region.strip()
         self._timeout = timeout
         self._max_response_bytes = max_response_bytes
+        self._mcp_tool_name = mcp_tool_name
         self._boto3_client = boto3_client
 
     def _get_client(self) -> AgentCoreClient:
@@ -82,38 +84,40 @@ class AgentCoreHandler:
     def _build_payload(
         self,
         content: str,
-        sender_id: str,
-        sender_name: str | None,
-        sender_type: str,
         thread_id: str,
-        mentioned_agent: str,
-    ) -> dict[str, str]:
-        """Build the JSON payload for the AgentCore invocation.
+    ) -> dict[str, Any]:
+        """Build an MCP JSON-RPC ``tools/call`` payload for AgentCore.
 
-        Keys with ``None`` values are omitted so the AgentCore API receives
-        a clean payload without explicit nulls.
+        AgentCore runtimes expose MCP tool servers. The handler sends a
+        ``tools/call`` request targeting ``mcp_tool_name`` (default
+        ``chat``) with the message content as the ``message`` argument.
         """
-        payload: dict[str, str] = {
-            "prompt": content,
-            "actor_id": sender_id,
-            "actor_type": sender_type,
-            "thread_id": thread_id,
-            "mentioned_agent": mentioned_agent,
+        return {
+            "jsonrpc": "2.0",
+            "id": thread_id,
+            "method": "tools/call",
+            "params": {
+                "name": self._mcp_tool_name,
+                "arguments": {"message": content},
+            },
         }
-        if sender_name is not None:
-            payload["actor_name"] = sender_name
-        return payload
 
     def _read_streaming_response(self, response: dict[str, Any]) -> str:
         """Read and parse the streaming response from AgentCore.
 
-        Extracts text from known response keys or falls back to raw text.
+        Handles multiple response formats:
+        - SSE (Server-Sent Events): ``event: message\\ndata: {...}``
+        - MCP JSON-RPC: ``{"jsonrpc": "2.0", "result": {"content": [...]}}``
+        - Generic JSON with known keys: ``output``, ``response``, ``text``,
+          ``content``, ``message``
+        - Plain text fallback
+
         Reads in 64 KB chunks to avoid buffering large responses in a single
-        allocation, and enforces the 1 MB size limit incrementally.
+        allocation, and enforces the configurable size limit incrementally.
         """
-        body = response.get("body")
+        body = response.get("response") or response.get("body")
         if body is None:
-            raise RuntimeError("Response missing 'body' (StreamingBody)")
+            raise RuntimeError("Response missing 'response' (StreamingBody)")
 
         try:
             chunks: list[bytes] = []
@@ -133,10 +137,37 @@ class AgentCoreHandler:
         finally:
             body.close()
 
-        # Try to parse as JSON and extract from known keys
+        # Handle SSE format: strip "event: ...\ndata: ..." wrapper
+        json_text = text
+        if text.startswith("event:"):
+            for line in text.splitlines():
+                if line.startswith("data:"):
+                    json_text = line[len("data:") :].strip()
+                    break
+
+        # Try to parse as JSON and extract from known response formats
         try:
-            data = json.loads(text)
+            data = json.loads(json_text)
             if isinstance(data, dict):
+                # MCP JSON-RPC response: extract text from result.content
+                result = data.get("result")
+                if isinstance(result, dict):
+                    content_list = result.get("content")
+                    if isinstance(content_list, list):
+                        texts = [
+                            c["text"]
+                            for c in content_list
+                            if isinstance(c, dict) and c.get("type") == "text"
+                        ]
+                        if texts:
+                            return "\n".join(texts)
+
+                # MCP JSON-RPC error
+                error = data.get("error")
+                if isinstance(error, dict):
+                    return f"AgentCore error: {error.get('message', str(error))}"
+
+                # Generic JSON with known keys
                 for key in ("output", "response", "text", "content", "message"):
                     if key in data:
                         value = data[key]
@@ -162,7 +193,9 @@ class AgentCoreHandler:
             response = client.invoke_agent_runtime(
                 agentRuntimeArn=self._agent_runtime_arn,
                 runtimeSessionId=session_id,
-                inputText=json.dumps(payload),
+                contentType="application/json",
+                accept="application/json, text/event-stream",
+                payload=json.dumps(payload).encode("utf-8"),
             )
             return self._read_streaming_response(response)
 
@@ -194,19 +227,10 @@ class AgentCoreHandler:
         # by the bridge.  This avoids a redundant REST API call — the bridge
         # already populated tools._participants from its participant cache.
         resolved_name, sender_handle = self._resolve_sender(sender_id, tools)
-        # Use sender_name (pre-resolved by the bridge) when available,
-        # otherwise fall back to the participant cache lookup.  Both are
-        # None when the sender is unresolvable, which causes actor_name
-        # to be omitted from the payload rather than sending a raw UUID.
-        payload_name = sender_name if sender_name is not None else resolved_name
 
         payload = self._build_payload(
             content=content,
-            sender_id=sender_id,
-            sender_name=payload_name,
-            sender_type=sender_type,
             thread_id=thread_id,
-            mentioned_agent=mentioned_agent,
         )
 
         try:

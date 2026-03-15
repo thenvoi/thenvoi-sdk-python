@@ -51,6 +51,7 @@ class TestAgentCoreHandlerInit:
         assert handler._agent_runtime_arn == "arn:aws:bedrock:us-east-1:123:agent/abc"
         assert handler._region == "us-east-1"
         assert handler._timeout == 120.0
+        assert handler._mcp_tool_name == "chat"
 
     def test_custom_timeout(self) -> None:
         handler = AgentCoreHandler(
@@ -59,6 +60,14 @@ class TestAgentCoreHandlerInit:
             timeout=30.0,
         )
         assert handler._timeout == 30.0
+
+    def test_custom_mcp_tool_name(self) -> None:
+        handler = AgentCoreHandler(
+            agent_runtime_arn="arn:abc",
+            region="us-east-1",
+            mcp_tool_name="echo",
+        )
+        assert handler._mcp_tool_name == "echo"
 
     def test_empty_arn_raises(self) -> None:
         with pytest.raises(ValueError, match="agent_runtime_arn"):
@@ -175,7 +184,7 @@ class TestAgentCoreHandlerGetClient:
 
 
 class TestBuildPayload:
-    def test_payload_structure(self) -> None:
+    def test_default_chat_tool(self) -> None:
         handler = AgentCoreHandler(
             agent_runtime_arn="arn:abc",
             region="us-east-1",
@@ -183,20 +192,39 @@ class TestBuildPayload:
         )
         payload = handler._build_payload(
             content="Hello agent",
-            sender_id="user-123",
-            sender_name="Alice",
-            sender_type="User",
             thread_id="thread-456",
-            mentioned_agent="alice",
         )
         assert payload == {
-            "prompt": "Hello agent",
-            "actor_id": "user-123",
-            "actor_name": "Alice",
-            "actor_type": "User",
-            "thread_id": "thread-456",
-            "mentioned_agent": "alice",
+            "jsonrpc": "2.0",
+            "id": "thread-456",
+            "method": "tools/call",
+            "params": {
+                "name": "chat",
+                "arguments": {"message": "Hello agent"},
+            },
         }
+
+    def test_custom_tool_name(self) -> None:
+        handler = AgentCoreHandler(
+            agent_runtime_arn="arn:abc",
+            region="us-east-1",
+            mcp_tool_name="echo",
+            boto3_client=MagicMock(),
+        )
+        payload = handler._build_payload(
+            content="Hello",
+            thread_id="thread-456",
+        )
+        assert payload["params"]["name"] == "echo"
+
+    def test_thread_id_used_as_jsonrpc_id(self) -> None:
+        handler = AgentCoreHandler(
+            agent_runtime_arn="arn:abc",
+            region="us-east-1",
+            boto3_client=MagicMock(),
+        )
+        payload = handler._build_payload(content="Hi", thread_id="t-99")
+        assert payload["id"] == "t-99"
 
 
 # ---------------------------------------------------------------------------
@@ -213,65 +241,129 @@ class TestReadStreamingResponse:
             boto3_client=MagicMock(),
         )
 
+    # --- Generic JSON keys ---
+
     def test_extracts_output_key(self, handler: AgentCoreHandler) -> None:
         body = _make_streaming_body(json.dumps({"output": "Hello from agent"}))
-        result = handler._read_streaming_response({"body": body})
+        result = handler._read_streaming_response({"response": body})
         assert result == "Hello from agent"
 
     def test_extracts_response_key(self, handler: AgentCoreHandler) -> None:
         body = _make_streaming_body(json.dumps({"response": "Agent reply"}))
-        result = handler._read_streaming_response({"body": body})
+        result = handler._read_streaming_response({"response": body})
         assert result == "Agent reply"
 
     def test_extracts_text_key(self, handler: AgentCoreHandler) -> None:
         body = _make_streaming_body(json.dumps({"text": "Some text"}))
-        result = handler._read_streaming_response({"body": body})
+        result = handler._read_streaming_response({"response": body})
         assert result == "Some text"
 
     def test_extracts_content_key(self, handler: AgentCoreHandler) -> None:
         body = _make_streaming_body(json.dumps({"content": "Content value"}))
-        result = handler._read_streaming_response({"body": body})
+        result = handler._read_streaming_response({"response": body})
         assert result == "Content value"
 
     def test_extracts_message_key(self, handler: AgentCoreHandler) -> None:
         body = _make_streaming_body(json.dumps({"message": "Message value"}))
-        result = handler._read_streaming_response({"body": body})
+        result = handler._read_streaming_response({"response": body})
         assert result == "Message value"
 
     def test_priority_order_output_first(self, handler: AgentCoreHandler) -> None:
         body = _make_streaming_body(
             json.dumps({"output": "from output", "response": "from response"})
         )
-        result = handler._read_streaming_response({"body": body})
+        result = handler._read_streaming_response({"response": body})
         assert result == "from output"
+
+    # --- MCP JSON-RPC responses ---
+
+    def test_extracts_mcp_result_content(self, handler: AgentCoreHandler) -> None:
+        mcp_response = {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "result": {
+                "content": [{"type": "text", "text": "Echo: hello"}],
+                "isError": False,
+            },
+        }
+        body = _make_streaming_body(json.dumps(mcp_response))
+        result = handler._read_streaming_response({"response": body})
+        assert result == "Echo: hello"
+
+    def test_extracts_mcp_multi_content(self, handler: AgentCoreHandler) -> None:
+        mcp_response = {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "result": {
+                "content": [
+                    {"type": "text", "text": "Line 1"},
+                    {"type": "image", "data": "..."},
+                    {"type": "text", "text": "Line 2"},
+                ],
+            },
+        }
+        body = _make_streaming_body(json.dumps(mcp_response))
+        result = handler._read_streaming_response({"response": body})
+        assert result == "Line 1\nLine 2"
+
+    def test_extracts_mcp_error(self, handler: AgentCoreHandler) -> None:
+        mcp_response = {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "error": {"code": -32010, "message": "Runtime error"},
+        }
+        body = _make_streaming_body(json.dumps(mcp_response))
+        result = handler._read_streaming_response({"response": body})
+        assert result == "AgentCore error: Runtime error"
+
+    # --- SSE format ---
+
+    def test_extracts_from_sse_wrapped_mcp(self, handler: AgentCoreHandler) -> None:
+        mcp_response = {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "result": {
+                "content": [{"type": "text", "text": "SSE echo"}],
+            },
+        }
+        sse = f"event: message\ndata: {json.dumps(mcp_response)}"
+        body = _make_streaming_body(sse)
+        result = handler._read_streaming_response({"response": body})
+        assert result == "SSE echo"
+
+    def test_extracts_from_sse_wrapped_generic(self, handler: AgentCoreHandler) -> None:
+        sse = 'event: message\ndata: {"output": "SSE output"}'
+        body = _make_streaming_body(sse)
+        result = handler._read_streaming_response({"response": body})
+        assert result == "SSE output"
+
+    # --- Fallbacks and edge cases ---
 
     def test_raw_text_fallback(self, handler: AgentCoreHandler) -> None:
         body = _make_streaming_body("Just plain text")
-        result = handler._read_streaming_response({"body": body})
+        result = handler._read_streaming_response({"response": body})
         assert result == "Just plain text"
 
     def test_json_without_known_keys_returns_raw(
         self, handler: AgentCoreHandler
     ) -> None:
         body = _make_streaming_body(json.dumps({"unknown_key": "value"}))
-        result = handler._read_streaming_response({"body": body})
+        result = handler._read_streaming_response({"response": body})
         assert "unknown_key" in result
 
     def test_missing_body_raises(self, handler: AgentCoreHandler) -> None:
-        with pytest.raises(RuntimeError, match="missing 'body'"):
+        with pytest.raises(RuntimeError, match="missing 'response'"):
             handler._read_streaming_response({})
 
     def test_size_limit_exceeded_raises(self, handler: AgentCoreHandler) -> None:
         body = MagicMock()
-        # Simulate chunks that cumulatively exceed the 1 MB limit
         chunk = b"x" * _READ_CHUNK_SIZE
         num_full_chunks = _MAX_RESPONSE_BYTES // _READ_CHUNK_SIZE
-        # One extra chunk pushes total over the limit
         body.read = MagicMock(side_effect=[chunk] * (num_full_chunks + 1))
         body.close = MagicMock()
 
         with pytest.raises(RuntimeError, match="exceeds.*limit"):
-            handler._read_streaming_response({"body": body})
+            handler._read_streaming_response({"response": body})
 
         body.close.assert_called_once()
 
@@ -281,42 +373,46 @@ class TestReadStreamingResponse:
         body.close = MagicMock()
 
         with pytest.raises(IOError, match="read failed"):
-            handler._read_streaming_response({"body": body})
+            handler._read_streaming_response({"response": body})
 
         body.close.assert_called_once()
 
     def test_non_string_json_value_converted(self, handler: AgentCoreHandler) -> None:
         body = _make_streaming_body(json.dumps({"output": 42}))
-        result = handler._read_streaming_response({"body": body})
+        result = handler._read_streaming_response({"response": body})
         assert result == "42"
 
     def test_body_closed_on_success(self, handler: AgentCoreHandler) -> None:
         body = _make_streaming_body(json.dumps({"output": "ok"}))
-        handler._read_streaming_response({"body": body})
+        handler._read_streaming_response({"response": body})
         body.close.assert_called_once()
 
     def test_invalid_utf8_raises(self, handler: AgentCoreHandler) -> None:
         body = _make_streaming_body(b"\xff\xfe invalid utf-8")
         with pytest.raises(UnicodeDecodeError):
-            handler._read_streaming_response({"body": body})
+            handler._read_streaming_response({"response": body})
         body.close.assert_called_once()
 
     def test_chunked_reads(self, handler: AgentCoreHandler) -> None:
-        """Simulate multi-chunk streaming body reads."""
         body = MagicMock()
         chunk1 = b'{"output": "'
         chunk2 = b'hello from chunks"}'
         body.read = MagicMock(side_effect=[chunk1, chunk2, b""])
         body.close = MagicMock()
 
-        result = handler._read_streaming_response({"body": body})
+        result = handler._read_streaming_response({"response": body})
         assert result == "hello from chunks"
         assert body.read.call_count == 3
         body.close.assert_called_once()
 
+    def test_body_key_fallback(self, handler: AgentCoreHandler) -> None:
+        body = _make_streaming_body(json.dumps({"output": "from body key"}))
+        result = handler._read_streaming_response({"body": body})
+        assert result == "from body key"
+
 
 # ---------------------------------------------------------------------------
-# TestResolveSenderName
+# TestResolveSender
 # ---------------------------------------------------------------------------
 
 
@@ -377,7 +473,7 @@ class TestAgentCoreHandlerHandle:
     def mock_boto3_client(self) -> MagicMock:
         client = MagicMock()
         body = _make_streaming_body(json.dumps({"output": "Agent response"}))
-        client.invoke_agent_runtime.return_value = {"body": body}
+        client.invoke_agent_runtime.return_value = {"response": body}
         return client
 
     @pytest.fixture
@@ -420,11 +516,19 @@ class TestAgentCoreHandlerHandle:
             message_type="thought",
         )
 
-        # boto3 client invoked
+        # boto3 client invoked with correct API params
         mock_boto3_client.invoke_agent_runtime.assert_called_once()
         call_kwargs = mock_boto3_client.invoke_agent_runtime.call_args.kwargs
         assert call_kwargs["agentRuntimeArn"] == "arn:abc"
         assert call_kwargs["runtimeSessionId"] == "thread-1"
+        assert call_kwargs["contentType"] == "application/json"
+        assert isinstance(call_kwargs["payload"], bytes)
+
+        # Payload is MCP tools/call with default "chat" tool
+        payload_data = json.loads(call_kwargs["payload"])
+        assert payload_data["method"] == "tools/call"
+        assert payload_data["params"]["name"] == "chat"
+        assert payload_data["params"]["arguments"]["message"] == "Hello"
 
         # Response sent back with sender's handle as mention
         tools.send_message.assert_called_once_with(
@@ -444,7 +548,6 @@ class TestAgentCoreHandlerHandle:
             send_event_side_effect=RuntimeError("event API down"),
         )
 
-        # Should not raise despite send_event failure
         await handler.handle(
             content="Hello",
             room_id="room-1",
@@ -457,9 +560,7 @@ class TestAgentCoreHandlerHandle:
             tools=tools,
         )
 
-        # Agent was still invoked
         mock_boto3_client.invoke_agent_runtime.assert_called_once()
-        # Response still sent
         tools.send_message.assert_called_once()
 
     async def test_timeout_raises_timeout_error(self) -> None:
@@ -472,8 +573,6 @@ class TestAgentCoreHandlerHandle:
             boto3_client=client,
         )
 
-        # time.sleep (not asyncio.sleep) is correct here because _invoke_agent
-        # runs the boto3 call in a thread via asyncio.to_thread().
         import time
 
         client.invoke_agent_runtime = MagicMock(side_effect=lambda **kw: time.sleep(5))
@@ -499,7 +598,7 @@ class TestAgentCoreHandlerHandle:
 
     async def test_empty_response_raises(self, mock_boto3_client: MagicMock) -> None:
         body = _make_streaming_body("")
-        mock_boto3_client.invoke_agent_runtime.return_value = {"body": body}
+        mock_boto3_client.invoke_agent_runtime.return_value = {"response": body}
 
         handler = AgentCoreHandler(
             agent_runtime_arn="arn:abc",
@@ -529,7 +628,7 @@ class TestAgentCoreHandlerHandle:
         self, mock_boto3_client: MagicMock
     ) -> None:
         body = _make_streaming_body("   \n  ")
-        mock_boto3_client.invoke_agent_runtime.return_value = {"body": body}
+        mock_boto3_client.invoke_agent_runtime.return_value = {"response": body}
 
         handler = AgentCoreHandler(
             agent_runtime_arn="arn:abc",
@@ -624,40 +723,9 @@ class TestAgentCoreHandlerHandle:
             tools=tools,
         )
 
-        # When sender is not found and sender_name is None, send without
-        # mentions rather than mentioning a raw UUID.
         tools.send_message.assert_called_once_with(
             content="Agent response",
         )
-
-    async def test_unresolvable_sender_omits_actor_name_from_payload(
-        self,
-        mock_boto3_client: MagicMock,
-    ) -> None:
-        """When sender is unresolvable, actor_name should be omitted from the
-        AgentCore payload rather than sending a raw UUID."""
-        handler = AgentCoreHandler(
-            agent_runtime_arn="arn:abc",
-            region="us-east-1",
-            boto3_client=mock_boto3_client,
-        )
-        tools = _make_tools(participants=[])
-
-        await handler.handle(
-            content="Hello",
-            room_id="room-1",
-            thread_id="thread-1",
-            message_id="msg-1",
-            sender_id="user-unknown",
-            sender_name=None,
-            sender_type="User",
-            mentioned_agent="alice",
-            tools=tools,
-        )
-
-        call_kwargs = mock_boto3_client.invoke_agent_runtime.call_args.kwargs
-        input_text = json.loads(call_kwargs["inputText"])
-        assert "actor_name" not in input_text
 
     async def test_handle_preferred_over_name_for_mention(
         self,
@@ -682,7 +750,6 @@ class TestAgentCoreHandlerHandle:
             tools=tools,
         )
 
-        # Handle is preferred over display name for mentions
         tools.send_message.assert_called_once_with(
             content="Agent response",
             mentions=["alice_h"],
@@ -711,38 +778,10 @@ class TestAgentCoreHandlerHandle:
             tools=tools,
         )
 
-        # Falls back to name when handle is None
         tools.send_message.assert_called_once_with(
             content="Agent response",
             mentions=["Alice"],
         )
-
-    async def test_payload_passed_to_invoke_agent(
-        self,
-        handler: AgentCoreHandler,
-        tools: MagicMock,
-        mock_boto3_client: MagicMock,
-    ) -> None:
-        await handler.handle(
-            content="What is the weather?",
-            room_id="room-1",
-            thread_id="thread-42",
-            message_id="msg-1",
-            sender_id="user-1",
-            sender_name="Alice",
-            sender_type="User",
-            mentioned_agent="weather_bot",
-            tools=tools,
-        )
-
-        call_kwargs = mock_boto3_client.invoke_agent_runtime.call_args.kwargs
-        input_text = json.loads(call_kwargs["inputText"])
-        assert input_text["prompt"] == "What is the weather?"
-        assert input_text["actor_id"] == "user-1"
-        assert input_text["actor_name"] == "Alice"
-        assert input_text["actor_type"] == "User"
-        assert input_text["thread_id"] == "thread-42"
-        assert input_text["mentioned_agent"] == "weather_bot"
 
     async def test_session_id_is_thread_id(
         self,
@@ -764,3 +803,81 @@ class TestAgentCoreHandlerHandle:
 
         call_kwargs = mock_boto3_client.invoke_agent_runtime.call_args.kwargs
         assert call_kwargs["runtimeSessionId"] == "thread-99"
+
+    async def test_custom_mcp_tool_in_payload(
+        self,
+        mock_boto3_client: MagicMock,
+    ) -> None:
+        handler = AgentCoreHandler(
+            agent_runtime_arn="arn:abc",
+            region="us-east-1",
+            mcp_tool_name="echo",
+            boto3_client=mock_boto3_client,
+        )
+        tools = _make_tools(
+            participants=[
+                {"id": "user-1", "name": "Alice", "type": "User", "handle": "alice_h"}
+            ]
+        )
+
+        await handler.handle(
+            content="test message",
+            room_id="room-1",
+            thread_id="thread-1",
+            message_id="msg-1",
+            sender_id="user-1",
+            sender_name="Alice",
+            sender_type="User",
+            mentioned_agent="echo_agent",
+            tools=tools,
+        )
+
+        call_kwargs = mock_boto3_client.invoke_agent_runtime.call_args.kwargs
+        payload_data = json.loads(call_kwargs["payload"])
+        assert payload_data["params"]["name"] == "echo"
+        assert payload_data["params"]["arguments"]["message"] == "test message"
+
+    async def test_mcp_response_parsed_end_to_end(
+        self,
+        mock_boto3_client: MagicMock,
+    ) -> None:
+        """Full handle() flow with MCP JSON-RPC response in SSE format."""
+        mcp_response = {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "result": {
+                "content": [{"type": "text", "text": "I'm doing well, thanks!"}],
+                "isError": False,
+            },
+        }
+        sse = f"event: message\ndata: {json.dumps(mcp_response)}"
+        body = _make_streaming_body(sse)
+        mock_boto3_client.invoke_agent_runtime.return_value = {"response": body}
+
+        handler = AgentCoreHandler(
+            agent_runtime_arn="arn:abc",
+            region="us-east-1",
+            boto3_client=mock_boto3_client,
+        )
+        tools = _make_tools(
+            participants=[
+                {"id": "user-1", "name": "Alice", "type": "User", "handle": "alice_h"}
+            ]
+        )
+
+        await handler.handle(
+            content="How are you?",
+            room_id="room-1",
+            thread_id="thread-1",
+            message_id="msg-1",
+            sender_id="user-1",
+            sender_name="Alice",
+            sender_type="User",
+            mentioned_agent="llm_agent",
+            tools=tools,
+        )
+
+        tools.send_message.assert_called_once_with(
+            content="I'm doing well, thanks!",
+            mentions=["alice_h"],
+        )
