@@ -36,6 +36,9 @@ try:
     from claude_agent_sdk._errors import CLIConnectionError
     from claude_agent_sdk.types import (
         CanUseTool,
+        HookContext,
+        HookInput,
+        HookJSONOutput,
         HookMatcher,
         PermissionResultAllow,
         PermissionResultDeny,
@@ -93,10 +96,10 @@ _LOCAL_CMDS = _APPROVAL_CMDS | {"status"}
 
 
 async def _pre_tool_use_continue_hook(
-    _hook_input: Any,
+    _hook_input: HookInput,
     _tool_name: str | None,
-    _context: Any,
-) -> dict[str, Any]:
+    _context: HookContext,
+) -> HookJSONOutput:
     """PreToolUse hook that delegates every tool to ``can_use_tool``.
 
     Returning ``{"continue_": True}`` tells the SDK to skip its built-in
