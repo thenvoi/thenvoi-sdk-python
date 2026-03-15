@@ -947,6 +947,26 @@ class TestApprovalSummary:
         summary = ClaudeSDKAdapter._approval_summary("SomeTool", {})
         assert summary == "SomeTool"
 
+    def test_redacts_api_key_in_command(self):
+        summary = ClaudeSDKAdapter._approval_summary(
+            "Bash", {"command": "curl -H token=sk-abc123 https://api.example.com"}
+        )
+        assert "sk-abc123" not in summary
+        assert "***" in summary
+
+    def test_redacts_password_in_command(self):
+        summary = ClaudeSDKAdapter._approval_summary(
+            "Bash", {"command": "mysql -u root password=s3cret db"}
+        )
+        assert "s3cret" not in summary
+        assert "***" in summary
+
+    def test_preserves_safe_command(self):
+        summary = ClaudeSDKAdapter._approval_summary(
+            "Bash", {"command": "ls -la /home/user"}
+        )
+        assert "ls -la /home/user" in summary
+
 
 class TestApprovalCommandHandling:
     """Tests for /approve, /decline, /approvals command handling."""
@@ -1137,6 +1157,118 @@ class TestApprovalCommandHandling:
         msg = mock_tools.send_message.call_args[0][0]
         assert "Unknown" in msg
         assert "a-1" in msg
+
+
+class TestApprovalAuthorization:
+    """Tests for approval_authorized_senders access control."""
+
+    @pytest.fixture
+    def authorized_sender(self):
+        return {"id": "admin-1", "name": "Admin"}
+
+    @pytest.fixture
+    def unauthorized_sender(self):
+        return {"id": "user-99", "name": "Stranger"}
+
+    @pytest.mark.asyncio
+    async def test_authorized_sender_can_approve(self, mock_tools, authorized_sender):
+        adapter = ClaudeSDKAdapter(
+            approval_mode="manual",
+            approval_authorized_senders={"admin-1"},
+        )
+        loop = asyncio.get_running_loop()
+        future: asyncio.Future[str] = loop.create_future()
+        adapter._pending_approvals["room-1"] = {
+            "a-1": _PendingApproval(
+                tool_name="Bash",
+                tool_input={},
+                summary="Bash",
+                created_at=datetime.now(timezone.utc),
+                future=future,
+            ),
+        }
+        await adapter._handle_approval_command(
+            tools=mock_tools,
+            room_id="room-1",
+            command="approve",
+            args="a-1",
+            sender=authorized_sender,
+        )
+        assert future.done()
+        assert future.result() == "accept"
+
+    @pytest.mark.asyncio
+    async def test_unauthorized_sender_rejected(self, mock_tools, unauthorized_sender):
+        adapter = ClaudeSDKAdapter(
+            approval_mode="manual",
+            approval_authorized_senders={"admin-1"},
+        )
+        loop = asyncio.get_running_loop()
+        future: asyncio.Future[str] = loop.create_future()
+        adapter._pending_approvals["room-1"] = {
+            "a-1": _PendingApproval(
+                tool_name="Bash",
+                tool_input={},
+                summary="Bash",
+                created_at=datetime.now(timezone.utc),
+                future=future,
+            ),
+        }
+        await adapter._handle_approval_command(
+            tools=mock_tools,
+            room_id="room-1",
+            command="approve",
+            args="a-1",
+            sender=unauthorized_sender,
+        )
+        assert not future.done()  # Future should NOT be resolved
+        msg = mock_tools.send_message.call_args[0][0]
+        assert "not authorized" in msg.lower()
+
+    @pytest.mark.asyncio
+    async def test_unauthorized_sender_can_list_approvals(
+        self, mock_tools, unauthorized_sender
+    ):
+        """/approvals should be available to all participants regardless of auth."""
+        adapter = ClaudeSDKAdapter(
+            approval_mode="manual",
+            approval_authorized_senders={"admin-1"},
+        )
+        handled = await adapter._handle_approval_command(
+            tools=mock_tools,
+            room_id="room-1",
+            command="approvals",
+            args="",
+            sender=unauthorized_sender,
+        )
+        assert handled is True
+        assert "No pending" in mock_tools.send_message.call_args[0][0]
+
+    @pytest.mark.asyncio
+    async def test_no_restriction_when_authorized_senders_is_none(self, mock_tools):
+        """When approval_authorized_senders is None, any sender can approve."""
+        adapter = ClaudeSDKAdapter(approval_mode="manual")
+        sender = {"id": "anyone", "name": "Anyone"}
+        loop = asyncio.get_running_loop()
+        future: asyncio.Future[str] = loop.create_future()
+        adapter._pending_approvals["room-1"] = {
+            "a-1": _PendingApproval(
+                tool_name="Bash",
+                tool_input={},
+                summary="Bash",
+                created_at=datetime.now(timezone.utc),
+                future=future,
+            ),
+        }
+        await adapter._handle_approval_command(
+            tools=mock_tools,
+            room_id="room-1",
+            command="approve",
+            args="a-1",
+            sender=sender,
+        )
+        assert future.done()
+        assert future.result() == "accept"
 
 
 class TestCanUseToolCallback:

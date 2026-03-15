@@ -13,6 +13,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 import warnings
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -166,6 +167,7 @@ class ClaudeSDKAdapter(SimpleAdapter[ClaudeSDKSessionState]):
         approval_wait_timeout_s: float = 300.0,
         approval_timeout_decision: ApprovalDecision = "decline",
         max_pending_approvals_per_room: int = 50,
+        approval_authorized_senders: set[str] | None = None,
     ):
         """
         Initialize the Claude SDK adapter.
@@ -197,6 +199,10 @@ class ClaudeSDKAdapter(SimpleAdapter[ClaudeSDKSessionState]):
                 times out (``"accept"`` or ``"decline"``).
             max_pending_approvals_per_room: Cap on concurrent pending approvals
                 per room.  Oldest entries are evicted (declined) when full.
+            approval_authorized_senders: Optional set of sender IDs allowed to
+                issue ``/approve`` and ``/decline`` commands.  When ``None``
+                (default), any room participant can approve.  ``/approvals``
+                and ``/status`` are always available to all participants.
         """
         super().__init__(
             history_converter=history_converter or ClaudeSDKHistoryConverter()
@@ -218,6 +224,7 @@ class ClaudeSDKAdapter(SimpleAdapter[ClaudeSDKSessionState]):
         self.approval_wait_timeout_s = approval_wait_timeout_s
         self.approval_timeout_decision: ApprovalDecision = approval_timeout_decision
         self.max_pending_approvals_per_room = max_pending_approvals_per_room
+        self.approval_authorized_senders: set[str] | None = approval_authorized_senders
 
         # Session manager and MCP server (created after start)
         self._session_manager: ClaudeSessionManager | None = None
@@ -1408,6 +1415,15 @@ class ClaudeSDKAdapter(SimpleAdapter[ClaudeSDKSessionState]):
         pending = self._pending_approvals.get(room_id, {})
         mention: list[str] = [sender["id"]]
 
+        # Authorization: /approve and /decline require sender to be authorized
+        if command in ("approve", "decline") and self.approval_authorized_senders:
+            if sender["id"] not in self.approval_authorized_senders:
+                await tools.send_message(
+                    "You are not authorized to approve or decline tool use.",
+                    mentions=mention,
+                )
+                return True
+
         # --- /approvals: list pending ---
         if command == "approvals":
             if not pending:
@@ -1484,13 +1500,40 @@ class ClaudeSDKAdapter(SimpleAdapter[ClaudeSDKSessionState]):
     # Approval helpers
     # ------------------------------------------------------------------
 
+    # Patterns that look like secrets/tokens in shell commands
+    _REDACT_RE = re.compile(
+        r"""(?x)
+        (?:                             # key=value style
+            (?:key|token|secret|password|passwd|pwd|auth|bearer|credential)
+            \s*[=:]\s*
+        )
+        \S+                             # the secret value
+        """,
+        re.IGNORECASE,
+    )
+
+    @staticmethod
+    def _redact_command(command: str) -> str:
+        """Redact values that look like secrets from a shell command."""
+        return ClaudeSDKAdapter._REDACT_RE.sub(
+            lambda m: m.group(0).split("=")[0] + "=***"
+            if "=" in m.group(0)
+            else m.group(0).split(":")[0] + ":***",
+            command,
+        )
+
     @staticmethod
     def _approval_summary(tool_name: str, tool_input: dict[str, Any]) -> str:
-        """Build a human-readable one-line summary for an approval request."""
-        # For shell commands, show the command
+        """Build a human-readable one-line summary for an approval request.
+
+        Sensitive-looking values (tokens, passwords, keys) are redacted to
+        avoid leaking secrets into the chat room.
+        """
+        # For shell commands, show the command (redacted)
         command = tool_input.get("command")
         if isinstance(command, str) and command:
-            return f"{tool_name}: `{command[:120]}`"
+            safe = ClaudeSDKAdapter._redact_command(command[:120])
+            return f"{tool_name}: `{safe}`"
         # For file edits, show the path
         file_path = tool_input.get("file_path") or tool_input.get("path")
         if isinstance(file_path, str) and file_path:
