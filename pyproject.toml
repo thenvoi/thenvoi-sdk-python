@@ -23,7 +23,7 @@ classifiers = [
 
 dependencies = [
     "thenvoi-client-rest==0.0.4",
-    "phoenix-channels-python-client>=0.1.5",  # >=0.1.5 for channel rejoin & heartbeat fixes
+    "phoenix-channels-python-client>=0.1.5",
     "python-dotenv>=1.1.1",
     "pyyaml>=6.0",
     "claude-agent-sdk>=0.1.16",
@@ -158,6 +158,9 @@ testpaths = ["tests"]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "session"
 addopts = "-v"
+# Global safety net: catch runaway unit tests. Integration and E2E tests
+# override to 120s via pytest_collection_modifyitems in their conftest.
+timeout = 30
 markers = [
     "requires_api: marks tests as requiring real API credentials (skipped in CI)",
 ]

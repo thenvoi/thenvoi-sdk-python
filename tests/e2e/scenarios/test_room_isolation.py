@@ -15,6 +15,7 @@ Run with:
 from __future__ import annotations
 
 import logging
+import uuid
 
 import pytest
 from thenvoi_rest import AsyncRestClient
@@ -27,9 +28,8 @@ from tests.e2e.helpers import (
     TrackingWebSocketClient,
     assert_content_contains,
     assert_no_content_contains,
-    create_room_with_user,
     listening_for_agent_responses,
-    send_user_message,
+    send_trigger_message,
 )
 
 logger = logging.getLogger(__name__)
@@ -47,27 +47,42 @@ class TestRoomIsolation:
         ws_client: TrackingWebSocketClient,
         adapter_entry: tuple[str, AdapterFactory],
         api_client: AsyncRestClient,
-        e2e_agent_id: str,
+        e2e_adapter_room: tuple[str, str, str],
+        e2e_isolation_room_b: tuple[str, str, str],
+        e2e_agent_info: tuple[str, str],
     ):
         """Agents in different rooms don't see each other's context.
 
-        Room A: Send "The code is APPLE"
-        Room B: Send "The code is BANANA"
-        Room A: Ask "What's the code?" -> Assert "APPLE", not "BANANA"
-        Room B: Ask "What's the code?" -> Assert "BANANA", not "APPLE"
+        Room A (adapter's dedicated room): Send "The code is <unique_a>"
+        Room B (shared isolation room): Send "The code is <unique_b>"
+        Room A: Ask "What's the code?" -> Assert unique_a, not unique_b
+        Room B: Ask "What's the code?" -> Assert unique_b, not unique_a
 
-        Note: This test creates 2 rooms per adapter via ``create_room_with_user``
-        (not the ``e2e_chat_room_with_user`` fixture). These rooms persist because
-        there is no delete API for agents. Expect room accumulation across runs.
+        Uses unique keywords per adapter+run to avoid cross-adapter and
+        cross-run contamination in shared rooms that persist across sessions.
+        Note: Room B is shared across all adapters; stale history accumulates
+        across runs. If LLMs start confusing old codes with new ones, prune
+        the room or create a fresh agent.
         """
         adapter_name, factory = adapter_entry
         timeout = e2e_config.e2e_timeout
+        agent_id, agent_name = e2e_agent_info
 
-        logger.info("Testing room isolation with %s adapter", adapter_name)
+        # Unique keywords per adapter AND per run to prevent stale history
+        # from confusing the LLM in rooms that persist across test sessions.
+        run_id = uuid.uuid4().hex[:6]
+        code_a = f"ALPHA_{adapter_name.upper()}_{run_id}"
+        code_b = f"BRAVO_{adapter_name.upper()}_{run_id}"
 
-        # Create two separate rooms
-        room_a_id, user_id, user_name = await create_room_with_user(api_client)
-        room_b_id, _, _ = await create_room_with_user(api_client)
+        logger.info(
+            "Testing room isolation with %s adapter (A=%s, B=%s)",
+            adapter_name,
+            code_a,
+            code_b,
+        )
+
+        room_a_id, _user_id, _user_name = e2e_adapter_room
+        room_b_id = e2e_isolation_room_b[0]
         logger.info("Room A: %s, Room B: %s", room_a_id, room_b_id)
 
         # Create adapter and agent (single agent, two rooms)
@@ -81,32 +96,30 @@ class TestRoomIsolation:
         )
 
         async with agent:
-            agent_name = agent.agent_name
-
             # --- Phase 1: Set context in both rooms sequentially ---
             # Sequential to avoid flakiness: a single agent processes one
             # room at a time, so concurrent sends can cause timeouts.
             async with listening_for_agent_responses(
                 ws_client, room_a_id, timeout=timeout, raise_on_timeout=True
             ) as wait:
-                await send_user_message(
+                await send_trigger_message(
                     api_client,
                     room_a_id,
-                    "Remember: the secret code is APPLE. Confirm you remember it.",
+                    f"Remember: the secret code is {code_a}. Confirm you remember it.",
                     agent_name,
-                    e2e_agent_id,
+                    agent_id,
                 )
                 room_a_phase1 = await wait()
 
             async with listening_for_agent_responses(
                 ws_client, room_b_id, timeout=timeout, raise_on_timeout=True
             ) as wait:
-                await send_user_message(
+                await send_trigger_message(
                     api_client,
                     room_b_id,
-                    "Remember: the secret code is BANANA. Confirm you remember it.",
+                    f"Remember: the secret code is {code_b}. Confirm you remember it.",
                     agent_name,
-                    e2e_agent_id,
+                    agent_id,
                 )
                 room_b_phase1 = await wait()
 
@@ -121,41 +134,36 @@ class TestRoomIsolation:
             async with listening_for_agent_responses(
                 ws_client, room_a_id, timeout=timeout, raise_on_timeout=True
             ) as wait:
-                await send_user_message(
+                await send_trigger_message(
                     api_client,
                     room_a_id,
                     "What is the secret code? Reply with just the code word.",
                     agent_name,
-                    e2e_agent_id,
+                    agent_id,
                 )
                 room_a_received = await wait()
 
             async with listening_for_agent_responses(
                 ws_client, room_b_id, timeout=timeout, raise_on_timeout=True
             ) as wait:
-                await send_user_message(
+                await send_trigger_message(
                     api_client,
                     room_b_id,
                     "What is the secret code? Reply with just the code word.",
                     agent_name,
-                    e2e_agent_id,
+                    agent_id,
                 )
                 room_b_received = await wait()
 
-            # Verify Room A knows APPLE but not BANANA
-            assert_content_contains(room_a_received, "APPLE")
-            assert_no_content_contains(room_a_received, "BANANA")
+            # Verify Room A knows code_a but not code_b
+            assert_content_contains(room_a_received, code_a)
+            assert_no_content_contains(room_a_received, code_b)
 
-            # Verify Room B knows BANANA but not APPLE
-            assert_content_contains(room_b_received, "BANANA")
-            assert_no_content_contains(room_b_received, "APPLE")
+            # Verify Room B knows code_b but not code_a
+            assert_content_contains(room_b_received, code_b)
+            assert_no_content_contains(room_b_received, code_a)
 
         logger.info(
             "[%s] Room isolation test PASSED: rooms are correctly isolated",
             adapter_name,
-        )
-        logger.info(
-            "E2E test rooms %s, %s will persist (no delete API)",
-            room_a_id,
-            room_b_id,
         )

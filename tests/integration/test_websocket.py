@@ -48,8 +48,6 @@ class TestWebSocketNotifications:
         Agent 1 should receive the message via WebSocket.
         """
         if shared_multi_agent_room is None:
-            import pytest
-
             pytest.skip("shared_multi_agent_room not available")
 
         logger.info("\n" + "=" * 60)

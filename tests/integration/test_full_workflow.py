@@ -9,6 +9,7 @@ from __future__ import annotations
 import logging
 
 import pytest
+
 from thenvoi_rest import ChatEventRequest, ChatMessageRequest
 from thenvoi_rest.core.api_error import ApiError
 from thenvoi_rest.types import (
@@ -16,7 +17,11 @@ from thenvoi_rest.types import (
     ParticipantRequest,
 )
 
-from tests.integration.conftest import get_test_agent_id, requires_api
+from tests.integration.conftest import (
+    fetch_all_context,
+    get_test_agent_id,
+    requires_api,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -169,8 +174,7 @@ class TestFullWorkflow:
         logger.info("STEP 9: Get Chat Context")
         logger.info("=" * 60)
 
-        response = await api_client.agent_api_context.get_agent_chat_context(chat_id)
-        context = response.data or []
+        context = await fetch_all_context(api_client, chat_id)
         message_ids = [m.id for m in context if hasattr(m, "id")]
         assert message_id in message_ids, "Our message should appear in context"
         logger.info("Chat context contains %s items", len(context))
@@ -348,6 +352,7 @@ class TestMessageFailureLifecycle:
 
 
 @requires_api
+@pytest.mark.asyncio(loop_scope="session")
 class TestParticipantOperations:
     """Test participant add/remove operations."""
 
