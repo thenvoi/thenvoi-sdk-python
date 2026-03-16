@@ -23,7 +23,7 @@ classifiers = [
 
 dependencies = [
     "thenvoi-client-rest==0.0.4",
-    "phoenix-channels-python-client>=0.1.5",  # >=0.1.5 for channel rejoin & heartbeat fixes
+    "phoenix-channels-python-client>=0.1.5",
     "python-dotenv>=1.1.1",
     "pyyaml>=6.0",
     "claude-agent-sdk>=0.1.16",
@@ -96,6 +96,9 @@ acp = [
 bridge = [
     "aiohttp>=3.9,<4",      # Health check HTTP server
 ]
+google_adk = [
+    "google-adk>=1.0.0,<2",
+]
 bridge_langchain = [
     "httpx>=0.24.0",
 ]
@@ -137,6 +140,8 @@ dev = [
     # Include ACP deps for testing
     "agent-client-protocol>=0.8.0",
     "thenvoi-mcp",
+    # Include google-adk for testing
+    "google-adk>=1.0.0,<2",
     # Include bridge deps for testing
     "aiohttp>=3.9,<4",
     # Development tools
@@ -163,6 +168,9 @@ testpaths = ["tests"]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "session"
 addopts = "-v"
+# Global safety net: catch runaway unit tests. Integration and E2E tests
+# override to 120s via pytest_collection_modifyitems in their conftest.
+timeout = 30
 markers = [
     "requires_api: marks tests as requiring real API credentials (skipped in CI)",
     "e2e: marks tests as end-to-end (requires live services)",

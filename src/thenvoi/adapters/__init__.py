@@ -12,6 +12,7 @@ Install the extra you need::
     uv add thenvoi-sdk[a2a]
     uv add thenvoi-sdk[a2a_gateway]
     uv add thenvoi-sdk[codex]
+    uv add thenvoi-sdk[google_adk]
 """
 
 from __future__ import annotations
@@ -35,6 +36,7 @@ if TYPE_CHECKING:
         ACPServer as ACPServer,
         ThenvoiACPServerAdapter as ThenvoiACPServerAdapter,
     )
+    from thenvoi.adapters.google_adk import GoogleADKAdapter as GoogleADKAdapter
 
 __all__ = [
     "LangGraphAdapter",
@@ -50,6 +52,7 @@ __all__ = [
     "ACPClientAdapter",
     "ACPServer",
     "ThenvoiACPServerAdapter",
+    "GoogleADKAdapter",
 ]
 
 
@@ -107,4 +110,8 @@ def __getattr__(name: str) -> type:
         elif name == "ACPServer":
             return ACPServer
         return ThenvoiACPServerAdapter
+    elif name == "GoogleADKAdapter":
+        from thenvoi.adapters.google_adk import GoogleADKAdapter
+
+        return GoogleADKAdapter
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

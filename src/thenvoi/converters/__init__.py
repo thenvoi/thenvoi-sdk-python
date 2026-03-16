@@ -11,6 +11,7 @@ Install the extra you need::
     uv add thenvoi-sdk[crewai]
     uv add thenvoi-sdk[a2a]
     uv add thenvoi-sdk[codex]
+    uv add thenvoi-sdk[google_adk]
 """
 
 from __future__ import annotations
@@ -57,6 +58,10 @@ if TYPE_CHECKING:
     from thenvoi.converters.acp_client import (
         ACPClientHistoryConverter as ACPClientHistoryConverter,
     )
+    from thenvoi.converters.google_adk import (
+        GoogleADKHistoryConverter as GoogleADKHistoryConverter,
+        GoogleADKMessages as GoogleADKMessages,
+    )
 
 __all__ = [
     "LangChainHistoryConverter",
@@ -75,6 +80,8 @@ __all__ = [
     "CodexHistoryConverter",
     "ACPServerHistoryConverter",
     "ACPClientHistoryConverter",
+    "GoogleADKHistoryConverter",
+    "GoogleADKMessages",
 ]
 
 
@@ -158,5 +165,15 @@ def __getattr__(name: str) -> type:
         from thenvoi.converters.acp_client import ACPClientHistoryConverter
 
         return ACPClientHistoryConverter
+
+    elif name in ("GoogleADKHistoryConverter", "GoogleADKMessages"):
+        from thenvoi.converters.google_adk import (
+            GoogleADKHistoryConverter,
+            GoogleADKMessages,
+        )
+
+        if name == "GoogleADKHistoryConverter":
+            return GoogleADKHistoryConverter
+        return GoogleADKMessages
 
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

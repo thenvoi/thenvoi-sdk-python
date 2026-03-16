@@ -11,21 +11,14 @@ import logging
 from collections.abc import AsyncGenerator, Awaitable, Callable
 from contextlib import asynccontextmanager
 
-import pytest
-from thenvoi_rest import AsyncRestClient, ChatMessageRequest, ChatRoomRequest
+from thenvoi_rest import AsyncRestClient, ChatMessageRequest
 from thenvoi_rest.types import (
     ChatMessageRequestMentionsItem as Mention,
-    ParticipantRequest,
 )
 
 from thenvoi.client.streaming import MessageCreatedPayload, WebSocketClient
 
 logger = logging.getLogger(__name__)
-
-# Tracks room IDs created during the test session for summary logging.
-# Populated by create_room_with_user(), logged by the e2e_room_summary
-# session fixture in conftest.py.
-created_room_ids: list[str] = []
 
 
 class TrackingWebSocketClient:
@@ -70,76 +63,42 @@ class TrackingWebSocketClient:
         self._joined_rooms.clear()
 
 
-async def send_user_message(
+async def send_trigger_message(
     client: AsyncRestClient,
     room_id: str,
     content: str,
-    agent_name: str,
-    agent_id: str,
+    mention_name: str,
+    mention_id: str,
 ) -> str:
-    """Send a message mentioning an agent, return message_id.
+    """Send a message from the User that triggers the agent's processing loop.
 
-    Uses the agent API to send a message with a self-mention. The platform
-    treats self-mentions as triggering events, so this simulates an incoming
-    user message that causes the agent to process and respond. This approach
-    avoids needing separate user credentials for E2E tests.
+    Uses **user** API credentials so the sender is the User, not the agent.
+    The agent's runtime skips self-authored messages, so the trigger must
+    come from a different participant.  The @mention targets the agent,
+    satisfying both the platform's "at least one mention" requirement and
+    ensuring the agent's preprocessor delivers the message.
 
     Args:
-        client: REST API client for sending messages.
+        client: REST API client (**user** credentials).
         room_id: Chat room to send the message in.
-        content: Message content (agent name will be @mentioned).
-        agent_name: Name of the agent to mention.
-        agent_id: ID of the agent to mention.
+        content: Message content.
+        mention_name: Name of the agent to @mention (trigger target).
+        mention_id: ID of the agent to @mention (trigger target).
 
     Returns:
         The message ID of the sent message.
     """
-    message_content = f"@{agent_name} {content}"
-    response = await client.agent_api_messages.create_agent_chat_message(
+    message_content = f"@{mention_name} {content}"
+    response = await client.human_api_messages.send_my_chat_message(
         room_id,
         message=ChatMessageRequest(
             content=message_content,
-            mentions=[Mention(id=agent_id, name=agent_name)],
+            mentions=[Mention(id=mention_id, name=mention_name)],
         ),
     )
     message_id = response.data.id
     logger.info("Sent message %s to room %s: %s", message_id, room_id, content[:80])
     return message_id
-
-
-async def create_room_with_user(
-    api_client: AsyncRestClient,
-) -> tuple[str, str, str]:
-    """Create a chat room and add a User peer.
-
-    Returns (chat_id, user_id, user_name). Rooms created here will persist
-    (no delete API for agents).
-    """
-    response = await api_client.agent_api_chats.create_agent_chat(
-        chat=ChatRoomRequest()
-    )
-    chat_id = response.data.id
-
-    peers_response = await api_client.agent_api_peers.list_agent_peers()
-    user_peer = next((p for p in peers_response.data if p.type == "User"), None)
-    if user_peer is None:
-        pytest.skip("No User peer available for E2E tests")
-
-    await api_client.agent_api_participants.add_agent_chat_participant(
-        chat_id,
-        participant=ParticipantRequest(participant_id=user_peer.id, role="member"),
-    )
-
-    created_room_ids.append(chat_id)
-    logger.info(
-        "Created chat room %s with user %s (%s) (will persist, no delete API) "
-        "[%d room(s) created this session]",
-        chat_id,
-        user_peer.name,
-        user_peer.id,
-        len(created_room_ids),
-    )
-    return chat_id, user_peer.id, user_peer.name
 
 
 @asynccontextmanager
@@ -159,7 +118,7 @@ async def listening_for_agent_responses(
     Usage::
 
         async with listening_for_agent_responses(ws, room_id) as wait:
-            await send_user_message(client, room_id, "Hello", ...)
+            await send_trigger_message(client, room_id, "Hello", ...)
             received = await wait()
 
     Args:
@@ -264,19 +223,24 @@ async def run_smoke_test(
     api_client: AsyncRestClient,
     chat_id: str,
     agent_name: str,
-    e2e_agent_id: str,
+    agent_id: str,
     timeout: float,
     adapter_name: str,
 ) -> list[MessageCreatedPayload]:
     """Run a smoke test: send a message and verify the agent responds.
+
+    Args:
+        api_client: User-scoped REST client (sends the trigger message).
+        agent_name: Agent name for @mention (trigger target).
+        agent_id: Agent ID for @mention (trigger target).
 
     Returns the list of received agent messages for further inspection.
     """
     async with listening_for_agent_responses(
         ws_client, chat_id, timeout=timeout
     ) as wait:
-        await send_user_message(
-            api_client, chat_id, "Say hello", agent_name, e2e_agent_id
+        await send_trigger_message(
+            api_client, chat_id, "Say hello", agent_name, agent_id
         )
         received = await wait()
 
@@ -296,11 +260,16 @@ async def run_tool_execution_test(
     api_client: AsyncRestClient,
     chat_id: str,
     agent_name: str,
-    e2e_agent_id: str,
+    agent_id: str,
     timeout: float,
     adapter_name: str,
 ) -> list[MessageCreatedPayload]:
     """Run a tool execution test: verify agent uses thenvoi_send_message.
+
+    Args:
+        api_client: User-scoped REST client (sends the trigger message).
+        agent_name: Agent name for @mention (trigger target).
+        agent_id: Agent ID for @mention (trigger target).
 
     Asks the agent to reply with a specific keyword (PINEAPPLE) and asserts
     it appears in the response. Returns the received messages.
@@ -308,12 +277,12 @@ async def run_tool_execution_test(
     async with listening_for_agent_responses(
         ws_client, chat_id, timeout=timeout
     ) as wait:
-        await send_user_message(
+        await send_trigger_message(
             api_client,
             chat_id,
             "Reply with the word PINEAPPLE",
             agent_name,
-            e2e_agent_id,
+            agent_id,
         )
         received = await wait()
 

@@ -15,6 +15,7 @@ Run with:
 from __future__ import annotations
 
 import logging
+import uuid
 
 import pytest
 from thenvoi_rest import AsyncRestClient
@@ -27,7 +28,7 @@ from tests.e2e.helpers import (
     TrackingWebSocketClient,
     assert_content_contains,
     listening_for_agent_responses,
-    send_user_message,
+    send_trigger_message,
 )
 
 logger = logging.getLogger(__name__)
@@ -42,23 +43,35 @@ class TestContextPersistence:
     async def test_agent_remembers_context_after_rejoin(
         self,
         e2e_config: E2ESettings,
-        e2e_chat_room_with_user: tuple[str, str, str],
+        e2e_adapter_room: tuple[str, str, str],
+        e2e_agent_info: tuple[str, str],
         ws_client: TrackingWebSocketClient,
         adapter_entry: tuple[str, AdapterFactory],
         api_client: AsyncRestClient,
-        e2e_agent_id: str,
     ):
         """Agent removed then re-added remembers context via platform history.
 
-        Phase 1: Send "Remember the code: ABC123", wait for acknowledgment
+        Phase 1: Send "Remember the code: <unique>", wait for acknowledgment
         Phase 2: Stop agent (triggers on_cleanup), restart (triggers bootstrap)
-        Phase 3: Ask "What was the code?", assert response contains "ABC123"
+        Phase 3: Ask "What was the code?", assert response contains the unique code
+
+        Uses a unique secret code per adapter to avoid cross-adapter contamination
+        when sharing a room across parametrized runs.
         """
         adapter_name, factory = adapter_entry
-        chat_id, user_id, user_name = e2e_chat_room_with_user
+        chat_id, _user_id, _user_name = e2e_adapter_room
+        agent_id, agent_name = e2e_agent_info
         timeout = e2e_config.e2e_timeout
+        # Unique code per adapter AND per run to prevent cross-run contamination
+        # in shared rooms that persist across test sessions.
+        run_id = uuid.uuid4().hex[:6]
+        secret_code = f"CODE_{adapter_name.upper()}_{run_id}"
 
-        logger.info("Testing context persistence with %s adapter", adapter_name)
+        logger.info(
+            "Testing context persistence with %s adapter (code: %s)",
+            adapter_name,
+            secret_code,
+        )
 
         # --- Phase 1: Establish context ---
         adapter = factory(e2e_config)
@@ -71,17 +84,15 @@ class TestContextPersistence:
         )
 
         async with agent:
-            agent_name = agent.agent_name
-
             async with listening_for_agent_responses(
                 ws_client, chat_id, timeout=timeout, raise_on_timeout=True
             ) as wait:
-                await send_user_message(
+                await send_trigger_message(
                     api_client,
                     chat_id,
-                    "Remember this secret code: ABC123. Respond confirming you remember it.",
+                    f"Remember this secret code: {secret_code}. Respond confirming you remember it.",
                     agent_name,
-                    e2e_agent_id,
+                    agent_id,
                 )
                 phase1_received = await wait()
 
@@ -103,23 +114,22 @@ class TestContextPersistence:
         )
 
         async with agent2:
-            agent_name2 = agent2.agent_name
-
             async with listening_for_agent_responses(
                 ws_client, chat_id, timeout=timeout, raise_on_timeout=True
             ) as wait:
-                await send_user_message(
+                await send_trigger_message(
                     api_client,
                     chat_id,
                     "What was the secret code I told you to remember? Reply with just the code.",
-                    agent_name2,
-                    e2e_agent_id,
+                    agent_name,
+                    agent_id,
                 )
                 phase2_received = await wait()
 
-            assert_content_contains(phase2_received, "ABC123")
+            assert_content_contains(phase2_received, secret_code)
 
         logger.info(
-            "[%s] Context persistence test PASSED: agent remembered ABC123",
+            "[%s] Context persistence test PASSED: agent remembered %s",
             adapter_name,
+            secret_code,
         )
