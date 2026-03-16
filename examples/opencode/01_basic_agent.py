@@ -11,9 +11,10 @@ Basic OpenCode adapter agent example.
 Prerequisites:
 1. Install OpenCode: `npm install -g opencode-ai`
 2. Start the server: `opencode serve --hostname=127.0.0.1 --port=4096`
-3. Set `THENVOI_WS_URL` and `THENVOI_REST_URL`
-4. Add agent credentials to `agent_config.yaml`
-5. The example defaults to the locally available free model `opencode/minimax-m2.5-free`
+3. Install `uv` or `uvx` so the adapter can start `thenvoi-mcp`
+4. Set `THENVOI_WS_URL` and `THENVOI_REST_URL`
+5. Add agent credentials to `agent_config.yaml`
+6. The example defaults to the locally available free model `opencode/minimax-m2.5-free`
 
 Run with:
     uv run examples/opencode/01_basic_agent.py
@@ -61,6 +62,11 @@ async def main() -> None:
             custom_section="You are a helpful assistant. Keep replies concise.",
             approval_mode=os.getenv("OPENCODE_APPROVAL_MODE", "manual"),  # type: ignore[arg-type]  # validated by OpenCodeAdapterConfig literals at runtime usage
             enable_execution_reporting=True,
+            mcp_server_url=os.getenv("MCP_SERVER_URL") or None,
+            mcp_server_env={
+                "THENVOI_API_KEY": api_key,
+                "THENVOI_BASE_URL": rest_url,
+            },
         )
     )
 
