@@ -274,10 +274,10 @@ class TestMentionRouterRoute:
     async def test_skips_mentions_with_none_username(
         self, router: MentionRouter, mock_handler: AsyncMock, mock_link: AsyncMock
     ) -> None:
-        """Mentions with username=None should be silently skipped."""
+        """Mentions with username=None but a handle matching a mapped agent should dispatch."""
         payload = _make_payload(
             mentions=[
-                Mention(id="null-id", username=None),
+                Mention(id="null-id", username=None, handle="alice"),
                 Mention(id="alice-id", username="alice"),
             ]
         )
@@ -285,7 +285,7 @@ class TestMentionRouterRoute:
 
         await router.route(payload, "room-1", tools)
 
-        # Only alice should be dispatched; the None-username mention is skipped
+        # Both resolve to "alice" but dedup means handler called once
         mock_handler.handle.assert_called_once()
         call_kwargs = mock_handler.handle.call_args.kwargs
         assert call_kwargs["mentioned_agent"] == "alice"
@@ -293,7 +293,7 @@ class TestMentionRouterRoute:
     async def test_all_mentions_none_username_does_nothing(
         self, router: MentionRouter, mock_handler: AsyncMock, mock_link: AsyncMock
     ) -> None:
-        """If all mentions have username=None, no handler should be dispatched."""
+        """If all mentions have username=None and no handle/name, no handler should be dispatched."""
         payload = _make_payload(
             mentions=[
                 Mention(id="null-id-1", username=None),
@@ -306,6 +306,38 @@ class TestMentionRouterRoute:
 
         mock_handler.handle.assert_not_called()
         mock_link.mark_processing.assert_not_called()
+
+    async def test_resolves_mention_via_handle_fallback(
+        self, router: MentionRouter, mock_handler: AsyncMock, mock_link: AsyncMock
+    ) -> None:
+        """Mention with username=None but handle='alice' should dispatch to alice's handler."""
+        payload = _make_payload(
+            mentions=[Mention(id="agent-id", username=None, handle="alice")]
+        )
+        tools = MagicMock()
+
+        await router.route(payload, "room-1", tools)
+
+        mock_handler.handle.assert_called_once()
+        call_kwargs = mock_handler.handle.call_args.kwargs
+        assert call_kwargs["mentioned_agent"] == "alice"
+        mock_link.mark_processed.assert_called_once()
+
+    async def test_resolves_mention_via_name_fallback(
+        self, router: MentionRouter, mock_handler: AsyncMock, mock_link: AsyncMock
+    ) -> None:
+        """Mention with username=None and no handle but name='alice' should dispatch."""
+        payload = _make_payload(
+            mentions=[Mention(id="agent-id", username=None, name="alice")]
+        )
+        tools = MagicMock()
+
+        await router.route(payload, "room-1", tools)
+
+        mock_handler.handle.assert_called_once()
+        call_kwargs = mock_handler.handle.call_args.kwargs
+        assert call_kwargs["mentioned_agent"] == "alice"
+        mock_link.mark_processed.assert_called_once()
 
     async def test_no_mentions_does_nothing(
         self, router: MentionRouter, mock_handler: AsyncMock

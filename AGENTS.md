@@ -4,7 +4,7 @@ This is a Python SDK that connects AI agents to the Thenvoi collaborative platfo
 
 ## Core Features
 
-1. Multi-framework support (LangGraph, Anthropic, CrewAI, Claude SDK, Pydantic AI, Parlant, Letta)
+1. Multi-framework support (LangGraph, Anthropic, CrewAI, Claude SDK, Codex, Pydantic AI, Parlant, Gemini, Letta, Google ADK)
 2. A2A protocol support: Bridge to external A2A agents and expose Thenvoi peers as A2A endpoints
 3. Platform tools for chat, contacts, and memory management
 4. WebSocket + REST transport: Real-time messaging with REST API fallback
@@ -61,16 +61,22 @@ await link.rest.agent_api_participants.list_agent_chat_participants(...)
 
 ### Payload Models (Pydantic)
 
+All models use `ConfigDict(extra="allow")` to accept additional fields from the backend.
+
 ```python
 MessageCreatedPayload:
-  id, content, message_type, sender_type, sender_id, sender_name?,
-  metadata?, inserted_at, updated_at
+  id, content, message_type, sender_id, sender_type,
+  sender_name?, metadata? (MessageMetadata), chat_room_id?,
+  thread_id?, inserted_at, updated_at
+
+MessageMetadata:
+  mentions (list[Mention]), status?
 
 RoomAddedPayload:
-  id, title, task_id?, inserted_at, updated_at
+  id, inserted_at, updated_at, title?, task_id?
 
 RoomRemovedPayload:
-  id, status, type, title, removed_at
+  id, status?, type?, title?, removed_at?
 
 ParticipantAddedPayload:
   id, name, type
@@ -79,7 +85,7 @@ ParticipantRemovedPayload:
   id
 
 Mention:
-  id, handle, name
+  id, username?, handle?, name?
 ```
 
 ### PlatformEvent Union (Tagged Union Pattern)
@@ -99,7 +105,7 @@ Each event has: `type` (literal), `room_id`, `payload`, `raw`
 |-------|----------------|
 | `contact_request_received` | `id`, `from_handle`, `from_name`, `message?`, `status`, `inserted_at` |
 | `contact_request_updated` | `id`, `status` |
-| `contact_added` | `id`, `handle`, `name`, `type` |
+| `contact_added` | `id`, `handle`, `name`, `type`, `description?`, `is_external?`, `inserted_at` |
 | `contact_removed` | `id` |
 
 ## Contact Event Handling
@@ -233,6 +239,9 @@ tests/
 ├── core/           # Core logic tests
 ├── runtime/        # Runtime tests
 ├── integration/    # Real API tests (skipped in CI)
+├── e2e/            # End-to-end tests (requires live platform + LLM keys)
+│   ├── adapters/   # Per-adapter smoke & tool execution tests
+│   └── scenarios/  # Cross-cutting scenarios (context persistence, room isolation)
 └── conftest.py     # Shared fixtures
 ```
 
@@ -243,16 +252,22 @@ tests/
 uv sync --extra dev
 
 # Run unit tests
-uv run pytest tests/ --ignore=tests/integration/ -v
+uv run pytest tests/ --ignore=tests/integration/ --ignore=tests/e2e/ -v
 
 # Run single test
 uv run pytest tests/ -k "test_name"
 
 # Run with coverage
-uv run pytest tests/ --ignore=tests/integration/ --cov=src/thenvoi
+uv run pytest tests/ --ignore=tests/integration/ --ignore=tests/e2e/ --cov=src/thenvoi
 
 # Run integration tests (requires API key)
 uv run pytest tests/integration/ -v -s --no-cov
+
+# Run E2E tests (requires live platform + LLM API keys)
+E2E_TESTS_ENABLED=true uv run pytest tests/e2e/ -v -s --no-cov
+
+# Run E2E tests for a single adapter
+E2E_TESTS_ENABLED=true uv run pytest tests/e2e/ -k langgraph -v -s --no-cov
 
 # Linting and formatting
 uv run ruff check .
@@ -264,8 +279,13 @@ uv run pyrefly check
 
 - `THENVOI_REST_URL`: REST API URL (default: https://app.thenvoi.com)
 - `THENVOI_WS_URL`: WebSocket URL (default: wss://app.thenvoi.com/api/v1/socket/websocket)
+- `THENVOI_API_KEY_USER`: User API key for E2E WebSocket observer and trigger messages
 - `OPENAI_API_KEY`: OpenAI API key (for LangGraph examples)
 - `ANTHROPIC_API_KEY`: Anthropic API key (for Anthropic/Claude SDK examples)
+- `E2E_TESTS_ENABLED`: Set to `true` to enable E2E tests (default: disabled)
+- `E2E_LLM_MODEL`: OpenAI model for E2E tests (default: `gpt-4o-mini`)
+- `E2E_ANTHROPIC_MODEL`: Anthropic model for E2E tests (default: `claude-3-haiku-20240307`)
+- `E2E_TIMEOUT`: Response timeout in seconds for E2E tests (default: `30`)
 
 ## Adding a New Framework Integration
 
@@ -309,7 +329,7 @@ In `src/thenvoi/adapters/<framework>.py`: `on_started` sets agent name/descripti
 ```bash
 uv run pytest tests/framework_conformance/ tests/framework_configs/ -v
 uv run pytest tests/adapters/test_<framework>_adapter.py tests/converters/test_<framework>.py -v
-uv run pytest tests/ --ignore=tests/integration/ -v
+uv run pytest tests/ --ignore=tests/integration/ --ignore=tests/e2e/ -v
 uv run ruff check . && uv run ruff format .
 ```
 
@@ -378,5 +398,5 @@ Replace `<extra>` with the appropriate framework extra (e.g., `langgraph`, `anth
 uv run ruff check .
 uv run ruff format .
 uv run pyrefly check
-uv run pytest tests/ --ignore=tests/integration/ -v
+uv run pytest tests/ --ignore=tests/integration/ --ignore=tests/e2e/ -v
 ```

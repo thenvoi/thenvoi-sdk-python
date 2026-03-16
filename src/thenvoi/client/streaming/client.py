@@ -24,9 +24,9 @@ class Mention(BaseModel):
     model_config = ConfigDict(extra="allow")
 
     id: str
+    username: str | None = None
     handle: str | None = None
     name: str | None = None
-    username: str | None = None
 
 
 class MessageMetadata(BaseModel):
@@ -34,7 +34,8 @@ class MessageMetadata(BaseModel):
 
     model_config = ConfigDict(extra="allow")
 
-    mentions: list[Mention] | None = None
+    mentions: list[Mention] = []
+    status: str | None = None
 
 
 class MessageCreatedPayload(BaseModel):
@@ -57,41 +58,37 @@ class MessageCreatedPayload(BaseModel):
     updated_at: str
 
 
-class RoomOwner(BaseModel):
-    """Owner object within room_added payload."""
-
-    id: str
-    name: str
-    type: str
-
-
 class RoomAddedPayload(BaseModel):
-    """Payload for room_added events (observed from real WebSocket)."""
+    """Payload for room_added events.
+
+    Required/optional fields aligned with the Fern-generated ChatRoom model
+    (thenvoi_rest.types.chat_room.ChatRoom). The WebSocket may include
+    additional fields which are captured by ``extra="allow"``.
+    """
 
     model_config = ConfigDict(extra="allow")
 
     id: str
+    inserted_at: str
+    updated_at: str
     title: str | None = None
     task_id: str | None = None
-    inserted_at: str | None = None
-    updated_at: str | None = None
-    owner: RoomOwner | None = None
-    status: str | None = None
-    type: str | None = None
-    created_at: str | None = None
-    participant_role: str | None = None
 
 
 class RoomRemovedPayload(BaseModel):
-    """Payload for room_removed events (observed from real WebSocket)."""
+    """Payload for room_removed events.
+
+    WebSocket-only event with no Fern-generated model; all fields except
+    ``id`` are kept optional as a defensive default.
+    """
 
     model_config = ConfigDict(extra="allow")
 
     id: str
-    status: str
-    type: str
-    title: str
-    removed_at: str
+    status: str | None = None
+    type: str | None = None
+    title: str | None = None
+    removed_at: str | None = None
 
 
 class ParticipantAddedPayload(BaseModel):

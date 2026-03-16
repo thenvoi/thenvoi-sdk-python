@@ -56,12 +56,25 @@ If you respond without calling `thenvoi_send_message`, the user sees NOTHING.
 
 @dataclass
 class LettaAdapterConfig:
-    """Configuration for the Letta adapter."""
+    """Configuration for the Letta adapter.
+
+    Works with both Letta Cloud and self-hosted Letta.  For Letta Cloud
+    (the default), provide an ``api_key`` and optionally set ``project``
+    to scope to a specific project.  For self-hosted, set ``base_url``
+    to your server (e.g. ``"http://localhost:8283"``) — no ``api_key``
+    is required.
+
+    Note: The ``mcp_server_url`` is called by the Letta server, not by
+    this adapter.  When using Letta Cloud, the MCP server must be
+    publicly reachable (e.g. via ngrok or a deployed endpoint).  For
+    self-hosted Letta, ``localhost`` works when both services run on the
+    same host or Docker network.
+    """
 
     agent_id: str | None = None
     model: str | None = None
-    api_key: str | None = None  # Optional for self-hosted Letta
-    base_url: str = "http://localhost:8283"
+    api_key: str | None = None  # Required for Letta Cloud, optional for self-hosted
+    base_url: str = "https://api.letta.com"
     custom_section: str = ""
     include_base_instructions: bool = True
     enable_execution_reporting: bool = False
@@ -71,6 +84,9 @@ class LettaAdapterConfig:
     turn_timeout_s: float = 300.0
     memory_blocks: list[dict[str, str]] = field(default_factory=list)
     summary_max_length: int = 150
+
+    # Letta Cloud project scoping (ignored for self-hosted)
+    project: str | None = None
 
     # MCP server configuration for tool execution
     mcp_server_url: str = "http://localhost:8002/sse"
@@ -104,11 +120,19 @@ class LettaAdapter(SimpleAdapter[LettaSessionState]):
     - **shared**: One Letta agent shared across all rooms, with per-room
       isolation via the Conversations API.
 
-    Example:
+    Example (Letta Cloud):
         adapter = LettaAdapter(
             config=LettaAdapterConfig(
+                api_key="your-letta-api-key",
                 model="openai/gpt-4o",
+                mcp_server_url="http://localhost:8002/sse",
+            ),
+
+    Example (self-hosted):
+        adapter = LettaAdapter(
+            config=LettaAdapterConfig(
                 base_url="http://localhost:8283",
+                model="openai/gpt-4o",
                 mcp_server_url="http://localhost:8002/sse",
             ),
         )
@@ -163,10 +187,14 @@ class LettaAdapter(SimpleAdapter[LettaSessionState]):
                 "Install with: pip install thenvoi-sdk[letta]"
             )
 
-        self._client = AsyncLetta(
-            base_url=self.config.base_url,
-            api_key=self.config.api_key,
-        )
+        client_kwargs: dict[str, Any] = {
+            "base_url": self.config.base_url,
+        }
+        if self.config.api_key:
+            client_kwargs["api_key"] = self.config.api_key
+        if self.config.project:
+            client_kwargs["project"] = self.config.project
+        self._client = AsyncLetta(**client_kwargs)
 
         # Register MCP server with Letta
         await self._register_mcp_server()

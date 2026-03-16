@@ -13,7 +13,6 @@ from thenvoi.client.streaming import (
     ParticipantAddedPayload,
     ParticipantRemovedPayload,
     RoomAddedPayload,
-    RoomOwner,
     RoomRemovedPayload,
 )
 from thenvoi.platform.event import (
@@ -350,11 +349,8 @@ class TestThenvoiBridgeHandleEvent:
             payload=RoomAddedPayload(
                 id="room-new",
                 title="New Room",
-                owner=RoomOwner(id="user-1", name="User", type="User"),
-                status="active",
-                type="direct",
-                created_at="2024-01-01T00:00:00Z",
-                participant_role="member",
+                inserted_at="2024-01-01T00:00:00Z",
+                updated_at="2024-01-01T00:00:00Z",
             ),
         )
 
@@ -398,11 +394,8 @@ class TestThenvoiBridgeHandleEvent:
             payload=RoomAddedPayload(
                 id="room-new",
                 title="New Room",
-                owner=RoomOwner(id="user-1", name="User", type="User"),
-                status="active",
-                type="direct",
-                created_at="2024-01-01T00:00:00Z",
-                participant_role="member",
+                inserted_at="2024-01-01T00:00:00Z",
+                updated_at="2024-01-01T00:00:00Z",
             ),
         )
 
@@ -580,11 +573,8 @@ class TestThenvoiBridgeHandleEvent:
             payload=RoomAddedPayload(
                 id="room-new",
                 title="New Room",
-                owner=RoomOwner(id="user-1", name="User", type="User"),
-                status="active",
-                type="direct",
-                created_at="2024-01-01T00:00:00Z",
-                participant_role="member",
+                inserted_at="2024-01-01T00:00:00Z",
+                updated_at="2024-01-01T00:00:00Z",
             ),
         )
 
@@ -1007,11 +997,8 @@ class TestConnectAndConsume:
             payload=RoomAddedPayload(
                 id="room-1",
                 title="Room",
-                owner=RoomOwner(id="u1", name="User", type="User"),
-                status="active",
-                type="direct",
-                created_at="2024-01-01T00:00:00Z",
-                participant_role="member",
+                inserted_at="2024-01-01T00:00:00Z",
+                updated_at="2024-01-01T00:00:00Z",
             ),
         )
         event2 = RoomAddedEvent(
@@ -1019,11 +1006,8 @@ class TestConnectAndConsume:
             payload=RoomAddedPayload(
                 id="room-2",
                 title="Room 2",
-                owner=RoomOwner(id="u1", name="User", type="User"),
-                status="active",
-                type="direct",
-                created_at="2024-01-01T00:00:00Z",
-                participant_role="member",
+                inserted_at="2024-01-01T00:00:00Z",
+                updated_at="2024-01-01T00:00:00Z",
             ),
         )
 
@@ -1146,11 +1130,8 @@ class TestConnectAndConsume:
             payload=RoomAddedPayload(
                 id="room-1",
                 title="Room",
-                owner=RoomOwner(id="u1", name="User", type="User"),
-                status="active",
-                type="direct",
-                created_at="2024-01-01T00:00:00Z",
-                participant_role="member",
+                inserted_at="2024-01-01T00:00:00Z",
+                updated_at="2024-01-01T00:00:00Z",
             ),
         )
         event2 = RoomAddedEvent(
@@ -1158,11 +1139,8 @@ class TestConnectAndConsume:
             payload=RoomAddedPayload(
                 id="room-2",
                 title="Room 2",
-                owner=RoomOwner(id="u1", name="User", type="User"),
-                status="active",
-                type="direct",
-                created_at="2024-01-01T00:00:00Z",
-                participant_role="member",
+                inserted_at="2024-01-01T00:00:00Z",
+                updated_at="2024-01-01T00:00:00Z",
             ),
         )
 
@@ -1233,11 +1211,8 @@ class TestConnectAndConsumeShutdownCancelsHandler:
                     payload=RoomAddedPayload(
                         id="room-1",
                         title="Room",
-                        owner=RoomOwner(id="u1", name="User", type="User"),
-                        status="active",
-                        type="direct",
-                        created_at="2024-01-01T00:00:00Z",
-                        participant_role="member",
+                        inserted_at="2024-01-01T00:00:00Z",
+                        updated_at="2024-01-01T00:00:00Z",
                     ),
                 )
             # Should not be reached — shutdown fires during handler
@@ -1279,11 +1254,8 @@ class TestConnectAndConsumeShutdownCancelsHandler:
             payload=RoomAddedPayload(
                 id="room-1",
                 title="Room",
-                owner=RoomOwner(id="u1", name="User", type="User"),
-                status="active",
-                type="direct",
-                created_at="2024-01-01T00:00:00Z",
-                participant_role="member",
+                inserted_at="2024-01-01T00:00:00Z",
+                updated_at="2024-01-01T00:00:00Z",
             ),
         )
 

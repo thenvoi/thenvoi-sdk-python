@@ -7,10 +7,12 @@ deployment — all configuration is via environment variables.
 Environment variables:
     AGENT_CONFIG               Path to the YAML config file (required)
     AGENT_KEY                  Key to look up in keyed config (default: "agent")
-    LETTA_BASE_URL             Letta server URL (default: http://localhost:8283)
-    LETTA_API_KEY              Letta API key (optional for self-hosted)
+    LETTA_BASE_URL             Letta server URL (default: https://api.letta.com)
+                               Set to http://localhost:8283 for self-hosted.
+    LETTA_API_KEY              Letta API key (required for Cloud, optional for self-hosted)
     LETTA_MODEL                Model ID (e.g., openai/gpt-4o)
     LETTA_MODE                 Operating mode: per_room or shared (default: per_room)
+    LETTA_PROJECT              Letta Cloud project name (optional, ignored for self-hosted)
     MCP_SERVER_URL             thenvoi-mcp server URL (default: http://localhost:8002/sse)
     MCP_SERVER_NAME            MCP server name (default: thenvoi)
     THENVOI_WS_URL             Platform WebSocket URL
@@ -142,7 +144,7 @@ async def main() -> None:
     letta_base_url = (
         _optional_str(os.environ.get("LETTA_BASE_URL"))
         or _optional_str(config.get("letta_base_url"))
-        or "http://localhost:8283"
+        or "https://api.letta.com"
     )
     letta_api_key = _optional_str(os.environ.get("LETTA_API_KEY")) or _optional_str(
         config.get("letta_api_key")
@@ -165,6 +167,9 @@ async def main() -> None:
         or _optional_str(config.get("mcp_server_name"))
         or "thenvoi"
     )
+    letta_project = _optional_str(os.environ.get("LETTA_PROJECT")) or _optional_str(
+        config.get("letta_project")
+    )
 
     adapter = LettaAdapter(
         config=LettaAdapterConfig(
@@ -174,6 +179,7 @@ async def main() -> None:
             mode=letta_mode,
             mcp_server_url=mcp_server_url,
             mcp_server_name=mcp_server_name,
+            project=letta_project,
             custom_section="",
             include_base_instructions=True,
             enable_task_events=True,
@@ -191,11 +197,12 @@ async def main() -> None:
 
     logger.info("Starting Letta agent: %s", agent_id)
     logger.info(
-        "Letta config: base_url=%s, mode=%s, model=%s, mcp=%s",
+        "Letta config: base_url=%s, mode=%s, model=%s, mcp=%s, project=%s",
         letta_base_url,
         letta_mode,
         letta_model or "auto",
         mcp_server_url,
+        letta_project or "(none)",
     )
 
     retry_count = 0

@@ -192,7 +192,7 @@ class RoomPresence:
             logger.warning("room_added event without room_id or payload")
             return
 
-        payload = event.payload.model_dump()
+        payload = event.payload.model_dump(exclude_none=True)
 
         # Apply filter if configured
         if self.room_filter and not self.room_filter(payload):
@@ -300,11 +300,7 @@ class RoomPresence:
 
             for room in response.data:
                 room_id = room.id
-                payload = (
-                    room.model_dump()
-                    if hasattr(room, "model_dump")
-                    else {"id": room_id}
-                )
+                payload = room.model_dump(exclude_none=True)
 
                 # Apply filter if configured
                 if self.room_filter and not self.room_filter(payload):

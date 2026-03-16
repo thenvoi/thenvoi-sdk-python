@@ -7,7 +7,7 @@ Usage:
     async_client = AsyncRestClient(api_key="your-api-key")
 
     # All REST API calls should include request_options for retry on HTTP 429:
-    response = await async_client.agent_api.some_method(
+    response = await async_client.agent_api_chats.some_method(
         ...,
         request_options=DEFAULT_REQUEST_OPTIONS,
     )
