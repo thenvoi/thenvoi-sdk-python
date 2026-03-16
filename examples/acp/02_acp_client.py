@@ -25,7 +25,8 @@ Prerequisites:
     1. Set environment variables:
        - THENVOI_WS_URL: WebSocket URL
        - THENVOI_REST_URL: REST API URL
-       - ACP_AGENT_COMMAND: Command to spawn the ACP agent (default: "codex")
+       - ACP_AGENT_COMMAND: Command to spawn the ACP agent
+         (default: "npx @zed-industries/codex-acp")
 
     2. Have the external ACP agent installed and available in PATH
 
@@ -38,6 +39,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import shlex
 import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
@@ -65,10 +67,12 @@ async def main() -> None:
     agent_id, api_key = load_agent_config("acp_client_agent")
 
     # Command to spawn the external ACP agent
-    acp_command = os.getenv("ACP_AGENT_COMMAND", "codex")
+    acp_command = shlex.split(
+        os.getenv("ACP_AGENT_COMMAND", "npx @zed-industries/codex-acp")
+    )
 
     # Working directory for ACP sessions
-    acp_cwd = os.getenv("ACP_AGENT_CWD", "/workspace")
+    acp_cwd = os.getenv("ACP_AGENT_CWD", ".")
 
     # Create adapter pointing to external ACP agent
     adapter = ACPClientAdapter(
@@ -85,7 +89,10 @@ async def main() -> None:
         rest_url=rest_url,
     )
 
-    logger.info("Starting ACP client bridge (forwarding to '%s')...", acp_command)
+    logger.info(
+        "Starting ACP client bridge (forwarding to '%s')...",
+        " ".join(acp_command),
+    )
     logger.info("Messages from Thenvoi will be forwarded to the ACP agent.")
     await agent.run()
 

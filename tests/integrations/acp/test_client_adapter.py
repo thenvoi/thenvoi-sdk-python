@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -33,12 +34,22 @@ class TestACPClientAdapterInit:
     def test_init_default_values(self) -> None:
         """Should initialize with default values."""
         adapter = ACPClientAdapter(command="codex")
-        assert adapter._cwd == "."
+        assert adapter._cwd == os.path.abspath(".")
         assert adapter._env is None
         assert adapter._mcp_servers == []
         assert adapter._conn is None
         assert adapter._client is None
         assert adapter._room_to_session == {}
+
+    def test_init_codex_acp_uses_absolute_default_cwd(self) -> None:
+        """Should normalize codex-acp default cwd to an absolute path."""
+        adapter = ACPClientAdapter(command="codex-acp")
+        assert adapter._cwd == os.path.abspath(".")
+
+    def test_init_npx_codex_acp_uses_absolute_default_cwd(self) -> None:
+        """Should normalize npx codex-acp default cwd to an absolute path."""
+        adapter = ACPClientAdapter(command=["npx", "@zed-industries/codex-acp"])
+        assert adapter._cwd == os.path.abspath(".")
 
     def test_init_with_custom_values(self) -> None:
         """Should accept custom configuration."""
@@ -56,6 +67,11 @@ class TestACPClientAdapterInit:
         """Should set ACPClientHistoryConverter."""
         adapter = ACPClientAdapter(command="codex")
         assert adapter.history_converter is not None
+
+    def test_init_resolves_custom_cwd_to_absolute_path(self) -> None:
+        """Should normalize explicit cwd values to absolute paths."""
+        adapter = ACPClientAdapter(command="codex", cwd="examples")
+        assert adapter._cwd == os.path.abspath("examples")
 
     def test_init_rejects_invalid_rest_url(self) -> None:
         """Should fail fast on invalid Thenvoi base URLs."""

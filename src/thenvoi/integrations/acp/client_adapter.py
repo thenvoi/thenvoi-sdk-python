@@ -4,12 +4,13 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 from collections.abc import Awaitable, Callable
 from contextlib import AbstractAsyncContextManager
 from typing import Any, Protocol, cast
 
 from acp import spawn_agent_process, text_block
-from acp.schema import McpServerSse
+from acp.schema import SseMcpServer
 
 from thenvoi.converters.acp_client import ACPClientHistoryConverter
 from thenvoi.core.protocols import AgentToolsProtocol
@@ -109,7 +110,8 @@ class ACPClientAdapter(SimpleAdapter[ACPClientSessionState]):
             command: Command to spawn the external ACP agent.
                      Can be a string ("codex") or list (["gemini", "cli"]).
             env: Optional environment variables for the subprocess.
-            cwd: Working directory for ACP sessions (default: ".").
+            cwd: Working directory for ACP sessions. Resolved to an absolute
+                 path. Defaults to the current working directory.
             mcp_servers: Optional list of MCP server configs to pass to agent.
             additional_tools: Optional custom tools to expose through the local
                               Thenvoi MCP server.
@@ -126,7 +128,7 @@ class ACPClientAdapter(SimpleAdapter[ACPClientSessionState]):
         super().__init__(history_converter=ACPClientHistoryConverter())
         self._command = command if isinstance(command, list) else [command]
         self._env = env
-        self._cwd = cwd or "."
+        self._cwd = os.path.abspath(cwd or ".")
         self._mcp_servers = list(mcp_servers or [])
         self._custom_tools: list[CustomToolDef] = list(additional_tools or [])
         self._api_key = api_key or ""
@@ -433,7 +435,7 @@ class ACPClientAdapter(SimpleAdapter[ACPClientSessionState]):
         self,
         room_id: str,
         tools: AgentToolsProtocol,
-    ) -> McpServerSse:
+    ) -> SseMcpServer:
         """Start or reuse the local Thenvoi MCP server for a room."""
         local_server = self._room_to_mcp_server.get(room_id)
         if local_server is None:
@@ -448,7 +450,7 @@ class ACPClientAdapter(SimpleAdapter[ACPClientSessionState]):
             await local_server.start()
             self._room_to_mcp_server[room_id] = local_server
 
-        return McpServerSse(
+        return SseMcpServer(
             type="sse",
             name="thenvoi",
             url=local_server.url,
