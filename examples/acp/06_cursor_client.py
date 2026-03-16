@@ -91,7 +91,7 @@ async def main() -> None:
 
     # Create adapter that spawns Cursor's ACP agent.
     # - auth_method="cursor_login" authenticates using your Cursor login
-    # - Thenvoi tools are injected through the upstream thenvoi-mcp stdio server
+    # - Thenvoi tools are injected through a local localhost-only MCP server
     adapter = ACPClientAdapter(
         command=[os.path.expanduser("~/.local/bin/agent"), "acp"],
         cwd=cwd,

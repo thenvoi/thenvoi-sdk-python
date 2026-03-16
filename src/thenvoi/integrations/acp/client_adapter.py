@@ -4,13 +4,12 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import sys
 from collections.abc import Awaitable, Callable
 from contextlib import AbstractAsyncContextManager
 from typing import Any, Protocol, cast
 
 from acp import spawn_agent_process, text_block
-from acp.schema import EnvVariable, McpServerStdio
+from acp.schema import McpServerSse
 
 from thenvoi.converters.acp_client import ACPClientHistoryConverter
 from thenvoi.core.protocols import AgentToolsProtocol
@@ -20,6 +19,12 @@ from thenvoi.integrations.acp.client_types import (
     ACPClientSessionState,
     ThenvoiACPClient,
 )
+from thenvoi.runtime.custom_tools import CustomToolDef
+from thenvoi.runtime.mcp_server import (
+    LocalMCPServer,
+    build_thenvoi_mcp_tool_registrations,
+)
+from thenvoi.runtime.tools import AgentTools
 
 logger = logging.getLogger(__name__)
 
@@ -92,6 +97,7 @@ class ACPClientAdapter(SimpleAdapter[ACPClientSessionState]):
         env: dict[str, str] | None = None,
         cwd: str | None = None,
         mcp_servers: list[dict[str, Any]] | None = None,
+        additional_tools: list[CustomToolDef] | None = None,
         api_key: str | None = None,
         rest_url: str | None = None,
         inject_thenvoi_tools: bool = True,
@@ -105,14 +111,14 @@ class ACPClientAdapter(SimpleAdapter[ACPClientSessionState]):
             env: Optional environment variables for the subprocess.
             cwd: Working directory for ACP sessions (default: ".").
             mcp_servers: Optional list of MCP server configs to pass to agent.
-            api_key: Thenvoi API key for tool authentication. If provided,
-                     the upstream thenvoi-mcp server is automatically injected
-                     as an MCP server so the external agent can call platform
-                     tools.
+            additional_tools: Optional custom tools to expose through the local
+                              Thenvoi MCP server.
+            api_key: Deprecated legacy argument retained for compatibility.
+                     The local Thenvoi MCP server uses the active AgentTools
+                     session and does not require a separate API key here.
             rest_url: Thenvoi REST API base URL (default: https://app.thenvoi.com).
             inject_thenvoi_tools: Whether to auto-inject Thenvoi MCP tools
-                                  into each session via thenvoi-mcp. Requires
-                                  api_key.
+                                  into each session via a local MCP server.
             auth_method: ACP authentication method to call after initialize.
                          Required for agents that need auth (e.g., "cursor_login"
                          for Cursor). Set to None to skip authentication.
@@ -121,16 +127,12 @@ class ACPClientAdapter(SimpleAdapter[ACPClientSessionState]):
         self._command = command if isinstance(command, list) else [command]
         self._env = env
         self._cwd = cwd or "."
-        self._mcp_servers = mcp_servers or []
+        self._mcp_servers = list(mcp_servers or [])
+        self._custom_tools: list[CustomToolDef] = list(additional_tools or [])
         self._api_key = api_key or ""
         self._rest_url = rest_url or "https://app.thenvoi.com"
         self._validate_rest_url(self._rest_url)
-        self._inject_thenvoi_tools = inject_thenvoi_tools and bool(self._api_key)
-        if inject_thenvoi_tools and not self._api_key:
-            logger.warning(
-                "inject_thenvoi_tools=True but no api_key provided; "
-                "Thenvoi MCP tools will not be injected"
-            )
+        self._inject_thenvoi_tools = inject_thenvoi_tools
         self._auth_method = auth_method
 
         # ACP connection state
@@ -143,6 +145,7 @@ class ACPClientAdapter(SimpleAdapter[ACPClientSessionState]):
 
         # Room -> session mapping and prompt serialization (guarded by _session_lock)
         self._room_to_session: dict[str, str] = {}
+        self._room_to_mcp_server: dict[str, LocalMCPServer] = {}
         self._bootstrapped_sessions: set[str] = (
             set()
         )  # Sessions that received system prompt
@@ -233,7 +236,7 @@ class ACPClientAdapter(SimpleAdapter[ACPClientSessionState]):
                 self._rehydrate(room_id, history)
 
         # Get or create ACP session for this room
-        session_id = await self._get_or_create_session(room_id, conn)
+        session_id = await self._get_or_create_session(room_id, conn, tools)
 
         # Per-session buffer: reset before prompt, collect after.
         # No global lock needed — each session has its own buffer in ThenvoiACPClient.
@@ -399,43 +402,64 @@ class ACPClientAdapter(SimpleAdapter[ACPClientSessionState]):
 
         room_context = (
             f"\n## Room Context\n"
-            f"You are connected to Thenvoi through the upstream thenvoi-mcp stdio "
-            f"server.\n"
-            f"Use the thenvoi-mcp tools for any visible room action. Plain text "
+            f"You are connected to Thenvoi using the Thenvoi tools.\n"
+            f"Use the Thenvoi tools for any visible room action. Plain text "
             f"output is not posted back to the room.\n"
             f"\n"
-            f"Current room_id/chat_id: {room_id}\n"
+            f"Current room_id: {room_id}\n"
             f"Current requester name: {requester_name}\n"
             f"Current requester id: {requester_id}\n"
             f"\n"
-            f"When a thenvoi-mcp tool asks for chat_id, use `{room_id}`.\n"
+            f"The Thenvoi tools are already scoped to the current room.\n"
         )
 
         return f"[System Context]\n{system_prompt}\n{room_context}"
 
-    def _build_thenvoi_mcp_server(self, room_id: str) -> McpServerStdio:
-        """Build McpServerStdio config for the upstream thenvoi-mcp server.
+    def _coerce_room_tools(self, room_id: str, tools: AgentToolsProtocol) -> AgentTools:
+        """Create a real AgentTools instance for local MCP execution."""
+        if isinstance(tools, AgentTools):
+            return AgentTools(room_id, tools.rest, tools.participants)
 
-        Args:
-            room_id: Room ID for tool execution context.
+        rest = getattr(tools, "rest", None)
+        participants = getattr(tools, "participants", None)
+        if rest is None:
+            raise TypeError(
+                "ACP local MCP server requires AgentTools-compatible runtime tools"
+            )
 
-        Returns:
-            McpServerStdio config for the Thenvoi MCP tools server.
-        """
-        _ = room_id
-        return McpServerStdio(
-            type="stdio",
+        return AgentTools(room_id, rest, participants)
+
+    async def _get_or_start_thenvoi_mcp_server(
+        self,
+        room_id: str,
+        tools: AgentToolsProtocol,
+    ) -> McpServerSse:
+        """Start or reuse the local Thenvoi MCP server for a room."""
+        local_server = self._room_to_mcp_server.get(room_id)
+        if local_server is None:
+            room_tools = self._coerce_room_tools(room_id, tools)
+            local_server = LocalMCPServer(
+                name=f"thenvoi-{room_id}",
+                tool_registrations=build_thenvoi_mcp_tool_registrations(
+                    room_tools,
+                    additional_tools=self._custom_tools,
+                ),
+            )
+            await local_server.start()
+            self._room_to_mcp_server[room_id] = local_server
+
+        return McpServerSse(
+            type="sse",
             name="thenvoi",
-            command=sys.executable,
-            args=["-m", "thenvoi_mcp.server"],
-            env=[
-                EnvVariable(name="THENVOI_API_KEY", value=self._api_key),
-                EnvVariable(name="THENVOI_BASE_URL", value=self._rest_url),
-            ],
+            url=local_server.url,
+            headers=[],
         )
 
     async def _get_or_create_session(
-        self, room_id: str, conn: ACPConnectionProtocol
+        self,
+        room_id: str,
+        conn: ACPConnectionProtocol,
+        tools: AgentToolsProtocol,
     ) -> str:
         """Get existing session for room or create new one.
 
@@ -457,10 +481,11 @@ class ACPClientAdapter(SimpleAdapter[ACPClientSessionState]):
             if room_id in self._room_to_session:
                 return self._room_to_session[room_id]
 
-            # Build MCP servers list, injecting Thenvoi tools if configured
             mcp_servers: list[object] = list(self._mcp_servers)
             if self._inject_thenvoi_tools:
-                mcp_servers.append(self._build_thenvoi_mcp_server(room_id))
+                mcp_servers.append(
+                    await self._get_or_start_thenvoi_mcp_server(room_id, tools)
+                )
 
             session = cast(
                 ACPNewSessionProtocol,
@@ -484,10 +509,15 @@ class ACPClientAdapter(SimpleAdapter[ACPClientSessionState]):
         Args:
             room_id: The room identifier.
         """
+        local_mcp_server: LocalMCPServer | None = None
         async with self._session_lock:
             session_id = self._room_to_session.pop(room_id, None)
+            local_mcp_server = self._room_to_mcp_server.pop(room_id, None)
             if session_id:
                 self._bootstrapped_sessions.discard(session_id)
+
+        if local_mcp_server is not None:
+            await local_mcp_server.stop()
 
         logger.debug("Cleaned up ACP client resources for room %s", room_id)
 
@@ -498,16 +528,22 @@ class ACPClientAdapter(SimpleAdapter[ACPClientSessionState]):
         ``_spawn_process()`` again (triggered by the next ``on_message``
         when ``_conn is None``).
         """
+        ctx: AbstractAsyncContextManager[tuple[ACPConnectionProtocol, object]] | None
         async with self._stop_lock:
-            if not self._ctx:
-                return
             ctx = self._ctx
             self._ctx = None
             self._conn = None
             self._client = None
+        mcp_servers: list[LocalMCPServer]
         async with self._session_lock:
             self._room_to_session.clear()
             self._bootstrapped_sessions.clear()
+            mcp_servers = list(self._room_to_mcp_server.values())
+            self._room_to_mcp_server.clear()
+        for local_mcp_server in mcp_servers:
+            await local_mcp_server.stop()
+        if ctx is None:
+            return
         try:
             await ctx.__aexit__(None, None, None)
         except Exception:

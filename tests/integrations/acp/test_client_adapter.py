@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import sys
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -64,27 +63,33 @@ class TestACPClientAdapterInit:
             ACPClientAdapter(command="codex", rest_url="ftp://invalid")
 
 
-class TestACPClientAdapterThenvoiMcpConfig:
-    """Tests for upstream thenvoi-mcp injection."""
+class TestACPClientAdapterLocalMcpConfig:
+    """Tests for local Thenvoi MCP injection."""
 
-    def test_build_thenvoi_mcp_server_uses_upstream_package(self) -> None:
-        """Should spawn the upstream thenvoi-mcp stdio server."""
-        adapter = ACPClientAdapter(
-            command="codex",
-            api_key="test-key",
-            rest_url="https://api.thenvoi.test",
-        )
+    @pytest.mark.asyncio
+    async def test_get_or_start_thenvoi_mcp_server_returns_sse_config(self) -> None:
+        """Should expose a local SSE MCP server for Thenvoi tools."""
+        adapter = ACPClientAdapter(command="codex")
+        mock_server = MagicMock()
+        mock_server.start = AsyncMock()
+        mock_server.url = "http://127.0.0.1:50000/sse"
+        tools = MagicMock()
+        tools.rest = MagicMock()
+        tools.participants = []
 
-        server = adapter._build_thenvoi_mcp_server("room-123")
+        with patch(
+            "thenvoi.integrations.acp.client_adapter.LocalMCPServer",
+            return_value=mock_server,
+        ):
+            server = await adapter._get_or_start_thenvoi_mcp_server("room-123", tools)
 
-        assert server.command == sys.executable
-        assert server.args == ["-m", "thenvoi_mcp.server"]
-        assert {env.name: env.value for env in server.env} == {
-            "THENVOI_API_KEY": "test-key",
-            "THENVOI_BASE_URL": "https://api.thenvoi.test",
-        }
+        assert server.name == "thenvoi"
+        assert server.url == "http://127.0.0.1:50000/sse"
+        assert server.headers == []
+        mock_server.start.assert_awaited_once()
+        assert adapter._room_to_mcp_server["room-123"] is mock_server
 
-    def test_build_system_context_mentions_thenvoi_mcp_tools(self) -> None:
+    def test_build_system_context_mentions_thenvoi_tools(self) -> None:
         """Should keep ACP system context minimal and room-aware."""
         adapter = ACPClientAdapter(command="codex")
         adapter.agent_name = "ACP Bridge"
@@ -98,10 +103,10 @@ class TestACPClientAdapterThenvoiMcpConfig:
 
         system_context = adapter._build_system_context("room-123", msg)
 
-        assert "thenvoi-mcp tools" in system_context
-        assert "room_id/chat_id: room-123" in system_context
+        assert "Thenvoi tools" in system_context
+        assert "Current room_id: room-123" in system_context
         assert "Current requester name: Pat" in system_context
-        assert "When a thenvoi-mcp tool asks for chat_id" in system_context
+        assert "already scoped to the current room" in system_context
 
 
 class TestACPClientAdapterOnStarted:
@@ -154,7 +159,7 @@ class TestACPClientAdapterOnMessage:
     @pytest.fixture
     def adapter_with_mocks(self) -> ACPClientAdapter:
         """Create adapter with mocked ACP connection."""
-        adapter = ACPClientAdapter(command="codex")
+        adapter = ACPClientAdapter(command="codex", inject_thenvoi_tools=False)
 
         # Mock ACP connection
         adapter._conn = AsyncMock()
@@ -468,7 +473,7 @@ class TestACPClientAdapterPermissionHandler:
     @pytest.fixture
     def adapter_with_mocks(self) -> ACPClientAdapter:
         """Create adapter with mocked ACP connection."""
-        adapter = ACPClientAdapter(command="codex")
+        adapter = ACPClientAdapter(command="codex", inject_thenvoi_tools=False)
 
         # Mock ACP connection
         adapter._conn = AsyncMock()
@@ -632,10 +637,14 @@ class TestACPClientAdapterCleanup:
         """Should remove room -> session mapping."""
         adapter = ACPClientAdapter(command="codex")
         adapter._room_to_session["room-123"] = "session-123"
+        local_server = MagicMock()
+        local_server.stop = AsyncMock()
+        adapter._room_to_mcp_server["room-123"] = local_server
 
         await adapter.on_cleanup("room-123")
 
         assert "room-123" not in adapter._room_to_session
+        local_server.stop.assert_awaited_once()
 
     @pytest.mark.asyncio
     async def test_on_cleanup_idempotent(self) -> None:
@@ -669,24 +678,33 @@ class TestACPClientAdapterStop:
         adapter._conn = AsyncMock()
         adapter._client = ThenvoiACPClient()
         adapter._room_to_session["room-123"] = "session-123"
+        local_server = MagicMock()
+        local_server.stop = AsyncMock()
+        adapter._room_to_mcp_server["room-123"] = local_server
         adapter._bootstrapped_sessions.add("session-123")
 
         await adapter.stop()
 
         mock_ctx.__aexit__.assert_called_once()
+        local_server.stop.assert_awaited_once()
         assert adapter._ctx is None
         assert adapter._conn is None
         assert adapter._client is None
         assert adapter._room_to_session == {}
+        assert adapter._room_to_mcp_server == {}
         assert adapter._bootstrapped_sessions == set()
 
     @pytest.mark.asyncio
     async def test_stop_no_connection(self) -> None:
         """Should handle stop when not connected."""
         adapter = ACPClientAdapter(command="codex")
+        local_server = MagicMock()
+        local_server.stop = AsyncMock()
+        adapter._room_to_mcp_server["room-123"] = local_server
 
-        # Should not raise
         await adapter.stop()
+
+        local_server.stop.assert_awaited_once()
 
     @pytest.mark.asyncio
     async def test_stop_handles_exit_error(self) -> None:
@@ -805,7 +823,7 @@ class TestACPClientAdapterDeadConnectionRecovery:
     @pytest.mark.asyncio
     async def test_prompt_error_clears_connection(self) -> None:
         """Should stop connection on prompt error so next message respawns."""
-        adapter = ACPClientAdapter(command="codex")
+        adapter = ACPClientAdapter(command="codex", inject_thenvoi_tools=False)
         adapter._conn = AsyncMock()
         adapter._conn.prompt = AsyncMock(side_effect=RuntimeError("Process died"))
         mock_session = MagicMock()
@@ -841,37 +859,25 @@ class TestACPClientAdapterDeadConnectionRecovery:
         assert len(error_events) == 1
 
 
-class TestACPClientAdapterInjectToolsWarning:
-    """Tests for inject_thenvoi_tools warning when no api_key."""
+class TestACPClientAdapterInjectToolsConfig:
+    """Tests for inject_thenvoi_tools configuration."""
 
-    def test_inject_tools_without_api_key_logs_warning(
-        self, caplog: pytest.LogCaptureFixture
-    ) -> None:
-        """Should warn when inject_thenvoi_tools=True but no api_key."""
-        import logging
-
-        with caplog.at_level(logging.WARNING):
-            adapter = ACPClientAdapter(
-                command="codex",
-                inject_thenvoi_tools=True,
-                api_key="",
-            )
-
-        assert not adapter._inject_thenvoi_tools
-        assert "inject_thenvoi_tools=True but no api_key" in caplog.text
-
-    def test_inject_tools_with_api_key_no_warning(
-        self, caplog: pytest.LogCaptureFixture
-    ) -> None:
-        """Should not warn when api_key is provided."""
-        import logging
-
-        with caplog.at_level(logging.WARNING):
-            adapter = ACPClientAdapter(
-                command="codex",
-                inject_thenvoi_tools=True,
-                api_key="test-key",
-            )
+    def test_inject_tools_without_api_key_stays_enabled(self) -> None:
+        """Should not gate local tool injection on adapter api_key."""
+        adapter = ACPClientAdapter(
+            command="codex",
+            inject_thenvoi_tools=True,
+            api_key="",
+        )
 
         assert adapter._inject_thenvoi_tools
-        assert "inject_thenvoi_tools" not in caplog.text
+
+    def test_inject_tools_can_be_disabled_explicitly(self) -> None:
+        """Should respect inject_thenvoi_tools=False."""
+        adapter = ACPClientAdapter(
+            command="codex",
+            inject_thenvoi_tools=False,
+            api_key="test-key",
+        )
+
+        assert not adapter._inject_thenvoi_tools
