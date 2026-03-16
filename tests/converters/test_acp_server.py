@@ -20,6 +20,8 @@ class TestACPServerHistoryConverter:
         """Empty history returns empty state."""
         result = converter.convert([])
         assert result.session_to_room == {}
+        assert result.session_cwd == {}
+        assert result.session_mcp_servers == {}
         assert isinstance(result, ACPSessionState)
 
     def test_extract_session_to_room_from_metadata(
@@ -37,6 +39,39 @@ class TestACPServerHistoryConverter:
         ]
         result = converter.convert(raw)
         assert result.session_to_room == {"session-123": "room-456"}
+
+    def test_extracts_cwd_and_mcp_servers(
+        self, converter: ACPServerHistoryConverter
+    ) -> None:
+        """Should restore stored editor session context."""
+        raw = [
+            {
+                "message_type": "task",
+                "metadata": {
+                    "acp_session_id": "session-123",
+                    "acp_room_id": "room-456",
+                    "acp_cwd": "/workspace/project",
+                    "acp_mcp_servers": [
+                        {
+                            "type": "stdio",
+                            "name": "filesystem",
+                            "command": "mcp-filesystem",
+                        }
+                    ],
+                },
+            }
+        ]
+        result = converter.convert(raw)
+        assert result.session_cwd == {"session-123": "/workspace/project"}
+        assert result.session_mcp_servers == {
+            "session-123": [
+                {
+                    "type": "stdio",
+                    "name": "filesystem",
+                    "command": "mcp-filesystem",
+                }
+            ]
+        }
 
     def test_extract_session_uses_room_id_fallback(
         self, converter: ACPServerHistoryConverter

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 from typing import TYPE_CHECKING, Any
 from uuid import uuid4
@@ -164,6 +165,23 @@ class ThenvoiACPServerAdapter(SimpleAdapter[ACPSessionState]):
         """Return the working directory for a session, or '.' if unknown."""
         return self._session_cwd.get(session_id, ".")
 
+    def update_session_context(
+        self,
+        session_id: str,
+        *,
+        cwd: str | None = None,
+        mcp_servers: list[Any] | None = None,
+    ) -> None:
+        """Update the stored editor context for an existing session."""
+        if cwd:
+            self._session_cwd[session_id] = cwd
+        if mcp_servers is not None:
+            normalized = self._normalize_mcp_servers(mcp_servers)
+            if normalized:
+                self._session_mcp_servers[session_id] = normalized
+            else:
+                self._session_mcp_servers.pop(session_id, None)
+
     def get_session_for_room(self, room_id: str) -> str | None:
         """Return the ACP session_id for a room, or None."""
         return self._room_to_session.get(room_id)
@@ -284,8 +302,9 @@ class ThenvoiACPServerAdapter(SimpleAdapter[ACPSessionState]):
             self._session_to_room[session_id] = room_id
             self._room_to_session[room_id] = session_id
             self._session_cwd[session_id] = cwd
-            if mcp_servers:
-                self._session_mcp_servers[session_id] = mcp_servers
+            normalized_mcp_servers = self._normalize_mcp_servers(mcp_servers or [])
+            if normalized_mcp_servers:
+                self._session_mcp_servers[session_id] = normalized_mcp_servers
 
         try:
             await self._emit_session_event(room_id, session_id)
@@ -343,6 +362,7 @@ class ThenvoiACPServerAdapter(SimpleAdapter[ACPSessionState]):
         target_peer: str | None = None
         if self._router:
             cleaned_text, target_peer = self._router.resolve(text, current_mode)
+        prompt_text = self._prepend_session_context(session_id, cleaned_text)
 
         # Get participants for mentions
         participants = (
@@ -371,7 +391,7 @@ class ThenvoiACPServerAdapter(SimpleAdapter[ACPSessionState]):
             await self._rest.agent_api_messages.create_agent_chat_message(
                 chat_id=room_id,
                 message=ChatMessageRequest(
-                    content=f"{mention_text} {cleaned_text}".strip(),
+                    content=f"{mention_text} {prompt_text}".strip(),
                     mentions=mentions,
                 ),
                 request_options=DEFAULT_REQUEST_OPTIONS,
@@ -503,6 +523,14 @@ class ThenvoiACPServerAdapter(SimpleAdapter[ACPSessionState]):
                     session_id,
                     room_id,
                 )
+            if session_id not in self._session_cwd:
+                cwd = history.session_cwd.get(session_id)
+                if cwd:
+                    self._session_cwd[session_id] = cwd
+            if session_id not in self._session_mcp_servers:
+                mcp_servers = history.session_mcp_servers.get(session_id)
+                if mcp_servers:
+                    self._session_mcp_servers[session_id] = list(mcp_servers)
 
         logger.info(
             "Rehydrated ACP server state: %d sessions",
@@ -526,10 +554,82 @@ class ThenvoiACPServerAdapter(SimpleAdapter[ACPSessionState]):
                 metadata={
                     "acp_session_id": session_id,
                     "acp_room_id": room_id,
+                    "acp_cwd": self._session_cwd.get(session_id, "."),
+                    "acp_mcp_servers": self._session_mcp_servers.get(session_id, []),
                 },
             ),
             request_options=DEFAULT_REQUEST_OPTIONS,
         )
+
+    def _prepend_session_context(self, session_id: str, text: str) -> str:
+        """Add editor session context so downstream peers can use it."""
+        cwd = self._session_cwd.get(session_id)
+        mcp_servers = self._session_mcp_servers.get(session_id, [])
+        if not cwd and not mcp_servers:
+            return text
+
+        lines = ["[ACP Session Context]"]
+        if cwd:
+            lines.append(f"Editor cwd: {cwd}")
+        if mcp_servers:
+            lines.append("Editor MCP servers:")
+            lines.extend(self._format_mcp_server_lines(mcp_servers))
+            lines.append("These MCP servers belong to the connected editor session.")
+        lines.append("")
+        lines.append(text)
+        return "\n".join(lines)
+
+    def _format_mcp_server_lines(
+        self,
+        mcp_servers: list[dict[str, Any]],
+    ) -> list[str]:
+        """Render editor MCP servers as compact prompt lines."""
+        lines: list[str] = []
+        for server in mcp_servers:
+            server_type = str(server.get("type") or "unknown")
+            server_name = (
+                server.get("name")
+                or server.get("server_name")
+                or server.get("command")
+                or server.get("url")
+                or "unnamed"
+            )
+            details: list[str] = [server_type]
+            if server_type == "stdio" and server.get("command"):
+                details.append(f"command={server['command']}")
+            if server_type != "stdio" and server.get("url"):
+                details.append(f"url={server['url']}")
+            lines.append(f"- {server_name} ({', '.join(details)})")
+        return lines
+
+    def _normalize_mcp_servers(
+        self,
+        mcp_servers: list[Any],
+    ) -> list[dict[str, Any]]:
+        """Convert ACP MCP server configs to JSON-safe dictionaries."""
+        normalized: list[dict[str, Any]] = []
+        for server in mcp_servers:
+            normalized_server = self._json_safe(server)
+            if isinstance(normalized_server, dict):
+                normalized.append(normalized_server)
+        return normalized
+
+    @classmethod
+    def _json_safe(cls, value: Any) -> Any:
+        """Convert values to JSON-safe structures for history persistence."""
+        if value is None or isinstance(value, str | int | float | bool):
+            return value
+        if isinstance(value, list | tuple):
+            return [cls._json_safe(item) for item in value]
+        if isinstance(value, dict):
+            return {str(key): cls._json_safe(item) for key, item in value.items()}
+        if hasattr(value, "model_dump"):
+            return cls._json_safe(value.model_dump(mode="json"))
+        if hasattr(value, "__dict__"):
+            return cls._json_safe(vars(value))
+
+        # Fall back to a plain string so event metadata stays serializable.
+        return json.loads(json.dumps(str(value)))
 
     async def _schedule_prompt_completion(
         self, room_id: str, pending: PendingACPPrompt

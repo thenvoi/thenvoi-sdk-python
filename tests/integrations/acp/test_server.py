@@ -293,6 +293,24 @@ class TestACPServerLoadSession:
         response = await server.load_session(cwd="/workspace", session_id="session-1")
 
         assert response is not None
+        assert adapter._session_cwd["session-1"] == "/workspace"
+
+    @pytest.mark.asyncio
+    async def test_load_session_updates_mcp_context(self) -> None:
+        """Should refresh stored MCP session context on load."""
+        adapter = ThenvoiACPServerAdapter()
+        adapter._session_to_room["session-1"] = "room-1"
+        server = ACPServer(adapter)
+
+        mcp_servers = [{"type": "stdio", "name": "filesystem"}]
+        response = await server.load_session(
+            cwd="/workspace",
+            session_id="session-1",
+            mcp_servers=mcp_servers,
+        )
+
+        assert response is not None
+        assert adapter._session_mcp_servers["session-1"] == mcp_servers
 
     @pytest.mark.asyncio
     async def test_load_session_not_found(self) -> None:
@@ -351,6 +369,28 @@ class TestACPServerSetSessionMode:
 
         assert response is not None
         assert adapter._session_modes["session-1"] == "code"
+
+
+class TestACPServerResumeSession:
+    """Tests for ACPServer.resume_session()."""
+
+    @pytest.mark.asyncio
+    async def test_resume_session_updates_context(self) -> None:
+        """Should refresh stored cwd and MCP servers on resume."""
+        adapter = ThenvoiACPServerAdapter()
+        adapter._session_to_room["session-1"] = "room-1"
+        server = ACPServer(adapter)
+
+        mcp_servers = [{"type": "stdio", "name": "filesystem"}]
+        response = await server.resume_session(
+            cwd="/workspace",
+            session_id="session-1",
+            mcp_servers=mcp_servers,
+        )
+
+        assert response is not None
+        assert adapter._session_cwd["session-1"] == "/workspace"
+        assert adapter._session_mcp_servers["session-1"] == mcp_servers
 
 
 class TestACPServerSetSessionModel:

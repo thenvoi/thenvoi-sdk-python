@@ -465,6 +465,29 @@ def iter_tool_definitions(*, include_memory: bool = False) -> list[ToolDefinitio
     ]
 
 
+def format_tool_validation_error(tool_name: str, error: ValidationError) -> str:
+    """Format Pydantic validation errors for LLM-readable tool feedback."""
+    errors = [
+        f"{'.'.join(str(x) for x in err['loc'])}: {err['msg']}"
+        for err in error.errors()
+    ]
+    return f"Invalid arguments for {tool_name}: {', '.join(errors)}"
+
+
+def validate_tool_arguments(
+    tool_name: str,
+    input_model: type[BaseModel],
+    arguments: dict[str, Any],
+) -> dict[str, Any]:
+    """Validate tool arguments and return a normalized kwargs dictionary."""
+    try:
+        validated = input_model.model_validate(arguments)
+    except ValidationError as error:
+        raise ValueError(format_tool_validation_error(tool_name, error)) from error
+
+    return validated.model_dump(exclude_none=True)
+
+
 class AgentTools(AgentToolsProtocol):
     """
     Room-bound tools for LLM platform interaction.
@@ -1446,15 +1469,13 @@ class AgentTools(AgentToolsProtocol):
         try:
             definition = TOOL_DEFINITIONS.get(tool_name)
             if definition:
-                validated = definition.input_model.model_validate(arguments)
-                arguments = validated.model_dump(exclude_none=True)
-        except ValidationError as e:
-            # Format validation errors for better LLM readability
-            errors = [
-                f"{'.'.join(str(x) for x in err['loc'])}: {err['msg']}"
-                for err in e.errors()
-            ]
-            return f"Invalid arguments for {tool_name}: {', '.join(errors)}"
+                arguments = validate_tool_arguments(
+                    tool_name,
+                    definition.input_model,
+                    arguments,
+                )
+        except ValueError as error:
+            return str(error)
         except Exception as e:
             return f"Error validating {tool_name} arguments: {e}"
 

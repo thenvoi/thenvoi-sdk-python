@@ -5,13 +5,16 @@ import json
 import logging
 import socket
 from collections.abc import Awaitable, Callable, Sequence
+from contextlib import asynccontextmanager, suppress
 from dataclasses import dataclass
 from typing import Any
 
 from mcp.server.lowlevel import Server
 from mcp.server.sse import SseServerTransport
+from mcp.server.streamable_http import StreamableHTTPServerTransport
 from mcp.types import Tool
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel
+from thenvoi.core.protocols import AgentToolsProtocol
 from starlette.applications import Starlette
 from starlette.requests import Request
 from starlette.responses import PlainTextResponse, Response
@@ -23,7 +26,11 @@ from thenvoi.runtime.custom_tools import (
     execute_custom_tool,
     get_custom_tool_name,
 )
-from thenvoi.runtime.tools import AgentTools, ToolDefinition, iter_tool_definitions
+from thenvoi.runtime.tools import (
+    ToolDefinition,
+    iter_tool_definitions,
+    validate_tool_arguments,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -31,11 +38,13 @@ LOCAL_MCP_HOST = "127.0.0.1"
 LOCAL_MCP_PORT_MIN = 50000
 LOCAL_MCP_PORT_MAX = 60000
 LOCAL_MCP_SSE_PATH = "/sse"
+LOCAL_MCP_HTTP_PATH = "/mcp"
 LOCAL_MCP_MESSAGE_PATH = "/messages/"
 LOCAL_MCP_HEALTH_PATH = "/healthz"
 SERVER_START_TIMEOUT_S = 5.0
 
 MCPToolExecutor = Callable[[dict[str, Any]], Awaitable[Any]]
+RoomToolResolver = Callable[[str], AgentToolsProtocol | None]
 
 
 @dataclass(frozen=True)
@@ -46,10 +55,11 @@ class MCPToolRegistration:
     description: str
     input_model: type[BaseModel]
     execute: MCPToolExecutor
+    input_schema: dict[str, Any] | None = None
 
     def to_mcp_tool(self) -> Tool:
         """Convert the registration to an MCP tool definition."""
-        schema = self.input_model.model_json_schema()
+        schema = self.input_schema or self.input_model.model_json_schema()
         schema.pop("title", None)
         return Tool(
             name=self.name,
@@ -59,15 +69,24 @@ class MCPToolRegistration:
 
 
 def build_thenvoi_mcp_tool_registrations(
-    agent_tools: AgentTools,
+    agent_tools: AgentToolsProtocol,
     *,
     include_memory: bool = False,
     additional_tools: list[CustomToolDef] | None = None,
+    tool_definitions: Sequence[ToolDefinition] | None = None,
 ) -> list[MCPToolRegistration]:
     """Build MCP tool registrations for Thenvoi tools and custom tools."""
+    definitions = (
+        list(tool_definitions)
+        if tool_definitions is not None
+        else [
+            definition
+            for definition in iter_tool_definitions(include_memory=include_memory)
+        ]
+    )
     registrations = [
         _build_builtin_registration(agent_tools, definition)
-        for definition in iter_tool_definitions(include_memory=include_memory)
+        for definition in definitions
     ]
     registrations.extend(
         _build_custom_registration(tool_def) for tool_def in additional_tools or []
@@ -76,26 +95,78 @@ def build_thenvoi_mcp_tool_registrations(
     return registrations
 
 
+def build_resolved_thenvoi_mcp_tool_registrations(
+    *,
+    get_tools: RoomToolResolver,
+    include_memory: bool = False,
+    additional_tools: list[CustomToolDef] | None = None,
+    tool_definitions: Sequence[ToolDefinition] | None = None,
+) -> list[MCPToolRegistration]:
+    """Build MCP registrations that resolve room-scoped tools at call time."""
+    definitions = (
+        list(tool_definitions)
+        if tool_definitions is not None
+        else [
+            definition
+            for definition in iter_tool_definitions(include_memory=include_memory)
+        ]
+    )
+    registrations = [
+        _build_resolved_builtin_registration(get_tools, definition)
+        for definition in definitions
+    ]
+    registrations.extend(
+        _build_resolved_custom_registration(tool_def)
+        for tool_def in additional_tools or []
+    )
+    _validate_unique_tool_names(registrations)
+    return registrations
+
+
 def _build_builtin_registration(
-    agent_tools: AgentTools,
+    agent_tools: AgentToolsProtocol,
     definition: ToolDefinition,
 ) -> MCPToolRegistration:
     input_model = definition.input_model
     method = getattr(agent_tools, definition.method_name)
 
     async def execute(arguments: dict[str, Any]) -> Any:
-        try:
-            validated = input_model.model_validate(arguments)
-        except ValidationError as exc:
-            raise ValueError(_format_validation_error(definition.name, exc)) from exc
-
-        call_args = validated.model_dump(exclude_none=True)
+        call_args = validate_tool_arguments(definition.name, input_model, arguments)
         return await method(**call_args)
 
     return MCPToolRegistration(
         name=definition.name,
         description=input_model.__doc__ or "",
         input_model=input_model,
+        execute=execute,
+    )
+
+
+def _build_resolved_builtin_registration(
+    get_tools: RoomToolResolver,
+    definition: ToolDefinition,
+) -> MCPToolRegistration:
+    input_model = definition.input_model
+
+    async def execute(arguments: dict[str, Any]) -> Any:
+        room_id = str(arguments.get("room_id", ""))
+        tools = get_tools(room_id)
+        if tools is None:
+            raise ValueError(f"No tools available for room {room_id}")
+
+        call_args = validate_tool_arguments(
+            definition.name,
+            input_model,
+            {key: value for key, value in arguments.items() if key != "room_id"},
+        )
+        method = getattr(tools, definition.method_name)
+        return await method(**call_args)
+
+    return MCPToolRegistration(
+        name=definition.name,
+        description=input_model.__doc__ or "",
+        input_model=input_model,
+        input_schema=_build_room_scoped_input_schema(input_model),
         execute=execute,
     )
 
@@ -115,12 +186,39 @@ def _build_custom_registration(tool_def: CustomToolDef) -> MCPToolRegistration:
     )
 
 
-def _format_validation_error(tool_name: str, error: ValidationError) -> str:
-    errors = [
-        f"{'.'.join(str(x) for x in err['loc'])}: {err['msg']}"
-        for err in error.errors()
-    ]
-    return f"Invalid arguments for {tool_name}: {', '.join(errors)}"
+def _build_resolved_custom_registration(tool_def: CustomToolDef) -> MCPToolRegistration:
+    input_model, _ = tool_def
+    tool_name = get_custom_tool_name(input_model)
+
+    async def execute(arguments: dict[str, Any]) -> Any:
+        return await execute_custom_tool(
+            tool_def,
+            {key: value for key, value in arguments.items() if key != "room_id"},
+        )
+
+    return MCPToolRegistration(
+        name=tool_name,
+        description=input_model.__doc__ or "",
+        input_model=input_model,
+        input_schema=_build_room_scoped_input_schema(input_model),
+        execute=execute,
+    )
+
+
+def _build_room_scoped_input_schema(input_model: type[BaseModel]) -> dict[str, Any]:
+    schema = dict(input_model.model_json_schema())
+    schema.pop("title", None)
+
+    properties = dict(schema.get("properties", {}))
+    required = list(schema.get("required", []))
+    properties = {"room_id": {"type": "string"}, **properties}
+    if "room_id" not in required:
+        required.insert(0, "room_id")
+
+    schema["type"] = "object"
+    schema["properties"] = properties
+    schema["required"] = required
+    return schema
 
 
 def _validate_unique_tool_names(registrations: Sequence[MCPToolRegistration]) -> None:
@@ -148,7 +246,7 @@ def _serialize_tool_result(result: Any) -> dict[str, Any]:
 
 
 class LocalMCPServer:
-    """A local localhost-only SSE MCP server."""
+    """A local localhost-only MCP server with SSE and streamable HTTP endpoints."""
 
     def __init__(
         self,
@@ -159,6 +257,7 @@ class LocalMCPServer:
         port_min: int = LOCAL_MCP_PORT_MIN,
         port_max: int = LOCAL_MCP_PORT_MAX,
         sse_path: str = LOCAL_MCP_SSE_PATH,
+        http_path: str = LOCAL_MCP_HTTP_PATH,
         message_path: str = LOCAL_MCP_MESSAGE_PATH,
     ) -> None:
         if host != LOCAL_MCP_HOST:
@@ -174,6 +273,7 @@ class LocalMCPServer:
         self._port_min = port_min
         self._port_max = port_max
         self._sse_path = sse_path
+        self._http_path = http_path
         self._message_path = message_path
         self._tool_registrations = {
             registration.name: registration for registration in registrations
@@ -192,10 +292,18 @@ class LocalMCPServer:
 
     @property
     def url(self) -> str:
+        return self.sse_url
+
+    @property
+    def sse_url(self) -> str:
         return f"http://{self._host}:{self.port}{self._sse_path}"
 
+    @property
+    def http_url(self) -> str:
+        return f"http://{self._host}:{self.port}{self._http_path}"
+
     async def start(self) -> None:
-        """Start the local SSE MCP server."""
+        """Start the local MCP server."""
         if self._serve_task and not self._serve_task.done():
             return
 
@@ -237,7 +345,7 @@ class LocalMCPServer:
         )
 
     async def stop(self) -> None:
-        """Stop the local SSE MCP server."""
+        """Stop the local MCP server."""
         if self._uvicorn_server is not None:
             self._uvicorn_server.should_exit = True
 
@@ -281,10 +389,30 @@ class LocalMCPServer:
         return server
 
     def _build_app(self, server: Server[Any, Any]) -> Starlette:
-        transport = SseServerTransport(self._message_path)
+        sse_transport = SseServerTransport(self._message_path)
+        http_transport = StreamableHTTPServerTransport(mcp_session_id=None)
+        initialization_options = server.create_initialization_options()
+
+        @asynccontextmanager
+        async def lifespan(_: Starlette):
+            async with http_transport.connect() as streams:
+                http_task = asyncio.create_task(
+                    server.run(
+                        streams[0],
+                        streams[1],
+                        initialization_options,
+                    )
+                )
+                try:
+                    yield
+                finally:
+                    if not http_task.done():
+                        http_task.cancel()
+                    with suppress(asyncio.CancelledError):
+                        await http_task
 
         async def sse_endpoint(request: Request) -> Response:
-            async with transport.connect_sse(
+            async with sse_transport.connect_sse(
                 request.scope,
                 request.receive,
                 request._send,  # type: ignore[attr-defined]
@@ -292,7 +420,7 @@ class LocalMCPServer:
                 await server.run(
                     streams[0],
                     streams[1],
-                    server.create_initialization_options(),
+                    initialization_options,
                 )
             return Response()
 
@@ -300,11 +428,13 @@ class LocalMCPServer:
             return PlainTextResponse("ok")
 
         return Starlette(
+            lifespan=lifespan,
             routes=[
                 Route(self._sse_path, endpoint=sse_endpoint, methods=["GET"]),
-                Mount(self._message_path, app=transport.handle_post_message),
+                Mount(self._http_path, app=http_transport.handle_request),
+                Mount(self._message_path, app=sse_transport.handle_post_message),
                 Route(LOCAL_MCP_HEALTH_PATH, endpoint=healthz, methods=["GET"]),
-            ]
+            ],
         )
 
     def _reserve_socket(self) -> tuple[socket.socket, int]:

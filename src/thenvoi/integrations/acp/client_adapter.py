@@ -7,10 +7,10 @@ import logging
 import os
 from collections.abc import Awaitable, Callable
 from contextlib import AbstractAsyncContextManager
-from typing import Any, Protocol, cast
+from typing import Any, Literal, Protocol, cast
 
 from acp import spawn_agent_process, text_block
-from acp.schema import SseMcpServer
+from acp.schema import HttpMcpServer, SseMcpServer
 
 from thenvoi.converters.acp_client import ACPClientHistoryConverter
 from thenvoi.core.protocols import AgentToolsProtocol
@@ -20,14 +20,17 @@ from thenvoi.integrations.acp.client_types import (
     ACPClientSessionState,
     ThenvoiACPClient,
 )
-from thenvoi.runtime.custom_tools import CustomToolDef
-from thenvoi.runtime.mcp_server import (
-    LocalMCPServer,
-    build_thenvoi_mcp_tool_registrations,
+from thenvoi.integrations.mcp.backends import (
+    ThenvoiMCPBackend,
+    create_thenvoi_mcp_backend,
 )
-from thenvoi.runtime.tools import AgentTools
+from thenvoi.runtime.custom_tools import CustomToolDef
+from thenvoi.runtime.mcp_server import LocalMCPServer
+from thenvoi.runtime.tools import iter_tool_definitions
 
 logger = logging.getLogger(__name__)
+
+ACP_STDIO_LIMIT_BYTES = 16 * 1024 * 1024
 
 
 class ACPConnectionProtocol(Protocol):
@@ -51,6 +54,8 @@ class ACPSpawnContextProtocol(Protocol):
 
 
 PermissionHandler = Callable[..., Awaitable[dict[str, object]]]
+LocalMcpServerConfig = HttpMcpServer | SseMcpServer
+MCPTransportKind = Literal["http", "sse"]
 
 
 class ACPNewSessionProtocol(Protocol):
@@ -136,6 +141,7 @@ class ACPClientAdapter(SimpleAdapter[ACPClientSessionState]):
         self._validate_rest_url(self._rest_url)
         self._inject_thenvoi_tools = inject_thenvoi_tools
         self._auth_method = auth_method
+        self._agent_mcp_transport: MCPTransportKind = "http"
 
         # ACP connection state
         self._conn: ACPConnectionProtocol | None = None
@@ -147,7 +153,9 @@ class ACPClientAdapter(SimpleAdapter[ACPClientSessionState]):
 
         # Room -> session mapping and prompt serialization (guarded by _session_lock)
         self._room_to_session: dict[str, str] = {}
-        self._room_to_mcp_server: dict[str, LocalMCPServer] = {}
+        self._room_tools: dict[str, AgentToolsProtocol] = {}
+        self._thenvoi_mcp_backend: ThenvoiMCPBackend | None = None
+        self._thenvoi_mcp_server: LocalMCPServer | None = None
         self._bootstrapped_sessions: set[str] = (
             set()
         )  # Sessions that received system prompt
@@ -181,12 +189,14 @@ class ACPClientAdapter(SimpleAdapter[ACPClientSessionState]):
                 self._command[0],
                 *self._command[1:],
                 env=self._env,
+                transport_kwargs={"limit": ACP_STDIO_LIMIT_BYTES},
             ),
         )
         self._ctx = ctx
         try:
             self._conn, _ = await ctx.__aenter__()
-            await self._conn.initialize(protocol_version=1)
+            init_response = await self._conn.initialize(protocol_version=1)
+            self._agent_mcp_transport = self._select_mcp_transport(init_response)
             if self._auth_method:
                 await self._conn.authenticate(method_id=self._auth_method)
                 logger.info("Authenticated with method: %s", self._auth_method)
@@ -237,8 +247,12 @@ class ACPClientAdapter(SimpleAdapter[ACPClientSessionState]):
             async with self._session_lock:
                 self._rehydrate(room_id, history)
 
+        if self._inject_thenvoi_tools:
+            async with self._session_lock:
+                self._room_tools[room_id] = tools
+
         # Get or create ACP session for this room
-        session_id = await self._get_or_create_session(room_id, conn, tools)
+        session_id = await self._get_or_create_session(room_id, conn)
 
         # Per-session buffer: reset before prompt, collect after.
         # No global lock needed — each session has its own buffer in ThenvoiACPClient.
@@ -412,56 +426,68 @@ class ACPClientAdapter(SimpleAdapter[ACPClientSessionState]):
             f"Current requester name: {requester_name}\n"
             f"Current requester id: {requester_id}\n"
             f"\n"
-            f"The Thenvoi tools are already scoped to the current room.\n"
+            f"All Thenvoi tool calls must include room_id.\n"
         )
 
         return f"[System Context]\n{system_prompt}\n{room_context}"
 
-    def _coerce_room_tools(self, room_id: str, tools: AgentToolsProtocol) -> AgentTools:
-        """Create a real AgentTools instance for local MCP execution."""
-        if isinstance(tools, AgentTools):
-            return AgentTools(room_id, tools.rest, tools.participants)
+    def _select_mcp_transport(self, init_response: object) -> MCPTransportKind:
+        """Choose the MCP transport supported by the connected ACP agent."""
+        capabilities = getattr(init_response, "agent_capabilities", None)
+        mcp_capabilities = getattr(capabilities, "mcp_capabilities", None)
 
-        rest = getattr(tools, "rest", None)
-        participants = getattr(tools, "participants", None)
-        if rest is None:
-            raise TypeError(
-                "ACP local MCP server requires AgentTools-compatible runtime tools"
+        if getattr(mcp_capabilities, "http", False):
+            return "http"
+        if getattr(mcp_capabilities, "sse", False):
+            return "sse"
+
+        return "http"
+
+    def _build_local_mcp_server_config(
+        self,
+        local_server: LocalMCPServer,
+    ) -> LocalMcpServerConfig:
+        """Build the MCP server config supported by the connected ACP agent."""
+        if self._agent_mcp_transport == "sse":
+            return SseMcpServer(
+                type="sse",
+                name="thenvoi",
+                url=local_server.sse_url,
+                headers=[],
             )
 
-        return AgentTools(room_id, rest, participants)
+        return HttpMcpServer(
+            type="http",
+            name="thenvoi",
+            url=local_server.http_url,
+            headers=[],
+        )
 
     async def _get_or_start_thenvoi_mcp_server(
         self,
-        room_id: str,
-        tools: AgentToolsProtocol,
-    ) -> SseMcpServer:
-        """Start or reuse the local Thenvoi MCP server for a room."""
-        local_server = self._room_to_mcp_server.get(room_id)
-        if local_server is None:
-            room_tools = self._coerce_room_tools(room_id, tools)
-            local_server = LocalMCPServer(
-                name=f"thenvoi-{room_id}",
-                tool_registrations=build_thenvoi_mcp_tool_registrations(
-                    room_tools,
-                    additional_tools=self._custom_tools,
-                ),
+    ) -> LocalMcpServerConfig:
+        """Start or reuse the shared local Thenvoi MCP server."""
+        backend = self._thenvoi_mcp_backend
+        if backend is None:
+            backend = await create_thenvoi_mcp_backend(
+                kind=self._agent_mcp_transport,
+                tool_definitions=list(iter_tool_definitions(include_memory=False)),
+                get_tools=self._room_tools.get,
+                additional_tools=self._custom_tools,
             )
-            await local_server.start()
-            self._room_to_mcp_server[room_id] = local_server
+            self._thenvoi_mcp_backend = backend
+            self._thenvoi_mcp_server = backend.local_server
 
-        return SseMcpServer(
-            type="sse",
-            name="thenvoi",
-            url=local_server.url,
-            headers=[],
-        )
+        local_server = backend.local_server
+        if local_server is None:
+            raise RuntimeError("ACP MCP backend did not create a local server")
+
+        return self._build_local_mcp_server_config(local_server)
 
     async def _get_or_create_session(
         self,
         room_id: str,
         conn: ACPConnectionProtocol,
-        tools: AgentToolsProtocol,
     ) -> str:
         """Get existing session for room or create new one.
 
@@ -485,9 +511,7 @@ class ACPClientAdapter(SimpleAdapter[ACPClientSessionState]):
 
             mcp_servers: list[object] = list(self._mcp_servers)
             if self._inject_thenvoi_tools:
-                mcp_servers.append(
-                    await self._get_or_start_thenvoi_mcp_server(room_id, tools)
-                )
+                mcp_servers.append(await self._get_or_start_thenvoi_mcp_server())
 
             session = cast(
                 ACPNewSessionProtocol,
@@ -511,15 +535,11 @@ class ACPClientAdapter(SimpleAdapter[ACPClientSessionState]):
         Args:
             room_id: The room identifier.
         """
-        local_mcp_server: LocalMCPServer | None = None
         async with self._session_lock:
             session_id = self._room_to_session.pop(room_id, None)
-            local_mcp_server = self._room_to_mcp_server.pop(room_id, None)
+            self._room_tools.pop(room_id, None)
             if session_id:
                 self._bootstrapped_sessions.discard(session_id)
-
-        if local_mcp_server is not None:
-            await local_mcp_server.stop()
 
         logger.debug("Cleaned up ACP client resources for room %s", room_id)
 
@@ -536,13 +556,18 @@ class ACPClientAdapter(SimpleAdapter[ACPClientSessionState]):
             self._ctx = None
             self._conn = None
             self._client = None
-        mcp_servers: list[LocalMCPServer]
+        local_mcp_server: LocalMCPServer | None
         async with self._session_lock:
             self._room_to_session.clear()
+            self._room_tools.clear()
             self._bootstrapped_sessions.clear()
-            mcp_servers = list(self._room_to_mcp_server.values())
-            self._room_to_mcp_server.clear()
-        for local_mcp_server in mcp_servers:
+            backend = self._thenvoi_mcp_backend
+            local_mcp_server = self._thenvoi_mcp_server
+            self._thenvoi_mcp_backend = None
+            self._thenvoi_mcp_server = None
+        if backend is not None:
+            await backend.stop()
+        elif local_mcp_server is not None:
             await local_mcp_server.stop()
         if ctx is None:
             return

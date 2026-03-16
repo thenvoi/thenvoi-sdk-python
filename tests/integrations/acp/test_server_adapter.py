@@ -105,7 +105,39 @@ class TestThenvoiACPServerAdapterCreateSession:
         event = call_kwargs.kwargs.get("event") or call_kwargs[1].get("event")
         assert event.metadata["acp_session_id"] == session_id
         assert event.metadata["acp_room_id"] == "room-new-123"
+        assert event.metadata["acp_cwd"] == "."
+        assert event.metadata["acp_mcp_servers"] == []
         assert "request_options" in call_kwargs.kwargs
+
+    @pytest.mark.asyncio
+    async def test_create_session_persists_mcp_servers(
+        self, mock_rest_client: MagicMock
+    ) -> None:
+        """Should normalize editor MCP servers into session state and history."""
+        adapter = ThenvoiACPServerAdapter()
+        adapter._rest = mock_rest_client
+
+        mcp_servers = [
+            {
+                "type": "stdio",
+                "name": "filesystem",
+                "command": "mcp-filesystem",
+            }
+        ]
+        session_id = await adapter.create_session(
+            cwd="/workspace/project",
+            mcp_servers=mcp_servers,
+        )
+
+        assert adapter._session_cwd[session_id] == "/workspace/project"
+        assert adapter._session_mcp_servers[session_id] == mcp_servers
+
+        call_kwargs = (
+            mock_rest_client.agent_api_events.create_agent_chat_event.call_args
+        )
+        event = call_kwargs.kwargs.get("event") or call_kwargs[1].get("event")
+        assert event.metadata["acp_cwd"] == "/workspace/project"
+        assert event.metadata["acp_mcp_servers"] == mcp_servers
 
     @pytest.mark.asyncio
     async def test_create_session_multiple_sessions(
@@ -629,6 +661,16 @@ class TestThenvoiACPServerAdapterRehydration:
 
         history = ACPSessionState(
             session_to_room={"session-1": "room-1", "session-2": "room-2"},
+            session_cwd={"session-1": "/workspace/project"},
+            session_mcp_servers={
+                "session-1": [
+                    {
+                        "type": "stdio",
+                        "name": "filesystem",
+                        "command": "mcp-filesystem",
+                    }
+                ]
+            },
         )
 
         adapter._rehydrate(history)
@@ -641,6 +683,14 @@ class TestThenvoiACPServerAdapterRehydration:
             "room-1": "session-1",
             "room-2": "session-2",
         }
+        assert adapter._session_cwd["session-1"] == "/workspace/project"
+        assert adapter._session_mcp_servers["session-1"] == [
+            {
+                "type": "stdio",
+                "name": "filesystem",
+                "command": "mcp-filesystem",
+            }
+        ]
 
     def test_rehydrate_does_not_overwrite_existing(self) -> None:
         """Should not overwrite existing session mappings."""
@@ -741,6 +791,43 @@ class TestThenvoiACPServerAdapterRouting:
         await task
 
         mock_rest_client.agent_api_messages.create_agent_chat_message.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_handle_prompt_includes_session_context(
+        self, mock_rest_client: MagicMock
+    ) -> None:
+        """Should prepend editor cwd and MCP server info to forwarded prompts."""
+        adapter = ThenvoiACPServerAdapter()
+        adapter._rest = mock_rest_client
+        adapter._session_to_room["session-1"] = "room-123"
+        adapter._session_cwd["session-1"] = "/workspace/project"
+        adapter._session_mcp_servers["session-1"] = [
+            {
+                "type": "stdio",
+                "name": "filesystem",
+                "command": "mcp-filesystem",
+            }
+        ]
+
+        async def auto_complete() -> None:
+            pending = await asyncio.wait_for(
+                _wait_for_pending_prompt(adapter, "room-123"),
+                timeout=0.5,
+            )
+            pending.done_event.set()
+
+        task = asyncio.create_task(auto_complete())
+        await adapter.handle_prompt("session-1", "Check the repo")
+        await task
+
+        call_kwargs = (
+            mock_rest_client.agent_api_messages.create_agent_chat_message.call_args
+        )
+        message = call_kwargs.kwargs.get("message") or call_kwargs[1].get("message")
+        assert "[ACP Session Context]" in message.content
+        assert "Editor cwd: /workspace/project" in message.content
+        assert "filesystem (stdio, command=mcp-filesystem)" in message.content
+        assert "Check the repo" in message.content
 
 
 class TestThenvoiACPServerAdapterPublicAccessors:

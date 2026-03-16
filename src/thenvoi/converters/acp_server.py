@@ -44,6 +44,8 @@ class ACPServerHistoryConverter(HistoryConverter["ACPSessionState"]):
         from thenvoi.integrations.acp.types import ACPSessionState
 
         session_to_room: dict[str, str] = {}
+        session_cwd: dict[str, str] = {}
+        session_mcp_servers: dict[str, list[dict[str, Any]]] = {}
 
         for msg in raw:
             metadata = msg.get("metadata") or {}
@@ -54,6 +56,15 @@ class ACPServerHistoryConverter(HistoryConverter["ACPSessionState"]):
                 room_id = metadata.get("acp_room_id") or msg.get("room_id")
                 if room_id:
                     session_to_room[session_id] = room_id
+                cwd = metadata.get("acp_cwd")
+                if isinstance(cwd, str) and cwd:
+                    session_cwd[session_id] = cwd
+                mcp_servers = metadata.get("acp_mcp_servers")
+                if isinstance(mcp_servers, list):
+                    session_mcp_servers[session_id] = [
+                        server for server in mcp_servers if isinstance(server, dict)
+                    ]
+                if room_id:
                     logger.debug(
                         "Restored ACP session mapping: %s -> %s",
                         session_id,
@@ -62,6 +73,8 @@ class ACPServerHistoryConverter(HistoryConverter["ACPSessionState"]):
 
         state = ACPSessionState(
             session_to_room=session_to_room,
+            session_cwd=session_cwd,
+            session_mcp_servers=session_mcp_servers,
         )
 
         logger.debug(

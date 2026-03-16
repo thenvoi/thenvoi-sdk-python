@@ -40,6 +40,9 @@ class TestACPClientAdapterInit:
         assert adapter._conn is None
         assert adapter._client is None
         assert adapter._room_to_session == {}
+        assert adapter._room_tools == {}
+        assert adapter._thenvoi_mcp_backend is None
+        assert adapter._thenvoi_mcp_server is None
 
     def test_init_codex_acp_uses_absolute_default_cwd(self) -> None:
         """Should normalize codex-acp default cwd to an absolute path."""
@@ -83,27 +86,62 @@ class TestACPClientAdapterLocalMcpConfig:
     """Tests for local Thenvoi MCP injection."""
 
     @pytest.mark.asyncio
-    async def test_get_or_start_thenvoi_mcp_server_returns_sse_config(self) -> None:
-        """Should expose a local SSE MCP server for Thenvoi tools."""
+    async def test_get_or_start_thenvoi_mcp_server_returns_http_config(self) -> None:
+        """Should expose a shared local HTTP MCP server for Thenvoi tools."""
         adapter = ACPClientAdapter(command="codex")
-        mock_server = MagicMock()
-        mock_server.start = AsyncMock()
-        mock_server.url = "http://127.0.0.1:50000/sse"
-        tools = MagicMock()
-        tools.rest = MagicMock()
-        tools.participants = []
+        mock_server = MagicMock(http_url="http://127.0.0.1:50000/mcp")
+        backend = MagicMock(local_server=mock_server)
 
         with patch(
-            "thenvoi.integrations.acp.client_adapter.LocalMCPServer",
-            return_value=mock_server,
+            "thenvoi.integrations.acp.client_adapter.create_thenvoi_mcp_backend",
+            new=AsyncMock(return_value=backend),
         ):
-            server = await adapter._get_or_start_thenvoi_mcp_server("room-123", tools)
+            server = await adapter._get_or_start_thenvoi_mcp_server()
+
+        assert server.name == "thenvoi"
+        assert server.url == "http://127.0.0.1:50000/mcp"
+        assert server.headers == []
+        assert server.type == "http"
+        assert adapter._thenvoi_mcp_backend is backend
+        assert adapter._thenvoi_mcp_server is mock_server
+
+    @pytest.mark.asyncio
+    async def test_get_or_start_thenvoi_mcp_server_returns_sse_config(self) -> None:
+        """Should expose shared SSE when the ACP agent only supports SSE MCP."""
+        adapter = ACPClientAdapter(command="codex")
+        adapter._agent_mcp_transport = "sse"
+        mock_server = MagicMock(sse_url="http://127.0.0.1:50000/sse")
+        backend = MagicMock(local_server=mock_server)
+
+        with patch(
+            "thenvoi.integrations.acp.client_adapter.create_thenvoi_mcp_backend",
+            new=AsyncMock(return_value=backend),
+        ):
+            server = await adapter._get_or_start_thenvoi_mcp_server()
 
         assert server.name == "thenvoi"
         assert server.url == "http://127.0.0.1:50000/sse"
         assert server.headers == []
-        mock_server.start.assert_awaited_once()
-        assert adapter._room_to_mcp_server["room-123"] is mock_server
+        assert server.type == "sse"
+        assert adapter._thenvoi_mcp_backend is backend
+        assert adapter._thenvoi_mcp_server is mock_server
+
+    @pytest.mark.asyncio
+    async def test_get_or_start_thenvoi_mcp_server_reuses_shared_server(self) -> None:
+        """Should start the shared Thenvoi MCP server only once."""
+        adapter = ACPClientAdapter(command="codex")
+        mock_server = MagicMock(http_url="http://127.0.0.1:50000/mcp")
+        backend = MagicMock(local_server=mock_server)
+
+        with patch(
+            "thenvoi.integrations.acp.client_adapter.create_thenvoi_mcp_backend",
+            new=AsyncMock(return_value=backend),
+        ) as mock_create_backend:
+            first = await adapter._get_or_start_thenvoi_mcp_server()
+            second = await adapter._get_or_start_thenvoi_mcp_server()
+
+        assert first.url == second.url
+        mock_create_backend.assert_awaited_once()
 
     def test_build_system_context_mentions_thenvoi_tools(self) -> None:
         """Should keep ACP system context minimal and room-aware."""
@@ -122,7 +160,7 @@ class TestACPClientAdapterLocalMcpConfig:
         assert "Thenvoi tools" in system_context
         assert "Current room_id: room-123" in system_context
         assert "Current requester name: Pat" in system_context
-        assert "already scoped to the current room" in system_context
+        assert "must include room_id" in system_context
 
 
 class TestACPClientAdapterOnStarted:
@@ -150,6 +188,26 @@ class TestACPClientAdapterOnStarted:
         mock_conn.initialize.assert_called_once_with(protocol_version=1)
 
     @pytest.mark.asyncio
+    async def test_on_started_uses_large_stdio_limit(self) -> None:
+        """Should raise the stdio reader limit for large ACP JSON frames."""
+        adapter = ACPClientAdapter(command=["npx", "@zed-industries/codex-acp"])
+
+        mock_conn = AsyncMock()
+        mock_conn.initialize = AsyncMock()
+        mock_ctx = AsyncMock()
+        mock_ctx.__aenter__ = AsyncMock(return_value=(mock_conn, MagicMock()))
+
+        with patch(
+            "thenvoi.integrations.acp.client_adapter.spawn_agent_process",
+            return_value=mock_ctx,
+        ) as mock_spawn:
+            await adapter.on_started("Codex Bridge", "Bridge to Codex")
+
+        assert mock_spawn.call_args.kwargs["transport_kwargs"] == {
+            "limit": 16 * 1024 * 1024
+        }
+
+    @pytest.mark.asyncio
     async def test_on_started_stores_agent_info(self) -> None:
         """Should store agent name and description."""
         adapter = ACPClientAdapter(command="codex")
@@ -167,6 +225,54 @@ class TestACPClientAdapterOnStarted:
 
         assert adapter.agent_name == "Test Agent"
         assert adapter.agent_description == "A test agent"
+
+    @pytest.mark.asyncio
+    async def test_on_started_prefers_http_mcp_when_supported(self) -> None:
+        """Should select HTTP MCP when the ACP agent advertises it."""
+        adapter = ACPClientAdapter(command="codex")
+
+        mock_conn = AsyncMock()
+        mock_conn.initialize = AsyncMock(
+            return_value=MagicMock(
+                agent_capabilities=MagicMock(
+                    mcp_capabilities=MagicMock(http=True, sse=True)
+                )
+            )
+        )
+        mock_ctx = AsyncMock()
+        mock_ctx.__aenter__ = AsyncMock(return_value=(mock_conn, MagicMock()))
+
+        with patch(
+            "thenvoi.integrations.acp.client_adapter.spawn_agent_process",
+            return_value=mock_ctx,
+        ):
+            await adapter.on_started("Test Agent", "A test agent")
+
+        assert adapter._agent_mcp_transport == "http"
+
+    @pytest.mark.asyncio
+    async def test_on_started_uses_sse_mcp_when_http_missing(self) -> None:
+        """Should fall back to SSE MCP when that's all the ACP agent supports."""
+        adapter = ACPClientAdapter(command="codex")
+
+        mock_conn = AsyncMock()
+        mock_conn.initialize = AsyncMock(
+            return_value=MagicMock(
+                agent_capabilities=MagicMock(
+                    mcp_capabilities=MagicMock(http=False, sse=True)
+                )
+            )
+        )
+        mock_ctx = AsyncMock()
+        mock_ctx.__aenter__ = AsyncMock(return_value=(mock_conn, MagicMock()))
+
+        with patch(
+            "thenvoi.integrations.acp.client_adapter.spawn_agent_process",
+            return_value=mock_ctx,
+        ):
+            await adapter.on_started("Test Agent", "A test agent")
+
+        assert adapter._agent_mcp_transport == "sse"
 
 
 class TestACPClientAdapterOnMessage:
@@ -653,14 +759,19 @@ class TestACPClientAdapterCleanup:
         """Should remove room -> session mapping."""
         adapter = ACPClientAdapter(command="codex")
         adapter._room_to_session["room-123"] = "session-123"
+        adapter._room_tools["room-123"] = MagicMock()
         local_server = MagicMock()
         local_server.stop = AsyncMock()
-        adapter._room_to_mcp_server["room-123"] = local_server
+        backend = MagicMock(local_server=local_server)
+        backend.stop = AsyncMock()
+        adapter._thenvoi_mcp_backend = backend
+        adapter._thenvoi_mcp_server = local_server
 
         await adapter.on_cleanup("room-123")
 
         assert "room-123" not in adapter._room_to_session
-        local_server.stop.assert_awaited_once()
+        assert "room-123" not in adapter._room_tools
+        local_server.stop.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_on_cleanup_idempotent(self) -> None:
@@ -694,20 +805,26 @@ class TestACPClientAdapterStop:
         adapter._conn = AsyncMock()
         adapter._client = ThenvoiACPClient()
         adapter._room_to_session["room-123"] = "session-123"
+        adapter._room_tools["room-123"] = MagicMock()
         local_server = MagicMock()
         local_server.stop = AsyncMock()
-        adapter._room_to_mcp_server["room-123"] = local_server
+        backend = MagicMock(local_server=local_server)
+        backend.stop = AsyncMock()
+        adapter._thenvoi_mcp_backend = backend
+        adapter._thenvoi_mcp_server = local_server
         adapter._bootstrapped_sessions.add("session-123")
 
         await adapter.stop()
 
         mock_ctx.__aexit__.assert_called_once()
-        local_server.stop.assert_awaited_once()
+        backend.stop.assert_awaited_once()
         assert adapter._ctx is None
         assert adapter._conn is None
         assert adapter._client is None
         assert adapter._room_to_session == {}
-        assert adapter._room_to_mcp_server == {}
+        assert adapter._room_tools == {}
+        assert adapter._thenvoi_mcp_backend is None
+        assert adapter._thenvoi_mcp_server is None
         assert adapter._bootstrapped_sessions == set()
 
     @pytest.mark.asyncio
@@ -716,11 +833,14 @@ class TestACPClientAdapterStop:
         adapter = ACPClientAdapter(command="codex")
         local_server = MagicMock()
         local_server.stop = AsyncMock()
-        adapter._room_to_mcp_server["room-123"] = local_server
+        backend = MagicMock(local_server=local_server)
+        backend.stop = AsyncMock()
+        adapter._thenvoi_mcp_backend = backend
+        adapter._thenvoi_mcp_server = local_server
 
         await adapter.stop()
 
-        local_server.stop.assert_awaited_once()
+        backend.stop.assert_awaited_once()
 
     @pytest.mark.asyncio
     async def test_stop_handles_exit_error(self) -> None:

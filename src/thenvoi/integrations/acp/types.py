@@ -36,9 +36,13 @@ class ACPSessionState:
 
     Attributes:
         session_to_room: Mapping of ACP session_id to Thenvoi room_id.
+        session_cwd: Mapping of ACP session_id to editor working directory.
+        session_mcp_servers: Mapping of ACP session_id to editor MCP servers.
     """
 
     session_to_room: dict[str, str] = field(default_factory=dict)
+    session_cwd: dict[str, str] = field(default_factory=dict)
+    session_mcp_servers: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
 
 
 @dataclass

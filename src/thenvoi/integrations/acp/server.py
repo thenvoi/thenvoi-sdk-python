@@ -187,6 +187,11 @@ class ACPServer(Agent):
             logger.debug("load_session: session %s not found", session_id)
             return None
 
+        self._adapter.update_session_context(
+            session_id,
+            cwd=cwd,
+            mcp_servers=mcp_servers,
+        )
         logger.info("Loaded ACP session %s", session_id)
         return LoadSessionResponse()
 
@@ -341,10 +346,15 @@ class ACPServer(Agent):
 
         The in-memory adapter can only resume active sessions.
         """
-        _ = cwd, mcp_servers, kwargs
+        _ = kwargs
         if not self._adapter.has_session(session_id):
             raise KeyError(f"Cannot resume unknown ACP session: {session_id}")
 
+        self._adapter.update_session_context(
+            session_id,
+            cwd=cwd,
+            mcp_servers=mcp_servers,
+        )
         logger.info("Resumed ACP session %s", session_id)
         return ResumeSessionResponse()
 
