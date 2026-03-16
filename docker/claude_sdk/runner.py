@@ -155,6 +155,10 @@ async def main() -> None:
         "THENVOI_WS_URL", "wss://app.thenvoi.com/api/v1/socket/websocket"
     )
     rest_url = os.environ.get("THENVOI_REST_URL", "https://app.thenvoi.com")
+    if not ws_url:
+        raise ValueError("THENVOI_WS_URL environment variable is empty")
+    if not rest_url:
+        raise ValueError("THENVOI_REST_URL environment variable is empty")
 
     validate_mounts()
 

@@ -52,7 +52,11 @@ class PendingACPPrompt:
     Attributes:
         session_id: The ACP session identifier.
         done_event: Signals when the prompt has been fully answered.
+        terminal_message_seen: Tracks whether a terminal room message has arrived.
+        completion_task: Debounced completion task for multi-message replies.
     """
 
     session_id: str
     done_event: asyncio.Event = field(default_factory=asyncio.Event)
+    terminal_message_seen: bool = False
+    completion_task: asyncio.Task[None] | None = None

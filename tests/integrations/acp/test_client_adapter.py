@@ -621,12 +621,18 @@ class TestACPClientAdapterStop:
         mock_ctx.__aexit__ = AsyncMock(return_value=None)
         adapter._ctx = mock_ctx
         adapter._conn = AsyncMock()
+        adapter._client = ThenvoiACPClient()
+        adapter._room_to_session["room-123"] = "session-123"
+        adapter._bootstrapped_sessions.add("session-123")
 
         await adapter.stop()
 
         mock_ctx.__aexit__.assert_called_once()
         assert adapter._ctx is None
         assert adapter._conn is None
+        assert adapter._client is None
+        assert adapter._room_to_session == {}
+        assert adapter._bootstrapped_sessions == set()
 
     @pytest.mark.asyncio
     async def test_stop_no_connection(self) -> None:

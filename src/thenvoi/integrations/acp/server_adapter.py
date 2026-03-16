@@ -30,9 +30,16 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+# Maximum active ACP sessions per adapter instance.
+_MAX_SESSIONS = 100
+
 # Maximum time (seconds) to wait for a Thenvoi peer to respond to a prompt.
 # Prevents infinite hangs if the peer is unreachable or unresponsive.
 _PROMPT_TIMEOUT_SECONDS = 300
+
+# Allow a short quiet period before completing a prompt so split text replies
+# can be forwarded as one logical response.
+_PROMPT_COMPLETION_GRACE_SECONDS = 0.25
 
 
 class ThenvoiACPServerAdapter(SimpleAdapter[ACPSessionState]):
@@ -83,10 +90,12 @@ class ThenvoiACPServerAdapter(SimpleAdapter[ACPSessionState]):
         self._room_to_session: dict[str, str] = {}  # room_id -> session_id
         self._pending_prompts: dict[str, PendingACPPrompt] = {}  # room_id -> pending
         self._session_modes: dict[str, str] = {}  # session_id -> mode_id
+        self._session_models: dict[str, str] = {}  # session_id -> model_id
         self._session_cwd: dict[str, str] = {}  # session_id -> cwd
         self._session_mcp_servers: dict[
             str, list[Any]
         ] = {}  # session_id -> mcp_servers
+        self._sessions_in_flight = 0
         self._state_lock = asyncio.Lock()
 
         # ACP client reference for sending session_update
@@ -145,11 +154,10 @@ class ThenvoiACPServerAdapter(SimpleAdapter[ACPSessionState]):
     def set_session_model(self, session_id: str, model_id: str) -> None:
         """Record the model chosen by the editor.
 
-        Note: Stored for future use (e.g., forwarding model preference to
-        Thenvoi peers). Currently a no-op beyond storage.
+        Note: Called from sync ACP handlers. Safe because the single ACP
+        stdio connection serializes requests, so no concurrent callers.
         """
-        # Currently not wired to any downstream logic. Stored for future
-        # use when model preference forwarding is implemented.
+        self._session_models[session_id] = model_id
         logger.debug("Session model set: session=%s, model=%s", session_id, model_id)
 
     def get_session_cwd(self, session_id: str) -> str:
@@ -167,6 +175,8 @@ class ThenvoiACPServerAdapter(SimpleAdapter[ACPSessionState]):
                 request_options=DEFAULT_REQUEST_OPTIONS,
             )
             return True
+        except (asyncio.CancelledError, KeyboardInterrupt):
+            raise
         except Exception:
             logger.warning("Credential verification failed", exc_info=True)
             return False
@@ -218,6 +228,8 @@ class ThenvoiACPServerAdapter(SimpleAdapter[ACPSessionState]):
                 request_options=DEFAULT_REQUEST_OPTIONS,
             )
             self._agent_id = identity.data.id
+        except (asyncio.CancelledError, KeyboardInterrupt):
+            raise
         except Exception:
             logger.error(
                 "Could not fetch agent identity for mention filtering. "
@@ -247,14 +259,28 @@ class ThenvoiACPServerAdapter(SimpleAdapter[ACPSessionState]):
                 State is rolled back on failure to prevent orphaned rooms.
         """
         session_id = uuid4().hex
+        async with self._state_lock:
+            active_sessions = len(self._session_to_room) + self._sessions_in_flight
+            if active_sessions >= _MAX_SESSIONS:
+                raise RuntimeError(
+                    f"Maximum sessions ({_MAX_SESSIONS}) reached for this ACP adapter"
+                )
+            self._sessions_in_flight += 1
 
-        response = await self._rest.agent_api_chats.create_agent_chat(
-            chat=ChatRoomRequest(),
-            request_options=DEFAULT_REQUEST_OPTIONS,
-        )
+        try:
+            response = await self._rest.agent_api_chats.create_agent_chat(
+                chat=ChatRoomRequest(),
+                request_options=DEFAULT_REQUEST_OPTIONS,
+            )
+        except Exception:
+            async with self._state_lock:
+                self._sessions_in_flight -= 1
+            raise
+
         room_id = response.data.id
 
         async with self._state_lock:
+            self._sessions_in_flight -= 1
             self._session_to_room[session_id] = room_id
             self._room_to_session[room_id] = session_id
             self._session_cwd[session_id] = cwd
@@ -341,14 +367,18 @@ class ThenvoiACPServerAdapter(SimpleAdapter[ACPSessionState]):
             ]
         mention_text = " ".join(f"@{m.name}" for m in mentions)
 
-        await self._rest.agent_api_messages.create_agent_chat_message(
-            chat_id=room_id,
-            message=ChatMessageRequest(
-                content=f"{mention_text} {cleaned_text}".strip(),
-                mentions=mentions,
-            ),
-            request_options=DEFAULT_REQUEST_OPTIONS,
-        )
+        try:
+            await self._rest.agent_api_messages.create_agent_chat_message(
+                chat_id=room_id,
+                message=ChatMessageRequest(
+                    content=f"{mention_text} {cleaned_text}".strip(),
+                    mentions=mentions,
+                ),
+                request_options=DEFAULT_REQUEST_OPTIONS,
+            )
+        except Exception:
+            await self._finish_pending_prompt(room_id, set_done=True)
+            raise
 
         logger.debug("Sent prompt to room %s, awaiting response", room_id)
 
@@ -360,8 +390,7 @@ class ThenvoiACPServerAdapter(SimpleAdapter[ACPSessionState]):
                 timeout=_PROMPT_TIMEOUT_SECONDS,
             )
         except asyncio.TimeoutError:
-            async with self._state_lock:
-                self._pending_prompts.pop(room_id, None)
+            await self._finish_pending_prompt(room_id)
             logger.error(
                 "Prompt timed out after %ds for session %s (room %s)",
                 _PROMPT_TIMEOUT_SECONDS,
@@ -410,12 +439,11 @@ class ThenvoiACPServerAdapter(SimpleAdapter[ACPSessionState]):
                     update=chunk,
                 )
 
-            # Only text and error messages signal completion
             message_type = getattr(msg, "message_type", "text")
             if message_type in ("text", "error"):
-                pending.done_event.set()
-                async with self._state_lock:
-                    self._pending_prompts.pop(room_id, None)
+                pending.terminal_message_seen = True
+            if pending.terminal_message_seen:
+                await self._schedule_prompt_completion(room_id, pending)
         elif self._acp_client and self._push_handler:
             # No pending prompt — push unsolicited update
             try:
@@ -435,19 +463,16 @@ class ThenvoiACPServerAdapter(SimpleAdapter[ACPSessionState]):
             room_id: The room identifier.
         """
         async with self._state_lock:
-            # Unblock any waiting handle_prompt before removing state
-            pending = self._pending_prompts.pop(room_id, None)
-            if pending:
-                pending.done_event.set()
-
             # Clean session mappings for this room
             session_id = self._room_to_session.pop(room_id, None)
             if session_id:
                 self._session_to_room.pop(session_id, None)
                 self._session_modes.pop(session_id, None)
+                self._session_models.pop(session_id, None)
                 self._session_cwd.pop(session_id, None)
                 self._session_mcp_servers.pop(session_id, None)
 
+        await self._finish_pending_prompt(room_id, set_done=True)
         logger.debug("Cleaned up ACP server resources for room %s", room_id)
 
     async def cancel_prompt(self, session_id: str) -> None:
@@ -458,11 +483,10 @@ class ThenvoiACPServerAdapter(SimpleAdapter[ACPSessionState]):
         """
         async with self._state_lock:
             room_id = self._session_to_room.get(session_id)
-            if room_id:
-                pending = self._pending_prompts.pop(room_id, None)
-                if pending:
-                    pending.done_event.set()
-                    logger.info("Cancelled prompt for session %s", session_id)
+        if room_id:
+            pending = await self._finish_pending_prompt(room_id, set_done=True)
+            if pending:
+                logger.info("Cancelled prompt for session %s", session_id)
 
     def _rehydrate(self, history: ACPSessionState) -> None:
         """Restore session state from history.
@@ -504,4 +528,51 @@ class ThenvoiACPServerAdapter(SimpleAdapter[ACPSessionState]):
                     "acp_room_id": room_id,
                 },
             ),
+            request_options=DEFAULT_REQUEST_OPTIONS,
         )
+
+    async def _schedule_prompt_completion(
+        self, room_id: str, pending: PendingACPPrompt
+    ) -> None:
+        """Debounce prompt completion so split replies are not truncated."""
+        async with self._state_lock:
+            if self._pending_prompts.get(room_id) is not pending:
+                return
+            if pending.completion_task is not None:
+                pending.completion_task.cancel()
+            pending.completion_task = asyncio.create_task(
+                self._complete_prompt_after_grace(room_id, pending)
+            )
+
+    async def _complete_prompt_after_grace(
+        self, room_id: str, pending: PendingACPPrompt
+    ) -> None:
+        """Complete a prompt after a short quiet period."""
+        try:
+            await asyncio.sleep(_PROMPT_COMPLETION_GRACE_SECONDS)
+            await self._finish_pending_prompt(room_id, expected=pending, set_done=True)
+        except asyncio.CancelledError:
+            raise
+
+    async def _finish_pending_prompt(
+        self,
+        room_id: str,
+        *,
+        expected: PendingACPPrompt | None = None,
+        set_done: bool = False,
+    ) -> PendingACPPrompt | None:
+        """Remove a pending prompt and cancel any scheduled completion."""
+        async with self._state_lock:
+            pending = self._pending_prompts.get(room_id)
+            if pending is None:
+                return None
+            if expected is not None and pending is not expected:
+                return None
+            pending = self._pending_prompts.pop(room_id)
+
+        if pending.completion_task is not None:
+            pending.completion_task.cancel()
+            pending.completion_task = None
+        if set_done:
+            pending.done_event.set()
+        return pending

@@ -6,6 +6,7 @@ import argparse
 import asyncio
 import logging
 import os
+import sys
 
 logger = logging.getLogger(__name__)
 
@@ -105,16 +106,18 @@ async def main(args: argparse.Namespace | None = None) -> None:
 
     # Start Thenvoi agent in background, run ACP server in foreground
     async with agent:
-        await run_agent(server)
+        try:
+            await run_agent(server)
+        finally:
+            await adapter.close()
 
 
 def entry_point() -> None:
     """CLI entry point for the thenvoi-acp command."""
-    import sys
-
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
         pass
     except ValueError as e:
-        sys.exit(f"Error: {e}")
+        logger.error("Error: %s", e)
+        sys.exit(1)

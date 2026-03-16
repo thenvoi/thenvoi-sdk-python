@@ -38,7 +38,9 @@ class AgentRouter:
                 Commands are matched without the leading "/".
         """
         self._mode_to_peer = mode_to_peer or {}
-        self._slash_commands = slash_commands or {}
+        self._slash_commands = {
+            command.lower(): peer for command, peer in (slash_commands or {}).items()
+        }
 
     def resolve(
         self, text: str, current_mode: str | None = None

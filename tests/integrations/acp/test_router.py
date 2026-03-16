@@ -30,6 +30,17 @@ class TestAgentRouter:
         assert text == "fix it"
         assert peer == "codex-peer"
 
+    def test_slash_command_normalizes_config_keys(self) -> None:
+        """Should match slash commands even when config keys are mixed-case."""
+        router = AgentRouter(
+            slash_commands={"Codex": "codex-peer"},
+        )
+
+        text, peer = router.resolve("/codex fix it")
+
+        assert text == "fix it"
+        assert peer == "codex-peer"
+
     def test_slash_command_no_body(self) -> None:
         """Should handle slash command with no body text."""
         router = AgentRouter(

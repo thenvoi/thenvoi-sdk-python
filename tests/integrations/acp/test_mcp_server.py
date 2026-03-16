@@ -56,6 +56,15 @@ class TestGetConfig:
         with pytest.raises(ValueError, match="THENVOI_ROOM_ID"):
             _get_config()
 
+    def test_raises_on_invalid_rest_url(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Should validate THENVOI_REST_URL before client creation."""
+        monkeypatch.setenv("THENVOI_API_KEY", "test-key")
+        monkeypatch.setenv("THENVOI_ROOM_ID", "room-123")
+        monkeypatch.setenv("THENVOI_REST_URL", "ftp://invalid")
+
+        with pytest.raises(ValueError, match="THENVOI_REST_URL"):
+            _get_config()
+
 
 class TestParseJson:
     """Tests for _parse_json()."""

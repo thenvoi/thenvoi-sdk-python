@@ -21,9 +21,12 @@ from __future__ import annotations
 import json
 import logging
 import os
-from typing import Any
+from threading import Lock
+from typing import Any, Callable
 
 from mcp.server.fastmcp import FastMCP
+
+from thenvoi.runtime.tools import ALL_TOOL_NAMES
 
 logger = logging.getLogger(__name__)
 
@@ -32,6 +35,7 @@ mcp = FastMCP("thenvoi", log_level="WARNING")
 
 # Module-level shared REST client and tools (initialized once on first use)
 _tools_instance: Any = None
+_tools_lock = Lock()
 
 
 def _get_config() -> tuple[str, str, str]:
@@ -49,6 +53,8 @@ def _get_config() -> tuple[str, str, str]:
 
     if not api_key:
         raise ValueError("THENVOI_API_KEY environment variable is required")
+    if not rest_url.startswith(("http://", "https://")):
+        raise ValueError("THENVOI_REST_URL must be a valid HTTP(S) URL")
     if not room_id:
         raise ValueError("THENVOI_ROOM_ID environment variable is required")
 
@@ -65,13 +71,17 @@ def _get_tools() -> Any:
         AgentTools instance bound to the room.
     """
     global _tools_instance  # noqa: PLW0603  # Module-level singleton for connection reuse
-    if _tools_instance is None:
-        from thenvoi.client.rest import AsyncRestClient
-        from thenvoi.runtime.tools import AgentTools
+    if _tools_instance is not None:
+        return _tools_instance
 
-        api_key, rest_url, room_id = _get_config()
-        rest = AsyncRestClient(base_url=rest_url, api_key=api_key)
-        _tools_instance = AgentTools(room_id, rest)
+    with _tools_lock:
+        if _tools_instance is None:
+            from thenvoi.client.rest import AsyncRestClient
+            from thenvoi.runtime.tools import AgentTools
+
+            api_key, rest_url, room_id = _get_config()
+            rest = AsyncRestClient(base_url=rest_url, api_key=api_key)
+            _tools_instance = AgentTools(room_id, rest)
     return _tools_instance
 
 
@@ -104,6 +114,50 @@ def _make_error(error: str) -> str:
     return json.dumps({"status": "error", "message": error})
 
 
+async def _execute_tool(
+    method_name: str,
+    *,
+    args: tuple[object, ...] = (),
+    kwargs: dict[str, object],
+    success_payload: Callable[[Any], dict[str, Any]] | None = None,
+) -> str:
+    """Invoke an AgentTools method and normalize the MCP response payload."""
+    try:
+        tools = _get_tools()
+        result = await getattr(tools, method_name)(*args, **kwargs)
+        if success_payload is None:
+            if isinstance(result, dict):
+                payload = {"status": "success", **result}
+            else:
+                raise TypeError(
+                    f"Unexpected result for {method_name}: {type(result)!r}"
+                )
+        else:
+            payload = success_payload(result)
+        return _make_result(payload)
+    except Exception as e:
+        logger.exception("%s failed: %s", method_name, e)
+        return _make_error(str(e))
+
+
+def _message_payload(message: str) -> Callable[[Any], dict[str, Any]]:
+    """Build a static success payload helper."""
+
+    def payload(_: Any) -> dict[str, Any]:
+        return {"status": "success", "message": message}
+
+    return payload
+
+
+def _room_payload(result: Any) -> dict[str, Any]:
+    """Format create_chatroom output."""
+    return {
+        "status": "success",
+        "message": "Chat room created",
+        "room_id": result,
+    }
+
+
 # ── Chat Tools ──
 
 
@@ -121,14 +175,13 @@ async def thenvoi_send_message(content: str, mentions: str = "[]") -> str:
     Returns:
         JSON string with status and message details.
     """
-    try:
-        tools = _get_tools()
-        mention_handles: list[str] = _parse_json(mentions, [])
-        await tools.send_message(content, mention_handles)
-        return _make_result({"status": "success", "message": "Message sent"})
-    except Exception as e:
-        logger.exception("thenvoi_send_message failed: %s", e)
-        return _make_error(str(e))
+    mention_handles: list[str] = _parse_json(mentions, [])
+    return await _execute_tool(
+        "send_message",
+        args=(content, mention_handles),
+        kwargs={},
+        success_payload=_message_payload("Message sent"),
+    )
 
 
 @mcp.tool()
@@ -145,14 +198,12 @@ async def thenvoi_send_event(
     Returns:
         JSON string with status.
     """
-    try:
-        tools = _get_tools()
-        meta = _parse_json(metadata)
-        await tools.send_event(content, message_type, meta)
-        return _make_result({"status": "success", "message": "Event sent"})
-    except Exception as e:
-        logger.exception("thenvoi_send_event failed: %s", e)
-        return _make_error(str(e))
+    return await _execute_tool(
+        "send_event",
+        args=(content, message_type, _parse_json(metadata)),
+        kwargs={},
+        success_payload=_message_payload("Event sent"),
+    )
 
 
 @mcp.tool()
@@ -168,13 +219,10 @@ async def thenvoi_add_participant(name: str, role: str = "member") -> str:
     Returns:
         JSON string with participant details.
     """
-    try:
-        tools = _get_tools()
-        result = await tools.add_participant(name, role)
-        return _make_result({"status": "success", **result})
-    except Exception as e:
-        logger.exception("thenvoi_add_participant failed: %s", e)
-        return _make_error(str(e))
+    return await _execute_tool(
+        "add_participant",
+        kwargs={"name": name, "role": role},
+    )
 
 
 @mcp.tool()
@@ -187,13 +235,10 @@ async def thenvoi_remove_participant(name: str) -> str:
     Returns:
         JSON string with removal status.
     """
-    try:
-        tools = _get_tools()
-        result = await tools.remove_participant(name)
-        return _make_result({"status": "success", **result})
-    except Exception as e:
-        logger.exception("thenvoi_remove_participant failed: %s", e)
-        return _make_error(str(e))
+    return await _execute_tool(
+        "remove_participant",
+        kwargs={"name": name},
+    )
 
 
 @mcp.tool()
@@ -203,19 +248,15 @@ async def thenvoi_get_participants() -> str:
     Returns:
         JSON string with participants list and count.
     """
-    try:
-        tools = _get_tools()
-        participants = await tools.get_participants()
-        return _make_result(
-            {
-                "status": "success",
-                "participants": participants,
-                "count": len(participants),
-            }
-        )
-    except Exception as e:
-        logger.exception("thenvoi_get_participants failed: %s", e)
-        return _make_error(str(e))
+    return await _execute_tool(
+        "get_participants",
+        kwargs={},
+        success_payload=lambda participants: {
+            "status": "success",
+            "participants": participants,
+            "count": len(participants),
+        },
+    )
 
 
 @mcp.tool()
@@ -231,13 +272,10 @@ async def thenvoi_lookup_peers(page: int = 1, page_size: int = 50) -> str:
     Returns:
         JSON string with peers list and metadata.
     """
-    try:
-        tools = _get_tools()
-        result = await tools.lookup_peers(page, page_size)
-        return _make_result({"status": "success", **result})
-    except Exception as e:
-        logger.exception("thenvoi_lookup_peers failed: %s", e)
-        return _make_error(str(e))
+    return await _execute_tool(
+        "lookup_peers",
+        kwargs={"page": page, "page_size": page_size},
+    )
 
 
 @mcp.tool()
@@ -250,19 +288,11 @@ async def thenvoi_create_chatroom(task_id: str = "") -> str:
     Returns:
         JSON string with new room ID.
     """
-    try:
-        tools = _get_tools()
-        new_room_id = await tools.create_chatroom(task_id or None)
-        return _make_result(
-            {
-                "status": "success",
-                "message": "Chat room created",
-                "room_id": new_room_id,
-            }
-        )
-    except Exception as e:
-        logger.exception("thenvoi_create_chatroom failed: %s", e)
-        return _make_error(str(e))
+    return await _execute_tool(
+        "create_chatroom",
+        kwargs={"task_id": task_id or None},
+        success_payload=_room_payload,
+    )
 
 
 # ── Contact Tools ──
@@ -279,13 +309,10 @@ async def thenvoi_list_contacts(page: int = 1, page_size: int = 50) -> str:
     Returns:
         JSON string with contacts list and metadata.
     """
-    try:
-        tools = _get_tools()
-        result = await tools.list_contacts(page, page_size)
-        return _make_result({"status": "success", **result})
-    except Exception as e:
-        logger.exception("thenvoi_list_contacts failed: %s", e)
-        return _make_error(str(e))
+    return await _execute_tool(
+        "list_contacts",
+        kwargs={"page": page, "page_size": page_size},
+    )
 
 
 @mcp.tool()
@@ -299,13 +326,10 @@ async def thenvoi_add_contact(handle: str, message: str = "") -> str:
     Returns:
         JSON string with request id and status.
     """
-    try:
-        tools = _get_tools()
-        result = await tools.add_contact(handle, message or None)
-        return _make_result({"status": "success", **result})
-    except Exception as e:
-        logger.exception("thenvoi_add_contact failed: %s", e)
-        return _make_error(str(e))
+    return await _execute_tool(
+        "add_contact",
+        kwargs={"handle": handle, "message": message or None},
+    )
 
 
 @mcp.tool()
@@ -319,15 +343,10 @@ async def thenvoi_remove_contact(handle: str = "", contact_id: str = "") -> str:
     Returns:
         JSON string with removal status.
     """
-    try:
-        tools = _get_tools()
-        result = await tools.remove_contact(
-            handle=handle or None, contact_id=contact_id or None
-        )
-        return _make_result({"status": "success", **result})
-    except Exception as e:
-        logger.exception("thenvoi_remove_contact failed: %s", e)
-        return _make_error(str(e))
+    return await _execute_tool(
+        "remove_contact",
+        kwargs={"handle": handle or None, "contact_id": contact_id or None},
+    )
 
 
 @mcp.tool()
@@ -344,13 +363,14 @@ async def thenvoi_list_contact_requests(
     Returns:
         JSON string with received and sent request lists.
     """
-    try:
-        tools = _get_tools()
-        result = await tools.list_contact_requests(page, page_size, sent_status)
-        return _make_result({"status": "success", **result})
-    except Exception as e:
-        logger.exception("thenvoi_list_contact_requests failed: %s", e)
-        return _make_error(str(e))
+    return await _execute_tool(
+        "list_contact_requests",
+        kwargs={
+            "page": page,
+            "page_size": page_size,
+            "sent_status": sent_status,
+        },
+    )
 
 
 @mcp.tool()
@@ -367,19 +387,18 @@ async def thenvoi_respond_contact_request(
     Returns:
         JSON string with updated request status.
     """
-    try:
-        if action not in ("approve", "reject", "cancel"):
-            return _make_error(
-                f"Invalid action '{action}'. Must be 'approve', 'reject', or 'cancel'."
-            )
-        tools = _get_tools()
-        result = await tools.respond_contact_request(
-            action, handle=handle or None, request_id=request_id or None
+    if action not in ("approve", "reject", "cancel"):
+        return _make_error(
+            f"Invalid action '{action}'. Must be 'approve', 'reject', or 'cancel'."
         )
-        return _make_result({"status": "success", **result})
-    except Exception as e:
-        logger.exception("thenvoi_respond_contact_request failed: %s", e)
-        return _make_error(str(e))
+    return await _execute_tool(
+        "respond_contact_request",
+        kwargs={
+            "action": action,
+            "handle": handle or None,
+            "request_id": request_id or None,
+        },
+    )
 
 
 # ── Memory Tools ──
@@ -409,21 +428,18 @@ async def thenvoi_list_memories(
     Returns:
         JSON string with memories list and metadata.
     """
-    try:
-        tools = _get_tools()
-        result = await tools.list_memories(
-            scope=scope or None,
-            system=system or None,
-            type=type or None,
-            segment=segment or None,
-            content_query=content_query or None,
-            page_size=page_size,
-            status=status or None,
-        )
-        return _make_result({"status": "success", **result})
-    except Exception as e:
-        logger.exception("thenvoi_list_memories failed: %s", e)
-        return _make_error(str(e))
+    return await _execute_tool(
+        "list_memories",
+        kwargs={
+            "scope": scope or None,
+            "system": system or None,
+            "type": type or None,
+            "segment": segment or None,
+            "content_query": content_query or None,
+            "page_size": page_size,
+            "status": status or None,
+        },
+    )
 
 
 @mcp.tool()
@@ -452,26 +468,20 @@ async def thenvoi_store_memory(
     Returns:
         JSON string with created memory details.
     """
-    try:
-        tools = _get_tools()
-        meta = _parse_json(metadata)
-        kwargs: dict[str, Any] = {
-            "content": content,
-            "system": system,
-            "type": type,
-            "segment": segment,
-            "thought": thought,
-            "scope": scope,
-        }
-        if subject_id:
-            kwargs["subject_id"] = subject_id
-        if meta:
-            kwargs["metadata"] = meta
-        result = await tools.store_memory(**kwargs)
-        return _make_result({"status": "success", **result})
-    except Exception as e:
-        logger.exception("thenvoi_store_memory failed: %s", e)
-        return _make_error(str(e))
+    kwargs: dict[str, Any] = {
+        "content": content,
+        "system": system,
+        "type": type,
+        "segment": segment,
+        "thought": thought,
+        "scope": scope,
+    }
+    meta = _parse_json(metadata)
+    if subject_id:
+        kwargs["subject_id"] = subject_id
+    if meta:
+        kwargs["metadata"] = meta
+    return await _execute_tool("store_memory", kwargs=kwargs)
 
 
 @mcp.tool()
@@ -484,13 +494,10 @@ async def thenvoi_get_memory(memory_id: str) -> str:
     Returns:
         JSON string with memory details.
     """
-    try:
-        tools = _get_tools()
-        result = await tools.get_memory(memory_id)
-        return _make_result({"status": "success", **result})
-    except Exception as e:
-        logger.exception("thenvoi_get_memory failed: %s", e)
-        return _make_error(str(e))
+    return await _execute_tool(
+        "get_memory",
+        kwargs={"memory_id": memory_id},
+    )
 
 
 @mcp.tool()
@@ -503,13 +510,10 @@ async def thenvoi_supersede_memory(memory_id: str) -> str:
     Returns:
         JSON string with updated memory details.
     """
-    try:
-        tools = _get_tools()
-        result = await tools.supersede_memory(memory_id)
-        return _make_result({"status": "success", **result})
-    except Exception as e:
-        logger.exception("thenvoi_supersede_memory failed: %s", e)
-        return _make_error(str(e))
+    return await _execute_tool(
+        "supersede_memory",
+        kwargs={"memory_id": memory_id},
+    )
 
 
 @mcp.tool()
@@ -522,13 +526,17 @@ async def thenvoi_archive_memory(memory_id: str) -> str:
     Returns:
         JSON string with updated memory details.
     """
-    try:
-        tools = _get_tools()
-        result = await tools.archive_memory(memory_id)
-        return _make_result({"status": "success", **result})
-    except Exception as e:
-        logger.exception("thenvoi_archive_memory failed: %s", e)
-        return _make_error(str(e))
+    return await _execute_tool(
+        "archive_memory",
+        kwargs={"memory_id": memory_id},
+    )
+
+
+_registered_tool_names = {name for name in ALL_TOOL_NAMES if name in globals()}
+if _registered_tool_names != ALL_TOOL_NAMES:
+    raise ValueError(
+        f"ACP MCP server tool mismatch: missing={sorted(ALL_TOOL_NAMES - _registered_tool_names)}"
+    )
 
 
 def main() -> None:

@@ -15,6 +15,17 @@ from thenvoi.testing import FakeAgentTools
 from .conftest import make_platform_message, make_tool_call_message
 
 
+async def _wait_for_pending_prompt(
+    adapter: ThenvoiACPServerAdapter, room_id: str
+) -> PendingACPPrompt:
+    """Wait until a pending prompt is registered for a room."""
+    while True:
+        pending = adapter._pending_prompts.get(room_id)
+        if pending is not None:
+            return pending
+        await asyncio.sleep(0)
+
+
 class TestThenvoiACPServerAdapterInit:
     """Tests for ThenvoiACPServerAdapter initialization."""
 
@@ -94,6 +105,7 @@ class TestThenvoiACPServerAdapterCreateSession:
         event = call_kwargs.kwargs.get("event") or call_kwargs[1].get("event")
         assert event.metadata["acp_session_id"] == session_id
         assert event.metadata["acp_room_id"] == "room-new-123"
+        assert "request_options" in call_kwargs.kwargs
 
     @pytest.mark.asyncio
     async def test_create_session_multiple_sessions(
@@ -139,13 +151,11 @@ class TestThenvoiACPServerAdapterHandlePrompt:
 
         # Make pending prompt complete immediately via on_message
         async def auto_complete():
-            for _ in range(200):
-                pending = adapter._pending_prompts.get("room-123")
-                if pending:
-                    pending.done_event.set()
-                    return
-                await asyncio.sleep(0.001)
-            pytest.fail("Pending prompt never registered")
+            pending = await asyncio.wait_for(
+                _wait_for_pending_prompt(adapter, "room-123"),
+                timeout=0.5,
+            )
+            pending.done_event.set()
 
         task = asyncio.create_task(auto_complete())
         await adapter.handle_prompt("session-1", "Hello world")
@@ -164,13 +174,11 @@ class TestThenvoiACPServerAdapterHandlePrompt:
 
         # Complete immediately
         async def auto_complete():
-            for _ in range(200):
-                pending = adapter._pending_prompts.get("room-123")
-                if pending:
-                    pending.done_event.set()
-                    return
-                await asyncio.sleep(0.001)
-            pytest.fail("Pending prompt never registered")
+            pending = await asyncio.wait_for(
+                _wait_for_pending_prompt(adapter, "room-123"),
+                timeout=0.5,
+            )
+            pending.done_event.set()
 
         task = asyncio.create_task(auto_complete())
         await adapter.handle_prompt("session-1", "Test")
@@ -216,9 +224,15 @@ class TestThenvoiACPServerAdapterOnMessage:
 
     @pytest.mark.asyncio
     async def test_on_message_sets_done_on_text(
-        self, mock_acp_client: AsyncMock
+        self,
+        mock_acp_client: AsyncMock,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        """Should set done_event on text message (terminal)."""
+        """Should set done_event on text message after the grace period."""
+        monkeypatch.setattr(
+            "thenvoi.integrations.acp.server_adapter._PROMPT_COMPLETION_GRACE_SECONDS",
+            0.01,
+        )
         adapter = ThenvoiACPServerAdapter()
         adapter._acp_client = mock_acp_client
         tools = FakeAgentTools()
@@ -237,8 +251,58 @@ class TestThenvoiACPServerAdapterOnMessage:
             room_id="room-123",
         )
 
+        assert not pending.done_event.is_set()
+        await asyncio.sleep(0.02)
         assert pending.done_event.is_set()
         assert "room-123" not in adapter._pending_prompts
+
+    @pytest.mark.asyncio
+    async def test_on_message_waits_for_follow_up_text(
+        self,
+        mock_acp_client: AsyncMock,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Should debounce completion so split text replies are not truncated."""
+        monkeypatch.setattr(
+            "thenvoi.integrations.acp.server_adapter._PROMPT_COMPLETION_GRACE_SECONDS",
+            0.02,
+        )
+        adapter = ThenvoiACPServerAdapter()
+        adapter._acp_client = mock_acp_client
+        tools = FakeAgentTools()
+        first = make_platform_message("Part 1", room_id="room-123", message_type="text")
+        second = make_platform_message(
+            "Part 2", room_id="room-123", message_type="text"
+        )
+
+        pending = PendingACPPrompt(session_id="session-1")
+        adapter._pending_prompts["room-123"] = pending
+
+        await adapter.on_message(
+            first,
+            tools,
+            ACPSessionState(),
+            None,
+            None,
+            is_session_bootstrap=False,
+            room_id="room-123",
+        )
+        await asyncio.sleep(0.01)
+        await adapter.on_message(
+            second,
+            tools,
+            ACPSessionState(),
+            None,
+            None,
+            is_session_bootstrap=False,
+            room_id="room-123",
+        )
+
+        await asyncio.sleep(0.015)
+        assert not pending.done_event.is_set()
+        await asyncio.sleep(0.02)
+        assert pending.done_event.is_set()
+        assert mock_acp_client.session_update.await_count == 2
 
     @pytest.mark.asyncio
     async def test_on_message_does_not_set_done_on_thought(
@@ -638,13 +702,11 @@ class TestThenvoiACPServerAdapterRouting:
         adapter.set_router(router)
 
         async def auto_complete():
-            for _ in range(200):
-                pending = adapter._pending_prompts.get("room-123")
-                if pending:
-                    pending.done_event.set()
-                    return
-                await asyncio.sleep(0.001)
-            pytest.fail("Pending prompt never registered")
+            pending = await asyncio.wait_for(
+                _wait_for_pending_prompt(adapter, "room-123"),
+                timeout=0.5,
+            )
+            pending.done_event.set()
 
         task = asyncio.create_task(auto_complete())
         await adapter.handle_prompt("session-1", "/codex fix bug")
@@ -668,13 +730,11 @@ class TestThenvoiACPServerAdapterRouting:
         adapter._session_to_room["session-1"] = "room-123"
 
         async def auto_complete():
-            for _ in range(200):
-                pending = adapter._pending_prompts.get("room-123")
-                if pending:
-                    pending.done_event.set()
-                    return
-                await asyncio.sleep(0.001)
-            pytest.fail("Pending prompt never registered")
+            pending = await asyncio.wait_for(
+                _wait_for_pending_prompt(adapter, "room-123"),
+                timeout=0.5,
+            )
+            pending.done_event.set()
 
         task = asyncio.create_task(auto_complete())
         await adapter.handle_prompt("session-1", "Hello")
@@ -710,10 +770,10 @@ class TestThenvoiACPServerAdapterPublicAccessors:
         assert adapter._session_modes["session-1"] == "code"
 
     def test_set_session_model_logs(self) -> None:
-        """Should accept model setting without error."""
+        """Should store the selected model."""
         adapter = ThenvoiACPServerAdapter()
-        # set_session_model stores for future use; verify it doesn't raise
         adapter.set_session_model("session-1", "gpt-4")
+        assert adapter._session_models["session-1"] == "gpt-4"
 
     def test_get_session_for_room(self) -> None:
         """Should return session_id for known rooms, None otherwise."""
@@ -762,26 +822,23 @@ class TestThenvoiACPServerAdapterTimeout:
 
     @pytest.mark.asyncio
     async def test_handle_prompt_timeout_raises(
-        self, mock_rest_client: MagicMock
+        self, mock_rest_client: MagicMock, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """Should raise TimeoutError when peer never responds."""
-        import thenvoi.integrations.acp.server_adapter as mod
+        monkeypatch.setattr(
+            "thenvoi.integrations.acp.server_adapter._PROMPT_TIMEOUT_SECONDS",
+            0.05,
+        )
 
-        original = mod._PROMPT_TIMEOUT_SECONDS
-        mod._PROMPT_TIMEOUT_SECONDS = 0.05  # 50ms for test
+        adapter = ThenvoiACPServerAdapter()
+        adapter._rest = mock_rest_client
+        adapter._session_to_room["session-1"] = "room-123"
 
-        try:
-            adapter = ThenvoiACPServerAdapter()
-            adapter._rest = mock_rest_client
-            adapter._session_to_room["session-1"] = "room-123"
+        with pytest.raises(asyncio.TimeoutError):
+            await adapter.handle_prompt("session-1", "Hello")
 
-            with pytest.raises(asyncio.TimeoutError):
-                await adapter.handle_prompt("session-1", "Hello")
-
-            # Verify pending prompt was cleaned up
-            assert "room-123" not in adapter._pending_prompts
-        finally:
-            mod._PROMPT_TIMEOUT_SECONDS = original
+        # Verify pending prompt was cleaned up
+        assert "room-123" not in adapter._pending_prompts
 
     @pytest.mark.asyncio
     async def test_handle_prompt_unknown_session_descriptive_error(self) -> None:
@@ -814,3 +871,36 @@ class TestThenvoiACPServerAdapterCreateSessionRollback:
         assert adapter._room_to_session == {}
         assert adapter._session_cwd == {}
         assert adapter._session_mcp_servers == {}
+
+    @pytest.mark.asyncio
+    async def test_create_session_enforces_max_sessions(
+        self, mock_rest_client: MagicMock, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Should reject new sessions once the configured limit is reached."""
+        monkeypatch.setattr(
+            "thenvoi.integrations.acp.server_adapter._MAX_SESSIONS",
+            1,
+        )
+        adapter = ThenvoiACPServerAdapter()
+        adapter._rest = mock_rest_client
+        adapter._session_to_room["existing-session"] = "room-existing"
+
+        with pytest.raises(RuntimeError, match="Maximum sessions"):
+            await adapter.create_session()
+
+    @pytest.mark.asyncio
+    async def test_handle_prompt_cleans_up_pending_on_send_failure(
+        self, mock_rest_client: MagicMock
+    ) -> None:
+        """Should drop the pending prompt immediately when message creation fails."""
+        adapter = ThenvoiACPServerAdapter()
+        adapter._rest = mock_rest_client
+        adapter._session_to_room["session-1"] = "room-123"
+        mock_rest_client.agent_api_messages.create_agent_chat_message = AsyncMock(
+            side_effect=RuntimeError("send failed")
+        )
+
+        with pytest.raises(RuntimeError, match="send failed"):
+            await adapter.handle_prompt("session-1", "Hello")
+
+        assert "room-123" not in adapter._pending_prompts

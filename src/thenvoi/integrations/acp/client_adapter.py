@@ -5,7 +5,9 @@ from __future__ import annotations
 import asyncio
 import logging
 import sys
-from typing import Any
+from collections.abc import Awaitable, Callable
+from contextlib import AbstractAsyncContextManager
+from typing import Any, Protocol, cast
 
 from acp import spawn_agent_process, text_block
 from acp.schema import EnvVariable, McpServerStdio
@@ -20,6 +22,35 @@ from thenvoi.integrations.acp.client_types import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+class ACPConnectionProtocol(Protocol):
+    """Protocol for the ACP agent connection returned by spawn_agent_process."""
+
+    async def initialize(self, *, protocol_version: int) -> object: ...
+
+    async def authenticate(self, *, method_id: str) -> object: ...
+
+    async def new_session(self, *, cwd: str, mcp_servers: list[object]) -> object: ...
+
+    async def prompt(self, *, session_id: str, prompt: list[object]) -> object: ...
+
+
+class ACPSpawnContextProtocol(Protocol):
+    """Protocol for the spawn_agent_process async context manager."""
+
+    async def __aenter__(self) -> tuple[ACPConnectionProtocol, object]: ...
+
+    async def __aexit__(self, exc_type: object, exc: object, tb: object) -> object: ...
+
+
+PermissionHandler = Callable[..., Awaitable[dict[str, object]]]
+
+
+class ACPNewSessionProtocol(Protocol):
+    """Protocol for ACP session creation responses."""
+
+    session_id: str
 
 
 class ACPClientAdapter(SimpleAdapter[ACPClientSessionState]):
@@ -100,9 +131,11 @@ class ACPClientAdapter(SimpleAdapter[ACPClientSessionState]):
         self._auth_method = auth_method
 
         # ACP connection state
-        self._conn: Any = None  # ACP agent connection
+        self._conn: ACPConnectionProtocol | None = None
         self._client: ThenvoiACPClient | None = None
-        self._ctx: Any = None  # spawn_agent_process context manager
+        self._ctx: (
+            AbstractAsyncContextManager[tuple[ACPConnectionProtocol, object]] | None
+        ) = None
         self._stop_lock = asyncio.Lock()  # Guards stop() to prevent TOCTOU race
 
         # Room -> session mapping and prompt serialization (guarded by _session_lock)
@@ -133,22 +166,34 @@ class ACPClientAdapter(SimpleAdapter[ACPClientSessionState]):
         # Use ACP SDK to spawn and connect
         # Note: spawn_agent_process is an async context manager -
         # we need to keep it alive, so we enter it manually
-        self._ctx = spawn_agent_process(
-            self._client,
-            self._command[0],
-            *self._command[1:],
-            env=self._env,
+        ctx = cast(
+            AbstractAsyncContextManager[tuple[ACPConnectionProtocol, object]],
+            spawn_agent_process(
+                self._client,
+                self._command[0],
+                *self._command[1:],
+                env=self._env,
+            ),
         )
+        self._ctx = ctx
         try:
-            self._conn, _ = await self._ctx.__aenter__()
+            self._conn, _ = await ctx.__aenter__()
             await self._conn.initialize(protocol_version=1)
             if self._auth_method:
                 await self._conn.authenticate(method_id=self._auth_method)
                 logger.info("Authenticated with method: %s", self._auth_method)
+        except (asyncio.CancelledError, KeyboardInterrupt):
+            try:
+                await ctx.__aexit__(None, None, None)
+            except Exception:
+                logger.exception("Error cleaning up ACP subprocess after init cancel")
+            self._ctx = None
+            self._conn = None
+            raise
         except Exception:
             # Ensure subprocess is cleaned up if init fails
             try:
-                await self._ctx.__aexit__(None, None, None)
+                await ctx.__aexit__(None, None, None)
             except Exception:
                 logger.exception("Error cleaning up ACP subprocess after init failure")
             self._ctx = None
@@ -178,21 +223,14 @@ class ACPClientAdapter(SimpleAdapter[ACPClientSessionState]):
             is_session_bootstrap: True if this is first message from room.
             room_id: The room identifier.
         """
-        if self._conn is None:
-            # Respawn subprocess if it was previously stopped (e.g., all
-            # rooms were cleaned up and a new room arrived).
-            if self._ctx is None and self.agent_name:
-                logger.info("Respawning ACP agent subprocess for new room")
-                await self._spawn_process()
-            else:
-                raise RuntimeError("ACP client not initialized. Call on_started first.")
+        conn = await self._ensure_connection()
 
         if is_session_bootstrap and history:
             async with self._session_lock:
                 self._rehydrate(room_id, history)
 
         # Get or create ACP session for this room
-        session_id = await self._get_or_create_session(room_id)
+        session_id = await self._get_or_create_session(room_id, conn)
 
         # Per-session buffer: reset before prompt, collect after.
         # No global lock needed — each session has its own buffer in ThenvoiACPClient.
@@ -214,10 +252,6 @@ class ACPClientAdapter(SimpleAdapter[ACPClientSessionState]):
 
         # Send prompt to external ACP agent
         try:
-            conn = self._conn
-            if conn is None:
-                raise RuntimeError("ACP client connection dropped before prompt")
-
             await conn.prompt(
                 session_id=session_id,
                 prompt=[text_block(prompt_text)],
@@ -276,7 +310,9 @@ class ACPClientAdapter(SimpleAdapter[ACPClientSessionState]):
             },
         )
 
-    def _make_permission_handler(self, tools: AgentToolsProtocol, room_id: str) -> Any:
+    def _make_permission_handler(
+        self, tools: AgentToolsProtocol, room_id: str
+    ) -> PermissionHandler:
         """Create a permission handler that posts requests to the platform.
 
         The handler posts permission request details as an event to the
@@ -384,7 +420,9 @@ class ACPClientAdapter(SimpleAdapter[ACPClientSessionState]):
             ],
         )
 
-    async def _get_or_create_session(self, room_id: str) -> str:
+    async def _get_or_create_session(
+        self, room_id: str, conn: ACPConnectionProtocol
+    ) -> str:
         """Get existing session for room or create new one.
 
         Uses a lock to prevent duplicate session creation when
@@ -406,13 +444,16 @@ class ACPClientAdapter(SimpleAdapter[ACPClientSessionState]):
                 return self._room_to_session[room_id]
 
             # Build MCP servers list, injecting Thenvoi tools if configured
-            mcp_servers: list[Any] = list(self._mcp_servers)
+            mcp_servers: list[object] = list(self._mcp_servers)
             if self._inject_thenvoi_tools:
                 mcp_servers.append(self._build_thenvoi_mcp_server(room_id))
 
-            session = await self._conn.new_session(
-                cwd=self._cwd,
-                mcp_servers=mcp_servers,
+            session = cast(
+                ACPNewSessionProtocol,
+                await conn.new_session(
+                    cwd=self._cwd,
+                    mcp_servers=mcp_servers,
+                ),
             )
             self._room_to_session[room_id] = session.session_id
             logger.info(
@@ -449,6 +490,10 @@ class ACPClientAdapter(SimpleAdapter[ACPClientSessionState]):
             ctx = self._ctx
             self._ctx = None
             self._conn = None
+            self._client = None
+        async with self._session_lock:
+            self._room_to_session.clear()
+            self._bootstrapped_sessions.clear()
         try:
             await ctx.__aexit__(None, None, None)
         except Exception:
@@ -475,3 +520,21 @@ class ACPClientAdapter(SimpleAdapter[ACPClientSessionState]):
             "Rehydrated ACP client state: %d room-session mappings",
             len(self._room_to_session),
         )
+
+    async def _ensure_connection(self) -> ACPConnectionProtocol:
+        """Return a stable connection snapshot, respawning if needed."""
+        async with self._stop_lock:
+            if self._conn is None:
+                if self._ctx is None and self.agent_name:
+                    logger.info("Respawning ACP agent subprocess for new room")
+                    await self._spawn_process()
+                else:
+                    raise RuntimeError(
+                        "ACP client not initialized. Call on_started first."
+                    )
+
+            conn = self._conn
+
+        if conn is None:
+            raise RuntimeError("ACP client connection dropped before prompt")
+        return conn
