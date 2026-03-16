@@ -547,6 +547,8 @@ def _build_gemini_config() -> AdapterConfig:
             "enable_execution_reporting": True,
         },
     )
+
+
 # Adapter modules intentionally excluded from conformance tests.
 # a2a / a2a_gateway use the A2A protocol (Google Agent-to-Agent) which has a
 # fundamentally different lifecycle than framework adapters (no on_message /
