@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sys
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -56,6 +57,51 @@ class TestACPClientAdapterInit:
         """Should set ACPClientHistoryConverter."""
         adapter = ACPClientAdapter(command="codex")
         assert adapter.history_converter is not None
+
+    def test_init_rejects_invalid_rest_url(self) -> None:
+        """Should fail fast on invalid Thenvoi base URLs."""
+        with pytest.raises(ValueError, match="rest_url"):
+            ACPClientAdapter(command="codex", rest_url="ftp://invalid")
+
+
+class TestACPClientAdapterThenvoiMcpConfig:
+    """Tests for upstream thenvoi-mcp injection."""
+
+    def test_build_thenvoi_mcp_server_uses_upstream_package(self) -> None:
+        """Should spawn the upstream thenvoi-mcp stdio server."""
+        adapter = ACPClientAdapter(
+            command="codex",
+            api_key="test-key",
+            rest_url="https://api.thenvoi.test",
+        )
+
+        server = adapter._build_thenvoi_mcp_server("room-123")
+
+        assert server.command == sys.executable
+        assert server.args == ["-m", "thenvoi_mcp.server"]
+        assert {env.name: env.value for env in server.env} == {
+            "THENVOI_API_KEY": "test-key",
+            "THENVOI_BASE_URL": "https://api.thenvoi.test",
+        }
+
+    def test_build_system_context_mentions_thenvoi_mcp_tools(self) -> None:
+        """Should keep ACP system context minimal and room-aware."""
+        adapter = ACPClientAdapter(command="codex")
+        adapter.agent_name = "ACP Bridge"
+        adapter.agent_description = "Bridge to ACP agents"
+        msg = make_platform_message(
+            "Hello",
+            room_id="room-123",
+            sender_id="user-123",
+            sender_name="Pat",
+        )
+
+        system_context = adapter._build_system_context("room-123", msg)
+
+        assert "thenvoi-mcp tools" in system_context
+        assert "room_id/chat_id: room-123" in system_context
+        assert "Current requester name: Pat" in system_context
+        assert "When a thenvoi-mcp tool asks for chat_id" in system_context
 
 
 class TestACPClientAdapterOnStarted:

@@ -91,7 +91,7 @@ a2a_gateway_demo = [
 ]
 acp = [
     "agent-client-protocol>=0.8.0",  # ACP Python SDK
-    "mcp>=1.25.0",
+    "thenvoi-mcp",
 ]
 bridge = [
     "aiohttp>=3.9,<4",      # Health check HTTP server
@@ -136,6 +136,7 @@ dev = [
     "nest-asyncio>=1.6.0",  # Required for CrewAI adapter sync-to-async bridging
     # Include ACP deps for testing
     "agent-client-protocol>=0.8.0",
+    "thenvoi-mcp",
     # Include bridge deps for testing
     "aiohttp>=3.9,<4",
     # Development tools
@@ -189,3 +190,6 @@ version_files = [
 ]
 # Tag format aligned with release-please (package-name-v$version)
 tag_format = "thenvoi-sdk-python-v$version"
+
+[tool.uv.sources]
+thenvoi-mcp = { git = "https://github.com/thenvoi/thenvoi-mcp.git" }

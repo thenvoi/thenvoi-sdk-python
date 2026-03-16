@@ -2846,6 +2846,12 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/e2/fc/6dc7659c2ae5ddf280477011f4213a74f806862856b796ef08f028e664bf/mcp-1.25.0-py3-none-any.whl", hash = "sha256:b37c38144a666add0862614cc79ec276e97d72aa8ca26d622818d4e278b9721a", size = 233076, upload-time = "2025-12-19T10:19:55.416Z" },
 ]
 
+[package.optional-dependencies]
+cli = [
+    { name = "python-dotenv" },
+    { name = "typer" },
+]
+
 [[package]]
 name = "mdurl"
 version = "0.1.2"
@@ -5551,6 +5557,17 @@ wheels = [
 ]
 
 [[package]]
+name = "thenvoi-mcp"
+version = "1.1.1"
+source = { git = "https://github.com/thenvoi/thenvoi-mcp.git#75444622279f04b9ddf2e0db4819dcfbd6cb93ac" }
+dependencies = [
+    { name = "mcp", extra = ["cli"] },
+    { name = "pydantic-settings" },
+    { name = "thenvoi-client-rest" },
+    { name = "uvicorn" },
+]
+
+[[package]]
 name = "thenvoi-sdk"
 version = "0.2.2"
 source = { editable = "." }
@@ -5585,7 +5602,7 @@ a2a-gateway-demo = [
 ]
 acp = [
     { name = "agent-client-protocol" },
-    { name = "mcp" },
+    { name = "thenvoi-mcp" },
 ]
 anthropic = [
     { name = "anthropic" },
@@ -5638,6 +5655,7 @@ dev = [
     { name = "pytest-timeout" },
     { name = "ruff" },
     { name = "starlette" },
+    { name = "thenvoi-mcp" },
     { name = "thenvoi-testing-python" },
     { name = "uvicorn" },
 ]
@@ -5703,7 +5721,6 @@ requires-dist = [
     { name = "langgraph", marker = "extra == 'dev'", specifier = ">=1.0.0" },
     { name = "langgraph", marker = "extra == 'langgraph'", specifier = ">=1.0.0" },
     { name = "letta-client", marker = "extra == 'letta'", specifier = ">=0.1.0" },
-    { name = "mcp", marker = "extra == 'acp'", specifier = ">=1.25.0" },
     { name = "nest-asyncio", marker = "extra == 'crewai'", specifier = ">=1.6.0" },
     { name = "nest-asyncio", marker = "extra == 'dev'", specifier = ">=1.6.0" },
     { name = "openai", marker = "extra == 'crewai'", specifier = ">=1.0.0" },
@@ -5735,6 +5752,8 @@ requires-dist = [
     { name = "starlette", marker = "extra == 'a2a-gateway-demo'", specifier = ">=0.40.0" },
     { name = "starlette", marker = "extra == 'dev'", specifier = ">=0.40.0" },
     { name = "thenvoi-client-rest", specifier = "==0.0.4" },
+    { name = "thenvoi-mcp", marker = "extra == 'acp'", git = "https://github.com/thenvoi/thenvoi-mcp.git" },
+    { name = "thenvoi-mcp", marker = "extra == 'dev'", git = "https://github.com/thenvoi/thenvoi-mcp.git" },
     { name = "thenvoi-testing-python", marker = "extra == 'dev'", specifier = ">=0.1.2" },
     { name = "uvicorn", marker = "extra == 'a2a-gateway'", specifier = ">=0.32.0" },
     { name = "uvicorn", marker = "extra == 'a2a-gateway-demo'", specifier = ">=0.32.0" },

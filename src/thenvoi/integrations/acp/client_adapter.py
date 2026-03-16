@@ -106,11 +106,13 @@ class ACPClientAdapter(SimpleAdapter[ACPClientSessionState]):
             cwd: Working directory for ACP sessions (default: ".").
             mcp_servers: Optional list of MCP server configs to pass to agent.
             api_key: Thenvoi API key for tool authentication. If provided,
-                     Thenvoi platform tools are automatically injected as an
-                     MCP server so the external agent can call them.
+                     the upstream thenvoi-mcp server is automatically injected
+                     as an MCP server so the external agent can call platform
+                     tools.
             rest_url: Thenvoi REST API base URL (default: https://app.thenvoi.com).
             inject_thenvoi_tools: Whether to auto-inject Thenvoi MCP tools
-                                  into each session. Requires api_key.
+                                  into each session via thenvoi-mcp. Requires
+                                  api_key.
             auth_method: ACP authentication method to call after initialize.
                          Required for agents that need auth (e.g., "cursor_login"
                          for Cursor). Set to None to skip authentication.
@@ -122,6 +124,7 @@ class ACPClientAdapter(SimpleAdapter[ACPClientSessionState]):
         self._mcp_servers = mcp_servers or []
         self._api_key = api_key or ""
         self._rest_url = rest_url or "https://app.thenvoi.com"
+        self._validate_rest_url(self._rest_url)
         self._inject_thenvoi_tools = inject_thenvoi_tools and bool(self._api_key)
         if inject_thenvoi_tools and not self._api_key:
             logger.warning(
@@ -362,6 +365,12 @@ class ACPClientAdapter(SimpleAdapter[ACPClientSessionState]):
 
         return handler
 
+    @staticmethod
+    def _validate_rest_url(rest_url: str) -> None:
+        """Validate the configured Thenvoi base URL."""
+        if not rest_url.startswith(("http://", "https://")):
+            raise ValueError("rest_url must be a valid HTTP(S) URL")
+
     def _build_system_context(self, room_id: str, msg: PlatformMessage) -> str:
         """Build system context to prepend to the first prompt in a session.
 
@@ -379,28 +388,33 @@ class ACPClientAdapter(SimpleAdapter[ACPClientSessionState]):
 
         agent_name = self.agent_name or "Agent"
         agent_desc = self.agent_description or "An AI assistant"
+        requester_name = msg.sender_name or msg.sender_id or "Unknown"
+        requester_id = msg.sender_id or "unknown"
 
-        # Render the standard system prompt (identity + instructions)
         system_prompt = render_system_prompt(
             agent_name=agent_name,
             agent_description=agent_desc,
+            include_base_instructions=False,
         )
 
-        # Add room-specific context
         room_context = (
             f"\n## Room Context\n"
-            f"You are in room_id: {room_id}\n"
-            f"Use this room_id when calling Thenvoi tools.\n"
+            f"You are connected to Thenvoi through the upstream thenvoi-mcp stdio "
+            f"server.\n"
+            f"Use the thenvoi-mcp tools for any visible room action. Plain text "
+            f"output is not posted back to the room.\n"
+            f"\n"
+            f"Current room_id/chat_id: {room_id}\n"
+            f"Current requester name: {requester_name}\n"
+            f"Current requester id: {requester_id}\n"
+            f"\n"
+            f"When a thenvoi-mcp tool asks for chat_id, use `{room_id}`.\n"
         )
 
         return f"[System Context]\n{system_prompt}\n{room_context}"
 
     def _build_thenvoi_mcp_server(self, room_id: str) -> McpServerStdio:
-        """Build McpServerStdio config for the Thenvoi tools MCP server.
-
-        Creates a config that tells the external ACP agent to spawn our
-        MCP server subprocess, which exposes Thenvoi platform tools
-        (send_message, send_event, add_participant, etc.).
+        """Build McpServerStdio config for the upstream thenvoi-mcp server.
 
         Args:
             room_id: Room ID for tool execution context.
@@ -408,15 +422,15 @@ class ACPClientAdapter(SimpleAdapter[ACPClientSessionState]):
         Returns:
             McpServerStdio config for the Thenvoi MCP tools server.
         """
+        _ = room_id
         return McpServerStdio(
             type="stdio",
             name="thenvoi",
             command=sys.executable,
-            args=["-m", "thenvoi.integrations.acp.mcp_server"],
+            args=["-m", "thenvoi_mcp.server"],
             env=[
                 EnvVariable(name="THENVOI_API_KEY", value=self._api_key),
-                EnvVariable(name="THENVOI_REST_URL", value=self._rest_url),
-                EnvVariable(name="THENVOI_ROOM_ID", value=room_id),
+                EnvVariable(name="THENVOI_BASE_URL", value=self._rest_url),
             ],
         )
 
