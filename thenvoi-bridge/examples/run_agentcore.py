@@ -13,11 +13,15 @@ from __future__ import annotations
 
 import asyncio
 import os
+import sys
 from typing import Any
+
+# Add thenvoi-bridge dir to path so bridge_core/handlers are importable
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from dotenv import load_dotenv
 
-load_dotenv(os.environ.get("ENV_FILE", "../../.env.test"))
+load_dotenv(os.environ.get("ENV_FILE", os.path.join(os.path.dirname(__file__), "..", "..", ".env.test")))
 
 from bridge_core.bridge import main  # noqa: E402
 from handlers.agentcore import AgentCoreHandler  # noqa: E402
