@@ -690,9 +690,10 @@ class TestThenvoiBridgeParticipantCache:
 
         # REST API should NOT be called since cache was used
         bridge._link.rest.agent_api_participants.list_agent_chat_participants.assert_not_called()
-        # Handler should receive resolved sender_name
+        # Handler should receive resolved sender_name and sender_handle
         call_kwargs = bridge._handlers["handler_a"].handle.call_args.kwargs
         assert call_kwargs["sender_name"] == "Jane"
+        assert call_kwargs["sender_handle"] == "jane"
 
     async def test_cache_miss_falls_back_to_rest(
         self, bridge_with_full_mock: ThenvoiBridge
@@ -729,9 +730,10 @@ class TestThenvoiBridgeParticipantCache:
         bridge._link.rest.agent_api_participants.list_agent_chat_participants.assert_called_once()
         # Cache should now be populated
         assert "room-1" in bridge._participant_cache
-        # Handler should receive resolved sender_name
+        # Handler should receive resolved sender_name and sender_handle
         call_kwargs = bridge._handlers["handler_a"].handle.call_args.kwargs
         assert call_kwargs["sender_name"] == "Jane"
+        assert call_kwargs["sender_handle"] == "jane"
 
     async def test_sender_name_none_when_not_found(
         self, bridge_with_full_mock: ThenvoiBridge
@@ -759,6 +761,7 @@ class TestThenvoiBridgeParticipantCache:
 
         call_kwargs = bridge._handlers["handler_a"].handle.call_args.kwargs
         assert call_kwargs["sender_name"] is None
+        assert call_kwargs["sender_handle"] is None
 
 
 class TestThenvoiBridgeFetchExistingRooms:

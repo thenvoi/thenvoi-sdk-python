@@ -1,4 +1,5 @@
-FROM --platform=linux/arm64 python:3.11-slim AS builder
+ARG TARGETPLATFORM=linux/arm64
+FROM --platform=$TARGETPLATFORM python:3.11-slim AS builder
 
 RUN apt-get update && apt-get install -y --no-install-recommends git \
     && rm -rf /var/lib/apt/lists/*
@@ -18,7 +19,7 @@ COPY src/ src/
 RUN uv sync --frozen --extra bridge --extra bridge_agentcore --no-dev
 
 # --- Final stage ---
-FROM --platform=linux/arm64 python:3.11-slim
+FROM --platform=$TARGETPLATFORM python:3.11-slim
 
 # Copy virtual environment from builder
 COPY --from=builder /app/.venv /app/.venv

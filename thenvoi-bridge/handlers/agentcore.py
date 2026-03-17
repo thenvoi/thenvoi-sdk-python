@@ -105,16 +105,34 @@ class AgentCoreHandler:
     def _read_streaming_response(self, response: dict[str, Any]) -> str:
         """Read and parse the streaming response from AgentCore.
 
-        Handles multiple response formats:
-        - SSE (Server-Sent Events): ``event: message\\ndata: {...}``
-        - MCP JSON-RPC: ``{"jsonrpc": "2.0", "result": {"content": [...]}}``
-        - Generic JSON with known keys: ``output``, ``response``, ``text``,
-          ``content``, ``message``
-        - Plain text fallback
-
-        Reads in 64 KB chunks to avoid buffering large responses in a single
-        allocation, and enforces the configurable size limit incrementally.
+        Dispatches to focused parsers in order:
+        1. SSE unwrapping
+        2. MCP JSON-RPC extraction
+        3. Generic JSON key lookup
+        4. Plain text fallback
         """
+        text = self._read_body(response)
+        json_text = self._unwrap_sse(text)
+
+        try:
+            data = json.loads(json_text)
+        except (json.JSONDecodeError, TypeError):
+            logger.debug("Response is not JSON, using raw text")
+            return text
+
+        if isinstance(data, dict):
+            mcp_result = self._parse_mcp_response(data)
+            if mcp_result is not None:
+                return mcp_result
+
+            json_result = self._extract_known_json_key(data)
+            if json_result is not None:
+                return json_result
+
+        return text
+
+    def _read_body(self, response: dict[str, Any]) -> str:
+        """Read the streaming body, enforcing the size limit incrementally."""
         body = response.get("response") or response.get("body")
         if body is None:
             raise RuntimeError("Response missing 'response' (StreamingBody)")
@@ -133,49 +151,49 @@ class AgentCoreHandler:
                 total += len(chunk)
                 chunks.append(chunk)
             raw = b"".join(chunks)
-            text = raw.decode("utf-8")
+            return raw.decode("utf-8")
         finally:
             body.close()
 
-        # Handle SSE format: strip "event: ...\ndata: ..." wrapper
-        json_text = text
-        if text.startswith("event:"):
-            for line in text.splitlines():
-                if line.startswith("data:"):
-                    json_text = line[len("data:") :].strip()
-                    break
-
-        # Try to parse as JSON and extract from known response formats
-        try:
-            data = json.loads(json_text)
-            if isinstance(data, dict):
-                # MCP JSON-RPC response: extract text from result.content
-                result = data.get("result")
-                if isinstance(result, dict):
-                    content_list = result.get("content")
-                    if isinstance(content_list, list):
-                        texts = [
-                            c["text"]
-                            for c in content_list
-                            if isinstance(c, dict) and c.get("type") == "text"
-                        ]
-                        if texts:
-                            return "\n".join(texts)
-
-                # MCP JSON-RPC error
-                error = data.get("error")
-                if isinstance(error, dict):
-                    return f"AgentCore error: {error.get('message', str(error))}"
-
-                # Generic JSON with known keys
-                for key in ("output", "response", "text", "content", "message"):
-                    if key in data:
-                        value = data[key]
-                        return str(value) if not isinstance(value, str) else value
-        except (json.JSONDecodeError, TypeError):
-            logger.debug("Response is not JSON, using raw text")
-
+    @staticmethod
+    def _unwrap_sse(text: str) -> str:
+        """Strip SSE ``event: ...\\ndata: ...`` wrapper if present."""
+        if not text.startswith("event:"):
+            return text
+        for line in text.splitlines():
+            if line.startswith("data:"):
+                return line[len("data:") :].strip()
         return text
+
+    @staticmethod
+    def _parse_mcp_response(data: dict[str, Any]) -> str | None:
+        """Extract text from an MCP JSON-RPC result or error."""
+        result = data.get("result")
+        if isinstance(result, dict):
+            content_list = result.get("content")
+            if isinstance(content_list, list):
+                texts = [
+                    c["text"]
+                    for c in content_list
+                    if isinstance(c, dict) and c.get("type") == "text"
+                ]
+                if texts:
+                    return "\n".join(texts)
+
+        error = data.get("error")
+        if isinstance(error, dict):
+            return f"AgentCore error: {error.get('message', str(error))}"
+
+        return None
+
+    @staticmethod
+    def _extract_known_json_key(data: dict[str, Any]) -> str | None:
+        """Return the first value matching a known response key."""
+        for key in ("output", "response", "text", "content", "message"):
+            if key in data:
+                value = data[key]
+                return str(value) if not isinstance(value, str) else value
+        return None
 
     async def _invoke_agent(
         self,
@@ -209,6 +227,7 @@ class AgentCoreHandler:
         message_id: str,
         sender_id: str,
         sender_name: str | None,
+        sender_handle: str | None,
         sender_type: str,
         mentioned_agent: str,
         tools: AgentTools,
@@ -222,11 +241,6 @@ class AgentCoreHandler:
             )
         except Exception as exc:
             logger.warning("Failed to send thought event: %s", exc)
-
-        # Resolve sender info from the pre-cached participant list injected
-        # by the bridge.  This avoids a redundant REST API call — the bridge
-        # already populated tools._participants from its participant cache.
-        resolved_name, sender_handle = self._resolve_sender(sender_id, tools)
 
         payload = self._build_payload(
             content=content,
@@ -250,39 +264,10 @@ class AgentCoreHandler:
             )
 
         # Prefer handle for mention resolution (most reliable for the
-        # platform), fall back to sender_name or resolved display name.
-        # If none are available (sender not in participants and
-        # sender_name was None), send without mentions rather than
-        # mentioning a raw UUID.
-        mention_identifier = sender_handle or sender_name or resolved_name
+        # platform), fall back to sender_name.  If neither is available,
+        # send without mentions rather than mentioning a raw UUID.
+        mention_identifier = sender_handle or sender_name
         kwargs: dict[str, Any] = {"content": response_text}
         if mention_identifier:
             kwargs["mentions"] = [mention_identifier]
         await tools.send_message(**kwargs)
-
-    def _resolve_sender(
-        self,
-        sender_id: str,
-        tools: AgentTools,
-    ) -> tuple[str | None, str | None]:
-        """Resolve sender display name and handle from pre-cached participants.
-
-        Uses the public ``tools.participants`` property (populated by the
-        bridge), avoiding a redundant REST API call.
-
-        Returns:
-            Tuple of ``(display_name, handle)``.  Both are ``None`` when the
-            sender is not found in the participant cache.  ``handle`` is also
-            ``None`` when the participant was added via WebSocket event
-            (which doesn't include handle).
-        """
-        participants = tools.participants
-        for p in participants:
-            if p.get("id") == sender_id:
-                return p.get("name"), p.get("handle")
-        logger.debug(
-            "Sender %s not found in participant cache (%d entries)",
-            sender_id,
-            len(participants),
-        )
-        return None, None

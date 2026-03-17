@@ -26,13 +26,24 @@ logger = logging.getLogger(__name__)
 
 mcp = FastMCP("thenvoi-llm-agent")
 
-_client = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
+_client: anthropic.Anthropic | None = None
 _model = os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-4-5-20250929")
 _system_prompt = os.environ.get(
     "SYSTEM_PROMPT",
     "You are a helpful assistant connected to the Thenvoi platform. "
     "Be concise and friendly. Respond directly to what the user asks.",
 )
+
+
+def _get_client() -> anthropic.Anthropic:
+    """Return the Anthropic client, creating it lazily on first use."""
+    global _client  # noqa: PLW0603
+    if _client is None:
+        api_key = os.environ.get("ANTHROPIC_API_KEY")
+        if not api_key:
+            raise ValueError("ANTHROPIC_API_KEY environment variable is required")
+        _client = anthropic.Anthropic(api_key=api_key)
+    return _client
 
 
 @mcp.tool()
@@ -47,7 +58,8 @@ def chat(message: str) -> str:
     """
     logger.info("Received message: %s", message[:100])
 
-    response = _client.messages.create(
+    client = _get_client()
+    response = client.messages.create(
         model=_model,
         max_tokens=1024,
         system=_system_prompt,

@@ -412,58 +412,6 @@ class TestReadStreamingResponse:
 
 
 # ---------------------------------------------------------------------------
-# TestResolveSender
-# ---------------------------------------------------------------------------
-
-
-class TestResolveSender:
-    @pytest.fixture
-    def handler(self) -> AgentCoreHandler:
-        return AgentCoreHandler(
-            agent_runtime_arn="arn:abc",
-            region="us-east-1",
-            boto3_client=MagicMock(),
-        )
-
-    def test_found_returns_name_and_handle(self, handler: AgentCoreHandler) -> None:
-        tools = _make_tools(
-            participants=[
-                {"id": "user-1", "name": "Alice", "type": "User", "handle": "alice"},
-                {"id": "user-2", "name": "Bob", "type": "User", "handle": "bob"},
-            ]
-        )
-        name, handle = handler._resolve_sender("user-1", tools)
-        assert name == "Alice"
-        assert handle == "alice"
-
-    def test_found_without_handle(self, handler: AgentCoreHandler) -> None:
-        tools = _make_tools(
-            participants=[
-                {"id": "user-1", "name": "Alice", "type": "User", "handle": None},
-            ]
-        )
-        name, handle = handler._resolve_sender("user-1", tools)
-        assert name == "Alice"
-        assert handle is None
-
-    def test_not_found_returns_none(self, handler: AgentCoreHandler) -> None:
-        tools = _make_tools(
-            participants=[
-                {"id": "user-2", "name": "Bob", "type": "User", "handle": "bob"}
-            ]
-        )
-        name, handle = handler._resolve_sender("user-1", tools)
-        assert name is None
-        assert handle is None
-
-    def test_empty_participants_returns_none(self, handler: AgentCoreHandler) -> None:
-        tools = _make_tools(participants=[])
-        name, handle = handler._resolve_sender("user-1", tools)
-        assert name is None
-        assert handle is None
-
-
-# ---------------------------------------------------------------------------
 # TestAgentCoreHandlerHandle
 # ---------------------------------------------------------------------------
 
@@ -505,6 +453,7 @@ class TestAgentCoreHandlerHandle:
             message_id="msg-1",
             sender_id="user-1",
             sender_name="Alice",
+            sender_handle="alice_h",
             sender_type="User",
             mentioned_agent="alice",
             tools=tools,
@@ -555,6 +504,7 @@ class TestAgentCoreHandlerHandle:
             message_id="msg-1",
             sender_id="user-1",
             sender_name="Alice",
+            sender_handle="alice_h",
             sender_type="User",
             mentioned_agent="alice",
             tools=tools,
@@ -591,6 +541,7 @@ class TestAgentCoreHandlerHandle:
                 message_id="msg-1",
                 sender_id="user-1",
                 sender_name="Alice",
+                sender_handle="alice_h",
                 sender_type="User",
                 mentioned_agent="alice",
                 tools=tools,
@@ -619,6 +570,7 @@ class TestAgentCoreHandlerHandle:
                 message_id="msg-1",
                 sender_id="user-1",
                 sender_name="Alice",
+                sender_handle="alice_h",
                 sender_type="User",
                 mentioned_agent="alice",
                 tools=tools,
@@ -649,6 +601,7 @@ class TestAgentCoreHandlerHandle:
                 message_id="msg-1",
                 sender_id="user-1",
                 sender_name="Alice",
+                sender_handle="alice_h",
                 sender_type="User",
                 mentioned_agent="alice",
                 tools=tools,
@@ -676,6 +629,7 @@ class TestAgentCoreHandlerHandle:
                 message_id="msg-1",
                 sender_id="user-1",
                 sender_name="Alice",
+                sender_handle="alice_h",
                 sender_type="User",
                 mentioned_agent="alice",
                 tools=tools,
@@ -700,6 +654,7 @@ class TestAgentCoreHandlerHandle:
                 message_id="msg-1",
                 sender_id="user-1",
                 sender_name="Alice",
+                sender_handle="alice_h",
                 sender_type="User",
                 mentioned_agent="alice",
                 tools=tools,
@@ -718,6 +673,7 @@ class TestAgentCoreHandlerHandle:
             message_id="msg-1",
             sender_id="user-unknown",
             sender_name=None,
+            sender_handle=None,
             sender_type="User",
             mentioned_agent="alice",
             tools=tools,
@@ -745,6 +701,7 @@ class TestAgentCoreHandlerHandle:
             message_id="msg-1",
             sender_id="user-1",
             sender_name="Alice",
+            sender_handle="alice_h",
             sender_type="User",
             mentioned_agent="bob",
             tools=tools,
@@ -773,6 +730,7 @@ class TestAgentCoreHandlerHandle:
             message_id="msg-1",
             sender_id="user-1",
             sender_name="Alice",
+            sender_handle=None,
             sender_type="User",
             mentioned_agent="bob",
             tools=tools,
@@ -796,6 +754,7 @@ class TestAgentCoreHandlerHandle:
             message_id="msg-1",
             sender_id="user-1",
             sender_name="Alice",
+            sender_handle="alice_h",
             sender_type="User",
             mentioned_agent="alice",
             tools=tools,
@@ -827,6 +786,7 @@ class TestAgentCoreHandlerHandle:
             message_id="msg-1",
             sender_id="user-1",
             sender_name="Alice",
+            sender_handle="alice_h",
             sender_type="User",
             mentioned_agent="echo_agent",
             tools=tools,
@@ -872,6 +832,7 @@ class TestAgentCoreHandlerHandle:
             message_id="msg-1",
             sender_id="user-1",
             sender_name="Alice",
+            sender_handle="alice_h",
             sender_type="User",
             mentioned_agent="llm_agent",
             tools=tools,

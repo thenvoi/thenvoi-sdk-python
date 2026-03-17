@@ -628,11 +628,14 @@ class ThenvoiBridge:
                 )
                 participants = []
 
-        # Resolve sender name from participants
-        sender_name = next(
-            (p["name"] for p in participants if p["id"] == payload.sender_id),
-            None,
-        )
+        # Resolve sender name and handle from participants
+        sender_name: str | None = None
+        sender_handle: str | None = None
+        for p in participants:
+            if p["id"] == payload.sender_id:
+                sender_name = p.get("name")
+                sender_handle = p.get("handle")
+                break
 
         tools = AgentTools(
             room_id=room_id,
@@ -640,7 +643,13 @@ class ThenvoiBridge:
             participants=participants,
         )
 
-        await self._router.route(payload, room_id, tools, sender_name=sender_name)
+        await self._router.route(
+            payload,
+            room_id,
+            tools,
+            sender_name=sender_name,
+            sender_handle=sender_handle,
+        )
 
     def _is_duplicate(self, message_id: str) -> bool:
         """Check if a message has already been processed (reconnect dedup).
