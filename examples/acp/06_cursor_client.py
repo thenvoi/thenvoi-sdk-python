@@ -96,7 +96,6 @@ async def main() -> None:
         command=[os.path.expanduser("~/.local/bin/agent"), "acp"],
         cwd=cwd,
         env=cursor_env or None,
-        api_key=api_key,
         rest_url=rest_url,
         inject_thenvoi_tools=True,
         auth_method="cursor_login",

@@ -998,22 +998,14 @@ class TestACPClientAdapterDeadConnectionRecovery:
 class TestACPClientAdapterInjectToolsConfig:
     """Tests for inject_thenvoi_tools configuration."""
 
-    def test_inject_tools_without_api_key_stays_enabled(self) -> None:
-        """Should not gate local tool injection on adapter api_key."""
-        adapter = ACPClientAdapter(
-            command="codex",
-            inject_thenvoi_tools=True,
-            api_key="",
-        )
+    def test_inject_tools_stays_enabled_without_extra_credentials(self) -> None:
+        """Should not require adapter-specific credentials to inject tools."""
+        adapter = ACPClientAdapter(command="codex", inject_thenvoi_tools=True)
 
         assert adapter._inject_thenvoi_tools
 
     def test_inject_tools_can_be_disabled_explicitly(self) -> None:
         """Should respect inject_thenvoi_tools=False."""
-        adapter = ACPClientAdapter(
-            command="codex",
-            inject_thenvoi_tools=False,
-            api_key="test-key",
-        )
+        adapter = ACPClientAdapter(command="codex", inject_thenvoi_tools=False)
 
         assert not adapter._inject_thenvoi_tools
