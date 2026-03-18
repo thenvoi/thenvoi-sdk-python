@@ -94,6 +94,27 @@ async def test_health_without_session_store(mock_link: MagicMock) -> None:
         assert data["handlers_registered"] == 1
 
 
+async def test_health_warns_when_no_handlers(mock_link: MagicMock) -> None:
+    """Health response should include a warning when no handlers are registered."""
+    server = HealthServer(link=mock_link, port=0, handler_count=0)
+
+    async with TestClient(TestServer(server._app)) as client:
+        resp = await client.get("/health")
+        data = await resp.json()
+        assert data["handlers_registered"] == 0
+        assert data["warning"] == "no handlers registered"
+
+
+async def test_health_no_warning_with_handlers(
+    mock_link: MagicMock, health_server: HealthServer
+) -> None:
+    """Health response should NOT include a warning when handlers are registered."""
+    async with TestClient(TestServer(health_server._app)) as client:
+        resp = await client.get("/health")
+        data = await resp.json()
+        assert "warning" not in data
+
+
 async def test_stop_handles_cleanup_error(mock_link: MagicMock) -> None:
     """stop() should not raise even if runner.cleanup() fails."""
     server = HealthServer(link=mock_link, port=0)

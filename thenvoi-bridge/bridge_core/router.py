@@ -27,6 +27,13 @@ class MentionRouter:
     When a message arrives, inspects mention metadata and dispatches to
     the appropriate handler(s). Integrates with ThenvoiLink for message
     lifecycle marking (processing/processed/failed).
+
+    **Timeout layering**: The router applies ``handler_timeout``
+    (from ``BridgeConfig``, default 300 s) around each handler's
+    ``handle()`` call.  Individual handlers (e.g. ``AgentCoreHandler``)
+    may apply their own *inner* timeout (default 120 s).  The inner
+    timeout fires first; the router timeout acts as a safety net for
+    handlers that lack their own timeout.
     """
 
     def __init__(
@@ -105,6 +112,7 @@ class MentionRouter:
         room_id: str,
         tools: AgentTools,
         sender_name: str | None = None,
+        sender_handle: str | None = None,
     ) -> None:
         """Route a message to handlers based on @mentions.
 
@@ -118,6 +126,7 @@ class MentionRouter:
             room_id: The room where the message was received.
             tools: AgentTools instance for the handler to send responses.
             sender_name: Display name of the sender, or None if unresolvable.
+            sender_handle: Handle of the sender, or None if unresolvable.
         """
         # Filter self-messages
         if payload.sender_id == self._agent_id:
@@ -201,6 +210,7 @@ class MentionRouter:
                     message_id=payload.id,
                     sender_id=payload.sender_id,
                     sender_name=sender_name,
+                    sender_handle=sender_handle,
                     sender_type=payload.sender_type,
                     mentioned_agent=username,
                     tools=tools,
@@ -209,7 +219,7 @@ class MentionRouter:
                     await asyncio.wait_for(coro, timeout=self._handler_timeout)
                 else:
                     await coro
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 logger.error(
                     "Handler '%s' timed out after %.1fs for @%s in room %s",
                     handler_name,

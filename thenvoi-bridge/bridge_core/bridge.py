@@ -41,6 +41,7 @@ class ParticipantRecord(TypedDict):
     id: str
     name: str
     type: str
+    handle: str | None
 
 
 class BridgeConfig(BaseModel):
@@ -247,6 +248,7 @@ class ThenvoiBridge:
         self._shutdown_event = asyncio.Event()
         self._connected_event = asyncio.Event()
         self._participant_cache: dict[str, list[ParticipantRecord]] = {}
+        self._participant_lock = asyncio.Lock()
         self._processed_message_ids: OrderedDict[str, None] = OrderedDict()
 
         # Parse and validate agent mapping
@@ -393,12 +395,18 @@ class ThenvoiBridge:
                 except Exception:
                     logger.debug("Error during disconnect cleanup", exc_info=True)
 
-                # Jitter is added to the current sleep so the very first
-                # retry also has randomised timing.
-                jitter = random.uniform(0, self._reconnect.jitter)  # noqa: S311
-                await asyncio.sleep(delay + jitter)
+                # Full-jitter backoff: sleep is uniform over [0, delay] so
+                # multiple bridge instances spread their retries evenly.
+                # When jitter is disabled (0) we fall back to deterministic
+                # exponential backoff.
+                if self._reconnect.jitter > 0:
+                    sleep_time = random.uniform(0, delay)  # noqa: S311
+                else:
+                    sleep_time = delay
+                await asyncio.sleep(sleep_time)
 
-                # Exponential backoff (jitter applied above, not accumulated)
+                # Exponential growth of the base delay (jitter does not
+                # accumulate — it only affects the sleep above).
                 delay = min(
                     delay * self._reconnect.multiplier,
                     self._reconnect.max_delay,
@@ -406,12 +414,28 @@ class ThenvoiBridge:
 
         logger.info("Reconnect loop exited")
 
+    async def _safe_handle_event(self, event: object) -> None:
+        """Wrapper around ``_handle_event`` that catches and logs exceptions.
+
+        Used as the target for fire-and-forget tasks so that a single handler
+        failure does not break the event loop or propagate into the task set.
+        """
+        try:
+            await self._handle_event(event)
+        except Exception:
+            logger.warning(
+                "Unexpected error handling event %s",
+                type(event).__name__,
+                exc_info=True,
+            )
+
     async def _connect_and_consume(self) -> None:
         """Connect to platform and consume events."""
         # Clear stale participant data from the previous connection.
         # The cache is re-populated below via _cache_room_participants
         # after re-subscribing to existing rooms.
-        self._participant_cache.clear()
+        async with self._participant_lock:
+            self._participant_cache.clear()
         await self._link.connect()
         self._connected_event.set()
 
@@ -434,12 +458,11 @@ class ThenvoiBridge:
 
         # Race each event against the shutdown signal so the loop exits
         # immediately when shutdown is requested, without polling.
-        # Both next_fut and handle_fut are raced against shutdown so that
-        # in-flight handlers are cancelled promptly on shutdown, rather than
-        # blocking for up to handler_timeout seconds.
+        # Handlers are fired as background tasks so the loop can pull the
+        # next event without waiting for the previous handler to finish.
         shutdown_fut = asyncio.ensure_future(self._shutdown_event.wait())
+        active_tasks: set[asyncio.Task[None]] = set()
         next_fut: asyncio.Future[object] | None = None
-        handle_fut: asyncio.Future[None] | None = None
         try:
             while True:
                 next_fut = asyncio.ensure_future(anext(self._link))
@@ -471,42 +494,21 @@ class ThenvoiBridge:
                     raise
                 next_fut = None
 
-                # Race event handling against shutdown so in-flight handlers
-                # are cancelled promptly when shutdown is requested.
-                handle_fut = asyncio.ensure_future(self._handle_event(event))
-                done, _ = await asyncio.wait(
-                    {shutdown_fut, handle_fut},
-                    return_when=asyncio.FIRST_COMPLETED,
-                )
-                if shutdown_fut in done:
-                    handle_fut.cancel()
-                    try:
-                        await handle_fut
-                    except (asyncio.CancelledError, Exception):
-                        # Both CancelledError and Exception are caught
-                        # separately: in Python 3.9+ CancelledError inherits
-                        # from BaseException, so `except Exception` alone
-                        # would not catch it.
-                        pass
-                    handle_fut = None
-                    break
-                # handle_fut completed — check for exceptions
-                try:
-                    handle_fut.result()
-                except Exception:
-                    logger.warning(
-                        "Unexpected error handling event %s",
-                        type(event).__name__,
-                        exc_info=True,
-                    )
-                handle_fut = None
+                # Fire handler as a background task so we can pull the next
+                # event immediately without waiting for the handler to finish.
+                task = asyncio.create_task(self._safe_handle_event(event))
+                active_tasks.add(task)
+                task.add_done_callback(active_tasks.discard)
         finally:
             if not shutdown_fut.done():
                 shutdown_fut.cancel()
             if next_fut is not None and not next_fut.done():
                 next_fut.cancel()
-            if handle_fut is not None and not handle_fut.done():
-                handle_fut.cancel()
+            # Cancel all in-flight handler tasks on shutdown
+            for task in active_tasks:
+                task.cancel()
+            if active_tasks:
+                await asyncio.gather(*active_tasks, return_exceptions=True)
 
     async def _fetch_existing_rooms(self) -> list[str]:
         """Fetch the list of rooms the agent is already in.
@@ -553,34 +555,36 @@ class ThenvoiBridge:
                     logger.warning(
                         "Failed to unsubscribe from room %s", room_id, exc_info=True
                     )
-                self._participant_cache.pop(room_id, None)
+                async with self._participant_lock:
+                    self._participant_cache.pop(room_id, None)
                 await self._session_store.remove(room_id)
 
             case ParticipantAddedEvent(room_id=room_id, payload=payload) if (
                 room_id and payload
             ):
-                # No await between read and mutate -- safe under asyncio's
-                # single-threaded model.  Do not add awaits in this block.
-                cached = self._participant_cache.get(room_id)
-                if cached is not None and not any(
-                    p["id"] == payload.id for p in cached
-                ):
-                    cached.append(
-                        ParticipantRecord(
-                            id=payload.id, name=payload.name, type=payload.type
+                async with self._participant_lock:
+                    cached = self._participant_cache.get(room_id)
+                    if cached is not None and not any(
+                        p["id"] == payload.id for p in cached
+                    ):
+                        cached.append(
+                            ParticipantRecord(
+                                id=payload.id,
+                                name=payload.name,
+                                type=payload.type,
+                                handle=getattr(payload, "handle", None),
+                            )
                         )
-                    )
 
             case ParticipantRemovedEvent(room_id=room_id, payload=payload) if (
                 room_id and payload
             ):
-                # No await between read and mutate -- safe under asyncio's
-                # single-threaded model.  Do not add awaits in this block.
-                cached = self._participant_cache.get(room_id)
-                if cached is not None:
-                    self._participant_cache[room_id] = [
-                        p for p in cached if p["id"] != payload.id
-                    ]
+                async with self._participant_lock:
+                    cached = self._participant_cache.get(room_id)
+                    if cached is not None:
+                        self._participant_cache[room_id] = [
+                            p for p in cached if p["id"] != payload.id
+                        ]
 
             case _:
                 logger.debug("Unhandled event: %s", type(event).__name__)
@@ -605,13 +609,17 @@ class ThenvoiBridge:
         if not payload.metadata or not payload.metadata.mentions:
             return
 
-        # Use cached participants, fall back to REST on cache miss
-        if room_id in self._participant_cache:
-            participants = self._participant_cache[room_id]
-        else:
+        # Use cached participants, fall back to REST on cache miss.
+        # Shallow-copy inside the lock so concurrent ParticipantAdded/Removed
+        # handlers mutating the list don't affect the snapshot used below.
+        async with self._participant_lock:
+            cached = self._participant_cache.get(room_id)
+            participants = list(cached) if cached is not None else None
+        if participants is None:
             try:
                 participants = await self._get_room_participants(room_id)
-                self._participant_cache[room_id] = participants
+                async with self._participant_lock:
+                    self._participant_cache[room_id] = participants
             except Exception:
                 logger.warning(
                     "Failed to fetch participants for room %s",
@@ -620,11 +628,14 @@ class ThenvoiBridge:
                 )
                 participants = []
 
-        # Resolve sender name from participants
-        sender_name = next(
-            (p["name"] for p in participants if p["id"] == payload.sender_id),
-            None,
-        )
+        # Resolve sender name and handle from participants
+        sender_name: str | None = None
+        sender_handle: str | None = None
+        for p in participants:
+            if p["id"] == payload.sender_id:
+                sender_name = p.get("name")
+                sender_handle = p.get("handle")
+                break
 
         tools = AgentTools(
             room_id=room_id,
@@ -632,7 +643,13 @@ class ThenvoiBridge:
             participants=participants,
         )
 
-        await self._router.route(payload, room_id, tools, sender_name=sender_name)
+        await self._router.route(
+            payload,
+            room_id,
+            tools,
+            sender_name=sender_name,
+            sender_handle=sender_handle,
+        )
 
     def _is_duplicate(self, message_id: str) -> bool:
         """Check if a message has already been processed (reconnect dedup).
@@ -655,9 +672,9 @@ class ThenvoiBridge:
         ``_on_message`` will fall back to a REST call per message.
         """
         try:
-            self._participant_cache[room_id] = await self._get_room_participants(
-                room_id
-            )
+            fetched = await self._get_room_participants(room_id)
+            async with self._participant_lock:
+                self._participant_cache[room_id] = fetched
         except Exception:
             logger.warning(
                 "Failed to cache participants for room %s", room_id, exc_info=True
@@ -682,7 +699,13 @@ class ThenvoiBridge:
             return []
 
         return [
-            ParticipantRecord(id=p.id, name=p.name, type=p.type) for p in response.data
+            ParticipantRecord(
+                id=p.id,
+                name=p.name,
+                type=p.type,
+                handle=getattr(p, "handle", None),
+            )
+            for p in response.data
         ]
 
 

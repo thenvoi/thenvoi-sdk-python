@@ -49,7 +49,6 @@ class SendMessageInput(BaseModel):
     content: str = Field(..., description="The message content to send")
     mentions: list[str] = Field(
         ...,
-        min_length=1,
         description=(
             "List of participant handles to @mention. At least one required. "
             "For users: @<username> (e.g., '@john'). "
@@ -579,6 +578,21 @@ class AgentTools(AgentToolsProtocol):
         )
 
         resolved_mentions = self._resolve_mentions(mentions or [])
+
+        # Validate mentions are not empty — API requires ≥1 mention.
+        # Return a helpful error so the LLM can retry with proper mentions.
+        if not resolved_mentions:
+            participant_names = [
+                p.get("handle") or p["name"] for p in self._participants
+            ]
+            return {
+                "error": (
+                    "At least one mention is required. "
+                    f"Available participants: {participant_names}. "
+                    "Please retry with mentions specifying who this message is for."
+                )
+            }
+
         logger.debug("Sending message to room %s", self.room_id)
 
         # Convert to API format - use handle (not name) for mentions

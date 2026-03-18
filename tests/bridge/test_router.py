@@ -135,6 +135,7 @@ class TestMentionRouterRoute:
             message_id="msg-1",
             sender_id="user-1",
             sender_name=None,
+            sender_handle=None,
             sender_type="User",
             mentioned_agent="alice",
             tools=tools,
@@ -343,6 +344,27 @@ class TestMentionRouterRoute:
         self, router: MentionRouter, mock_handler: AsyncMock
     ) -> None:
         payload = _make_payload(mentions=[])
+        tools = MagicMock()
+
+        await router.route(payload, "room-1", tools)
+
+        mock_handler.handle.assert_not_called()
+
+    async def test_none_mentions_does_nothing(
+        self, router: MentionRouter, mock_handler: AsyncMock
+    ) -> None:
+        """A payload with metadata.mentions=None should not dispatch."""
+        payload = MessageCreatedPayload(
+            id="msg-1",
+            content="hello",
+            message_type="text",
+            sender_id="user-1",
+            sender_type="User",
+            chat_room_id="room-1",
+            inserted_at="2024-01-01T00:00:00Z",
+            updated_at="2024-01-01T00:00:00Z",
+            metadata=MessageMetadata(mentions=[], status="sent"),
+        )
         tools = MagicMock()
 
         await router.route(payload, "room-1", tools)
@@ -626,6 +648,34 @@ class TestMentionRouterRoute:
 
         call_kwargs = mock_handler.handle.call_args.kwargs
         assert call_kwargs["sender_name"] is None
+
+    async def test_passes_sender_handle(
+        self, router: MentionRouter, mock_handler: AsyncMock
+    ) -> None:
+        payload = _make_payload(
+            mentions=[Mention(id="alice-id", username="alice")],
+        )
+        tools = MagicMock()
+
+        await router.route(
+            payload, "room-1", tools, sender_name="Jane Doe", sender_handle="jane_h"
+        )
+
+        call_kwargs = mock_handler.handle.call_args.kwargs
+        assert call_kwargs["sender_handle"] == "jane_h"
+
+    async def test_sender_handle_defaults_to_none(
+        self, router: MentionRouter, mock_handler: AsyncMock
+    ) -> None:
+        payload = _make_payload(
+            mentions=[Mention(id="alice-id", username="alice")],
+        )
+        tools = MagicMock()
+
+        await router.route(payload, "room-1", tools)
+
+        call_kwargs = mock_handler.handle.call_args.kwargs
+        assert call_kwargs["sender_handle"] is None
 
 
 class TestMentionRouterTimeout:

@@ -159,6 +159,8 @@ async def main() -> None:
             sender_name = user_participant["name"] if user_participant else "test agent"
             sender_type = user_participant["type"] if user_participant else "Agent"
 
+            sender_handle = user_participant.get("handle") if user_participant else None
+
             await handler.handle(
                 content="Hello from the LangChain bridge integration test!",
                 room_id=room_id,
@@ -166,6 +168,7 @@ async def main() -> None:
                 message_id="test-e2e-001",
                 sender_id=sender_id,
                 sender_name=sender_name,
+                sender_handle=sender_handle,
                 sender_type=sender_type,
                 mentioned_agent="echo_agent",
                 tools=tools,
@@ -253,6 +256,7 @@ async def main() -> None:
         tools = AgentTools(room_id=room_id, rest=rest, participants=participants)
         sender_id = user_participant["id"] if user_participant else agent_id
         sender_name = user_participant["name"] if user_participant else "test agent"
+        sender_handle = user_participant.get("handle") if user_participant else None
         sender_type = user_participant["type"] if user_participant else "Agent"
         try:
             await handler.handle(
@@ -262,6 +266,7 @@ async def main() -> None:
                 message_id="msg-fail-001",
                 sender_id=sender_id,
                 sender_name=sender_name,
+                sender_handle=sender_handle,
                 sender_type=sender_type,
                 mentioned_agent="echo_agent",
                 tools=tools,
@@ -286,6 +291,7 @@ async def main() -> None:
         tools = AgentTools(room_id=room_id, rest=rest, participants=participants)
         sender_id = user_participant["id"] if user_participant else agent_id
         sender_name = user_participant["name"] if user_participant else "test agent"
+        sender_handle = user_participant.get("handle") if user_participant else None
         sender_type = user_participant["type"] if user_participant else "Agent"
         try:
             await handler.handle(
@@ -295,6 +301,7 @@ async def main() -> None:
                 message_id="msg-timeout-001",
                 sender_id=sender_id,
                 sender_name=sender_name,
+                sender_handle=sender_handle,
                 sender_type=sender_type,
                 mentioned_agent="echo_agent",
                 tools=tools,
