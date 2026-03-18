@@ -920,14 +920,14 @@ class TestApprovalTokenCounter:
         assert adapter._next_approval_token("room-2") == "a-1"  # separate counter
         assert adapter._next_approval_token("room-1") == "a-3"
 
-    def test_counter_reset_on_room_cleanup(self):
-        """Counter should be reset when room pending approvals are cleared."""
+    def test_counter_persists_after_room_cleanup(self):
+        """Counter should NOT reset on cleanup to avoid token collisions."""
         adapter = ClaudeSDKAdapter(approval_mode="manual")
         adapter._next_approval_token("room-1")
         adapter._next_approval_token("room-1")
         adapter._clear_pending_approvals_for_room("room-1")
-        # After cleanup, counter should restart
-        assert adapter._next_approval_token("room-1") == "a-1"
+        # Counter continues from where it left off
+        assert adapter._next_approval_token("room-1") == "a-3"
 
 
 class TestApprovalSummary:

@@ -401,11 +401,10 @@ class TestClaudeSDKApprovalIntegration:
                         logger.info(
                             "  - [%s] %s", m.message_type, (m.content or "")[:150]
                         )
-                    # This test is inherently non-deterministic — Claude may not
-                    # trigger a tool. Log but don't hard-fail.
-                    logger.warning(
-                        "No approval notification seen. Claude may not have "
-                        "triggered tool use. This is expected sometimes."
+                    pytest.fail(
+                        f"No approval notification received. "
+                        f"Got {len(messages)} messages from agent but none "
+                        f"contained 'accept'."
                     )
 
         finally:

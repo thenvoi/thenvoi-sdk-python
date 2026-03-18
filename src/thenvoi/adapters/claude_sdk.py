@@ -1550,7 +1550,7 @@ class ClaudeSDKAdapter(SimpleAdapter[ClaudeSDKSessionState]):
         # For shell commands, show the command (redacted)
         command = tool_input.get("command")
         if isinstance(command, str) and command:
-            safe = ClaudeSDKAdapter._redact_command(command[:120])
+            safe = ClaudeSDKAdapter._redact_command(command)[:120]
             return f"{tool_name}: `{safe}`"
         # For file edits, show the path
         file_path = tool_input.get("file_path") or tool_input.get("path")
@@ -1579,4 +1579,4 @@ class ClaudeSDKAdapter(SimpleAdapter[ClaudeSDKSessionState]):
         for item in room_pending.values():
             if not item.future.done():
                 item.future.set_result("decline")
-        self._approval_seq.pop(room_id, None)
+        # Keep the seq counter to avoid token collisions with suspended coroutines
