@@ -120,9 +120,9 @@ class ACPClientAdapter(SimpleAdapter[ACPClientSessionState]):
             mcp_servers: Optional list of MCP server configs to pass to agent.
             additional_tools: Optional custom tools to expose through the local
                               Thenvoi MCP server.
-            api_key: Deprecated legacy argument retained for compatibility.
+            api_key: Compatibility argument accepted for older call sites.
                      The local Thenvoi MCP server uses the active AgentTools
-                     session and does not require a separate API key here.
+                     session and ignores this value.
             rest_url: Thenvoi REST API base URL (default: https://app.thenvoi.com).
             inject_thenvoi_tools: Whether to auto-inject Thenvoi MCP tools
                                   into each session via a local MCP server.
@@ -136,7 +136,6 @@ class ACPClientAdapter(SimpleAdapter[ACPClientSessionState]):
         self._cwd = os.path.abspath(cwd or ".")
         self._mcp_servers = list(mcp_servers or [])
         self._custom_tools: list[CustomToolDef] = list(additional_tools or [])
-        self._api_key = api_key or ""
         self._rest_url = rest_url or "https://app.thenvoi.com"
         self._validate_rest_url(self._rest_url)
         self._inject_thenvoi_tools = inject_thenvoi_tools
