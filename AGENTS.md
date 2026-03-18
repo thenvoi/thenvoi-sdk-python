@@ -4,7 +4,7 @@ This is a Python SDK that connects AI agents to the Thenvoi collaborative platfo
 
 ## Core Features
 
-1. Multi-framework support (LangGraph, Anthropic, CrewAI, Claude SDK, Pydantic AI, Parlant, Letta, Google ADK)
+1. Multi-framework support (LangGraph, Anthropic, CrewAI, Claude SDK, Codex, Pydantic AI, Parlant, Gemini, Letta, Google ADK)
 2. A2A protocol support: Bridge to external A2A agents and expose Thenvoi peers as A2A endpoints
 3. ACP integration: Editor-facing server and subprocess client adapters (Cursor, Codex, Claude Code)
 4. Platform tools for chat, contacts, and memory management

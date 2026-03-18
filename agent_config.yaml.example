@@ -139,6 +139,14 @@ editor_agent:
 # 06_jerry_agent.py - see jerry_agent in Shared Agents section
 
 # =============================================================================
+# Gemini Examples
+# =============================================================================
+
+# 01_basic_agent.py
+gemini_agent:
+  agent_id: ""
+  api_key: ""
+
 # Google ADK Examples
 # =============================================================================
 

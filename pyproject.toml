@@ -70,6 +70,9 @@ crewai = [
     "nest-asyncio>=1.6.0",  # Required for sync-to-async bridging in CrewAI tools
     "pillow>=12.1.1",
 ]
+gemini = [
+    "google-genai>=1.43.0",  # httpx is a transitive dep used for retry exception types
+]
 a2a = [
     "a2a-sdk>=0.3.22",  # Official A2A Python SDK
     "protobuf>=6.33.5",
@@ -150,6 +153,8 @@ dev = [
     # Include ACP deps for testing
     "agent-client-protocol>=0.8.0",
     "mcp>=1.25.0",
+    # Include Gemini SDK for testing
+    "google-genai>=1.43.0",
     # Include google-adk for testing
     "google-adk>=1.0.0,<2",
     # Include bridge deps for testing
@@ -187,6 +192,14 @@ timeout = 30
 markers = [
     "requires_api: marks tests as requiring real API credentials (skipped in CI)",
     "e2e: marks tests as end-to-end (requires live services)",
+]
+
+[tool.uv]
+# Ensure uv.lock stays installable on the platforms we use locally and in CI
+# when a dependency only publishes wheels and no source distribution.
+required-environments = [
+    "sys_platform == 'darwin' and platform_machine == 'arm64'",
+    "sys_platform == 'linux' and platform_machine == 'x86_64'",
 ]
 
 [tool.pyrefly]

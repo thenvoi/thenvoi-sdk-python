@@ -254,6 +254,12 @@ def _letta_factory(**kw: Any) -> Any:
     return LettaAdapter(**kw)
 
 
+def _gemini_factory(**kw: Any) -> Any:
+    from thenvoi.adapters.gemini import GeminiAdapter
+
+    return GeminiAdapter(**kw)
+
+
 def _google_adk_factory(**kw: Any) -> Any:
     from thenvoi.adapters.google_adk import GoogleADKAdapter
 
@@ -513,6 +519,36 @@ def _build_letta_config() -> AdapterConfig:
     )
 
 
+def _build_gemini_config() -> AdapterConfig:
+    from thenvoi.adapters.gemini import GeminiAdapter
+
+    return AdapterConfig(
+        framework_id="gemini",
+        display_name="Gemini",
+        adapter_factory=_gemini_factory,
+        expected_initial_values={
+            "model": _default_from_init(GeminiAdapter, "model"),
+            "system_prompt": _default_from_init(GeminiAdapter, "system_prompt"),
+            "custom_section": _default_from_init(GeminiAdapter, "custom_section"),
+            "enable_execution_reporting": _default_from_init(
+                GeminiAdapter, "enable_execution_reporting"
+            ),
+        },
+        custom_kwargs={
+            "model": "gemini-2.5-flash",
+            "system_prompt": "You are a helpful bot.",
+            "custom_section": "Be concise.",
+            "enable_execution_reporting": True,
+        },
+        custom_expected={
+            "model": "gemini-2.5-flash",
+            "system_prompt": "You are a helpful bot.",
+            "custom_section": "Be concise.",
+            "enable_execution_reporting": True,
+        },
+    )
+
+
 # Adapter modules intentionally excluded from conformance tests.
 # a2a / a2a_gateway use the A2A protocol (Google Agent-to-Agent) which has a
 # fundamentally different lifecycle than framework adapters (no on_message /
@@ -568,6 +604,7 @@ _ADAPTER_CONFIG_BUILDERS: list[Callable[[], AdapterConfig]] = [
     _build_parlant_config,
     _build_codex_config,
     _build_letta_config,
+    _build_gemini_config,
     _build_google_adk_config,
 ]
 
