@@ -9,6 +9,7 @@ Install the extra you need::
     uv add thenvoi-sdk[claude_sdk]
     uv add thenvoi-sdk[parlant]
     uv add thenvoi-sdk[crewai]
+    uv add thenvoi-sdk[gemini]
     uv add thenvoi-sdk[a2a]
     uv add thenvoi-sdk[codex]
     uv add thenvoi-sdk[google_adk]
@@ -52,6 +53,10 @@ if TYPE_CHECKING:
     from thenvoi.converters.codex import (
         CodexHistoryConverter as CodexHistoryConverter,
     )
+    from thenvoi.converters.gemini import (
+        GeminiHistoryConverter as GeminiHistoryConverter,
+        GeminiMessages as GeminiMessages,
+    )
     from thenvoi.converters.google_adk import (
         GoogleADKHistoryConverter as GoogleADKHistoryConverter,
         GoogleADKMessages as GoogleADKMessages,
@@ -72,6 +77,8 @@ __all__ = [
     "A2AHistoryConverter",
     "GatewayHistoryConverter",
     "CodexHistoryConverter",
+    "GeminiHistoryConverter",
+    "GeminiMessages",
     "GoogleADKHistoryConverter",
     "GoogleADKMessages",
 ]
@@ -147,6 +154,12 @@ def __getattr__(name: str) -> type:
         from thenvoi.converters.codex import CodexHistoryConverter
 
         return CodexHistoryConverter
+    elif name in ("GeminiHistoryConverter", "GeminiMessages"):
+        from thenvoi.converters.gemini import GeminiHistoryConverter, GeminiMessages
+
+        if name == "GeminiHistoryConverter":
+            return GeminiHistoryConverter
+        return GeminiMessages
 
     elif name in ("GoogleADKHistoryConverter", "GoogleADKMessages"):
         from thenvoi.converters.google_adk import (

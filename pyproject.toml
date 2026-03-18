@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "thenvoi-sdk"
-version = "0.2.1"
+version = "0.2.2"
 description = "A Python SDK for Thenvoi API"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -69,6 +69,9 @@ crewai = [
     "openai>=1.0.0",
     "nest-asyncio>=1.6.0",  # Required for sync-to-async bridging in CrewAI tools
     "pillow>=12.1.1",
+]
+gemini = [
+    "google-genai>=1.43.0",  # httpx is a transitive dep used for retry exception types
 ]
 a2a = [
     "a2a-sdk>=0.3.22",  # Official A2A Python SDK
@@ -141,6 +144,8 @@ dev = [
     # Include crewai for testing
     "crewai>=0.80.0",
     "nest-asyncio>=1.6.0",  # Required for CrewAI adapter sync-to-async bridging
+    # Include Gemini SDK for testing
+    "google-genai>=1.43.0",
     # Include google-adk for testing
     "google-adk>=1.0.0,<2",
     # Include bridge deps for testing
@@ -174,6 +179,14 @@ addopts = "-v"
 timeout = 30
 markers = [
     "requires_api: marks tests as requiring real API credentials (skipped in CI)",
+]
+
+[tool.uv]
+# Ensure uv.lock stays installable on the platforms we use locally and in CI
+# when a dependency only publishes wheels and no source distribution.
+required-environments = [
+    "sys_platform == 'darwin' and platform_machine == 'arm64'",
+    "sys_platform == 'linux' and platform_machine == 'x86_64'",
 ]
 
 [tool.pyrefly]
