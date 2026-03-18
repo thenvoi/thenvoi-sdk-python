@@ -181,6 +181,14 @@ markers = [
     "requires_api: marks tests as requiring real API credentials (skipped in CI)",
 ]
 
+[tool.uv]
+# Ensure uv.lock stays installable on the platforms we use locally and in CI
+# when a dependency only publishes wheels and no source distribution.
+required-environments = [
+    "sys_platform == 'darwin' and platform_machine == 'arm64'",
+    "sys_platform == 'linux' and platform_machine == 'x86_64'",
+]
+
 [tool.pyrefly]
 project_includes = [
     "src/**/*.py",              # Only check source files
