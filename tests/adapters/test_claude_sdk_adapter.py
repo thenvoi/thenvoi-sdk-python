@@ -598,21 +598,20 @@ class TestCustomTools:
             additional_tools=[(EchoInput, echo)],
         )
 
-        # Create the MCP server
+        mock_backend = MagicMock()
+        mock_backend.allowed_tools = [f"tool-{i}" for i in range(13)]
+        mock_backend.server = MagicMock()
+
         with patch(
-            "thenvoi.adapters.claude_sdk.create_sdk_mcp_server"
-        ) as mock_create_server:
-            mock_create_server.return_value = MagicMock()
+            "thenvoi.adapters.claude_sdk.create_thenvoi_mcp_backend",
+            new=AsyncMock(return_value=mock_backend),
+        ) as mock_create_backend:
+            backend = await adapter._create_mcp_backend()
 
-            adapter._create_mcp_server()
-
-            # Verify create_sdk_mcp_server was called with extra tools
-            call_args = mock_create_server.call_args
-            tools_list = call_args[1]["tools"]
-
-            # Should have 12 base platform tools + 1 custom tool = 13
-            # (7 basic + 5 contact + 1 custom = 13, memory tools disabled by default)
-            assert len(tools_list) == 13
+        assert backend is mock_backend
+        mock_create_backend.assert_awaited_once()
+        tool_definitions = mock_create_backend.await_args.kwargs["tool_definitions"]
+        assert len(tool_definitions) == 12
 
     @pytest.mark.asyncio
     async def test_custom_tools_registered_with_memory_tools_enabled(self):
@@ -632,21 +631,20 @@ class TestCustomTools:
             enable_memory_tools=True,
         )
 
-        # Create the MCP server
+        mock_backend = MagicMock()
+        mock_backend.allowed_tools = [f"tool-{i}" for i in range(18)]
+        mock_backend.server = MagicMock()
+
         with patch(
-            "thenvoi.adapters.claude_sdk.create_sdk_mcp_server"
-        ) as mock_create_server:
-            mock_create_server.return_value = MagicMock()
+            "thenvoi.adapters.claude_sdk.create_thenvoi_mcp_backend",
+            new=AsyncMock(return_value=mock_backend),
+        ) as mock_create_backend:
+            backend = await adapter._create_mcp_backend()
 
-            adapter._create_mcp_server()
-
-            # Verify create_sdk_mcp_server was called with extra tools
-            call_args = mock_create_server.call_args
-            tools_list = call_args[1]["tools"]
-
-            # Should have 17 platform tools + 1 custom tool = 18
-            # (7 basic + 5 contact + 5 memory + 1 custom = 18)
-            assert len(tools_list) == 18
+        assert backend is mock_backend
+        mock_create_backend.assert_awaited_once()
+        tool_definitions = mock_create_backend.await_args.kwargs["tool_definitions"]
+        assert len(tool_definitions) == 17
 
     def test_tool_name_derived_from_input_model(self):
         """Tool name should be derived from Pydantic model class name."""

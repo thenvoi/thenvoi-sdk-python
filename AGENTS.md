@@ -6,8 +6,9 @@ This is a Python SDK that connects AI agents to the Thenvoi collaborative platfo
 
 1. Multi-framework support (LangGraph, Anthropic, CrewAI, Claude SDK, Codex, Pydantic AI, Parlant, Gemini, Letta, Google ADK)
 2. A2A protocol support: Bridge to external A2A agents and expose Thenvoi peers as A2A endpoints
-3. Platform tools for chat, contacts, and memory management
-4. WebSocket + REST transport: Real-time messaging with REST API fallback
+3. ACP integration: Editor-facing server and subprocess client adapters (Cursor, Codex, Claude Code)
+4. Platform tools for chat, contacts, and memory management
+5. WebSocket + REST transport: Real-time messaging with REST API fallback
 
 ## Platform Tools
 
@@ -200,6 +201,68 @@ adapter = A2AGatewayAdapter(gateway_port=10000)
 | A2A Gateway | `src/thenvoi/adapters/a2a_gateway.py`, `src/thenvoi/integrations/a2a/gateway/` |
 | A2A Types | `src/thenvoi/integrations/a2a/types.py` |
 
+## ACP (Agent Client Protocol) Integration
+
+ACP enables editors (Zed, Cursor, JetBrains, Neovim) to communicate with AI agents via JSON-RPC over stdio. The SDK provides both server and client sides.
+
+### Architecture
+
+Two-layer pattern (mirrors A2A Gateway):
+
+| Layer | Server Side | Client Side |
+|-------|-------------|-------------|
+| Protocol | `ACPServer` (JSON-RPC handler) | ACP SDK's `spawn_agent_process` |
+| Platform Bridge | `ThenvoiACPServerAdapter` | `ACPClientAdapter` |
+
+**Server**: Editor -> ACP -> `ACPServer` -> `ThenvoiACPServerAdapter` -> Thenvoi REST/WS -> Peers
+**Client**: Thenvoi room message -> `ACPClientAdapter` -> spawned subprocess (Codex, Claude Code, etc.)
+
+### Key Files
+
+| File | Purpose |
+|------|---------|
+| `src/thenvoi/integrations/acp/server.py` | `ACPServer` — ACP Agent subclass handling JSON-RPC |
+| `src/thenvoi/integrations/acp/server_adapter.py` | `ThenvoiACPServerAdapter` — REST client, room/session mapping |
+| `src/thenvoi/integrations/acp/client_adapter.py` | `ACPClientAdapter` — spawns external ACP agent subprocess |
+| `src/thenvoi/integrations/acp/client_types.py` | `ThenvoiACPClient` — per-session chunk buffering |
+| `src/thenvoi/integrations/acp/router.py` | `AgentRouter` — slash commands and mode-based routing |
+| `src/thenvoi/integrations/acp/push_handler.py` | `ACPPushHandler` — unsolicited session_update notifications |
+| `src/thenvoi/integrations/acp/event_converter.py` | `EventConverter` — PlatformMessage -> ACP session_update chunks |
+| `src/thenvoi/integrations/acp/cli.py` | `thenvoi-acp` CLI entry point |
+| `src/thenvoi/converters/acp_server.py` | History converter for server adapter |
+| `src/thenvoi/converters/acp_client.py` | History converter for client adapter |
+
+### CLI
+
+```bash
+# Installed via pip/uv as console_scripts entry point
+thenvoi-acp --agent-id my-agent --api-key $THENVOI_API_KEY
+
+# Or with environment variables
+THENVOI_AGENT_ID=my-agent THENVOI_API_KEY=key thenvoi-acp
+```
+
+### Session Lifecycle
+
+1. Editor connects via stdio -> `ACPServer.on_connect()` stores client ref
+2. `new_session(cwd, mcp_servers)` -> creates Thenvoi room, stores cwd/mcp_servers per session
+3. `prompt(blocks, session_id)` -> extracts text/image/resource content, sends to room, waits for `done_event`
+4. `on_message()` receives peer response -> `EventConverter.convert()` -> `session_update` back to editor
+5. `on_cleanup(room_id)` -> removes all session state, unblocks pending prompts
+
+### Per-Session Buffers (Client Adapter)
+
+`ThenvoiACPClient` uses per-session chunk buffers (`_session_chunks: dict[str, list[CollectedChunk]]`) to allow concurrent rooms without global locking. Each session's buffer is reset before a prompt and read after.
+
+### Optional Dependency
+
+```toml
+[project.optional-dependencies]
+acp = ["agent-client-protocol"]
+```
+
+Install with: `pip install thenvoi-sdk[acp]` or `uv add thenvoi-sdk[acp]`
+
 ## REST Client OMIT vs Null
 
 When calling REST endpoints with optional parameters, **never pass `None`** - the Fern client sends `null` which fails backend validation. Instead, use kwargs:
@@ -224,7 +287,7 @@ src/thenvoi/
 ├── platform/       # WebSocket/REST transport, events
 ├── preprocessing/  # Event filtering before adapter
 ├── client/         # Low-level API clients
-├── integrations/   # Deep framework integrations (a2a, anthropic, claude_sdk, langgraph, parlant, pydantic_ai)
+├── integrations/   # Deep framework integrations (a2a, acp, anthropic, claude_sdk, langgraph, parlant, pydantic_ai)
 ├── config/         # Configuration management, YAML loading, env parsing
 ├── testing/        # Testing utilities (fake tools, test helpers)
 └── agent.py        # Main entry point

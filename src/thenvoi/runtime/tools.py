@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import logging
 import warnings
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Literal, cast
 
 from pydantic import BaseModel, Field, ValidationError
@@ -23,6 +24,15 @@ if TYPE_CHECKING:
     from .execution import ExecutionContext
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class ToolDefinition:
+    """Metadata for a built-in Thenvoi tool."""
+
+    name: str
+    input_model: type[BaseModel]
+    method_name: str
 
 
 # --- Tool input models (single source of truth for schemas) ---
@@ -264,25 +274,97 @@ class ArchiveMemoryInput(BaseModel):
     memory_id: str = Field(..., description="Memory ID (UUID)")
 
 
-# Registry mapping tool names to their input models
+# Registry mapping tool names to their schemas and bound AgentTools methods.
+TOOL_DEFINITIONS: dict[str, ToolDefinition] = {
+    "thenvoi_send_message": ToolDefinition(
+        name="thenvoi_send_message",
+        input_model=SendMessageInput,
+        method_name="send_message",
+    ),
+    "thenvoi_send_event": ToolDefinition(
+        name="thenvoi_send_event",
+        input_model=SendEventInput,
+        method_name="send_event",
+    ),
+    "thenvoi_add_participant": ToolDefinition(
+        name="thenvoi_add_participant",
+        input_model=AddParticipantInput,
+        method_name="add_participant",
+    ),
+    "thenvoi_remove_participant": ToolDefinition(
+        name="thenvoi_remove_participant",
+        input_model=RemoveParticipantInput,
+        method_name="remove_participant",
+    ),
+    "thenvoi_lookup_peers": ToolDefinition(
+        name="thenvoi_lookup_peers",
+        input_model=LookupPeersInput,
+        method_name="lookup_peers",
+    ),
+    "thenvoi_get_participants": ToolDefinition(
+        name="thenvoi_get_participants",
+        input_model=GetParticipantsInput,
+        method_name="get_participants",
+    ),
+    "thenvoi_create_chatroom": ToolDefinition(
+        name="thenvoi_create_chatroom",
+        input_model=CreateChatroomInput,
+        method_name="create_chatroom",
+    ),
+    "thenvoi_list_contacts": ToolDefinition(
+        name="thenvoi_list_contacts",
+        input_model=ListContactsInput,
+        method_name="list_contacts",
+    ),
+    "thenvoi_add_contact": ToolDefinition(
+        name="thenvoi_add_contact",
+        input_model=AddContactInput,
+        method_name="add_contact",
+    ),
+    "thenvoi_remove_contact": ToolDefinition(
+        name="thenvoi_remove_contact",
+        input_model=RemoveContactInput,
+        method_name="remove_contact",
+    ),
+    "thenvoi_list_contact_requests": ToolDefinition(
+        name="thenvoi_list_contact_requests",
+        input_model=ListContactRequestsInput,
+        method_name="list_contact_requests",
+    ),
+    "thenvoi_respond_contact_request": ToolDefinition(
+        name="thenvoi_respond_contact_request",
+        input_model=RespondContactRequestInput,
+        method_name="respond_contact_request",
+    ),
+    "thenvoi_list_memories": ToolDefinition(
+        name="thenvoi_list_memories",
+        input_model=ListMemoriesInput,
+        method_name="list_memories",
+    ),
+    "thenvoi_store_memory": ToolDefinition(
+        name="thenvoi_store_memory",
+        input_model=StoreMemoryInput,
+        method_name="store_memory",
+    ),
+    "thenvoi_get_memory": ToolDefinition(
+        name="thenvoi_get_memory",
+        input_model=GetMemoryInput,
+        method_name="get_memory",
+    ),
+    "thenvoi_supersede_memory": ToolDefinition(
+        name="thenvoi_supersede_memory",
+        input_model=SupersedeMemoryInput,
+        method_name="supersede_memory",
+    ),
+    "thenvoi_archive_memory": ToolDefinition(
+        name="thenvoi_archive_memory",
+        input_model=ArchiveMemoryInput,
+        method_name="archive_memory",
+    ),
+}
+
 TOOL_MODELS: dict[str, type[BaseModel]] = {
-    "thenvoi_send_message": SendMessageInput,
-    "thenvoi_send_event": SendEventInput,
-    "thenvoi_add_participant": AddParticipantInput,
-    "thenvoi_remove_participant": RemoveParticipantInput,
-    "thenvoi_lookup_peers": LookupPeersInput,
-    "thenvoi_get_participants": GetParticipantsInput,
-    "thenvoi_create_chatroom": CreateChatroomInput,
-    "thenvoi_list_contacts": ListContactsInput,
-    "thenvoi_add_contact": AddContactInput,
-    "thenvoi_remove_contact": RemoveContactInput,
-    "thenvoi_list_contact_requests": ListContactRequestsInput,
-    "thenvoi_respond_contact_request": RespondContactRequestInput,
-    "thenvoi_list_memories": ListMemoriesInput,
-    "thenvoi_store_memory": StoreMemoryInput,
-    "thenvoi_get_memory": GetMemoryInput,
-    "thenvoi_supersede_memory": SupersedeMemoryInput,
-    "thenvoi_archive_memory": ArchiveMemoryInput,
+    name: definition.input_model for name, definition in TOOL_DEFINITIONS.items()
 }
 
 # Memory tools - optional, only available for enterprise customers.
@@ -367,6 +449,42 @@ def get_tool_description(name: str) -> str:
             return model.__doc__
 
     return f"Execute {name}"
+
+
+def iter_tool_definitions(*, include_memory: bool = False) -> list[ToolDefinition]:
+    """Return built-in tool definitions with optional memory tool inclusion."""
+    definitions = list(TOOL_DEFINITIONS.values())
+    if include_memory:
+        return definitions
+
+    return [
+        definition
+        for definition in definitions
+        if definition.name not in MEMORY_TOOL_NAMES
+    ]
+
+
+def format_tool_validation_error(tool_name: str, error: ValidationError) -> str:
+    """Format Pydantic validation errors for LLM-readable tool feedback."""
+    errors = [
+        f"{'.'.join(str(x) for x in err['loc'])}: {err['msg']}"
+        for err in error.errors()
+    ]
+    return f"Invalid arguments for {tool_name}: {', '.join(errors)}"
+
+
+def validate_tool_arguments(
+    tool_name: str,
+    input_model: type[BaseModel],
+    arguments: dict[str, Any],
+) -> dict[str, Any]:
+    """Validate tool arguments and return a normalized kwargs dictionary."""
+    try:
+        validated = input_model.model_validate(arguments)
+    except ValidationError as error:
+        raise ValueError(format_tool_validation_error(tool_name, error)) from error
+
+    return validated.model_dump(exclude_none=True)
 
 
 class AgentTools(AgentToolsProtocol):
@@ -1302,12 +1420,8 @@ class AgentTools(AgentToolsProtocol):
             )
 
         tools: list[Any] = []
-        for name, model in TOOL_MODELS.items():
-            # Skip memory tools if not enabled
-            if not include_memory and name in MEMORY_TOOL_NAMES:
-                continue
-
-            schema = model.model_json_schema()
+        for definition in iter_tool_definitions(include_memory=include_memory):
+            schema = definition.input_model.model_json_schema()
             # Remove Pydantic-specific keys
             schema.pop("title", None)
 
@@ -1316,8 +1430,8 @@ class AgentTools(AgentToolsProtocol):
                     {
                         "type": "function",
                         "function": {
-                            "name": name,
-                            "description": model.__doc__ or "",
+                            "name": definition.name,
+                            "description": definition.input_model.__doc__ or "",
                             "parameters": schema,
                         },
                     }
@@ -1325,8 +1439,8 @@ class AgentTools(AgentToolsProtocol):
             elif format == "anthropic":
                 tools.append(
                     {
-                        "name": name,
-                        "description": model.__doc__ or "",
+                        "name": definition.name,
+                        "description": definition.input_model.__doc__ or "",
                         "input_schema": schema,
                     }
                 )
@@ -1367,97 +1481,24 @@ class AgentTools(AgentToolsProtocol):
         """
         # Validate arguments against Pydantic model
         try:
-            if tool_name in TOOL_MODELS:
-                model = TOOL_MODELS[tool_name]
-                validated = model.model_validate(arguments)
-                arguments = validated.model_dump(exclude_none=True)
-        except ValidationError as e:
-            # Format validation errors for better LLM readability
-            errors = [
-                f"{'.'.join(str(x) for x in err['loc'])}: {err['msg']}"
-                for err in e.errors()
-            ]
-            return f"Invalid arguments for {tool_name}: {', '.join(errors)}"
+            definition = TOOL_DEFINITIONS.get(tool_name)
+            if definition:
+                arguments = validate_tool_arguments(
+                    tool_name,
+                    definition.input_model,
+                    arguments,
+                )
+        except ValueError as error:
+            return str(error)
         except Exception as e:
             return f"Error validating {tool_name} arguments: {e}"
 
-        # Dispatch to tool method
-        dispatch = {
-            "thenvoi_send_message": lambda: self.send_message(
-                arguments["content"], arguments.get("mentions")
-            ),
-            "thenvoi_send_event": lambda: self.send_event(
-                arguments["content"],
-                arguments["message_type"],
-                arguments.get("metadata"),
-            ),
-            "thenvoi_add_participant": lambda: self.add_participant(
-                arguments["name"], arguments.get("role", "member")
-            ),
-            "thenvoi_remove_participant": lambda: self.remove_participant(
-                arguments["name"]
-            ),
-            "thenvoi_lookup_peers": lambda: self.lookup_peers(
-                arguments.get("page", 1), arguments.get("page_size", 50)
-            ),
-            "thenvoi_get_participants": lambda: self.get_participants(),
-            "thenvoi_create_chatroom": lambda: self.create_chatroom(
-                arguments.get("task_id")
-            ),
-            "thenvoi_list_contacts": lambda: self.list_contacts(
-                arguments.get("page", 1), arguments.get("page_size", 50)
-            ),
-            "thenvoi_add_contact": lambda: self.add_contact(
-                arguments["handle"], arguments.get("message")
-            ),
-            "thenvoi_remove_contact": lambda: self.remove_contact(
-                arguments.get("handle"), arguments.get("contact_id")
-            ),
-            "thenvoi_list_contact_requests": lambda: self.list_contact_requests(
-                arguments.get("page", 1),
-                arguments.get("page_size", 50),
-                arguments.get("sent_status", "pending"),
-            ),
-            "thenvoi_respond_contact_request": lambda: self.respond_contact_request(
-                arguments["action"],
-                arguments.get("handle"),
-                arguments.get("request_id"),
-            ),
-            "thenvoi_list_memories": lambda: self.list_memories(
-                subject_id=arguments.get("subject_id"),
-                scope=arguments.get("scope"),
-                system=arguments.get("system"),
-                type=arguments.get("type"),
-                segment=arguments.get("segment"),
-                content_query=arguments.get("content_query"),
-                page_size=arguments.get("page_size", 50),
-                status=arguments.get("status"),
-            ),
-            "thenvoi_store_memory": lambda: self.store_memory(
-                content=arguments["content"],
-                system=arguments["system"],
-                type=arguments["type"],
-                segment=arguments["segment"],
-                thought=arguments["thought"],
-                scope=arguments.get("scope", "subject"),
-                subject_id=arguments.get("subject_id"),
-                metadata=arguments.get("metadata"),
-            ),
-            "thenvoi_get_memory": lambda: self.get_memory(
-                memory_id=arguments["memory_id"],
-            ),
-            "thenvoi_supersede_memory": lambda: self.supersede_memory(
-                memory_id=arguments["memory_id"],
-            ),
-            "thenvoi_archive_memory": lambda: self.archive_memory(
-                memory_id=arguments["memory_id"],
-            ),
-        }
-
-        if tool_name not in dispatch:
+        definition = TOOL_DEFINITIONS.get(tool_name)
+        if definition is None:
             return f"Unknown tool: {tool_name}"
 
         try:
-            return await dispatch[tool_name]()
+            method = getattr(self, definition.method_name)
+            return await method(**arguments)
         except Exception as e:
             return f"Error executing {tool_name}: {e}"

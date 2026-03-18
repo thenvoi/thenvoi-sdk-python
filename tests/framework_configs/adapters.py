@@ -553,7 +553,9 @@ def _build_gemini_config() -> AdapterConfig:
 # a2a / a2a_gateway use the A2A protocol (Google Agent-to-Agent) which has a
 # fundamentally different lifecycle than framework adapters (no on_message /
 # on_cleanup contract), so they cannot share the same conformance tests.
-ADAPTER_EXCLUDED_MODULES: frozenset[str] = frozenset({"a2a", "a2a_gateway"})
+# acp uses the ACP protocol (Agent Client Protocol) with a similar non-standard
+# lifecycle (ACP JSON-RPC over stdio), so it is also excluded.
+ADAPTER_EXCLUDED_MODULES: frozenset[str] = frozenset({"a2a", "a2a_gateway", "acp"})
 
 
 def _build_google_adk_config() -> AdapterConfig:

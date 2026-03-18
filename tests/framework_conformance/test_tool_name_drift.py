@@ -21,12 +21,14 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+from thenvoi.integrations.claude_sdk.tools import build_thenvoi_sdk_tools
 from thenvoi.runtime.tools import (
     ALL_TOOL_NAMES,
     BASE_TOOL_NAMES,
     CHAT_TOOL_NAMES,
     CONTACT_TOOL_NAMES,
     MEMORY_TOOL_NAMES,
+    iter_tool_definitions,
 )
 
 _SRC_ROOT = Path(__file__).resolve().parents[2] / "src" / "thenvoi"
@@ -79,14 +81,17 @@ class TestClaudeSDKAdapterToolDrift:
             "thenvoi.runtime.tools instead of hardcoding MCP tool names."
         )
 
-    def test_all_tools_referenced_in_source(self):
-        """Every tool in TOOL_MODELS is referenced in the adapter source (first line of defence)."""
-        source = self._FILE.read_text()
-        found = _extract_tool_names(source)
+    def test_shared_builder_covers_all_tools(self):
+        """Every Thenvoi tool should be buildable for the Claude SDK adapter."""
+        sdk_tools = build_thenvoi_sdk_tools(
+            tool_definitions=iter_tool_definitions(include_memory=True),
+            get_tools=lambda _room_id: None,
+        )
+        found = {tool.name for tool in sdk_tools}
         missing = ALL_TOOL_NAMES - found
         assert not missing, (
-            f"Claude SDK adapter is missing @tool handlers for: {sorted(missing)}. "
-            f"Add the tool implementation inside _create_mcp_server()."
+            f"Claude SDK adapter is missing tool wrappers for: {sorted(missing)}. "
+            "Add the tool definition to the shared Claude SDK builder."
         )
 
 
@@ -103,15 +108,11 @@ class TestClaudeSDKIntegrationToolDrift:
             "thenvoi.runtime.tools instead of hardcoding MCP tool names."
         )
 
-    def test_all_chat_tools_referenced_in_source(self):
-        """Every chat tool is referenced in the integration source (first line of defence)."""
+    def test_delegates_to_shared_builder(self):
+        """The integration should delegate tool wrapping to the shared Claude helper."""
         source = self._FILE.read_text()
-        found = _extract_tool_names(source)
-        missing = CHAT_TOOL_NAMES - found
-        assert not missing, (
-            f"Claude SDK integration is missing @tool handlers for: {sorted(missing)}. "
-            f"Add the tool implementation inside create_thenvoi_mcp_server()."
-        )
+        assert "build_thenvoi_sdk_tools(" in source
+        assert "create_thenvoi_sdk_mcp_server(" in source
 
 
 class TestClaudeSDKPromptsToolDrift:

@@ -53,6 +53,12 @@ if TYPE_CHECKING:
     from thenvoi.converters.codex import (
         CodexHistoryConverter as CodexHistoryConverter,
     )
+    from thenvoi.converters.acp_server import (
+        ACPServerHistoryConverter as ACPServerHistoryConverter,
+    )
+    from thenvoi.converters.acp_client import (
+        ACPClientHistoryConverter as ACPClientHistoryConverter,
+    )
     from thenvoi.converters.gemini import (
         GeminiHistoryConverter as GeminiHistoryConverter,
         GeminiMessages as GeminiMessages,
@@ -77,6 +83,8 @@ __all__ = [
     "A2AHistoryConverter",
     "GatewayHistoryConverter",
     "CodexHistoryConverter",
+    "ACPServerHistoryConverter",
+    "ACPClientHistoryConverter",
     "GeminiHistoryConverter",
     "GeminiMessages",
     "GoogleADKHistoryConverter",
@@ -160,6 +168,16 @@ def __getattr__(name: str) -> type:
         if name == "GeminiHistoryConverter":
             return GeminiHistoryConverter
         return GeminiMessages
+
+    elif name == "ACPServerHistoryConverter":
+        from thenvoi.converters.acp_server import ACPServerHistoryConverter
+
+        return ACPServerHistoryConverter
+
+    elif name == "ACPClientHistoryConverter":
+        from thenvoi.converters.acp_client import ACPClientHistoryConverter
+
+        return ACPClientHistoryConverter
 
     elif name in ("GoogleADKHistoryConverter", "GoogleADKMessages"):
         from thenvoi.converters.google_adk import (

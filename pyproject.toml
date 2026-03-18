@@ -92,6 +92,12 @@ a2a_gateway_demo = [
     "langchain-openai>=0.3.0",  # OpenAI model for LLM
     "click>=8.0.0",         # CLI for demo orchestrator
 ]
+acp = [
+    "agent-client-protocol>=0.8.0",  # ACP Python SDK
+    "mcp>=1.25.0",
+    "starlette>=0.40.0",
+    "uvicorn>=0.32.0",
+]
 bridge = [
     "aiohttp>=3.9,<4",      # Health check HTTP server
     "python-dotenv>=1.0",    # Environment variable loading
@@ -144,6 +150,9 @@ dev = [
     # Include crewai for testing
     "crewai>=0.80.0",
     "nest-asyncio>=1.6.0",  # Required for CrewAI adapter sync-to-async bridging
+    # Include ACP deps for testing
+    "agent-client-protocol>=0.8.0",
+    "mcp>=1.25.0",
     # Include Gemini SDK for testing
     "google-genai>=1.43.0",
     # Include google-adk for testing
@@ -159,6 +168,9 @@ dev = [
     "pyrefly>=0.18.0",
     "commitizen>=3.13.0",
 ]
+
+[project.scripts]
+thenvoi-acp = "thenvoi.integrations.acp.cli:entry_point"
 
 [tool.setuptools.packages.find]
 where = ["src"]
@@ -179,6 +191,7 @@ addopts = "-v"
 timeout = 30
 markers = [
     "requires_api: marks tests as requiring real API credentials (skipped in CI)",
+    "e2e: marks tests as end-to-end (requires live services)",
 ]
 
 [tool.uv]
