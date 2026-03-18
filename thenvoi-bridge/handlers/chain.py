@@ -7,8 +7,6 @@ import json
 import logging
 from typing import TYPE_CHECKING, Any
 
-from ._base import resolve_sender
-
 if TYPE_CHECKING:
     import httpx
 
@@ -258,6 +256,7 @@ class LangChainHandler:
         message_id: str,
         sender_id: str,
         sender_name: str | None,
+        sender_handle: str | None,
         sender_type: str,
         mentioned_agent: str,
         tools: AgentTools,
@@ -272,14 +271,6 @@ class LangChainHandler:
         except Exception as exc:
             logger.warning("Failed to send thought event: %s", exc)
 
-        # Resolve sender info from the pre-cached participant list injected
-        # by the bridge.  This avoids a redundant REST API call — the bridge
-        # already populated tools.participants from its participant cache.
-        resolved_name, sender_handle = resolve_sender(sender_id, tools)
-        # Use sender_name (pre-resolved by the bridge) when available,
-        # otherwise fall back to the participant cache lookup.
-        payload_name = sender_name if sender_name is not None else resolved_name
-
         url = self._resolve_url(mentioned_agent)
         payload = self._build_payload(
             content=content,
@@ -287,7 +278,7 @@ class LangChainHandler:
             thread_id=thread_id,
             message_id=message_id,
             sender_id=sender_id,
-            sender_name=payload_name,
+            sender_name=sender_name,
             sender_type=sender_type,
         )
 
@@ -316,8 +307,8 @@ class LangChainHandler:
             ) from exc
 
         # Prefer handle for mention resolution (most reliable for the
-        # platform), fall back to sender_name or resolved display name.
-        mention_identifier = sender_handle or sender_name or resolved_name
+        # platform), fall back to sender_name.
+        mention_identifier = sender_handle or sender_name
         kwargs: dict[str, Any] = {"content": response_text}
         if mention_identifier:
             kwargs["mentions"] = [mention_identifier]

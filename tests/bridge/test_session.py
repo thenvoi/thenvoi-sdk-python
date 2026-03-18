@@ -111,15 +111,24 @@ class TestInMemorySessionStoreTTL:
     def store(self) -> InMemorySessionStore:
         return InMemorySessionStore(session_ttl=60.0)
 
-    async def test_get_returns_expired_session(
+    async def test_get_evicts_expired_session(
         self, store: InMemorySessionStore
     ) -> None:
-        """get() does not evict — expired sessions are still returned."""
+        """get() evicts expired sessions and returns None."""
         session = await store.get_or_create("room-1")
         session.last_activity = datetime.now(timezone.utc) - timedelta(seconds=120)
 
         result = await store.get("room-1")
+        assert result is None
+
+    async def test_get_returns_active_session(
+        self, store: InMemorySessionStore
+    ) -> None:
+        """get() returns sessions that have not expired."""
+        await store.get_or_create("room-1")
+        result = await store.get("room-1")
         assert result is not None
+        assert result.room_id == "room-1"
 
     async def test_active_session_not_evicted(
         self, store: InMemorySessionStore
