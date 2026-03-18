@@ -1,7 +1,7 @@
 """Manual test entry point for the AgentCore bridge handler.
 
-Run from the thenvoi-bridge directory:
-    uv run python examples/run_agentcore.py
+Run from the repo root:
+    uv run python examples/agentcore/run_agentcore.py
 
 Requires .env.test (or ENV_FILE) with:
     THENVOI_AGENT_ID, THENVOI_API_KEY, AGENT_MAPPING,
@@ -17,7 +17,9 @@ import sys
 from typing import Any
 
 # Add thenvoi-bridge dir to path so bridge_core/handlers are importable
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+sys.path.insert(
+    0, os.path.join(os.path.dirname(__file__), "..", "..", "thenvoi-bridge")
+)
 
 from dotenv import load_dotenv
 
