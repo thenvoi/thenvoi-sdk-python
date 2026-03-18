@@ -495,7 +495,7 @@ class TestThenvoiBridgeHandleEvent:
         bridge = bridge_with_mock_link
         # Pre-populate cache
         bridge._participant_cache["room-1"] = [
-            {"id": "user-1", "name": "Alice", "type": "User"}
+            {"id": "user-1", "name": "Alice", "type": "User", "handle": "alice"}
         ]
         event = ParticipantAddedEvent(
             room_id="room-1",
@@ -512,7 +512,7 @@ class TestThenvoiBridgeHandleEvent:
     ) -> None:
         bridge = bridge_with_mock_link
         bridge._participant_cache["room-1"] = [
-            {"id": "user-1", "name": "Alice", "type": "User"}
+            {"id": "user-1", "name": "Alice", "type": "User", "handle": "alice"}
         ]
         event = ParticipantAddedEvent(
             room_id="room-1",
@@ -541,8 +541,8 @@ class TestThenvoiBridgeHandleEvent:
     ) -> None:
         bridge = bridge_with_mock_link
         bridge._participant_cache["room-1"] = [
-            {"id": "user-1", "name": "Alice", "type": "User"},
-            {"id": "user-2", "name": "Bob", "type": "User"},
+            {"id": "user-1", "name": "Alice", "type": "User", "handle": "alice"},
+            {"id": "user-2", "name": "Bob", "type": "User", "handle": "bob"},
         ]
         event = ParticipantRemovedEvent(
             room_id="room-1",
@@ -562,6 +562,7 @@ class TestThenvoiBridgeHandleEvent:
         mock_participant.id = "user-1"
         mock_participant.name = "Alice"
         mock_participant.type = "User"
+        mock_participant.handle = "alice"
         mock_response = MagicMock()
         mock_response.data = [mock_participant]
         bridge._link.rest.agent_api_participants.list_agent_chat_participants = (
@@ -588,7 +589,7 @@ class TestThenvoiBridgeHandleEvent:
     ) -> None:
         bridge = bridge_with_mock_link
         bridge._participant_cache["room-old"] = [
-            {"id": "user-1", "name": "Alice", "type": "User"}
+            {"id": "user-1", "name": "Alice", "type": "User", "handle": "alice"}
         ]
         await bridge._session_store.get_or_create("room-old")
 
@@ -668,7 +669,7 @@ class TestThenvoiBridgeParticipantCache:
     ) -> None:
         bridge = bridge_with_full_mock
         bridge._participant_cache["room-1"] = [
-            {"id": "user-1", "name": "Jane", "type": "User"}
+            {"id": "user-1", "name": "Jane", "type": "User", "handle": "jane"}
         ]
 
         payload = MessageCreatedPayload(
@@ -689,9 +690,10 @@ class TestThenvoiBridgeParticipantCache:
 
         # REST API should NOT be called since cache was used
         bridge._link.rest.agent_api_participants.list_agent_chat_participants.assert_not_called()
-        # Handler should receive resolved sender_name
+        # Handler should receive resolved sender_name and sender_handle
         call_kwargs = bridge._handlers["handler_a"].handle.call_args.kwargs
         assert call_kwargs["sender_name"] == "Jane"
+        assert call_kwargs["sender_handle"] == "jane"
 
     async def test_cache_miss_falls_back_to_rest(
         self, bridge_with_full_mock: ThenvoiBridge
@@ -701,6 +703,7 @@ class TestThenvoiBridgeParticipantCache:
         mock_participant.id = "user-1"
         mock_participant.name = "Jane"
         mock_participant.type = "User"
+        mock_participant.handle = "jane"
         mock_response = MagicMock()
         mock_response.data = [mock_participant]
         bridge._link.rest.agent_api_participants.list_agent_chat_participants = (
@@ -727,16 +730,17 @@ class TestThenvoiBridgeParticipantCache:
         bridge._link.rest.agent_api_participants.list_agent_chat_participants.assert_called_once()
         # Cache should now be populated
         assert "room-1" in bridge._participant_cache
-        # Handler should receive resolved sender_name
+        # Handler should receive resolved sender_name and sender_handle
         call_kwargs = bridge._handlers["handler_a"].handle.call_args.kwargs
         assert call_kwargs["sender_name"] == "Jane"
+        assert call_kwargs["sender_handle"] == "jane"
 
     async def test_sender_name_none_when_not_found(
         self, bridge_with_full_mock: ThenvoiBridge
     ) -> None:
         bridge = bridge_with_full_mock
         bridge._participant_cache["room-1"] = [
-            {"id": "other-user", "name": "Bob", "type": "User"}
+            {"id": "other-user", "name": "Bob", "type": "User", "handle": "bob"}
         ]
 
         payload = MessageCreatedPayload(
@@ -757,6 +761,7 @@ class TestThenvoiBridgeParticipantCache:
 
         call_kwargs = bridge._handlers["handler_a"].handle.call_args.kwargs
         assert call_kwargs["sender_name"] is None
+        assert call_kwargs["sender_handle"] is None
 
 
 class TestThenvoiBridgeFetchExistingRooms:
@@ -929,6 +934,77 @@ class TestThenvoiBridgeReconnect:
         assert sleep_delays[0] == 1.0
         assert sleep_delays[1] == 2.0
         assert sleep_delays[2] == 1.0
+
+
+class TestReconnectBackoffCalculation:
+    """Verify exponential backoff delays are calculated correctly."""
+
+    async def test_exponential_backoff_delays(
+        self, bridge_config: BridgeConfig
+    ) -> None:
+        reconnect = ReconnectConfig(
+            initial_delay=1.0, multiplier=2.0, max_delay=10.0, jitter=0, max_retries=5
+        )
+        bridge = ThenvoiBridge(
+            config=bridge_config,
+            handlers={"handler_a": AsyncMock()},
+            reconnect_config=reconnect,
+        )
+        bridge._link = MagicMock()
+        bridge._link.disconnect = AsyncMock()
+
+        bridge._connect_and_consume = AsyncMock(
+            side_effect=ConnectionError("always fails")
+        )
+
+        sleep_delays: list[float] = []
+
+        async def capture_sleep(delay: float) -> None:
+            sleep_delays.append(delay)
+
+        with patch("bridge_core.bridge.asyncio.sleep", side_effect=capture_sleep):
+            await bridge._run_with_reconnect()
+
+        # 5 attempts = 4 sleeps (no sleep after final failure hits max_retries)
+        assert bridge._connect_and_consume.call_count == 5
+        # Jitter is 0, so delays should be exactly:
+        # 1.0, 2.0, 4.0, 8.0
+        assert sleep_delays[0] == 1.0
+        assert sleep_delays[1] == 2.0
+        assert sleep_delays[2] == 4.0
+        assert sleep_delays[3] == 8.0
+
+    async def test_backoff_capped_at_max_delay(
+        self, bridge_config: BridgeConfig
+    ) -> None:
+        reconnect = ReconnectConfig(
+            initial_delay=5.0, multiplier=3.0, max_delay=10.0, jitter=0, max_retries=4
+        )
+        bridge = ThenvoiBridge(
+            config=bridge_config,
+            handlers={"handler_a": AsyncMock()},
+            reconnect_config=reconnect,
+        )
+        bridge._link = MagicMock()
+        bridge._link.disconnect = AsyncMock()
+
+        bridge._connect_and_consume = AsyncMock(
+            side_effect=ConnectionError("always fails")
+        )
+
+        sleep_delays: list[float] = []
+
+        async def capture_sleep(delay: float) -> None:
+            sleep_delays.append(delay)
+
+        with patch("bridge_core.bridge.asyncio.sleep", side_effect=capture_sleep):
+            await bridge._run_with_reconnect()
+
+        # 4 attempts = 3 sleeps (no sleep after final failure)
+        # 5.0, min(15.0, 10.0)=10.0, min(30.0, 10.0)=10.0
+        assert sleep_delays[0] == 5.0
+        assert sleep_delays[1] == 10.0
+        assert sleep_delays[2] == 10.0
 
 
 class TestThenvoiBridgeShutdown:

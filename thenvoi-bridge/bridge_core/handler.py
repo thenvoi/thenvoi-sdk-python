@@ -25,6 +25,7 @@ class Handler(Protocol):
         message_id: str,
         sender_id: str,
         sender_name: str | None,
+        sender_handle: str | None,
         sender_type: str,
         mentioned_agent: str,
         tools: AgentTools,
@@ -38,6 +39,7 @@ class Handler(Protocol):
             message_id: The platform message ID.
             sender_id: ID of the message sender.
             sender_name: Display name of the sender, or None if unresolvable.
+            sender_handle: Handle of the sender, or None if unresolvable.
             sender_type: Type of sender ("User", "Agent", "System").
             mentioned_agent: The agent name that was @mentioned.
             tools: AgentTools instance bound to the room for sending responses.
