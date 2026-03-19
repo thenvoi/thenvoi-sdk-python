@@ -4,6 +4,15 @@ These tests verify that history converters work correctly with real session
 history from the platform. This catches any mismatches between the expected
 format in the converters and the actual format stored by the platform.
 
+Room sharing strategy:
+    All test classes share a single ``shared_room`` fixture (session-scoped)
+    to stay within the platform's 10-room-per-agent limit. Each test posts
+    messages with a unique ``uuid`` prefix and filters assertions by that
+    prefix, so concurrent or sequential runs don't interfere. The tradeoff
+    is that room history grows over time; if converter tests start failing
+    due to context window limits, either prune the room or create a fresh
+    agent.
+
 Run with: uv run pytest tests/integration/test_history_converters.py -v -s
 """
 
@@ -17,7 +26,7 @@ import pytest
 from thenvoi_rest import ChatEventRequest, ChatMessageRequest
 from thenvoi_rest.types import ChatMessageRequestMentionsItem as Mention
 
-from tests.integration.conftest import requires_api
+from tests.integration.conftest import fetch_all_context, requires_api
 
 logger = logging.getLogger(__name__)
 
@@ -127,10 +136,8 @@ class TestAnthropicConverterIntegration:
         logger.info("Created tool_result event")
 
         # === STEP 4: Fetch history from platform ===
-        context_response = await api_client.agent_api_context.get_agent_chat_context(
-            chat_id
-        )
-        raw_history = [msg.model_dump() for msg in context_response.data]
+        context_items = await fetch_all_context(api_client, chat_id)
+        raw_history = [msg.model_dump() for msg in context_items]
         logger.info("Fetched %d messages from platform", len(raw_history))
 
         # === STEP 5: Convert using Anthropic converter ===
@@ -221,10 +228,8 @@ class TestAnthropicConverterIntegration:
         )
 
         # === Fetch and convert ===
-        context_response = await api_client.agent_api_context.get_agent_chat_context(
-            chat_id
-        )
-        raw_history = [msg.model_dump() for msg in context_response.data]
+        context_items = await fetch_all_context(api_client, chat_id)
+        raw_history = [msg.model_dump() for msg in context_items]
 
         converter = AnthropicHistoryConverter(agent_name=agent_name)
         result = converter.convert(raw_history)
@@ -328,10 +333,8 @@ class TestPydanticAIConverterIntegration:
         )
 
         # === Fetch and convert ===
-        context_response = await api_client.agent_api_context.get_agent_chat_context(
-            chat_id
-        )
-        raw_history = [msg.model_dump() for msg in context_response.data]
+        context_items = await fetch_all_context(api_client, chat_id)
+        raw_history = [msg.model_dump() for msg in context_items]
 
         converter = PydanticAIHistoryConverter(agent_name=agent_name)
         result = converter.convert(raw_history)
@@ -452,10 +455,8 @@ class TestMixedConversationIntegration:
         )
 
         # === Fetch and convert ===
-        context_response = await api_client.agent_api_context.get_agent_chat_context(
-            chat_id
-        )
-        raw_history = [msg.model_dump() for msg in context_response.data]
+        context_items = await fetch_all_context(api_client, chat_id)
+        raw_history = [msg.model_dump() for msg in context_items]
 
         converter = AnthropicHistoryConverter(agent_name=agent_name)
         result = converter.convert(raw_history)
@@ -529,10 +530,8 @@ class TestEdgeCasesIntegration:
         )
 
         # Fetch and convert
-        context_response = await api_client.agent_api_context.get_agent_chat_context(
-            chat_id
-        )
-        raw_history = [msg.model_dump() for msg in context_response.data]
+        context_items = await fetch_all_context(api_client, chat_id)
+        raw_history = [msg.model_dump() for msg in context_items]
 
         converter = AnthropicHistoryConverter()
         result = converter.convert(raw_history)
@@ -577,10 +576,8 @@ class TestEdgeCasesIntegration:
         )
 
         # Fetch and convert
-        context_response = await api_client.agent_api_context.get_agent_chat_context(
-            chat_id
-        )
-        raw_history = [msg.model_dump() for msg in context_response.data]
+        context_items = await fetch_all_context(api_client, chat_id)
+        raw_history = [msg.model_dump() for msg in context_items]
 
         converter = AnthropicHistoryConverter()
         result = converter.convert(raw_history)
@@ -645,10 +642,8 @@ class TestMentionReplacementIntegration:
         logger.info("Sent message: %s (with mention in array)", message_content)
 
         # Verify raw history contains UUID format
-        context_response = await api_client.agent_api_context.get_agent_chat_context(
-            chat_id
-        )
-        raw_history = [msg.model_dump() for msg in context_response.data]
+        context_items = await fetch_all_context(api_client, chat_id)
+        raw_history = [msg.model_dump() for msg in context_items]
         logger.info("Fetched %d messages from platform", len(raw_history))
 
         raw_message = next(

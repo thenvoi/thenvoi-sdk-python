@@ -111,6 +111,18 @@ def _parlant_factory(**kw: Any) -> Any:
     return ParlantHistoryConverter(**kw)
 
 
+def _gemini_factory(**kw: Any) -> Any:
+    from thenvoi.converters.gemini import GeminiHistoryConverter
+
+    return GeminiHistoryConverter(**kw)
+
+
+def _google_adk_factory(**kw: Any) -> Any:
+    from thenvoi.converters.google_adk import GoogleADKHistoryConverter
+
+    return GoogleADKHistoryConverter(**kw)
+
+
 # ---------------------------------------------------------------------------
 # Registry  (built lazily to avoid top-level converter imports)
 # ---------------------------------------------------------------------------
@@ -219,21 +231,56 @@ def _build_parlant_config() -> ConverterConfig:
     )
 
 
+def _build_gemini_config() -> ConverterConfig:
+    from tests.framework_configs.output_adapters import GeminiOutputAdapter
+
+    return ConverterConfig(
+        framework_id="gemini",
+        display_name="Gemini",
+        converter_factory=_gemini_factory,
+        empty_result=[],
+        filters_own_messages=False,  # Gemini keeps own-agent text as model role for turn alternation
+        empty_sender_behavior=SenderBehavior.CONTENT_AS_IS,
+        missing_sender_behavior=SenderBehavior.CONTENT_AS_IS,
+        output_adapter=GeminiOutputAdapter(),
+    )
+
+
 # Converter modules intentionally excluded from conformance tests.
-# _tool_parsing is an internal utility (shared parsing helpers, not a converter).
+# _tool_parsing and _utils are internal utility modules (shared helpers, not converters).
 # a2a / a2a_gateway use the A2A protocol which has a different message schema.
-# codex returns CodexSessionState (session metadata), not LLM message history.
+# acp_client / acp_server use ACP protocol session updates, not standard convert().
+# codex, letta, and opencode are metadata-only converters that extract session state
+# from task event metadata rather than converting message history. They don't implement
+# the standard convert() -> framework-format contract that conformance tests validate.
 CONVERTER_EXCLUDED_MODULES: frozenset[str] = frozenset(
     {
         "_tool_parsing",
         "_utils",
         "a2a",
         "a2a_gateway",
+        "acp_client",
+        "acp_server",
         "codex",
         "letta",
         "opencode",
     }
 )
+
+
+def _build_google_adk_config() -> ConverterConfig:
+    from tests.framework_configs.output_adapters import GoogleADKOutputAdapter
+
+    return ConverterConfig(
+        framework_id="google_adk",
+        display_name="GoogleADK",
+        converter_factory=_google_adk_factory,
+        empty_result=[],
+        empty_sender_behavior=SenderBehavior.CONTENT_AS_IS,
+        missing_sender_behavior=SenderBehavior.CONTENT_AS_IS,
+        output_adapter=GoogleADKOutputAdapter(),
+    )
+
 
 _CONVERTER_CONFIG_BUILDERS: list[Callable[[], ConverterConfig]] = [
     _build_anthropic_config,
@@ -242,6 +289,8 @@ _CONVERTER_CONFIG_BUILDERS: list[Callable[[], ConverterConfig]] = [
     _build_claude_sdk_config,
     _build_pydantic_ai_config,
     _build_parlant_config,
+    _build_gemini_config,
+    _build_google_adk_config,
 ]
 
 

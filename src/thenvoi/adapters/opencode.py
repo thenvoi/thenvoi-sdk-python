@@ -18,16 +18,18 @@ from thenvoi.converters.opencode import OpencodeHistoryConverter
 from thenvoi.core.protocols import AgentToolsProtocol
 from thenvoi.core.simple_adapter import SimpleAdapter
 from thenvoi.core.types import PlatformMessage
+from thenvoi.integrations.mcp.backends import (
+    ThenvoiMCPBackend,
+    create_thenvoi_mcp_backend,
+)
 from thenvoi.integrations.opencode import (
-    CustomToolMcpServer,
     HttpOpencodeClient,
-    OpencodeMcpServerProtocol,
     OpencodeClientProtocol,
     OpencodeSessionState,
-    ThenvoiMcpServer,
 )
 from thenvoi.runtime.custom_tools import CustomToolDef
 from thenvoi.runtime.prompts import render_system_prompt
+from thenvoi.runtime.tools import iter_tool_definitions
 
 logger = logging.getLogger(__name__)
 
@@ -37,7 +39,7 @@ ApprovalReply = Literal["once", "always", "reject"]
 
 _OPENCODE_SYSTEM_NOTE = """\
 Responses are relayed back into the Thenvoi room by the adapter.
-Use the thenvoi-mcp tools for Thenvoi platform actions when they are available.
+Use the thenvoi_ prefixed tools (e.g. thenvoi_send_message) for Thenvoi platform actions when available.
 When you need approval or clarification, ask clearly and wait for the user's next room message.
 """
 
@@ -92,6 +94,7 @@ class OpencodeAdapterConfig:
     include_base_instructions: bool = False
     enable_task_events: bool = True
     enable_execution_reporting: bool = False
+    enable_memory_tools: bool = False
     fallback_send_agent_text: bool = True
     turn_timeout_s: float = 300.0
     approval_mode: ApprovalMode = "manual"
@@ -101,12 +104,6 @@ class OpencodeAdapterConfig:
     question_wait_timeout_s: float = 300.0
     session_title_prefix: str = "Thenvoi"
     mcp_server_name: str = "thenvoi"
-    mcp_server_url: str | None = None
-    mcp_server_command: tuple[str, ...] | None = None
-    mcp_server_env: dict[str, str] = field(default_factory=dict)
-    mcp_server_host: str = "127.0.0.1"
-    mcp_server_port: int | None = None
-    mcp_server_startup_timeout_s: float = 10.0
 
 
 class OpencodeAdapter(SimpleAdapter[OpencodeSessionState]):
@@ -139,11 +136,6 @@ class OpencodeAdapter(SimpleAdapter[OpencodeSessionState]):
         history_converter: OpencodeHistoryConverter | None = None,
         client_factory: Callable[[OpencodeAdapterConfig], OpencodeClientProtocol]
         | None = None,
-        mcp_server_factory: Callable[[OpencodeAdapterConfig], OpencodeMcpServerProtocol]
-        | None = None,
-        custom_tool_mcp_server_factory: (
-            Callable[[list[CustomToolDef]], OpencodeMcpServerProtocol] | None
-        ) = None,
     ) -> None:
         super().__init__(
             history_converter=history_converter or OpencodeHistoryConverter()
@@ -151,17 +143,9 @@ class OpencodeAdapter(SimpleAdapter[OpencodeSessionState]):
         self.config = config or OpencodeAdapterConfig()
         self._custom_tools: list[CustomToolDef] = list(additional_tools or [])
         self._client_factory = client_factory or self._default_client_factory
-        self._mcp_server_factory = (
-            mcp_server_factory or self._default_mcp_server_factory
-        )
-        self._custom_tool_mcp_server_factory = (
-            custom_tool_mcp_server_factory
-            or self._default_custom_tool_mcp_server_factory
-        )
         self._client: OpencodeClientProtocol | None = None
         self._event_task: asyncio.Task[None] | None = None
-        self._mcp_server: OpencodeMcpServerProtocol | None = None
-        self._custom_tool_mcp_server: OpencodeMcpServerProtocol | None = None
+        self._mcp_backend: ThenvoiMCPBackend | None = None
         self._rooms: dict[str, _RoomState] = {}
         self._room_by_session: dict[str, str] = {}
         self._state_lock = asyncio.Lock()
@@ -183,17 +167,11 @@ class OpencodeAdapter(SimpleAdapter[OpencodeSessionState]):
         self._log_startup_config(agent_name)
 
     def _log_startup_config(self, agent_name: str) -> None:
-        mcp_mode = "disabled"
-        if self.config.mcp_server_url:
-            mcp_mode = self.config.mcp_server_url
-        elif self.config.mcp_server_command or self.config.mcp_server_env:
-            mcp_mode = "subprocess"
-
         logger.info(
             "OpenCode adapter started: agent=%s, base_url=%s, "
             "provider=%s, model=%s, approval_mode=%s, "
             "question_mode=%s, execution_reporting=%s, "
-            "task_events=%s, mcp_server=%s (%s), custom_tools=%d",
+            "task_events=%s, mcp_server=%s, custom_tools=%d",
             agent_name,
             self.config.base_url,
             self.config.provider_id or "default",
@@ -203,7 +181,6 @@ class OpencodeAdapter(SimpleAdapter[OpencodeSessionState]):
             self.config.enable_execution_reporting,
             self.config.enable_task_events,
             self.config.mcp_server_name,
-            mcp_mode,
             len(self._custom_tools),
         )
 
@@ -339,30 +316,10 @@ class OpencodeAdapter(SimpleAdapter[OpencodeSessionState]):
             timeout_s=config.turn_timeout_s,
         )
 
-    def _default_mcp_server_factory(
-        self, config: OpencodeAdapterConfig
-    ) -> OpencodeMcpServerProtocol:
-        return ThenvoiMcpServer(
-            server_name=config.mcp_server_name,
-            server_url=config.mcp_server_url,
-            command=config.mcp_server_command,
-            env=config.mcp_server_env or None,
-            host=config.mcp_server_host,
-            port=config.mcp_server_port,
-            startup_timeout_s=config.mcp_server_startup_timeout_s,
-        )
-
-    def _default_custom_tool_mcp_server_factory(
-        self, tools: list[CustomToolDef]
-    ) -> OpencodeMcpServerProtocol:
-        return CustomToolMcpServer(custom_tools=tools)
-
-    def _should_use_mcp_server(self) -> bool:
-        return (
-            self.config.mcp_server_url is not None
-            or self.config.mcp_server_command is not None
-            or bool(self.config.mcp_server_env)
-        )
+    def _get_room_tools(self, room_id: str) -> AgentToolsProtocol | None:
+        """Resolve room-scoped tools for the shared MCP backend."""
+        state = self._rooms.get(room_id)
+        return state.tools if state else None
 
     async def _get_or_create_room_state(self, room_id: str) -> _RoomState:
         async with self._state_lock:
@@ -381,135 +338,85 @@ class OpencodeAdapter(SimpleAdapter[OpencodeSessionState]):
                 self._event_task = asyncio.create_task(self._run_event_loop())
 
         if was_new:
-            await self._register_mcp_servers()
+            await self._register_mcp_backend()
 
-    async def _ensure_mcp_server_started(self) -> str | None:
-        async with self._state_lock:
-            if self._mcp_server is None:
-                self._mcp_server = self._mcp_server_factory(self.config)
-            mcp_server = self._mcp_server
+    async def _ensure_mcp_backend(self) -> ThenvoiMCPBackend:
+        """Create the shared Thenvoi MCP backend (LocalMCPServer with SSE)."""
+        if self._mcp_backend is not None:
+            return self._mcp_backend
 
-        try:
-            return await mcp_server.start()
-        except Exception:
-            logger.exception("Failed to start thenvoi-mcp for OpenCode")
-            return
+        tool_definitions = list(
+            iter_tool_definitions(include_memory=self.config.enable_memory_tools)
+        )
+        backend = await create_thenvoi_mcp_backend(
+            kind="sse",
+            tool_definitions=tool_definitions,
+            get_tools=self._get_room_tools,
+            additional_tools=self._custom_tools or None,
+        )
+        # Re-check after await: _shutdown_client may have cleared _mcp_backend
+        if self._mcp_backend is not None:
+            await backend.stop()
+            return self._mcp_backend
+        self._mcp_backend = backend
+        logger.info(
+            "Shared Thenvoi MCP backend started with %d tools (%d custom)",
+            len(backend.allowed_tools),
+            len(self._custom_tools),
+        )
+        return backend
 
-    async def _ensure_custom_tool_mcp_server_started(self) -> str | None:
-        if not self._custom_tools:
-            return None
-
-        async with self._state_lock:
-            if self._custom_tool_mcp_server is None:
-                self._custom_tool_mcp_server = self._custom_tool_mcp_server_factory(
-                    self._custom_tools
-                )
-            custom_tool_mcp_server = self._custom_tool_mcp_server
-
-        try:
-            return await custom_tool_mcp_server.start()
-        except Exception:
-            logger.exception("Failed to start custom tool MCP server for OpenCode")
-            return
-
-    async def _register_mcp_server(
-        self,
-        *,
-        server_name: str,
-        url: str | None,
-    ) -> None:
-        """Register an MCP server with the OpenCode server."""
+    async def _register_mcp_backend(self) -> None:
+        """Start the shared MCP backend and register it with OpenCode."""
         if self._client is None:
             return
 
-        if url is None:
+        try:
+            backend = await self._ensure_mcp_backend()
+        except Exception:
+            logger.exception("Failed to start shared Thenvoi MCP backend for OpenCode")
+            return
+
+        local_server = backend.local_server
+        if local_server is None:
+            logger.warning("MCP backend has no local server to register with OpenCode")
             return
 
         try:
             await self._client.register_mcp_server(
-                name=server_name,
-                url=url,
+                name=self.config.mcp_server_name,
+                url=local_server.sse_url,
             )
             logger.info(
-                "Registered MCP server %s with OpenCode",
-                server_name,
+                "Registered MCP server %s at %s with OpenCode",
+                self.config.mcp_server_name,
+                local_server.sse_url,
             )
         except Exception:
             logger.exception(
-                "Failed to register MCP server %s with OpenCode", server_name
+                "Failed to register MCP server %s with OpenCode",
+                self.config.mcp_server_name,
             )
-
-    async def _register_mcp_servers(self) -> None:
-        if self._client is None:
-            return
-
-        if self._should_use_mcp_server():
-            await self._register_mcp_server(
-                server_name=self.config.mcp_server_name,
-                url=await self._ensure_mcp_server_started(),
-            )
-
-        if self._custom_tools:
-            custom_tool_url = await self._ensure_custom_tool_mcp_server_started()
-            custom_tool_mcp_server = self._custom_tool_mcp_server
-            await self._register_mcp_server(
-                server_name=(
-                    custom_tool_mcp_server.server_name
-                    if custom_tool_mcp_server is not None
-                    else "thenvoi-custom-tools"
-                ),
-                url=custom_tool_url,
-            )
-
-    async def _stop_mcp_server(
-        self,
-        *,
-        client: OpencodeClientProtocol | None,
-        mcp_server: OpencodeMcpServerProtocol | None,
-    ) -> None:
-        """Deregister thenvoi-mcp and stop any local subprocess."""
-        if mcp_server is None:
-            return
-
-        if client is not None:
-            try:
-                await client.deregister_mcp_server(mcp_server.server_name)
-            except Exception:
-                logger.debug(
-                    "Failed to deregister MCP server %s (OpenCode may already be stopped)",
-                    mcp_server.server_name,
-                )
-        await mcp_server.stop()
-
-    async def _stop_mcp_servers(
-        self,
-        *,
-        client: OpencodeClientProtocol | None,
-        mcp_server: OpencodeMcpServerProtocol | None,
-        custom_tool_mcp_server: OpencodeMcpServerProtocol | None,
-    ) -> None:
-        await self._stop_mcp_server(client=client, mcp_server=mcp_server)
-        await self._stop_mcp_server(
-            client=client,
-            mcp_server=custom_tool_mcp_server,
-        )
 
     async def _shutdown_client(self) -> None:
         async with self._state_lock:
             event_task = self._event_task
             client = self._client
-            mcp_server = self._mcp_server
-            custom_tool_mcp_server = self._custom_tool_mcp_server
+            mcp_backend = self._mcp_backend
             self._event_task = None
             self._client = None
-            self._mcp_server = None
-            self._custom_tool_mcp_server = None
+            self._mcp_backend = None
 
-        await self._stop_mcp_servers(
-            client=client,
-            mcp_server=mcp_server,
-            custom_tool_mcp_server=custom_tool_mcp_server,
-        )
+        if mcp_backend is not None:
+            if client is not None:
+                try:
+                    await client.deregister_mcp_server(self.config.mcp_server_name)
+                except Exception:
+                    logger.debug(
+                        "Failed to deregister MCP server %s (OpenCode may already be stopped)",
+                        self.config.mcp_server_name,
+                    )
+            await mcp_backend.stop()
 
         if event_task is not None:
             event_task.cancel()

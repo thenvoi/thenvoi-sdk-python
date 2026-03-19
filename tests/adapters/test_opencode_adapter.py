@@ -6,6 +6,7 @@ import asyncio
 import json
 from datetime import datetime
 from typing import Any, cast
+from unittest.mock import AsyncMock, patch
 from uuid import uuid4
 
 import httpx
@@ -319,33 +320,26 @@ class AnyHTTPStatusError(httpx.HTTPStatusError):
         super().__init__("status error", request=request, response=response)
 
 
-class FakeThenvoiMcpServer:
+class FakeMCPBackend:
+    """Fake ThenvoiMCPBackend for tests."""
+
     def __init__(
         self,
         *,
-        server_name: str = "thenvoi",
-        url: str = "http://127.0.0.1:8002/sse",
+        sse_url: str = "http://127.0.0.1:50000/sse",
         stop_started: asyncio.Event | None = None,
         stop_release: asyncio.Event | None = None,
     ) -> None:
-        self._server_name = server_name
-        self._url = url
-        self.start_calls = 0
+        self.kind = "sse"
+        self.server = None
+        self.allowed_tools: list[str] = []
+        self._sse_url = sse_url
+        self.local_server = type(
+            "_FakeLocalServer", (), {"sse_url": sse_url, "stop": AsyncMock()}
+        )()
         self.stop_calls = 0
         self._stop_started = stop_started
         self._stop_release = stop_release
-
-    @property
-    def server_name(self) -> str:
-        return self._server_name
-
-    @property
-    def url(self) -> str:
-        return self._url
-
-    async def start(self) -> str:
-        self.start_calls += 1
-        return self._url
 
     async def stop(self) -> None:
         self.stop_calls += 1
@@ -353,6 +347,19 @@ class FakeThenvoiMcpServer:
             self._stop_started.set()
         if self._stop_release is not None:
             await self._stop_release.wait()
+
+
+def _make_fake_mcp_backend_factory(
+    backend: FakeMCPBackend | None = None,
+) -> AsyncMock:
+    """Return an AsyncMock that produces a FakeMCPBackend."""
+    fake = backend or FakeMCPBackend()
+
+    async def factory(**kwargs: Any) -> FakeMCPBackend:
+        return fake
+
+    mock = AsyncMock(side_effect=factory)
+    return mock
 
 
 async def wait_for(predicate, timeout_s: float = 1.0) -> None:
@@ -365,8 +372,17 @@ async def wait_for(predicate, timeout_s: float = 1.0) -> None:
 
 
 class TestOpencodeAdapter:
+    @pytest.fixture(autouse=True)
+    def _patch_mcp_backend(self) -> Any:
+        """Patch MCP backend creation for all tests by default."""
+        with patch(
+            "thenvoi.adapters.opencode.create_thenvoi_mcp_backend",
+            _make_fake_mcp_backend_factory(),
+        ):
+            yield
+
     @pytest.mark.asyncio
-    async def test_registers_thenvoi_mcp_and_additional_tools_together(self) -> None:
+    async def test_registers_shared_mcp_backend_with_additional_tools(self) -> None:
         class EchoInput(BaseModel):
             """Echo text."""
 
@@ -375,6 +391,7 @@ class TestOpencodeAdapter:
         def echo_tool(input_data: EchoInput) -> str:
             return input_data.text
 
+        fake_backend = FakeMCPBackend(sse_url="http://127.0.0.1:50000/sse")
         fake_client = FakeOpencodeClient(
             prompt_event_sequences=[
                 [
@@ -384,43 +401,36 @@ class TestOpencodeAdapter:
                 ]
             ]
         )
-        fake_thenvoi_mcp = FakeThenvoiMcpServer(
-            server_name="thenvoi",
-            url="http://127.0.0.1:8002/sse",
-        )
-        fake_custom_tools_mcp = FakeThenvoiMcpServer(
-            server_name="thenvoi-custom-tools",
-            url="http://127.0.0.1:8003/sse",
-        )
         adapter = OpencodeAdapter(
-            config=OpencodeAdapterConfig(mcp_server_url="http://127.0.0.1:8002/sse"),
             additional_tools=[(EchoInput, echo_tool)],
             client_factory=lambda _config: fake_client,
-            mcp_server_factory=lambda _config: fake_thenvoi_mcp,
-            custom_tool_mcp_server_factory=lambda _tools: fake_custom_tools_mcp,
         )
         tools = FakeAgentTools()
 
-        await adapter.on_started("OpenCode Agent", "A coding agent")
-        await adapter.on_message(
-            make_platform_message(),
-            tools_protocol(tools),
-            OpencodeSessionState(),
-            participants_msg=None,
-            contacts_msg=None,
-            is_session_bootstrap=True,
-            room_id="room-1",
-        )
+        with patch(
+            "thenvoi.adapters.opencode.create_thenvoi_mcp_backend",
+            _make_fake_mcp_backend_factory(fake_backend),
+        ):
+            await adapter.on_started("OpenCode Agent", "A coding agent")
+            await adapter.on_message(
+                make_platform_message(),
+                tools_protocol(tools),
+                OpencodeSessionState(),
+                participants_msg=None,
+                contacts_msg=None,
+                is_session_bootstrap=True,
+                room_id="room-1",
+            )
 
         assert fake_client.registered_mcp_servers == [
-            {"name": "thenvoi", "url": "http://127.0.0.1:8002/sse"},
-            {"name": "thenvoi-custom-tools", "url": "http://127.0.0.1:8003/sse"},
+            {"name": "thenvoi", "url": "http://127.0.0.1:50000/sse"},
         ]
 
         await adapter.on_cleanup("room-1")
 
     @pytest.mark.asyncio
-    async def test_registers_thenvoi_mcp_server_when_configured(self) -> None:
+    async def test_registers_shared_mcp_backend_on_startup(self) -> None:
+        fake_backend = FakeMCPBackend()
         fake_client = FakeOpencodeClient(
             prompt_event_sequences=[
                 [
@@ -430,33 +440,33 @@ class TestOpencodeAdapter:
                 ]
             ]
         )
-        fake_mcp_server = FakeThenvoiMcpServer()
         adapter = OpencodeAdapter(
-            config=OpencodeAdapterConfig(mcp_server_url="http://127.0.0.1:8002/sse"),
             client_factory=lambda _config: fake_client,
-            mcp_server_factory=lambda _config: fake_mcp_server,
         )
         tools = FakeAgentTools()
 
-        await adapter.on_started("OpenCode Agent", "A coding agent")
-        await adapter.on_message(
-            make_platform_message(),
-            tools_protocol(tools),
-            OpencodeSessionState(),
-            participants_msg=None,
-            contacts_msg=None,
-            is_session_bootstrap=True,
-            room_id="room-1",
-        )
+        with patch(
+            "thenvoi.adapters.opencode.create_thenvoi_mcp_backend",
+            _make_fake_mcp_backend_factory(fake_backend),
+        ):
+            await adapter.on_started("OpenCode Agent", "A coding agent")
+            await adapter.on_message(
+                make_platform_message(),
+                tools_protocol(tools),
+                OpencodeSessionState(),
+                participants_msg=None,
+                contacts_msg=None,
+                is_session_bootstrap=True,
+                room_id="room-1",
+            )
 
-        assert fake_mcp_server.start_calls == 1
         assert fake_client.registered_mcp_servers == [
-            {"name": "thenvoi", "url": "http://127.0.0.1:8002/sse"}
+            {"name": "thenvoi", "url": "http://127.0.0.1:50000/sse"}
         ]
 
         await adapter.on_cleanup("room-1")
         assert fake_client.deregistered_mcp_servers == ["thenvoi"]
-        assert fake_mcp_server.stop_calls == 1
+        assert fake_backend.stop_calls == 1
 
     @pytest.mark.asyncio
     async def test_bootstrap_creates_session_relays_text_and_persists_task(
@@ -947,7 +957,7 @@ class TestOpencodeAdapter:
     async def test_cleanup_race_creates_a_fresh_client_for_the_next_room(self) -> None:
         stop_started = asyncio.Event()
         stop_release = asyncio.Event()
-        fake_mcp_server = FakeThenvoiMcpServer(
+        fake_backend = FakeMCPBackend(
             stop_started=stop_started,
             stop_release=stop_release,
         )
@@ -971,38 +981,40 @@ class TestOpencodeAdapter:
         )
         clients = [first_client, second_client]
         adapter = OpencodeAdapter(
-            config=OpencodeAdapterConfig(mcp_server_env={"THENVOI_API_KEY": "test"}),
             client_factory=lambda _config: clients.pop(0),
-            mcp_server_factory=lambda _config: fake_mcp_server,
         )
         tools = FakeAgentTools()
 
-        await adapter.on_started("OpenCode Agent", "A coding agent")
-        await adapter.on_message(
-            make_platform_message(room_id="room-1"),
-            tools_protocol(tools),
-            OpencodeSessionState(),
-            participants_msg=None,
-            contacts_msg=None,
-            is_session_bootstrap=True,
-            room_id="room-1",
-        )
+        with patch(
+            "thenvoi.adapters.opencode.create_thenvoi_mcp_backend",
+            _make_fake_mcp_backend_factory(fake_backend),
+        ):
+            await adapter.on_started("OpenCode Agent", "A coding agent")
+            await adapter.on_message(
+                make_platform_message(room_id="room-1"),
+                tools_protocol(tools),
+                OpencodeSessionState(),
+                participants_msg=None,
+                contacts_msg=None,
+                is_session_bootstrap=True,
+                room_id="room-1",
+            )
 
-        cleanup_task = asyncio.create_task(adapter.on_cleanup("room-1"))
-        await wait_for(stop_started.is_set)
+            cleanup_task = asyncio.create_task(adapter.on_cleanup("room-1"))
+            await wait_for(stop_started.is_set)
 
-        await adapter.on_message(
-            make_platform_message(room_id="room-2", content="next room"),
-            tools_protocol(tools),
-            OpencodeSessionState(),
-            participants_msg=None,
-            contacts_msg=None,
-            is_session_bootstrap=True,
-            room_id="room-2",
-        )
+            await adapter.on_message(
+                make_platform_message(room_id="room-2", content="next room"),
+                tools_protocol(tools),
+                OpencodeSessionState(),
+                participants_msg=None,
+                contacts_msg=None,
+                is_session_bootstrap=True,
+                room_id="room-2",
+            )
 
-        stop_release.set()
-        await cleanup_task
+            stop_release.set()
+            await cleanup_task
 
         assert len(first_client.prompt_calls) == 1
         assert len(second_client.prompt_calls) == 1
@@ -1139,13 +1151,15 @@ class TestOpencodeAdapter:
         error_events = [e for e in tools.events_sent if e["message_type"] == "error"]
         assert any("timed out" in e["content"].lower() for e in error_events)
 
+        await adapter.on_cleanup("room-1")
+
     @pytest.mark.asyncio
     async def test_question_timeout_expiry(self) -> None:
         fake_client = FakeOpencodeClient(
             prompt_event_sequences=[
                 [event_question("sess-1", "q-timeout", "Pick a color")]
             ],
-            reply_question_events={"q-timeout": [event_session_idle("sess-1")]},
+            reject_question_events={"q-timeout": [event_session_idle("sess-1")]},
         )
         adapter = OpencodeAdapter(
             config=OpencodeAdapterConfig(
@@ -1171,6 +1185,8 @@ class TestOpencodeAdapter:
         assert fake_client.question_rejections == ["q-timeout"]
         error_events = [e for e in tools.events_sent if e["message_type"] == "error"]
         assert any("timed out" in e["content"].lower() for e in error_events)
+
+        await adapter.on_cleanup("room-1")
 
     @pytest.mark.asyncio
     async def test_concurrent_message_rejected(self) -> None:
@@ -1311,3 +1327,68 @@ class TestOpencodeAdapter:
         # No question reply should have been sent
         assert fake_client.question_replies == []
         assert fake_client.question_rejections == []
+
+    @pytest.mark.asyncio
+    async def test_two_rooms_active_concurrently(self) -> None:
+        """Two rooms with separate sessions route events correctly."""
+        fake_client = FakeOpencodeClient(
+            prompt_event_sequences=[
+                # Room 1 prompt events
+                [
+                    event_message_updated("sess-1", "msg-r1"),
+                    event_text_part("sess-1", "msg-r1", "reply to room 1"),
+                    event_session_idle("sess-1"),
+                ],
+                # Room 2 prompt events
+                [
+                    event_message_updated("sess-2", "msg-r2"),
+                    event_text_part("sess-2", "msg-r2", "reply to room 2"),
+                    event_session_idle("sess-2"),
+                ],
+            ]
+        )
+        adapter = OpencodeAdapter(client_factory=lambda _config: fake_client)
+        tools_r1 = FakeAgentTools()
+        tools_r2 = FakeAgentTools()
+
+        await adapter.on_started("OpenCode Agent", "A coding agent")
+
+        # Start room 1
+        await adapter.on_message(
+            make_platform_message(room_id="room-1", content="hello room 1"),
+            tools_protocol(tools_r1),
+            OpencodeSessionState(),
+            participants_msg=None,
+            contacts_msg=None,
+            is_session_bootstrap=True,
+            room_id="room-1",
+        )
+
+        # Start room 2 (shared client, different session)
+        await adapter.on_message(
+            make_platform_message(room_id="room-2", content="hello room 2"),
+            tools_protocol(tools_r2),
+            OpencodeSessionState(),
+            participants_msg=None,
+            contacts_msg=None,
+            is_session_bootstrap=True,
+            room_id="room-2",
+        )
+
+        # Each room got its own session
+        assert len(fake_client.created_sessions) == 2
+        assert fake_client.created_sessions[0]["id"] == "sess-1"
+        assert fake_client.created_sessions[1]["id"] == "sess-2"
+
+        # Each room received the correct reply
+        assert any("reply to room 1" in m["content"] for m in tools_r1.messages_sent)
+        assert any("reply to room 2" in m["content"] for m in tools_r2.messages_sent)
+
+        # Cleanup room 1 while room 2 state is still tracked
+        await adapter.on_cleanup("room-1")
+        # Client should still be alive (room 2 exists)
+        assert not fake_client.closed
+
+        # Cleanup room 2 shuts down the client
+        await adapter.on_cleanup("room-2")
+        assert fake_client.closed

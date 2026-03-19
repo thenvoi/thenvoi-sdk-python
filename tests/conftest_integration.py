@@ -24,11 +24,13 @@ import logging
 import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import pytest
 import pytest_asyncio
+from dotenv import load_dotenv
 from thenvoi_rest import AsyncRestClient, ChatRoomRequest
+from thenvoi_rest.core.api_error import ApiError
 from thenvoi_rest.types import ParticipantRequest
 from thenvoi_testing.markers import skip_without_env, skip_without_envs
 from thenvoi_testing.settings import ThenvoiTestSettings
@@ -99,6 +101,12 @@ class TestSettings(ThenvoiTestSettings):
     _env_file_path = Path(__file__).parent.parent / ".env.test"
 
 
+# Load .env.test into os.environ so skip_without_env() markers (which check
+# os.environ at definition time) see the credentials.  override=False ensures
+# explicitly-set env vars take precedence.
+_ENV_TEST_PATH = Path(__file__).parent.parent / ".env.test"
+load_dotenv(_ENV_TEST_PATH, override=False)
+
 # Load settings from .env.test
 test_settings = TestSettings()
 
@@ -163,6 +171,40 @@ class PeerInfo:
     id: str
     name: str
     type: str
+
+
+# =============================================================================
+# Context Fetch Helper
+# =============================================================================
+
+MAX_CONTEXT_PAGE_SIZE = 100
+_MAX_CONTEXT_PAGES = 50
+
+
+async def fetch_all_context(
+    client: AsyncRestClient,
+    chat_id: str,
+    page_size: int = MAX_CONTEXT_PAGE_SIZE,
+) -> list[Any]:
+    """Fetch all context items across all pages.
+
+    The context API defaults to page_size=50, oldest-first.  Shared test
+    rooms accumulate messages across runs, so new items may be on page 2+.
+    This helper paginates through all pages and returns the full list.
+    Stops after ``_MAX_CONTEXT_PAGES`` pages as a safety net.
+    """
+    all_items: list[Any] = []
+    page = 1
+    while page <= _MAX_CONTEXT_PAGES:
+        response = await client.agent_api_context.get_agent_chat_context(
+            chat_id, page=page, page_size=page_size
+        )
+        items = response.data or []
+        all_items.extend(items)
+        if len(items) < page_size:
+            break
+        page += 1
+    return all_items
 
 
 # =============================================================================
@@ -320,6 +362,15 @@ async def _ensure_participant(
         logger.info("Added participant %s to room %s", participant_id, chat_id)
 
 
+async def is_room_alive(api_client: AsyncRestClient, chat_id: str) -> bool:
+    """Check whether a room is usable (not deleted) by fetching its details."""
+    try:
+        response = await api_client.agent_api_chats.get_agent_chat(id=chat_id)
+        return response.data is not None
+    except (ApiError, ConnectionError):
+        return False
+
+
 @pytest_asyncio.fixture(scope="session")
 async def shared_room(
     session_api_client: AsyncRestClient | None,
@@ -328,20 +379,30 @@ async def shared_room(
     """Session-scoped chat room reused across tests and runs.
 
     Reuses an existing room if available, otherwise creates a new one.
+    Validates the room is alive (not auto-deleted by the platform's 10-room
+    limit) before returning it.  Iterates newest-first so the chosen room
+    is least likely to be evicted mid-run.
     A User peer is ensured as participant so messages can be sent with mentions.
     No cleanup -- the room persists for future runs.
     """
     if session_api_client is None:
         return None
 
-    # Try to reuse an existing room
+    # Try to reuse an existing room (newest first — oldest are evicted first
+    # when the platform's 10-room limit is reached).
     response = await session_api_client.agent_api_chats.list_agent_chats()
     existing_rooms = response.data or []
-    if existing_rooms:
-        chat_id = existing_rooms[0].id
-        logger.info("Reusing existing room for shared_room: %s", chat_id)
-    else:
-        # Create a new room
+
+    chat_id: str | None = None
+    for room in reversed(existing_rooms):
+        if await is_room_alive(session_api_client, room.id):
+            chat_id = room.id
+            logger.info("Reusing existing room for shared_room: %s", chat_id)
+            break
+        logger.warning("Room %s is deleted, skipping", room.id)
+
+    if chat_id is None:
+        # All existing rooms are dead or there are none — create a new one
         create_response = await session_api_client.agent_api_chats.create_agent_chat(
             chat=ChatRoomRequest()
         )
@@ -380,7 +441,10 @@ async def shared_multi_agent_room(
     existing_rooms = response.data or []
 
     chat_id: str | None = None
-    for room in existing_rooms:
+    for room in reversed(existing_rooms):
+        if not await is_room_alive(session_api_client, room.id):
+            logger.warning("Room %s is deleted, skipping", room.id)
+            continue
         participants_response = await session_api_client.agent_api_participants.list_agent_chat_participants(
             room.id
         )

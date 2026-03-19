@@ -86,7 +86,7 @@ class HttpOpencodeClient(OpencodeClientProtocol):
         self._client = httpx.AsyncClient(
             base_url=base_url.rstrip("/"),
             headers=headers,
-            timeout=timeout_s,
+            timeout=httpx.Timeout(30.0, read=timeout_s),
         )
 
     def _query_params(self) -> dict[str, str]:
