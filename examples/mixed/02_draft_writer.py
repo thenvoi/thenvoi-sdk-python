@@ -3,7 +3,7 @@
 # dependencies = ["thenvoi-sdk[crewai]"]
 #
 # [tool.uv.sources]
-# thenvoi-sdk = { path = "../..", editable = true }
+# thenvoi-sdk = { git = "https://github.com/thenvoi/thenvoi-sdk-python.git" }
 # ///
 """
 Mixed-example CrewAI writer.
@@ -38,13 +38,10 @@ CONFIG_PATH = Path(__file__).with_name("agents.yaml")
 async def main() -> None:
     load_dotenv()
 
-    ws_url = os.getenv("THENVOI_WS_URL")
-    rest_url = os.getenv("THENVOI_REST_URL")
-
-    if not ws_url:
-        raise ValueError("THENVOI_WS_URL environment variable is required")
-    if not rest_url:
-        raise ValueError("THENVOI_REST_URL environment variable is required")
+    ws_url = os.getenv(
+        "THENVOI_WS_URL", "wss://app.thenvoi.com/api/v1/socket/websocket"
+    )
+    rest_url = os.getenv("THENVOI_REST_URL", "https://app.thenvoi.com")
 
     agent_id, api_key = load_agent_config(
         "mixed_writer_agent",

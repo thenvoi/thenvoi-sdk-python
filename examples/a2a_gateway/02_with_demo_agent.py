@@ -3,7 +3,7 @@
 # dependencies = ["thenvoi-sdk[a2a_gateway_demo]"]
 #
 # [tool.uv.sources]
-# thenvoi-sdk = { path = "../..", editable = true }
+# thenvoi-sdk = { git = "https://github.com/thenvoi/thenvoi-sdk-python.git" }
 # ///
 """
 Run A2A Gateway with Demo Orchestrator Agent.

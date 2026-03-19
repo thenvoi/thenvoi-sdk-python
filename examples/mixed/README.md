@@ -52,10 +52,16 @@ That is what makes the external services bidirectional participants instead of i
 
 You need:
 
-- `THENVOI_WS_URL` and `THENVOI_REST_URL` in `.env`
 - `OPENAI_API_KEY` for the CrewAI agents
 - optional: `OPENAI_MODEL` if you do not want the default `gpt-4o`
 - four Thenvoi agent credentials in `examples/mixed/agents.yaml`
+
+The mixed examples default to the hosted Thenvoi URLs:
+
+- `THENVOI_WS_URL=wss://app.thenvoi.com/api/v1/socket/websocket`
+- `THENVOI_REST_URL=https://app.thenvoi.com`
+
+Only set those vars if you want to point the example at another environment.
 
 Copy the example file first:
 

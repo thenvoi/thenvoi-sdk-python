@@ -3,7 +3,7 @@
 # dependencies = ["thenvoi-sdk[a2a]"]
 #
 # [tool.uv.sources]
-# thenvoi-sdk = { path = "../..", editable = true }
+# thenvoi-sdk = { git = "https://github.com/thenvoi/thenvoi-sdk-python.git" }
 # ///
 """
 External A2A risk reviewer for the mixed example.

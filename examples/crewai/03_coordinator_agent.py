@@ -3,7 +3,7 @@
 # dependencies = ["thenvoi-sdk[crewai]"]
 #
 # [tool.uv.sources]
-# thenvoi-sdk = { path = "../..", editable = true }
+# thenvoi-sdk = { git = "https://github.com/thenvoi/thenvoi-sdk-python.git" }
 # ///
 """
 CrewAI coordinator agent for multi-agent orchestration.

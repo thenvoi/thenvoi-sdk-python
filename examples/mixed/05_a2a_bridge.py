@@ -3,7 +3,7 @@
 # dependencies = ["thenvoi-sdk[a2a]"]
 #
 # [tool.uv.sources]
-# thenvoi-sdk = { path = "../..", editable = true }
+# thenvoi-sdk = { git = "https://github.com/thenvoi/thenvoi-sdk-python.git" }
 # ///
 """
 Mixed-example bridge launcher.
@@ -39,14 +39,11 @@ CONFIG_PATH = Path(__file__).with_name("agents.yaml")
 
 
 def _load_platform_urls() -> tuple[str, str]:
-    """Load and validate Thenvoi URLs."""
-    ws_url = os.getenv("THENVOI_WS_URL")
-    rest_url = os.getenv("THENVOI_REST_URL")
-
-    if not ws_url:
-        raise ValueError("THENVOI_WS_URL environment variable is required")
-    if not rest_url:
-        raise ValueError("THENVOI_REST_URL environment variable is required")
+    """Load Thenvoi URLs, defaulting to the hosted platform."""
+    ws_url = os.getenv(
+        "THENVOI_WS_URL", "wss://app.thenvoi.com/api/v1/socket/websocket"
+    )
+    rest_url = os.getenv("THENVOI_REST_URL", "https://app.thenvoi.com")
 
     return ws_url, rest_url
 
