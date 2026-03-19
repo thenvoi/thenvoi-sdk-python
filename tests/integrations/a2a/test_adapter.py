@@ -161,6 +161,50 @@ class TestA2AAdapterOnStarted:
             assert adapter._client is mock_client
 
     @pytest.mark.asyncio
+    async def test_on_started_passes_auth_to_discovery_and_requests(self):
+        """Should apply auth headers to discovery and RPC requests."""
+        auth = A2AAuth(
+            api_key="test-key",
+            bearer_token="test-token",
+            headers={"X-Custom-Auth": "custom"},
+        )
+        adapter = A2AAdapter(remote_url="http://localhost:10000", auth=auth)
+
+        with patch("thenvoi.integrations.a2a.adapter.ClientFactory") as mock_factory:
+            mock_factory.connect = AsyncMock(return_value=MagicMock())
+
+            await adapter.on_started("Test Agent", "A test agent")
+
+            _, kwargs = mock_factory.connect.call_args
+            assert kwargs["resolver_http_kwargs"] == {
+                "headers": {
+                    "X-API-Key": "test-key",
+                    "Authorization": "Bearer test-token",
+                    "X-Custom-Auth": "custom",
+                }
+            }
+
+            interceptors = kwargs["interceptors"]
+            assert interceptors is not None
+            assert len(interceptors) == 1
+
+            request_payload, http_kwargs = await interceptors[0].intercept(
+                "message/send",
+                {"jsonrpc": "2.0"},
+                {},
+                None,
+                None,
+            )
+            assert request_payload == {"jsonrpc": "2.0"}
+            assert http_kwargs == {
+                "headers": {
+                    "X-API-Key": "test-key",
+                    "Authorization": "Bearer test-token",
+                    "X-Custom-Auth": "custom",
+                }
+            }
+
+    @pytest.mark.asyncio
     async def test_on_started_sets_agent_name(self):
         """Should store agent name and description."""
         adapter = A2AAdapter(remote_url="http://localhost:10000")

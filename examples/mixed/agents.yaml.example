@@ -1,0 +1,31 @@
+# Mixed example agent configuration
+#
+# Copy this file to:
+#   examples/mixed/agents.yaml
+#
+# Then fill in the agent_id and api_key for the four Thenvoi-facing agents used
+# by the mixed example. The two external A2A services do not need Thenvoi
+# credentials. They run locally and become room participants only through the
+# bridge process.
+#
+# This uses the same keyed format as the repo root agent_config.yaml example.
+
+# CrewAI coordinator for the engineering review room
+mixed_strategy_agent:
+  agent_id: ""  # External agent ID from Thenvoi
+  api_key: ""   # Agent-specific API key from Thenvoi
+
+# CrewAI writer that produces the final engineering handoff note
+mixed_writer_agent:
+  agent_id: ""
+  api_key: ""
+
+# Bridge agent that connects the local contract checker A2A service to Thenvoi
+mixed_fact_bridge_agent:
+  agent_id: ""
+  api_key: ""
+
+# Bridge agent that connects the local risk reviewer A2A service to Thenvoi
+mixed_risk_bridge_agent:
+  agent_id: ""
+  api_key: ""

@@ -3,7 +3,7 @@
 # dependencies = ["thenvoi-sdk[crewai]"]
 #
 # [tool.uv.sources]
-# thenvoi-sdk = { git = "https://github.com/thenvoi/thenvoi-sdk-python.git" }
+# thenvoi-sdk = { path = "../..", editable = true }
 # ///
 """
 Jerry the mouse agent using CrewAI.
@@ -20,6 +20,7 @@ Note: Must be run from repo as it imports prompts/characters.py
 
 from __future__ import annotations
 
+import argparse
 import asyncio
 import logging
 import os
@@ -40,8 +41,25 @@ setup_logging()
 logger = logging.getLogger(__name__)
 
 
+def parse_args() -> argparse.Namespace:
+    """Parse optional character-name overrides for the example."""
+    parser = argparse.ArgumentParser(description="Run the Jerry CrewAI example agent")
+    parser.add_argument(
+        "--agent-name",
+        default="Jerry",
+        help="Display name/persona to use for this agent in the prompt",
+    )
+    parser.add_argument(
+        "--peer-name",
+        default="Tom",
+        help="Display name of the Tom agent to look up on Thenvoi",
+    )
+    return parser.parse_args()
+
+
 async def main() -> None:
     load_dotenv()
+    args = parse_args()
 
     ws_url = os.getenv("THENVOI_WS_URL")
     rest_url = os.getenv("THENVOI_REST_URL")
@@ -57,7 +75,7 @@ async def main() -> None:
     # Create adapter with Jerry's character prompt
     adapter = CrewAIAdapter(
         model="gpt-4o",
-        custom_section=generate_jerry_prompt("Jerry"),
+        custom_section=generate_jerry_prompt(args.agent_name, args.peer_name),
     )
 
     # Create and start agent

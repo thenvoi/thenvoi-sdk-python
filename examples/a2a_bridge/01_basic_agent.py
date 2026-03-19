@@ -3,7 +3,7 @@
 # dependencies = ["thenvoi-sdk[a2a]"]
 #
 # [tool.uv.sources]
-# thenvoi-sdk = { git = "https://github.com/thenvoi/thenvoi-sdk-python.git" }
+# thenvoi-sdk = { path = "../..", editable = true }
 # ///
 """
 Basic A2A adapter example.
@@ -31,6 +31,8 @@ Run with:
     uv run examples/a2a_bridge/01_basic_agent.py
 """
 
+from __future__ import annotations
+
 import asyncio
 import logging
 import os
@@ -46,7 +48,7 @@ setup_logging()
 logger = logging.getLogger(__name__)
 
 
-async def main():
+async def main() -> None:
     load_dotenv()
 
     ws_url = os.getenv("THENVOI_WS_URL")

@@ -33,9 +33,14 @@ from a2a.server.tasks import (
 from a2a.types import AgentCapabilities, AgentCard, AgentSkill
 from dotenv import load_dotenv
 
-from agent import OrchestratorAgent
-from agent_executor import OrchestratorAgentExecutor
-from remote_agent import GatewayClient
+try:
+    from .agent import OrchestratorAgent
+    from .agent_executor import OrchestratorAgentExecutor
+    from .remote_agent import GatewayClient
+except ImportError:
+    from agent import OrchestratorAgent
+    from agent_executor import OrchestratorAgentExecutor
+    from remote_agent import GatewayClient
 
 load_dotenv()
 

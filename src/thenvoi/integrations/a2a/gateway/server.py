@@ -16,6 +16,7 @@ from a2a.types import (
     Task,
     TaskStatusUpdateEvent,
 )
+from pydantic import ValidationError
 from starlette.applications import Starlette
 from starlette.requests import Request
 from starlette.responses import JSONResponse, StreamingResponse
@@ -181,7 +182,9 @@ class GatewayServer:
         )
         return JSONResponse(card.model_dump(mode="json", by_alias=True))
 
-    async def _handle_message_stream(self, request: Request) -> StreamingResponse:
+    async def _handle_message_stream(
+        self, request: Request
+    ) -> JSONResponse | StreamingResponse:
         """Handle incoming A2A message and stream response events.
 
         Args:
@@ -195,12 +198,21 @@ class GatewayServer:
         # Resolve peer by slug or UUID
         resolved = self._resolve_peer(peer_id)
         if not resolved:
-            return JSONResponse({"error": "Not found"}, status_code=404)  # type: ignore[return-value]
+            return JSONResponse({"error": "Not found"}, status_code=404)
 
         slug, peer = resolved
 
         body = await request.json()
-        message = A2AMessage(**body)
+        try:
+            message = A2AMessage(**body)
+        except ValidationError as exc:
+            return JSONResponse(
+                {
+                    "error": "Invalid A2A message payload",
+                    "details": exc.errors(),
+                },
+                status_code=400,
+            )
 
         logger.debug(
             "Received A2A message for peer %s (%s): %s",
@@ -296,7 +308,21 @@ class GatewayServer:
         """
         # Extract message from params
         message_data = params.get("message", {})
-        message = A2AMessage(**message_data)
+        try:
+            message = A2AMessage(**message_data)
+        except ValidationError as exc:
+            return JSONResponse(
+                {
+                    "jsonrpc": "2.0",
+                    "error": {
+                        "code": -32602,
+                        "message": "Invalid params",
+                        "data": exc.errors(),
+                    },
+                    "id": request_id,
+                },
+                status_code=400,
+            )
 
         # Collect all events until final
         final_event: TaskStatusUpdateEvent | None = None
@@ -356,7 +382,30 @@ class GatewayServer:
         """
         # Extract message from params
         message_data = params.get("message", {})
-        message = A2AMessage(**message_data)
+        try:
+            message = A2AMessage(**message_data)
+        except ValidationError as exc:
+            return StreamingResponse(
+                iter(
+                    [
+                        "data: "
+                        + json.dumps(
+                            {
+                                "jsonrpc": "2.0",
+                                "error": {
+                                    "code": -32602,
+                                    "message": "Invalid params",
+                                    "data": exc.errors(),
+                                },
+                                "id": request_id,
+                            }
+                        )
+                        + "\n\n"
+                    ]
+                ),
+                media_type="text/event-stream",
+                status_code=400,
+            )
 
         async def event_stream() -> AsyncIterator[str]:
             """Generate SSE events in JSON-RPC format."""

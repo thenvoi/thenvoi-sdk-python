@@ -23,6 +23,7 @@ from thenvoi.integrations.a2a.gateway import (
 )
 from thenvoi.testing import FakeAgentTools
 from thenvoi_rest import Peer
+from thenvoi_rest.core.api_error import ApiError
 
 
 def make_platform_message(
@@ -197,6 +198,36 @@ class TestA2AGatewayAdapterOnStarted:
 
         assert adapter.agent_name == "Test Gateway"
         assert adapter.agent_description == "A test gateway"
+
+    @pytest.mark.asyncio
+    async def test_on_started_retries_peer_discovery_on_rate_limit(self) -> None:
+        """Should retry peer discovery when startup hits HTTP 429."""
+        adapter = A2AGatewayAdapter()
+
+        mock_response = MagicMock()
+        mock_response.data = [make_peer("weather", "Weather Agent")]
+        adapter._rest.agent_api_peers.list_agent_peers = AsyncMock(
+            side_effect=[
+                ApiError(status_code=429, headers={}, body=""),
+                ApiError(status_code=429, headers={}, body=""),
+                mock_response,
+            ]
+        )
+
+        with patch(
+            "thenvoi.integrations.a2a.gateway.adapter.GatewayServer"
+        ) as mock_server_class:
+            mock_server = MagicMock()
+            mock_server.start = AsyncMock()
+            mock_server_class.return_value = mock_server
+            with patch(
+                "thenvoi.integrations.a2a.gateway.adapter.asyncio.sleep",
+                new=AsyncMock(),
+            ) as mock_sleep:
+                await adapter.on_started("Gateway", "A2A Gateway Agent")
+
+        assert adapter._rest.agent_api_peers.list_agent_peers.await_count == 3
+        assert mock_sleep.await_count == 2
 
 
 class TestA2AGatewayAdapterOnMessage:

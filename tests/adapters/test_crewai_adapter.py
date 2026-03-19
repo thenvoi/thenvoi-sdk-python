@@ -9,6 +9,7 @@ platform tools, tool execution, verbose mode, delegation, and custom tools.
 
 from __future__ import annotations
 
+import asyncio
 import json
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING
@@ -578,8 +579,6 @@ class TestToolExecution:
     def test_tool_execution_handles_exception(
         self, CrewAIAdapter, crewai_mocks, mock_tools, room_context
     ):
-        import asyncio
-
         crewai_mocks.Agent.reset_mock()
 
         adapter = CrewAIAdapter()
@@ -599,6 +598,42 @@ class TestToolExecution:
         result_data = json.loads(result)
         assert result_data["status"] == "error"
         assert "Connection failed" in result_data["message"]
+
+    @pytest.mark.asyncio
+    async def test_lookup_peers_uses_adapter_loop_when_tool_runs_in_worker_thread(
+        self, CrewAIAdapter, crewai_mocks, mock_tools, room_context
+    ):
+        crewai_mocks.Agent.reset_mock()
+
+        adapter = CrewAIAdapter()
+        await adapter.on_started("TestBot", "Test bot")
+
+        expected_loop = asyncio.get_running_loop()
+
+        async def lookup_peers(page: int, page_size: int) -> dict[str, object]:
+            assert asyncio.get_running_loop() is expected_loop
+            return {
+                "peers": [],
+                "metadata": {
+                    "page": page,
+                    "page_size": page_size,
+                    "total_count": 0,
+                    "total_pages": 1,
+                },
+            }
+
+        mock_tools.lookup_peers = AsyncMock(side_effect=lookup_peers)
+
+        call_kwargs = crewai_mocks.Agent.call_args[1]
+        tools = call_kwargs["tools"]
+        lookup_peers_tool = next(t for t in tools if t.name == "thenvoi_lookup_peers")
+
+        with room_context("room-123"):
+            result = await asyncio.to_thread(lookup_peers_tool._run)
+
+        result_data = json.loads(result)
+        assert result_data["status"] == "success"
+        mock_tools.lookup_peers.assert_awaited_once_with(1, 50)
 
 
 class TestExecutionReporting:

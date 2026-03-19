@@ -113,7 +113,10 @@ def _ensure_nest_asyncio() -> None:
             logger.debug("Applied nest_asyncio patch for nested event loops")
 
 
-def _run_async(coro: Coroutine[Any, Any, T]) -> T:
+def _run_async(
+    coro: Coroutine[Any, Any, T],
+    fallback_loop: asyncio.AbstractEventLoop | None = None,
+) -> T:
     """Run an async coroutine from sync context.
 
     CrewAI tools are synchronous but need to call async platform methods.
@@ -130,7 +133,17 @@ def _run_async(coro: Coroutine[Any, Any, T]) -> T:
         loop = asyncio.get_running_loop()
         logger.debug("Running coroutine in existing event loop via nest_asyncio")
     except RuntimeError:
-        # No running event loop - use asyncio.run to create one
+        # No running event loop - prefer the adapter's main loop when available.
+        # CrewAI may execute tools in worker threads, and platform clients are
+        # bound to the runtime loop created during agent startup.
+        if fallback_loop is not None and fallback_loop.is_running():
+            logger.debug(
+                "Running coroutine on fallback event loop via thread-safe submit"
+            )
+            future = asyncio.run_coroutine_threadsafe(coro, fallback_loop)
+            return future.result()
+
+        # No running event loop and no active fallback loop - use asyncio.run
         logger.debug("Running coroutine in new event loop via asyncio.run")
         return asyncio.run(coro)
 
@@ -227,10 +240,12 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
         self._crewai_agent: CrewAIAgent | None = None
         self._message_history: dict[str, list[dict[str, Any]]] = {}
         self._custom_tools: list[CustomToolDef] = additional_tools or []
+        self._tool_loop: asyncio.AbstractEventLoop | None = None
 
     async def on_started(self, agent_name: str, agent_description: str) -> None:
         """Initialize CrewAI agent after metadata is fetched."""
         await super().on_started(agent_name, agent_description)
+        self._tool_loop = asyncio.get_running_loop()
 
         role = self.role or agent_name
         goal = self.goal or agent_description or "Help users accomplish their tasks"
@@ -316,7 +331,7 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
                 )
                 return json.dumps({"status": "error", "message": error_msg})
 
-        return _run_async(_execute())
+        return _run_async(_execute(), fallback_loop=self._tool_loop)
 
     async def _report_tool_call(
         self,

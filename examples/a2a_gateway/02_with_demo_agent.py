@@ -3,7 +3,7 @@
 # dependencies = ["thenvoi-sdk[a2a_gateway_demo]"]
 #
 # [tool.uv.sources]
-# thenvoi-sdk = { git = "https://github.com/thenvoi/thenvoi-sdk-python.git" }
+# thenvoi-sdk = { path = "../..", editable = true }
 # ///
 """
 Run A2A Gateway with Demo Orchestrator Agent.
@@ -25,8 +25,9 @@ This will start:
 - Demo Orchestrator on port 10001 (calls gateway peers via A2A protocol)
 
 Prerequisites:
-    1. Set environment variables:
-       - THENVOI_API_KEY: Your Thenvoi API key
+    1. Configure gateway credentials:
+       - preferred: gateway_agent in agent_config.yaml
+       - fallback: THENVOI_API_KEY and optional THENVOI_AGENT_ID
        - THENVOI_WS_URL: WebSocket URL (default: wss://app.thenvoi.com/api/v1/socket/websocket)
        - THENVOI_REST_URL: REST API URL (default: https://app.thenvoi.com)
        - OPENAI_API_KEY: OpenAI API key for the orchestrator
@@ -37,8 +38,8 @@ Test the demo:
     # Check orchestrator agent card
     curl http://localhost:10001/.well-known/agent.json
 
-    # Send a message to the orchestrator (it will route to gateway peers)
-    curl -X POST http://localhost:10001/v1/message:stream \\
+    # Send a JSON-RPC message to the orchestrator (it will route to gateway peers)
+    curl -X POST http://localhost:10001/ \\
         -H "Content-Type: application/json" \\
         -d '{
             "jsonrpc": "2.0",
@@ -95,25 +96,37 @@ ORCHESTRATOR_HOST = "localhost"
 ORCHESTRATOR_PORT = int(os.getenv("ORCHESTRATOR_PORT", "10001"))
 
 
+def _load_gateway_credentials() -> tuple[str, str]:
+    """Load gateway credentials from env or agent_config.yaml."""
+    try:
+        return load_agent_config("gateway_agent")
+    except Exception as exc:
+        api_key = os.getenv("THENVOI_API_KEY")
+        if api_key:
+            return os.getenv("THENVOI_AGENT_ID", "a2a-gateway"), api_key
+        raise ValueError(
+            "Configure 'gateway_agent' in agent_config.yaml, or set "
+            "THENVOI_API_KEY and THENVOI_AGENT_ID environment variables"
+        ) from exc
+
+
+def _require_openai_api_key() -> str:
+    """Ensure the orchestrator model API key is configured."""
+    api_key = os.getenv("OPENAI_API_KEY")
+    if not api_key:
+        raise ValueError(
+            "OPENAI_API_KEY environment variable is required for the demo orchestrator"
+        )
+    return api_key
+
+
 async def run_gateway() -> None:
     """Run the A2A Gateway that exposes Thenvoi peers."""
     ws_url = os.getenv(
         "THENVOI_WS_URL", "wss://app.thenvoi.com/api/v1/socket/websocket"
     )
     rest_url = os.getenv("THENVOI_REST_URL", "https://app.thenvoi.com")
-    api_key = os.getenv("THENVOI_API_KEY")
-
-    if not api_key:
-        try:
-            agent_id, api_key = load_agent_config("gateway_agent")
-        except Exception:
-            logger.error(
-                "THENVOI_API_KEY environment variable is required, "
-                "or configure 'gateway_agent' in agent_config.yaml"
-            )
-            return
-    else:
-        agent_id = os.getenv("THENVOI_AGENT_ID", "a2a-gateway")
+    agent_id, api_key = _load_gateway_credentials()
 
     gateway_url = f"http://{GATEWAY_HOST}:{GATEWAY_PORT}"
 
@@ -138,9 +151,7 @@ async def run_gateway() -> None:
 
 def run_orchestrator() -> None:
     """Run the Demo Orchestrator that calls gateway peers."""
-    if not os.getenv("OPENAI_API_KEY"):
-        logger.error("OPENAI_API_KEY environment variable is required for orchestrator")
-        return
+    _require_openai_api_key()
 
     gateway_url = f"http://{GATEWAY_HOST}:{GATEWAY_PORT}"
     available_peers = os.getenv("AVAILABLE_PEERS", "").split(",")
@@ -198,6 +209,9 @@ def run_orchestrator() -> None:
 
 async def main() -> None:
     """Run both gateway and orchestrator concurrently."""
+    _load_gateway_credentials()
+    _require_openai_api_key()
+
     logger.info("=" * 60)
     logger.info("A2A Gateway + Demo Orchestrator Example")
     logger.info("=" * 60)

@@ -1,0 +1,95 @@
+# /// script
+# requires-python = ">=3.11"
+# dependencies = ["thenvoi-sdk[crewai]"]
+#
+# [tool.uv.sources]
+# thenvoi-sdk = { path = "../..", editable = true }
+# ///
+"""
+Mixed-example CrewAI writer.
+
+Starts the CrewAI agent that turns the room's findings into a polished final
+engineering handoff after the coordinator, contract checker, and risk reviewer
+weigh in.
+
+Run with:
+    uv run examples/mixed/02_draft_writer.py
+"""
+
+from __future__ import annotations
+
+import asyncio
+import logging
+import os
+from pathlib import Path
+
+from dotenv import load_dotenv
+
+from setup_logging import setup_logging
+from thenvoi import Agent
+from thenvoi.adapters import CrewAIAdapter
+from thenvoi.config import load_agent_config
+
+setup_logging()
+logger = logging.getLogger(__name__)
+CONFIG_PATH = Path(__file__).with_name("agents.yaml")
+
+
+async def main() -> None:
+    load_dotenv()
+
+    ws_url = os.getenv("THENVOI_WS_URL")
+    rest_url = os.getenv("THENVOI_REST_URL")
+
+    if not ws_url:
+        raise ValueError("THENVOI_WS_URL environment variable is required")
+    if not rest_url:
+        raise ValueError("THENVOI_REST_URL environment variable is required")
+
+    agent_id, api_key = load_agent_config(
+        "mixed_writer_agent",
+        config_path=CONFIG_PATH,
+    )
+
+    adapter = CrewAIAdapter(
+        model=os.getenv("OPENAI_MODEL", "gpt-4o"),
+        role="Engineering Handoff Writer",
+        goal=(
+            "Turn room input into a final engineering note that reflects the "
+            "contract checker's facts and the risk reviewer's cautions"
+        ),
+        backstory="""You are the closer in a mixed-agent room. You listen for
+        concrete implementation facts, rollout risks, and coordinator guidance,
+        then write something another developer can act on immediately.""",
+        custom_section="""
+When the room is active:
+1. Wait for the contract checker and risk reviewer if they are present.
+2. Gather the strongest points from the room.
+3. Produce the final output in this structure:
+   - Summary
+   - API or behavior changes
+   - Config or environment changes
+   - Risks and mitigations
+   - Recommended next steps
+4. Call out any unresolved assumption at the end.
+
+Do not try to coordinate the room. Your job is to synthesize.
+""",
+        enable_execution_reporting=True,
+        verbose=True,
+    )
+
+    agent = Agent.create(
+        adapter=adapter,
+        agent_id=agent_id,
+        api_key=api_key,
+        ws_url=ws_url,
+        rest_url=rest_url,
+    )
+
+    logger.info("Starting mixed-example engineering handoff writer...")
+    await agent.run()
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
