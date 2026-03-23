@@ -90,7 +90,7 @@ Pydantic AI uses model strings in the format `provider:model-name`:
 - `openai:gpt-4o-mini`
 - `anthropic:claude-3-5-sonnet-latest`
 - `anthropic:claude-3-5-haiku-latest`
-- `google:gemini-1.5-pro`
+- `google:gemini-2.5-pro`
 
 See [Pydantic AI documentation](https://ai.pydantic.dev/) for more model options.
 

@@ -18,7 +18,7 @@ from thenvoi_rest import AsyncRestClient, ChatMessageRequest, ParticipantRequest
 from thenvoi_rest.core.api_error import ApiError
 from thenvoi_rest.types import ChatMessageRequestMentionsItem as Mention
 
-from .conftest import requires_api
+from .conftest import fetch_all_context, requires_api
 
 logger = logging.getLogger(__name__)
 
@@ -126,10 +126,7 @@ class TestA2AGatewayContextIdWithPlatform:
         await asyncio.sleep(0.5)
 
         # ===== Step 3: Verify BOTH messages in SAME room =====
-        context_response = await api_client.agent_api_context.get_agent_chat_context(
-            room_1
-        )
-        context_items = context_response.data or []
+        context_items = await fetch_all_context(api_client, room_1)
 
         msg_ids_in_context = [item.id for item in context_items if hasattr(item, "id")]
 

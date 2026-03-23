@@ -84,6 +84,9 @@ class HealthServer:
             "handlers_registered": self._handler_count,
         }
 
+        if self._handler_count == 0:
+            body["warning"] = "no handlers registered"
+
         if self._session_store is not None:
             body["active_sessions"] = await self._session_store.count()
 

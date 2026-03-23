@@ -73,7 +73,7 @@ async def test_skips_invalid_room_added_payload(caplog):
     class MockMessage:
         event = "room_added"
         payload = {
-            # Missing: id (the only required field)
+            # Missing required fields: id, inserted_at, updated_at
             "title": "Test Room",
         }
 
@@ -85,6 +85,30 @@ async def test_skips_invalid_room_added_payload(caplog):
         await client._handle_events(MockMessage(), {"room_added": dummy_callback})
 
     assert not callback_called, "Callback should not be called for invalid payload"
+    assert "Invalid room_added payload" in caplog.text
+
+
+async def test_rejects_room_added_missing_timestamps(caplog):
+    """Regression test for INT-186: room_added without inserted_at/updated_at must be rejected."""
+    client = WebSocketClient("ws://localhost", "test-key", "agent-123")
+    callback_called = False
+
+    class MockMessage:
+        event = "room_added"
+        payload = {
+            "id": "room-123",
+            "title": "Test Room",
+            # Missing required: inserted_at, updated_at
+        }
+
+    async def dummy_callback(payload):
+        nonlocal callback_called
+        callback_called = True
+
+    with caplog.at_level(logging.ERROR):
+        await client._handle_events(MockMessage(), {"room_added": dummy_callback})
+
+    assert not callback_called, "Callback should not be called without timestamps"
     assert "Invalid room_added payload" in caplog.text
 
 
@@ -227,6 +251,28 @@ async def test_accepts_valid_room_removed_payload():
     await client._handle_events(MockMessage(), {"room_removed": test_callback})
     assert isinstance(received_payload, RoomRemovedPayload)
     assert received_payload.id == "room-123"
+
+
+async def test_accepts_minimal_room_removed_payload():
+    """Should accept room_removed with only required `id` field (all others optional)."""
+    client = WebSocketClient("ws://localhost", "test-key", "agent-123")
+    received_payload = None
+
+    async def test_callback(payload):
+        nonlocal received_payload
+        received_payload = payload
+
+    class MockMessage:
+        event = "room_removed"
+        payload = {"id": "room-456"}
+
+    await client._handle_events(MockMessage(), {"room_removed": test_callback})
+    assert isinstance(received_payload, RoomRemovedPayload)
+    assert received_payload.id == "room-456"
+    assert received_payload.status is None
+    assert received_payload.type is None
+    assert received_payload.title is None
+    assert received_payload.removed_at is None
 
 
 async def test_accepts_valid_participant_added_payload():

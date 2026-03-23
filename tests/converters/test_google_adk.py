@@ -1,0 +1,594 @@
+"""Tests for GoogleADKHistoryConverter.
+
+Tests for shared converter behavior (empty input, own-message filtering,
+sender formatting, tool event handling) live in
+tests/framework_conformance/test_converter_conformance.py.
+This file contains Google ADK-specific conversion behavior.
+"""
+
+from __future__ import annotations
+
+import json
+
+from thenvoi.converters.google_adk import GoogleADKHistoryConverter
+
+
+class TestBasicConversion:
+    """Tests for basic message conversion."""
+
+    def test_empty_history(self):
+        """Should return empty list for empty input."""
+        converter = GoogleADKHistoryConverter()
+        result = converter.convert([])
+        assert result == []
+
+    def test_single_user_message(self):
+        """Should convert user text message."""
+        converter = GoogleADKHistoryConverter()
+        result = converter.convert(
+            [
+                {
+                    "role": "user",
+                    "content": "Hello",
+                    "sender_name": "Alice",
+                    "message_type": "text",
+                }
+            ]
+        )
+        assert len(result) == 1
+        assert result[0]["role"] == "user"
+        assert result[0]["content"] == "[Alice]: Hello"
+
+    def test_multiple_user_messages(self):
+        """Should convert multiple messages."""
+        converter = GoogleADKHistoryConverter()
+        result = converter.convert(
+            [
+                {
+                    "role": "user",
+                    "content": "Hello",
+                    "sender_name": "Alice",
+                    "message_type": "text",
+                },
+                {
+                    "role": "user",
+                    "content": "Hi there",
+                    "sender_name": "Bob",
+                    "message_type": "text",
+                },
+            ]
+        )
+        assert len(result) == 2
+        assert "[Alice]: Hello" in result[0]["content"]
+        assert "[Bob]: Hi there" in result[1]["content"]
+
+
+class TestOwnMessageFiltering:
+    """Tests for filtering this agent's own messages."""
+
+    def test_filters_own_messages(self):
+        """Should skip this agent's text messages."""
+        converter = GoogleADKHistoryConverter(agent_name="TestBot")
+        result = converter.convert(
+            [
+                {
+                    "role": "assistant",
+                    "content": "I'm the bot response",
+                    "sender_name": "TestBot",
+                    "message_type": "text",
+                }
+            ]
+        )
+        assert len(result) == 0
+
+    def test_includes_other_agent_messages(self):
+        """Should include messages from other agents."""
+        converter = GoogleADKHistoryConverter(agent_name="TestBot")
+        result = converter.convert(
+            [
+                {
+                    "role": "assistant",
+                    "content": "I'm another bot",
+                    "sender_name": "OtherBot",
+                    "message_type": "text",
+                }
+            ]
+        )
+        assert len(result) == 1
+        assert result[0]["role"] == "user"
+        assert "[OtherBot]" in result[0]["content"]
+
+    def test_set_agent_name(self):
+        """Should update agent name."""
+        converter = GoogleADKHistoryConverter()
+        converter.set_agent_name("TestBot")
+
+        result = converter.convert(
+            [
+                {
+                    "role": "assistant",
+                    "content": "My response",
+                    "sender_name": "TestBot",
+                    "message_type": "text",
+                }
+            ]
+        )
+        assert len(result) == 0
+
+
+class TestToolEvents:
+    """Tests for tool call and tool result conversion."""
+
+    def test_tool_call_conversion(self):
+        """Should convert tool_call to model message with function_call block."""
+        converter = GoogleADKHistoryConverter()
+        result = converter.convert(
+            [
+                {
+                    "role": "assistant",
+                    "content": json.dumps(
+                        {
+                            "name": "thenvoi_send_message",
+                            "args": {"content": "Hello"},
+                            "tool_call_id": "tc-1",
+                        }
+                    ),
+                    "sender_name": "TestBot",
+                    "message_type": "tool_call",
+                }
+            ]
+        )
+        # Orphan patching adds a synthetic response for the unmatched call
+        assert len(result) == 2
+        assert result[0]["role"] == "model"
+        blocks = result[0]["content"]
+        assert len(blocks) == 1
+        assert blocks[0]["type"] == "function_call"
+        assert blocks[0]["name"] == "thenvoi_send_message"
+        assert blocks[0]["args"] == {"content": "Hello"}
+        # Synthetic error response
+        assert result[1]["role"] == "user"
+
+    def test_tool_result_conversion(self):
+        """Should convert tool_result to user message with function_response block."""
+        converter = GoogleADKHistoryConverter()
+        result = converter.convert(
+            [
+                {
+                    "role": "assistant",
+                    "content": json.dumps(
+                        {
+                            "name": "thenvoi_send_message",
+                            "output": '{"status": "sent"}',
+                            "tool_call_id": "tc-1",
+                        }
+                    ),
+                    "sender_name": "TestBot",
+                    "message_type": "tool_result",
+                }
+            ]
+        )
+        assert len(result) == 1
+        assert result[0]["role"] == "user"
+        blocks = result[0]["content"]
+        assert len(blocks) == 1
+        assert blocks[0]["type"] == "function_response"
+        assert blocks[0]["name"] == "thenvoi_send_message"
+
+    def test_tool_call_and_result_pair(self):
+        """Should batch tool call and result into separate messages."""
+        converter = GoogleADKHistoryConverter()
+        result = converter.convert(
+            [
+                {
+                    "role": "assistant",
+                    "content": json.dumps(
+                        {
+                            "name": "search",
+                            "args": {"q": "test"},
+                            "tool_call_id": "tc-1",
+                        }
+                    ),
+                    "sender_name": "TestBot",
+                    "message_type": "tool_call",
+                },
+                {
+                    "role": "assistant",
+                    "content": json.dumps(
+                        {
+                            "name": "search",
+                            "output": "result data",
+                            "tool_call_id": "tc-1",
+                        }
+                    ),
+                    "sender_name": "TestBot",
+                    "message_type": "tool_result",
+                },
+            ]
+        )
+        assert len(result) == 2
+        assert result[0]["role"] == "model"
+        assert result[1]["role"] == "user"
+
+    def test_batches_multiple_tool_calls(self):
+        """Should batch consecutive tool calls into single model message."""
+        converter = GoogleADKHistoryConverter()
+        result = converter.convert(
+            [
+                {
+                    "role": "assistant",
+                    "content": json.dumps(
+                        {
+                            "name": "tool_a",
+                            "args": {},
+                            "tool_call_id": "tc-1",
+                        }
+                    ),
+                    "sender_name": "TestBot",
+                    "message_type": "tool_call",
+                },
+                {
+                    "role": "assistant",
+                    "content": json.dumps(
+                        {
+                            "name": "tool_b",
+                            "args": {},
+                            "tool_call_id": "tc-2",
+                        }
+                    ),
+                    "sender_name": "TestBot",
+                    "message_type": "tool_call",
+                },
+            ]
+        )
+        # Orphan patching adds a synthetic response for unmatched calls
+        assert len(result) == 2
+        assert result[0]["role"] == "model"
+        assert len(result[0]["content"]) == 2
+        # Synthetic error responses for both orphaned calls
+        assert result[1]["role"] == "user"
+
+    def test_error_tool_result(self):
+        """Should include is_error flag on error results."""
+        converter = GoogleADKHistoryConverter()
+        result = converter.convert(
+            [
+                {
+                    "role": "assistant",
+                    "content": json.dumps(
+                        {
+                            "name": "failing_tool",
+                            "output": "Error: tool failed",
+                            "tool_call_id": "tc-1",
+                            "is_error": True,
+                        }
+                    ),
+                    "sender_name": "TestBot",
+                    "message_type": "tool_result",
+                }
+            ]
+        )
+        assert len(result) == 1
+        blocks = result[0]["content"]
+        assert blocks[0]["is_error"] is True
+
+
+class TestEdgeCases:
+    """Tests for edge cases."""
+
+    def test_missing_sender_name(self):
+        """Should handle missing sender_name."""
+        converter = GoogleADKHistoryConverter()
+        result = converter.convert(
+            [
+                {
+                    "role": "user",
+                    "content": "Hello",
+                    "message_type": "text",
+                }
+            ]
+        )
+        assert len(result) == 1
+        assert result[0]["content"] == "Hello"
+
+    def test_empty_sender_name(self):
+        """Should handle empty sender_name."""
+        converter = GoogleADKHistoryConverter()
+        result = converter.convert(
+            [
+                {
+                    "role": "user",
+                    "content": "Hello",
+                    "sender_name": "",
+                    "message_type": "text",
+                }
+            ]
+        )
+        assert len(result) == 1
+        assert result[0]["content"] == "Hello"
+
+    def test_skips_thought_messages(self):
+        """Should skip thought message types."""
+        converter = GoogleADKHistoryConverter()
+        result = converter.convert(
+            [
+                {
+                    "role": "assistant",
+                    "content": "Thinking about the problem...",
+                    "sender_name": "TestBot",
+                    "message_type": "thought",
+                }
+            ]
+        )
+        assert len(result) == 0
+
+    def test_skips_error_messages(self):
+        """Should skip error message types."""
+        converter = GoogleADKHistoryConverter()
+        result = converter.convert(
+            [
+                {
+                    "role": "assistant",
+                    "content": "Error: something went wrong",
+                    "sender_name": "TestBot",
+                    "message_type": "error",
+                }
+            ]
+        )
+        assert len(result) == 0
+
+    def test_malformed_tool_call_json(self):
+        """Should skip malformed tool call JSON."""
+        converter = GoogleADKHistoryConverter()
+        result = converter.convert(
+            [
+                {
+                    "role": "assistant",
+                    "content": "not json",
+                    "sender_name": "TestBot",
+                    "message_type": "tool_call",
+                }
+            ]
+        )
+        assert len(result) == 0
+
+    def test_malformed_tool_result_json(self):
+        """Should skip malformed tool result JSON."""
+        converter = GoogleADKHistoryConverter()
+        result = converter.convert(
+            [
+                {
+                    "role": "assistant",
+                    "content": "not json at all",
+                    "sender_name": "TestBot",
+                    "message_type": "tool_result",
+                }
+            ]
+        )
+        assert len(result) == 0
+
+    def test_batches_multiple_tool_results(self):
+        """Should batch consecutive tool results into single user message."""
+        converter = GoogleADKHistoryConverter()
+        result = converter.convert(
+            [
+                {
+                    "role": "assistant",
+                    "content": json.dumps(
+                        {
+                            "name": "tool_a",
+                            "output": "result_a",
+                            "tool_call_id": "tc-1",
+                        }
+                    ),
+                    "sender_name": "TestBot",
+                    "message_type": "tool_result",
+                },
+                {
+                    "role": "assistant",
+                    "content": json.dumps(
+                        {
+                            "name": "tool_b",
+                            "output": "result_b",
+                            "tool_call_id": "tc-2",
+                        }
+                    ),
+                    "sender_name": "TestBot",
+                    "message_type": "tool_result",
+                },
+            ]
+        )
+        assert len(result) == 1
+        assert result[0]["role"] == "user"
+        assert len(result[0]["content"]) == 2
+
+    def test_trailing_pending_tool_calls(self):
+        """Should flush trailing tool calls at end of history."""
+        converter = GoogleADKHistoryConverter()
+        result = converter.convert(
+            [
+                {
+                    "role": "assistant",
+                    "content": json.dumps(
+                        {
+                            "name": "search",
+                            "args": {"q": "test"},
+                            "tool_call_id": "tc-1",
+                        }
+                    ),
+                    "sender_name": "TestBot",
+                    "message_type": "tool_call",
+                },
+            ]
+        )
+        # Model message from pending flush + synthetic response from orphan patch
+        assert len(result) == 2
+        assert result[0]["role"] == "model"
+        assert result[0]["content"][0]["type"] == "function_call"
+        assert result[1]["role"] == "user"
+
+    def test_mixed_messages_and_tools(self):
+        """Should handle interleaved text messages and tool events."""
+        converter = GoogleADKHistoryConverter()
+        result = converter.convert(
+            [
+                {
+                    "role": "user",
+                    "content": "Search for cats",
+                    "sender_name": "Alice",
+                    "message_type": "text",
+                },
+                {
+                    "role": "assistant",
+                    "content": json.dumps(
+                        {
+                            "name": "search",
+                            "args": {"q": "cats"},
+                            "tool_call_id": "tc-1",
+                        }
+                    ),
+                    "sender_name": "TestBot",
+                    "message_type": "tool_call",
+                },
+                {
+                    "role": "assistant",
+                    "content": json.dumps(
+                        {
+                            "name": "search",
+                            "output": "Found: cats are great",
+                            "tool_call_id": "tc-1",
+                        }
+                    ),
+                    "sender_name": "TestBot",
+                    "message_type": "tool_result",
+                },
+                {
+                    "role": "user",
+                    "content": "Thanks!",
+                    "sender_name": "Alice",
+                    "message_type": "text",
+                },
+            ]
+        )
+        assert len(result) == 4
+        assert result[0]["role"] == "user"
+        assert result[1]["role"] == "model"
+        assert result[2]["role"] == "user"
+        assert result[3]["role"] == "user"
+
+
+class TestOrphanedToolCallPatching:
+    """Tests for orphaned function_call patching."""
+
+    def test_patches_orphaned_tool_call_no_result(self):
+        """Should inject synthetic error response for tool call without result."""
+        converter = GoogleADKHistoryConverter()
+        result = converter.convert(
+            [
+                {
+                    "role": "assistant",
+                    "content": json.dumps(
+                        {
+                            "name": "search",
+                            "args": {"q": "test"},
+                            "tool_call_id": "tc-orphan",
+                        }
+                    ),
+                    "sender_name": "TestBot",
+                    "message_type": "tool_call",
+                },
+                {
+                    "role": "user",
+                    "content": "Follow up",
+                    "sender_name": "Alice",
+                    "message_type": "text",
+                },
+            ]
+        )
+        # Should have: model (tool call), user (synthetic result + text), user (follow up)
+        # The orphan patch inserts a synthetic response into or before the next user msg
+        assert len(result) >= 2
+        assert result[0]["role"] == "model"
+        # The second message should contain the synthetic function_response
+        user_msg = result[1]
+        assert user_msg["role"] == "user"
+        content = user_msg["content"]
+        assert isinstance(content, list)
+        has_synthetic = any(
+            isinstance(b, dict)
+            and b.get("type") == "function_response"
+            and "interrupted" in b.get("output", "")
+            for b in content
+        )
+        assert has_synthetic
+
+    def test_no_patch_when_result_present(self):
+        """Should not patch when tool call has matching result."""
+        converter = GoogleADKHistoryConverter()
+        result = converter.convert(
+            [
+                {
+                    "role": "assistant",
+                    "content": json.dumps(
+                        {
+                            "name": "search",
+                            "args": {"q": "test"},
+                            "tool_call_id": "tc-1",
+                        }
+                    ),
+                    "sender_name": "TestBot",
+                    "message_type": "tool_call",
+                },
+                {
+                    "role": "assistant",
+                    "content": json.dumps(
+                        {
+                            "name": "search",
+                            "output": "found it",
+                            "tool_call_id": "tc-1",
+                        }
+                    ),
+                    "sender_name": "TestBot",
+                    "message_type": "tool_result",
+                },
+            ]
+        )
+        assert len(result) == 2
+        # No synthetic responses should be added
+        user_content = result[1]["content"]
+        assert isinstance(user_content, list)
+        for block in user_content:
+            if isinstance(block, dict) and block.get("type") == "function_response":
+                assert "interrupted" not in block.get("output", "")
+
+    def test_patches_orphan_at_end_of_history(self):
+        """Should patch orphaned tool call at end of history with no following message."""
+        converter = GoogleADKHistoryConverter()
+        result = converter.convert(
+            [
+                {
+                    "role": "assistant",
+                    "content": json.dumps(
+                        {
+                            "name": "search",
+                            "args": {"q": "test"},
+                            "tool_call_id": "tc-end",
+                        }
+                    ),
+                    "sender_name": "TestBot",
+                    "message_type": "tool_call",
+                },
+            ]
+        )
+        # Should have model message + injected user message with synthetic response
+        assert len(result) == 2
+        assert result[0]["role"] == "model"
+        assert result[1]["role"] == "user"
+        content = result[1]["content"]
+        assert isinstance(content, list)
+        assert any(
+            b.get("type") == "function_response"
+            and "interrupted" in b.get("output", "")
+            for b in content
+            if isinstance(b, dict)
+        )
