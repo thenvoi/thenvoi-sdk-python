@@ -248,6 +248,24 @@ def _codex_factory(**kw: Any) -> Any:
     return CodexAdapter(**kw)
 
 
+def _letta_factory(**kw: Any) -> Any:
+    from thenvoi.adapters.letta import LettaAdapter
+
+    return LettaAdapter(**kw)
+
+
+def _gemini_factory(**kw: Any) -> Any:
+    from thenvoi.adapters.gemini import GeminiAdapter
+
+    return GeminiAdapter(**kw)
+
+
+def _google_adk_factory(**kw: Any) -> Any:
+    from thenvoi.adapters.google_adk import GoogleADKAdapter
+
+    return GoogleADKAdapter(**kw)
+
+
 # ---------------------------------------------------------------------------
 # Registry  (built lazily to avoid top-level adapter imports)
 # ---------------------------------------------------------------------------
@@ -472,11 +490,110 @@ def _build_codex_config() -> AdapterConfig:
     )
 
 
+def _build_letta_config() -> AdapterConfig:
+    from thenvoi.adapters.letta import LettaAdapterConfig
+
+    return AdapterConfig(
+        framework_id="letta",
+        display_name="Letta",
+        adapter_factory=_letta_factory,
+        expected_initial_values={
+            "config": LettaAdapterConfig(),
+        },
+        custom_kwargs={
+            "config": LettaAdapterConfig(
+                enable_execution_reporting=True,
+                mode="shared",
+                mcp_server_url="http://mcp:9000/sse",
+            ),
+        },
+        custom_expected={
+            "config": LettaAdapterConfig(
+                enable_execution_reporting=True,
+                mode="shared",
+                mcp_server_url="http://mcp:9000/sse",
+            ),
+        },
+        has_custom_tools_attr=False,
+        skip_on_started_conformance=True,  # on_started registers MCP server + creates live Letta client
+    )
+
+
+def _build_gemini_config() -> AdapterConfig:
+    from thenvoi.adapters.gemini import GeminiAdapter
+
+    return AdapterConfig(
+        framework_id="gemini",
+        display_name="Gemini",
+        adapter_factory=_gemini_factory,
+        expected_initial_values={
+            "model": _default_from_init(GeminiAdapter, "model"),
+            "system_prompt": _default_from_init(GeminiAdapter, "system_prompt"),
+            "custom_section": _default_from_init(GeminiAdapter, "custom_section"),
+            "enable_execution_reporting": _default_from_init(
+                GeminiAdapter, "enable_execution_reporting"
+            ),
+        },
+        custom_kwargs={
+            "model": "gemini-2.5-flash",
+            "system_prompt": "You are a helpful bot.",
+            "custom_section": "Be concise.",
+            "enable_execution_reporting": True,
+        },
+        custom_expected={
+            "model": "gemini-2.5-flash",
+            "system_prompt": "You are a helpful bot.",
+            "custom_section": "Be concise.",
+            "enable_execution_reporting": True,
+        },
+    )
+
+
 # Adapter modules intentionally excluded from conformance tests.
 # a2a / a2a_gateway use the A2A protocol (Google Agent-to-Agent) which has a
 # fundamentally different lifecycle than framework adapters (no on_message /
 # on_cleanup contract), so they cannot share the same conformance tests.
-ADAPTER_EXCLUDED_MODULES: frozenset[str] = frozenset({"a2a", "a2a_gateway"})
+# acp uses the ACP protocol (Agent Client Protocol) with a similar non-standard
+# lifecycle (ACP JSON-RPC over stdio), so it is also excluded.
+ADAPTER_EXCLUDED_MODULES: frozenset[str] = frozenset({"a2a", "a2a_gateway", "acp"})
+
+
+def _build_google_adk_config() -> AdapterConfig:
+    from thenvoi.adapters.google_adk import GoogleADKAdapter
+
+    return AdapterConfig(
+        framework_id="google_adk",
+        display_name="GoogleADK",
+        adapter_factory=_google_adk_factory,
+        expected_initial_values={
+            "model": _default_from_init(GoogleADKAdapter, "model"),
+            "enable_execution_reporting": _default_from_init(
+                GoogleADKAdapter, "enable_execution_reporting"
+            ),
+            "enable_memory_tools": _default_from_init(
+                GoogleADKAdapter, "enable_memory_tools"
+            ),
+            "custom_section": _default_from_init(GoogleADKAdapter, "custom_section"),
+            "max_history_messages": _default_from_init(
+                GoogleADKAdapter, "max_history_messages"
+            ),
+            "max_transcript_chars": _default_from_init(
+                GoogleADKAdapter, "max_transcript_chars"
+            ),
+        },
+        custom_kwargs={
+            "model": "gemini-2.5-pro",
+            "custom_section": "Be helpful.",
+            "enable_execution_reporting": True,
+        },
+        custom_expected={
+            "model": "gemini-2.5-pro",
+            "custom_section": "Be helpful.",
+            "enable_execution_reporting": True,
+        },
+        skip_on_started_conformance=False,
+    )
+
 
 _ADAPTER_CONFIG_BUILDERS: list[Callable[[], AdapterConfig]] = [
     _build_anthropic_config,
@@ -486,6 +603,9 @@ _ADAPTER_CONFIG_BUILDERS: list[Callable[[], AdapterConfig]] = [
     _build_pydantic_ai_config,
     _build_parlant_config,
     _build_codex_config,
+    _build_letta_config,
+    _build_gemini_config,
+    _build_google_adk_config,
 ]
 
 

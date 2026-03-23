@@ -10,6 +10,9 @@ Connect your AI agents to the Thenvoi collaborative platform.
 - **Codex App-Server** - Production ready (stdio/ws transport, OAuth)
 - **CrewAI** - Production ready (role-based agents with goals)
 - **Parlant** - Production ready (guideline-based behavior)
+- **Gemini SDK** - Production ready (official `google-genai` adapter)
+- **Letta** - Production ready (Cloud or self-hosted with MCP tools)
+- **Google ADK** - Production ready (Gemini models via Agent Development Kit)
 - **A2A Adapter** - Call external A2A-compliant agents from Thenvoi
 - **A2A Gateway** - Expose Thenvoi peers as A2A protocol endpoints
 
@@ -75,6 +78,9 @@ uv add "git+https://github.com/thenvoi/thenvoi-sdk-python.git[claude_sdk]"
 uv add "git+https://github.com/thenvoi/thenvoi-sdk-python.git[codex]"
 uv add "git+https://github.com/thenvoi/thenvoi-sdk-python.git[crewai]"
 uv add "git+https://github.com/thenvoi/thenvoi-sdk-python.git[parlant]"
+uv add "git+https://github.com/thenvoi/thenvoi-sdk-python.git[gemini]"
+uv add "git+https://github.com/thenvoi/thenvoi-sdk-python.git[letta]"
+uv add "git+https://github.com/thenvoi/thenvoi-sdk-python.git[google_adk]"
 ```
 
 > **Note for Claude Agent SDK:** Requires Node.js 20+ and Claude Code CLI: `npm install -g @anthropic-ai/claude-code`
@@ -84,7 +90,7 @@ uv add "git+https://github.com/thenvoi/thenvoi-sdk-python.git[parlant]"
 ### Option 2: Run Examples from Repository
 
 ```bash
-git clone https://github.com/thenvoi/thenvoi-sdk-python.git
+git clone -b main https://github.com/thenvoi/thenvoi-sdk-python.git
 cd thenvoi-sdk-python
 
 # Install dependencies
@@ -136,12 +142,11 @@ agent_id, api_key = load_agent_config("my_agent")
 
 ### Important Notes
 
-- ✅ **External agents** run outside the Thenvoi platform (your Python code)
-- ✅ Each external agent has a **unique API key** for authentication
-- ✅ Agent names must be **unique** within your organization
-- ✅ Name and description are managed on the platform, not in config file
-- ⚠️ `agent_config.yaml` is git-ignored - never commit credentials to version control
-- ⚠️ Create the agent on the platform **first**, then update `agent_config.yaml`
+- Each external agent has a **unique API key** for authentication
+- Agent names must be **unique** within your organization
+- Name and description are managed on the platform, not in config file
+- `agent_config.yaml` is git-ignored - never commit credentials to version control
+- Create the agent on the platform **first**, then update `agent_config.yaml`
 
 ---
 
@@ -323,220 +328,146 @@ agent = Agent.create(
 await agent.run()
 ```
 
----
+### Google ADK
 
-## Package Structure
+> **Note:** Requires a Google API key for Gemini. Get one from [Google AI Studio](https://aistudio.google.com/apikey).
 
-```
-src/thenvoi/
-├── agent.py                    # Agent compositor with create() factory
-│
-├── adapters/                   # Framework adapters (composition pattern)
-│   ├── langgraph.py           # LangGraphAdapter
-│   ├── anthropic.py           # AnthropicAdapter
-│   ├── pydantic_ai.py         # PydanticAIAdapter
-│   ├── claude_sdk.py          # ClaudeSDKAdapter
-│   ├── codex.py               # CodexAdapter
-│   ├── crewai.py              # CrewAIAdapter
-│   └── parlant.py             # ParlantAdapter
-│
-├── platform/                   # Transport layer
-│   ├── link.py                # ThenvoiLink - WebSocket + REST client
-│   └── events.py              # PlatformEvent - typed events
-│
-├── runtime/                    # Runtime layer
-│   ├── agent_runtime.py       # AgentRuntime - convenience wrapper
-│   ├── room_presence.py       # RoomPresence - cross-room lifecycle
-│   ├── execution.py           # Execution + ExecutionContext
-│   ├── agent_tools.py         # AgentTools - platform operations
-│   ├── types.py               # PlatformMessage, configs
-│   ├── prompts.py             # System prompt rendering
-│   ├── formatters.py          # Message formatting utilities
-│   └── trackers.py            # Participant + retry tracking
-│
-├── integrations/               # Framework-specific utilities
-│   ├── langgraph/
-│   │   ├── langchain_tools.py # agent_tools_to_langchain()
-│   │   ├── graph_tools.py     # graph_as_tool()
-│   │   └── message_formatters.py
-│   ├── pydantic_ai/           # Pydantic AI utilities
-│   ├── anthropic/             # Anthropic utilities
-│   ├── claude_sdk/
-│   │   ├── session_manager.py # Per-room session management
-│   │   └── prompts.py         # Claude-specific prompts
-│   └── a2a/
-│       ├── adapter.py         # A2AAdapter (call external A2A agents)
-│       ├── types.py           # A2A types
-│       └── gateway/           # A2A Gateway adapter
-│           ├── adapter.py     # A2AGatewayAdapter
-│           ├── server.py      # GatewayServer (HTTP/SSE)
-│           └── types.py       # GatewaySessionState
-│
-├── converters/                 # History conversion utilities
-│   ├── anthropic.py           # AnthropicHistoryConverter
-│   ├── pydantic_ai.py         # PydanticAIHistoryConverter
-│   ├── claude_sdk.py          # ClaudeSDKHistoryConverter
-│   ├── codex.py               # CodexHistoryConverter
-│   ├── crewai.py              # CrewAIHistoryConverter
-│   ├── parlant.py             # ParlantHistoryConverter
-│   ├── a2a.py                 # A2AHistoryConverter
-│   └── a2a_gateway.py         # GatewayHistoryConverter
-│
-├── client/                     # Low-level WebSocket client
-│   └── streaming/
-│       └── client.py
-│
-└── config/                     # Configuration utilities
-    └── loader.py
+```python
+from thenvoi import Agent
+from thenvoi.adapters import GoogleADKAdapter
 
-examples/
-├── run_agent.py               # Quick-start script for any framework
-├── langgraph/                 # LangGraph examples (01-06)
-├── pydantic_ai/               # Pydantic AI examples (01-02)
-├── anthropic/                 # Anthropic SDK examples (01-02)
-├── claude_sdk/                # Claude Agent SDK examples (01-02)
-├── codex/                     # Codex examples (01)
-├── crewai/                    # CrewAI examples (01-04)
-├── parlant/                   # Parlant examples (01-03)
-├── a2a_bridge/                # A2A Adapter examples (call external A2A agents)
-│   ├── 01_basic_agent.py      # Basic bridge setup
-│   └── 02_with_auth.py        # Bridge with authentication
-└── a2a_gateway/               # A2A Gateway examples (expose peers)
-    ├── 01_basic_gateway.py    # Basic gateway setup
-    ├── 02_with_demo_agent.py  # Gateway + orchestrator
-    └── demo_orchestrator/     # LangGraph orchestrator agent
+adapter = GoogleADKAdapter(
+    model="gemini-2.5-flash",
+    custom_section="You are a helpful assistant.",
+    enable_execution_reporting=True,
+)
+
+agent = Agent.create(
+    adapter=adapter,
+    agent_id=agent_id,
+    api_key=api_key,
+)
+await agent.run()
 ```
 
----
+Set `GOOGLE_API_KEY` (or `GOOGLE_GENAI_API_KEY`) in your environment for Gemini authentication.
 
+---
+### Gemini SDK
+
+> **Note:** Requires `GEMINI_API_KEY` for the official `google-genai` SDK.
+
+```python
+from thenvoi import Agent
+from thenvoi.adapters import GeminiAdapter
+
+adapter = GeminiAdapter(
+    model="gemini-2.5-flash",
+    custom_section="You are a helpful assistant.",
+    enable_execution_reporting=True,
+)
+
+agent = Agent.create(
+    adapter=adapter,
+    agent_id=agent_id,
+    api_key=api_key,
+)
+await agent.run()
+```
+
+Set `GEMINI_API_KEY` in your environment for Gemini SDK authentication.
+
+---
 ## Examples Overview
 
-### LangGraph Examples (`examples/langgraph/`)
+### LangGraph (`examples/langgraph/`)
 
 | File | Description |
 |------|-------------|
-| `01_simple_agent.py` | **Minimal setup** - Uses `Agent.create()` with LangGraphAdapter. Connects to platform and responds using built-in tools. |
-| `02_custom_tools.py` | **Custom tools** - Adds your own `@tool` functions (calculator, weather) via `additional_tools` parameter. |
-| `03_custom_personality.py` | **Custom behavior** - Uses `custom_instructions` to give the agent a pirate personality. |
-| `04_calculator_as_tool.py` | **Graph-as-tool** - Wraps a standalone LangGraph as a tool using `graph_as_tool()`. Main agent delegates math to calculator subgraph. |
-| `05_rag_as_tool.py` | **RAG subagent** - Wraps an Agentic RAG graph (retrieval + grading + rewriting) as a tool for research questions. |
-| `06_delegate_to_sql_agent.py` | **SQL subagent** - Wraps a SQL agent with its own LLM and database tools. Main agent delegates queries to SQL subgraph. |
+| `01_simple_agent.py` | Minimal setup with `Agent.create()` and LangGraphAdapter |
+| `02_custom_tools.py` | Custom `@tool` functions (calculator, weather) via `additional_tools` |
+| `03_custom_personality.py` | Custom behavior via `custom_instructions` |
+| `04_calculator_as_tool.py` | Wraps a LangGraph as a tool using `graph_as_tool()` |
+| `05_rag_as_tool.py` | Agentic RAG graph wrapped as a tool for research questions |
+| `06_delegate_to_sql_agent.py` | SQL agent with its own LLM and database tools as a subgraph |
 
-**Supporting files:** `standalone_calculator.py`, `standalone_rag.py`, `standalone_sql_agent.py` - Independent graphs used by examples 04-06.
-
-### Pydantic AI Examples (`examples/pydantic_ai/`)
+### Pydantic AI (`examples/pydantic_ai/`)
 
 | File | Description |
 |------|-------------|
-| `01_basic_agent.py` | **Minimal setup** - Creates agent with PydanticAIAdapter using OpenAI. |
-| `02_custom_instructions.py` | **Custom behavior** - Support agent persona using Anthropic Claude. |
+| `01_basic_agent.py` | Minimal setup with PydanticAIAdapter using OpenAI |
+| `02_custom_instructions.py` | Support agent persona using Anthropic Claude |
 
-**Contact handling:** Use `--contacts` flag with `run_agent.py` to enable contact event strategies:
-- `--contacts auto` - Auto-approve all contact requests (CALLBACK strategy)
-- `--contacts hub` - Route to hub room for LLM reasoning (HUB_ROOM strategy)
-- `--contacts broadcast` - Broadcast contact changes to all rooms
-
-See [Contact Event Handling](docs/contact-events.md) for details.
-
-### Anthropic SDK Examples (`examples/anthropic/`)
+### Anthropic SDK (`examples/anthropic/`)
 
 | File | Description |
 |------|-------------|
-| `01_basic_agent.py` | **Minimal setup** - Creates agent with AnthropicAdapter using Claude Sonnet. |
-| `02_custom_instructions.py` | **Custom behavior** - Support agent with execution reporting enabled. |
+| `01_basic_agent.py` | Minimal setup with AnthropicAdapter using Claude Sonnet |
+| `02_custom_instructions.py` | Support agent with execution reporting enabled |
 
-### Claude Agent SDK Examples (`examples/claude_sdk/`)
-
-| File | Description |
-|------|-------------|
-| `01_basic_agent.py` | **Minimal setup** - Creates agent with ClaudeSDKAdapter using Claude Sonnet. |
-| `02_extended_thinking.py` | **Extended thinking** - Agent with 10,000 token thinking budget for complex reasoning. |
-
-**Key features:**
-- Automatic conversation history management (SDK handles it)
-- Streaming responses via async iterator
-- Extended thinking support with `max_thinking_tokens`
-- MCP-based tool integration
-
-### Codex Examples (`examples/codex/`)
+### Claude Agent SDK (`examples/claude_sdk/`)
 
 | File | Description |
 |------|-------------|
-| `01_basic_agent.py` | **Minimal setup** - Runs `CodexAdapter` with room/thread mapping and dynamic Thenvoi tools. |
+| `01_basic_agent.py` | Minimal setup with ClaudeSDKAdapter using Claude Sonnet |
+| `02_extended_thinking.py` | Extended thinking with 10,000 token thinking budget |
 
-**Prerequisites:**
-- `codex login` (OAuth)
-- `CODEX_TRANSPORT=stdio` (recommended) or `CODEX_TRANSPORT=ws` with `codex app-server --listen ws://127.0.0.1:8765`
-- `CODEX_APPROVAL_MODE=manual` (default) for in-chat approval flow
-- Optional: `CODEX_TURN_TASK_MARKERS=true` to emit synthetic `Codex turn started/completed` task events
-
-### CrewAI Examples (`examples/crewai/`)
+### Codex (`examples/codex/`)
 
 | File | Description |
 |------|-------------|
-| `01_basic_agent.py` | **Minimal setup** - Simple agent with CrewAIAdapter. |
-| `02_role_based_agent.py` | **Role definition** - Agent with role, goal, and backstory. |
-| `03_coordinator_agent.py` | **Multi-agent orchestration** - Coordinator that manages other agents. |
-| `04_research_crew.py` | **Complete crew** - Research team with Analyst, Writer, and Editor. |
+| `01_basic_agent.py` | CodexAdapter with room/thread mapping and dynamic Thenvoi tools |
 
-**Key features:**
-- Role-based agent definition (role, goal, backstory)
-- Multi-agent collaboration patterns
-- Uses OpenAI-compatible API (set `OPENAI_API_KEY`)
-
-### Parlant Examples (`examples/parlant/`)
+### Gemini SDK (`examples/gemini/`)
 
 | File | Description |
 |------|-------------|
-| `01_basic_agent.py` | **Minimal setup** - Simple agent with ParlantAdapter. |
-| `02_with_guidelines.py` | **Behavioral guidelines** - Agent with condition/action rules. |
-| `03_support_agent.py` | **Customer support** - Realistic support agent with specialized guidelines. |
+| `01_basic_agent.py` | Minimal setup with GeminiAdapter using Gemini 2.5 Flash |
 
-**Key features:**
-- Behavioral guidelines (condition/action pairs)
-- Consistent, rule-following behavior
-- Uses OpenAI-compatible API (set `OPENAI_API_KEY`)
-
-### A2A Adapter Examples (`examples/a2a_bridge/`)
+### CrewAI (`examples/crewai/`)
 
 | File | Description |
 |------|-------------|
-| `01_basic_agent.py` | **Basic bridge** - Forwards Thenvoi messages to an external A2A agent. |
-| `02_with_auth.py` | **With authentication** - A2A bridge with API key authentication. |
+| `01_basic_agent.py` | Simple agent with CrewAIAdapter |
+| `02_role_based_agent.py` | Agent with role, goal, and backstory |
+| `03_coordinator_agent.py` | Multi-agent orchestration coordinator |
+| `04_research_crew.py` | Research team with Analyst, Writer, and Editor |
 
-**Architecture:**
-```
-Thenvoi Platform → A2A Adapter → External A2A Agent (e.g., LangGraph currency agent)
-       ↑                              ↓
-       ←←←←←←←← Response ←←←←←←←←←←←←←
-```
-
-**Key features:**
-- Call any A2A-compliant agent from Thenvoi platform
-- Automatic session state persistence via task events
-- Session rehydration when agent rejoins a room (`context_id` restored)
-- Task resumption for `input_required` state via A2A resubscribe
-
-### A2A Gateway Examples (`examples/a2a_gateway/`)
+### Parlant (`examples/parlant/`)
 
 | File | Description |
 |------|-------------|
-| `01_basic_gateway.py` | **Basic gateway** - Exposes Thenvoi peers as A2A protocol endpoints. |
-| `02_with_demo_agent.py` | **Gateway + Orchestrator** - Runs both gateway and demo orchestrator together. |
-| `demo_orchestrator/` | **Demo Orchestrator** - LangGraph agent that routes requests to gateway peers. |
+| `01_basic_agent.py` | Simple agent with ParlantAdapter |
+| `02_with_guidelines.py` | Behavioral guidelines (condition/action rules) |
+| `03_support_agent.py` | Realistic customer support agent |
 
-**Architecture:**
-```
-User → Orchestrator (10001) → A2A Gateway (10000) → Thenvoi Platform → Peer Agent
-                            ↑                                              ↓
-                            ←←←←←←←←←←← SSE Response ←←←←←←←←←←←←←←←←←←←←←
-```
+### Letta (`examples/letta/`)
 
-**Key features:**
-- Exposes Thenvoi peers as A2A-compliant JSON-RPC endpoints
-- Context ID preservation (same `contextId` → same chat room)
-- Multi-peer support with automatic participant management
-- SSE streaming responses (`text/event-stream`)
+| File | Description |
+|------|-------------|
+| `01_basic_agent.py` | Minimal setup with LettaAdapter using Cloud or self-hosted Letta |
+
+### Google ADK (`examples/google_adk/`)
+
+| File | Description |
+|------|-------------|
+| `01_basic_agent.py` | Minimal setup with GoogleADKAdapter using Gemini 2.5 Flash |
+| `02_custom_instructions.py` | Custom system prompt with Gemini 2.5 Pro and execution reporting |
+| `03_custom_tools.py` | Custom tools (calculator, weather) via `additional_tools` |
+
+### A2A Adapter (`examples/a2a_bridge/`)
+
+| File | Description |
+|------|-------------|
+| `01_basic_agent.py` | Basic bridge forwarding Thenvoi messages to an external A2A agent |
+| `02_with_auth.py` | A2A bridge with API key authentication |
+
+### A2A Gateway (`examples/a2a_gateway/`)
+
+| File | Description |
+|------|-------------|
+| `01_basic_gateway.py` | Exposes Thenvoi peers as A2A protocol endpoints |
+| `02_with_demo_agent.py` | Gateway + LangGraph demo orchestrator |
 
 ---
 
@@ -608,14 +539,9 @@ uv run examples/codex/01_basic_agent.py
 
 # CrewAI
 uv run python examples/crewai/01_basic_agent.py
-uv run python examples/crewai/02_role_based_agent.py
 
 # Parlant
 uv run python examples/parlant/01_basic_agent.py
-uv run python examples/parlant/02_with_guidelines.py
-
-# A2A Adapter
-uv run python examples/a2a_bridge/01_basic_agent.py
 ```
 
 ### A2A Adapter Setup
@@ -631,8 +557,6 @@ python -m app --host localhost --port 10000
 uv run python examples/run_agent.py --example a2a --a2a-url http://localhost:10000 --debug
 ```
 
-The bridge agent forwards messages from Thenvoi platform to the external A2A agent and posts responses back to the chat.
-
 ### A2A Gateway Setup
 
 Run the gateway and orchestrator to expose Thenvoi peers as A2A endpoints:
@@ -645,54 +569,11 @@ uv run python examples/run_agent.py --example a2a_gateway --debug
 uv run python examples/a2a_gateway/demo_orchestrator/__main__.py --gateway-url http://localhost:10000
 ```
 
-Test with curl:
-
-```bash
-# Send a message to the orchestrator (routes to gateway peers)
-curl -X POST http://localhost:10001/ \
-    -H "Content-Type: application/json" \
-    -d '{
-      "jsonrpc": "2.0",
-      "id": "1",
-      "method": "message/send",
-      "params": {
-        "message": {
-          "role": "user",
-          "parts": [{"kind": "text", "text": "Ask the weather peer about London"}],
-          "messageId": "msg-1",
-          "contextId": "ctx-1"
-        }
-      }
-    }'
-
-# Second message with SAME contextId uses the same chat room
-curl -X POST http://localhost:10001/ \
-    -H "Content-Type: application/json" \
-    -d '{
-      "jsonrpc": "2.0",
-      "id": "2",
-      "method": "message/send",
-      "params": {
-        "message": {
-          "role": "user",
-          "parts": [{"kind": "text", "text": "What about tomorrow?"}],
-          "messageId": "msg-2",
-          "contextId": "ctx-1"
-        }
-      }
-    }'
-```
-
 ---
 
 ## Docker Usage
 
 You can run the examples using Docker without installing dependencies locally.
-
-### Prerequisites
-
-- Docker and Docker Compose installed
-- API keys configured in `.env` file
 
 ### Setup
 
@@ -700,37 +581,22 @@ You can run the examples using Docker without installing dependencies locally.
 
 ```bash
 cp .env.example .env
-```
-
-Edit `.env` and fill in your actual values. See `.env.example` for all available configuration options.
-
-2. Configure agent credentials:
-
-```bash
 cp agent_config.yaml.example agent_config.yaml
 ```
 
-Add your agent IDs and API keys to `agent_config.yaml`.
+Edit `.env` and `agent_config.yaml` with your actual values.
 
 > **Note:** Both `.env` and `agent_config.yaml` are git-ignored. Never commit credentials to version control.
 
-### Running Examples with Docker Compose
+### Running with Docker Compose
 
 ```bash
 # LangGraph examples
 docker compose up langgraph-01-simple
 docker compose up langgraph-02-custom-tools
-docker compose up langgraph-03-custom-personality
 
 # Rebuild after changes
 docker compose up --build langgraph-01-simple
-
-# Force recreate all containers
-docker compose up --build --force-recreate
-
-# Clean rebuild (removes cached layers)
-docker compose build --no-cache
-docker compose up
 ```
 
 ### Running with Docker (without compose)
@@ -862,16 +728,12 @@ Networking note:
 
 ### 1. Copy configuration files from examples
 
-Always copy from the example files to ensure correct URLs and formatting:
-
 ```bash
 cp .env.example .env
 cp agent_config.yaml.example agent_config.yaml
 ```
 
 ### 2. Edit `.env` with your API keys
-
-The `.env` file contains platform URLs (pre-configured) and LLM API keys:
 
 ```bash
 # Platform URLs
@@ -885,8 +747,6 @@ ANTHROPIC_API_KEY=sk-ant-your-key-here
 
 ### 3. Edit `agent_config.yaml` with your agent credentials
 
-Add your agent IDs and API keys from the Thenvoi platform:
-
 ```yaml
 my_agent:
   agent_id: "your-agent-uuid"
@@ -894,95 +754,12 @@ my_agent:
 ```
 
 > **Security:** Never commit API keys. Both `.env` and `agent_config.yaml` are git-ignored.
-> 
+>
 > **Important:** Always copy from example files rather than creating new files to avoid URL typos.
 
 ---
 
-## Development
-
-### Adding Dependencies
-
-```bash
-uv add package-name
-uv add --optional langgraph package-name
-```
-
-### Running Tests
-
-#### Unit Tests
-
-Unit tests run without any external dependencies:
-
-```bash
-uv run pytest tests/ --ignore=tests/integration/
-```
-
-#### Integration Tests
-
-Integration tests require a running Thenvoi API server and valid credentials.
-
-**1. Set up test credentials:**
-
-```bash
-cp .env.test.example .env.test
-```
-
-Edit `.env.test` with your credentials:
-
-```bash
-# Server URLs
-THENVOI_BASE_URL=http://localhost:4000
-THENVOI_WS_URL=ws://localhost:4000/api/v1/socket/websocket
-
-# Primary test agent (required for basic tests)
-THENVOI_API_KEY=<your-agent-api-key>
-TEST_AGENT_ID=<agent-uuid>
-
-# Secondary test agent (required for multi-agent tests)
-THENVOI_API_KEY_2=<your-second-agent-api-key>
-TEST_AGENT_ID_2=<second-agent-uuid>
-
-# User API key (required for dynamic agent tests)
-THENVOI_API_KEY_USER=<your-user-api-key>
-```
-
-**Required credentials by test type:**
-
-| Test Type | Required Credentials |
-|-----------|---------------------|
-| Basic agent tests | `THENVOI_API_KEY`, `TEST_AGENT_ID` |
-| Multi-agent tests | Above + `THENVOI_API_KEY_2`, `TEST_AGENT_ID_2` |
-| Dynamic agent tests | Above + `THENVOI_API_KEY_USER` |
-
-**2. Run integration tests:**
-
-```bash
-# Run all integration tests
-uv run pytest tests/integration/ -v
-
-# Run specific test files
-uv run pytest tests/integration/test_smoke.py -v           # Basic connectivity
-uv run pytest tests/integration/test_multi_agent.py -v     # Multi-agent scenarios
-uv run pytest tests/integration/test_dynamic_agent.py -v   # Dynamic agent creation
-
-# Run with output visible
-uv run pytest tests/integration/ -v -s
-```
-
-**3. Run all tests (unit + integration):**
-
-```bash
-uv run pytest tests/ -v
-```
-
-Tests will automatically skip if required credentials are not configured.
-
----
-
 ## Architecture
-
-### Composition Pattern
 
 The SDK uses composition over inheritance:
 
@@ -1023,36 +800,6 @@ class MyAdapter(SimpleAdapter[MyHistoryType]):
     async def on_cleanup(self) -> None:
         """Called when agent stops."""
         pass
-```
-
----
-
-## LangGraph Utilities
-
-### Wrap Graph as Tool
-
-```python
-from thenvoi.integrations.langgraph import graph_as_tool
-
-calculator_tool = graph_as_tool(
-    calculator_graph,
-    name="calculator",
-    description="Evaluates math expressions"
-)
-
-adapter = LangGraphAdapter(
-    llm=llm,
-    checkpointer=checkpointer,
-    additional_tools=[calculator_tool],
-)
-```
-
-### Convert Platform Tools to LangChain
-
-```python
-from thenvoi.integrations.langgraph import agent_tools_to_langchain
-
-langchain_tools = agent_tools_to_langchain(agent_tools)
 ```
 
 ---
@@ -1102,22 +849,6 @@ adapter = LangGraphAdapter(
 )
 ```
 
-### PydanticAI (Native Functions)
-
-```python
-from pydantic_ai import RunContext
-from thenvoi.core.protocols import AgentToolsProtocol
-
-def calculate(ctx: RunContext[AgentToolsProtocol], a: float, b: float) -> float:
-    """Add two numbers together."""
-    return a + b
-
-adapter = PydanticAIAdapter(
-    model="openai:gpt-4o",
-    additional_tools=[calculate],
-)
-```
-
 ### Anthropic / CrewAI / Parlant / ClaudeSDK (CustomToolDef)
 
 ```python
@@ -1138,86 +869,41 @@ adapter = AnthropicAdapter(
 )
 ```
 
-For detailed documentation, see [Custom Tools Guide](docs/custom-tools-guide.md).
+---
+
+## LangGraph Utilities
+
+### Wrap Graph as Tool
+
+```python
+from thenvoi.integrations.langgraph import graph_as_tool
+
+calculator_tool = graph_as_tool(
+    calculator_graph,
+    name="calculator",
+    description="Evaluates math expressions"
+)
+
+adapter = LangGraphAdapter(
+    llm=llm,
+    checkpointer=checkpointer,
+    additional_tools=[calculator_tool],
+)
+```
+
+### Convert Platform Tools to LangChain
+
+```python
+from thenvoi.integrations.langgraph import agent_tools_to_langchain
+
+langchain_tools = agent_tools_to_langchain(agent_tools)
+```
 
 ---
 
-## Context7 MCP for Up-to-Date Documentation
+## Development
 
-To ensure access to the latest documentation and code examples directly within your development environment, you can integrate the Context7 Model Context Protocol (MCP).
-
-### Prerequisites
-
-- Node.js version 18 or higher
-
-### Configure Your MCP Client
-
-<details>
-<summary><strong>Cursor</strong></summary>
-
-1. Navigate to `Settings` → `Cursor Settings` → `MCP` → `Add new global MCP server`
-2. Add the following to your `~/.cursor/mcp.json` file:
-
-```json
-{
-  "mcpServers": {
-    "context7": {
-      "command": "npx",
-      "args": ["-y", "@upstash/context7-mcp@latest"]
-    }
-  }
-}
-```
-
-</details>
-
-<details>
-<summary><strong>VS Code</strong></summary>
-
-1. Install the MCP extension for VS Code
-2. Add the following to your `settings.json` file:
-
-```json
-{
-  "servers": {
-    "Context7": {
-      "type": "stdio",
-      "command": "npx",
-      "args": ["-y", "@upstash/context7-mcp@latest"]
-    }
-  }
-}
-```
-
-</details>
-
-<details>
-<summary><strong>Claude Desktop</strong></summary>
-
-Add the following to your `claude_desktop_config.json` file:
-
-```json
-{
-  "mcpServers": {
-    "Context7": {
-      "command": "npx",
-      "args": ["-y", "@upstash/context7-mcp@latest"]
-    }
-  }
-}
-```
-
-</details>
-
-### Usage
-
-Once configured, add `use context7` to your prompts to fetch up-to-date documentation:
-
-```
-How do I create a LangGraph adapter in Thenvoi? use context7
-```
-
-This fetches the latest documentation and code examples, ensuring you have accurate and current information about the Thenvoi SDK and its dependencies.
+See [AGENTS.md](AGENTS.md) for development setup, testing, and contributing guidelines.
 
 ---
 

@@ -15,8 +15,10 @@ __all__ = [
     "BaseDictListOutputAdapter",
     "ClaudeSDKOutputAdapter",
     "DictListOutputAdapter",
+    "GoogleADKOutputAdapter",
     "LangChainOutputAdapter",
     "PydanticAIOutputAdapter",
+    "GeminiOutputAdapter",
     "StringOutputAdapter",
     "SenderDictListAdapter",
 ]
@@ -322,6 +324,98 @@ class PydanticAIOutputAdapter:
         )
 
 
+class GeminiOutputAdapter:
+    """Adapter for Gemini converter output (list[google.genai.types.Content]).
+
+    Consecutive same-role Content entries are merged by the converter, so all
+    indexed accessors operate on a flattened (role, part) view to stay
+    compatible with the conformance test expectations.
+    """
+
+    @staticmethod
+    def _flatten(result: list) -> list[tuple[str, object]]:
+        """Return a flat list of (role, part) tuples."""
+        flat: list[tuple[str, object]] = []
+        for content in result:
+            for part in content.parts or []:
+                flat.append((content.role, part))
+        return flat
+
+    def assert_result_type(self, result: list) -> None:
+        assert isinstance(result, list), f"Expected list, got {type(result).__name__}"
+
+    def result_length(self, result: list) -> int:
+        return len(self._flatten(result))
+
+    def get_content(self, result: list, index: int) -> str:
+        flat = self._flatten(result)
+        _role, part = flat[index]
+        if part.text:
+            return part.text
+        if part.function_call and part.function_call.name:
+            return part.function_call.name
+        if part.function_response:
+            response_text = str(part.function_response.response or "")
+            if response_text:
+                return response_text
+            if part.function_response.name:
+                return part.function_response.name
+        raise ValueError(
+            f"No text/function_call/function_response content at index {index}"
+        )
+
+    def get_role(self, result: list, index: int) -> str:
+        flat = self._flatten(result)
+        role, _part = flat[index]
+        if role == "model":
+            return "assistant"
+        return "user"
+
+    def is_empty(self, result: list) -> bool:
+        return len(result) == 0
+
+    def content_contains(self, result: list, substring: str) -> bool:
+        for content in result:
+            for part in content.parts or []:
+                if part.text and substring in part.text:
+                    return True
+                if part.function_call:
+                    if part.function_call.name and substring in part.function_call.name:
+                        return True
+                    if part.function_call.args and substring in str(
+                        part.function_call.args
+                    ):
+                        return True
+                if part.function_response:
+                    if (
+                        part.function_response.name
+                        and substring in part.function_response.name
+                    ):
+                        return True
+                    if part.function_response.response and substring in str(
+                        part.function_response.response
+                    ):
+                        return True
+        return False
+
+    def assert_element_type(self, result: list, index: int, expected_role: str) -> None:
+        role = self.get_role(result, index)
+        assert role == expected_role, f"Expected role={expected_role!r}, got {role!r}"
+
+    def assert_sender_metadata(
+        self,
+        result: list,
+        index: int,
+        sender_name: str,
+        sender_type: str | None = None,
+    ) -> None:
+        raise NotImplementedError(
+            "GeminiOutputAdapter.assert_sender_metadata() is not supported. "
+            "Gemini contents do not include sender metadata. "
+            "Ensure has_sender_metadata=False in the ConverterConfig."
+        )
+
+
 class StringOutputAdapter:
     """Adapter for ClaudeSDK converter output (newline-joined string).
 
@@ -457,6 +551,58 @@ class ClaudeSDKOutputAdapter(OutputAdapter):
         sender_type: str | None = None,
     ) -> None:
         self._inner.assert_sender_metadata(result.text, index, sender_name, sender_type)
+
+
+class GoogleADKOutputAdapter(BaseDictListOutputAdapter):
+    """Adapter for Google ADK converter output (list[dict] with function_call blocks).
+
+    Similar to ``DictListOutputAdapter`` but uses ``"model"`` role instead of
+    ``"assistant"`` for tool call messages.  Maps ``"model"`` to ``"assistant"``
+    for conformance test assertions.
+    """
+
+    def get_content(self, result: list[dict[str, Any]], index: int) -> str:
+        content = result[index]["content"]
+        if isinstance(content, list):
+            # Function call/response blocks -- return first text or repr
+            for block in content:
+                if isinstance(block, dict) and block.get("type") == "text":
+                    return block["text"]
+            return str(content)
+        return content
+
+    def get_role(self, result: list[dict[str, Any]], index: int) -> str:
+        role = result[index]["role"]
+        # Map Google's "model" role to conformance "assistant"
+        if role == "model":
+            return "assistant"
+        return role
+
+    def content_contains(self, result: list[dict[str, Any]], substring: str) -> bool:
+        for msg in result:
+            content = msg["content"]
+            if isinstance(content, str) and substring in content:
+                return True
+            if isinstance(content, list):
+                for block in content:
+                    if isinstance(block, dict) and substring in str(block):
+                        return True
+        return False
+
+    def assert_element_type(
+        self, result: list[dict[str, Any]], index: int, expected_role: str
+    ) -> None:
+        msg = result[index]
+        assert isinstance(msg, dict), f"Expected dict, got {type(msg).__name__}"
+        assert "role" in msg, "Missing 'role' key"
+        assert "content" in msg, "Missing 'content' key"
+        actual_role = msg["role"]
+        # Map "model" to "assistant" for comparison
+        if actual_role == "model":
+            actual_role = "assistant"
+        assert actual_role == expected_role, (
+            f"Expected role={expected_role!r}, got {msg['role']!r} (mapped to {actual_role!r})"
+        )
 
 
 class SenderDictListAdapter(BaseDictListOutputAdapter):

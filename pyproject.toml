@@ -23,18 +23,22 @@ classifiers = [
 
 dependencies = [
     "thenvoi-client-rest==0.0.4",
-    "phoenix-channels-python-client>=0.1.4",
+    "phoenix-channels-python-client>=0.1.5",
     "python-dotenv>=1.1.1",
     "pyyaml>=6.0",
     "claude-agent-sdk>=0.1.16",
+    "cryptography>=46.0.5",
 ]
 
 [project.optional-dependencies]
 codex = [
     "websockets>=13.0",
 ]
+letta = [
+    "letta-client>=0.1.0",
+]
 pydantic-ai = [
-    "pydantic-ai-slim>=1.0.0",
+    "pydantic-ai-slim>=1.56.0",
     "openai>=1.0.0",
 ]
 anthropic = [
@@ -42,7 +46,7 @@ anthropic = [
 ]
 langgraph = [
     "langchain>=1.0.0",
-    "langchain-core>=1.2.5",
+    "langchain-core>=1.2.11",
     "langgraph>=1.0.0",
     "langchain-openai>=0.3.0",
     "langchain-community>=0.4.0",  # 0.4.0+ required for langchain 1.0 compatibility
@@ -56,6 +60,7 @@ claude_sdk = [
 parlant = [
     "parlant>=3.0.0",
     "openai>=1.0.0",
+    "werkzeug>=3.1.6",
 ]
 crewai = [
     # Upper bound due to reliance on kickoff_async message list behavior.
@@ -63,14 +68,21 @@ crewai = [
     "crewai>=0.80.0,<2.0.0",
     "openai>=1.0.0",
     "nest-asyncio>=1.6.0",  # Required for sync-to-async bridging in CrewAI tools
+    "pillow>=12.1.1",
+]
+gemini = [
+    "google-genai>=1.43.0",  # httpx is a transitive dep used for retry exception types
 ]
 a2a = [
     "a2a-sdk>=0.3.22",  # Official A2A Python SDK
+    "protobuf>=6.33.5",
 ]
 a2a_gateway = [
     "a2a-sdk>=0.3.22",  # Official A2A Python SDK
     "starlette>=0.40.0",  # HTTP server framework
     "uvicorn>=0.32.0",  # ASGI server
+    "protobuf>=6.33.5",
+    "python-multipart>=0.0.22",
 ]
 a2a_gateway_demo = [
     "a2a-sdk>=0.3.22",      # A2A client for calling gateway peers
@@ -80,8 +92,28 @@ a2a_gateway_demo = [
     "langchain-openai>=0.3.0",  # OpenAI model for LLM
     "click>=8.0.0",         # CLI for demo orchestrator
 ]
+acp = [
+    "agent-client-protocol>=0.8.0",  # ACP Python SDK
+    "mcp>=1.25.0",
+    "starlette>=0.40.0",
+    "uvicorn>=0.32.0",
+]
 bridge = [
     "aiohttp>=3.9,<4",      # Health check HTTP server
+    "python-dotenv>=1.0",    # Environment variable loading
+]
+bridge_agentcore = [
+    # Duplicates bridge deps intentionally — pip extras cannot depend on
+    # sibling extras, so we list them explicitly here.
+    "aiohttp>=3.9,<4",
+    "python-dotenv>=1.0",
+    "boto3>=1.35.0",
+]
+google_adk = [
+    "google-adk>=1.0.0,<2",
+]
+bridge_langchain = [
+    "httpx>=0.24.0",
 ]
 
 dev = [
@@ -90,14 +122,16 @@ dev = [
     "pytest-asyncio>=0.21.0",
     "pytest-mock>=3.10.0",
     "pytest-cov>=4.0.0",
+    "pytest-rerunfailures>=14.0.0",
+    "pytest-timeout>=2.4.0",
     "httpx>=0.24.0",  # Already in main deps, for mocking
     # Include pydantic-ai for testing
-    "pydantic-ai-slim>=1.0.0",
+    "pydantic-ai-slim>=1.56.0",
     # Include anthropic for testing
     "anthropic>=0.75.0",
     # Include langgraph for testing
     "langchain>=1.0.0",
-    "langchain-core>=1.2.5",
+    "langchain-core>=1.2.11",
     "langgraph>=1.0.0",
     "langchain-openai>=0.3.0",
     "langchain-community>=0.4.0",
@@ -116,14 +150,27 @@ dev = [
     # Include crewai for testing
     "crewai>=0.80.0",
     "nest-asyncio>=1.6.0",  # Required for CrewAI adapter sync-to-async bridging
+    # Include ACP deps for testing
+    "agent-client-protocol>=0.8.0",
+    "mcp>=1.25.0",
+    # Include Gemini SDK for testing
+    "google-genai>=1.43.0",
+    # Include google-adk for testing
+    "google-adk>=1.0.0,<2",
     # Include bridge deps for testing
     "aiohttp>=3.9,<4",
+    "python-dotenv>=1.0",
+    # Include bridge_agentcore deps for testing
+    "boto3>=1.35.0",
     # Development tools
     "pre-commit>=3.0.0",
     "ruff>=0.8.0",
     "pyrefly>=0.18.0",
     "commitizen>=3.13.0",
 ]
+
+[project.scripts]
+thenvoi-acp = "thenvoi.integrations.acp.cli:entry_point"
 
 [tool.setuptools.packages.find]
 where = ["src"]
@@ -137,7 +184,23 @@ include-package-data = true
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "session"
 addopts = "-v"
+# Global safety net: catch runaway unit tests. Integration and E2E tests
+# override to 120s via pytest_collection_modifyitems in their conftest.
+timeout = 30
+markers = [
+    "requires_api: marks tests as requiring real API credentials (skipped in CI)",
+    "e2e: marks tests as end-to-end (requires live services)",
+]
+
+[tool.uv]
+# Ensure uv.lock stays installable on the platforms we use locally and in CI
+# when a dependency only publishes wheels and no source distribution.
+required-environments = [
+    "sys_platform == 'darwin' and platform_machine == 'arm64'",
+    "sys_platform == 'linux' and platform_machine == 'x86_64'",
+]
 
 [tool.pyrefly]
 project_includes = [
@@ -154,12 +217,10 @@ disable-project-excludes-heuristics = true
 
 [tool.commitizen]
 name = "cz_conventional_commits"
-version = "0.1.1"
+version = "0.1.2"
 version_files = [
     "pyproject.toml:version",
     "src/thenvoi/__init__.py:__version__",
 ]
 # Tag format aligned with release-please (package-name-v$version)
 tag_format = "thenvoi-sdk-python-v$version"
-
-[tool.ruff]

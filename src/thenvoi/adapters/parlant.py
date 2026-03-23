@@ -492,11 +492,13 @@ class ParlantAdapter(SimpleAdapter[ParlantMessages]):
                 ):
                     data = event.data
                     message_content = ""
-                    tags = []
+                    tags: list[str] = []
 
                     if isinstance(data, dict):
                         message_content = str(data.get("message", ""))
-                        tags = data.get("tags", [])
+                        raw_tags = data.get("tags", [])
+                        if isinstance(raw_tags, list):
+                            tags = [str(tag) for tag in raw_tags]
                     elif isinstance(data, str):
                         message_content = data
 

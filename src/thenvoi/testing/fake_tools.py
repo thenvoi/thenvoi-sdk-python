@@ -28,6 +28,7 @@ class FakeAgentTools:
     def __init__(self):
         self.messages_sent: list[dict[str, Any]] = []
         self.events_sent: list[dict[str, Any]] = []
+        self._participants: list[dict[str, Any]] = []
         self.participants_added: list[dict[str, Any]] = []
         self.participants_removed: list[dict[str, Any]] = []
         self.tool_calls: list[dict[str, Any]] = []
@@ -68,8 +69,12 @@ class FakeAgentTools:
         self.participants_removed.append(participant)
         return participant
 
+    @property
+    def participants(self) -> list[dict[str, Any]]:
+        return list(self._participants)
+
     async def get_participants(self) -> list[dict[str, Any]]:
-        return []
+        return list(self._participants)
 
     async def lookup_peers(self, page: int = 1, page_size: int = 50) -> dict[str, Any]:
         return {

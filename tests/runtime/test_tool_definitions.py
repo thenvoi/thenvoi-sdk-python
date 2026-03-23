@@ -42,14 +42,10 @@ class TestSendMessageInput:
             SendMessageInput(content="Hello")
         assert "mentions" in str(exc_info.value)
 
-    def test_mentions_min_length(self):
-        """Mentions must have at least one item."""
-        with pytest.raises(ValidationError) as exc_info:
-            SendMessageInput(content="Hello", mentions=[])
-        assert (
-            "min_length" in str(exc_info.value).lower()
-            or "at least 1" in str(exc_info.value).lower()
-        )
+    def test_mentions_accepts_empty_list(self):
+        """Empty mentions pass Pydantic validation (runtime validates instead)."""
+        model = SendMessageInput(content="Hello", mentions=[])
+        assert model.mentions == []
 
 
 class TestSendEventInput:

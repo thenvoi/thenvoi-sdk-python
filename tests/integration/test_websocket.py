@@ -5,19 +5,24 @@ Tests real-time WebSocket notifications against the local platform.
 Run with: uv run pytest tests/integration/test_websocket.py -v -s
 """
 
+from __future__ import annotations
+
 import asyncio
 import logging
 
-from thenvoi_rest import ChatRoomRequest, ChatMessageRequest
+import pytest
+
+from thenvoi_rest import ChatMessageRequest, ChatRoomRequest
+from thenvoi_rest.core.api_error import ApiError
 from thenvoi_rest.types import (
     ChatMessageRequestMentionsItem as Mention,
     ParticipantRequest,
 )
 
 from thenvoi.client.streaming import (
-    WebSocketClient,
     MessageCreatedPayload,
     RoomAddedPayload,
+    WebSocketClient,
 )
 from tests.integration.conftest import requires_api, requires_multi_agent
 
@@ -29,54 +34,34 @@ class TestWebSocketNotifications:
 
     @requires_multi_agent
     async def test_receives_message_created_event(
-        self, api_client, api_client_2, integration_settings
+        self,
+        api_client,
+        api_client_2,
+        integration_settings,
+        shared_multi_agent_room,
+        shared_agent1_info,
+        shared_agent2_info,
     ):
         """Test that WebSocket receives message_created when @mentioned by another agent.
 
-        Multi-agent flow:
-        1. Agent 1 creates chat and subscribes to WebSocket
-        2. Agent 2 is added to the chat
-        3. Agent 2 sends message @mentioning Agent 1
-        4. Agent 1 should receive the message via WebSocket
+        Uses the shared multi-agent room. Agent 2 sends message @mentioning Agent 1,
+        Agent 1 should receive the message via WebSocket.
         """
+        if shared_multi_agent_room is None:
+            pytest.skip("shared_multi_agent_room not available")
+
         logger.info("\n" + "=" * 60)
         logger.info("Testing: WebSocket message_created notification (multi-agent)")
         logger.info("=" * 60)
 
-        # Get Agent 1 info (receiver, will subscribe to WebSocket)
-        response = await api_client.agent_api_identity.get_agent_me()
-        agent1_id = response.data.id
-        agent1_name = response.data.name
+        agent1_id = shared_agent1_info.id
+        agent1_name = shared_agent1_info.name
+        agent2_id = shared_agent2_info.id
+        agent2_name = shared_agent2_info.name
         logger.info("Agent 1 (receiver): %s (ID: %s)", agent1_name, agent1_id)
-
-        # Get Agent 2 info (sender)
-        response = await api_client_2.agent_api_identity.get_agent_me()
-        agent2_id = response.data.id
-        agent2_name = response.data.name
         logger.info("Agent 2 (sender): %s (ID: %s)", agent2_name, agent2_id)
 
-        # Agent 1 creates a chat
-        response = await api_client.agent_api_chats.create_agent_chat(
-            chat=ChatRoomRequest()
-        )
-        chat_id = response.data.id
-        logger.info("Created chat: %s", chat_id)
-
-        # Add Agent 2 to the chat
-        await api_client.agent_api_participants.add_agent_chat_participant(
-            chat_id,
-            participant=ParticipantRequest(participant_id=agent2_id, role="member"),
-        )
-        logger.info("Added Agent 2 to chat: %s", agent2_name)
-
-        # Add descriptive message (triggers auto-title)
-        await api_client.agent_api_messages.create_agent_chat_message(
-            chat_id,
-            message=ChatMessageRequest(
-                content=f"WebSocket multi-agent test: @{agent2_name} testing message_created notification when @mentioned by another agent",
-                mentions=[Mention(id=agent2_id, name=agent2_name)],
-            ),
-        )
+        chat_id = shared_multi_agent_room
 
         # Track received messages
         received_messages: list[MessageCreatedPayload] = []
@@ -133,9 +118,6 @@ class TestWebSocketNotifications:
             f"Agent 1 should have received message {sent_message_id}"
         )
         # Server stores mentions as @[[uuid]] format, so check for the text portion
-        # Expected formats:
-        #   - "Hello @AR-2 Darter, WebSocket multi-agent test!" (client sends)
-        #   - "Hello @[[uuid]], WebSocket multi-agent test!" (server stores)
         assert "WebSocket multi-agent test!" in our_message.content, (
             f"Message should contain expected text, got: {our_message.content}"
         )
@@ -145,7 +127,10 @@ class TestWebSocketNotifications:
 
     @requires_api
     async def test_receives_room_added_event(self, api_client, integration_settings):
-        """Test that WebSocket receives room_added when agent is added to a new chat."""
+        """Test that WebSocket receives room_added when agent is added to a new chat.
+
+        This test MUST create a fresh room to verify the room_added WebSocket event.
+        """
         logger.info("\n" + "=" * 60)
         logger.info("Testing: WebSocket room_added notification")
         logger.info("=" * 60)
@@ -185,9 +170,14 @@ class TestWebSocketNotifications:
             await asyncio.sleep(0.2)
 
             # Create a new chat via REST API (agent is automatically owner)
-            response = await api_client.agent_api_chats.create_agent_chat(
-                chat=ChatRoomRequest()
-            )
+            try:
+                response = await api_client.agent_api_chats.create_agent_chat(
+                    chat=ChatRoomRequest()
+                )
+            except ApiError as e:
+                if e.status_code == 403:
+                    pytest.skip("Chat room limit reached")
+                raise
             created_chat_id = response.data.id
             logger.info("Created chat via REST: %s", created_chat_id)
 

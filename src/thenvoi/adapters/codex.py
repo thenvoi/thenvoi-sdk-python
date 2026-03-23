@@ -471,6 +471,10 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
                     if event.method == "transport/closed":
                         turn_status = "failed"
                         turn_error = "Codex transport closed unexpectedly"
+                        # Reset client state so _ensure_client_ready() rebuilds
+                        # on the next message instead of reusing a dead client.
+                        self._client = None
+                        self._initialized = False
                         break
 
                     if event.method == "turn/completed":
