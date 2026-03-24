@@ -21,6 +21,7 @@ from .event import (
     MessageEvent,
     RoomAddedEvent,
     RoomRemovedEvent,
+    RoomDeletedEvent,
     ParticipantAddedEvent,
     ParticipantRemovedEvent,
     ContactRequestReceivedEvent,
@@ -36,6 +37,7 @@ if TYPE_CHECKING:
         ParticipantAddedPayload,
         ParticipantRemovedPayload,
         RoomAddedPayload,
+        RoomDeletedPayload,
         RoomRemovedPayload,
         ContactRequestReceivedPayload,
         ContactRequestUpdatedPayload,
@@ -190,6 +192,7 @@ class ThenvoiLink:
             room_id,
             on_participant_added=lambda p: self._on_participant_added(room_id, p),
             on_participant_removed=lambda p: self._on_participant_removed(room_id, p),
+            on_room_deleted=lambda p: self._on_room_deleted(room_id, p),
         )
 
         self._subscribed_rooms.add(room_id)
@@ -300,6 +303,20 @@ class ThenvoiLink:
         """
         event = MessageEvent(
             room_id=room_id,
+            payload=payload,
+        )
+        self._queue_event(event)
+
+    async def _on_room_deleted(
+        self, room_id: str, payload: "RoomDeletedPayload"
+    ) -> None:
+        """
+        Handle room_deleted from WebSocket.
+
+        Room deletions arrive on room_participants:{room_id} with a minimal payload.
+        """
+        event = RoomDeletedEvent(
+            room_id=room_id or payload.id,
             payload=payload,
         )
         self._queue_event(event)

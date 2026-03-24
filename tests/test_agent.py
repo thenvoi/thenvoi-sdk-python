@@ -91,6 +91,8 @@ class TestCreateFactory:
                 config=None,
                 session_config=None,
                 contact_config=None,
+                on_participant_added=None,
+                on_participant_removed=None,
             )
 
     def test_creates_with_custom_urls(self, mock_adapter):
@@ -146,6 +148,26 @@ class TestCreateFactory:
             )
 
             assert agent._preprocessor is mock_preprocessor
+
+    def test_creates_with_participant_callbacks(self, mock_adapter):
+        """Should pass participant callbacks through to PlatformRuntime."""
+        with patch("thenvoi.agent.PlatformRuntime") as mock_runtime_class:
+            mock_runtime = MagicMock()
+            mock_runtime_class.return_value = mock_runtime
+            on_participant_added = AsyncMock()
+            on_participant_removed = AsyncMock()
+
+            Agent.create(
+                adapter=mock_adapter,
+                agent_id="agent-123",
+                api_key="test-key",
+                on_participant_added=on_participant_added,
+                on_participant_removed=on_participant_removed,
+            )
+
+            call_kwargs = mock_runtime_class.call_args.kwargs
+            assert call_kwargs["on_participant_added"] is on_participant_added
+            assert call_kwargs["on_participant_removed"] is on_participant_removed
 
 
 class TestProperties:
@@ -373,6 +395,30 @@ class TestDefaultPreprocessorIntegration:
         await agent._on_execute(mock_ctx, mock_event)
 
         # Should not call adapter (event was filtered)
+        mock_adapter.on_event.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_default_preprocessor_filters_participant_events(
+        self, mock_runtime, mock_adapter
+    ):
+        """Participant events should not become adapter execution turns."""
+        agent = Agent(runtime=mock_runtime, adapter=mock_adapter)
+
+        from thenvoi.client.streaming import ParticipantAddedPayload
+        from thenvoi.platform.event import ParticipantAddedEvent
+
+        mock_ctx = MagicMock()
+        mock_event = ParticipantAddedEvent(
+            room_id="room-123",
+            payload=ParticipantAddedPayload(
+                id="user-123",
+                name="Test User",
+                type="User",
+            ),
+        )
+
+        await agent._on_execute(mock_ctx, mock_event)
+
         mock_adapter.on_event.assert_not_awaited()
 
 

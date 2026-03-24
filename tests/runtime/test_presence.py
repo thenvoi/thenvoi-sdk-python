@@ -10,6 +10,7 @@ from thenvoi.runtime.presence import RoomPresence
 from tests.conftest import (
     make_message_event,
     make_room_added_event,
+    make_room_deleted_event,
     make_room_removed_event,
 )
 
@@ -278,6 +279,40 @@ class TestRoomPresenceRoomRemoved:
 
         event = make_room_removed_event(room_id="room-123")
         await presence._handle_room_removed(event)
+
+        assert left_rooms == ["room-123"]
+
+        await presence.stop()
+
+    async def test_room_deleted_unsubscribes_and_untracks_room(self, mock_link):
+        """room_deleted should reuse room cleanup behavior."""
+        presence = RoomPresence(mock_link, auto_subscribe_existing=False)
+        await presence.start()
+        presence.rooms.add("room-123")
+
+        event = make_room_deleted_event(room_id="room-123")
+        await presence._on_platform_event(event)
+
+        mock_link.unsubscribe_room.assert_called_with("room-123")
+        assert "room-123" not in presence.rooms
+
+        await presence.stop()
+
+    async def test_room_deleted_calls_callback(self, mock_link):
+        """room_deleted should call on_room_left callback once."""
+        presence = RoomPresence(mock_link, auto_subscribe_existing=False)
+        await presence.start()
+        presence.rooms.add("room-123")
+
+        left_rooms = []
+
+        async def on_left(room_id):
+            left_rooms.append(room_id)
+
+        presence.on_room_left = on_left
+
+        event = make_room_deleted_event(room_id="room-123")
+        await presence._on_platform_event(event)
 
         assert left_rooms == ["room-123"]
 

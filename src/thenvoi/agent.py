@@ -11,7 +11,13 @@ from typing import TYPE_CHECKING, cast
 from thenvoi.core.protocols import FrameworkAdapter, Preprocessor
 from thenvoi.core.simple_adapter import SimpleAdapter
 from thenvoi.runtime.platform_runtime import PlatformRuntime
-from thenvoi.runtime.types import AgentConfig, ContactEventConfig, SessionConfig
+from thenvoi.runtime.types import (
+    AgentConfig,
+    ContactEventConfig,
+    ParticipantAddedCallback,
+    ParticipantRemovedCallback,
+    SessionConfig,
+)
 from thenvoi.preprocessing.default import DefaultPreprocessor
 
 if TYPE_CHECKING:
@@ -96,6 +102,8 @@ class Agent:
         config: AgentConfig | None = None,
         session_config: SessionConfig | None = None,
         contact_config: ContactEventConfig | None = None,
+        on_participant_added: ParticipantAddedCallback | None = None,
+        on_participant_removed: ParticipantRemovedCallback | None = None,
         preprocessor: Preprocessor | None = None,
     ) -> "Agent":
         """
@@ -114,6 +122,8 @@ class Agent:
             contact_config: Contact event handling configuration.
                             Controls how contact requests and updates are processed.
                             See ContactEventConfig for strategies (DISABLED, CALLBACK, HUB_ROOM).
+            on_participant_added: Optional callback for participant_added events.
+            on_participant_removed: Optional callback for participant_removed events.
             preprocessor: Custom event preprocessor (default: DefaultPreprocessor)
         """
         runtime = PlatformRuntime(
@@ -124,6 +134,8 @@ class Agent:
             config=config,
             session_config=session_config,
             contact_config=contact_config,
+            on_participant_added=on_participant_added,
+            on_participant_removed=on_participant_removed,
         )
         return cls(
             runtime=runtime,

@@ -14,7 +14,11 @@ from thenvoi.platform.event import PlatformEvent
 
 from .execution import Execution, ExecutionContext, ExecutionHandler
 from .presence import RoomPresence
-from .types import SessionConfig
+from .types import (
+    ParticipantAddedCallback,
+    ParticipantRemovedCallback,
+    SessionConfig,
+)
 
 if TYPE_CHECKING:
     from thenvoi.platform.link import ThenvoiLink
@@ -70,6 +74,8 @@ class AgentRuntime:
         room_filter: Callable[[dict], bool] | None = None,
         session_config: SessionConfig | None = None,
         on_session_cleanup: Callable[[str], Awaitable[None]] | None = None,
+        on_participant_added: ParticipantAddedCallback | None = None,
+        on_participant_removed: ParticipantRemovedCallback | None = None,
     ):
         """
         Initialize AgentRuntime.
@@ -82,6 +88,8 @@ class AgentRuntime:
             room_filter: Optional filter to decide which rooms to join
             session_config: Configuration for ExecutionContext
             on_session_cleanup: Optional callback for session cleanup (receives room_id)
+            on_participant_added: Optional callback for participant_added events
+            on_participant_removed: Optional callback for participant_removed events
         """
         self.link = link
         self.agent_id = agent_id
@@ -89,6 +97,8 @@ class AgentRuntime:
         self._execution_factory = execution_factory
         self._session_config = session_config or SessionConfig()
         self._on_session_cleanup = on_session_cleanup
+        self._on_participant_added = on_participant_added
+        self._on_participant_removed = on_participant_removed
 
         # RoomPresence for cross-room management
         self.presence = RoomPresence(link, room_filter)
@@ -193,6 +203,8 @@ class AgentRuntime:
                 on_execute=self._on_execute,
                 config=self._session_config,
                 agent_id=self.agent_id,
+                on_participant_added=self._on_participant_added,
+                on_participant_removed=self._on_participant_removed,
             )
 
         self.executions[room_id] = execution

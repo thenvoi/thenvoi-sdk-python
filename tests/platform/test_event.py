@@ -3,6 +3,7 @@
 from thenvoi.platform.event import (
     MessageEvent,
     RoomAddedEvent,
+    RoomDeletedEvent,
     RoomRemovedEvent,
     ParticipantAddedEvent,
     ParticipantRemovedEvent,
@@ -11,6 +12,7 @@ from thenvoi.platform.event import (
 from thenvoi.client.streaming import (
     MessageCreatedPayload,
     RoomAddedPayload,
+    RoomDeletedPayload,
     RoomRemovedPayload,
     ParticipantAddedPayload,
     ParticipantRemovedPayload,
@@ -160,6 +162,34 @@ class TestRoomRemovedEvent:
         assert not isinstance(event, RoomAddedEvent)
 
 
+class TestRoomDeletedEvent:
+    """Test RoomDeletedEvent construction and usage."""
+
+    def test_construct_room_deleted_event(self):
+        """Construct a RoomDeletedEvent with typed payload."""
+        payload = RoomDeletedPayload(id="room-123")
+
+        event = RoomDeletedEvent(
+            room_id="room-123",
+            payload=payload,
+        )
+
+        assert event.type == "room_deleted"
+        assert event.room_id == "room-123"
+        assert event.payload.id == "room-123"
+
+    def test_room_deleted_event_isinstance(self):
+        """Test isinstance check for RoomDeletedEvent."""
+        event = RoomDeletedEvent(
+            room_id="room-1",
+            payload=RoomDeletedPayload(id="room-1"),
+        )
+
+        assert isinstance(event, RoomDeletedEvent)
+        assert not isinstance(event, MessageEvent)
+        assert not isinstance(event, RoomAddedEvent)
+
+
 class TestParticipantEvents:
     """Test ParticipantAddedEvent and ParticipantRemovedEvent."""
 
@@ -289,6 +319,10 @@ class TestEventPatternMatching:
                     updated_at="2024-01-01T00:00:00Z",
                 ),
             ),
+            RoomDeletedEvent(
+                room_id="room-1",
+                payload=RoomDeletedPayload(id="room-1"),
+            ),
             ParticipantAddedEvent(
                 room_id="room-1",
                 payload=ParticipantAddedPayload(
@@ -304,12 +338,19 @@ class TestEventPatternMatching:
                     results.append("message")
                 case RoomAddedEvent():
                     results.append("room_added")
+                case RoomDeletedEvent():
+                    results.append("room_deleted")
                 case ParticipantAddedEvent():
                     results.append("participant_added")
                 case _:
                     results.append("unknown")
 
-        assert results == ["message", "room_added", "participant_added"]
+        assert results == [
+            "message",
+            "room_added",
+            "room_deleted",
+            "participant_added",
+        ]
 
 
 class TestEventWithRawPayload:
