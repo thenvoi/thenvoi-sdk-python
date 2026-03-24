@@ -10,9 +10,13 @@ when on_message is called so the MCP server can access them.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
+import re
 import warnings
+from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Literal
 
@@ -28,6 +32,16 @@ try:
         ResultMessage,
     )
     from claude_agent_sdk._errors import CLIConnectionError
+    from claude_agent_sdk.types import (
+        CanUseTool,
+        HookContext,
+        HookInput,
+        HookJSONOutput,
+        HookMatcher,
+        PermissionResultAllow,
+        PermissionResultDeny,
+        ToolPermissionContext,
+    )
 except ImportError as e:
     raise ImportError(
         "claude-agent-sdk is required for Claude SDK examples.\n"
@@ -69,6 +83,51 @@ THENVOI_MEMORY_TOOLS: list[str] = mcp_tool_names(MEMORY_TOOL_NAMES)
 THENVOI_ALL_TOOLS: list[str] = mcp_tool_names(ALL_TOOL_NAMES)
 
 _THENVOI_TOOLS: list[str] = THENVOI_ALL_TOOLS
+
+# Approval flow types (mirrors Codex adapter patterns)
+ApprovalMode = Literal["auto_accept", "auto_decline", "manual"]
+ApprovalDecision = Literal["accept", "decline"]
+
+# Commands recognised as local (not forwarded to Claude)
+_APPROVAL_CMDS = frozenset({"approve", "decline", "approvals"})
+_LOCAL_CMDS = _APPROVAL_CMDS | frozenset({"status"})
+
+# Patterns that look like secrets/tokens in shell commands
+_REDACT_RE = re.compile(
+    r"""(?x)
+    (?:                             # key=value style
+        (?:key|token|secret|password|passwd|pwd|auth|bearer|credential)
+        \s*[=:]\s*
+    )
+    \S+                             # the secret value
+    """,
+    re.IGNORECASE,
+)
+
+
+async def _pre_tool_use_continue_hook(
+    _hook_input: HookInput,
+    _tool_name: str | None,
+    _context: HookContext,
+) -> HookJSONOutput:
+    """PreToolUse hook that delegates every tool to ``can_use_tool``.
+
+    Returning ``{"continue_": True}`` tells the SDK to skip its built-in
+    permission resolution and call the ``can_use_tool`` callback instead.
+    """
+    return {"continue_": True}
+
+
+@dataclass
+class _PendingApproval:
+    """A tool-use approval request waiting for a chat-room decision."""
+
+    tool_name: str
+    tool_input: dict[str, Any]
+    summary: str
+    created_at: datetime
+    future: asyncio.Future[str]
+    requester: dict[str, str]
 
 
 def __getattr__(name: str) -> Any:
@@ -116,6 +175,13 @@ class ClaudeSDKAdapter(SimpleAdapter[ClaudeSDKSessionState]):
         history_converter: ClaudeSDKHistoryConverter | None = None,
         additional_tools: list[CustomToolDef] | None = None,
         cwd: str | None = None,
+        # Chat-based approval flow (opt-in)
+        approval_mode: ApprovalMode | None = None,
+        approval_text_notifications: bool = True,
+        approval_wait_timeout_s: float = 300.0,
+        approval_timeout_decision: ApprovalDecision = "decline",
+        max_pending_approvals_per_room: int = 50,
+        approval_authorized_senders: set[str] | None = None,
     ):
         """
         Initialize the Claude SDK adapter.
@@ -133,6 +199,24 @@ class ClaudeSDKAdapter(SimpleAdapter[ClaudeSDKSessionState]):
                 tuples. These are converted to MCP tools internally.
             cwd: Working directory for Claude Code sessions. If set, Claude Code
                 will operate in this directory (e.g., a mounted git repo).
+            approval_mode: Chat-based approval mode.  ``None`` (default) disables
+                chat-based approval — the SDK's ``permission_mode`` controls
+                approvals entirely.  Set to ``"manual"`` to route approval
+                requests to the chat room (``/approve``, ``/decline``),
+                ``"auto_accept"`` to approve everything, or ``"auto_decline"``
+                to decline everything.
+            approval_text_notifications: When True, send a chat message for
+                auto-approve / auto-decline decisions.
+            approval_wait_timeout_s: Seconds to wait for a manual approval
+                before falling back to ``approval_timeout_decision``.
+            approval_timeout_decision: Decision to apply when a manual approval
+                times out (``"accept"`` or ``"decline"``).
+            max_pending_approvals_per_room: Cap on concurrent pending approvals
+                per room.  Oldest entries are evicted (declined) when full.
+            approval_authorized_senders: Optional set of sender IDs allowed to
+                issue ``/approve`` and ``/decline`` commands.  When ``None``
+                (default), any room participant can approve.  ``/approvals``
+                and ``/status`` are always available to all participants.
         """
         super().__init__(
             history_converter=history_converter or ClaudeSDKHistoryConverter()
@@ -147,6 +231,14 @@ class ClaudeSDKAdapter(SimpleAdapter[ClaudeSDKSessionState]):
         if cwd and not Path(cwd).is_dir():
             raise ValueError(f"cwd does not exist or is not a directory: {cwd}")
         self.cwd = cwd
+
+        # Chat-based approval config
+        self.approval_mode: ApprovalMode | None = approval_mode
+        self.approval_text_notifications = approval_text_notifications
+        self.approval_wait_timeout_s = approval_wait_timeout_s
+        self.approval_timeout_decision: ApprovalDecision = approval_timeout_decision
+        self.max_pending_approvals_per_room = max_pending_approvals_per_room
+        self.approval_authorized_senders: set[str] | None = approval_authorized_senders
 
         # Session manager and MCP server (created after start)
         self._session_manager: ClaudeSessionManager | None = None
@@ -164,6 +256,13 @@ class ClaudeSDKAdapter(SimpleAdapter[ClaudeSDKSessionState]):
 
         # Custom tools (user-provided)
         self._custom_tools: list[CustomToolDef] = additional_tools or []
+
+        # Approval flow state
+        # {room_id: {token: _PendingApproval, ...}}
+        self._pending_approvals: dict[str, dict[str, _PendingApproval]] = {}
+        self._approval_seq: dict[str, int] = {}  # per-room counters
+        # Last message sender per room (used for @mentions in approval notifications)
+        self._room_last_sender: dict[str, dict[str, str]] = {}
 
     # --- Adapted from ThenvoiClaudeSDKAgent._on_started ---
     async def on_started(self, agent_name: str, agent_description: str) -> None:
@@ -198,14 +297,33 @@ class ClaudeSDKAdapter(SimpleAdapter[ClaudeSDKSessionState]):
         if self.cwd:
             sdk_options.cwd = self.cwd
 
-        # Create session manager
-        self._session_manager = ClaudeSessionManager(sdk_options)
+        # When approval_mode is set, add a PreToolUse hook that returns
+        # {"continue_": True} so the SDK delegates to can_use_tool instead
+        # of auto-resolving permissions via the permission_mode.
+        if self.approval_mode is not None:
+            sdk_options.hooks = {
+                "PreToolUse": [
+                    HookMatcher(
+                        hooks=[_pre_tool_use_continue_hook],
+                    ),
+                ],
+            }
+
+        # Create session manager (with room-specific approval callback when enabled)
+        can_use_tool_factory = (
+            self._make_can_use_tool if self.approval_mode is not None else None
+        )
+        self._session_manager = ClaudeSessionManager(
+            sdk_options,
+            can_use_tool_factory=can_use_tool_factory,
+        )
 
         logger.info(
-            "Claude SDK adapter started for agent: %s (model=%s, thinking=%s)",
+            "Claude SDK adapter started for agent: %s (model=%s, thinking=%s, approval=%s)",
             agent_name,
             self.model,
             self.max_thinking_tokens,
+            self.approval_mode,
         )
 
     async def _create_mcp_backend(self) -> ThenvoiMCPBackend:
@@ -257,6 +375,33 @@ class ClaudeSDKAdapter(SimpleAdapter[ClaudeSDKSessionState]):
 
         # Store tools for MCP server access
         self._room_tools[room_id] = tools
+
+        # Approval flow: track notify target and intercept local commands
+        if self.approval_mode is not None:
+            self._room_last_sender[room_id] = {
+                "id": msg.sender_id,
+                "name": msg.sender_name or msg.sender_type,
+            }
+            command = self._extract_command(msg.content)
+            if command is not None:
+                cmd, args = command
+                sender = self._room_last_sender[room_id]
+                if cmd in _APPROVAL_CMDS:
+                    await self._handle_approval_command(
+                        tools=tools,
+                        room_id=room_id,
+                        command=cmd,
+                        args=args,
+                        sender=sender,
+                    )
+                    return
+                elif cmd == "status":
+                    await self._handle_status_command(
+                        tools=tools,
+                        room_id=room_id,
+                        sender=sender,
+                    )
+                    return
 
         # Determine session_id for resume: prefer history (persisted) then
         # in-memory cache.  Only used on bootstrap/reconnect.
@@ -482,11 +627,13 @@ class ClaudeSDKAdapter(SimpleAdapter[ClaudeSDKSessionState]):
     # --- Copied from ThenvoiClaudeSDKAgent._cleanup_session ---
     async def on_cleanup(self, room_id: str) -> None:
         """Clean up Claude SDK session and stored tools when agent leaves a room."""
+        self._clear_pending_approvals_for_room(room_id)
         if self._session_manager:
             await self._session_manager.cleanup_session(room_id)
         self._room_tools.pop(room_id, None)
         self._session_context.pop(room_id, None)
         self._session_ids.pop(room_id, None)
+        self._room_last_sender.pop(room_id, None)
         logger.debug("Room %s: Cleaned up Claude SDK session", room_id)
 
     # --- Copied from BaseFrameworkAgent._report_error ---
@@ -499,6 +646,9 @@ class ClaudeSDKAdapter(SimpleAdapter[ClaudeSDKSessionState]):
 
     async def cleanup_all(self) -> None:
         """Cleanup all sessions (call on stop)."""
+        # Decline all pending approvals across rooms
+        for room_id in list(self._pending_approvals):
+            self._clear_pending_approvals_for_room(room_id)
         if self._session_manager:
             await self._session_manager.stop()
         if self._mcp_backend:
@@ -508,3 +658,333 @@ class ClaudeSDKAdapter(SimpleAdapter[ClaudeSDKSessionState]):
         self._room_tools.clear()
         self._session_context.clear()
         self._session_ids.clear()
+        self._room_last_sender.clear()
+
+    # ------------------------------------------------------------------
+    # Chat-based approval flow
+    # ------------------------------------------------------------------
+
+    def _make_can_use_tool(self, room_id: str) -> CanUseTool:
+        """Return a room-bound ``can_use_tool`` callback for the Claude SDK."""
+
+        async def _can_use_tool(
+            tool_name: str,
+            tool_input: dict[str, Any],
+            context: ToolPermissionContext,
+        ) -> PermissionResultAllow | PermissionResultDeny:
+            summary = self._approval_summary(tool_name, tool_input)
+            # Capture the sender now so it doesn't get overwritten by
+            # messages arriving while we wait for a decision.
+            requester = self._room_last_sender.get(room_id)
+            logger.debug(
+                "can_use_tool: %s in room %s (mode=%s)",
+                tool_name,
+                room_id,
+                self.approval_mode,
+            )
+
+            # --- auto modes ---------------------------------------------------
+            if self.approval_mode == "auto_accept":
+                if self.approval_text_notifications:
+                    await self._notify_auto_decision(
+                        room_id, summary, "accept", requester=requester
+                    )
+                return PermissionResultAllow()
+
+            if self.approval_mode == "auto_decline":
+                if self.approval_text_notifications:
+                    await self._notify_auto_decision(
+                        room_id, summary, "decline", requester=requester
+                    )
+                return PermissionResultDeny(
+                    message=f"Tool use declined by policy: {summary}"
+                )
+
+            # --- manual mode ---------------------------------------------------
+            return await self._resolve_manual_approval(
+                room_id, tool_name, tool_input, summary, requester=requester
+            )
+
+        return _can_use_tool
+
+    async def _notify_auto_decision(
+        self,
+        room_id: str,
+        summary: str,
+        decision: str,
+        *,
+        requester: dict[str, str] | None = None,
+    ) -> None:
+        """Best-effort chat notification for auto-approve / auto-decline."""
+        tools = self._room_tools.get(room_id)
+        if not tools:
+            return
+        mention = [requester["id"]] if requester else None
+        try:
+            await tools.send_message(
+                f"Approval requested ({summary}). Policy decision: **{decision}**.",
+                mentions=mention,
+            )
+        except Exception as e:
+            logger.warning("Failed to send approval policy notification: %s", e)
+
+    async def _resolve_manual_approval(
+        self,
+        room_id: str,
+        tool_name: str,
+        tool_input: dict[str, Any],
+        summary: str,
+        *,
+        requester: dict[str, str] | None = None,
+    ) -> PermissionResultAllow | PermissionResultDeny:
+        """Block until a user approves / declines via ``/approve`` or ``/decline``."""
+        loop = asyncio.get_running_loop()
+        token = self._next_approval_token(room_id)
+
+        pending = _PendingApproval(
+            tool_name=tool_name,
+            tool_input=tool_input,
+            summary=summary,
+            created_at=datetime.now(timezone.utc),
+            future=loop.create_future(),
+            requester=requester or {"id": "", "name": ""},
+        )
+
+        # Store pending approval (evict oldest if capacity exceeded)
+        room_pending = self._pending_approvals.setdefault(room_id, {})
+        if len(room_pending) >= self.max_pending_approvals_per_room:
+            oldest_token = min(room_pending, key=lambda t: room_pending[t].created_at)
+            oldest = room_pending.pop(oldest_token)
+            if not oldest.future.done():
+                oldest.future.set_result("decline")
+            logger.warning(
+                "Room %s: Evicted oldest pending approval %s (capacity %s)",
+                room_id,
+                oldest_token,
+                self.max_pending_approvals_per_room,
+            )
+        room_pending[token] = pending
+
+        # Notify user — if we can't deliver the prompt, decline immediately
+        # so the caller isn't left waiting for a timeout nobody will see.
+        tools = self._room_tools.get(room_id)
+        mention = [requester["id"]] if requester else None
+        if tools:
+            try:
+                await tools.send_message(
+                    f"Approval requested ({summary}). Token: `{token}`.\n"
+                    f"Reply `/approve {token}` or `/decline {token}`.\n"
+                    "Use `/approvals` to list pending approvals.",
+                    mentions=mention,
+                )
+            except Exception:
+                logger.warning(
+                    "Room %s: Failed to send approval notification — declining", room_id
+                )
+                self._clear_pending_approval(room_id, token)
+                return PermissionResultDeny(
+                    message="Could not deliver approval prompt, tool use declined"
+                )
+
+        # Wait for decision or timeout
+        try:
+            decision_raw = await asyncio.wait_for(
+                pending.future,
+                timeout=self.approval_wait_timeout_s,
+            )
+            if decision_raw == "accept":
+                return PermissionResultAllow()
+            return PermissionResultDeny(message="User declined tool use")
+
+        except asyncio.TimeoutError:
+            decision: ApprovalDecision = self.approval_timeout_decision
+            if tools:
+                try:
+                    await tools.send_message(
+                        f"Approval `{token}` timed out. Decision: **{decision}**.",
+                        mentions=mention,
+                    )
+                except Exception:
+                    logger.debug(
+                        "Room %s: Failed to send timeout notification", room_id
+                    )
+
+            if decision == "accept":
+                return PermissionResultAllow()
+            return PermissionResultDeny(message="Approval timed out, tool use declined")
+
+        finally:
+            self._clear_pending_approval(room_id, token)
+
+    # ------------------------------------------------------------------
+    # Command extraction & handling
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _extract_command(content: str) -> tuple[str, str] | None:
+        """Check if *content* starts with a ``/command``.
+
+        Only the first token is considered to avoid false positives from
+        natural language like ``"don't /decline it"``.
+        Returns ``(command, rest)`` or ``None``.
+        """
+        stripped = content.lstrip()
+        if not stripped.startswith("/"):
+            return None
+        token, _, rest = stripped.partition(" ")
+        clean = token[1:]
+        if clean.lower() in _LOCAL_CMDS:
+            return (clean.lower(), rest.strip())
+        return None
+
+    async def _handle_approval_command(
+        self,
+        tools: AgentToolsProtocol,
+        room_id: str,
+        command: str,
+        args: str,
+        sender: dict[str, str],
+    ) -> None:
+        """Handle ``/approve``, ``/decline``, or ``/approvals``."""
+        # This is a reference to the live mutable dict for the room (or an
+        # empty dict if none exists).  Safe because the event loop is
+        # single-threaded, so no concurrent mutation can occur mid-handler.
+        pending = self._pending_approvals.get(room_id, {})
+        mention: list[str] = [sender["id"]]
+
+        # Authorization: /approve and /decline require sender to be authorized
+        if command in ("approve", "decline") and self.approval_authorized_senders:
+            if sender["id"] not in self.approval_authorized_senders:
+                await tools.send_message(
+                    "You are not authorized to approve or decline tool use.",
+                    mentions=mention,
+                )
+                return
+
+        # --- /approvals: list pending ---
+        if command == "approvals":
+            if not pending:
+                await tools.send_message("No pending approvals.", mentions=mention)
+                return
+            lines = ["Pending approvals:"]
+            now = datetime.now(timezone.utc)
+            for token, item in list(pending.items()):
+                age_s = int((now - item.created_at).total_seconds())
+                lines.append(f"- `{token}`: {item.summary} ({age_s}s ago)")
+            await tools.send_message("\n".join(lines), mentions=mention)
+            return
+
+        # --- /approve [token] | /decline [token] ---
+        token = args.strip() if args else ""
+        selected: _PendingApproval | None = None
+
+        if token:
+            selected = pending.get(token)
+            if not selected:
+                available = ", ".join(f"`{t}`" for t in pending) if pending else "none"
+                await tools.send_message(
+                    f"Unknown approval token `{token}`. Available: {available}.",
+                    mentions=mention,
+                )
+                return
+        elif len(pending) == 1:
+            token, selected = next(iter(pending.items()))
+        elif len(pending) == 0:
+            await tools.send_message("No pending approvals.", mentions=mention)
+            return
+        else:
+            tokens_list = ", ".join(f"`{t}`" for t in pending)
+            await tools.send_message(
+                f"Multiple pending approvals — please specify a token: {tokens_list}",
+                mentions=mention,
+            )
+            return
+
+        decision: ApprovalDecision = "accept" if command == "approve" else "decline"
+        if not selected.future.done():
+            selected.future.set_result(decision)
+        await tools.send_message(
+            f"Approval `{token}` resolved as **{decision}**.",
+            mentions=mention,
+        )
+
+    async def _handle_status_command(
+        self,
+        tools: AgentToolsProtocol,
+        room_id: str,
+        sender: dict[str, str],
+    ) -> None:
+        """Handle the ``/status`` command."""
+        session_count = (
+            self._session_manager.get_session_count() if self._session_manager else 0
+        )
+        session_id = self._session_ids.get(room_id, "—")
+        pending_count = len(self._pending_approvals.get(room_id, {}))
+
+        lines = [
+            "**Claude SDK Status**",
+            f"- model: `{self.model}`",
+            f"- permission_mode: `{self.permission_mode}`",
+            f"- approval_mode: `{self.approval_mode or 'disabled'}`",
+            f"- pending_approvals: {pending_count}",
+            f"- active_sessions: {session_count}",
+            f"- session_id: `{session_id}`",
+        ]
+        await tools.send_message("\n".join(lines), mentions=[sender["id"]])
+
+    # ------------------------------------------------------------------
+    # Approval helpers
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _redact_command(command: str) -> str:
+        """Redact values that look like secrets from a shell command."""
+        return _REDACT_RE.sub(
+            lambda m: (
+                m.group(0).split("=")[0] + "=***"
+                if "=" in m.group(0)
+                else m.group(0).split(":")[0] + ":***"
+            ),
+            command,
+        )
+
+    @staticmethod
+    def _approval_summary(tool_name: str, tool_input: dict[str, Any]) -> str:
+        """Build a human-readable one-line summary for an approval request.
+
+        Sensitive-looking values (tokens, passwords, keys) are redacted to
+        avoid leaking secrets into the chat room.
+        """
+        # For shell commands, show the command (redacted)
+        command = tool_input.get("command")
+        if isinstance(command, str) and command:
+            safe = ClaudeSDKAdapter._redact_command(command)[:120]
+            return f"{tool_name}: `{safe}`"
+        # For file edits, show the path
+        file_path = tool_input.get("file_path") or tool_input.get("path")
+        if isinstance(file_path, str) and file_path:
+            return f"{tool_name}: {file_path}"
+        return tool_name
+
+    def _next_approval_token(self, room_id: str) -> str:
+        """Generate a short, per-room incrementing approval token."""
+        seq = self._approval_seq.get(room_id, 0) + 1
+        self._approval_seq[room_id] = seq
+        return f"a-{seq}"
+
+    def _clear_pending_approval(self, room_id: str, token: str) -> None:
+        """Remove a single pending approval from a room."""
+        room_pending = self._pending_approvals.get(room_id)
+        if not room_pending:
+            return
+        room_pending.pop(token, None)
+        if not room_pending:
+            self._pending_approvals.pop(room_id, None)
+
+    def _clear_pending_approvals_for_room(self, room_id: str) -> None:
+        """Decline and remove all pending approvals for a room."""
+        room_pending = self._pending_approvals.pop(room_id, {})
+        for item in room_pending.values():
+            if not item.future.done():
+                item.future.set_result("decline")
+        # Keep the seq counter to avoid token collisions with suspended coroutines

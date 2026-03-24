@@ -4,12 +4,13 @@ Tests for shared adapter behavior (initialization defaults, custom kwargs,
 history_converter, on_message callable, cleanup safety) live in
 tests/framework_conformance/test_adapter_conformance.py.
 This file contains ClaudeSDK-specific behavior: MCP server/session manager
-creation, room tools storage, SDK query invocation, custom tools, and
-session persistence.
+creation, room tools storage, SDK query invocation, custom tools,
+session persistence, and the chat-based approval flow.
 """
 
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -17,6 +18,8 @@ import pytest
 
 from thenvoi.adapters.claude_sdk import (
     ClaudeSDKAdapter,
+    _PendingApproval,
+    _pre_tool_use_continue_hook,
     THENVOI_ALL_TOOLS,
     THENVOI_BASE_TOOLS,
     THENVOI_MEMORY_TOOLS,
@@ -837,3 +840,983 @@ class TestSessionPersistence:
 
         # Session ID should still be captured in-memory
         assert adapter._session_ids["room-123"] == "sess-xyz"
+
+
+# ======================================================================
+# Chat-based approval flow tests
+# ======================================================================
+
+
+class TestApprovalInitialization:
+    """Tests for approval-related constructor defaults."""
+
+    def test_approval_mode_defaults_to_none(self):
+        adapter = ClaudeSDKAdapter()
+        assert adapter.approval_mode is None
+
+    def test_approval_mode_configurable(self):
+        adapter = ClaudeSDKAdapter(approval_mode="manual")
+        assert adapter.approval_mode == "manual"
+
+    def test_approval_config_defaults(self):
+        adapter = ClaudeSDKAdapter(approval_mode="manual")
+        assert adapter.approval_text_notifications is True
+        assert adapter.approval_wait_timeout_s == 300.0
+        assert adapter.approval_timeout_decision == "decline"
+        assert adapter.max_pending_approvals_per_room == 50
+
+
+class TestCommandExtraction:
+    """Tests for _extract_command()."""
+
+    def test_extracts_approve_command(self):
+        assert ClaudeSDKAdapter._extract_command("/approve a-1") == ("approve", "a-1")
+
+    def test_extracts_decline_command(self):
+        assert ClaudeSDKAdapter._extract_command("/decline a-2") == ("decline", "a-2")
+
+    def test_extracts_approvals_list(self):
+        assert ClaudeSDKAdapter._extract_command("/approvals") == ("approvals", "")
+
+    def test_extracts_status_command(self):
+        assert ClaudeSDKAdapter._extract_command("/status") == ("status", "")
+
+    def test_returns_none_for_normal_message(self):
+        assert ClaudeSDKAdapter._extract_command("Hello, agent!") is None
+
+    def test_case_insensitive(self):
+        assert ClaudeSDKAdapter._extract_command("/Approve a-1") == ("approve", "a-1")
+
+    def test_bare_word_not_matched(self):
+        """Bare words like 'approve' without / prefix should not match."""
+        assert ClaudeSDKAdapter._extract_command("approve a-1") is None
+
+    def test_command_not_matched_mid_sentence(self):
+        """Commands embedded in natural text should not be intercepted."""
+        assert ClaudeSDKAdapter._extract_command("hey /approve a-1") is None
+
+    def test_command_with_leading_whitespace(self):
+        """Leading whitespace should be ignored."""
+        assert ClaudeSDKAdapter._extract_command("  /approve a-1") == ("approve", "a-1")
+
+    def test_approve_without_token(self):
+        assert ClaudeSDKAdapter._extract_command("/approve") == ("approve", "")
+
+    def test_multiple_slashes_not_matched(self):
+        """///approve should not be treated as /approve."""
+        assert ClaudeSDKAdapter._extract_command("///approve a-1") is None
+
+
+class TestApprovalTokenCounter:
+    """Tests for per-room approval token counters."""
+
+    def test_tokens_are_per_room(self):
+        """Each room should have its own incrementing counter."""
+        adapter = ClaudeSDKAdapter(approval_mode="manual")
+        assert adapter._next_approval_token("room-1") == "a-1"
+        assert adapter._next_approval_token("room-1") == "a-2"
+        assert adapter._next_approval_token("room-2") == "a-1"  # separate counter
+        assert adapter._next_approval_token("room-1") == "a-3"
+
+    def test_counter_persists_after_room_cleanup(self):
+        """Counter should NOT reset on cleanup to avoid token collisions."""
+        adapter = ClaudeSDKAdapter(approval_mode="manual")
+        adapter._next_approval_token("room-1")
+        adapter._next_approval_token("room-1")
+        adapter._clear_pending_approvals_for_room("room-1")
+        # Counter continues from where it left off
+        assert adapter._next_approval_token("room-1") == "a-3"
+
+
+class TestApprovalSummary:
+    """Tests for _approval_summary()."""
+
+    def test_command_tool_shows_command(self):
+        summary = ClaudeSDKAdapter._approval_summary("Bash", {"command": "rm -rf /tmp"})
+        assert "rm -rf /tmp" in summary
+
+    def test_file_tool_shows_path(self):
+        summary = ClaudeSDKAdapter._approval_summary(
+            "Edit", {"file_path": "/src/main.py"}
+        )
+        assert "/src/main.py" in summary
+
+    def test_fallback_to_tool_name(self):
+        summary = ClaudeSDKAdapter._approval_summary("SomeTool", {})
+        assert summary == "SomeTool"
+
+    def test_redacts_api_key_in_command(self):
+        summary = ClaudeSDKAdapter._approval_summary(
+            "Bash", {"command": "curl -H token=sk-abc123 https://api.example.com"}
+        )
+        assert "sk-abc123" not in summary
+        assert "***" in summary
+
+    def test_redacts_password_in_command(self):
+        summary = ClaudeSDKAdapter._approval_summary(
+            "Bash", {"command": "mysql -u root password=s3cret db"}
+        )
+        assert "s3cret" not in summary
+        assert "***" in summary
+
+    def test_preserves_safe_command(self):
+        summary = ClaudeSDKAdapter._approval_summary(
+            "Bash", {"command": "ls -la /home/user"}
+        )
+        assert "ls -la /home/user" in summary
+
+
+class TestApprovalCommandHandling:
+    """Tests for /approve, /decline, /approvals command handling."""
+
+    @pytest.fixture
+    def adapter_with_approval(self):
+        return ClaudeSDKAdapter(approval_mode="manual")
+
+    @pytest.fixture
+    def sender(self):
+        return {"id": "user-456", "name": "Alice"}
+
+    @pytest.mark.asyncio
+    async def test_approvals_empty(self, adapter_with_approval, mock_tools, sender):
+        """Should report no pending approvals."""
+        await adapter_with_approval._handle_approval_command(
+            tools=mock_tools,
+            room_id="room-1",
+            command="approvals",
+            args="",
+            sender=sender,
+        )
+        mock_tools.send_message.assert_awaited_once()
+        assert "No pending" in mock_tools.send_message.call_args[0][0]
+
+    @pytest.mark.asyncio
+    async def test_approvals_lists_pending(
+        self, adapter_with_approval, mock_tools, sender
+    ):
+        """Should list pending approvals with token, summary, and age."""
+        loop = asyncio.get_running_loop()
+        adapter_with_approval._pending_approvals["room-1"] = {
+            "a-1": _PendingApproval(
+                tool_name="Bash",
+                tool_input={"command": "ls"},
+                summary="Bash: `ls`",
+                created_at=datetime.now(timezone.utc),
+                future=loop.create_future(),
+                requester={"id": "test-user", "name": "Test"},
+            ),
+        }
+        await adapter_with_approval._handle_approval_command(
+            tools=mock_tools,
+            room_id="room-1",
+            command="approvals",
+            args="",
+            sender=sender,
+        )
+        msg = mock_tools.send_message.call_args[0][0]
+        assert "a-1" in msg
+        assert "Bash" in msg
+
+    @pytest.mark.asyncio
+    async def test_approve_resolves_future(
+        self, adapter_with_approval, mock_tools, sender
+    ):
+        """Should resolve the pending future with 'accept'."""
+        loop = asyncio.get_running_loop()
+        future: asyncio.Future[str] = loop.create_future()
+        adapter_with_approval._pending_approvals["room-1"] = {
+            "a-1": _PendingApproval(
+                tool_name="Bash",
+                tool_input={},
+                summary="Bash",
+                created_at=datetime.now(timezone.utc),
+                future=future,
+                requester={"id": "test-user", "name": "Test"},
+            ),
+        }
+        await adapter_with_approval._handle_approval_command(
+            tools=mock_tools,
+            room_id="room-1",
+            command="approve",
+            args="a-1",
+            sender=sender,
+        )
+        assert future.done()
+        assert future.result() == "accept"
+
+    @pytest.mark.asyncio
+    async def test_decline_resolves_future(
+        self, adapter_with_approval, mock_tools, sender
+    ):
+        """Should resolve the pending future with 'decline'."""
+        loop = asyncio.get_running_loop()
+        future: asyncio.Future[str] = loop.create_future()
+        adapter_with_approval._pending_approvals["room-1"] = {
+            "a-1": _PendingApproval(
+                tool_name="Bash",
+                tool_input={},
+                summary="Bash",
+                created_at=datetime.now(timezone.utc),
+                future=future,
+                requester={"id": "test-user", "name": "Test"},
+            ),
+        }
+        await adapter_with_approval._handle_approval_command(
+            tools=mock_tools,
+            room_id="room-1",
+            command="decline",
+            args="a-1",
+            sender=sender,
+        )
+        assert future.done()
+        assert future.result() == "decline"
+
+    @pytest.mark.asyncio
+    async def test_approve_single_pending_no_token(
+        self, adapter_with_approval, mock_tools, sender
+    ):
+        """When only 1 pending, /approve without token should resolve it."""
+        loop = asyncio.get_running_loop()
+        future: asyncio.Future[str] = loop.create_future()
+        adapter_with_approval._pending_approvals["room-1"] = {
+            "a-1": _PendingApproval(
+                tool_name="Bash",
+                tool_input={},
+                summary="Bash",
+                created_at=datetime.now(timezone.utc),
+                future=future,
+                requester={"id": "test-user", "name": "Test"},
+            ),
+        }
+        await adapter_with_approval._handle_approval_command(
+            tools=mock_tools,
+            room_id="room-1",
+            command="approve",
+            args="",
+            sender=sender,
+        )
+        assert future.result() == "accept"
+
+    @pytest.mark.asyncio
+    async def test_approve_multiple_pending_no_token(
+        self, adapter_with_approval, mock_tools, sender
+    ):
+        """When multiple pending, /approve without token should ask for token."""
+        loop = asyncio.get_running_loop()
+        adapter_with_approval._pending_approvals["room-1"] = {
+            "a-1": _PendingApproval(
+                tool_name="Bash",
+                tool_input={},
+                summary="Bash",
+                created_at=datetime.now(timezone.utc),
+                future=loop.create_future(),
+                requester={"id": "test-user", "name": "Test"},
+            ),
+            "a-2": _PendingApproval(
+                tool_name="Edit",
+                tool_input={},
+                summary="Edit",
+                created_at=datetime.now(timezone.utc),
+                future=loop.create_future(),
+                requester={"id": "test-user", "name": "Test"},
+            ),
+        }
+        await adapter_with_approval._handle_approval_command(
+            tools=mock_tools,
+            room_id="room-1",
+            command="approve",
+            args="",
+            sender=sender,
+        )
+        msg = mock_tools.send_message.call_args[0][0]
+        assert "specify" in msg.lower()
+
+    @pytest.mark.asyncio
+    async def test_unknown_token(self, adapter_with_approval, mock_tools, sender):
+        """Should report unknown token with available tokens."""
+        loop = asyncio.get_running_loop()
+        adapter_with_approval._pending_approvals["room-1"] = {
+            "a-1": _PendingApproval(
+                tool_name="Bash",
+                tool_input={},
+                summary="Bash",
+                created_at=datetime.now(timezone.utc),
+                future=loop.create_future(),
+                requester={"id": "test-user", "name": "Test"},
+            ),
+        }
+        await adapter_with_approval._handle_approval_command(
+            tools=mock_tools,
+            room_id="room-1",
+            command="approve",
+            args="bad-token",
+            sender=sender,
+        )
+        msg = mock_tools.send_message.call_args[0][0]
+        assert "Unknown" in msg
+        assert "a-1" in msg
+
+
+class TestApprovalAuthorization:
+    """Tests for approval_authorized_senders access control."""
+
+    @pytest.fixture
+    def authorized_sender(self):
+        return {"id": "admin-1", "name": "Admin"}
+
+    @pytest.fixture
+    def unauthorized_sender(self):
+        return {"id": "user-99", "name": "Stranger"}
+
+    @pytest.mark.asyncio
+    async def test_authorized_sender_can_approve(self, mock_tools, authorized_sender):
+        adapter = ClaudeSDKAdapter(
+            approval_mode="manual",
+            approval_authorized_senders={"admin-1"},
+        )
+        loop = asyncio.get_running_loop()
+        future: asyncio.Future[str] = loop.create_future()
+        adapter._pending_approvals["room-1"] = {
+            "a-1": _PendingApproval(
+                tool_name="Bash",
+                tool_input={},
+                summary="Bash",
+                created_at=datetime.now(timezone.utc),
+                future=future,
+                requester={"id": "test-user", "name": "Test"},
+            ),
+        }
+        await adapter._handle_approval_command(
+            tools=mock_tools,
+            room_id="room-1",
+            command="approve",
+            args="a-1",
+            sender=authorized_sender,
+        )
+        assert future.done()
+        assert future.result() == "accept"
+
+    @pytest.mark.asyncio
+    async def test_unauthorized_sender_rejected(self, mock_tools, unauthorized_sender):
+        adapter = ClaudeSDKAdapter(
+            approval_mode="manual",
+            approval_authorized_senders={"admin-1"},
+        )
+        loop = asyncio.get_running_loop()
+        future: asyncio.Future[str] = loop.create_future()
+        adapter._pending_approvals["room-1"] = {
+            "a-1": _PendingApproval(
+                tool_name="Bash",
+                tool_input={},
+                summary="Bash",
+                created_at=datetime.now(timezone.utc),
+                future=future,
+                requester={"id": "test-user", "name": "Test"},
+            ),
+        }
+        await adapter._handle_approval_command(
+            tools=mock_tools,
+            room_id="room-1",
+            command="approve",
+            args="a-1",
+            sender=unauthorized_sender,
+        )
+        assert not future.done()  # Future should NOT be resolved
+        msg = mock_tools.send_message.call_args[0][0]
+        assert "not authorized" in msg.lower()
+
+    @pytest.mark.asyncio
+    async def test_unauthorized_sender_can_list_approvals(
+        self, mock_tools, unauthorized_sender
+    ):
+        """/approvals should be available to all participants regardless of auth."""
+        adapter = ClaudeSDKAdapter(
+            approval_mode="manual",
+            approval_authorized_senders={"admin-1"},
+        )
+        await adapter._handle_approval_command(
+            tools=mock_tools,
+            room_id="room-1",
+            command="approvals",
+            args="",
+            sender=unauthorized_sender,
+        )
+        assert "No pending" in mock_tools.send_message.call_args[0][0]
+
+    @pytest.mark.asyncio
+    async def test_no_restriction_when_authorized_senders_is_none(self, mock_tools):
+        """When approval_authorized_senders is None, any sender can approve."""
+        adapter = ClaudeSDKAdapter(approval_mode="manual")
+        sender = {"id": "anyone", "name": "Anyone"}
+        loop = asyncio.get_running_loop()
+        future: asyncio.Future[str] = loop.create_future()
+        adapter._pending_approvals["room-1"] = {
+            "a-1": _PendingApproval(
+                tool_name="Bash",
+                tool_input={},
+                summary="Bash",
+                created_at=datetime.now(timezone.utc),
+                future=future,
+                requester={"id": "test-user", "name": "Test"},
+            ),
+        }
+        await adapter._handle_approval_command(
+            tools=mock_tools,
+            room_id="room-1",
+            command="approve",
+            args="a-1",
+            sender=sender,
+        )
+        assert future.done()
+        assert future.result() == "accept"
+
+
+class TestCanUseToolCallback:
+    """Tests for the can_use_tool callback (auto and manual modes)."""
+
+    @pytest.mark.asyncio
+    async def test_auto_accept_returns_allow(self, mock_tools):
+        """auto_accept mode should return PermissionResultAllow."""
+        from claude_agent_sdk.types import (
+            PermissionResultAllow,
+            ToolPermissionContext,
+        )
+
+        adapter = ClaudeSDKAdapter(approval_mode="auto_accept")
+        adapter._room_tools["room-1"] = mock_tools
+        adapter._room_last_sender["room-1"] = {"id": "u1", "name": "Bob"}
+
+        callback = adapter._make_can_use_tool("room-1")
+        result = await callback("Bash", {"command": "ls"}, ToolPermissionContext())
+
+        assert isinstance(result, PermissionResultAllow)
+
+    @pytest.mark.asyncio
+    async def test_auto_accept_sends_notification(self, mock_tools):
+        """auto_accept should send policy notification when enabled."""
+        from claude_agent_sdk.types import ToolPermissionContext
+
+        adapter = ClaudeSDKAdapter(
+            approval_mode="auto_accept", approval_text_notifications=True
+        )
+        adapter._room_tools["room-1"] = mock_tools
+        adapter._room_last_sender["room-1"] = {"id": "u1", "name": "Bob"}
+
+        callback = adapter._make_can_use_tool("room-1")
+        await callback("Bash", {"command": "ls"}, ToolPermissionContext())
+
+        mock_tools.send_message.assert_awaited_once()
+        msg = mock_tools.send_message.call_args[0][0]
+        assert "accept" in msg.lower()
+
+    @pytest.mark.asyncio
+    async def test_auto_decline_returns_deny(self, mock_tools):
+        """auto_decline mode should return PermissionResultDeny."""
+        from claude_agent_sdk.types import (
+            PermissionResultDeny,
+            ToolPermissionContext,
+        )
+
+        adapter = ClaudeSDKAdapter(approval_mode="auto_decline")
+        adapter._room_tools["room-1"] = mock_tools
+        adapter._room_last_sender["room-1"] = {"id": "u1", "name": "Bob"}
+
+        callback = adapter._make_can_use_tool("room-1")
+        result = await callback("Bash", {"command": "ls"}, ToolPermissionContext())
+
+        assert isinstance(result, PermissionResultDeny)
+
+    @pytest.mark.asyncio
+    async def test_auto_accept_no_notification_when_disabled(self, mock_tools):
+        """Should not send notification when approval_text_notifications=False."""
+        from claude_agent_sdk.types import ToolPermissionContext
+
+        adapter = ClaudeSDKAdapter(
+            approval_mode="auto_accept", approval_text_notifications=False
+        )
+        adapter._room_tools["room-1"] = mock_tools
+        adapter._room_last_sender["room-1"] = {"id": "u1", "name": "Bob"}
+
+        callback = adapter._make_can_use_tool("room-1")
+        await callback("Bash", {"command": "ls"}, ToolPermissionContext())
+
+        mock_tools.send_message.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_manual_mode_sends_approval_request(self, mock_tools):
+        """Manual mode should send approval message and wait on future."""
+        from claude_agent_sdk.types import (
+            PermissionResultAllow,
+            ToolPermissionContext,
+        )
+
+        adapter = ClaudeSDKAdapter(approval_mode="manual", approval_wait_timeout_s=1.0)
+        adapter._room_tools["room-1"] = mock_tools
+        adapter._room_last_sender["room-1"] = {"id": "u1", "name": "Bob"}
+
+        callback = adapter._make_can_use_tool("room-1")
+
+        # Simulate user approving shortly after request
+        async def approve_soon():
+            await asyncio.sleep(0.05)
+            pending = adapter._pending_approvals.get("room-1", {})
+            for token, item in pending.items():
+                if not item.future.done():
+                    item.future.set_result("accept")
+
+        asyncio.get_running_loop().create_task(approve_soon())
+
+        result = await callback("Bash", {"command": "ls"}, ToolPermissionContext())
+
+        assert isinstance(result, PermissionResultAllow)
+        # Should have sent an approval request message
+        assert mock_tools.send_message.await_count >= 1
+
+    @pytest.mark.asyncio
+    async def test_manual_mode_timeout_declines(self, mock_tools):
+        """Manual mode should decline on timeout when timeout_decision='decline'."""
+        from claude_agent_sdk.types import (
+            PermissionResultDeny,
+            ToolPermissionContext,
+        )
+
+        adapter = ClaudeSDKAdapter(
+            approval_mode="manual",
+            approval_wait_timeout_s=0.05,
+            approval_timeout_decision="decline",
+        )
+        adapter._room_tools["room-1"] = mock_tools
+        adapter._room_last_sender["room-1"] = {"id": "u1", "name": "Bob"}
+
+        callback = adapter._make_can_use_tool("room-1")
+        result = await callback("Bash", {"command": "ls"}, ToolPermissionContext())
+
+        assert isinstance(result, PermissionResultDeny)
+
+    @pytest.mark.asyncio
+    async def test_manual_mode_timeout_accepts(self, mock_tools):
+        """Manual mode should accept on timeout when timeout_decision='accept'."""
+        from claude_agent_sdk.types import (
+            PermissionResultAllow,
+            ToolPermissionContext,
+        )
+
+        adapter = ClaudeSDKAdapter(
+            approval_mode="manual",
+            approval_wait_timeout_s=0.05,
+            approval_timeout_decision="accept",
+        )
+        adapter._room_tools["room-1"] = mock_tools
+        adapter._room_last_sender["room-1"] = {"id": "u1", "name": "Bob"}
+
+        callback = adapter._make_can_use_tool("room-1")
+        result = await callback("Bash", {"command": "ls"}, ToolPermissionContext())
+
+        assert isinstance(result, PermissionResultAllow)
+
+    @pytest.mark.asyncio
+    async def test_manual_mode_notification_failure_declines(self, mock_tools):
+        """If the approval notification can't be delivered, decline immediately."""
+        from claude_agent_sdk.types import (
+            PermissionResultDeny,
+            ToolPermissionContext,
+        )
+
+        adapter = ClaudeSDKAdapter(
+            approval_mode="manual",
+            approval_wait_timeout_s=5.0,
+        )
+        mock_tools.send_message = AsyncMock(side_effect=RuntimeError("network down"))
+        adapter._room_tools["room-1"] = mock_tools
+        adapter._room_last_sender["room-1"] = {"id": "u1", "name": "Bob"}
+
+        callback = adapter._make_can_use_tool("room-1")
+        result = await callback("Bash", {"command": "ls"}, ToolPermissionContext())
+
+        assert isinstance(result, PermissionResultDeny)
+        # Should not leave a dangling pending approval
+        assert len(adapter._pending_approvals.get("room-1", {})) == 0
+
+
+class TestOnMessageCommandInterception:
+    """Tests for command interception in on_message()."""
+
+    @pytest.mark.asyncio
+    async def test_approve_command_intercepted(self, mock_tools):
+        """Messages with /approve should not be sent to Claude."""
+        adapter = ClaudeSDKAdapter(approval_mode="manual")
+        loop = asyncio.get_running_loop()
+
+        # Pre-populate a pending approval
+        future: asyncio.Future[str] = loop.create_future()
+        adapter._pending_approvals["room-1"] = {
+            "a-1": _PendingApproval(
+                tool_name="Bash",
+                tool_input={},
+                summary="Bash",
+                created_at=datetime.now(timezone.utc),
+                future=future,
+                requester={"id": "test-user", "name": "Test"},
+            ),
+        }
+
+        msg = PlatformMessage(
+            id="msg-1",
+            room_id="room-1",
+            content="/approve a-1",
+            sender_id="user-1",
+            sender_type="User",
+            sender_name="Alice",
+            message_type="text",
+            metadata={},
+            created_at=datetime.now(timezone.utc),
+        )
+
+        mock_manager = AsyncMock()
+        adapter._session_manager = mock_manager
+
+        await adapter.on_message(
+            msg=msg,
+            tools=mock_tools,
+            history=ClaudeSDKSessionState(text=""),
+            participants_msg=None,
+            contacts_msg=None,
+            is_session_bootstrap=False,
+            room_id="room-1",
+        )
+
+        # Should not have called get_or_create_session (no query sent)
+        mock_manager.get_or_create_session.assert_not_awaited()
+        # Future should be resolved
+        assert future.result() == "accept"
+
+    @pytest.mark.asyncio
+    async def test_status_command_intercepted(self, mock_tools):
+        """Messages with /status should be handled locally."""
+        adapter = ClaudeSDKAdapter(approval_mode="manual")
+        mock_manager = MagicMock()
+        mock_manager.get_session_count.return_value = 2
+        mock_manager.get_or_create_session = AsyncMock()
+        adapter._session_manager = mock_manager
+
+        msg = PlatformMessage(
+            id="msg-1",
+            room_id="room-1",
+            content="/status",
+            sender_id="user-1",
+            sender_type="User",
+            sender_name="Alice",
+            message_type="text",
+            metadata={},
+            created_at=datetime.now(timezone.utc),
+        )
+
+        await adapter.on_message(
+            msg=msg,
+            tools=mock_tools,
+            history=ClaudeSDKSessionState(text=""),
+            participants_msg=None,
+            contacts_msg=None,
+            is_session_bootstrap=False,
+            room_id="room-1",
+        )
+
+        mock_manager.get_or_create_session.assert_not_awaited()
+        mock_tools.send_message.assert_awaited_once()
+        status_msg = mock_tools.send_message.call_args[0][0]
+        assert "Claude SDK Status" in status_msg
+        assert "manual" in status_msg
+
+    @pytest.mark.asyncio
+    async def test_approve_not_intercepted_when_approval_disabled(self, mock_tools):
+        """Approval commands should be forwarded to Claude when approval_mode is None."""
+        adapter = ClaudeSDKAdapter()  # approval_mode=None
+        mock_client = MagicMock()
+        mock_client.query = AsyncMock()
+        mock_manager = AsyncMock()
+        mock_manager.get_or_create_session = AsyncMock(return_value=mock_client)
+
+        msg = PlatformMessage(
+            id="msg-1",
+            room_id="room-1",
+            content="/approve a-1",
+            sender_id="user-1",
+            sender_type="User",
+            sender_name="Alice",
+            message_type="text",
+            metadata={},
+            created_at=datetime.now(timezone.utc),
+        )
+
+        with (
+            patch(
+                "thenvoi.adapters.claude_sdk.ClaudeSessionManager",
+                return_value=mock_manager,
+            ),
+            patch.object(adapter, "_process_response", new_callable=AsyncMock),
+        ):
+            await adapter.on_started(
+                agent_name="TestBot", agent_description="A test bot"
+            )
+            await adapter.on_message(
+                msg=msg,
+                tools=mock_tools,
+                history=ClaudeSDKSessionState(text=""),
+                participants_msg=None,
+                contacts_msg=None,
+                is_session_bootstrap=True,
+                room_id="room-1",
+            )
+
+            # Should have queried Claude (not intercepted)
+            mock_client.query.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_status_not_intercepted_when_approval_disabled(self, mock_tools):
+        """/status should be forwarded to Claude when approval_mode is None."""
+        adapter = ClaudeSDKAdapter()  # approval_mode=None
+        mock_client = MagicMock()
+        mock_client.query = AsyncMock()
+        mock_manager = AsyncMock()
+        mock_manager.get_or_create_session = AsyncMock(return_value=mock_client)
+
+        msg = PlatformMessage(
+            id="msg-1",
+            room_id="room-1",
+            content="/status",
+            sender_id="user-1",
+            sender_type="User",
+            sender_name="Alice",
+            message_type="text",
+            metadata={},
+            created_at=datetime.now(timezone.utc),
+        )
+
+        with (
+            patch(
+                "thenvoi.adapters.claude_sdk.ClaudeSessionManager",
+                return_value=mock_manager,
+            ),
+            patch.object(adapter, "_process_response", new_callable=AsyncMock),
+        ):
+            await adapter.on_started(
+                agent_name="TestBot", agent_description="A test bot"
+            )
+            await adapter.on_message(
+                msg=msg,
+                tools=mock_tools,
+                history=ClaudeSDKSessionState(text=""),
+                participants_msg=None,
+                contacts_msg=None,
+                is_session_bootstrap=True,
+                room_id="room-1",
+            )
+
+            # Should have queried Claude (not intercepted)
+            mock_client.query.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_normal_message_not_intercepted(self, sample_message, mock_tools):
+        """Normal messages should proceed to Claude query as usual."""
+        adapter = ClaudeSDKAdapter(approval_mode="manual")
+        mock_client = MagicMock()
+        mock_client.query = AsyncMock()
+        mock_manager = AsyncMock()
+        mock_manager.get_or_create_session = AsyncMock(return_value=mock_client)
+
+        with (
+            patch(
+                "thenvoi.adapters.claude_sdk.ClaudeSessionManager",
+                return_value=mock_manager,
+            ),
+            patch.object(adapter, "_process_response", new_callable=AsyncMock),
+        ):
+            await adapter.on_started(
+                agent_name="TestBot", agent_description="A test bot"
+            )
+            await adapter.on_message(
+                msg=sample_message,
+                tools=mock_tools,
+                history=ClaudeSDKSessionState(text=""),
+                participants_msg=None,
+                contacts_msg=None,
+                is_session_bootstrap=True,
+                room_id="room-123",
+            )
+
+            # Should proceed to query Claude
+            mock_client.query.assert_awaited_once()
+
+
+class TestApprovalOnStarted:
+    """Tests that on_started passes can_use_tool_factory to session manager."""
+
+    @pytest.mark.asyncio
+    async def test_passes_factory_when_approval_enabled(self):
+        adapter = ClaudeSDKAdapter(approval_mode="manual")
+
+        with patch("thenvoi.adapters.claude_sdk.ClaudeSessionManager") as mock_cls:
+            mock_cls.return_value = MagicMock()
+            await adapter.on_started(
+                agent_name="TestBot", agent_description="A test bot"
+            )
+
+            call_kwargs = mock_cls.call_args.kwargs
+            assert call_kwargs.get("can_use_tool_factory") is not None
+
+    @pytest.mark.asyncio
+    async def test_no_factory_when_approval_disabled(self):
+        adapter = ClaudeSDKAdapter()  # approval_mode=None
+
+        with patch("thenvoi.adapters.claude_sdk.ClaudeSessionManager") as mock_cls:
+            mock_cls.return_value = MagicMock()
+            await adapter.on_started(
+                agent_name="TestBot", agent_description="A test bot"
+            )
+
+            call_kwargs = mock_cls.call_args.kwargs
+            assert call_kwargs.get("can_use_tool_factory") is None
+
+    @pytest.mark.asyncio
+    async def test_sets_pre_tool_use_hook_when_approval_enabled(self):
+        """PreToolUse hook must be set so the SDK delegates to can_use_tool."""
+        adapter = ClaudeSDKAdapter(approval_mode="auto_accept")
+
+        with patch("thenvoi.adapters.claude_sdk.ClaudeSessionManager") as mock_cls:
+            mock_cls.return_value = MagicMock()
+            await adapter.on_started(
+                agent_name="TestBot", agent_description="A test bot"
+            )
+
+            # The first positional arg is the ClaudeAgentOptions
+            sdk_options = mock_cls.call_args.args[0]
+            assert sdk_options.hooks is not None
+            assert "PreToolUse" in sdk_options.hooks
+            assert len(sdk_options.hooks["PreToolUse"]) == 1
+
+    @pytest.mark.asyncio
+    async def test_no_hooks_when_approval_disabled(self):
+        adapter = ClaudeSDKAdapter()  # approval_mode=None
+
+        with patch("thenvoi.adapters.claude_sdk.ClaudeSessionManager") as mock_cls:
+            mock_cls.return_value = MagicMock()
+            await adapter.on_started(
+                agent_name="TestBot", agent_description="A test bot"
+            )
+
+            sdk_options = mock_cls.call_args.args[0]
+            assert sdk_options.hooks is None
+
+
+class TestPreToolUseHook:
+    """Tests for the PreToolUse hook that enables can_use_tool delegation."""
+
+    @pytest.mark.asyncio
+    async def test_hook_returns_continue_true(self):
+        result = await _pre_tool_use_continue_hook(None, None, None)
+        assert result == {"continue_": True}
+
+
+class TestApprovalCleanup:
+    """Tests for approval cleanup on room/adapter cleanup."""
+
+    @pytest.mark.asyncio
+    async def test_on_cleanup_declines_pending_approvals(self):
+        """Pending approvals should be declined when room is cleaned up."""
+        adapter = ClaudeSDKAdapter(approval_mode="manual")
+        adapter._session_manager = AsyncMock()
+
+        loop = asyncio.get_running_loop()
+        future: asyncio.Future[str] = loop.create_future()
+        adapter._pending_approvals["room-1"] = {
+            "a-1": _PendingApproval(
+                tool_name="Bash",
+                tool_input={},
+                summary="Bash",
+                created_at=datetime.now(timezone.utc),
+                future=future,
+                requester={"id": "test-user", "name": "Test"},
+            ),
+        }
+
+        await adapter.on_cleanup("room-1")
+
+        assert future.done()
+        assert future.result() == "decline"
+        assert "room-1" not in adapter._pending_approvals
+
+    @pytest.mark.asyncio
+    async def test_cleanup_all_declines_all_rooms(self):
+        """cleanup_all() should decline all pending approvals across rooms."""
+        adapter = ClaudeSDKAdapter(approval_mode="manual")
+        adapter._session_manager = AsyncMock()
+
+        loop = asyncio.get_running_loop()
+        f1: asyncio.Future[str] = loop.create_future()
+        f2: asyncio.Future[str] = loop.create_future()
+        adapter._pending_approvals["room-1"] = {
+            "a-1": _PendingApproval(
+                tool_name="Bash",
+                tool_input={},
+                summary="Bash",
+                created_at=datetime.now(timezone.utc),
+                future=f1,
+                requester={"id": "test-user", "name": "Test"},
+            ),
+        }
+        adapter._pending_approvals["room-2"] = {
+            "a-2": _PendingApproval(
+                tool_name="Edit",
+                tool_input={},
+                summary="Edit",
+                created_at=datetime.now(timezone.utc),
+                future=f2,
+                requester={"id": "test-user", "name": "Test"},
+            ),
+        }
+
+        await adapter.cleanup_all()
+
+        assert f1.result() == "decline"
+        assert f2.result() == "decline"
+        assert len(adapter._pending_approvals) == 0
+
+
+class TestPendingApprovalEviction:
+    """Tests for LRU eviction of pending approvals."""
+
+    @pytest.mark.asyncio
+    async def test_evicts_oldest_when_capacity_reached(self, mock_tools):
+        """Should evict oldest pending when max capacity is reached."""
+        from claude_agent_sdk.types import ToolPermissionContext
+
+        adapter = ClaudeSDKAdapter(
+            approval_mode="manual",
+            max_pending_approvals_per_room=1,
+            approval_wait_timeout_s=0.05,
+            approval_timeout_decision="decline",
+        )
+        adapter._room_tools["room-1"] = mock_tools
+        adapter._room_last_sender["room-1"] = {"id": "u1", "name": "Bob"}
+
+        loop = asyncio.get_running_loop()
+        # Pre-populate one pending approval
+        old_future: asyncio.Future[str] = loop.create_future()
+        adapter._pending_approvals["room-1"] = {
+            "a-1": _PendingApproval(
+                tool_name="Old",
+                tool_input={},
+                summary="Old",
+                created_at=datetime(2020, 1, 1, tzinfo=timezone.utc),
+                future=old_future,
+                requester={"id": "test-user", "name": "Test"},
+            ),
+        }
+
+        # Now trigger a new approval (should evict old one)
+        callback = adapter._make_can_use_tool("room-1")
+        await callback("New", {}, ToolPermissionContext())
+
+        # Old future should have been evicted and declined
+        assert old_future.done()
+        assert old_future.result() == "decline"
