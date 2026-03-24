@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -10,7 +11,7 @@ from thenvoi.runtime.execution import ExecutionContext
 from thenvoi.runtime.runtime import AgentRuntime
 
 # Import test helpers from conftest
-from tests.conftest import make_message_event
+from tests.conftest import make_message_event, make_participant_added_event
 
 
 @pytest.fixture
@@ -36,6 +37,7 @@ def mock_link():
 
     # Message lifecycle methods
     link.get_next_message = AsyncMock(return_value=None)
+    link.get_stale_processing_messages = AsyncMock(return_value=[])
     link.mark_processing = AsyncMock()
     link.mark_processed = AsyncMock()
     link.mark_failed = AsyncMock()
@@ -230,6 +232,32 @@ class TestAgentRuntimeEventRouting:
 
         # Should not raise
         await runtime._on_room_event("unknown-room", event)
+
+    async def test_routes_participant_callbacks_to_execution(
+        self, mock_link, mock_handler
+    ):
+        """Participant callbacks should fire through the execution context."""
+        on_participant_added = AsyncMock()
+        runtime = AgentRuntime(
+            mock_link,
+            "agent-123",
+            mock_handler,
+            on_participant_added=on_participant_added,
+        )
+
+        await runtime._create_execution("room-123")
+
+        event = make_participant_added_event(
+            room_id="room-123",
+            participant_id="user-2",
+            name="User Two",
+        )
+        await runtime._on_room_event("room-123", event)
+        await asyncio.sleep(0.1)
+
+        on_participant_added.assert_awaited_once()
+
+        await runtime.stop()
 
 
 class TestAgentRuntimeCustomFactory:

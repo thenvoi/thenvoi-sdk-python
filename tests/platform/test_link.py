@@ -458,6 +458,23 @@ class TestThenvoiLinkEventHandlers:
         assert isinstance(event, ParticipantRemovedEvent)
         assert event.room_id == "room-123"
 
+    async def test_on_room_deleted_queues_room_deleted_event(self):
+        """_on_room_deleted() should queue RoomDeletedEvent."""
+        from thenvoi.client.streaming import RoomDeletedPayload
+        from thenvoi.platform.event import RoomDeletedEvent
+
+        link = ThenvoiLink(agent_id="agent-123", api_key="test-key")
+
+        payload = RoomDeletedPayload(id="room-123")
+
+        await link._on_room_deleted("room-123", payload)
+
+        assert link._event_queue.qsize() == 1
+        event = await link._event_queue.get()
+        assert isinstance(event, RoomDeletedEvent)
+        assert event.room_id == "room-123"
+        assert event.payload.id == "room-123"
+
 
 class TestMarkFailed:
     """Tests for mark_failed error normalization."""

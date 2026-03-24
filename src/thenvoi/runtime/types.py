@@ -57,7 +57,11 @@ def normalize_handle(handle: str | None) -> str | None:
 
 
 if TYPE_CHECKING:
-    from thenvoi.platform.event import ContactEvent
+    from thenvoi.platform.event import (
+        ContactEvent,
+        ParticipantAddedEvent,
+        ParticipantRemovedEvent,
+    )
 
     from .contact_tools import ContactTools
     from .tools import AgentTools
@@ -146,6 +150,8 @@ class ContactEventStrategy(Enum):
 
 # Type alias for contact event callback
 ContactEventCallback = Callable[["ContactEvent", "ContactTools"], Awaitable[None]]
+ParticipantAddedCallback = Callable[[str, "ParticipantAddedEvent"], Awaitable[None]]
+ParticipantRemovedCallback = Callable[[str, "ParticipantRemovedEvent"], Awaitable[None]]
 
 
 @dataclass
