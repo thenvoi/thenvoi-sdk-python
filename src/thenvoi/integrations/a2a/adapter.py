@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import logging
+from typing import Any
 from uuid import uuid4
 
 from a2a.client import Client, ClientConfig, ClientFactory
+from a2a.client.middleware import ClientCallContext, ClientCallInterceptor
 from a2a.types import (
+    AgentCard,
     Message as A2AMessage,
     Part,
     Role,
@@ -38,6 +41,32 @@ TERMINAL_STATES = (
 
 # String values of terminal states for comparison with A2ASessionState.task_state
 TERMINAL_STATE_VALUES = frozenset(s.value for s in TERMINAL_STATES)
+
+
+class _StaticHeadersInterceptor(ClientCallInterceptor):
+    """Attach static headers to all outbound A2A requests."""
+
+    def __init__(self, headers: dict[str, str]) -> None:
+        self._headers = dict(headers)
+
+    async def intercept(
+        self,
+        method_name: str,
+        request_payload: dict[str, Any],
+        http_kwargs: dict[str, Any],
+        agent_card: AgentCard | None,
+        context: ClientCallContext | None,
+    ) -> tuple[dict[str, Any], dict[str, Any]]:
+        del method_name, agent_card, context
+
+        if not self._headers:
+            return request_payload, http_kwargs
+
+        updated_http_kwargs = dict(http_kwargs)
+        headers = dict(updated_http_kwargs.get("headers", {}))
+        headers.update(self._headers)
+        updated_http_kwargs["headers"] = headers
+        return request_payload, updated_http_kwargs
 
 
 class A2AAdapter(SimpleAdapter[A2ASessionState]):
@@ -98,6 +127,8 @@ class A2AAdapter(SimpleAdapter[A2ASessionState]):
         """Initialize A2A client connection."""
         await super().on_started(agent_name, agent_description)
 
+        headers = self.auth.to_headers() if self.auth else {}
+
         # Build client configuration
         config = ClientConfig(streaming=self.streaming)
 
@@ -105,12 +136,15 @@ class A2AAdapter(SimpleAdapter[A2ASessionState]):
         self._client = await ClientFactory.connect(
             agent=self.remote_url,
             client_config=config,
+            interceptors=[_StaticHeadersInterceptor(headers)] if headers else None,
+            resolver_http_kwargs={"headers": headers} if headers else None,
         )
 
         logger.info(
-            "Connected to A2A agent at %s (streaming=%s)",
+            "Connected to A2A agent at %s (streaming=%s, auth=%s)",
             self.remote_url,
             self.streaming,
+            bool(headers),
         )
 
     async def on_message(

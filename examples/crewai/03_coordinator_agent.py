@@ -51,7 +51,7 @@ async def main() -> None:
 
     # Create a coordinator agent that orchestrates other agents
     adapter = CrewAIAdapter(
-        model="gpt-4o",
+        model="gpt-4o-mini",
         role="Team Coordinator",
         goal="Orchestrate collaboration between specialized agents to accomplish complex tasks",
         backstory="""You are an experienced project coordinator who excels at

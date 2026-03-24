@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
-from typing import Callable, Awaitable
+from typing import Awaitable, Callable
 
 from thenvoi.client.rest import DEFAULT_REQUEST_OPTIONS
 from thenvoi.platform.link import ThenvoiLink
@@ -17,6 +18,7 @@ from thenvoi.runtime.types import (
     ContactEventStrategy,
     SessionConfig,
 )
+from thenvoi_rest.core.api_error import ApiError
 
 logger = logging.getLogger(__name__)
 
@@ -35,6 +37,8 @@ class PlatformRuntime:
     - History conversion
     - LLM framework logic
     """
+
+    _METADATA_RETRY_DELAYS_SECONDS: tuple[float, ...] = (1.0, 2.0, 4.0, 8.0, 16.0)
 
     def __init__(
         self,
@@ -197,9 +201,32 @@ class PlatformRuntime:
         if not self._link:
             raise RuntimeError("Link not initialized")
 
-        response = await self._link.rest.agent_api_identity.get_agent_me(
-            request_options=DEFAULT_REQUEST_OPTIONS,
-        )
+        attempts = len(self._METADATA_RETRY_DELAYS_SECONDS) + 1
+        for attempt, delay in enumerate(
+            (0.0, *self._METADATA_RETRY_DELAYS_SECONDS), start=1
+        ):
+            if delay > 0:
+                logger.warning(
+                    "Rate limited fetching metadata for agent %s; retrying in %.1fs "
+                    "(attempt %s/%s)",
+                    self._agent_id,
+                    delay,
+                    attempt,
+                    attempts,
+                )
+                await asyncio.sleep(delay)
+
+            try:
+                response = await self._link.rest.agent_api_identity.get_agent_me(
+                    request_options=DEFAULT_REQUEST_OPTIONS,
+                )
+                break
+            except ApiError as exc:
+                if exc.status_code != 429 or attempt == attempts:
+                    raise
+        else:
+            raise RuntimeError("Metadata fetch retry loop exited unexpectedly")
+
         if not response.data:
             raise RuntimeError("Failed to fetch agent metadata")
 

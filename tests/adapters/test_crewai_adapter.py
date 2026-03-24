@@ -9,6 +9,7 @@ platform tools, tool execution, verbose mode, delegation, and custom tools.
 
 from __future__ import annotations
 
+import asyncio
 import json
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING
@@ -107,6 +108,44 @@ def mock_tools():
         }
     )
     tools.create_chatroom = AsyncMock(return_value="new-room-123")
+    tools.list_contacts = AsyncMock(
+        return_value={
+            "contacts": [{"id": "contact-1", "handle": "@alice", "name": "Alice"}],
+            "metadata": {"page": 1, "page_size": 50, "total_count": 1},
+        }
+    )
+    tools.add_contact = AsyncMock(
+        return_value={"id": "request-1", "handle": "@alice", "status": "pending"}
+    )
+    tools.remove_contact = AsyncMock(
+        return_value={"id": "contact-1", "handle": "@alice", "status": "removed"}
+    )
+    tools.list_contact_requests = AsyncMock(
+        return_value={
+            "received": [{"id": "request-1", "from_handle": "@alice"}],
+            "sent": [],
+            "metadata": {"page": 1, "page_size": 50, "total_count": 1},
+        }
+    )
+    tools.respond_contact_request = AsyncMock(
+        return_value={"id": "request-1", "status": "approved"}
+    )
+    tools.list_memories = AsyncMock(
+        return_value={
+            "memories": [{"id": "memory-1", "content": "remember this"}],
+            "count": 1,
+        }
+    )
+    tools.store_memory = AsyncMock(return_value={"id": "memory-1", "status": "stored"})
+    tools.get_memory = AsyncMock(
+        return_value={"id": "memory-1", "content": "remember this"}
+    )
+    tools.supersede_memory = AsyncMock(
+        return_value={"id": "memory-1", "status": "superseded"}
+    )
+    tools.archive_memory = AsyncMock(
+        return_value={"id": "memory-1", "status": "archived"}
+    )
     return tools
 
 
@@ -477,6 +516,343 @@ class TestParticipantsUpdate:
         assert found
 
 
+class TestContactsUpdate:
+    @pytest.mark.asyncio
+    async def test_includes_contacts_update_in_message(
+        self, CrewAIAdapter, sample_message, mock_tools, mock_crewai_agent
+    ):
+        adapter = CrewAIAdapter()
+        await adapter.on_started("TestBot", "Test bot")
+        adapter._crewai_agent = mock_crewai_agent
+
+        await adapter.on_message(
+            msg=sample_message,
+            tools=mock_tools,
+            history=[],
+            participants_msg=None,
+            contacts_msg="[Contacts]: @alice is now a contact",
+            is_session_bootstrap=True,
+            room_id="room-123",
+        )
+
+        call_args = mock_crewai_agent.kickoff_async.call_args
+        messages = call_args[0][0]
+
+        found = any(
+            "@alice is now a contact" in str(m.get("content", "")) for m in messages
+        )
+        assert found
+
+
+class TestContactAndMemoryToolRegistration:
+    @pytest.mark.asyncio
+    async def test_contact_tools_are_included_by_default(
+        self, CrewAIAdapter, crewai_mocks
+    ):
+        crewai_mocks.Agent.reset_mock()
+
+        adapter = CrewAIAdapter()
+        await adapter.on_started("TestBot", "Test bot")
+
+        tools = crewai_mocks.Agent.call_args[1]["tools"]
+        tool_names = {tool.name for tool in tools}
+
+        assert "thenvoi_list_contacts" in tool_names
+        assert "thenvoi_add_contact" in tool_names
+        assert "thenvoi_remove_contact" in tool_names
+        assert "thenvoi_list_contact_requests" in tool_names
+        assert "thenvoi_respond_contact_request" in tool_names
+
+    @pytest.mark.asyncio
+    async def test_memory_tools_are_excluded_by_default(
+        self, CrewAIAdapter, crewai_mocks
+    ):
+        crewai_mocks.Agent.reset_mock()
+
+        adapter = CrewAIAdapter()
+        await adapter.on_started("TestBot", "Test bot")
+
+        tools = crewai_mocks.Agent.call_args[1]["tools"]
+        tool_names = {tool.name for tool in tools}
+
+        assert "thenvoi_list_memories" not in tool_names
+        assert "thenvoi_store_memory" not in tool_names
+        assert "thenvoi_get_memory" not in tool_names
+        assert "thenvoi_supersede_memory" not in tool_names
+        assert "thenvoi_archive_memory" not in tool_names
+
+    @pytest.mark.asyncio
+    async def test_memory_tools_are_included_when_enabled(
+        self, CrewAIAdapter, crewai_mocks
+    ):
+        crewai_mocks.Agent.reset_mock()
+
+        adapter = CrewAIAdapter(enable_memory_tools=True)
+        await adapter.on_started("TestBot", "Test bot")
+
+        tools = crewai_mocks.Agent.call_args[1]["tools"]
+        tool_names = {tool.name for tool in tools}
+
+        assert "thenvoi_list_memories" in tool_names
+        assert "thenvoi_store_memory" in tool_names
+        assert "thenvoi_get_memory" in tool_names
+        assert "thenvoi_supersede_memory" in tool_names
+        assert "thenvoi_archive_memory" in tool_names
+
+
+class TestContactToolExecution:
+    def test_list_contacts_tool_executes(
+        self, CrewAIAdapter, crewai_mocks, mock_tools, room_context
+    ):
+        import asyncio
+
+        adapter = CrewAIAdapter()
+        asyncio.run(adapter.on_started("TestBot", "Test bot"))
+
+        tools = crewai_mocks.Agent.call_args[1]["tools"]
+        list_contacts_tool = next(t for t in tools if t.name == "thenvoi_list_contacts")
+
+        with room_context("room-123"):
+            result = list_contacts_tool._run(page=2, page_size=25)
+
+        result_data = json.loads(result)
+        assert result_data["status"] == "success"
+        assert result_data["contacts"][0]["handle"] == "@alice"
+        mock_tools.list_contacts.assert_awaited_once_with(2, 25)
+
+    def test_add_contact_tool_executes(
+        self, CrewAIAdapter, crewai_mocks, mock_tools, room_context
+    ):
+        import asyncio
+
+        adapter = CrewAIAdapter()
+        asyncio.run(adapter.on_started("TestBot", "Test bot"))
+
+        tools = crewai_mocks.Agent.call_args[1]["tools"]
+        add_contact_tool = next(t for t in tools if t.name == "thenvoi_add_contact")
+
+        with room_context("room-123"):
+            result = add_contact_tool._run(handle="@alice", message="Hi Alice")
+
+        result_data = json.loads(result)
+        assert result_data["status"] == "success"
+        assert result_data["result_status"] == "pending"
+        assert result_data["handle"] == "@alice"
+        mock_tools.add_contact.assert_awaited_once_with("@alice", "Hi Alice")
+
+    def test_remove_contact_tool_executes(
+        self, CrewAIAdapter, crewai_mocks, mock_tools, room_context
+    ):
+        import asyncio
+
+        adapter = CrewAIAdapter()
+        asyncio.run(adapter.on_started("TestBot", "Test bot"))
+
+        tools = crewai_mocks.Agent.call_args[1]["tools"]
+        remove_contact_tool = next(
+            t for t in tools if t.name == "thenvoi_remove_contact"
+        )
+
+        with room_context("room-123"):
+            result = remove_contact_tool._run(handle="@alice", contact_id="contact-1")
+
+        result_data = json.loads(result)
+        assert result_data["status"] == "success"
+        assert result_data["result_status"] == "removed"
+        mock_tools.remove_contact.assert_awaited_once_with("@alice", "contact-1")
+
+    def test_list_contact_requests_tool_executes(
+        self, CrewAIAdapter, crewai_mocks, mock_tools, room_context
+    ):
+        import asyncio
+
+        adapter = CrewAIAdapter()
+        asyncio.run(adapter.on_started("TestBot", "Test bot"))
+
+        tools = crewai_mocks.Agent.call_args[1]["tools"]
+        list_requests_tool = next(
+            t for t in tools if t.name == "thenvoi_list_contact_requests"
+        )
+
+        with room_context("room-123"):
+            result = list_requests_tool._run(
+                page=3, page_size=10, sent_status="approved"
+            )
+
+        result_data = json.loads(result)
+        assert result_data["status"] == "success"
+        assert result_data["received"][0]["id"] == "request-1"
+        mock_tools.list_contact_requests.assert_awaited_once_with(3, 10, "approved")
+
+    def test_respond_contact_request_tool_executes(
+        self, CrewAIAdapter, crewai_mocks, mock_tools, room_context
+    ):
+        import asyncio
+
+        adapter = CrewAIAdapter()
+        asyncio.run(adapter.on_started("TestBot", "Test bot"))
+
+        tools = crewai_mocks.Agent.call_args[1]["tools"]
+        respond_request_tool = next(
+            t for t in tools if t.name == "thenvoi_respond_contact_request"
+        )
+
+        with room_context("room-123"):
+            result = respond_request_tool._run(
+                action="approve",
+                handle="@alice",
+                request_id="request-1",
+            )
+
+        result_data = json.loads(result)
+        assert result_data["status"] == "success"
+        assert result_data["result_status"] == "approved"
+        assert result_data["id"] == "request-1"
+        mock_tools.respond_contact_request.assert_awaited_once_with(
+            "approve",
+            "@alice",
+            "request-1",
+        )
+
+
+class TestMemoryToolExecution:
+    def test_list_memories_tool_executes(
+        self, CrewAIAdapter, crewai_mocks, mock_tools, room_context
+    ):
+        import asyncio
+
+        adapter = CrewAIAdapter(enable_memory_tools=True)
+        asyncio.run(adapter.on_started("TestBot", "Test bot"))
+
+        tools = crewai_mocks.Agent.call_args[1]["tools"]
+        list_memories_tool = next(t for t in tools if t.name == "thenvoi_list_memories")
+
+        with room_context("room-123"):
+            result = list_memories_tool._run(
+                subject_id="subject-1",
+                scope="subject",
+                system="working",
+                memory_type="fact",
+                segment="user",
+                content_query="remember",
+                page_size=5,
+                status="active",
+            )
+
+        result_data = json.loads(result)
+        assert result_data["status"] == "success"
+        assert result_data["memories"][0]["id"] == "memory-1"
+        mock_tools.list_memories.assert_awaited_once_with(
+            subject_id="subject-1",
+            scope="subject",
+            system="working",
+            type="fact",
+            segment="user",
+            content_query="remember",
+            page_size=5,
+            status="active",
+        )
+
+    def test_store_memory_tool_executes(
+        self, CrewAIAdapter, crewai_mocks, mock_tools, room_context
+    ):
+        import asyncio
+
+        adapter = CrewAIAdapter(enable_memory_tools=True)
+        asyncio.run(adapter.on_started("TestBot", "Test bot"))
+
+        tools = crewai_mocks.Agent.call_args[1]["tools"]
+        store_memory_tool = next(t for t in tools if t.name == "thenvoi_store_memory")
+
+        with room_context("room-123"):
+            result = store_memory_tool._run(
+                content="remember this",
+                system="working",
+                memory_type="fact",
+                segment="user",
+                thought="important for follow-up",
+                scope="subject",
+                subject_id="subject-1",
+            )
+
+        result_data = json.loads(result)
+        assert result_data["status"] == "success"
+        assert result_data["result_status"] == "stored"
+        assert result_data["id"] == "memory-1"
+        mock_tools.store_memory.assert_awaited_once_with(
+            content="remember this",
+            system="working",
+            type="fact",
+            segment="user",
+            thought="important for follow-up",
+            scope="subject",
+            subject_id="subject-1",
+        )
+
+    def test_get_memory_tool_executes(
+        self, CrewAIAdapter, crewai_mocks, mock_tools, room_context
+    ):
+        import asyncio
+
+        adapter = CrewAIAdapter(enable_memory_tools=True)
+        asyncio.run(adapter.on_started("TestBot", "Test bot"))
+
+        tools = crewai_mocks.Agent.call_args[1]["tools"]
+        get_memory_tool = next(t for t in tools if t.name == "thenvoi_get_memory")
+
+        with room_context("room-123"):
+            result = get_memory_tool._run(memory_id="memory-1")
+
+        result_data = json.loads(result)
+        assert result_data["status"] == "success"
+        assert result_data["id"] == "memory-1"
+        mock_tools.get_memory.assert_awaited_once_with("memory-1")
+
+    def test_supersede_memory_tool_executes(
+        self, CrewAIAdapter, crewai_mocks, mock_tools, room_context
+    ):
+        import asyncio
+
+        adapter = CrewAIAdapter(enable_memory_tools=True)
+        asyncio.run(adapter.on_started("TestBot", "Test bot"))
+
+        tools = crewai_mocks.Agent.call_args[1]["tools"]
+        supersede_memory_tool = next(
+            t for t in tools if t.name == "thenvoi_supersede_memory"
+        )
+
+        with room_context("room-123"):
+            result = supersede_memory_tool._run(memory_id="memory-1")
+
+        result_data = json.loads(result)
+        assert result_data["status"] == "success"
+        assert result_data["result_status"] == "superseded"
+        assert result_data["id"] == "memory-1"
+        mock_tools.supersede_memory.assert_awaited_once_with("memory-1")
+
+    def test_archive_memory_tool_executes(
+        self, CrewAIAdapter, crewai_mocks, mock_tools, room_context
+    ):
+        import asyncio
+
+        adapter = CrewAIAdapter(enable_memory_tools=True)
+        asyncio.run(adapter.on_started("TestBot", "Test bot"))
+
+        tools = crewai_mocks.Agent.call_args[1]["tools"]
+        archive_memory_tool = next(
+            t for t in tools if t.name == "thenvoi_archive_memory"
+        )
+
+        with room_context("room-123"):
+            result = archive_memory_tool._run(memory_id="memory-1")
+
+        result_data = json.loads(result)
+        assert result_data["status"] == "success"
+        assert result_data["result_status"] == "archived"
+        assert result_data["id"] == "memory-1"
+        mock_tools.archive_memory.assert_awaited_once_with("memory-1")
+
+
 class TestToolExecution:
     def test_tool_returns_error_without_room_context(self, CrewAIAdapter, crewai_mocks):
         """Tools return error when called outside message handling (no context set)."""
@@ -578,8 +954,6 @@ class TestToolExecution:
     def test_tool_execution_handles_exception(
         self, CrewAIAdapter, crewai_mocks, mock_tools, room_context
     ):
-        import asyncio
-
         crewai_mocks.Agent.reset_mock()
 
         adapter = CrewAIAdapter()
@@ -599,6 +973,42 @@ class TestToolExecution:
         result_data = json.loads(result)
         assert result_data["status"] == "error"
         assert "Connection failed" in result_data["message"]
+
+    @pytest.mark.asyncio
+    async def test_lookup_peers_uses_adapter_loop_when_tool_runs_in_worker_thread(
+        self, CrewAIAdapter, crewai_mocks, mock_tools, room_context
+    ):
+        crewai_mocks.Agent.reset_mock()
+
+        adapter = CrewAIAdapter()
+        await adapter.on_started("TestBot", "Test bot")
+
+        expected_loop = asyncio.get_running_loop()
+
+        async def lookup_peers(page: int, page_size: int) -> dict[str, object]:
+            assert asyncio.get_running_loop() is expected_loop
+            return {
+                "peers": [],
+                "metadata": {
+                    "page": page,
+                    "page_size": page_size,
+                    "total_count": 0,
+                    "total_pages": 1,
+                },
+            }
+
+        mock_tools.lookup_peers = AsyncMock(side_effect=lookup_peers)
+
+        call_kwargs = crewai_mocks.Agent.call_args[1]
+        tools = call_kwargs["tools"]
+        lookup_peers_tool = next(t for t in tools if t.name == "thenvoi_lookup_peers")
+
+        with room_context("room-123"):
+            result = await asyncio.to_thread(lookup_peers_tool._run)
+
+        result_data = json.loads(result)
+        assert result_data["status"] == "success"
+        mock_tools.lookup_peers.assert_awaited_once_with(1, 50)
 
 
 class TestExecutionReporting:
