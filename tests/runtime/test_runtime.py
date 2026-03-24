@@ -2,15 +2,49 @@
 
 from __future__ import annotations
 
+import asyncio
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 from thenvoi.runtime.execution import ExecutionContext
 from thenvoi.runtime.runtime import AgentRuntime
+from thenvoi.runtime.types import SessionConfig
 
 # Import test helpers from conftest
-from tests.conftest import make_message_event
+from tests.conftest import make_message_event, make_participant_added_event
+
+
+class _ExecutionWithoutBusyState:
+    """Execution test double that intentionally omits `is_processing`."""
+
+    def __init__(self, room_id: str):
+        self.room_id = room_id
+        self.events = []
+
+    async def start(self) -> None:
+        return None
+
+    async def stop(self, timeout: float | None = None) -> bool:
+        return True
+
+    def inject_system_message(self, message: str) -> None:
+        return None
+
+    async def on_event(self, event) -> None:
+        self.events.append(event)
+
+
+async def _wait_until(
+    predicate, *, timeout: float = 2.5, interval: float = 0.02
+) -> None:
+    """Wait for a predicate to become true within timeout."""
+    deadline = asyncio.get_running_loop().time() + timeout
+    while asyncio.get_running_loop().time() < deadline:
+        if predicate():
+            return
+        await asyncio.sleep(interval)
+    pytest.fail("Condition was not met before timeout")
 
 
 @pytest.fixture
@@ -147,6 +181,19 @@ class TestAgentRuntimeLifecycle:
 
         assert set(cleanup_rooms) == {"room-1", "room-2"}
 
+    async def test_stop_clears_room_lock_tracking(self, mock_link, mock_handler):
+        """stop() should clear per-room lock state."""
+        runtime = AgentRuntime(mock_link, "agent-123", mock_handler)
+        runtime.presence.stop = AsyncMock()
+
+        await runtime._create_execution("room-1")
+        runtime._get_room_lock("room-orphan")
+        assert runtime._room_locks
+
+        await runtime.stop()
+
+        assert runtime._room_locks == {}
+
 
 class TestAgentRuntimeExecutionManagement:
     """Test execution context management."""
@@ -168,9 +215,24 @@ class TestAgentRuntimeExecutionManagement:
         runtime = AgentRuntime(mock_link, "agent-123", mock_handler)
 
         await runtime._create_execution("room-123")
+        assert "room-123" in runtime._room_locks
         await runtime._on_room_left("room-123")
 
         assert "room-123" not in runtime.executions
+        assert "room-123" not in runtime._room_locks
+
+    async def test_room_left_cleans_lock_when_execution_already_missing(
+        self, mock_link, mock_handler
+    ):
+        """Room-left callback should retire lock state even without an execution."""
+        runtime = AgentRuntime(mock_link, "agent-123", mock_handler)
+        runtime.presence.rooms.add("room-123")
+        runtime._get_room_lock("room-123")
+
+        runtime.presence.rooms.discard("room-123")
+        await runtime._on_room_left("room-123")
+
+        assert "room-123" not in runtime._room_locks
 
     async def test_execution_idempotent(self, mock_link, mock_handler):
         """Creating execution twice should return same instance."""
@@ -230,6 +292,162 @@ class TestAgentRuntimeEventRouting:
 
         # Should not raise
         await runtime._on_room_event("unknown-room", event)
+
+    async def test_unknown_room_message_does_not_retain_room_lock(
+        self, mock_link, mock_handler
+    ):
+        """Dropped unknown-room messages should not leak room locks."""
+        runtime = AgentRuntime(mock_link, "agent-123", mock_handler)
+
+        event = make_message_event(
+            room_id="unknown-room",
+            msg_id="msg-1",
+        )
+
+        await runtime._on_room_event("unknown-room", event)
+
+        assert "unknown-room" not in runtime.executions
+        assert "unknown-room" not in runtime._room_locks
+
+
+class TestAgentRuntimeIdleTimeout:
+    """Test idle timeout behavior and compatibility safeguards."""
+
+    async def test_idle_monitor_destroys_execution_and_calls_cleanup(
+        self, mock_link, mock_handler
+    ):
+        """Idle timeout should destroy inactive execution and run cleanup callback."""
+        cleaned_rooms = []
+
+        async def on_cleanup(room_id: str) -> None:
+            cleaned_rooms.append(room_id)
+
+        runtime = AgentRuntime(
+            mock_link,
+            "agent-123",
+            mock_handler,
+            session_config=SessionConfig(idle_timeout_seconds=0.1),
+            on_session_cleanup=on_cleanup,
+        )
+        runtime.presence.start = AsyncMock()
+        runtime.presence.stop = AsyncMock()
+
+        try:
+            await runtime.start()
+            await runtime._create_execution("room-idle")
+            runtime.presence.rooms.add("room-idle")
+
+            await _wait_until(
+                lambda: "room-idle" not in runtime.executions,
+                timeout=3.0,
+            )
+            assert cleaned_rooms == ["room-idle"]
+        finally:
+            await runtime.stop()
+
+    async def test_idle_monitor_revalidates_activity_before_destroy(
+        self, mock_link, mock_handler
+    ):
+        """Stale idle snapshot should not destroy room after activity generation changes."""
+        runtime = AgentRuntime(
+            mock_link,
+            "agent-123",
+            mock_handler,
+            session_config=SessionConfig(idle_timeout_seconds=0.1),
+        )
+        runtime.presence.start = AsyncMock()
+        runtime.presence.stop = AsyncMock()
+
+        destroy_calls = 0
+        original_destroy = runtime._destroy_execution
+
+        async def tracked_destroy(
+            room_id: str, timeout: float | None = None, **kwargs
+        ) -> bool:
+            nonlocal destroy_calls
+            destroy_calls += 1
+            return await original_destroy(room_id, timeout=timeout, **kwargs)
+
+        runtime._destroy_execution = tracked_destroy
+
+        try:
+            await runtime.start()
+            await runtime._create_execution("room-race")
+            runtime.presence.rooms.add("room-race")
+
+            room_locks = getattr(runtime, "_room_locks")
+            room_activity_gen = getattr(runtime, "_room_activity_gen")
+            room_last_message_at = getattr(runtime, "_room_last_message_at")
+
+            await asyncio.sleep(0.2)
+            await room_locks["room-race"].acquire()
+            try:
+                await asyncio.sleep(1.2)
+                room_activity_gen["room-race"] += 1
+                room_last_message_at["room-race"] = asyncio.get_running_loop().time()
+            finally:
+                room_locks["room-race"].release()
+
+            await asyncio.sleep(0.2)
+            assert "room-race" in runtime.executions
+            assert destroy_calls >= 1
+        finally:
+            await runtime.stop()
+
+    async def test_recreates_missing_execution_only_for_message_events(
+        self, mock_link, mock_handler
+    ):
+        """Known-room recreation should happen for MessageEvent but not participant events."""
+        runtime = AgentRuntime(mock_link, "agent-123", mock_handler)
+
+        message_room = "room-message"
+        runtime.presence.rooms.add(message_room)
+        message_event = make_message_event(room_id=message_room, msg_id="msg-recreate")
+        await runtime._on_room_event(message_room, message_event)
+
+        assert message_room in runtime.executions
+        assert runtime.executions[message_room].queue.qsize() == 1
+
+        participant_room = "room-participant"
+        runtime.presence.rooms.add(participant_room)
+        participant_event = make_participant_added_event(
+            room_id=participant_room,
+            participant_id="user-1",
+        )
+        await runtime._on_room_event(participant_room, participant_event)
+
+        assert participant_room not in runtime.executions
+        await runtime.stop()
+
+    async def test_idle_monitor_supports_custom_execution_without_is_processing(
+        self, mock_link, mock_handler
+    ):
+        """Idle monitor should conservatively skip custom executions without busy-state signal."""
+
+        def execution_factory(room_id: str, _link):
+            return _ExecutionWithoutBusyState(room_id)
+
+        runtime = AgentRuntime(
+            mock_link,
+            "agent-123",
+            mock_handler,
+            execution_factory=execution_factory,
+            session_config=SessionConfig(idle_timeout_seconds=0.1),
+        )
+        runtime.presence.start = AsyncMock()
+        runtime.presence.stop = AsyncMock()
+
+        try:
+            await runtime.start()
+            await runtime._create_execution("room-custom")
+            runtime.presence.rooms.add("room-custom")
+
+            await asyncio.sleep(1.4)
+
+            assert getattr(runtime, "_idle_monitor_task", None) is not None
+            assert "room-custom" in runtime.executions
+        finally:
+            await runtime.stop()
 
 
 class TestAgentRuntimeCustomFactory:

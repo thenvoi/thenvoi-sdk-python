@@ -725,6 +725,11 @@ class TestSessionConfigDefaults:
         config = SessionConfig()
         assert config.max_message_retries == 1
 
+    def test_default_idle_timeout_seconds_is_none(self):
+        """Default idle timeout should be disabled."""
+        config = SessionConfig()
+        assert config.idle_timeout_seconds is None
+
 
 class TestInstantShutdown:
     """Tests for instant cancellation without timeout waiting."""
