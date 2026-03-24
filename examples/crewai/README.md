@@ -23,6 +23,7 @@ In this repo, the CrewAI adapter lets those agents use Thenvoi rooms and Thenvoi
 | `04_research_crew.py` | **Research crew** - Three agents collaborate in the same room. |
 | `05_tom_agent.py` | **Character agent** - Tom the cat with a custom character prompt. |
 | `06_jerry_agent.py` | **Character agent** - Jerry the mouse with a custom character prompt. |
+| `07_contact_and_memory_agent.py` | **Contacts + memory** - Shows CrewAI contact tools, memory tools, and broadcast contact updates. |
 
 ## What was validated during `INT-245`
 
@@ -127,6 +128,14 @@ tom_agent:
 jerry_agent:
   agent_id: "your-jerry-agent-id"
   api_key: "your-jerry-agent-api-key"
+```
+
+Contact and memory example:
+
+```yaml
+crewai_contact_memory_agent:
+  agent_id: "your-crewai-contact-memory-agent-id"
+  api_key: "your-crewai-contact-memory-agent-api-key"
 ```
 
 ## Important runtime note
@@ -252,6 +261,27 @@ Then:
 4. watch the responses reflect the two different character prompts
 
 These examples are useful if you want to see how CrewAI behaves when the prompt is personality-heavy rather than task-heavy.
+
+### `07_contact_and_memory_agent.py`
+
+Use this example if:
+
+- you want a CrewAI example that exercises contact tools
+- you want memory tools enabled in the adapter
+- you want contact changes to show up as room context
+
+Run:
+
+```bash
+uv run examples/crewai/07_contact_and_memory_agent.py
+```
+
+Suggested prompts:
+
+1. ask it to list contacts or check whether a handle is already connected
+2. ask it to send or review a contact request
+3. ask it to store a preference as memory
+4. ask it later to recall that preference
 
 ## CrewAI agent definition
 
