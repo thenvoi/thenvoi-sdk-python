@@ -79,6 +79,19 @@ class SessionConfig:
     max_context_messages: int = 100
     max_message_retries: int = 1  # Max attempts per message before permanently failing
     enable_context_hydration: bool = True  # Whether to fetch history from platform API
+    idle_timeout_seconds: float | None = None
+    """Message idle timeout in seconds.
+
+    Semantics:
+    - None or 0: disabled
+    - > 0: enabled
+    - < 0: invalid (raises ValueError)
+    """
+
+    def __post_init__(self) -> None:
+        """Validate runtime session settings."""
+        if self.idle_timeout_seconds is not None and self.idle_timeout_seconds < 0:
+            raise ValueError("idle_timeout_seconds must be >= 0")
 
 
 @dataclass

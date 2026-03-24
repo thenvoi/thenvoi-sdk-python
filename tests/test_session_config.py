@@ -38,6 +38,26 @@ class TestSessionConfigDefaults:
         config = SessionConfig(enable_context_hydration=False)
         assert config.enable_context_hydration is False
 
+    def test_default_idle_timeout_is_disabled(self):
+        """Default idle timeout should be disabled."""
+        config = SessionConfig()
+        assert config.idle_timeout_seconds is None
+
+    def test_zero_idle_timeout_is_allowed(self):
+        """Zero idle timeout should be allowed and treated as disabled."""
+        config = SessionConfig(idle_timeout_seconds=0)
+        assert config.idle_timeout_seconds == 0
+
+    def test_positive_idle_timeout_is_allowed(self):
+        """Positive idle timeout should be accepted."""
+        config = SessionConfig(idle_timeout_seconds=10.5)
+        assert config.idle_timeout_seconds == 10.5
+
+    def test_negative_idle_timeout_raises_value_error(self):
+        """Negative idle timeout should be rejected."""
+        with pytest.raises(ValueError, match="idle_timeout_seconds must be >= 0"):
+            SessionConfig(idle_timeout_seconds=-1)
+
 
 class TestGetHistoryForLLMHydrationDisabled:
     """Test get_history_for_llm() when hydration is disabled."""
