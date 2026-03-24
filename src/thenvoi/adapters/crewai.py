@@ -379,6 +379,16 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
                     e,
                 )
 
+    @staticmethod
+    def _serialize_success_result(result: dict[str, Any]) -> str:
+        """Serialize a successful tool result without losing domain status fields."""
+        payload = dict(result)
+        result_status = payload.pop("status", None)
+        response: dict[str, Any] = {"status": "success", **payload}
+        if result_status is not None:
+            response["result_status"] = result_status
+        return json.dumps(response)
+
     def _convert_custom_tools_to_crewai(self) -> list[BaseTool]:
         """Convert CustomToolDef tuples to CrewAI BaseTool instances.
 
@@ -677,7 +687,7 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
                     await adapter._report_tool_result(
                         tools, "thenvoi_add_participant", result
                     )
-                    return json.dumps({"status": "success", **result})
+                    return adapter._serialize_success_result(result)
 
                 return adapter._execute_tool("thenvoi_add_participant", execute)
 
@@ -699,7 +709,7 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
                     await adapter._report_tool_result(
                         tools, "thenvoi_remove_participant", result
                     )
-                    return json.dumps({"status": "success", **result})
+                    return adapter._serialize_success_result(result)
 
                 return adapter._execute_tool("thenvoi_remove_participant", execute)
 
@@ -746,7 +756,7 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
                     await adapter._report_tool_result(
                         tools, "thenvoi_lookup_peers", result
                     )
-                    return json.dumps({"status": "success", **result})
+                    return adapter._serialize_success_result(result)
 
                 return adapter._execute_tool("thenvoi_lookup_peers", execute)
 
@@ -795,7 +805,7 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
                     await adapter._report_tool_result(
                         tools, "thenvoi_list_contacts", result
                     )
-                    return json.dumps({"status": "success", **result})
+                    return adapter._serialize_success_result(result)
 
                 return adapter._execute_tool("thenvoi_list_contacts", execute)
 
@@ -818,7 +828,7 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
                     await adapter._report_tool_result(
                         tools, "thenvoi_add_contact", result
                     )
-                    return json.dumps({"status": "success", **result})
+                    return adapter._serialize_success_result(result)
 
                 return adapter._execute_tool("thenvoi_add_contact", execute)
 
@@ -841,7 +851,7 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
                     await adapter._report_tool_result(
                         tools, "thenvoi_remove_contact", result
                     )
-                    return json.dumps({"status": "success", **result})
+                    return adapter._serialize_success_result(result)
 
                 return adapter._execute_tool("thenvoi_remove_contact", execute)
 
@@ -871,7 +881,7 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
                     await adapter._report_tool_result(
                         tools, "thenvoi_list_contact_requests", result
                     )
-                    return json.dumps({"status": "success", **result})
+                    return adapter._serialize_success_result(result)
 
                 return adapter._execute_tool("thenvoi_list_contact_requests", execute)
 
@@ -897,7 +907,7 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
                     await adapter._report_tool_result(
                         tools, "thenvoi_respond_contact_request", result
                     )
-                    return json.dumps({"status": "success", **result})
+                    return adapter._serialize_success_result(result)
 
                 return adapter._execute_tool("thenvoi_respond_contact_request", execute)
 
@@ -945,7 +955,7 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
                     await adapter._report_tool_result(
                         tools, "thenvoi_list_memories", result
                     )
-                    return json.dumps({"status": "success", **result})
+                    return adapter._serialize_success_result(result)
 
                 return adapter._execute_tool("thenvoi_list_memories", execute)
 
@@ -989,7 +999,7 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
                     await adapter._report_tool_result(
                         tools, "thenvoi_store_memory", result
                     )
-                    return json.dumps({"status": "success", **result})
+                    return adapter._serialize_success_result(result)
 
                 return adapter._execute_tool("thenvoi_store_memory", execute)
 
@@ -1009,7 +1019,7 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
                     await adapter._report_tool_result(
                         tools, "thenvoi_get_memory", result
                     )
-                    return json.dumps({"status": "success", **result})
+                    return adapter._serialize_success_result(result)
 
                 return adapter._execute_tool("thenvoi_get_memory", execute)
 
@@ -1029,7 +1039,7 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
                     await adapter._report_tool_result(
                         tools, "thenvoi_supersede_memory", result
                     )
-                    return json.dumps({"status": "success", **result})
+                    return adapter._serialize_success_result(result)
 
                 return adapter._execute_tool("thenvoi_supersede_memory", execute)
 
@@ -1049,7 +1059,7 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
                     await adapter._report_tool_result(
                         tools, "thenvoi_archive_memory", result
                     )
-                    return json.dumps({"status": "success", **result})
+                    return adapter._serialize_success_result(result)
 
                 return adapter._execute_tool("thenvoi_archive_memory", execute)
 
