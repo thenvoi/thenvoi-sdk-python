@@ -48,7 +48,6 @@ from dotenv import load_dotenv
 
 from setup_logging import setup_logging
 
-setup_logging()
 logger = logging.getLogger(__name__)
 
 
@@ -107,6 +106,7 @@ class FactCheckerExecutor(AgentExecutor):
 
 def main() -> None:
     """Run the fact checker A2A server."""
+    setup_logging()
     load_dotenv()
 
     host = os.getenv("MIXED_FACT_HOST", "127.0.0.1")

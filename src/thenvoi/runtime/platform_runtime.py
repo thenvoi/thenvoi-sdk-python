@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import Any, Awaitable, Callable
+from typing import Awaitable, Callable
 
 from thenvoi.client.rest import DEFAULT_REQUEST_OPTIONS
 from thenvoi.platform.link import ThenvoiLink
@@ -201,7 +201,7 @@ class PlatformRuntime:
         if not self._link:
             raise RuntimeError("Link not initialized")
 
-        response: Any = None
+        attempts = len(self._METADATA_RETRY_DELAYS_SECONDS) + 1
         for attempt, delay in enumerate(
             (0.0, *self._METADATA_RETRY_DELAYS_SECONDS), start=1
         ):
@@ -212,7 +212,7 @@ class PlatformRuntime:
                     self._agent_id,
                     delay,
                     attempt,
-                    len(self._METADATA_RETRY_DELAYS_SECONDS) + 1,
+                    attempts,
                 )
                 await asyncio.sleep(delay)
 
@@ -222,10 +222,10 @@ class PlatformRuntime:
                 )
                 break
             except ApiError as exc:
-                if exc.status_code != 429 or attempt == (
-                    len(self._METADATA_RETRY_DELAYS_SECONDS) + 1
-                ):
+                if exc.status_code != 429 or attempt == attempts:
                     raise
+        else:
+            raise RuntimeError("Metadata fetch retry loop exited unexpectedly")
 
         if not response.data:
             raise RuntimeError("Failed to fetch agent metadata")

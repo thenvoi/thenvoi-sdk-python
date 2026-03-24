@@ -36,6 +36,9 @@ from thenvoi.core.types import PlatformMessage
 from thenvoi.integrations.a2a.gateway.server import GatewayServer
 from thenvoi.integrations.a2a.gateway.types import GatewaySessionState, PendingA2ATask
 from thenvoi_rest import Peer
+from thenvoi_rest.agent_api_peers.types.list_agent_peers_response import (
+    ListAgentPeersResponse,
+)
 from thenvoi_rest.core.api_error import ApiError
 
 logger = logging.getLogger(__name__)
@@ -178,7 +181,9 @@ class A2AGatewayAdapter(SimpleAdapter[GatewaySessionState]):
                 return all_peers
             page += 1
 
-    async def _list_peers_page_with_retry(self, *, page: int, page_size: int):
+    async def _list_peers_page_with_retry(
+        self, *, page: int, page_size: int
+    ) -> ListAgentPeersResponse:
         """Fetch one peer page with explicit backoff for live 429s."""
         attempts = len(self._peer_discovery_retry_delays_seconds) + 1
         for attempt, delay in enumerate(

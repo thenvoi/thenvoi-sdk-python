@@ -48,7 +48,6 @@ from dotenv import load_dotenv
 
 from setup_logging import setup_logging
 
-setup_logging()
 logger = logging.getLogger(__name__)
 
 
@@ -108,6 +107,7 @@ class RiskReviewerExecutor(AgentExecutor):
 
 def main() -> None:
     """Run the risk reviewer A2A server."""
+    setup_logging()
     load_dotenv()
 
     host = os.getenv("MIXED_RISK_HOST", "127.0.0.1")

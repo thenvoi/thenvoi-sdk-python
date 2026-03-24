@@ -30,12 +30,12 @@ from thenvoi import Agent
 from thenvoi.adapters import CrewAIAdapter
 from thenvoi.config import load_agent_config
 
-setup_logging()
 logger = logging.getLogger(__name__)
 CONFIG_PATH = Path(__file__).with_name("agents.yaml")
 
 
 async def main() -> None:
+    setup_logging()
     load_dotenv()
 
     ws_url = os.getenv(
