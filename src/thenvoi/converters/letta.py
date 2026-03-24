@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 
+from thenvoi.converters._utils import optional_str, parse_iso_datetime
 from thenvoi.core.protocols import HistoryConverter
 
 logger = logging.getLogger(__name__)
@@ -53,29 +54,12 @@ class LettaHistoryConverter(HistoryConverter["LettaSessionState"]):
             if not agent_id:
                 continue
 
-            created_at = self._parse_iso_datetime(metadata.get("letta_created_at"))
+            created_at = parse_iso_datetime(metadata.get("letta_created_at"))
             return LettaSessionState(
                 agent_id=str(agent_id),
-                conversation_id=self._optional_str(
-                    metadata.get("letta_conversation_id")
-                ),
-                room_id=self._optional_str(metadata.get("letta_room_id")),
+                conversation_id=optional_str(metadata.get("letta_conversation_id")),
+                room_id=optional_str(metadata.get("letta_room_id")),
                 created_at=created_at,
             )
 
         return LettaSessionState()
-
-    @staticmethod
-    def _parse_iso_datetime(value: Any) -> datetime | None:
-        if not isinstance(value, str) or not value:
-            return None
-        try:
-            return datetime.fromisoformat(value.replace("Z", "+00:00"))
-        except ValueError:
-            return None
-
-    @staticmethod
-    def _optional_str(value: Any) -> str | None:
-        if value is None:
-            return None
-        return str(value)

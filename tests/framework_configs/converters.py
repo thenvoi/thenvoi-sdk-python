@@ -247,18 +247,23 @@ def _build_gemini_config() -> ConverterConfig:
 
 
 # Converter modules intentionally excluded from conformance tests.
-# _tool_parsing is an internal utility (shared parsing helpers, not a converter).
+# _tool_parsing and _utils are internal utility modules (shared helpers, not converters).
 # a2a / a2a_gateway use the A2A protocol which has a different message schema.
-# codex returns CodexSessionState (session metadata), not LLM message history.
+# acp_client / acp_server use ACP protocol session updates, not standard convert().
+# codex, letta, and opencode are metadata-only converters that extract session state
+# from task event metadata rather than converting message history. They don't implement
+# the standard convert() -> framework-format contract that conformance tests validate.
 CONVERTER_EXCLUDED_MODULES: frozenset[str] = frozenset(
     {
         "_tool_parsing",
+        "_utils",
         "a2a",
         "a2a_gateway",
         "acp_client",
         "acp_server",
         "codex",
         "letta",
+        "opencode",
     }
 )
 
