@@ -57,7 +57,7 @@ async def main() -> None:
     agent_id, api_key = load_agent_config("crewai_contact_memory_agent")
 
     adapter = CrewAIAdapter(
-        model="gpt-4o",
+        model="gpt-4o-mini",
         role="Contact-aware relationship manager",
         goal=(
             "Help users manage contacts, keep track of relationship context, "

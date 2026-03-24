@@ -289,7 +289,7 @@ A typical adapter configuration looks like this:
 
 ```python
 adapter = CrewAIAdapter(
-    model="gpt-4o",
+    model="gpt-4o-mini",
     role="Research Assistant",
     goal="Help users find and analyze information",
     backstory="Expert researcher with deep domain knowledge",

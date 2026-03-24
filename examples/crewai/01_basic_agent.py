@@ -53,7 +53,7 @@ async def main() -> None:
 
     # Create adapter with framework-specific settings
     adapter = CrewAIAdapter(
-        model="gpt-4o",
+        model="gpt-4o-mini",
         custom_section="You are a helpful assistant. Be concise and friendly.",
     )
 
