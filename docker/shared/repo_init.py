@@ -35,19 +35,27 @@ _SSH_STRICT_ENV = "GIT_SSH_STRICT_HOST_KEY_CHECKING"
 
 
 class RepoConfig(BaseModel):
-    """Repository initialization configuration."""
+    """Repository initialization configuration.
 
-    url: str
+    When ``url`` is provided, the repository is cloned (if missing) and
+    remote validation is performed.  When ``url`` is omitted (local-only
+    mode), ``path`` must point to an existing directory — no clone is
+    attempted and auth preflight is skipped.
+    """
+
+    url: str | None = None
     path: str
     branch: str | None = None
     index: bool = False
 
     @field_validator("url")
     @classmethod
-    def _validate_url(cls, value: str) -> str:
+    def _validate_url(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
         val = value.strip()
         if not val:
-            raise ValueError("repo.url must not be empty")
+            return None
         if not (is_ssh_url(val) or is_https_url(val)):
             raise ValueError(
                 "repo.url must be SSH (git@... or ssh://...) or HTTPS (https://...)"
@@ -76,7 +84,7 @@ class RepoConfig(BaseModel):
 class RepoInitMetadata(BaseModel):
     """Persisted repo initialization metadata."""
 
-    repo_url: str
+    repo_url: str = ""
     repo_path: str
     branch: str | None = None
     head_commit: str
@@ -130,7 +138,12 @@ def initialize_repo(
     context_dir: Path = DEFAULT_CONTEXT_DIR,
     lock_timeout_s: float = DEFAULT_LOCK_TIMEOUT_S,
 ) -> RepoInitResult:
-    """Initialize repository and optional context docs from config."""
+    """Initialize repository and optional context docs from config.
+
+    When ``repo.url`` is set, the repository is cloned (if missing) with auth
+    checks.  When ``repo.url`` is omitted (local-only mode), the path is
+    validated to exist and no clone is performed.
+    """
     repo = parse_repo_config(config)
     if repo is None:
         return RepoInitResult(enabled=False)
@@ -145,15 +158,24 @@ def initialize_repo(
     logger.info(
         "Repo init enabled for %s: url=%s path=%s branch=%s index=%s",
         agent_key,
-        repo.url,
+        repo.url or "(local)",
         repo.path,
         repo.branch or "default",
         repo.index,
     )
 
     with _locked_file(lock_path, timeout_s=lock_timeout_s):
-        _preflight_repo_auth(repo.url)
-        cloned = _ensure_repo(repo, repo_path)
+        if repo.url:
+            # Remote mode: preflight auth, clone if needed
+            _preflight_repo_auth(repo.url)
+            cloned = _ensure_repo(repo, repo_path)
+        else:
+            # Local-only mode: validate path exists, no clone
+            cloned = False
+            _ensure_local_path(repo_path)
+            if repo.branch:
+                _ensure_branch(repo, repo_path)
+
         head_commit = _git(repo_path, "rev-parse", "HEAD").strip()
 
         metadata = _read_metadata(meta_path)
@@ -166,7 +188,7 @@ def initialize_repo(
         _write_metadata(
             meta_path,
             RepoInitMetadata(
-                repo_url=repo.url,
+                repo_url=repo.url or "",
                 repo_path=repo.path,
                 branch=repo.branch,
                 head_commit=head_commit,
@@ -210,6 +232,17 @@ def load_context_bundle(context_dir: Path = DEFAULT_CONTEXT_DIR) -> str:
         "The following context files were generated from the working repository:\n\n"
         f"{rendered_sections}"
     )
+
+
+def _ensure_local_path(repo_path: Path) -> None:
+    """Validate that a local-only repo path exists as a directory."""
+    if not repo_path.exists():
+        raise ValueError(
+            f"repo.path does not exist: {repo_path}. "
+            "For local-only mode (no repo.url), the directory must already exist."
+        )
+    if not repo_path.is_dir():
+        raise ValueError(f"repo.path exists but is not a directory: {repo_path}")
 
 
 def _ensure_repo(repo: RepoConfig, repo_path: Path) -> bool:
@@ -258,6 +291,8 @@ def _ensure_branch(repo: RepoConfig, repo_path: Path) -> None:
 
 
 def _validate_existing_remote(repo: RepoConfig, repo_path: Path) -> None:
+    if not repo.url:
+        return
     try:
         existing = _git(repo_path, "remote", "get-url", "origin").strip()
     except ValueError:
@@ -378,7 +413,7 @@ def _should_reindex(
     if metadata is None:
         return True
 
-    if metadata.repo_url != repo.url:
+    if metadata.repo_url != (repo.url or ""):
         return True
     if metadata.repo_path != repo.path:
         return True
