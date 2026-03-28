@@ -170,6 +170,9 @@ class CodexAdapterConfig:
     # Update when OpenAI rotates model IDs.
     fallback_models: tuple[str, ...] = ("gpt-5.2", "gpt-5.3-codex")
     max_pending_approvals_per_room: int = 50
+    include_tools: list[str] | None = None
+    exclude_tools: list[str] | None = None
+    include_categories: list[str] | None = None
 
 
 class CodexAdapter(SimpleAdapter[CodexSessionState]):
@@ -699,7 +702,11 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
         dynamic_tools: list[dict[str, Any]] = []
         seen: set[str] = set()
 
-        for schema in tools.get_openai_tool_schemas():
+        for schema in tools.get_openai_tool_schemas(
+            include_tools=self.config.include_tools,
+            exclude_tools=self.config.exclude_tools,
+            include_categories=self.config.include_categories,
+        ):
             if not isinstance(schema, dict):
                 continue
 

@@ -59,6 +59,9 @@ class GeminiAdapter(SimpleAdapter[GeminiMessages]):
         max_history_messages: int = 200,
         history_converter: GeminiHistoryConverter | None = None,
         additional_tools: list[CustomToolDef] | None = None,
+        include_tools: list[str] | None = None,
+        exclude_tools: list[str] | None = None,
+        include_categories: list[str] | None = None,
     ) -> None:
         super().__init__(
             history_converter=history_converter or GeminiHistoryConverter()
@@ -72,6 +75,9 @@ class GeminiAdapter(SimpleAdapter[GeminiMessages]):
         self.enable_execution_reporting = enable_execution_reporting
         self.enable_memory_tools = enable_memory_tools
         self.max_tool_rounds = max_tool_rounds
+        self.include_tools = include_tools
+        self.exclude_tools = exclude_tools
+        self.include_categories = include_categories
         self.max_retries = max_retries
         self.retry_base_delay_s = retry_base_delay_s
         self.max_history_messages = max_history_messages
@@ -308,7 +314,10 @@ class GeminiAdapter(SimpleAdapter[GeminiMessages]):
         declarations: list[types.FunctionDeclaration] = []
 
         openai_schemas = tools.get_openai_tool_schemas(
-            include_memory=self.enable_memory_tools
+            include_memory=self.enable_memory_tools,
+            include_tools=self.include_tools,
+            exclude_tools=self.exclude_tools,
+            include_categories=self.include_categories,
         )
         for schema in openai_schemas:
             function = schema.get("function", {})

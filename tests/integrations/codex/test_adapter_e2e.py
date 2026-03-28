@@ -51,7 +51,7 @@ def _agent_input(
 
 
 class _ToolSchemaFakeTools(FakeAgentTools):
-    def get_openai_tool_schemas(self) -> list[dict[str, Any]]:
+    def get_openai_tool_schemas(self, **kwargs: Any) -> list[dict[str, Any]]:
         return [
             {
                 "type": "function",

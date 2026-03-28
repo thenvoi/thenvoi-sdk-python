@@ -70,6 +70,9 @@ class LangGraphAdapter(SimpleAdapter[LangChainMessages]):
         enable_memory_tools: bool = False,
         history_converter: LangChainHistoryConverter | None = None,
         recursion_limit: int = 50,
+        include_tools: list[str] | None = None,
+        exclude_tools: list[str] | None = None,
+        include_categories: list[str] | None = None,
     ):
         # Use default LangChain converter if not provided
         super().__init__(
@@ -107,6 +110,9 @@ class LangGraphAdapter(SimpleAdapter[LangChainMessages]):
         self.additional_tools = additional_tools or []
         self.enable_memory_tools = enable_memory_tools
         self.recursion_limit = recursion_limit
+        self.include_tools = include_tools
+        self.exclude_tools = exclude_tools
+        self.include_categories = include_categories
         self._system_prompt: str = ""
         # Track rooms that have already been bootstrapped to avoid injecting
         # duplicate system prompts when the checkpointer retains state across
@@ -145,7 +151,11 @@ class LangGraphAdapter(SimpleAdapter[LangChainMessages]):
         # Get LangChain tools
         langchain_tools = (
             agent_tools_to_langchain(
-                tools, include_memory_tools=self.enable_memory_tools
+                tools,
+                include_memory_tools=self.enable_memory_tools,
+                include_tools=self.include_tools,
+                exclude_tools=self.exclude_tools,
+                include_categories=self.include_categories,
             )
             + self.additional_tools
         )
