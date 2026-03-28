@@ -31,6 +31,7 @@ from thenvoi.runtime.custom_tools import (
     find_custom_tool,
 )
 from thenvoi.runtime.prompts import render_system_prompt
+from thenvoi.runtime.tools import MEMORY_TOOL_NAMES
 
 logger = logging.getLogger(__name__)
 
@@ -173,6 +174,31 @@ class CodexAdapterConfig:
     include_tools: list[str] | None = None
     exclude_tools: list[str] | None = None
     include_categories: list[str] | None = None
+
+    def __post_init__(self) -> None:
+        """Reject tool filters that request unsupported memory tools."""
+        requested_memory_tools = sorted(
+            set(self.include_tools or []).intersection(MEMORY_TOOL_NAMES)
+        )
+        requested_memory_category = "memory" in (self.include_categories or [])
+        if not requested_memory_tools and not requested_memory_category:
+            return
+
+        requested_filters: list[str] = []
+        if requested_memory_category:
+            requested_filters.append("include_categories contains 'memory'")
+        if requested_memory_tools:
+            requested_filters.append(
+                "include_tools includes "
+                + ", ".join(f"'{name}'" for name in requested_memory_tools)
+            )
+
+        raise ValueError(
+            "CodexAdapter does not support memory tools, so it cannot honor "
+            + " or ".join(requested_filters)
+            + ". Remove the memory filter or use an adapter that enables "
+            + "memory tools."
+        )
 
 
 class CodexAdapter(SimpleAdapter[CodexSessionState]):
@@ -703,6 +729,7 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
         seen: set[str] = set()
 
         for schema in tools.get_openai_tool_schemas(
+            include_memory=False,
             include_tools=self.config.include_tools,
             exclude_tools=self.config.exclude_tools,
             include_categories=self.config.include_categories,

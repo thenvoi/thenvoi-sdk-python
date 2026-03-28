@@ -24,6 +24,19 @@ logger = logging.getLogger(__name__)
 _BOOTSTRAP_TRACKING_WARN_THRESHOLD = 1000
 
 
+def _uses_tool_filters(
+    *,
+    include_tools: list[str] | None,
+    exclude_tools: list[str] | None,
+    include_categories: list[str] | None,
+) -> bool:
+    """Return True when any tool filter is configured."""
+    return any(
+        value is not None
+        for value in (include_tools, exclude_tools, include_categories)
+    )
+
+
 class LangGraphAdapter(SimpleAdapter[LangChainMessages]):
     """
     LangGraph adapter using SimpleAdapter pattern.
@@ -101,6 +114,22 @@ class LangGraphAdapter(SimpleAdapter[LangChainMessages]):
         if not graph_factory and not graph:
             raise ValueError(
                 "Must provide either llm (simple pattern) or graph_factory/graph (advanced pattern)"
+            )
+
+        if (
+            graph is not None
+            and graph_factory is None
+            and _uses_tool_filters(
+                include_tools=include_tools,
+                exclude_tools=exclude_tools,
+                include_categories=include_categories,
+            )
+        ):
+            raise ValueError(
+                "LangGraphAdapter(graph=...) cannot use include_tools, "
+                "exclude_tools, or include_categories because static graphs "
+                "ignore Thenvoi tool filtering. Pass graph_factory=... to "
+                "apply filters."
             )
 
         self.graph_factory = graph_factory

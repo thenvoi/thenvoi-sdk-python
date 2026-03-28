@@ -209,6 +209,25 @@ class TestCodexAdapter:
         assert config.emit_thought_events is False
         assert config.approval_mode == "manual"
 
+    @pytest.mark.parametrize(
+        ("config_kwargs", "match"),
+        [
+            (
+                {"include_categories": ["memory"]},
+                "include_categories contains 'memory'",
+            ),
+            (
+                {"include_tools": ["thenvoi_store_memory"]},
+                "include_tools includes 'thenvoi_store_memory'",
+            ),
+        ],
+    )
+    def test_config_rejects_unsupported_memory_filters(
+        self, config_kwargs: dict[str, Any], match: str
+    ) -> None:
+        with pytest.raises(ValueError, match=match):
+            CodexAdapterConfig(**config_kwargs)
+
     @pytest.mark.asyncio
     async def test_bootstrap_starts_thread_and_sends_fallback_message(self) -> None:
         events = [
