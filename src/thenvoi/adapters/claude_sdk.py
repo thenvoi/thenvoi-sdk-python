@@ -182,6 +182,9 @@ class ClaudeSDKAdapter(SimpleAdapter[ClaudeSDKSessionState]):
         approval_timeout_decision: ApprovalDecision = "decline",
         max_pending_approvals_per_room: int = 50,
         approval_authorized_senders: set[str] | None = None,
+        include_tools: list[str] | None = None,
+        exclude_tools: list[str] | None = None,
+        include_categories: list[str] | None = None,
     ):
         """
         Initialize the Claude SDK adapter.
@@ -228,6 +231,9 @@ class ClaudeSDKAdapter(SimpleAdapter[ClaudeSDKSessionState]):
         self.permission_mode: ClaudeSDKAdapter.PermissionMode = permission_mode
         self.enable_execution_reporting = enable_execution_reporting
         self.enable_memory_tools = enable_memory_tools
+        self.include_tools = include_tools
+        self.exclude_tools = exclude_tools
+        self.include_categories = include_categories
         if cwd and not Path(cwd).is_dir():
             raise ValueError(f"cwd does not exist or is not a directory: {cwd}")
         self.cwd = cwd
@@ -329,7 +335,12 @@ class ClaudeSDKAdapter(SimpleAdapter[ClaudeSDKSessionState]):
     async def _create_mcp_backend(self) -> ThenvoiMCPBackend:
         """Create shared MCP backend that uses stored room tools."""
         tool_definitions = list(
-            iter_tool_definitions(include_memory=self.enable_memory_tools)
+            iter_tool_definitions(
+                include_memory=self.enable_memory_tools,
+                include_tools=self.include_tools,
+                exclude_tools=self.exclude_tools,
+                include_categories=self.include_categories,
+            )
         )
         backend = await create_thenvoi_mcp_backend(
             kind="sdk",

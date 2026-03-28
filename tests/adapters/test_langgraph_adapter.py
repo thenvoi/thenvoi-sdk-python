@@ -128,6 +128,30 @@ class TestInitialization:
 
         assert adapter._static_graph is mock_graph
 
+    @pytest.mark.parametrize(
+        ("kwargs", "match"),
+        [
+            (
+                {"include_tools": ["thenvoi_send_message"]},
+                "cannot use include_tools, exclude_tools, or include_categories",
+            ),
+            (
+                {"exclude_tools": ["thenvoi_send_message"]},
+                "cannot use include_tools, exclude_tools, or include_categories",
+            ),
+            (
+                {"include_categories": ["chat"]},
+                "cannot use include_tools, exclude_tools, or include_categories",
+            ),
+        ],
+    )
+    def test_static_graph_rejects_tool_filters(
+        self, kwargs: dict[str, Any], match: str
+    ):
+        """Should fail fast when tool filters are passed with a static graph."""
+        with pytest.raises(ValueError, match=match):
+            LangGraphAdapter(graph=MagicMock(), **kwargs)
+
     def test_raises_without_llm_or_graph(self):
         """Should raise if neither llm nor graph_factory/graph provided."""
         with pytest.raises(ValueError, match="Must provide either llm"):

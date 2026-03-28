@@ -38,7 +38,7 @@ def make_platform_message(
 
 
 class ToolSchemaFakeTools(FakeAgentTools):
-    def get_openai_tool_schemas(self) -> list[dict[str, Any]]:
+    def get_openai_tool_schemas(self, **kwargs: Any) -> list[dict[str, Any]]:
         return [
             {
                 "type": "function",
@@ -74,6 +74,75 @@ class ToolSchemaFakeTools(FakeAgentTools):
                 },
             },
         ]
+
+
+class MemoryAwareToolSchemaFakeTools(FakeAgentTools):
+    def __init__(self) -> None:
+        super().__init__()
+        self.calls: list[dict[str, Any]] = []
+
+    def get_openai_tool_schemas(self, **kwargs: Any) -> list[dict[str, Any]]:
+        self.calls.append(dict(kwargs))
+
+        schemas = [
+            {
+                "type": "function",
+                "function": {
+                    "name": "thenvoi_send_message",
+                    "description": "Send a message",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "content": {"type": "string"},
+                            "mentions": {
+                                "type": "array",
+                                "items": {"type": "string"},
+                            },
+                        },
+                        "required": ["content", "mentions"],
+                    },
+                },
+            }
+        ]
+
+        if kwargs.get("include_memory"):
+            schemas.append(
+                {
+                    "type": "function",
+                    "function": {
+                        "name": "thenvoi_store_memory",
+                        "description": "Store a memory",
+                        "parameters": {
+                            "type": "object",
+                            "properties": {
+                                "content": {"type": "string"},
+                                "system": {"type": "string"},
+                                "type": {"type": "string"},
+                                "segment": {"type": "string"},
+                                "thought": {"type": "string"},
+                            },
+                            "required": [
+                                "content",
+                                "system",
+                                "type",
+                                "segment",
+                                "thought",
+                            ],
+                        },
+                    },
+                }
+            )
+
+        include_categories = kwargs.get("include_categories")
+        if include_categories == ["memory"]:
+            return [
+                schema
+                for schema in schemas
+                if schema["function"]["name"].startswith("thenvoi_")
+                and "memory" in schema["function"]["name"]
+            ]
+
+        return schemas
 
 
 class FakeCodexClient:
@@ -209,6 +278,20 @@ class TestCodexAdapter:
         assert config.emit_thought_events is False
         assert config.approval_mode == "manual"
 
+    def test_config_defaults_memory_tools_to_disabled(self) -> None:
+        config = CodexAdapterConfig()
+        assert config.enable_memory_tools is False
+
+    def test_config_accepts_memory_filters_when_enabled(self) -> None:
+        config = CodexAdapterConfig(
+            enable_memory_tools=True,
+            include_categories=["memory"],
+            include_tools=["thenvoi_store_memory"],
+        )
+        assert config.enable_memory_tools is True
+        assert config.include_categories == ["memory"]
+        assert config.include_tools == ["thenvoi_store_memory"]
+
     @pytest.mark.asyncio
     async def test_bootstrap_starts_thread_and_sends_fallback_message(self) -> None:
         events = [
@@ -259,6 +342,58 @@ class TestCodexAdapter:
 
         assert len(tools.messages_sent) == 1
         assert tools.messages_sent[0]["content"] == "harness-ok"
+
+    @pytest.mark.asyncio
+    async def test_bootstrap_includes_memory_tools_when_enabled(self) -> None:
+        events = [
+            _event_notification(
+                "item/agentMessage/delta",
+                {"itemId": "msg-1", "delta": "stored"},
+            ),
+            _event_notification(
+                "turn/completed",
+                {
+                    "turn": {
+                        "id": "turn-1",
+                        "status": "completed",
+                        "items": [],
+                        "error": None,
+                    }
+                },
+            ),
+        ]
+        fake_client = FakeCodexClient(events=events)
+        adapter = CodexAdapter(
+            config=CodexAdapterConfig(
+                transport="ws",
+                enable_memory_tools=True,
+                include_categories=["memory"],
+            ),
+            client_factory=lambda _config: fake_client,
+        )
+        tools = MemoryAwareToolSchemaFakeTools()
+
+        await adapter.on_started("Codex Agent", "A coding agent")
+        await adapter.on_message(
+            make_platform_message(),
+            tools,
+            CodexSessionState(),
+            participants_msg=None,
+            contacts_msg=None,
+            is_session_bootstrap=True,
+            room_id="room-1",
+        )
+
+        thread_start = next(
+            params
+            for method, params in fake_client.requests
+            if method == "thread/start"
+        )
+        dynamic_names = [tool["name"] for tool in thread_start["dynamicTools"]]
+
+        assert tools.calls[-1]["include_memory"] is True
+        assert tools.calls[-1]["include_categories"] == ["memory"]
+        assert dynamic_names == ["thenvoi_store_memory"]
         assert tools.messages_sent[0]["mentions"][0]["id"] == "user-1"
 
     @pytest.mark.asyncio

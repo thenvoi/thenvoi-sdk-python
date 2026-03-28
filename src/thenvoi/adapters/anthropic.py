@@ -55,6 +55,9 @@ class AnthropicAdapter(SimpleAdapter[AnthropicMessages]):
         enable_memory_tools: bool = False,
         history_converter: AnthropicHistoryConverter | None = None,
         additional_tools: list[CustomToolDef] | None = None,
+        include_tools: list[str] | None = None,
+        exclude_tools: list[str] | None = None,
+        include_categories: list[str] | None = None,
     ):
         super().__init__(
             history_converter=history_converter or AnthropicHistoryConverter()
@@ -66,6 +69,9 @@ class AnthropicAdapter(SimpleAdapter[AnthropicMessages]):
         self.max_tokens = max_tokens
         self.enable_execution_reporting = enable_execution_reporting
         self.enable_memory_tools = enable_memory_tools
+        self.include_tools = include_tools
+        self.exclude_tools = exclude_tools
+        self.include_categories = include_categories
 
         # Anthropic client (uses ANTHROPIC_API_KEY env var if not provided)
         self.client = AsyncAnthropic(api_key=anthropic_api_key)
@@ -169,7 +175,10 @@ class AnthropicAdapter(SimpleAdapter[AnthropicMessages]):
 
         # Get tool schemas in Anthropic format (typed helper)
         tool_schemas = tools.get_anthropic_tool_schemas(
-            include_memory=self.enable_memory_tools
+            include_memory=self.enable_memory_tools,
+            include_tools=self.include_tools,
+            exclude_tools=self.exclude_tools,
+            include_categories=self.include_categories,
         )
         # Merge custom tool schemas
         if self._custom_tools:

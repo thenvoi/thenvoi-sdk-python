@@ -8,6 +8,11 @@ import pytest
 
 from thenvoi.runtime.tools import (
     TOOL_MODELS,
+    TOOL_CATEGORIES,
+    ALL_TOOL_NAMES,
+    CHAT_TOOL_NAMES,
+    CONTACT_TOOL_NAMES,
+    MEMORY_TOOL_NAMES,
     AgentTools,
     SendMessageInput,
     SendEventInput,
@@ -15,6 +20,8 @@ from thenvoi.runtime.tools import (
     LookupPeersInput,
     GetParticipantsInput,
     CreateChatroomInput,
+    iter_tool_definitions,
+    _validate_tool_filter,
 )
 
 
@@ -722,3 +729,133 @@ class TestToolInputModels:
         """CreateChatroomInput should work without task_id."""
         model = CreateChatroomInput()
         assert model.task_id is None
+
+
+class TestToolFiltering:
+    """Tests for tool filtering (include_tools, exclude_tools, include_categories)."""
+
+    def test_include_tools_allowlist(self, mock_rest_client):
+        """include_tools should return only the specified tools."""
+        tools = AgentTools("room-123", mock_rest_client)
+        schemas = tools.get_tool_schemas(
+            "openai",
+            include_tools=["thenvoi_send_message", "thenvoi_lookup_peers"],
+        )
+        names = [s["function"]["name"] for s in schemas]
+        assert sorted(names) == ["thenvoi_lookup_peers", "thenvoi_send_message"]
+
+    def test_exclude_tools_denylist(self, mock_rest_client):
+        """exclude_tools should remove the specified tools."""
+        tools = AgentTools("room-123", mock_rest_client)
+        schemas = tools.get_tool_schemas(
+            "openai",
+            exclude_tools=["thenvoi_add_participant", "thenvoi_create_chatroom"],
+        )
+        names = [s["function"]["name"] for s in schemas]
+        assert "thenvoi_add_participant" not in names
+        assert "thenvoi_create_chatroom" not in names
+        assert "thenvoi_send_message" in names
+
+    def test_include_categories_chat(self, mock_rest_client):
+        """include_categories=['chat'] should return only chat tools."""
+        tools = AgentTools("room-123", mock_rest_client)
+        schemas = tools.get_tool_schemas("openai", include_categories=["chat"])
+        names = {s["function"]["name"] for s in schemas}
+        assert names == CHAT_TOOL_NAMES
+
+    def test_include_categories_contact(self, mock_rest_client):
+        """include_categories=['contact'] should return only contact tools."""
+        tools = AgentTools("room-123", mock_rest_client)
+        schemas = tools.get_tool_schemas("openai", include_categories=["contact"])
+        names = {s["function"]["name"] for s in schemas}
+        assert names == CONTACT_TOOL_NAMES
+
+    def test_include_categories_memory_requires_include_memory(self, mock_rest_client):
+        """include_categories=['memory'] without include_memory returns empty."""
+        tools = AgentTools("room-123", mock_rest_client)
+        schemas = tools.get_tool_schemas(
+            "openai", include_categories=["memory"], include_memory=False
+        )
+        assert len(schemas) == 0
+
+    def test_include_categories_memory_with_include_memory(self, mock_rest_client):
+        """include_categories=['memory'] with include_memory returns memory tools."""
+        tools = AgentTools("room-123", mock_rest_client)
+        schemas = tools.get_tool_schemas(
+            "openai", include_categories=["memory"], include_memory=True
+        )
+        names = {s["function"]["name"] for s in schemas}
+        assert names == MEMORY_TOOL_NAMES
+
+    def test_include_categories_multiple(self, mock_rest_client):
+        """include_categories=['chat', 'contact'] returns union of both."""
+        tools = AgentTools("room-123", mock_rest_client)
+        schemas = tools.get_tool_schemas(
+            "openai", include_categories=["chat", "contact"]
+        )
+        names = {s["function"]["name"] for s in schemas}
+        assert names == CHAT_TOOL_NAMES | CONTACT_TOOL_NAMES
+
+    def test_exclude_with_categories(self, mock_rest_client):
+        """Filters compose: categories then exclude."""
+        tools = AgentTools("room-123", mock_rest_client)
+        schemas = tools.get_tool_schemas(
+            "openai",
+            include_categories=["chat"],
+            exclude_tools=["thenvoi_send_event"],
+        )
+        names = {s["function"]["name"] for s in schemas}
+        assert "thenvoi_send_event" not in names
+        assert names == CHAT_TOOL_NAMES - {"thenvoi_send_event"}
+
+    def test_unknown_tool_name_raises(self, mock_rest_client):
+        """Unknown tool name in include_tools should raise ValueError."""
+        tools = AgentTools("room-123", mock_rest_client)
+        with pytest.raises(ValueError, match="Unknown tool names in include_tools"):
+            tools.get_tool_schemas("openai", include_tools=["fake_tool"])
+
+    def test_unknown_tool_in_exclude_raises(self, mock_rest_client):
+        """Unknown tool name in exclude_tools should raise ValueError."""
+        tools = AgentTools("room-123", mock_rest_client)
+        with pytest.raises(ValueError, match="Unknown tool names in exclude_tools"):
+            tools.get_tool_schemas("openai", exclude_tools=["nonexistent"])
+
+    def test_unknown_category_raises(self, mock_rest_client):
+        """Unknown category should raise ValueError."""
+        tools = AgentTools("room-123", mock_rest_client)
+        with pytest.raises(ValueError, match="Unknown categories"):
+            tools.get_tool_schemas("openai", include_categories=["nonexistent"])
+
+    def test_anthropic_format_with_filtering(self, mock_rest_client):
+        """Filtering works with Anthropic format too."""
+        tools = AgentTools("room-123", mock_rest_client)
+        schemas = tools.get_anthropic_tool_schemas(
+            include_tools=["thenvoi_send_message"],
+        )
+        assert len(schemas) == 1
+        assert schemas[0]["name"] == "thenvoi_send_message"
+
+    def test_tool_categories_map_completeness(self):
+        """TOOL_CATEGORIES should cover all non-memory tools in chat+contact."""
+        assert TOOL_CATEGORIES["chat"] == CHAT_TOOL_NAMES
+        assert TOOL_CATEGORIES["contact"] == CONTACT_TOOL_NAMES
+        assert TOOL_CATEGORIES["memory"] == MEMORY_TOOL_NAMES
+        covered = CHAT_TOOL_NAMES | CONTACT_TOOL_NAMES | MEMORY_TOOL_NAMES
+        assert covered == ALL_TOOL_NAMES
+
+    def test_iter_tool_definitions_with_filters(self):
+        """iter_tool_definitions should respect all filter params."""
+        defs = iter_tool_definitions(
+            include_memory=True,
+            include_tools=["thenvoi_send_message", "thenvoi_store_memory"],
+        )
+        names = {d.name for d in defs}
+        assert names == {"thenvoi_send_message", "thenvoi_store_memory"}
+
+    def test_validate_tool_filter_accepts_valid(self):
+        """_validate_tool_filter should not raise for valid inputs."""
+        _validate_tool_filter(
+            include_tools=["thenvoi_send_message"],
+            exclude_tools=["thenvoi_send_event"],
+            include_categories=["chat"],
+        )
