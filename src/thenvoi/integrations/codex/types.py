@@ -204,7 +204,7 @@ class CodexTokenUsage:
 class ApprovalAuditEntry:
     """Records an approval decision for audit purposes."""
 
-    request_id: str | int
+    request_id: str
     method: str
     decision: str
     decided_by: str

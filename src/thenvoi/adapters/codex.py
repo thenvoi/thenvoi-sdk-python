@@ -139,6 +139,7 @@ class _PendingApproval:
     summary: str
     created_at: datetime
     future: asyncio.Future[str]
+    session_key: str = ""
 
 
 @dataclass
@@ -184,6 +185,7 @@ class CodexAdapterConfig:
     # Update when OpenAI rotates model IDs.
     fallback_models: tuple[str, ...] = ("gpt-5.2", "gpt-5.3-codex")
     max_pending_approvals_per_room: int = 50
+    max_approval_audit_per_room: int = 100
     # --- Phase 1: Structured errors & enriched approvals ---
     structured_errors: bool = True
     # --- Phase 2: Plan & task lifecycle ---
@@ -640,7 +642,9 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
                                         "Failed to stream commentary delta",
                                         exc_info=True,
                                     )
-                            # Only accumulate final_answer phase (or unset phase) for fallback text
+                            # Accumulate all non-commentary phases (including
+                            # future/unknown phases) into fallback text — intentional
+                            # catch-all so new phases don't silently drop content.
                             if phase != "commentary":
                                 final_text += delta
                         continue
@@ -729,7 +733,9 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
 
     async def on_cleanup(self, room_id: str) -> None:
         async with self._rpc_lock:
-            self._room_threads.pop(room_id, None)
+            thread_id = self._room_threads.pop(room_id, None)
+            if thread_id:
+                self._token_usage.pop(thread_id, None)
             self._prompt_injected_rooms.discard(room_id)
             self._raw_history_by_room.pop(room_id, None)
             self._needs_history_injection.discard(room_id)
@@ -1198,7 +1204,7 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
             # Record audit trail
             self._record_approval_audit(
                 room_id=room_id,
-                request_id=event.id,
+                request_id=str(event.id),
                 method=event.method,
                 decision=decision,
                 decided_by=decided_by,
@@ -1271,6 +1277,10 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
         saw_send_message_tool: bool,
         duration_s: float = 0.0,
     ) -> None:
+        # Look up token usage once for both marker and lifecycle events.
+        usage = self._token_usage.get(thread_id)
+        has_usage = usage is not None and usage.total_tokens > 0
+
         if (
             Emit.TASK_EVENTS in self.features.emit
             and self.config.emit_turn_task_markers
@@ -1287,9 +1297,7 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
             }
             if duration_s > 0:
                 metadata["codex_duration_s"] = round(duration_s, 2)
-            # Attach token usage snapshot if available
-            usage = self._token_usage.get(thread_id)
-            if usage and usage.total_tokens > 0:
+            if has_usage:
                 metadata.update(usage.to_metadata())
             await tools.send_event(
                 content=self._build_task_event_content(
@@ -1314,8 +1322,7 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
             }
             if turn_error:
                 lifecycle_metadata["codex_error"] = turn_error
-            usage = self._token_usage.get(thread_id)
-            if usage and usage.total_tokens > 0:
+            if has_usage:
                 lifecycle_metadata.update(usage.to_metadata())
             try:
                 await tools.send_event(
@@ -1573,6 +1580,7 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
             summary=summary,
             created_at=datetime.now(timezone.utc),
             future=loop.create_future(),
+            session_key=self._session_approval_key(event.method, params),
         )
         room_pending = self._pending_approvals.setdefault(room_id, {})
         if len(room_pending) >= self.config.max_pending_approvals_per_room:
@@ -1896,7 +1904,7 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
         self,
         *,
         room_id: str,
-        request_id: int | str,
+        request_id: str,
         method: str,
         decision: str,
         decided_by: str,
@@ -1913,7 +1921,11 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
             summary=summary,
             session_level=session_level,
         )
-        self._approval_audit.setdefault(room_id, []).append(entry)
+        audit_list = self._approval_audit.setdefault(room_id, [])
+        audit_list.append(entry)
+        # Cap the audit trail to avoid unbounded memory growth in long sessions.
+        if len(audit_list) > self.config.max_approval_audit_per_room:
+            del audit_list[: len(audit_list) - self.config.max_approval_audit_per_room]
 
     async def _emit_approval_audit_event(
         self,
@@ -2252,13 +2264,12 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
         if not selected.future.done():
             selected.future.set_result(decision_value)
 
-        # Session-level: register the method for auto-approval
+        # Session-level: register the session key for auto-approval
         if is_session:
-            session_key = selected.method
-            self._session_approved.setdefault(room_id, set()).add(session_key)
+            self._session_approved.setdefault(room_id, set()).add(selected.session_key)
             await tools.send_message(
                 f"Approval `{token}` resolved as `accept` (session-level). "
-                f"Future `{selected.method}` requests will be auto-approved.",
+                f"Future `{selected.session_key}` requests will be auto-approved.",
                 mentions=mention,
             )
         else:
@@ -2521,9 +2532,17 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
     def _session_approval_key(method: str, params: dict[str, Any]) -> str:
         """Build a key for session-level auto-approval matching.
 
-        Returns the method string as the session key — all future requests
-        of the same method type will be auto-approved.
+        For command executions, keys on the command binary (first token) so that
+        ``/approve-session`` on ``npm test`` auto-approves future ``npm`` commands
+        but not arbitrary other executables.  For file changes (and other methods),
+        keys on the full method string.
         """
+        if method == "item/commandExecution/requestApproval":
+            command = params.get("command")
+            if isinstance(command, str) and command.strip():
+                binary = command.strip().split()[0]
+                return f"commandExecution:{binary}"
+            return "commandExecution:*"
         return method
 
     @staticmethod

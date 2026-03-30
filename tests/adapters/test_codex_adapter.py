@@ -3701,10 +3701,8 @@ class TestEnrichedApprovals:
         )
         await task
 
-        # Verify session-level was recorded
-        assert "item/commandExecution/requestApproval" in adapter._session_approved.get(
-            "room-1", set()
-        )
+        # Verify session-level was recorded with granular key (command binary)
+        assert "commandExecution:npm" in adapter._session_approved.get("room-1", set())
         # Verify approval message mentions session-level
         session_msgs = [
             m for m in tools.messages_sent if "session-level" in m["content"]
@@ -4735,3 +4733,205 @@ class TestCodexTypes:
         assert config.emit_diff_events is False
         assert config.emit_token_usage_events is False
         assert config.emit_turn_lifecycle_events is False
+
+    def test_session_approval_key_granular_for_commands(self) -> None:
+        """Session approval key includes command binary for command executions."""
+        key = CodexAdapter._session_approval_key(
+            "item/commandExecution/requestApproval", {"command": "npm test"}
+        )
+        assert key == "commandExecution:npm"
+
+    def test_session_approval_key_wildcard_for_empty_command(self) -> None:
+        """Session approval key uses wildcard when command is missing."""
+        key = CodexAdapter._session_approval_key(
+            "item/commandExecution/requestApproval", {}
+        )
+        assert key == "commandExecution:*"
+
+    def test_session_approval_key_method_for_file_changes(self) -> None:
+        """Session approval key uses full method for file changes."""
+        key = CodexAdapter._session_approval_key(
+            "item/fileChange/requestApproval", {"reason": "update"}
+        )
+        assert key == "item/fileChange/requestApproval"
+
+
+class TestSessionAutoApproval:
+    @pytest.mark.asyncio
+    async def test_session_auto_approves_matching_command_binary(self) -> None:
+        """After session-level approval for npm, a new npm command is auto-approved."""
+        # Two command execution requests in one turn — first will be manually
+        # approved, second should be auto-approved by session policy.
+        events = [
+            _event_request(
+                20,
+                "item/commandExecution/requestApproval",
+                {"command": "npm install"},
+            ),
+            _event_notification(
+                "turn/completed",
+                {
+                    "turn": {
+                        "id": "turn-1",
+                        "status": "completed",
+                        "items": [],
+                        "error": None,
+                    }
+                },
+            ),
+        ]
+        fake_client = FakeCodexClient(events=events)
+        adapter = CodexAdapter(
+            config=CodexAdapterConfig(
+                transport="ws",
+                approval_mode="manual",
+            ),
+            client_factory=lambda _config: fake_client,
+        )
+        tools = ToolSchemaFakeTools()
+        await adapter.on_started("Agent", "A coding agent")
+
+        # Pre-seed the session-approved set as if /approve-session was used for npm
+        adapter._session_approved["room-1"] = {"commandExecution:npm"}
+
+        await adapter.on_message(
+            make_platform_message(content="install deps"),
+            tools,
+            CodexSessionState(),
+            participants_msg=None,
+            contacts_msg=None,
+            is_session_bootstrap=True,
+            room_id="room-1",
+        )
+
+        # The request should have been auto-approved (no manual prompt)
+        responses = fake_client.responses
+        assert any(result.get("decision") == "accept" for _, result in responses)
+
+    @pytest.mark.asyncio
+    async def test_session_does_not_auto_approve_different_binary(self) -> None:
+        """Session approval for npm does NOT auto-approve rm commands."""
+        events = [
+            _event_request(
+                30,
+                "item/commandExecution/requestApproval",
+                {"command": "rm -rf tmp"},
+            ),
+            _event_notification(
+                "turn/completed",
+                {
+                    "turn": {
+                        "id": "turn-1",
+                        "status": "completed",
+                        "items": [],
+                        "error": None,
+                    }
+                },
+            ),
+        ]
+        fake_client = FakeCodexClient(events=events)
+        adapter = CodexAdapter(
+            config=CodexAdapterConfig(
+                transport="ws",
+                approval_mode="auto_decline",
+            ),
+            client_factory=lambda _config: fake_client,
+        )
+        tools = ToolSchemaFakeTools()
+        await adapter.on_started("Agent", "A coding agent")
+
+        # Pre-seed session approval for npm only
+        adapter._session_approved["room-1"] = {"commandExecution:npm"}
+
+        await adapter.on_message(
+            make_platform_message(content="clean up"),
+            tools,
+            CodexSessionState(),
+            participants_msg=None,
+            contacts_msg=None,
+            is_session_bootstrap=True,
+            room_id="room-1",
+        )
+
+        # rm should have been declined by the auto_decline policy, not auto-approved
+        responses = fake_client.responses
+        assert any(result.get("decision") == "decline" for _, result in responses)
+
+
+class TestCleanup:
+    @pytest.mark.asyncio
+    async def test_on_cleanup_removes_per_room_token_usage(self) -> None:
+        """on_cleanup for a room also removes the thread's token usage."""
+        events = [
+            _event_notification(
+                "thread/tokenUsage/updated",
+                {
+                    "usage": {
+                        "inputTokens": 500,
+                        "outputTokens": 100,
+                        "totalTokens": 600,
+                    }
+                },
+            ),
+            _event_notification(
+                "turn/completed",
+                {
+                    "turn": {
+                        "id": "turn-1",
+                        "status": "completed",
+                        "items": [],
+                        "error": None,
+                    }
+                },
+            ),
+        ]
+        fake_client = FakeCodexClient(events=events)
+        adapter = CodexAdapter(
+            config=CodexAdapterConfig(transport="ws"),
+            client_factory=lambda _config: fake_client,
+        )
+        tools = ToolSchemaFakeTools()
+
+        await adapter.on_started("Agent", "A coding agent")
+        await adapter.on_message(
+            make_platform_message(),
+            tools,
+            CodexSessionState(),
+            participants_msg=None,
+            contacts_msg=None,
+            is_session_bootstrap=True,
+            room_id="room-1",
+        )
+
+        # Verify usage was tracked
+        thread_id = adapter._room_threads.get("room-1")
+        assert thread_id is not None
+        assert thread_id in adapter._token_usage
+
+        # Add a second room so cleanup doesn't close the client entirely
+        adapter._room_threads["room-2"] = "other-thread"
+
+        await adapter.on_cleanup("room-1")
+        assert thread_id not in adapter._token_usage
+
+
+class TestAuditCap:
+    def test_audit_trail_capped_at_limit(self) -> None:
+        """Approval audit trail is capped at max_approval_audit_per_room."""
+        adapter = CodexAdapter(
+            config=CodexAdapterConfig(transport="ws", max_approval_audit_per_room=5),
+            client_factory=lambda _config: FakeCodexClient(),
+        )
+        for i in range(10):
+            adapter._record_approval_audit(
+                room_id="room-1",
+                request_id=str(i),
+                method="item/commandExecution/requestApproval",
+                decision="accept",
+                decided_by="test",
+            )
+        audit = adapter._approval_audit["room-1"]
+        assert len(audit) == 5
+        # Should keep the most recent entries
+        assert audit[0].request_id == "5"
+        assert audit[-1].request_id == "9"
