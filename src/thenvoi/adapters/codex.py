@@ -197,6 +197,7 @@ class CodexAdapterConfig:
     fallback_models: tuple[str, ...] = ("gpt-5.2", "gpt-5.3-codex")
     max_pending_approvals_per_room: int = 50
     max_approval_audit_per_room: int = 100
+    session_approval_granularity: Literal["binary", "full_command"] = "full_command"
     # --- Phase 1: Structured errors & enriched approvals ---
     structured_errors: bool = True
     # --- Phase 2: Plan & task lifecycle ---
@@ -2758,21 +2759,27 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
             return "fileChange"
         return method
 
-    @staticmethod
-    def _session_approval_key(method: str, params: dict[str, Any]) -> str:
+    def _session_approval_key(self, method: str, params: dict[str, Any]) -> str:
         """Build a key for session-level auto-approval matching.
 
-        For command executions, keys on the command binary (first token) so that
-        ``/approve-session`` on ``npm test`` auto-approves future ``npm`` commands
-        but not arbitrary other executables.  For file changes (and other methods),
-        keys on the full method string.
+        When ``session_approval_granularity`` is ``"full_command"`` (default),
+        the key includes the full command string so ``/approve-session`` on
+        ``npm test`` only auto-approves future ``npm test`` requests.
+
+        When set to ``"binary"``, keys on the command binary (first token) so
+        ``/approve-session`` on ``npm test`` auto-approves all ``npm`` commands.
+
+        For file changes (and other methods), keys on the full method string
+        regardless of granularity.
         """
         if method == "item/commandExecution/requestApproval":
             command = params.get("command")
             if isinstance(command, str) and command.strip():
-                binary = command.strip().split()[0]
-                return f"commandExecution:{binary}"
-            # No identifiable binary — return empty so session-level approval
+                cmd = command.strip()
+                if self.config.session_approval_granularity == "binary":
+                    return f"commandExecution:{cmd.split()[0]}"
+                return f"commandExecution:{cmd}"
+            # No identifiable command — return empty so session-level approval
             # is not possible (avoids a blanket wildcard match).
             return ""
         return method
