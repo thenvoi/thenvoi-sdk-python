@@ -199,11 +199,17 @@ class CodexTokenUsage:
         total = usage.get("totalTokens")
         if total is None:
             total = usage.get("total_tokens")
-        self.total_tokens = (
-            int(total)
-            if total is not None
-            else (self.input_tokens + self.output_tokens + self.reasoning_tokens)
-        )
+        if total is not None:
+            try:
+                self.total_tokens = int(total)
+            except (ValueError, TypeError):
+                self.total_tokens = (
+                    self.input_tokens + self.output_tokens + self.reasoning_tokens
+                )
+        else:
+            self.total_tokens = (
+                self.input_tokens + self.output_tokens + self.reasoning_tokens
+            )
 
         # Compute per-turn deltas
         self.turn_input_tokens = max(0, self.input_tokens - prev_input)

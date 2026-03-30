@@ -3703,7 +3703,9 @@ class TestEnrichedApprovals:
         await task
 
         # Verify session-level was recorded with full command key
-        assert "commandExecution:npm test" in adapter._session_approved.get("room-1", set())
+        assert "commandExecution:npm test" in adapter._session_approved.get(
+            "room-1", set()
+        )
         # Verify approval message mentions session-level
         session_msgs = [
             m for m in tools.messages_sent if "session-level" in m["content"]
@@ -4890,9 +4892,7 @@ class TestCodexTypes:
     def test_session_approval_key_empty_for_missing_command(self) -> None:
         """Session approval key returns empty when command is missing (no wildcard)."""
         adapter = CodexAdapter(config=CodexAdapterConfig())
-        key = adapter._session_approval_key(
-            "item/commandExecution/requestApproval", {}
-        )
+        key = adapter._session_approval_key("item/commandExecution/requestApproval", {})
         assert key == ""
 
     def test_session_approval_key_method_for_file_changes(self) -> None:
@@ -5244,9 +5244,7 @@ class TestReviewFixes:
     def test_session_approval_key_empty_prevents_wildcard_match(self) -> None:
         """Empty session key from missing command cannot match any session set."""
         adapter = CodexAdapter(config=CodexAdapterConfig())
-        key = adapter._session_approval_key(
-            "item/commandExecution/requestApproval", {}
-        )
+        key = adapter._session_approval_key("item/commandExecution/requestApproval", {})
         # Empty key is falsy, so `key and key in session_set` is always False
         assert not key
         assert not (key and key in {"commandExecution:npm"})
