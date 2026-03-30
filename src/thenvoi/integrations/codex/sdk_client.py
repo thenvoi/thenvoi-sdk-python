@@ -150,10 +150,9 @@ class CodexSdkClient:
                 if retry_on_overload:
                     from codex_app_server import retry_on_overload as _retry  # type: ignore[missing-import]
 
-                    # _request_raw is used because the public SDK API does not
-                    # expose arbitrary method dispatch — only typed helpers for
-                    # a subset of methods.  Pin codex-app-server tightly if
-                    # this breaks on upgrade.
+                    # TODO: _request_raw is a private API — request a public
+                    # request(method, params) upstream and migrate once available.
+                    # Pin codex-app-server ~=0.2.0 to guard against breakage.
                     return _retry(  # type: ignore[return-value]
                         lambda: self._sync_client._request_raw(method, params),  # noqa: SLF001
                     )

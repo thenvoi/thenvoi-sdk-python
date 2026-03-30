@@ -66,6 +66,26 @@ _SILENT_REPORTING_TOOLS: frozenset[str] = frozenset(
     }
 )
 
+# Slash commands recognised by _extract_local_command().
+_LOCAL_COMMANDS: frozenset[str] = frozenset(
+    {
+        "help",
+        "status",
+        "model",
+        "models",
+        "reasoning",
+        "approvals",
+        "approve",
+        "approve-session",
+        "decline",
+        "sandbox",
+        "permissions",
+        "threads",
+        "thread",
+        "usage",
+    }
+)
+
 
 # ---------------------------------------------------------------------------
 # Self-configuration tools — let Codex change its own model/reasoning at runtime
@@ -2856,29 +2876,13 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
         # Only look for a /command in the first few tokens (to allow for
         # leading @mentions which the platform prepends) but not deep in
         # the message body where a slash word is just prose.
-        _COMMANDS = {
-            "help",
-            "status",
-            "model",
-            "models",
-            "reasoning",
-            "approvals",
-            "approve",
-            "approve-session",
-            "decline",
-            "sandbox",
-            "permissions",
-            "threads",
-            "thread",
-            "usage",
-        }
         search_limit = min(len(tokens), 5)
         for idx in range(search_limit):
             token = tokens[idx]
             if not token.startswith("/") or len(token) == 1:
                 continue
             command = token[1:].lower()
-            if command not in _COMMANDS:
+            if command not in _LOCAL_COMMANDS:
                 continue
             args = " ".join(tokens[idx + 1 :]).strip()
             return command, args
