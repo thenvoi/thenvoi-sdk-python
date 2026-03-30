@@ -5184,6 +5184,36 @@ class TestReviewFixes:
         assert not key
         assert not (key and key in {"commandExecution:npm"})
 
+    @pytest.mark.asyncio
+    async def test_unexpected_recv_error_still_emits_turn_outcome(self) -> None:
+        """When recv_event raises a non-timeout exception, _emit_turn_outcome is still called."""
+
+        class BrokenClient(FakeCodexClient):
+            async def recv_event(self, timeout_s: float | None = None) -> RpcEvent:
+                raise ConnectionError("transport died")
+
+        fake_client = BrokenClient()
+        adapter = CodexAdapter(
+            config=CodexAdapterConfig(
+                transport="ws",
+                fallback_send_agent_text=True,
+            ),
+            client_factory=lambda _config: fake_client,
+        )
+        tools = ToolSchemaFakeTools()
+        await adapter.on_started("Agent", "A coding agent")
+        await adapter.on_message(
+            make_platform_message(),
+            tools,
+            CodexSessionState(),
+            participants_msg=None,
+            contacts_msg=None,
+            is_session_bootstrap=True,
+            room_id="room-1",
+        )
+        # Should have sent an error message to the user instead of crashing
+        assert any("couldn't complete" in m["content"] for m in tools.messages_sent)
+
 
 # ===========================================================================
 # Gap fixes: acceptForSession, network_context, turn started, compaction,
@@ -5718,7 +5748,8 @@ class TestCodexSdkClient:
         result = CodexSdkClient._auto_handle_server_request(
             "item/tool/call", {"tool": "test"}
         )
-        assert result == {}
+        assert "error" in result
+        assert result["error"]["code"] == -32601
 
     @pytest.mark.asyncio
     async def test_respond_unblocks_pending_future(self) -> None:
@@ -5764,7 +5795,6 @@ class TestCodexSdkClient:
 
         assert future.done()
         assert future.result() == {
-            "decision": "decline",
             "error": {"code": -32000, "message": "fail", "data": None},
         }
 

@@ -150,6 +150,10 @@ class CodexSdkClient:
                 if retry_on_overload:
                     from codex_app_server import retry_on_overload as _retry  # type: ignore[missing-import]
 
+                    # _request_raw is used because the public SDK API does not
+                    # expose arbitrary method dispatch — only typed helpers for
+                    # a subset of methods.  Pin codex-app-server tightly if
+                    # this breaks on upgrade.
                     return _retry(  # type: ignore[return-value]
                         lambda: self._sync_client._request_raw(method, params),  # noqa: SLF001
                     )
@@ -186,11 +190,7 @@ class CodexSdkClient:
         message: str,
         data: Any | None = None,
     ) -> None:
-        # Include a safe "decision": "decline" alongside the error details so
-        # the SDK can interpret the response regardless of request type (e.g.
-        # approval requests expect a "decision" key).
         error_result: dict[str, Any] = {
-            "decision": "decline",
             "error": {"code": code, "message": message, "data": data},
         }
         with self._pending_lock:
@@ -304,7 +304,14 @@ class CodexSdkClient:
                 method,
             )
             return {"decision": "decline"}
-        return {}
+        logger.debug(
+            "SDK bridge: no handler for server request method=%s; "
+            "returning error response",
+            method,
+        )
+        return {
+            "error": {"code": -32601, "message": f"Unhandled server request: {method}"}
+        }
 
     def _allocate_synthetic_id(self) -> int:
         with self._pending_lock:
