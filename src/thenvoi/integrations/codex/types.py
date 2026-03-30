@@ -168,19 +168,23 @@ class CodexTokenUsage:
         usage = params.get("usage") or params
         if not isinstance(usage, dict):
             return
-        self.input_tokens = int(
-            usage.get("inputTokens") or usage.get("input_tokens") or 0
-        )
-        self.output_tokens = int(
-            usage.get("outputTokens") or usage.get("output_tokens") or 0
-        )
-        self.reasoning_tokens = int(
-            usage.get("reasoningTokens") or usage.get("reasoning_tokens") or 0
-        )
-        self.total_tokens = int(
-            usage.get("totalTokens")
-            or usage.get("total_tokens")
-            or (self.input_tokens + self.output_tokens + self.reasoning_tokens)
+
+        def _get(key_camel: str, key_snake: str) -> int:
+            val = usage.get(key_camel)
+            if val is None:
+                val = usage.get(key_snake)
+            return int(val) if val is not None else 0
+
+        self.input_tokens = _get("inputTokens", "input_tokens")
+        self.output_tokens = _get("outputTokens", "output_tokens")
+        self.reasoning_tokens = _get("reasoningTokens", "reasoning_tokens")
+        total = usage.get("totalTokens")
+        if total is None:
+            total = usage.get("total_tokens")
+        self.total_tokens = (
+            int(total)
+            if total is not None
+            else (self.input_tokens + self.output_tokens + self.reasoning_tokens)
         )
 
     def to_metadata(self) -> dict[str, Any]:

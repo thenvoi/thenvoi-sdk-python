@@ -4817,12 +4817,12 @@ class TestCodexTypes:
         )
         assert key == "commandExecution:npm"
 
-    def test_session_approval_key_wildcard_for_empty_command(self) -> None:
-        """Session approval key uses wildcard when command is missing."""
+    def test_session_approval_key_empty_for_missing_command(self) -> None:
+        """Session approval key returns empty when command is missing (no wildcard)."""
         key = CodexAdapter._session_approval_key(
             "item/commandExecution/requestApproval", {}
         )
-        assert key == "commandExecution:*"
+        assert key == ""
 
     def test_session_approval_key_method_for_file_changes(self) -> None:
         """Session approval key uses full method for file changes."""
@@ -5011,3 +5011,113 @@ class TestAuditCap:
         # Should keep the most recent entries
         assert audit[0].request_id == "5"
         assert audit[-1].request_id == "9"
+
+
+class TestReviewFixes:
+    """Tests for issues identified in PR review."""
+
+    @pytest.mark.asyncio
+    async def test_sandbox_command_blocked_when_sandbox_policy_set(self) -> None:
+        """/sandbox is rejected when sandbox_policy is configured."""
+        fake_client = FakeCodexClient()
+        adapter = CodexAdapter(
+            config=CodexAdapterConfig(
+                transport="ws",
+                sandbox_policy={"type": "readOnly"},
+            ),
+            client_factory=lambda _config: fake_client,
+        )
+        tools = ToolSchemaFakeTools()
+        await adapter.on_started("Agent", "A coding agent")
+        await adapter.on_message(
+            make_platform_message(content="/sandbox workspace-write"),
+            tools,
+            CodexSessionState(),
+            participants_msg=None,
+            contacts_msg=None,
+            is_session_bootstrap=True,
+            room_id="room-1",
+        )
+
+        assert "room-1" not in adapter._sandbox_overrides
+        assert "Cannot override sandbox" in tools.messages_sent[0]["content"]
+
+    @pytest.mark.asyncio
+    async def test_thread_archive_clears_raw_history(self) -> None:
+        """/thread archive also clears raw history and injection state."""
+        events = [
+            _event_notification(
+                "turn/completed",
+                {
+                    "turn": {
+                        "id": "turn-1",
+                        "status": "completed",
+                        "items": [],
+                        "error": None,
+                    }
+                },
+            ),
+        ]
+        fake_client = FakeCodexClient(events=events)
+        adapter = CodexAdapter(
+            config=CodexAdapterConfig(transport="ws"),
+            client_factory=lambda _config: fake_client,
+        )
+        tools = ToolSchemaFakeTools()
+
+        await adapter.on_started("Agent", "A coding agent")
+        await adapter.on_message(
+            make_platform_message(),
+            tools,
+            CodexSessionState(),
+            participants_msg=None,
+            contacts_msg=None,
+            is_session_bootstrap=True,
+            room_id="room-1",
+        )
+
+        # Seed raw history and injection flag
+        adapter._raw_history_by_room["room-1"] = [{"role": "user", "content": "hi"}]
+        adapter._needs_history_injection.add("room-1")
+
+        await adapter.on_message(
+            make_platform_message(content="/thread archive"),
+            tools,
+            CodexSessionState(),
+            participants_msg=None,
+            contacts_msg=None,
+            is_session_bootstrap=False,
+            room_id="room-1",
+        )
+
+        assert "room-1" not in adapter._raw_history_by_room
+        assert "room-1" not in adapter._needs_history_injection
+
+    def test_token_usage_update_handles_zero_values(self) -> None:
+        """CodexTokenUsage.update() correctly handles explicit zero values."""
+        from thenvoi.integrations.codex.types import CodexTokenUsage
+
+        usage = CodexTokenUsage()
+        usage.update(
+            {
+                "usage": {
+                    "inputTokens": 0,
+                    "outputTokens": 100,
+                    "reasoningTokens": 0,
+                    "totalTokens": 100,
+                }
+            }
+        )
+        assert usage.input_tokens == 0
+        assert usage.output_tokens == 100
+        assert usage.reasoning_tokens == 0
+        assert usage.total_tokens == 100
+
+    def test_session_approval_key_empty_prevents_wildcard_match(self) -> None:
+        """Empty session key from missing command cannot match any session set."""
+        key = CodexAdapter._session_approval_key(
+            "item/commandExecution/requestApproval", {}
+        )
+        # Empty key is falsy, so `key and key in session_set` is always False
+        assert not key
+        assert not (key and key in {"commandExecution:npm"})
