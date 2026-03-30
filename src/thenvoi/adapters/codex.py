@@ -48,7 +48,7 @@ from thenvoi.runtime.prompts import render_system_prompt
 
 logger = logging.getLogger(__name__)
 
-TransportKind = Literal["stdio", "ws"]
+TransportKind = Literal["stdio", "ws", "sdk"]
 ApprovalMode = Literal["auto_accept", "auto_decline", "manual"]
 ApprovalDecision = Literal["accept", "decline"]
 _REASONING_EFFORTS = {"none", "minimal", "low", "medium", "high", "xhigh"}
@@ -289,6 +289,10 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
         self._session_approved: dict[str, set[str]] = {}
         # Per-room sandbox overrides (set via /sandbox command)
         self._sandbox_overrides: dict[str, str] = {}
+        # SDK transport: context for async server-request handling.
+        self._sdk_request_context: (
+            tuple[AgentToolsProtocol, PlatformMessage, str] | None
+        ) = None
         # Single client receive queue means turn processing must be serialized.
         self._rpc_lock = asyncio.Lock()
 
@@ -481,6 +485,9 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
             turn_status = "failed"
             turn_error = ""
             _turn_start = _time.monotonic()
+            # Set SDK request context so the bridge can route server
+            # requests to _handle_server_request while we consume events.
+            self._sdk_request_context = (tools, msg, room_id)
 
             try:
                 while True:
@@ -716,6 +723,7 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
                 turn_status = "interrupted"
                 turn_error = "Turn timed out"
 
+            self._sdk_request_context = None
             _turn_duration_s = _time.monotonic() - _turn_start
             await self._emit_turn_outcome(
                 tools=tools,
@@ -781,10 +789,58 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
         if config.transport == "ws":
             return CodexWebSocketClient(ws_url=config.codex_ws_url)
 
+        if config.transport == "sdk":
+            return self._build_sdk_client(config)
+
         return CodexStdioClient(
             command=config.codex_command,
             cwd=config.cwd,
             env=config.codex_env,
+        )
+
+    def _build_sdk_client(self, config: CodexAdapterConfig) -> _CodexClientProtocol:
+        """Build a client backed by the official ``codex-app-server`` SDK."""
+        from thenvoi.integrations.codex.sdk_client import CodexSdkClient
+
+        codex_bin: str | None = None
+        if config.codex_command:
+            codex_bin = config.codex_command[0]
+
+        env_dict: dict[str, str] | None = (
+            dict(config.codex_env) if config.codex_env else None
+        )
+
+        sdk_client = CodexSdkClient(
+            cwd=config.cwd,
+            env=env_dict,
+            codex_bin=codex_bin,
+            client_name=config.client_name,
+            client_title=config.client_title,
+            client_version=config.client_version,
+            experimental_api=config.experimental_api,
+        )
+        sdk_client.set_request_handler(self._handle_sdk_server_request)
+        return sdk_client
+
+    async def _handle_sdk_server_request(self, event: RpcEvent) -> None:
+        """Adapter callback used by :class:`CodexSdkClient` to process
+        server-initiated requests (tool calls, approvals).
+
+        This runs on the main event loop (scheduled via
+        ``asyncio.run_coroutine_threadsafe``).  It must call
+        ``self._client.respond()`` to unblock the SDK thread.
+        """
+        if self._sdk_request_context is None:
+            logger.warning("SDK server request received but no request context set")
+            if self._client is not None:
+                await self._client.respond(event.id or 0, {})
+            return
+        tools, msg, room_id = self._sdk_request_context
+        await self._handle_server_request(
+            tools=tools,
+            msg=msg,
+            room_id=room_id,
+            event=event,
         )
 
     async def _select_model(self) -> str:

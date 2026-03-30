@@ -13,9 +13,18 @@ from .websocket_client import CodexWebSocketClient
 
 __all__ = [
     "CodexJsonRpcError",
+    "CodexSdkClient",
     "CodexStdioClient",
     "CodexWebSocketClient",
     "CodexSessionState",
     "OverloadRetryPolicy",
     "RpcEvent",
 ]
+
+
+def __getattr__(name: str) -> object:
+    if name == "CodexSdkClient":
+        from .sdk_client import CodexSdkClient
+
+        return CodexSdkClient
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
