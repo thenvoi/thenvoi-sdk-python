@@ -472,7 +472,7 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
 
             _turn_start = _time.monotonic()
             try:
-                with self._sdk_request_scope(tools, msg, room_id):
+                async with self._sdk_request_scope(tools, msg, room_id):
                     result = await self._process_turn_events(
                         tools=tools,
                         msg=msg,
@@ -507,8 +507,8 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
                 duration_s=_turn_duration_s,
             )
 
-    @contextlib.contextmanager
-    def _sdk_request_scope(
+    @contextlib.asynccontextmanager
+    async def _sdk_request_scope(
         self,
         tools: AgentToolsProtocol,
         msg: PlatformMessage,
