@@ -2104,6 +2104,13 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
                     mentions=mention,
                 )
                 return True
+            if normalized == "danger-full-access":
+                logger.warning(
+                    "Sandbox escalated to danger-full-access via /sandbox command "
+                    "in room %s by %s",
+                    room_id,
+                    msg.sender_name or msg.sender_type or "unknown",
+                )
             self._sandbox_overrides[room_id] = normalized
             await tools.send_message(
                 f"Sandbox mode set to `{normalized}` for subsequent turns in this room.",
