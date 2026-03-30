@@ -33,6 +33,7 @@ dependencies = [
 [project.optional-dependencies]
 codex = [
     "websockets>=13.0",
+    "codex-app-server-sdk~=0.2.0; python_version >= '3.12'",
 ]
 letta = [
     "letta-client>=0.1.0",
@@ -164,6 +165,8 @@ dev = [
     "python-dotenv>=1.0",
     # Include bridge_agentcore deps for testing
     "boto3>=1.35.0",
+    # Include codex-app-server SDK for testing/linting (Python 3.12+)
+    "codex-app-server-sdk~=0.2.0; python_version >= '3.12'",
     # Development tools
     "pre-commit>=3.0.0",
     "ruff>=0.8.0",
