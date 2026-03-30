@@ -1010,15 +1010,15 @@ wheels = [
 
 [[package]]
 name = "codex-app-server-sdk"
-version = "0.3.2"
+version = "0.2.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "pydantic", marker = "python_full_version >= '3.12'" },
     { name = "websockets", version = "16.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/cb/eb/2d1dee1027b639afded260f5557eda874c9876461c80e65fb817b5e8eb3a/codex_app_server_sdk-0.3.2.tar.gz", hash = "sha256:ab21a374922ad8d5d29904c89453edb9c0bccd69719ed06c7ec7c66e82bdbbd4", size = 139171, upload-time = "2026-02-26T21:58:47.255Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/f5/e8/e6efdc98e890c802b47a5e799c72be9e8c6978cd67f9b485abcae91932dd/codex_app_server_sdk-0.2.1.tar.gz", hash = "sha256:d1d24cae9eaf2fae137428e2cb76267010b4348035333e7aab7743912f495f19", size = 133945, upload-time = "2026-02-24T22:23:39.122Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/94/05/9f7c0329f086a25d4528944e02517c2ab36f434f4b8eb4d3408e1fbe3f9a/codex_app_server_sdk-0.3.2-py3-none-any.whl", hash = "sha256:f3c46357401d7c1b7a88ec421209ddbefe6b9631bf319ede0bf9899a9d7a3fd4", size = 55587, upload-time = "2026-02-26T21:58:45.596Z" },
+    { url = "https://files.pythonhosted.org/packages/ec/68/5137f825fbd3971c2a0c6b2e4995b906a05c91fb1ae38aa962813c62e650/codex_app_server_sdk-0.2.1-py3-none-any.whl", hash = "sha256:6ad388772deb6d7b385d8f3f1bef802d9d8591e33c51b8a4c173fd6c1123173b", size = 52302, upload-time = "2026-02-24T22:23:37.952Z" },
 ]
 
 [[package]]
@@ -8192,8 +8192,8 @@ requires-dist = [
     { name = "claude-agent-sdk", marker = "extra == 'claude-sdk'", specifier = ">=0.1.16" },
     { name = "click", marker = "extra == 'a2a-gateway-demo'", specifier = ">=8.0.0" },
     { name = "click", marker = "extra == 'dev'", specifier = ">=8.0.0" },
-    { name = "codex-app-server-sdk", marker = "python_full_version >= '3.12' and extra == 'codex'", specifier = ">=0.2.0" },
-    { name = "codex-app-server-sdk", marker = "python_full_version >= '3.12' and extra == 'dev'", specifier = ">=0.2.0" },
+    { name = "codex-app-server-sdk", marker = "python_full_version >= '3.12' and extra == 'codex'", specifier = "~=0.2.0" },
+    { name = "codex-app-server-sdk", marker = "python_full_version >= '3.12' and extra == 'dev'", specifier = "~=0.2.0" },
     { name = "commitizen", marker = "extra == 'dev'", specifier = ">=3.13.0" },
     { name = "crewai", marker = "extra == 'crewai'", specifier = "==1.14.2" },
     { name = "crewai", marker = "extra == 'dev'", specifier = "==1.14.2" },

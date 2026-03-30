@@ -32,7 +32,7 @@ dependencies = [
 [project.optional-dependencies]
 codex = [
     "websockets>=13.0",
-    "codex-app-server-sdk>=0.2.0; python_version >= '3.12'",
+    "codex-app-server-sdk~=0.2.0; python_version >= '3.12'",
 ]
 opencode = [
     "httpx>=0.24.0",
@@ -165,7 +165,7 @@ dev = [
     # Include bridge_agentcore deps for testing
     "boto3>=1.35.0",
     # Include codex-app-server SDK for testing/linting (Python 3.12+)
-    "codex-app-server-sdk>=0.2.0; python_version >= '3.12'",
+    "codex-app-server-sdk~=0.2.0; python_version >= '3.12'",
     # Development tools
     "pre-commit>=3.0.0",
     "ruff>=0.8.0",
