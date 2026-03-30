@@ -5764,6 +5764,7 @@ class TestCodexSdkClient:
 
         assert future.done()
         assert future.result() == {
+            "decision": "decline",
             "error": {"code": -32000, "message": "fail", "data": None},
         }
 
@@ -5775,7 +5776,8 @@ class TestCodexSdkClient:
             pytest.skip("codex-app-server-sdk not installed")
 
         client = CodexSdkClient.__new__(CodexSdkClient)
-        client._in_request = True
+        client._in_request = __import__("threading").Event()
+        client._in_request.set()
         client._loop = None
         client._request_handler = None
         client._pending_server_responses = {}
