@@ -1,139 +1,157 @@
-# Multi-Agent Docker Compose (Bridge + Specialists)
+# Multi-Agent Docker Compose
 
-Run a local 3-service room with a bridge coordinator and two specialists:
-
-- `bridge` (Claude SDK): coordinator service
-- `planner` (Claude SDK): planning specialist
-- `reviewer` (Codex): review specialist
-
-All services share the same workspace volumes and connect to Thenvoi.
+Run a 2-agent team (Claude SDK planner + Codex reviewer) sharing a workspace, connected to the Thenvoi platform.
 
 ## Architecture
 
 ```text
 docker compose up
-├── bridge      (coordinator, exposes /health)
-├── planner     (specialist, waits for bridge health)
-└── reviewer    (specialist, waits for bridge health)
+├── planner        (ClaudeSDKAdapter, Claude model)
+│   └── Role: planner — designs plans, coordinates agents
+├── reviewer       (CodexAdapter, gpt-5.3-codex, reasoning: xhigh)
+│   └── Role: reviewer — reviews plans and code, finds gaps and risks
 ```
 
-Shared volumes:
-- `/workspace/repo`
-- `/workspace/notes`
-- `/workspace/state`
-- `/workspace/context`
+Shared workspace volumes:
+- `/workspace/repo` (git working tree)
+- `/workspace/notes` (plan/review files)
+- `/workspace/state` (repo-init lock + metadata)
+- `/workspace/context` (generated context files)
+
+## Repo Initialization
+
+On startup, each container reads `repo` config from `agent_config.yaml`:
+1. Clone repo to `repo.path` if missing
+2. Skip clone when repo already exists
+3. Optionally generate context files when `repo.index: true`
+
+Generated files:
+- `/workspace/context/structure.md`
+- `/workspace/context/patterns.md`
+- `/workspace/context/dependencies.md`
+
+These files are injected into planner/reviewer system prompts automatically.
+
+## Clone URL Support
+
+`repo.url` supports both:
+- SSH: `git@github.com:org/repo.git`
+- HTTPS: `https://github.com/org/repo.git`
+
+### SSH prerequisites
+
+The compose file mounts:
+- `~/.ssh` (read-only)
+- `~/.gitconfig` (read-only)
+
+When using SSH URLs:
+1. Ensure your key is available in `~/.ssh`
+2. Ensure `known_hosts` contains the git host
+3. Optionally test on host first:
+
+```bash
+ssh -T git@github.com
+```
+
+If strict host checking is enabled (default), startup fails fast when the host key is missing.
+
+### HTTPS prerequisites
+
+When using HTTPS URLs, configure git credentials on host (`credential helper`, PAT, etc.) so mounted git config can authenticate.
 
 ## Prerequisites
 
-- Docker + Docker Compose v2
-- `ANTHROPIC_API_KEY`
-- `OPENAI_API_KEY`
-- Thenvoi credentials for `bridge`, `planner`, and `reviewer` in `agent_config.yaml`
+- Docker and Docker Compose v2
+- Anthropic API key for planner
+- OpenAI API key for reviewer
+- Thenvoi agent credentials (`agent_id` + `api_key`)
 
-## Quickstart
+## Setup
 
-1. Create local config files:
+1. Configure environment:
 
 ```bash
 cp .env.example .env
+```
+
+2. Configure agents and repo:
+
+```bash
 cp agent_config.yaml.example agent_config.yaml
 ```
 
-2. Fill required values:
-- `.env`: `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`
-- `agent_config.yaml`: `bridge.agent_id/api_key`, `planner.agent_id/api_key`, `reviewer.agent_id/api_key`
+Fill in:
+- `planner.agent_id`, `planner.api_key`
+- `reviewer.agent_id`, `reviewer.api_key`
+- `planner.repo` and `reviewer.repo` (same URL/path/branch)
 
-`THENVOI_REST_URL` and `THENVOI_WS_URL` are optional. If you omit them, the stack uses the hosted Thenvoi defaults.
-
-3. Start services:
+3. Build and run:
 
 ```bash
 docker compose build
 docker compose up -d
 ```
 
-4. Check health and logs:
+4. View logs:
 
 ```bash
-docker compose ps
-docker compose logs -f bridge
+docker compose logs -f
 docker compose logs -f planner
 docker compose logs -f reviewer
 ```
 
-## Required Variables and Defaults
+## Configuration
 
-`docker-compose.yml` requires:
-- `ANTHROPIC_API_KEY`
-- `OPENAI_API_KEY`
+### `.env`
 
-Platform URLs are optional:
-- `THENVOI_REST_URL` defaults to `https://app.thenvoi.com`
-- `THENVOI_WS_URL` defaults to `wss://app.thenvoi.com/api/v1/socket/websocket`
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `THENVOI_REST_URL` | `https://app.thenvoi.com` | Platform REST API |
+| `THENVOI_WS_URL` | `wss://app.thenvoi.com/...` | Platform WebSocket |
+| `ANTHROPIC_API_KEY` | -- | Anthropic API key for planner |
+| `OPENAI_API_KEY` | -- | OpenAI API key for reviewer |
+| `GIT_SSH_STRICT_HOST_KEY_CHECKING` | `true` | Enforce host-key precheck for SSH remotes |
+| `REPO_INIT_LOCK_TIMEOUT_S` | `120` | Max wait for repo-init lock |
+| `REVIEWER_AGENT_KEY` | `reviewer` | Agent config key for reviewer |
+| `REVIEWER_MODEL` | `gpt-5.3-codex` | Model for reviewer |
+| `REVIEWER_REASONING_EFFORT` | `xhigh` | Reasoning effort for reviewer |
 
-If a required API key is missing, `docker compose up` fails immediately with a clear variable error.
+### `agent_config.yaml`
 
-## Readiness Gating
+Use `repo` under both planner and reviewer:
 
-- `bridge` exposes `GET /health` on `BRIDGE_HEALTH_PORT` (default `18080`).
-- `planner` and `reviewer` both:
-  - depend on `bridge` health (`depends_on: condition: service_healthy`)
-  - run `wait_for_bridge.sh` before starting their runners
-- If bridge health is not reachable within `BRIDGE_WAIT_TIMEOUT_S`, specialists exit non-zero.
+```yaml
+planner:
+  agent_id: "..."
+  api_key: "..."
+  role: planner
+  repo:
+    url: "git@github.com:org/repo.git"
+    path: "/workspace/repo"
+    branch: "main"
+    index: true
 
-## Smoke Test
-
-Run an end-to-end room messaging check after the stack is up:
-
-```bash
-uv run python examples/coding_agents/smoke_test_room_messaging.py
-```
-
-What it validates:
-- Creates a room using `bridge` credentials.
-- Adds `reviewer` as participant.
-- Sends a mention from bridge to reviewer.
-- Verifies reviewer reply before timeout.
-
-Optional flags:
-
-```bash
-uv run python examples/coding_agents/smoke_test_room_messaging.py \
-  --timeout-seconds 120 \
-  --poll-interval-seconds 2 \
-  --bridge-key bridge \
-  --reviewer-key reviewer
+reviewer:
+  agent_id: "..."
+  api_key: "..."
+  repo:
+    url: "git@github.com:org/repo.git"
+    path: "/workspace/repo"
+    branch: "main"
+    index: true
 ```
 
 ## Troubleshooting
 
-- `variable is required` during compose startup:
-  - missing required `.env` value; set it and re-run `docker compose up -d`.
-- `bridge` unhealthy:
-  - inspect `docker compose logs bridge`.
-  - verify `BRIDGE_HEALTH_PORT` is not blocked/conflicting.
-- specialists exit with `Timed out waiting for bridge health`:
-  - bridge did not become healthy within timeout.
-  - inspect bridge logs and increase `BRIDGE_WAIT_TIMEOUT_S` if needed.
-- Thenvoi auth failures:
-  - verify `agent_config.yaml` IDs and API keys.
+- `Config file not found`: create `agent_config.yaml` from the example.
+- `Invalid repo configuration`: verify `repo.url` and absolute `repo.path`.
+- `Host not found in known_hosts`: add host key (`ssh-keyscan -H <host> >> ~/.ssh/known_hosts`).
+- `Authentication failed` on clone: verify SSH keys or HTTPS token/credential helper.
+- `Timed out waiting for repo init lock`: another container may be stuck during startup; inspect logs and restart.
 
-## Restart and Recovery
-
-Clean lifecycle validation:
-
-```bash
-docker compose up -d
-uv run python examples/coding_agents/smoke_test_room_messaging.py
-docker compose restart
-docker compose ps
-```
-
-## Teardown
+## Cleanup
 
 ```bash
 docker compose down
 docker compose down -v
 ```
-
-Use `down -v` to fully remove volumes and shared state.
