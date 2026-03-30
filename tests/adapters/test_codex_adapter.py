@@ -3702,8 +3702,8 @@ class TestEnrichedApprovals:
         )
         await task
 
-        # Verify session-level was recorded with granular key (command binary)
-        assert "commandExecution:npm" in adapter._session_approved.get("room-1", set())
+        # Verify session-level was recorded with full command key
+        assert "commandExecution:npm test" in adapter._session_approved.get("room-1", set())
         # Verify approval message mentions session-level
         session_msgs = [
             m for m in tools.messages_sent if "session-level" in m["content"]
@@ -4869,23 +4869,36 @@ class TestCodexTypes:
         assert config.emit_token_usage_events is False
         assert config.emit_turn_lifecycle_events is False
 
-    def test_session_approval_key_granular_for_commands(self) -> None:
-        """Session approval key includes command binary for command executions."""
-        key = CodexAdapter._session_approval_key(
+    def test_session_approval_key_full_command_by_default(self) -> None:
+        """Session approval key includes full command string by default."""
+        adapter = CodexAdapter(config=CodexAdapterConfig())
+        key = adapter._session_approval_key(
+            "item/commandExecution/requestApproval", {"command": "npm test"}
+        )
+        assert key == "commandExecution:npm test"
+
+    def test_session_approval_key_binary_granularity(self) -> None:
+        """Session approval key includes only binary when granularity is 'binary'."""
+        adapter = CodexAdapter(
+            config=CodexAdapterConfig(session_approval_granularity="binary")
+        )
+        key = adapter._session_approval_key(
             "item/commandExecution/requestApproval", {"command": "npm test"}
         )
         assert key == "commandExecution:npm"
 
     def test_session_approval_key_empty_for_missing_command(self) -> None:
         """Session approval key returns empty when command is missing (no wildcard)."""
-        key = CodexAdapter._session_approval_key(
+        adapter = CodexAdapter(config=CodexAdapterConfig())
+        key = adapter._session_approval_key(
             "item/commandExecution/requestApproval", {}
         )
         assert key == ""
 
     def test_session_approval_key_method_for_file_changes(self) -> None:
         """Session approval key uses full method for file changes."""
-        key = CodexAdapter._session_approval_key(
+        adapter = CodexAdapter(config=CodexAdapterConfig())
+        key = adapter._session_approval_key(
             "item/fileChange/requestApproval", {"reason": "update"}
         )
         assert key == "item/fileChange/requestApproval"
@@ -4926,8 +4939,8 @@ class TestSessionAutoApproval:
         tools = ToolSchemaFakeTools()
         await adapter.on_started("Agent", "A coding agent")
 
-        # Pre-seed the session-approved set as if /approve-session was used for npm
-        adapter._session_approved["room-1"] = {"commandExecution:npm"}
+        # Pre-seed the session-approved set as if /approve-session was used for "npm install"
+        adapter._session_approved["room-1"] = {"commandExecution:npm install"}
 
         await adapter.on_message(
             make_platform_message(content="install deps"),
@@ -4947,13 +4960,13 @@ class TestSessionAutoApproval:
         )
 
     @pytest.mark.asyncio
-    async def test_session_does_not_auto_approve_different_binary(self) -> None:
-        """Session approval for npm does NOT auto-approve rm commands."""
+    async def test_session_does_not_auto_approve_different_command(self) -> None:
+        """Session approval for 'npm install' does NOT auto-approve 'npm publish'."""
         events = [
             _event_request(
                 30,
                 "item/commandExecution/requestApproval",
-                {"command": "rm -rf tmp"},
+                {"command": "npm publish"},
             ),
             _event_notification(
                 "turn/completed",
@@ -4978,11 +4991,11 @@ class TestSessionAutoApproval:
         tools = ToolSchemaFakeTools()
         await adapter.on_started("Agent", "A coding agent")
 
-        # Pre-seed session approval for npm only
-        adapter._session_approved["room-1"] = {"commandExecution:npm"}
+        # Pre-seed session approval for "npm install" only
+        adapter._session_approved["room-1"] = {"commandExecution:npm install"}
 
         await adapter.on_message(
-            make_platform_message(content="clean up"),
+            make_platform_message(content="publish package"),
             tools,
             CodexSessionState(),
             participants_msg=None,
@@ -4991,9 +5004,62 @@ class TestSessionAutoApproval:
             room_id="room-1",
         )
 
-        # rm should have been declined by the auto_decline policy, not auto-approved
+        # npm publish should have been declined, not auto-approved
         responses = fake_client.responses
         assert any(result.get("decision") == "decline" for _, result in responses)
+
+    @pytest.mark.asyncio
+    async def test_session_binary_granularity_approves_same_binary(self) -> None:
+        """With binary granularity, session approval for 'npm test' auto-approves 'npm install'."""
+        events = [
+            _event_request(
+                40,
+                "item/commandExecution/requestApproval",
+                {"command": "npm install"},
+            ),
+            _event_notification(
+                "turn/completed",
+                {
+                    "turn": {
+                        "id": "turn-1",
+                        "status": "completed",
+                        "items": [],
+                        "error": None,
+                    }
+                },
+            ),
+        ]
+        fake_client = FakeCodexClient(events=events)
+        adapter = CodexAdapter(
+            config=CodexAdapterConfig(
+                transport="ws",
+                approval_mode="manual",
+                session_approval_granularity="binary",
+            ),
+            client_factory=lambda _config: fake_client,
+        )
+        tools = ToolSchemaFakeTools()
+        await adapter.on_started("Agent", "A coding agent")
+
+        # Pre-seed session approval for npm binary
+        adapter._session_approved["room-1"] = {"commandExecution:npm"}
+
+        await adapter.on_message(
+            make_platform_message(content="install deps"),
+            tools,
+            CodexSessionState(),
+            participants_msg=None,
+            contacts_msg=None,
+            is_session_bootstrap=True,
+            room_id="room-1",
+        )
+
+        # npm install should be auto-approved because binary matches
+        responses = fake_client.responses
+        assert any(
+            result.get("decision") in {"accept", "acceptForSession"}
+            for _, result in responses
+        )
 
 
 class TestCleanup:
@@ -5177,7 +5243,8 @@ class TestReviewFixes:
 
     def test_session_approval_key_empty_prevents_wildcard_match(self) -> None:
         """Empty session key from missing command cannot match any session set."""
-        key = CodexAdapter._session_approval_key(
+        adapter = CodexAdapter(config=CodexAdapterConfig())
+        key = adapter._session_approval_key(
             "item/commandExecution/requestApproval", {}
         )
         # Empty key is falsy, so `key and key in session_set` is always False
@@ -5313,8 +5380,8 @@ class TestAcceptForSession:
         tools = ToolSchemaFakeTools()
         await adapter.on_started("Agent", "A coding agent")
 
-        # Pre-seed session approval for npm
-        adapter._session_approved["room-1"] = {"commandExecution:npm"}
+        # Pre-seed session approval for the exact command
+        adapter._session_approved["room-1"] = {"commandExecution:npm install"}
 
         await adapter.on_message(
             make_platform_message(content="install deps"),

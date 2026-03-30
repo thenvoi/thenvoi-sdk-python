@@ -181,7 +181,12 @@ class CodexTokenUsage:
             val = usage.get(key_camel)
             if val is None:
                 val = usage.get(key_snake)
-            return int(val) if val is not None else 0
+            if val is None:
+                return 0
+            try:
+                return int(val)
+            except (ValueError, TypeError):
+                return 0
 
         prev_input = self.input_tokens
         prev_output = self.output_tokens
