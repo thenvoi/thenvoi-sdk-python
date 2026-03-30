@@ -148,7 +148,11 @@ def parse_plan_steps(params: dict[str, Any]) -> list[CodexPlanStep]:
 
 @dataclass
 class CodexTokenUsage:
-    """Accumulated token usage for a Codex thread."""
+    """Cumulative token usage for a Codex thread.
+
+    Each ``thread/tokenUsage/updated`` event carries cumulative totals,
+    so :meth:`update` performs a full replacement (not additive accumulation).
+    """
 
     input_tokens: int = 0
     output_tokens: int = 0
@@ -156,7 +160,11 @@ class CodexTokenUsage:
     total_tokens: int = 0
 
     def update(self, params: dict[str, Any]) -> None:
-        """Update from a thread/tokenUsage/updated payload."""
+        """Replace counters from a ``thread/tokenUsage/updated`` payload.
+
+        Codex emits **cumulative** totals per thread — each event supersedes
+        the previous one — so a full replacement is correct here.
+        """
         usage = params.get("usage") or params
         if not isinstance(usage, dict):
             return

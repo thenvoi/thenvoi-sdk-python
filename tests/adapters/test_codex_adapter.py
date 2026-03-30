@@ -3762,7 +3762,7 @@ class TestEnrichedApprovals:
 
     @pytest.mark.asyncio
     async def test_sandbox_command_changes_mode(self) -> None:
-        """The /sandbox command changes the sandbox mode."""
+        """The /sandbox command sets a per-room override, not mutating global config."""
         fake_client = FakeCodexClient()
         adapter = CodexAdapter(
             config=CodexAdapterConfig(transport="ws"),
@@ -3780,8 +3780,25 @@ class TestEnrichedApprovals:
             room_id="room-1",
         )
 
-        assert adapter.config.sandbox == "read-only"
+        # Per-room override is set, global config is unchanged
+        assert adapter._sandbox_overrides.get("room-1") == "read-only"
+        assert adapter.config.sandbox is None
         assert "read-only" in tools.messages_sent[0]["content"]
+
+    @pytest.mark.asyncio
+    async def test_sandbox_command_is_per_room(self) -> None:
+        """Sandbox override in one room does not affect other rooms."""
+        fake_client = FakeCodexClient()
+        adapter = CodexAdapter(
+            config=CodexAdapterConfig(transport="ws"),
+            client_factory=lambda _config: fake_client,
+        )
+        await adapter.on_started("Agent", "A coding agent")
+
+        adapter._sandbox_overrides["room-1"] = "read-only"
+
+        assert adapter._effective_sandbox("room-1") == "read-only"
+        assert adapter._effective_sandbox("room-2") is None
 
     @pytest.mark.asyncio
     async def test_sandbox_command_rejects_invalid_mode(self) -> None:
@@ -3804,6 +3821,7 @@ class TestEnrichedApprovals:
         )
 
         assert adapter.config.sandbox is None
+        assert "room-1" not in adapter._sandbox_overrides
         assert "Invalid sandbox mode" in tools.messages_sent[0]["content"]
 
     @pytest.mark.asyncio
@@ -4295,8 +4313,10 @@ class TestRealtimeStreaming:
         assert any("Here is the answer." in m["content"] for m in tools.messages_sent)
 
     @pytest.mark.asyncio
-    async def test_commentary_not_accumulated_as_final_text(self) -> None:
-        """Commentary-phase deltas should NOT be accumulated into final_text."""
+    async def test_commentary_excluded_from_final_text_when_streaming_enabled(
+        self,
+    ) -> None:
+        """When stream_commentary_events=True, commentary is excluded from final_text."""
         events = [
             _event_notification(
                 "item/agentMessage/delta",
@@ -4328,7 +4348,7 @@ class TestRealtimeStreaming:
         ]
         fake_client = FakeCodexClient(events=events)
         adapter = CodexAdapter(
-            config=CodexAdapterConfig(transport="ws"),
+            config=CodexAdapterConfig(transport="ws", stream_commentary_events=True),
             client_factory=lambda _config: fake_client,
         )
         tools = ToolSchemaFakeTools()
@@ -4344,9 +4364,65 @@ class TestRealtimeStreaming:
             room_id="room-1",
         )
 
-        # The sent message should only contain "real answer", not "thinking..."
+        # Only the final_answer delta should be in the message text
         assert len(tools.messages_sent) == 1
         assert tools.messages_sent[0]["content"] == "real answer"
+
+    @pytest.mark.asyncio
+    async def test_commentary_included_in_final_text_when_streaming_disabled(
+        self,
+    ) -> None:
+        """When stream_commentary_events=False (default), commentary accumulates into final_text."""
+        events = [
+            _event_notification(
+                "item/agentMessage/delta",
+                {
+                    "delta": "thinking...",
+                    "itemId": "msg-1",
+                    "phase": "commentary",
+                },
+            ),
+            _event_notification(
+                "item/agentMessage/delta",
+                {
+                    "delta": "real answer",
+                    "itemId": "msg-1",
+                    "phase": "final_answer",
+                },
+            ),
+            _event_notification(
+                "turn/completed",
+                {
+                    "turn": {
+                        "id": "turn-1",
+                        "status": "completed",
+                        "items": [],
+                        "error": None,
+                    }
+                },
+            ),
+        ]
+        fake_client = FakeCodexClient(events=events)
+        adapter = CodexAdapter(
+            config=CodexAdapterConfig(transport="ws", stream_commentary_events=False),
+            client_factory=lambda _config: fake_client,
+        )
+        tools = ToolSchemaFakeTools()
+
+        await adapter.on_started("Agent", "A coding agent")
+        await adapter.on_message(
+            make_platform_message(),
+            tools,
+            CodexSessionState(),
+            participants_msg=None,
+            contacts_msg=None,
+            is_session_bootstrap=True,
+            room_id="room-1",
+        )
+
+        # Both phases should be accumulated (backward compatible)
+        assert len(tools.messages_sent) == 1
+        assert tools.messages_sent[0]["content"] == "thinking...real answer"
 
 
 # ===========================================================================

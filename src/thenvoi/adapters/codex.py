@@ -287,6 +287,8 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
         self._approval_audit: dict[str, list[ApprovalAuditEntry]] = {}
         # Session-level approved patterns (room_id -> set of method strings)
         self._session_approved: dict[str, set[str]] = {}
+        # Per-room sandbox overrides (set via /sandbox command)
+        self._sandbox_overrides: dict[str, str] = {}
         # Single client receive queue means turn processing must be serialized.
         self._rpc_lock = asyncio.Lock()
 
@@ -447,7 +449,7 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
                 "threadId": thread_id,
                 "input": turn_input,
             }
-            self._apply_turn_overrides(turn_params)
+            self._apply_turn_overrides(turn_params, room_id=room_id)
 
             turn_started = await self._start_turn_with_model_fallback(turn_params)
             if has_pending_prompt_injection:
@@ -642,10 +644,17 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
                                         "Failed to stream commentary delta",
                                         exc_info=True,
                                     )
-                            # Accumulate all non-commentary phases (including
-                            # future/unknown phases) into fallback text — intentional
-                            # catch-all so new phases don't silently drop content.
-                            if phase != "commentary":
+                            # When commentary streaming is enabled, commentary
+                            # deltas are forwarded as thought events and excluded
+                            # from the final message text.  When disabled, they
+                            # fall through to the accumulator below to preserve
+                            # backward compatibility (no content silently lost).
+                            if (
+                                phase == "commentary"
+                                and self.config.stream_commentary_events
+                            ):
+                                pass  # already streamed above
+                            else:
                                 final_text += delta
                         continue
 
@@ -742,6 +751,7 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
             self._clear_pending_approvals_for_room(room_id)
             self._approval_audit.pop(room_id, None)
             self._session_approved.pop(room_id, None)
+            self._sandbox_overrides.pop(room_id, None)
             if self._room_threads:
                 return
             if self._client is None:
@@ -757,6 +767,7 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
                 self._token_usage.clear()
                 self._approval_audit.clear()
                 self._session_approved.clear()
+                self._sandbox_overrides.clear()
 
     async def _ensure_client_ready(self) -> None:
         if self._client is None:
@@ -883,7 +894,7 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
             "personality": self.config.personality,
             "dynamicTools": dynamic_tools,
         }
-        self._apply_thread_sandbox(start_params)
+        self._apply_thread_sandbox(start_params, room_id=room_id)
 
         started = await self._client.request("thread/start", start_params)
         thread = started.get("thread") if isinstance(started, dict) else {}
@@ -2001,7 +2012,7 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
                 f"- thread_id: {mapped_thread or 'not mapped'}\n"
                 f"- approval_policy: {self.config.approval_policy}\n"
                 f"- approval_mode: {self.config.approval_mode}\n"
-                f"- sandbox: {self.config.sandbox or 'default'}\n"
+                f"- sandbox: {self._effective_sandbox(room_id) or 'default'}\n"
                 f"- reasoning_effort: {self.config.reasoning_effort or 'default'}\n"
                 f"- reasoning_summary: {self.config.reasoning_summary or 'default'}\n"
                 f"- pending_approvals: {len(self._pending_approvals.get(room_id, {}))}\n"
@@ -2081,8 +2092,9 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
         if command == "sandbox":
             mode_arg = args.strip()
             if not mode_arg:
+                effective = self._effective_sandbox(room_id) or "default"
                 await tools.send_message(
-                    f"Current sandbox: `{self.config.sandbox or 'default'}`. "
+                    f"Current sandbox: `{effective}`. "
                     "Use `/sandbox <read-only|workspace-write|danger-full-access>` to change.",
                     mentions=mention,
                 )
@@ -2095,9 +2107,9 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
                     mentions=mention,
                 )
                 return True
-            self.config.sandbox = normalized
+            self._sandbox_overrides[room_id] = normalized
             await tools.send_message(
-                f"Sandbox mode set to `{normalized}` for subsequent turns.",
+                f"Sandbox mode set to `{normalized}` for subsequent turns in this room.",
                 mentions=mention,
             )
             return True
@@ -2107,7 +2119,7 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
             audit = self._approval_audit.get(room_id, [])
             lines = ["Effective permissions:"]
             lines.append(f"- approval_mode: {self.config.approval_mode}")
-            lines.append(f"- sandbox: {self.config.sandbox or 'default'}")
+            lines.append(f"- sandbox: {self._effective_sandbox(room_id) or 'default'}")
             lines.append(f"- approval_policy: {self.config.approval_policy}")
             if session_approved:
                 lines.append(f"- session_approved patterns: {len(session_approved)}")
@@ -2292,7 +2304,9 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
             features=self.features,
         )
 
-    def _apply_turn_overrides(self, params: dict[str, Any]) -> None:
+    def _apply_turn_overrides(
+        self, params: dict[str, Any], *, room_id: str | None = None
+    ) -> None:
         params["model"] = self._selected_model
         params["cwd"] = self.config.cwd
         params["approvalPolicy"] = self.config.approval_policy
@@ -2301,7 +2315,7 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
             params["effort"] = self.config.reasoning_effort
         if self.config.reasoning_summary is not None:
             params["summary"] = self.config.reasoning_summary
-        self._apply_turn_sandbox(params)
+        self._apply_turn_sandbox(params, room_id=room_id)
 
     async def _start_turn_with_model_fallback(
         self, params: dict[str, Any]
@@ -2384,7 +2398,9 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
             )
         )
 
-    def _apply_thread_sandbox(self, params: dict[str, Any]) -> None:
+    def _apply_thread_sandbox(
+        self, params: dict[str, Any], *, room_id: str | None = None
+    ) -> None:
         """Apply sandbox to thread/start params (only SandboxMode is accepted)."""
         if self.config.sandbox_policy is not None:
             # thread/start only has a `sandbox` field (SandboxMode enum).
@@ -2402,15 +2418,16 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
             )
             return
 
-        if self.config.sandbox is None:
+        effective = self._effective_sandbox(room_id)
+        if effective is None:
             return
 
-        sandbox_mode = self._normalize_sandbox_mode(self.config.sandbox)
+        sandbox_mode = self._normalize_sandbox_mode(effective)
         if sandbox_mode is not None:
             params["sandbox"] = sandbox_mode
             return
 
-        if self._canonical_sandbox_key(self.config.sandbox) == "external-sandbox":
+        if self._canonical_sandbox_key(effective) == "external-sandbox":
             # externalSandbox is only representable via sandboxPolicy on
             # turn/start; thread/start does not accept it.
             logger.debug(
@@ -2418,9 +2435,7 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
             )
             return
 
-        logger.warning(
-            "Ignoring unsupported Codex sandbox value: %s", self.config.sandbox
-        )
+        logger.warning("Ignoring unsupported Codex sandbox value: %s", effective)
 
     # SandboxMode (thread/start) uses kebab-case: "read-only", "workspace-write", etc.
     # SandboxPolicy (turn/start) uses camelCase type tags: "readOnly", "workspaceWrite", etc.
@@ -2430,7 +2445,9 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
         "danger-full-access": "dangerFullAccess",
     }
 
-    def _apply_turn_sandbox(self, params: dict[str, Any]) -> None:
+    def _apply_turn_sandbox(
+        self, params: dict[str, Any], *, room_id: str | None = None
+    ) -> None:
         """Apply sandbox to turn/start params (full SandboxPolicy is accepted)."""
         if self.config.sandbox_policy is not None:
             params["sandboxPolicy"] = self._normalize_sandbox_policy(
@@ -2438,23 +2455,30 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
             )
             return
 
-        if self.config.sandbox is None:
+        effective = self._effective_sandbox(room_id)
+        if effective is None:
             return
 
-        sandbox_mode = self._normalize_sandbox_mode(self.config.sandbox)
+        sandbox_mode = self._normalize_sandbox_mode(effective)
         if sandbox_mode is not None:
             policy_type = self._SANDBOX_MODE_TO_POLICY_TYPE.get(sandbox_mode)
             if policy_type:
                 params["sandboxPolicy"] = {"type": policy_type}
             return
 
-        if self._canonical_sandbox_key(self.config.sandbox) == "external-sandbox":
+        if self._canonical_sandbox_key(effective) == "external-sandbox":
             params["sandboxPolicy"] = {"type": "externalSandbox"}
             return
 
-        logger.warning(
-            "Ignoring unsupported Codex sandbox value: %s", self.config.sandbox
-        )
+        logger.warning("Ignoring unsupported Codex sandbox value: %s", effective)
+
+    def _effective_sandbox(self, room_id: str | None = None) -> str | None:
+        """Return the effective sandbox for *room_id*, checking per-room overrides first."""
+        if room_id:
+            override = self._sandbox_overrides.get(room_id)
+            if override is not None:
+                return override
+        return self.config.sandbox
 
     @classmethod
     def _normalize_sandbox_mode(cls, sandbox: str) -> str | None:
