@@ -50,7 +50,7 @@ logger = logging.getLogger(__name__)
 
 TransportKind = Literal["stdio", "ws", "sdk"]
 ApprovalMode = Literal["auto_accept", "auto_decline", "manual"]
-ApprovalDecision = Literal["accept", "decline"]
+ApprovalDecision = Literal["accept", "acceptForSession", "decline"]
 _REASONING_EFFORTS = {"none", "minimal", "low", "medium", "high", "xhigh"}
 _REASONING_SUMMARIES = {"auto", "concise", "detailed", "none"}
 
@@ -480,10 +480,44 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
                     },
                 )
 
+            # Phase 2: Turn STARTED lifecycle event with input summary
+            if (
+                self.config.emit_turn_lifecycle_events
+                and self.config.enable_task_events
+            ):
+                input_summary = (msg.content or "")[:200]
+                try:
+                    await tools.send_event(
+                        content=self._build_task_event_content(
+                            task_id=turn_id or None,
+                            task="Codex turn lifecycle",
+                            status="started",
+                            summary=f"Thread: {thread_id}",
+                        ),
+                        message_type="task",
+                        metadata={
+                            "codex_event_type": "turn_lifecycle",
+                            "codex_room_id": room_id,
+                            "codex_thread_id": thread_id,
+                            "codex_turn_id": turn_id or None,
+                            "codex_turn_status": "started",
+                            "codex_input_summary": input_summary,
+                        },
+                    )
+                except Exception:
+                    logger.debug(
+                        "Failed to emit turn started lifecycle event",
+                        exc_info=True,
+                    )
+
             saw_send_message_tool = False
             final_text = ""
             turn_status = "failed"
             turn_error = ""
+            # Reset per-turn token deltas for the new turn.
+            usage_obj = self._token_usage.get(thread_id)
+            if usage_obj is not None:
+                usage_obj.reset_turn_deltas()
             _turn_start = _time.monotonic()
             # Set SDK request context so the bridge can route server
             # requests to _handle_server_request while we consume events.
@@ -605,6 +639,37 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
                                 thread_id=thread_id,
                                 room_id=room_id,
                             )
+                        continue
+
+                    # --- Phase 2: Context compaction events ---
+                    if event.method == "context/compacted":
+                        if (
+                            self.config.emit_turn_lifecycle_events
+                            and self.config.enable_task_events
+                        ):
+                            compacted_thread = str(params.get("threadId") or thread_id)
+                            compacted_turn = str(params.get("turnId") or turn_id or "")
+                            try:
+                                await tools.send_event(
+                                    content=self._build_task_event_content(
+                                        task_id=compacted_turn or None,
+                                        task="Codex context compaction",
+                                        status="completed",
+                                        summary=f"Thread: {compacted_thread}",
+                                    ),
+                                    message_type="task",
+                                    metadata={
+                                        "codex_event_type": "context_compaction",
+                                        "codex_room_id": room_id,
+                                        "codex_thread_id": compacted_thread,
+                                        "codex_turn_id": compacted_turn or None,
+                                    },
+                                )
+                            except Exception:
+                                logger.debug(
+                                    "Failed to emit context compaction event",
+                                    exc_info=True,
+                                )
                         continue
 
                     # --- Phase 4: Aggregated diffs ---
@@ -1228,7 +1293,7 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
             session_key = self._session_approval_key(event.method, params)
             room_session = self._session_approved.get(room_id, set())
             if session_key and session_key in room_session:
-                decision: ApprovalDecision = "accept"
+                decision: ApprovalDecision = "acceptForSession"
                 decided_by = "session_policy"
             elif self.config.approval_mode == "manual":
                 try:
@@ -1679,6 +1744,10 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
                     approval_metadata["codex_cwd"] = params["cwd"]
                 if params.get("reason"):
                     approval_metadata["codex_reason"] = params["reason"]
+                # Network context (domains, IPs) when available
+                net_ctx = params.get("networkContext") or params.get("network_context")
+                if net_ctx:
+                    approval_metadata["codex_network_context"] = net_ctx
                 try:
                     await tools.send_event(
                         content=self._build_task_event_content(
@@ -1700,10 +1769,9 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
                 pending.future,
                 timeout=self.config.approval_wait_timeout_s,
             )
-            decision: ApprovalDecision = (
-                "accept" if decision_raw == "accept" else "decline"
-            )
-            return decision
+            if decision_raw in {"accept", "acceptForSession"}:
+                return decision_raw  # type: ignore[return-value]
+            return "decline"
         except asyncio.TimeoutError:
             timeout_decision = self.config.approval_timeout_decision
             try:
@@ -2332,9 +2400,13 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
             raise RuntimeError("No matching pending approval after token lookup")
 
         is_session = command == "approve-session"
-        decision_value: ApprovalDecision = (
-            "accept" if command in {"approve", "approve-session"} else "decline"
-        )
+        decision_value: ApprovalDecision
+        if is_session:
+            decision_value = "acceptForSession"
+        elif command == "approve":
+            decision_value = "accept"
+        else:
+            decision_value = "decline"
         if not selected.future.done():
             selected.future.set_result(decision_value)
 
@@ -2342,7 +2414,7 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
         if is_session:
             self._session_approved.setdefault(room_id, set()).add(selected.session_key)
             await tools.send_message(
-                f"Approval `{token}` resolved as `accept` (session-level). "
+                f"Approval `{token}` resolved as `acceptForSession` (session-level). "
                 f"Future `{selected.session_key}` requests will be auto-approved.",
                 mentions=mention,
             )

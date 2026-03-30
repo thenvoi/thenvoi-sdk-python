@@ -152,6 +152,7 @@ class CodexTokenUsage:
 
     Each ``thread/tokenUsage/updated`` event carries cumulative totals,
     so :meth:`update` performs a full replacement (not additive accumulation).
+    Per-turn deltas are computed by subtracting the previous snapshot.
     """
 
     input_tokens: int = 0
@@ -159,11 +160,18 @@ class CodexTokenUsage:
     reasoning_tokens: int = 0
     total_tokens: int = 0
 
+    # Per-turn deltas (computed on each update)
+    turn_input_tokens: int = 0
+    turn_output_tokens: int = 0
+    turn_reasoning_tokens: int = 0
+    turn_total_tokens: int = 0
+
     def update(self, params: dict[str, Any]) -> None:
         """Replace counters from a ``thread/tokenUsage/updated`` payload.
 
         Codex emits **cumulative** totals per thread — each event supersedes
         the previous one — so a full replacement is correct here.
+        Per-turn deltas are computed from the difference.
         """
         usage = params.get("usage") or params
         if not isinstance(usage, dict):
@@ -174,6 +182,11 @@ class CodexTokenUsage:
             if val is None:
                 val = usage.get(key_snake)
             return int(val) if val is not None else 0
+
+        prev_input = self.input_tokens
+        prev_output = self.output_tokens
+        prev_reasoning = self.reasoning_tokens
+        prev_total = self.total_tokens
 
         self.input_tokens = _get("inputTokens", "input_tokens")
         self.output_tokens = _get("outputTokens", "output_tokens")
@@ -187,24 +200,50 @@ class CodexTokenUsage:
             else (self.input_tokens + self.output_tokens + self.reasoning_tokens)
         )
 
+        # Compute per-turn deltas
+        self.turn_input_tokens = max(0, self.input_tokens - prev_input)
+        self.turn_output_tokens = max(0, self.output_tokens - prev_output)
+        self.turn_reasoning_tokens = max(0, self.reasoning_tokens - prev_reasoning)
+        self.turn_total_tokens = max(0, self.total_tokens - prev_total)
+
+    def reset_turn_deltas(self) -> None:
+        """Reset per-turn deltas (call at the start of a new turn)."""
+        self.turn_input_tokens = 0
+        self.turn_output_tokens = 0
+        self.turn_reasoning_tokens = 0
+        self.turn_total_tokens = 0
+
     def to_metadata(self) -> dict[str, Any]:
         """Return metadata dict for a token usage event."""
-        return {
+        meta: dict[str, Any] = {
             "codex_event_type": "token_usage",
             "codex_input_tokens": self.input_tokens,
             "codex_output_tokens": self.output_tokens,
             "codex_reasoning_tokens": self.reasoning_tokens,
             "codex_total_tokens": self.total_tokens,
         }
+        if self.turn_total_tokens > 0:
+            meta["codex_turn_input_tokens"] = self.turn_input_tokens
+            meta["codex_turn_output_tokens"] = self.turn_output_tokens
+            meta["codex_turn_reasoning_tokens"] = self.turn_reasoning_tokens
+            meta["codex_turn_total_tokens"] = self.turn_total_tokens
+        return meta
 
     def format_summary(self) -> str:
         """Human-readable summary."""
-        return (
+        summary = (
             f"Token usage — input: {self.input_tokens:,}, "
             f"output: {self.output_tokens:,}, "
             f"reasoning: {self.reasoning_tokens:,}, "
             f"total: {self.total_tokens:,}"
         )
+        if self.turn_total_tokens > 0:
+            summary += (
+                f" (turn: +{self.turn_input_tokens:,} in, "
+                f"+{self.turn_output_tokens:,} out, "
+                f"+{self.turn_total_tokens:,} total)"
+            )
+        return summary
 
 
 # ---------------------------------------------------------------------------
