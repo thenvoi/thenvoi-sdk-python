@@ -5675,7 +5675,7 @@ class TestCodexSdkClient:
         assert event.params == {"some": "data"}
 
     def test_auto_handle_server_request_approvals(self) -> None:
-        """Auto-handler accepts approval requests and returns {} for others."""
+        """Auto-handler declines approval requests and returns {} for others."""
         try:
             from thenvoi.integrations.codex.sdk_client import CodexSdkClient
         except ImportError:
@@ -5684,12 +5684,12 @@ class TestCodexSdkClient:
         result = CodexSdkClient._auto_handle_server_request(
             "item/commandExecution/requestApproval", {"command": "npm test"}
         )
-        assert result == {"decision": "accept"}
+        assert result == {"decision": "decline"}
 
         result = CodexSdkClient._auto_handle_server_request(
             "item/fileChange/requestApproval", {}
         )
-        assert result == {"decision": "accept"}
+        assert result == {"decision": "decline"}
 
         result = CodexSdkClient._auto_handle_server_request(
             "item/tool/call", {"tool": "test"}
@@ -5720,8 +5720,8 @@ class TestCodexSdkClient:
         assert 42 not in client._pending_server_responses
 
     @pytest.mark.asyncio
-    async def test_respond_error_unblocks_with_empty_dict(self) -> None:
-        """respond_error() sets empty dict to unblock the SDK thread."""
+    async def test_respond_error_unblocks_with_error_info(self) -> None:
+        """respond_error() sets error dict to unblock the SDK thread."""
         try:
             from thenvoi.integrations.codex.sdk_client import CodexSdkClient
         except ImportError:
@@ -5739,10 +5739,12 @@ class TestCodexSdkClient:
         await client.respond_error(99, code=-32000, message="fail")
 
         assert future.done()
-        assert future.result() == {}
+        assert future.result() == {
+            "error": {"code": -32000, "message": "fail", "data": None},
+        }
 
     def test_server_request_bridge_auto_handles_during_request(self) -> None:
-        """During _in_request=True, server requests are auto-handled."""
+        """During _in_request=True, server requests are auto-declined."""
         try:
             from thenvoi.integrations.codex.sdk_client import CodexSdkClient
         except ImportError:
@@ -5759,7 +5761,7 @@ class TestCodexSdkClient:
         result = client._server_request_bridge(
             "item/commandExecution/requestApproval", {"command": "ls"}
         )
-        assert result == {"decision": "accept"}
+        assert result == {"decision": "decline"}
 
     def test_error_conversion(self) -> None:
         """SDK JsonRpcError is converted to CodexJsonRpcError."""

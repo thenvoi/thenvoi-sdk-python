@@ -290,6 +290,10 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
         # Per-room sandbox overrides (set via /sandbox command)
         self._sandbox_overrides: dict[str, str] = {}
         # SDK transport: context for async server-request handling.
+        # INVARIANT: _sdk_request_context is only set while _rpc_lock is held
+        # (i.e. during on_message's turn event loop). If the lock discipline
+        # changes, this must be replaced with per-room/per-thread keying to
+        # avoid routing server requests to the wrong room's tools context.
         self._sdk_request_context: (
             tuple[AgentToolsProtocol, PlatformMessage, str] | None
         ) = None
