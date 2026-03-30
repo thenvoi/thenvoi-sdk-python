@@ -4036,9 +4036,13 @@ class TestPlanAndLifecycle:
             for e in tools.events_sent
             if e["metadata"].get("codex_event_type") == "turn_lifecycle"
         ]
-        assert len(lifecycle_events) == 1
-        assert lifecycle_events[0]["metadata"]["codex_turn_status"] == "completed"
-        assert "codex_duration_s" in lifecycle_events[0]["metadata"]
+        assert len(lifecycle_events) == 2
+        # First event: turn started (with input summary)
+        assert lifecycle_events[0]["metadata"]["codex_turn_status"] == "started"
+        assert "codex_input_summary" in lifecycle_events[0]["metadata"]
+        # Second event: turn completed (with duration)
+        assert lifecycle_events[1]["metadata"]["codex_turn_status"] == "completed"
+        assert "codex_duration_s" in lifecycle_events[1]["metadata"]
 
     @pytest.mark.asyncio
     async def test_threads_command_lists_mappings(self) -> None:
@@ -4911,9 +4915,12 @@ class TestSessionAutoApproval:
             room_id="room-1",
         )
 
-        # The request should have been auto-approved (no manual prompt)
+        # The request should have been auto-approved via session policy
         responses = fake_client.responses
-        assert any(result.get("decision") == "accept" for _, result in responses)
+        assert any(
+            result.get("decision") in {"accept", "acceptForSession"}
+            for _, result in responses
+        )
 
     @pytest.mark.asyncio
     async def test_session_does_not_auto_approve_different_binary(self) -> None:
@@ -5152,6 +5159,432 @@ class TestReviewFixes:
         # Empty key is falsy, so `key and key in session_set` is always False
         assert not key
         assert not (key and key in {"commandExecution:npm"})
+
+
+# ===========================================================================
+# Gap fixes: acceptForSession, network_context, turn started, compaction,
+#            per-turn token deltas
+# ===========================================================================
+
+
+class TestAcceptForSession:
+    @pytest.mark.asyncio
+    async def test_approve_session_sends_accept_for_session_decision(self) -> None:
+        """After /approve-session, the decision sent to Codex is 'acceptForSession'."""
+        events = [
+            _event_request(
+                10,
+                "item/commandExecution/requestApproval",
+                {"command": "npm test"},
+            ),
+            _event_notification(
+                "turn/completed",
+                {
+                    "turn": {
+                        "id": "turn-1",
+                        "status": "completed",
+                        "items": [],
+                        "error": None,
+                    }
+                },
+            ),
+        ]
+        fake_client = FakeCodexClient(events=events)
+        adapter = CodexAdapter(
+            config=CodexAdapterConfig(transport="ws", approval_mode="manual"),
+            client_factory=lambda _config: fake_client,
+        )
+        tools = ToolSchemaFakeTools()
+        await adapter.on_started("Agent", "A coding agent")
+
+        async def approve_session_later():
+            await asyncio.sleep(0.01)
+            await adapter.on_message(
+                make_platform_message(content="/approve-session req-10"),
+                tools,
+                CodexSessionState(),
+                participants_msg=None,
+                contacts_msg=None,
+                is_session_bootstrap=False,
+                room_id="room-1",
+            )
+
+        task = asyncio.create_task(approve_session_later())
+        await adapter.on_message(
+            make_platform_message(content="run tests"),
+            tools,
+            CodexSessionState(),
+            participants_msg=None,
+            contacts_msg=None,
+            is_session_bootstrap=True,
+            room_id="room-1",
+        )
+        await task
+
+        # The decision sent to Codex should be 'acceptForSession'
+        accept_responses = [
+            result
+            for _, result in fake_client.responses
+            if result.get("decision") in {"accept", "acceptForSession"}
+        ]
+        assert len(accept_responses) >= 1
+        assert accept_responses[0]["decision"] == "acceptForSession"
+
+    @pytest.mark.asyncio
+    async def test_session_auto_approval_sends_accept_for_session(self) -> None:
+        """Session auto-approved requests send 'acceptForSession' to Codex."""
+        events = [
+            _event_request(
+                20,
+                "item/commandExecution/requestApproval",
+                {"command": "npm install"},
+            ),
+            _event_notification(
+                "turn/completed",
+                {
+                    "turn": {
+                        "id": "turn-1",
+                        "status": "completed",
+                        "items": [],
+                        "error": None,
+                    }
+                },
+            ),
+        ]
+        fake_client = FakeCodexClient(events=events)
+        adapter = CodexAdapter(
+            config=CodexAdapterConfig(transport="ws", approval_mode="manual"),
+            client_factory=lambda _config: fake_client,
+        )
+        tools = ToolSchemaFakeTools()
+        await adapter.on_started("Agent", "A coding agent")
+
+        # Pre-seed session approval for npm
+        adapter._session_approved["room-1"] = {"commandExecution:npm"}
+
+        await adapter.on_message(
+            make_platform_message(content="install deps"),
+            tools,
+            CodexSessionState(),
+            participants_msg=None,
+            contacts_msg=None,
+            is_session_bootstrap=True,
+            room_id="room-1",
+        )
+
+        # Decision should be acceptForSession
+        responses = fake_client.responses
+        decisions = [r.get("decision") for _, r in responses]
+        assert "acceptForSession" in decisions
+
+
+class TestNetworkContext:
+    @pytest.mark.asyncio
+    async def test_network_context_included_in_approval_metadata(self) -> None:
+        """networkContext from approval params is forwarded in metadata."""
+        events = [
+            _event_request(
+                10,
+                "item/commandExecution/requestApproval",
+                {
+                    "command": "npm install lodash",
+                    "cwd": "/workspace",
+                    "networkContext": {"domains": ["registry.npmjs.org"]},
+                },
+            ),
+            _event_notification(
+                "turn/completed",
+                {
+                    "turn": {
+                        "id": "turn-1",
+                        "status": "completed",
+                        "items": [],
+                        "error": None,
+                    }
+                },
+            ),
+        ]
+        fake_client = FakeCodexClient(events=events)
+        adapter = CodexAdapter(
+            config=CodexAdapterConfig(transport="ws", approval_mode="manual"),
+            client_factory=lambda _config: fake_client,
+        )
+        tools = ToolSchemaFakeTools()
+        await adapter.on_started("Agent", "A coding agent")
+
+        # Resolve the approval in background
+        async def approve_later():
+            await asyncio.sleep(0.01)
+            await adapter.on_message(
+                make_platform_message(content="/approve req-10"),
+                tools,
+                CodexSessionState(),
+                participants_msg=None,
+                contacts_msg=None,
+                is_session_bootstrap=False,
+                room_id="room-1",
+            )
+
+        task = asyncio.create_task(approve_later())
+        await adapter.on_message(
+            make_platform_message(),
+            tools,
+            CodexSessionState(),
+            participants_msg=None,
+            contacts_msg=None,
+            is_session_bootstrap=True,
+            room_id="room-1",
+        )
+        await task
+
+        approval_events = [
+            e
+            for e in tools.events_sent
+            if e["metadata"].get("codex_event_type") == "approval_request"
+        ]
+        assert len(approval_events) == 1
+        assert approval_events[0]["metadata"]["codex_network_context"] == {
+            "domains": ["registry.npmjs.org"]
+        }
+        assert approval_events[0]["metadata"]["codex_command"] == "npm install lodash"
+
+
+class TestTurnStartedLifecycle:
+    @pytest.mark.asyncio
+    async def test_turn_started_lifecycle_event_emitted(self) -> None:
+        """Turn started lifecycle event includes input summary."""
+        events = [
+            _event_notification(
+                "turn/completed",
+                {
+                    "turn": {
+                        "id": "turn-1",
+                        "status": "completed",
+                        "items": [],
+                        "error": None,
+                    }
+                },
+            ),
+        ]
+        fake_client = FakeCodexClient(events=events)
+        adapter = CodexAdapter(
+            config=CodexAdapterConfig(
+                transport="ws",
+                emit_turn_lifecycle_events=True,
+            ),
+            client_factory=lambda _config: fake_client,
+        )
+        tools = ToolSchemaFakeTools()
+        await adapter.on_started("Agent", "A coding agent")
+        await adapter.on_message(
+            make_platform_message(content="fix the login bug"),
+            tools,
+            CodexSessionState(),
+            participants_msg=None,
+            contacts_msg=None,
+            is_session_bootstrap=True,
+            room_id="room-1",
+        )
+
+        started_events = [
+            e
+            for e in tools.events_sent
+            if e["metadata"].get("codex_event_type") == "turn_lifecycle"
+            and e["metadata"].get("codex_turn_status") == "started"
+        ]
+        assert len(started_events) == 1
+        assert (
+            started_events[0]["metadata"]["codex_input_summary"] == "fix the login bug"
+        )
+
+
+class TestContextCompaction:
+    @pytest.mark.asyncio
+    async def test_context_compaction_event_emitted(self) -> None:
+        """context/compacted events are forwarded as task events."""
+        events = [
+            _event_notification(
+                "context/compacted",
+                {"threadId": "thr-1", "turnId": "turn-1"},
+            ),
+            _event_notification(
+                "turn/completed",
+                {
+                    "turn": {
+                        "id": "turn-1",
+                        "status": "completed",
+                        "items": [],
+                        "error": None,
+                    }
+                },
+            ),
+        ]
+        fake_client = FakeCodexClient(events=events)
+        adapter = CodexAdapter(
+            config=CodexAdapterConfig(
+                transport="ws",
+                emit_turn_lifecycle_events=True,
+            ),
+            client_factory=lambda _config: fake_client,
+        )
+        tools = ToolSchemaFakeTools()
+        await adapter.on_started("Agent", "A coding agent")
+        await adapter.on_message(
+            make_platform_message(),
+            tools,
+            CodexSessionState(),
+            participants_msg=None,
+            contacts_msg=None,
+            is_session_bootstrap=True,
+            room_id="room-1",
+        )
+
+        compaction_events = [
+            e
+            for e in tools.events_sent
+            if e["metadata"].get("codex_event_type") == "context_compaction"
+        ]
+        assert len(compaction_events) == 1
+        assert compaction_events[0]["metadata"]["codex_thread_id"] == "thr-1"
+
+    @pytest.mark.asyncio
+    async def test_context_compaction_ignored_when_disabled(self) -> None:
+        """Compaction events are not emitted when emit_turn_lifecycle_events=False."""
+        events = [
+            _event_notification(
+                "context/compacted",
+                {"threadId": "thr-1", "turnId": "turn-1"},
+            ),
+            _event_notification(
+                "turn/completed",
+                {
+                    "turn": {
+                        "id": "turn-1",
+                        "status": "completed",
+                        "items": [],
+                        "error": None,
+                    }
+                },
+            ),
+        ]
+        fake_client = FakeCodexClient(events=events)
+        adapter = CodexAdapter(
+            config=CodexAdapterConfig(
+                transport="ws",
+                emit_turn_lifecycle_events=False,
+            ),
+            client_factory=lambda _config: fake_client,
+        )
+        tools = ToolSchemaFakeTools()
+        await adapter.on_started("Agent", "A coding agent")
+        await adapter.on_message(
+            make_platform_message(),
+            tools,
+            CodexSessionState(),
+            participants_msg=None,
+            contacts_msg=None,
+            is_session_bootstrap=True,
+            room_id="room-1",
+        )
+
+        compaction_events = [
+            e
+            for e in tools.events_sent
+            if e["metadata"].get("codex_event_type") == "context_compaction"
+        ]
+        assert compaction_events == []
+
+
+class TestPerTurnTokenUsage:
+    def test_token_usage_computes_per_turn_deltas(self) -> None:
+        """Per-turn deltas are computed from consecutive cumulative updates."""
+        from thenvoi.integrations.codex.types import CodexTokenUsage
+
+        usage = CodexTokenUsage()
+
+        # First update: turn 1
+        usage.update(
+            {
+                "usage": {
+                    "inputTokens": 1000,
+                    "outputTokens": 500,
+                    "reasoningTokens": 200,
+                    "totalTokens": 1700,
+                }
+            }
+        )
+        assert usage.turn_input_tokens == 1000
+        assert usage.turn_output_tokens == 500
+        assert usage.turn_total_tokens == 1700
+
+        # Second update: turn 2 (cumulative increases)
+        usage.reset_turn_deltas()
+        usage.update(
+            {
+                "usage": {
+                    "inputTokens": 2500,
+                    "outputTokens": 900,
+                    "reasoningTokens": 400,
+                    "totalTokens": 3800,
+                }
+            }
+        )
+        assert usage.turn_input_tokens == 1500  # 2500 - 1000
+        assert usage.turn_output_tokens == 400  # 900 - 500
+        assert usage.turn_reasoning_tokens == 200  # 400 - 200
+        assert usage.turn_total_tokens == 2100  # 3800 - 1700
+
+    def test_token_usage_metadata_includes_turn_deltas(self) -> None:
+        """to_metadata() includes per-turn deltas when available."""
+        from thenvoi.integrations.codex.types import CodexTokenUsage
+
+        usage = CodexTokenUsage()
+        usage.update(
+            {
+                "usage": {
+                    "inputTokens": 1000,
+                    "outputTokens": 500,
+                    "totalTokens": 1500,
+                }
+            }
+        )
+        meta = usage.to_metadata()
+        assert meta["codex_turn_input_tokens"] == 1000
+        assert meta["codex_turn_total_tokens"] == 1500
+
+    def test_token_usage_format_summary_includes_turn(self) -> None:
+        """format_summary() shows per-turn breakdown when deltas > 0."""
+        from thenvoi.integrations.codex.types import CodexTokenUsage
+
+        usage = CodexTokenUsage()
+        usage.update(
+            {
+                "usage": {
+                    "inputTokens": 1000,
+                    "outputTokens": 500,
+                    "totalTokens": 1500,
+                }
+            }
+        )
+        summary = usage.format_summary()
+        assert "turn:" in summary
+        assert "+1,000 in" in summary
+
+    def test_reset_turn_deltas(self) -> None:
+        """reset_turn_deltas() zeroes out per-turn counters."""
+        from thenvoi.integrations.codex.types import CodexTokenUsage
+
+        usage = CodexTokenUsage()
+        usage.update(
+            {"usage": {"inputTokens": 1000, "outputTokens": 500, "totalTokens": 1500}}
+        )
+        assert usage.turn_total_tokens == 1500
+        usage.reset_turn_deltas()
+        assert usage.turn_total_tokens == 0
+        assert usage.turn_input_tokens == 0
+
+        # Thread-level totals should be unchanged
+        assert usage.total_tokens == 1500
 
 
 # ===========================================================================
