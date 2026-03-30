@@ -529,14 +529,26 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
                 usage_obj.reset_turn_deltas()
 
             _turn_start = _time.monotonic()
-            with self._sdk_request_scope(tools, msg, room_id):
-                result = await self._process_turn_events(
-                    tools=tools,
-                    msg=msg,
-                    room_id=room_id,
-                    thread_id=thread_id,
-                    turn_id=turn_id or None,
-                    turn_start=_turn_start,
+            try:
+                with self._sdk_request_scope(tools, msg, room_id):
+                    result = await self._process_turn_events(
+                        tools=tools,
+                        msg=msg,
+                        room_id=room_id,
+                        thread_id=thread_id,
+                        turn_id=turn_id or None,
+                        turn_start=_turn_start,
+                    )
+            except Exception:
+                logger.exception(
+                    "Unexpected error during Codex turn event processing "
+                    "(thread=%s, turn=%s)",
+                    thread_id,
+                    turn_id,
+                )
+                result = _TurnResult(
+                    turn_status="failed",
+                    turn_error="Internal error during turn processing",
                 )
 
             _turn_duration_s = _time.monotonic() - _turn_start
