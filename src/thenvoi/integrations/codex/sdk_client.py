@@ -183,7 +183,9 @@ class CodexSdkClient:
         message: str,
         data: Any | None = None,
     ) -> None:
-        error_result: dict[str, Any] = {}
+        error_result: dict[str, Any] = {
+            "error": {"code": code, "message": message, "data": data},
+        }
         with self._pending_lock:
             future = self._pending_server_responses.pop(int(request_id), None)
         if future is not None and not future.done():
@@ -279,12 +281,22 @@ class CodexSdkClient:
     def _auto_handle_server_request(
         method: str, params: dict[str, Any] | None
     ) -> dict[str, Any]:
-        """Fallback handler used during ``request()`` calls or when no async handler is set."""
+        """Fallback handler used during ``request()`` calls or when no async handler is set.
+
+        Defaults to declining approval requests so that commands are never
+        silently auto-approved when the adapter is not ready to handle them
+        (e.g. during ``request()`` calls or before the handler is registered).
+        """
         if method in {
             "item/commandExecution/requestApproval",
             "item/fileChange/requestApproval",
         }:
-            return {"decision": "accept"}
+            logger.warning(
+                "SDK bridge: auto-declining approval request (method=%s) "
+                "because no async handler is available",
+                method,
+            )
+            return {"decision": "decline"}
         return {}
 
     def _allocate_synthetic_id(self) -> int:
