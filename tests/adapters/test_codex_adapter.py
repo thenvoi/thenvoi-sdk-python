@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 from collections import deque
 from datetime import datetime
 from typing import Any
@@ -3799,6 +3800,36 @@ class TestEnrichedApprovals:
 
         assert adapter._effective_sandbox("room-1") == "read-only"
         assert adapter._effective_sandbox("room-2") is None
+
+    @pytest.mark.asyncio
+    async def test_sandbox_escalation_to_danger_full_access_logs_warning(
+        self,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """Escalating to danger-full-access via /sandbox logs a warning."""
+        fake_client = FakeCodexClient()
+        adapter = CodexAdapter(
+            config=CodexAdapterConfig(transport="ws"),
+            client_factory=lambda _config: fake_client,
+        )
+        tools = ToolSchemaFakeTools()
+        await adapter.on_started("Agent", "A coding agent")
+        with caplog.at_level(logging.WARNING, logger="thenvoi.adapters.codex"):
+            await adapter.on_message(
+                make_platform_message(content="/sandbox danger-full-access"),
+                tools,
+                CodexSessionState(),
+                participants_msg=None,
+                contacts_msg=None,
+                is_session_bootstrap=True,
+                room_id="room-1",
+            )
+
+        assert adapter._sandbox_overrides.get("room-1") == "danger-full-access"
+        assert any(
+            "Sandbox escalated to danger-full-access" in record.message
+            for record in caplog.records
+        )
 
     @pytest.mark.asyncio
     async def test_sandbox_command_rejects_invalid_mode(self) -> None:
