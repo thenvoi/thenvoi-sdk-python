@@ -561,11 +561,11 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
                         delta = params.get("delta")
                         phase = params.get("phase")
                         if isinstance(delta, str):
-                            # Phase 3: Stream commentary-phase deltas as thoughts
                             if (
                                 phase == "commentary"
                                 and self.config.stream_commentary_events
                             ):
+                                # Stream as thought; exclude from final_text.
                                 try:
                                     await tools.send_event(
                                         content=delta,
@@ -586,16 +586,6 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
                                         "Failed to stream commentary delta",
                                         exc_info=True,
                                     )
-                            # When commentary streaming is enabled, commentary
-                            # deltas are forwarded as thought events and excluded
-                            # from the final message text.  When disabled, they
-                            # fall through to the accumulator below to preserve
-                            # backward compatibility (no content silently lost).
-                            if (
-                                phase == "commentary"
-                                and self.config.stream_commentary_events
-                            ):
-                                pass  # already streamed above
                             else:
                                 final_text += delta
                         continue
@@ -2026,6 +2016,13 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
 
         # --- Phase 1: /sandbox and /permissions commands ---
         if command == "sandbox":
+            if self.config.sandbox_policy is not None:
+                await tools.send_message(
+                    "Cannot override sandbox: a `sandbox_policy` is configured. "
+                    "Remove `sandbox_policy` from config to use per-room `/sandbox` overrides.",
+                    mentions=mention,
+                )
+                return True
             mode_arg = args.strip()
             if not mode_arg:
                 effective = self._effective_sandbox(room_id) or "default"
@@ -2114,6 +2111,8 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
                 mapped_thread = self._room_threads.pop(room_id, None)
                 self._prompt_injected_rooms.discard(room_id)
                 self._token_usage.pop(mapped_thread or "", None)
+                self._raw_history_by_room.pop(room_id, None)
+                self._needs_history_injection.discard(room_id)
                 await tools.send_message(
                     f"Thread `{mapped_thread or 'none'}` archived. "
                     "A new thread will be created on next message.",
@@ -2501,7 +2500,9 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
             if isinstance(command, str) and command.strip():
                 binary = command.strip().split()[0]
                 return f"commandExecution:{binary}"
-            return "commandExecution:*"
+            # No identifiable binary — return empty so session-level approval
+            # is not possible (avoids a blanket wildcard match).
+            return ""
         return method
 
     @staticmethod
