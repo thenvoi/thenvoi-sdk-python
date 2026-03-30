@@ -33,6 +33,7 @@ dependencies = [
 [project.optional-dependencies]
 codex = [
     "websockets>=13.0",
+    "codex-app-server-sdk>=0.2.0; python_version >= '3.12'",
 ]
 letta = [
     "letta-client>=0.1.0",

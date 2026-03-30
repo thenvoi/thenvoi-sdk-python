@@ -5152,3 +5152,203 @@ class TestReviewFixes:
         # Empty key is falsy, so `key and key in session_set` is always False
         assert not key
         assert not (key and key in {"commandExecution:npm"})
+
+
+# ===========================================================================
+# Official SDK transport integration
+# ===========================================================================
+
+
+class TestSdkTransport:
+    """Tests for the ``transport="sdk"`` option using :class:`CodexSdkClient`."""
+
+    def test_transport_kind_includes_sdk(self) -> None:
+        """The TransportKind literal accepts 'sdk'."""
+        config = CodexAdapterConfig(transport="sdk")
+        assert config.transport == "sdk"
+
+    def test_build_sdk_client_creates_sdk_client(self) -> None:
+        """_build_sdk_client returns a CodexSdkClient with the request handler set."""
+        try:
+            from thenvoi.integrations.codex.sdk_client import CodexSdkClient
+        except ImportError:
+            pytest.skip("codex-app-server-sdk not installed")
+
+        adapter = CodexAdapter(
+            config=CodexAdapterConfig(transport="sdk"),
+            client_factory=lambda _config: FakeCodexClient(),
+        )
+        try:
+            client = adapter._build_sdk_client(adapter.config)
+        except ImportError:
+            pytest.skip("codex-app-server-sdk not installed")
+        assert isinstance(client, CodexSdkClient)
+        assert client._request_handler is not None
+
+    def test_sdk_request_context_set_and_cleared(self) -> None:
+        """_sdk_request_context is set before event loop and cleared after."""
+        adapter = CodexAdapter(
+            config=CodexAdapterConfig(transport="ws"),
+            client_factory=lambda _config: FakeCodexClient(),
+        )
+        # Before any message, context should be None
+        assert adapter._sdk_request_context is None
+
+
+class TestCodexSdkClient:
+    """Unit tests for :class:`CodexSdkClient` (mocked SDK)."""
+
+    def test_notification_to_rpc_event_pydantic_model(self) -> None:
+        """Notifications with Pydantic payloads are converted to RpcEvent."""
+        try:
+            from thenvoi.integrations.codex.sdk_client import CodexSdkClient
+        except ImportError:
+            pytest.skip("codex-app-server-sdk not installed")
+
+        # Simulate a typed SDK notification with a model_dump method
+        class FakePayload:
+            def model_dump(self, *, by_alias: bool = False) -> dict[str, Any]:
+                return {
+                    "turn": {"id": "turn-1", "status": "completed", "items": []},
+                }
+
+        class FakeNotification:
+            method = "turn/completed"
+            payload = FakePayload()
+
+        event = CodexSdkClient._notification_to_rpc_event(FakeNotification())
+        assert event.kind == "notification"
+        assert event.method == "turn/completed"
+        assert event.id is None
+        assert isinstance(event.params, dict)
+        assert event.params["turn"]["status"] == "completed"
+
+    def test_notification_to_rpc_event_unknown_notification(self) -> None:
+        """Unknown notifications (with .params) are converted to RpcEvent."""
+        try:
+            from thenvoi.integrations.codex.sdk_client import CodexSdkClient
+        except ImportError:
+            pytest.skip("codex-app-server-sdk not installed")
+
+        class FakeUnknownPayload:
+            params: dict[str, Any] = {"some": "data"}
+
+        class FakeNotification:
+            method = "custom/unknown"
+            payload = FakeUnknownPayload()
+
+        event = CodexSdkClient._notification_to_rpc_event(FakeNotification())
+        assert event.method == "custom/unknown"
+        assert event.params == {"some": "data"}
+
+    def test_auto_handle_server_request_approvals(self) -> None:
+        """Auto-handler accepts approval requests and returns {} for others."""
+        try:
+            from thenvoi.integrations.codex.sdk_client import CodexSdkClient
+        except ImportError:
+            pytest.skip("codex-app-server-sdk not installed")
+
+        result = CodexSdkClient._auto_handle_server_request(
+            "item/commandExecution/requestApproval", {"command": "npm test"}
+        )
+        assert result == {"decision": "accept"}
+
+        result = CodexSdkClient._auto_handle_server_request(
+            "item/fileChange/requestApproval", {}
+        )
+        assert result == {"decision": "accept"}
+
+        result = CodexSdkClient._auto_handle_server_request(
+            "item/tool/call", {"tool": "test"}
+        )
+        assert result == {}
+
+    @pytest.mark.asyncio
+    async def test_respond_unblocks_pending_future(self) -> None:
+        """respond() sets the future so the SDK thread unblocks."""
+        try:
+            from thenvoi.integrations.codex.sdk_client import CodexSdkClient
+        except ImportError:
+            pytest.skip("codex-app-server-sdk not installed")
+
+        import concurrent.futures
+
+        client = CodexSdkClient.__new__(CodexSdkClient)
+        client._pending_server_responses = {}
+        client._pending_lock = __import__("threading").Lock()
+
+        future: concurrent.futures.Future[dict[str, Any]] = concurrent.futures.Future()
+        client._pending_server_responses[42] = future
+
+        await client.respond(42, {"decision": "accept"})
+
+        assert future.done()
+        assert future.result() == {"decision": "accept"}
+        assert 42 not in client._pending_server_responses
+
+    @pytest.mark.asyncio
+    async def test_respond_error_unblocks_with_empty_dict(self) -> None:
+        """respond_error() sets empty dict to unblock the SDK thread."""
+        try:
+            from thenvoi.integrations.codex.sdk_client import CodexSdkClient
+        except ImportError:
+            pytest.skip("codex-app-server-sdk not installed")
+
+        import concurrent.futures
+
+        client = CodexSdkClient.__new__(CodexSdkClient)
+        client._pending_server_responses = {}
+        client._pending_lock = __import__("threading").Lock()
+
+        future: concurrent.futures.Future[dict[str, Any]] = concurrent.futures.Future()
+        client._pending_server_responses[99] = future
+
+        await client.respond_error(99, code=-32000, message="fail")
+
+        assert future.done()
+        assert future.result() == {}
+
+    def test_server_request_bridge_auto_handles_during_request(self) -> None:
+        """During _in_request=True, server requests are auto-handled."""
+        try:
+            from thenvoi.integrations.codex.sdk_client import CodexSdkClient
+        except ImportError:
+            pytest.skip("codex-app-server-sdk not installed")
+
+        client = CodexSdkClient.__new__(CodexSdkClient)
+        client._in_request = True
+        client._loop = None
+        client._request_handler = None
+        client._pending_server_responses = {}
+        client._pending_lock = __import__("threading").Lock()
+        client._next_synthetic_id = 0
+
+        result = client._server_request_bridge(
+            "item/commandExecution/requestApproval", {"command": "ls"}
+        )
+        assert result == {"decision": "accept"}
+
+    def test_error_conversion(self) -> None:
+        """SDK JsonRpcError is converted to CodexJsonRpcError."""
+        try:
+            from codex_app_server import JsonRpcError as SdkJsonRpcError
+
+            from thenvoi.integrations.codex.sdk_client import _convert_sdk_error
+        except ImportError:
+            pytest.skip("codex-app-server-sdk not installed")
+
+        sdk_err = SdkJsonRpcError(code=-32001, message="overloaded")
+        converted = _convert_sdk_error(sdk_err)
+        assert isinstance(converted, CodexJsonRpcError)
+        assert converted.code == -32001
+        assert converted.message == "overloaded"
+
+    def test_error_conversion_passthrough(self) -> None:
+        """Non-SDK exceptions pass through unchanged."""
+        try:
+            from thenvoi.integrations.codex.sdk_client import _convert_sdk_error
+        except ImportError:
+            pytest.skip("codex-app-server-sdk not installed")
+
+        err = ValueError("not an SDK error")
+        assert _convert_sdk_error(err) is err
