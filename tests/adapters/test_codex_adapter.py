@@ -3802,11 +3802,35 @@ class TestEnrichedApprovals:
         assert adapter._effective_sandbox("room-2") is None
 
     @pytest.mark.asyncio
+    async def test_sandbox_danger_full_access_requires_confirm_flag(self) -> None:
+        """Escalating to danger-full-access without --confirm shows a prompt."""
+        fake_client = FakeCodexClient()
+        adapter = CodexAdapter(
+            config=CodexAdapterConfig(transport="ws"),
+            client_factory=lambda _config: fake_client,
+        )
+        tools = ToolSchemaFakeTools()
+        await adapter.on_started("Agent", "A coding agent")
+        await adapter.on_message(
+            make_platform_message(content="/sandbox danger-full-access"),
+            tools,
+            CodexSessionState(),
+            participants_msg=None,
+            contacts_msg=None,
+            is_session_bootstrap=True,
+            room_id="room-1",
+        )
+
+        # Override should NOT be set — confirmation was required
+        assert "room-1" not in adapter._sandbox_overrides
+        assert "--confirm" in tools.messages_sent[0]["content"]
+
+    @pytest.mark.asyncio
     async def test_sandbox_escalation_to_danger_full_access_logs_warning(
         self,
         caplog: pytest.LogCaptureFixture,
     ) -> None:
-        """Escalating to danger-full-access via /sandbox logs a warning."""
+        """Escalating to danger-full-access with --confirm logs a warning."""
         fake_client = FakeCodexClient()
         adapter = CodexAdapter(
             config=CodexAdapterConfig(transport="ws"),
@@ -3816,7 +3840,7 @@ class TestEnrichedApprovals:
         await adapter.on_started("Agent", "A coding agent")
         with caplog.at_level(logging.WARNING, logger="thenvoi.adapters.codex"):
             await adapter.on_message(
-                make_platform_message(content="/sandbox danger-full-access"),
+                make_platform_message(content="/sandbox danger-full-access --confirm"),
                 tools,
                 CodexSessionState(),
                 participants_msg=None,
