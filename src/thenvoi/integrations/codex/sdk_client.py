@@ -79,8 +79,11 @@ class CodexSdkClient:
         ] = {}
         self._pending_lock = threading.Lock()
 
-        # Guard: when True, server requests during request() auto-accept.
-        self._in_request = False
+        # Guard: when set, server requests during request() auto-handle.
+        # threading.Event is used instead of a plain bool because _in_request
+        # is written from the asyncio.to_thread worker and read from the SDK's
+        # callback thread — Event.is_set()/set()/clear() are thread-safe.
+        self._in_request = threading.Event()
 
         # Adapter registers its handler via set_request_handler().
         self._request_handler: AsyncRequestHandler | None = None
@@ -142,7 +145,7 @@ class CodexSdkClient:
 
         def _do() -> dict[str, Any]:
             assert self._sync_client is not None
-            self._in_request = True
+            self._in_request.set()
             try:
                 if retry_on_overload:
                     from codex_app_server import retry_on_overload as _retry  # type: ignore[missing-import]
@@ -154,7 +157,7 @@ class CodexSdkClient:
             except Exception as exc:
                 raise _convert_sdk_error(exc) from exc
             finally:
-                self._in_request = False
+                self._in_request.clear()
 
         return await asyncio.to_thread(_do)
 
@@ -183,7 +186,11 @@ class CodexSdkClient:
         message: str,
         data: Any | None = None,
     ) -> None:
+        # Include a safe "decision": "decline" alongside the error details so
+        # the SDK can interpret the response regardless of request type (e.g.
+        # approval requests expect a "decision" key).
         error_result: dict[str, Any] = {
+            "decision": "decline",
             "error": {"code": code, "message": message, "data": data},
         }
         with self._pending_lock:
@@ -224,7 +231,7 @@ class CodexSdkClient:
         Otherwise, schedule the adapter's async handler on the event loop,
         block this thread until a result is ready, and return it to the SDK.
         """
-        if self._in_request:
+        if self._in_request.is_set():
             return self._auto_handle_server_request(method, params)
 
         if self._loop is None or self._request_handler is None:
