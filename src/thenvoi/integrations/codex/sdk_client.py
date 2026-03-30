@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 
 # Type alias matching the adapter's async request handler signature.
 # (RpcEvent) -> dict[str, Any]   (the JSON-RPC result to send back)
-AsyncRequestHandler = Callable[..., Awaitable[dict[str, Any]]]
+AsyncRequestHandler = Callable[..., Awaitable[dict[str, Any] | None]]
 
 # Default timeout for blocking the SDK thread while waiting for async
 # server-request resolution (seconds).
