@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 
 # Type alias matching the adapter's async request handler signature.
 # (RpcEvent) -> dict[str, Any]   (the JSON-RPC result to send back)
-AsyncRequestHandler = Callable[..., Awaitable[dict[str, Any]]]
+AsyncRequestHandler = Callable[..., Awaitable[dict[str, Any] | None]]
 
 # Default timeout for blocking the SDK thread while waiting for async
 # server-request resolution (seconds).
@@ -49,7 +49,7 @@ class CodexSdkClient:
         experimental_api: bool = True,
     ) -> None:
         try:
-            from codex_app_server import AppServerClient, AppServerConfig
+            from codex_app_server import AppServerClient, AppServerConfig  # type: ignore[missing-import]
         except ImportError as exc:
             raise ImportError(
                 "codex-app-server is required for transport='sdk'. "
@@ -145,7 +145,7 @@ class CodexSdkClient:
             self._in_request = True
             try:
                 if retry_on_overload:
-                    from codex_app_server import retry_on_overload as _retry
+                    from codex_app_server import retry_on_overload as _retry  # type: ignore[missing-import]
 
                     return _retry(  # type: ignore[return-value]
                         lambda: self._sync_client._request_raw(method, params),  # noqa: SLF001
@@ -344,7 +344,7 @@ class CodexSdkClient:
 def _convert_sdk_error(exc: Exception) -> Exception:
     """Convert SDK exception types to the adapter's ``CodexJsonRpcError``."""
     try:
-        from codex_app_server import JsonRpcError as SdkJsonRpcError
+        from codex_app_server import JsonRpcError as SdkJsonRpcError  # type: ignore[missing-import]
     except ImportError:
         return exc
 
