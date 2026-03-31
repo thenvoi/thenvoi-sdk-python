@@ -11,12 +11,15 @@ connect() and disconnect() are always called from the same task context.
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
 try:
     from claude_agent_sdk import ClaudeSDKClient, ClaudeAgentOptions
+    from claude_agent_sdk.types import CanUseTool
 except ImportError as e:
     raise ImportError(
         "claude-agent-sdk is required for Claude SDK examples.\n"
@@ -71,15 +74,23 @@ class ClaudeSessionManager:
         await manager.stop()  # Stop background task
     """
 
-    def __init__(self, base_options: ClaudeAgentOptions):
+    def __init__(
+        self,
+        base_options: ClaudeAgentOptions,
+        can_use_tool_factory: Callable[[str], CanUseTool] | None = None,
+    ):
         """
         Initialize session manager.
 
         Args:
             base_options: Base ClaudeAgentOptions to use for all clients.
                           These options are shared across all room sessions.
+            can_use_tool_factory: Optional factory that creates a room-specific
+                ``can_use_tool`` callback.  When set, each new session receives
+                its own callback bound to the room_id.
         """
         self.base_options = base_options
+        self._can_use_tool_factory = can_use_tool_factory
         self._sessions: dict[str, ClaudeSDKClient] = {}
         self._command_queue: asyncio.Queue[_SessionCommand] = asyncio.Queue()
         self._task: asyncio.Task[None] | None = None
@@ -169,6 +180,24 @@ class ClaudeSessionManager:
 
         logger.debug("Session loop exited")
 
+    def _build_options(
+        self, room_id: str, resume_session_id: str | None = None
+    ) -> ClaudeAgentOptions:
+        """Build ``ClaudeAgentOptions`` for a specific room session.
+
+        Uses ``dataclasses.replace()`` to shallow-copy all fields from
+        ``base_options``, then applies room-specific overrides.
+        """
+        overrides: dict[str, Any] = {}
+
+        if resume_session_id:
+            overrides["resume"] = resume_session_id
+
+        if self._can_use_tool_factory:
+            overrides["can_use_tool"] = self._can_use_tool_factory(room_id)
+
+        return dataclasses.replace(self.base_options, **overrides)
+
     async def _do_create_session(
         self, room_id: str | None, resume_session_id: str | None
     ) -> ClaudeSDKClient:
@@ -177,28 +206,16 @@ class ClaudeSessionManager:
             raise ValueError("room_id is required")
 
         if room_id not in self._sessions:
-            # Build options, optionally with resume
             if resume_session_id:
                 logger.info(
                     "Resuming session %s for room: %s", resume_session_id, room_id
                 )
-                # Create options with resume set
-                options = ClaudeAgentOptions(
-                    model=self.base_options.model,
-                    system_prompt=self.base_options.system_prompt,
-                    mcp_servers=self.base_options.mcp_servers,
-                    allowed_tools=self.base_options.allowed_tools,
-                    permission_mode=self.base_options.permission_mode,
-                    resume=resume_session_id,
-                )
-                # Copy max_thinking_tokens if set
-                if hasattr(self.base_options, "max_thinking_tokens"):
-                    options.max_thinking_tokens = self.base_options.max_thinking_tokens
             else:
                 logger.info(
                     "Creating new ClaudeSDKClient session for room: %s", room_id
                 )
-                options = self.base_options
+
+            options = self._build_options(room_id, resume_session_id)
 
             # Create new client with options
             client = ClaudeSDKClient(options=options)

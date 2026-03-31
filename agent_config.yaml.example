@@ -188,6 +188,29 @@ acp_client_agent:
   api_key: ""
 
 # =============================================================================
+# 20 Questions Arena Examples
+# =============================================================================
+
+# Thinker agent - picks a secret word and answers yes/no questions
+arena_thinker:
+  agent_id: ""
+  api_key: ""
+
+# Guesser agents - ask yes/no questions to guess the word
+# Run multiple guessers with different models for a competitive game
+arena_guesser:
+  agent_id: ""
+  api_key: ""
+
+arena_guesser_2:
+  agent_id: ""
+  api_key: ""
+
+arena_guesser_3:
+  agent_id: ""
+  api_key: ""
+
+# =============================================================================
 # Shared Agents (used by multiple frameworks)
 # =============================================================================
 
