@@ -36,6 +36,10 @@ from thenvoi.core.types import PlatformMessage
 from thenvoi.integrations.a2a.gateway.server import GatewayServer
 from thenvoi.integrations.a2a.gateway.types import GatewaySessionState, PendingA2ATask
 from thenvoi_rest import Peer
+from thenvoi_rest.agent_api_peers.types.list_agent_peers_response import (
+    ListAgentPeersResponse,
+)
+from thenvoi_rest.core.api_error import ApiError
 
 logger = logging.getLogger(__name__)
 
@@ -120,6 +124,13 @@ class A2AGatewayAdapter(SimpleAdapter[GatewaySessionState]):
 
         # Request/response correlation
         self._pending_tasks: dict[str, PendingA2ATask] = {}  # room_id → task
+        self._peer_discovery_retry_delays_seconds: tuple[float, ...] = (
+            1.0,
+            2.0,
+            4.0,
+            8.0,
+            16.0,
+        )
 
     async def on_started(self, agent_name: str, agent_description: str) -> None:
         """Fetch peers via REST and start HTTP server.
@@ -131,22 +142,7 @@ class A2AGatewayAdapter(SimpleAdapter[GatewaySessionState]):
         await super().on_started(agent_name, agent_description)
 
         # Fetch ALL peers at startup using REST client (with pagination)
-        all_peers: list[Peer] = []
-        page = 1
-        page_size = 100
-
-        while True:
-            response = await self._rest.agent_api_peers.list_agent_peers(
-                page=page,
-                page_size=page_size,
-                request_options=DEFAULT_REQUEST_OPTIONS,
-            )
-            all_peers.extend(response.data)
-
-            # Check if more pages exist
-            if len(response.data) < page_size:
-                break
-            page += 1
+        all_peers = await self._fetch_all_peers_with_retry()
 
         # Build slug and UUID mappings
         for peer in all_peers:
@@ -167,6 +163,54 @@ class A2AGatewayAdapter(SimpleAdapter[GatewaySessionState]):
         await self._server.start()
 
         logger.info("Gateway HTTP server started on port %d", self.port)
+
+    async def _fetch_all_peers_with_retry(self) -> list[Peer]:
+        """Fetch all peer pages, retrying if the platform rate-limits startup."""
+        all_peers: list[Peer] = []
+        page = 1
+        page_size = 100
+
+        while True:
+            response = await self._list_peers_page_with_retry(
+                page=page,
+                page_size=page_size,
+            )
+            all_peers.extend(response.data)
+
+            if len(response.data) < page_size:
+                return all_peers
+            page += 1
+
+    async def _list_peers_page_with_retry(
+        self, *, page: int, page_size: int
+    ) -> ListAgentPeersResponse:
+        """Fetch one peer page with explicit backoff for live 429s."""
+        attempts = len(self._peer_discovery_retry_delays_seconds) + 1
+        for attempt, delay in enumerate(
+            (0.0, *self._peer_discovery_retry_delays_seconds), start=1
+        ):
+            if delay > 0:
+                logger.warning(
+                    "Rate limited discovering peers for gateway; retrying page %s in %.1fs "
+                    "(attempt %s/%s)",
+                    page,
+                    delay,
+                    attempt,
+                    attempts,
+                )
+                await asyncio.sleep(delay)
+
+            try:
+                return await self._rest.agent_api_peers.list_agent_peers(
+                    page=page,
+                    page_size=page_size,
+                    request_options=DEFAULT_REQUEST_OPTIONS,
+                )
+            except ApiError as exc:
+                if exc.status_code != 429 or attempt == attempts:
+                    raise
+
+        raise RuntimeError("Peer discovery retry loop exited unexpectedly")
 
     async def on_message(
         self,

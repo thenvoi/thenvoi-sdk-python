@@ -17,7 +17,10 @@ from langgraph.checkpoint.memory import MemorySaver
 from langgraph.prebuilt import create_react_agent
 from pydantic import BaseModel
 
-from remote_agent import GatewayClient
+try:
+    from .remote_agent import GatewayClient
+except ImportError:
+    from remote_agent import GatewayClient
 
 logger = logging.getLogger(__name__)
 

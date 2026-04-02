@@ -113,7 +113,10 @@ def _ensure_nest_asyncio() -> None:
             logger.debug("Applied nest_asyncio patch for nested event loops")
 
 
-def _run_async(coro: Coroutine[Any, Any, T]) -> T:
+def _run_async(
+    coro: Coroutine[Any, Any, T],
+    fallback_loop: asyncio.AbstractEventLoop | None = None,
+) -> T:
     """Run an async coroutine from sync context.
 
     CrewAI tools are synchronous but need to call async platform methods.
@@ -130,7 +133,17 @@ def _run_async(coro: Coroutine[Any, Any, T]) -> T:
         loop = asyncio.get_running_loop()
         logger.debug("Running coroutine in existing event loop via nest_asyncio")
     except RuntimeError:
-        # No running event loop - use asyncio.run to create one
+        # No running event loop - prefer the adapter's main loop when available.
+        # CrewAI may execute tools in worker threads, and platform clients are
+        # bound to the runtime loop created during agent startup.
+        if fallback_loop is not None and fallback_loop.is_running():
+            logger.debug(
+                "Running coroutine on fallback event loop via thread-safe submit"
+            )
+            future = asyncio.run_coroutine_threadsafe(coro, fallback_loop)
+            return future.result(timeout=60)
+
+        # No running event loop and no active fallback loop - use asyncio.run
         logger.debug("Running coroutine in new event loop via asyncio.run")
         return asyncio.run(coro)
 
@@ -227,10 +240,12 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
         self._crewai_agent: CrewAIAgent | None = None
         self._message_history: dict[str, list[dict[str, Any]]] = {}
         self._custom_tools: list[CustomToolDef] = additional_tools or []
+        self._tool_loop: asyncio.AbstractEventLoop | None = None
 
     async def on_started(self, agent_name: str, agent_description: str) -> None:
         """Initialize CrewAI agent after metadata is fetched."""
         await super().on_started(agent_name, agent_description)
+        self._tool_loop = asyncio.get_running_loop()
 
         role = self.role or agent_name
         goal = self.goal or agent_description or "Help users accomplish their tasks"
@@ -316,7 +331,7 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
                 )
                 return json.dumps({"status": "error", "message": error_msg})
 
-        return _run_async(_execute())
+        return _run_async(_execute(), fallback_loop=self._tool_loop)
 
     async def _report_tool_call(
         self,
@@ -363,6 +378,16 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
                     "Failed to send tool_result event: %s",
                     e,
                 )
+
+    @staticmethod
+    def _serialize_success_result(result: dict[str, Any]) -> str:
+        """Serialize a successful tool result without losing domain status fields."""
+        payload = dict(result)
+        result_status = payload.pop("status", None)
+        response: dict[str, Any] = {"status": "success", **payload}
+        if result_status is not None:
+            response["result_status"] = result_status
+        return json.dumps(response)
 
     def _convert_custom_tools_to_crewai(self) -> list[BaseTool]:
         """Convert CustomToolDef tuples to CrewAI BaseTool instances.
@@ -662,7 +687,7 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
                     await adapter._report_tool_result(
                         tools, "thenvoi_add_participant", result
                     )
-                    return json.dumps({"status": "success", **result})
+                    return adapter._serialize_success_result(result)
 
                 return adapter._execute_tool("thenvoi_add_participant", execute)
 
@@ -684,7 +709,7 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
                     await adapter._report_tool_result(
                         tools, "thenvoi_remove_participant", result
                     )
-                    return json.dumps({"status": "success", **result})
+                    return adapter._serialize_success_result(result)
 
                 return adapter._execute_tool("thenvoi_remove_participant", execute)
 
@@ -731,7 +756,7 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
                     await adapter._report_tool_result(
                         tools, "thenvoi_lookup_peers", result
                     )
-                    return json.dumps({"status": "success", **result})
+                    return adapter._serialize_success_result(result)
 
                 return adapter._execute_tool("thenvoi_lookup_peers", execute)
 
@@ -780,7 +805,7 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
                     await adapter._report_tool_result(
                         tools, "thenvoi_list_contacts", result
                     )
-                    return json.dumps({"status": "success", **result})
+                    return adapter._serialize_success_result(result)
 
                 return adapter._execute_tool("thenvoi_list_contacts", execute)
 
@@ -803,7 +828,7 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
                     await adapter._report_tool_result(
                         tools, "thenvoi_add_contact", result
                     )
-                    return json.dumps({"status": "success", **result})
+                    return adapter._serialize_success_result(result)
 
                 return adapter._execute_tool("thenvoi_add_contact", execute)
 
@@ -826,7 +851,7 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
                     await adapter._report_tool_result(
                         tools, "thenvoi_remove_contact", result
                     )
-                    return json.dumps({"status": "success", **result})
+                    return adapter._serialize_success_result(result)
 
                 return adapter._execute_tool("thenvoi_remove_contact", execute)
 
@@ -856,7 +881,7 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
                     await adapter._report_tool_result(
                         tools, "thenvoi_list_contact_requests", result
                     )
-                    return json.dumps({"status": "success", **result})
+                    return adapter._serialize_success_result(result)
 
                 return adapter._execute_tool("thenvoi_list_contact_requests", execute)
 
@@ -882,7 +907,7 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
                     await adapter._report_tool_result(
                         tools, "thenvoi_respond_contact_request", result
                     )
-                    return json.dumps({"status": "success", **result})
+                    return adapter._serialize_success_result(result)
 
                 return adapter._execute_tool("thenvoi_respond_contact_request", execute)
 
@@ -930,7 +955,7 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
                     await adapter._report_tool_result(
                         tools, "thenvoi_list_memories", result
                     )
-                    return json.dumps({"status": "success", **result})
+                    return adapter._serialize_success_result(result)
 
                 return adapter._execute_tool("thenvoi_list_memories", execute)
 
@@ -974,7 +999,7 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
                     await adapter._report_tool_result(
                         tools, "thenvoi_store_memory", result
                     )
-                    return json.dumps({"status": "success", **result})
+                    return adapter._serialize_success_result(result)
 
                 return adapter._execute_tool("thenvoi_store_memory", execute)
 
@@ -994,7 +1019,7 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
                     await adapter._report_tool_result(
                         tools, "thenvoi_get_memory", result
                     )
-                    return json.dumps({"status": "success", **result})
+                    return adapter._serialize_success_result(result)
 
                 return adapter._execute_tool("thenvoi_get_memory", execute)
 
@@ -1014,7 +1039,7 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
                     await adapter._report_tool_result(
                         tools, "thenvoi_supersede_memory", result
                     )
-                    return json.dumps({"status": "success", **result})
+                    return adapter._serialize_success_result(result)
 
                 return adapter._execute_tool("thenvoi_supersede_memory", execute)
 
@@ -1034,7 +1059,7 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
                     await adapter._report_tool_result(
                         tools, "thenvoi_archive_memory", result
                     )
-                    return json.dumps({"status": "success", **result})
+                    return adapter._serialize_success_result(result)
 
                 return adapter._execute_tool("thenvoi_archive_memory", execute)
 

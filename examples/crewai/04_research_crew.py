@@ -158,7 +158,7 @@ async def main() -> None:
 
     # Create adapter with crew member configuration
     adapter = CrewAIAdapter(
-        model="gpt-4o",
+        model="gpt-4o-mini",
         role=member["role"],
         goal=member["goal"],
         backstory=member["backstory"],

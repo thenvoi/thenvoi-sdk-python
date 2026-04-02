@@ -174,7 +174,7 @@ _DEFAULT_MODELS: dict[str, str] = {
     "anthropic": "claude-sonnet-4-5-20250929",
     "claude_sdk": "claude-sonnet-4-5-20250929",
     "parlant": "gpt-4o",
-    "crewai": "gpt-4o",
+    "crewai": "gpt-4o-mini",
 }
 
 CONTACTS_INSTRUCTIONS = """
