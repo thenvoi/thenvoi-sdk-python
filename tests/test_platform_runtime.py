@@ -224,6 +224,33 @@ class TestStart:
                 assert call_kwargs["on_session_cleanup"] is on_cleanup
 
     @pytest.mark.asyncio
+    async def test_passes_participant_callbacks_to_agent_runtime(
+        self, mock_link, mock_runtime
+    ):
+        """Should forward participant callbacks into AgentRuntime."""
+        with patch("thenvoi.runtime.platform_runtime.ThenvoiLink") as mock_link_class:
+            mock_link_class.return_value = mock_link
+            with patch(
+                "thenvoi.runtime.platform_runtime.AgentRuntime"
+            ) as mock_runtime_class:
+                mock_runtime_class.return_value = mock_runtime
+
+                on_participant_added = AsyncMock()
+                on_participant_removed = AsyncMock()
+                runtime = PlatformRuntime(
+                    agent_id="agent-123",
+                    api_key="test-key",
+                    on_participant_added=on_participant_added,
+                    on_participant_removed=on_participant_removed,
+                )
+
+                await runtime.start(on_execute=AsyncMock())
+
+                call_kwargs = mock_runtime_class.call_args.kwargs
+                assert call_kwargs["on_participant_added"] is on_participant_added
+                assert call_kwargs["on_participant_removed"] is on_participant_removed
+
+    @pytest.mark.asyncio
     async def test_uses_noop_cleanup_when_none_provided(self, mock_link, mock_runtime):
         """Should use noop cleanup when none provided."""
         with patch("thenvoi.runtime.platform_runtime.ThenvoiLink") as mock_link_class:

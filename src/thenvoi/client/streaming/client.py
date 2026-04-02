@@ -91,6 +91,14 @@ class RoomRemovedPayload(BaseModel):
     removed_at: str | None = None
 
 
+class RoomDeletedPayload(BaseModel):
+    """Payload for room_deleted events on room_participants channels."""
+
+    model_config = ConfigDict(extra="allow")
+
+    id: str
+
+
 class ParticipantAddedPayload(BaseModel):
     """Payload for participant_added events."""
 
@@ -160,6 +168,7 @@ _PAYLOAD_MODELS: dict[str, type[BaseModel]] = {
     "message_created": MessageCreatedPayload,
     "room_added": RoomAddedPayload,
     "room_removed": RoomRemovedPayload,
+    "room_deleted": RoomDeletedPayload,
     "participant_added": ParticipantAddedPayload,
     "participant_removed": ParticipantRemovedPayload,
     "contact_request_received": ContactRequestReceivedPayload,
@@ -312,6 +321,7 @@ class WebSocketClient:
         chat_room_id: str,
         on_participant_added: Callable[[ParticipantAddedPayload], Awaitable[None]],
         on_participant_removed: Callable[[ParticipantRemovedPayload], Awaitable[None]],
+        on_room_deleted: Callable[[RoomDeletedPayload], Awaitable[None]],
     ):
         """Subscribe to room participants topic with async callbacks"""
         topic = f"room_participants:{chat_room_id}"
@@ -323,6 +333,7 @@ class WebSocketClient:
                 {
                     "participant_added": on_participant_added,
                     "participant_removed": on_participant_removed,
+                    "room_deleted": on_room_deleted,
                 },
             )
 

@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 from thenvoi.runtime.execution import Execution, ExecutionContext, _error_label
-from thenvoi.runtime.types import SessionConfig
+from thenvoi.runtime.types import ConversationContext, SessionConfig
 
 # Import test helpers from conftest
 from tests.conftest import (
@@ -915,6 +916,207 @@ class TestContextHydrationConfig:
         context = ctx.build_context()
         assert context.messages == []
         assert len(context.participants) == 1
+
+
+class TestContextCacheTTL:
+    """Tests for context cache TTL expiry."""
+
+    async def test_get_context_rehydrates_when_cache_is_expired(
+        self, mock_link, mock_handler
+    ):
+        """Expired cache should be invalidated and rehydrated."""
+        ctx = ExecutionContext(
+            "room-123",
+            mock_link,
+            mock_handler,
+            config=SessionConfig(context_cache_ttl_seconds=300),
+        )
+
+        await ctx.get_context()
+        mock_link.rest.agent_api_context.get_agent_chat_context.reset_mock()
+
+        ctx._context_cache = ConversationContext(
+            room_id="room-123",
+            messages=[{"id": "stale-msg"}],
+            participants=ctx.participants,
+            hydrated_at=datetime.now(timezone.utc) - timedelta(seconds=301),
+        )
+        ctx._context_hydrated = True
+
+        context = await ctx.get_context()
+
+        mock_link.rest.agent_api_context.get_agent_chat_context.assert_awaited_once()
+        assert len(context.messages) == 1
+        assert context.messages[0]["id"] == "msg-1"
+
+    async def test_get_history_for_llm_invalidates_expired_cache(
+        self, mock_link, mock_handler
+    ):
+        """Synchronous history access should never return stale cached data."""
+        ctx = ExecutionContext(
+            "room-123",
+            mock_link,
+            mock_handler,
+            config=SessionConfig(context_cache_ttl_seconds=300),
+        )
+
+        await ctx.get_context()
+        ctx._context_cache = ConversationContext(
+            room_id="room-123",
+            messages=[{"id": "stale-msg", "content": "stale"}],
+            participants=ctx.participants,
+            hydrated_at=datetime.now(timezone.utc) - timedelta(seconds=301),
+        )
+        ctx._context_hydrated = True
+
+        history = ctx.get_history_for_llm()
+
+        assert history == []
+        assert ctx._context_cache is None
+        assert ctx._context_hydrated is False
+
+    async def test_zero_ttl_forces_immediate_refresh(self, mock_link, mock_handler):
+        """TTL=0 should force rehydration on the next access."""
+        ctx = ExecutionContext(
+            "room-123",
+            mock_link,
+            mock_handler,
+            config=SessionConfig(context_cache_ttl_seconds=0),
+        )
+
+        await ctx.get_context()
+        mock_link.rest.agent_api_context.get_agent_chat_context.reset_mock()
+
+        await ctx.get_context()
+
+        mock_link.rest.agent_api_context.get_agent_chat_context.assert_awaited_once()
+
+    async def test_processing_rehydrates_expired_cache_before_handler(
+        self, mock_link, mock_handler
+    ):
+        """Message processing should refresh expired cache before the handler runs."""
+        ctx = ExecutionContext(
+            "room-123",
+            mock_link,
+            mock_handler,
+            config=SessionConfig(context_cache_ttl_seconds=300),
+        )
+
+        ctx._context_cache = ConversationContext(
+            room_id="room-123",
+            messages=[{"id": "stale-msg"}],
+            participants=[],
+            hydrated_at=datetime.now(timezone.utc) - timedelta(seconds=301),
+        )
+        ctx._context_hydrated = True
+
+        await ctx.start()
+        await asyncio.sleep(0.05)
+
+        event = make_message_event(room_id="room-123", msg_id="msg-ttl")
+        await ctx.on_event(event)
+        await asyncio.sleep(0.1)
+
+        mock_handler.assert_called()
+        assert mock_link.rest.agent_api_context.get_agent_chat_context.await_count == 1
+
+        await ctx.stop()
+
+
+class TestParticipantCallbacks:
+    """Tests for participant callbacks in ExecutionContext."""
+
+    async def test_participant_added_callback_runs_before_handler(
+        self, mock_link, mock_handler
+    ):
+        """participant_added callback should see updated participant state."""
+        on_participant_added = AsyncMock()
+
+        async def handler(ctx, event):
+            assert any(p["id"] == "user-2" for p in ctx.participants)
+            await mock_handler(ctx, event)
+
+        ctx = ExecutionContext(
+            "room-123",
+            mock_link,
+            handler,
+            config=SessionConfig(enable_context_hydration=False),
+            on_participant_added=on_participant_added,
+        )
+        await ctx.start()
+        await asyncio.sleep(0.05)
+
+        event = make_participant_added_event(
+            room_id="room-123",
+            participant_id="user-2",
+            name="User Two",
+        )
+        await ctx.on_event(event)
+        await asyncio.sleep(0.1)
+
+        on_participant_added.assert_awaited_once_with("room-123", event)
+        mock_handler.assert_awaited_once()
+
+        await ctx.stop()
+
+    async def test_participant_removed_callback_runs_before_handler(
+        self, mock_link, mock_handler
+    ):
+        """participant_removed callback should see updated participant state."""
+        on_participant_removed = AsyncMock()
+
+        async def handler(ctx, event):
+            assert all(p["id"] != "user-1" for p in ctx.participants)
+            await mock_handler(ctx, event)
+
+        ctx = ExecutionContext(
+            "room-123",
+            mock_link,
+            handler,
+            on_participant_removed=on_participant_removed,
+        )
+        await ctx.start()
+        await asyncio.sleep(0.05)
+
+        event = make_participant_removed_event(
+            room_id="room-123",
+            participant_id="user-1",
+        )
+        await ctx.on_event(event)
+        await asyncio.sleep(0.1)
+
+        on_participant_removed.assert_awaited_once_with("room-123", event)
+        mock_handler.assert_awaited_once()
+
+        await ctx.stop()
+
+    async def test_participant_callback_error_does_not_block_handler(
+        self, mock_link, mock_handler
+    ):
+        """Participant callback errors should not stop normal execution."""
+        on_participant_added = AsyncMock(side_effect=RuntimeError("callback failed"))
+        ctx = ExecutionContext(
+            "room-123",
+            mock_link,
+            mock_handler,
+            config=SessionConfig(enable_context_hydration=False),
+            on_participant_added=on_participant_added,
+        )
+        await ctx.start()
+        await asyncio.sleep(0.05)
+
+        event = make_participant_added_event(
+            room_id="room-123",
+            participant_id="user-2",
+            name="User Two",
+        )
+        await ctx.on_event(event)
+        await asyncio.sleep(0.1)
+
+        on_participant_added.assert_awaited_once()
+        mock_handler.assert_awaited_once()
+
+        await ctx.stop()
 
 
 class TestGracefulStopWithTimeout:

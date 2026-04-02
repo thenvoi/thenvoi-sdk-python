@@ -16,6 +16,8 @@ from thenvoi.runtime.types import (
     AgentConfig,
     ContactEventConfig,
     ContactEventStrategy,
+    ParticipantAddedCallback,
+    ParticipantRemovedCallback,
     SessionConfig,
 )
 from thenvoi_rest.core.api_error import ApiError
@@ -49,6 +51,8 @@ class PlatformRuntime:
         config: AgentConfig | None = None,
         session_config: SessionConfig | None = None,
         contact_config: ContactEventConfig | None = None,
+        on_participant_added: ParticipantAddedCallback | None = None,
+        on_participant_removed: ParticipantRemovedCallback | None = None,
     ):
         self._agent_id = agent_id
         self._api_key = api_key
@@ -57,6 +61,8 @@ class PlatformRuntime:
         self._config = config or AgentConfig()
         self._session_config = session_config or SessionConfig()
         self._contact_config = contact_config or ContactEventConfig()
+        self._on_participant_added = on_participant_added
+        self._on_participant_removed = on_participant_removed
 
         self._link: ThenvoiLink | None = None
         self._runtime: AgentRuntime | None = None
@@ -156,6 +162,8 @@ class PlatformRuntime:
             on_execute=on_execute,
             session_config=self._session_config,
             on_session_cleanup=on_cleanup or self._noop_cleanup,
+            on_participant_added=self._on_participant_added,
+            on_participant_removed=self._on_participant_removed,
         )
 
         await self._runtime.start()
