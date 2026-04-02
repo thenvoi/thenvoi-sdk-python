@@ -254,6 +254,12 @@ def _letta_factory(**kw: Any) -> Any:
     return LettaAdapter(**kw)
 
 
+def _opencode_factory(**kw: Any) -> Any:
+    from thenvoi.adapters.opencode import OpencodeAdapter
+
+    return OpencodeAdapter(**kw)
+
+
 def _gemini_factory(**kw: Any) -> Any:
     from thenvoi.adapters.gemini import GeminiAdapter
 
@@ -519,6 +525,38 @@ def _build_letta_config() -> AdapterConfig:
     )
 
 
+def _build_opencode_config() -> AdapterConfig:
+    from thenvoi.adapters.opencode import OpencodeAdapterConfig
+
+    return AdapterConfig(
+        framework_id="opencode",
+        display_name="OpenCode",
+        adapter_factory=_opencode_factory,
+        expected_initial_values={
+            "_custom_tools": [],
+            "config": OpencodeAdapterConfig(),
+        },
+        custom_kwargs={
+            "config": OpencodeAdapterConfig(
+                enable_execution_reporting=True,
+                approval_mode="auto_accept",
+                provider_id="opencode",
+                model_id="minimax-m2.5-free",
+            ),
+        },
+        custom_expected={
+            "config": OpencodeAdapterConfig(
+                enable_execution_reporting=True,
+                approval_mode="auto_accept",
+                provider_id="opencode",
+                model_id="minimax-m2.5-free",
+            ),
+        },
+        has_custom_tools_attr=True,
+        custom_tools_attr="_custom_tools",
+    )
+
+
 def _build_gemini_config() -> AdapterConfig:
     from thenvoi.adapters.gemini import GeminiAdapter
 
@@ -604,6 +642,7 @@ _ADAPTER_CONFIG_BUILDERS: list[Callable[[], AdapterConfig]] = [
     _build_parlant_config,
     _build_codex_config,
     _build_letta_config,
+    _build_opencode_config,
     _build_gemini_config,
     _build_google_adk_config,
 ]
