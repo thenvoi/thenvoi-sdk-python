@@ -33,6 +33,13 @@ def test_runtime_symbols_remain_importable_from_runtime() -> None:
     assert ExecutionContext is not None
 
 
+def test_typed_config_is_importable_from_thenvoi_config() -> None:
+    """Verify config-driven API types are importable."""
+    from thenvoi.config import AgentConfig as ConfigAgentConfig
+
+    assert ConfigAgentConfig is not None
+
+
 def test_can_import_letta_adapter_from_lazy_surface() -> None:
     """Verify Letta lazy exports are available."""
     from thenvoi.adapters import LettaAdapter, LettaAdapterConfig

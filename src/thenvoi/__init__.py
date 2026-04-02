@@ -16,17 +16,15 @@ from importlib.metadata import version as _get_version, PackageNotFoundError
 
 # Composition layer (new pattern)
 from .agent import Agent
+from .config import AgentConfig
 
 # Platform layer
 from .platform import ThenvoiLink, PlatformEvent
 
 # Runtime layer
-from .runtime import (
-    AgentConfig,
-    ConversationContext,
-    PlatformMessage,
-    SessionConfig,
-)
+from .runtime.execution import ExecutionContext
+from .runtime.runtime import AgentRuntime
+from .runtime.types import ConversationContext, PlatformMessage, SessionConfig
 
 __all__ = [
     # Composition
@@ -39,6 +37,8 @@ __all__ = [
     "AgentConfig",
     "SessionConfig",
     "ConversationContext",
+    "AgentRuntime",
+    "ExecutionContext",
 ]
 
 try:

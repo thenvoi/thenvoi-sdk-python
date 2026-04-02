@@ -1,5 +1,6 @@
 """Core protocols and types for composition-based architecture."""
 
+from thenvoi.core.exceptions import ThenvoiConfigError, ThenvoiError
 from thenvoi.core.protocols import (
     AgentToolsProtocol,
     FrameworkAdapter,
@@ -18,4 +19,6 @@ __all__ = [
     "PlatformMessage",
     "Preprocessor",
     "SimpleAdapter",
+    "ThenvoiConfigError",
+    "ThenvoiError",
 ]

@@ -14,7 +14,6 @@ from typing import TYPE_CHECKING
 
 from thenvoi.client.rest import AsyncRestClient, DEFAULT_REQUEST_OPTIONS
 from thenvoi.client.streaming import WebSocketClient
-from thenvoi.runtime.types import PlatformMessage
 from thenvoi_rest.core.api_error import ApiError
 
 from .event import (
@@ -32,16 +31,17 @@ from .event import (
 
 if TYPE_CHECKING:
     from thenvoi.client.streaming import (
+        ContactAddedPayload,
+        ContactRemovedPayload,
+        ContactRequestReceivedPayload,
+        ContactRequestUpdatedPayload,
         MessageCreatedPayload,
         ParticipantAddedPayload,
         ParticipantRemovedPayload,
         RoomAddedPayload,
         RoomRemovedPayload,
-        ContactRequestReceivedPayload,
-        ContactRequestUpdatedPayload,
-        ContactAddedPayload,
-        ContactRemovedPayload,
     )
+    from thenvoi.runtime.types import PlatformMessage
 
 logger = logging.getLogger(__name__)
 
@@ -441,6 +441,8 @@ class ThenvoiLink:
             logger.warning("Failed to mark message %s as failed: %s", message_id, e)
 
     async def get_next_message(self, room_id: str) -> PlatformMessage | None:
+        from thenvoi.runtime.types import PlatformMessage
+
         """
         Get next unprocessed message for a room from the server.
 
@@ -485,6 +487,8 @@ class ThenvoiLink:
     async def get_stale_processing_messages(
         self, room_id: str
     ) -> list[PlatformMessage]:
+        from thenvoi.runtime.types import PlatformMessage
+
         """
         Get messages stuck in 'processing' state for a room.
 

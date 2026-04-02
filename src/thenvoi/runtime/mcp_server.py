@@ -17,7 +17,7 @@ from pydantic import BaseModel
 from thenvoi.core.protocols import AgentToolsProtocol
 from starlette.applications import Starlette
 from starlette.requests import Request
-from starlette.responses import PlainTextResponse, Response
+from starlette.responses import PlainTextResponse
 from starlette.routing import Mount, Route
 import uvicorn
 
@@ -411,7 +411,7 @@ class LocalMCPServer:
                     with suppress(asyncio.CancelledError):
                         await http_task
 
-        async def sse_endpoint(request: Request) -> Response:
+        async def sse_endpoint(request: Request) -> None:
             async with sse_transport.connect_sse(
                 request.scope,
                 request.receive,
@@ -422,7 +422,6 @@ class LocalMCPServer:
                     streams[1],
                     initialization_options,
                 )
-            return Response()
 
         async def healthz(_: Request) -> PlainTextResponse:
             return PlainTextResponse("ok")

@@ -1,14 +1,19 @@
 """Tests for Agent compositor."""
 
+from __future__ import annotations
+
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from thenvoi.agent import Agent, DEFAULT_SHUTDOWN_TIMEOUT
+from thenvoi.config.types import AgentConfig as LoadedAgentConfig
+from thenvoi.core.exceptions import ThenvoiConfigError
 from thenvoi.core.simple_adapter import SimpleAdapter
 from thenvoi.core.types import AgentInput
-from thenvoi.runtime.types import AgentConfig, SessionConfig
 from thenvoi.preprocessing.default import DefaultPreprocessor
+from thenvoi.runtime.types import AgentConfig, SessionConfig
 
 
 @pytest.fixture
@@ -146,6 +151,140 @@ class TestCreateFactory:
             )
 
             assert agent._preprocessor is mock_preprocessor
+
+
+class TestFromConfig:
+    """Tests for Agent.from_config()."""
+
+    def test_from_config_uses_python_adapter_and_loaded_credentials(self, mock_adapter):
+        loaded = LoadedAgentConfig(
+            agent_id="11111111-1111-1111-1111-111111111111",
+            api_key="loaded-key",
+        )
+
+        with patch("thenvoi.agent.load_agent_config", return_value=loaded):
+            with patch.object(Agent, "create", return_value="created") as mock_create:
+                result = Agent.from_config("planner", adapter=mock_adapter)
+
+        assert result == "created"
+        mock_create.assert_called_once()
+        kwargs = mock_create.call_args.kwargs
+        assert kwargs["adapter"] is mock_adapter
+        assert kwargs["agent_id"] == "11111111-1111-1111-1111-111111111111"
+        assert kwargs["api_key"] == "loaded-key"
+
+    def test_from_config_builds_adapter_from_yaml_when_not_overridden(self):
+        loaded = LoadedAgentConfig(
+            agent_id="11111111-1111-1111-1111-111111111111",
+            api_key="loaded-key",
+            adapter={"type": "anthropic", "model": "claude-sonnet-4-5"},
+        )
+        built_adapter = MagicMock()
+
+        with patch("thenvoi.agent.load_agent_config", return_value=loaded):
+            with patch(
+                "thenvoi.agent.build_adapter_from_config", return_value=built_adapter
+            ):
+                with patch.object(
+                    Agent, "create", return_value="created"
+                ) as mock_create:
+                    Agent.from_config("planner")
+
+        assert mock_create.call_args.kwargs["adapter"] is built_adapter
+
+    def test_from_config_python_adapter_ignores_yaml_adapter(self, mock_adapter):
+        loaded = LoadedAgentConfig(
+            agent_id="11111111-1111-1111-1111-111111111111",
+            api_key="loaded-key",
+            adapter={"type": "anthropic", "model": "claude-sonnet-4-5"},
+        )
+
+        with patch("thenvoi.agent.load_agent_config", return_value=loaded):
+            with patch("thenvoi.agent.build_adapter_from_config") as mock_builder:
+                with patch.object(
+                    Agent, "create", return_value="created"
+                ) as mock_create:
+                    Agent.from_config("planner", adapter=mock_adapter)
+
+        mock_builder.assert_not_called()
+        assert mock_create.call_args.kwargs["adapter"] is mock_adapter
+
+    def test_from_config_requires_adapter(self):
+        loaded = LoadedAgentConfig(
+            agent_id="11111111-1111-1111-1111-111111111111",
+            api_key="loaded-key",
+        )
+
+        with patch("thenvoi.agent.load_agent_config", return_value=loaded):
+            with pytest.raises(
+                ThenvoiConfigError, match="No adapter configured for agent 'planner'"
+            ):
+                Agent.from_config("planner")
+
+    def test_from_config_merges_list_options(self, mock_adapter):
+        loaded = LoadedAgentConfig(
+            agent_id="11111111-1111-1111-1111-111111111111",
+            api_key="loaded-key",
+            capabilities=["memory"],
+            include_tools=["thenvoi_send_message"],
+            emit=["thoughts"],
+        )
+
+        with patch("thenvoi.agent.load_agent_config", return_value=loaded):
+            with patch.object(Agent, "create", return_value="created") as mock_create:
+                Agent.from_config(
+                    "planner",
+                    adapter=mock_adapter,
+                    capabilities=["contacts", "memory"],
+                    include_tools=["thenvoi_lookup_peers"],
+                    emit=["tool_calls"],
+                )
+
+        kwargs = mock_create.call_args.kwargs
+        assert kwargs["capabilities"] == ["memory", "contacts"]
+        assert kwargs["include_tools"] == [
+            "thenvoi_send_message",
+            "thenvoi_lookup_peers",
+        ]
+        assert kwargs["emit"] == ["thoughts", "tool_calls"]
+
+    def test_from_config_composes_prompt_from_path_yaml_and_override(
+        self, tmp_path, mock_adapter
+    ):
+        prompt_file = tmp_path / "prompt.md"
+        prompt_file.write_text("Path prompt")
+        loaded = LoadedAgentConfig(
+            agent_id="11111111-1111-1111-1111-111111111111",
+            api_key="loaded-key",
+            prompt_path=prompt_file,
+            prompt="Inline prompt",
+        )
+
+        with patch("thenvoi.agent.load_agent_config", return_value=loaded):
+            with patch.object(Agent, "create", return_value="created") as mock_create:
+                Agent.from_config(
+                    "planner",
+                    adapter=mock_adapter,
+                    prompt="Override prompt",
+                )
+
+        prompt = mock_create.call_args.kwargs["prompt"]
+        assert prompt == (
+            "\n\n# Developer Instructions\n\n"
+            "Path prompt\n\nInline prompt\n\nOverride prompt"
+        )
+
+    def test_from_config_missing_prompt_path_raises(self, mock_adapter):
+        missing_path = Path("/tmp/does-not-exist-prompt.md")
+        loaded = LoadedAgentConfig(
+            agent_id="11111111-1111-1111-1111-111111111111",
+            api_key="loaded-key",
+            prompt_path=missing_path,
+        )
+
+        with patch("thenvoi.agent.load_agent_config", return_value=loaded):
+            with pytest.raises(ThenvoiConfigError, match="Prompt file not found"):
+                Agent.from_config("planner", adapter=mock_adapter)
 
 
 class TestProperties:

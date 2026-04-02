@@ -5,14 +5,17 @@ from __future__ import annotations
 import logging
 from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as _get_version
+from pathlib import Path
 from types import TracebackType
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Any, cast
 
+from thenvoi.config import build_adapter_from_config, load_agent_config
+from thenvoi.core.exceptions import ThenvoiConfigError
 from thenvoi.core.protocols import FrameworkAdapter, Preprocessor
 from thenvoi.core.simple_adapter import SimpleAdapter
-from thenvoi.runtime.platform_runtime import PlatformRuntime
-from thenvoi.runtime.types import AgentConfig, ContactEventConfig, SessionConfig
 from thenvoi.preprocessing.default import DefaultPreprocessor
+from thenvoi.runtime.platform_runtime import PlatformRuntime
+from thenvoi.runtime.types import ContactEventConfig, SessionConfig
 
 if TYPE_CHECKING:
     from thenvoi.platform.event import PlatformEvent
@@ -93,10 +96,18 @@ class Agent:
         api_key: str,
         ws_url: str = "wss://app.thenvoi.com/api/v1/socket/websocket",
         rest_url: str = "https://app.thenvoi.com",
-        config: AgentConfig | None = None,
+        config: Any | None = None,
         session_config: SessionConfig | None = None,
         contact_config: ContactEventConfig | None = None,
         preprocessor: Preprocessor | None = None,
+        tools: list[Any] | None = None,
+        capabilities: list[str] | None = None,
+        include_categories: list[str] | None = None,
+        include_tools: list[str] | None = None,
+        exclude_tools: list[str] | None = None,
+        emit: list[str] | None = None,
+        prompt: str | None = None,
+        prompt_path: str | Path | None = None,
     ) -> "Agent":
         """
         Create agent with default runtime.
@@ -125,11 +136,156 @@ class Agent:
             session_config=session_config,
             contact_config=contact_config,
         )
+        cls._apply_composition_options(
+            adapter=adapter,
+            tools=tools,
+            capabilities=capabilities,
+            include_categories=include_categories,
+            include_tools=include_tools,
+            exclude_tools=exclude_tools,
+            emit=emit,
+            prompt=prompt,
+            prompt_path=prompt_path,
+        )
         return cls(
             runtime=runtime,
             adapter=adapter,
             preprocessor=preprocessor,
         )
+
+    @classmethod
+    def from_config(
+        cls,
+        name: str,
+        *,
+        adapter: FrameworkAdapter | SimpleAdapter | None = None,
+        config_path: str | Path | None = None,
+        ws_url: str = "wss://app.thenvoi.com/api/v1/socket/websocket",
+        rest_url: str = "https://app.thenvoi.com",
+        config: Any | None = None,
+        session_config: SessionConfig | None = None,
+        contact_config: ContactEventConfig | None = None,
+        preprocessor: Preprocessor | None = None,
+        tools: list[Any] | None = None,
+        capabilities: list[str] | None = None,
+        include_categories: list[str] | None = None,
+        include_tools: list[str] | None = None,
+        exclude_tools: list[str] | None = None,
+        emit: list[str] | None = None,
+        prompt: str | None = None,
+        prompt_path: str | Path | None = None,
+    ) -> "Agent":
+        loaded = load_agent_config(name, config_path=config_path)
+        loaded_adapter = adapter
+        if loaded_adapter is None and loaded.adapter is not None:
+            loaded_adapter = build_adapter_from_config(loaded.adapter)
+
+        if loaded_adapter is None:
+            raise ThenvoiConfigError(
+                f"No adapter configured for agent '{name}'. Pass adapter= to Agent.from_config() or add an adapter: section to agent_config.yaml."
+            )
+
+        merged_capabilities = cls._merge_lists(loaded.capabilities, capabilities)
+        merged_emit = cls._merge_lists(loaded.emit, emit)
+        merged_include_categories = cls._merge_lists(
+            loaded.include_categories, include_categories
+        )
+        merged_include_tools = cls._merge_lists(loaded.include_tools, include_tools)
+        merged_exclude_tools = cls._merge_lists(loaded.exclude_tools, exclude_tools)
+
+        resolved_prompt_path = prompt_path or loaded.prompt_path
+        resolved_prompt = loaded.prompt if prompt is None else prompt
+        resolved_prompt = cls._compose_prompt(
+            resolved_prompt_path,
+            loaded.prompt,
+            prompt,
+        )
+
+        return cls.create(
+            adapter=loaded_adapter,
+            agent_id=str(loaded.agent_id),
+            api_key=loaded.api_key,
+            ws_url=ws_url,
+            rest_url=rest_url,
+            config=config,
+            session_config=session_config,
+            contact_config=contact_config,
+            preprocessor=preprocessor,
+            tools=tools,
+            capabilities=merged_capabilities,
+            include_categories=merged_include_categories,
+            include_tools=merged_include_tools,
+            exclude_tools=merged_exclude_tools,
+            emit=merged_emit,
+            prompt=resolved_prompt,
+            prompt_path=resolved_prompt_path,
+        )
+
+    @staticmethod
+    def _merge_lists(
+        base: list[str] | None,
+        override: list[str] | None,
+    ) -> list[str] | None:
+        if base is None and override is None:
+            return None
+        merged: list[str] = []
+        for value in (base or []) + (override or []):
+            if value not in merged:
+                merged.append(value)
+        return merged
+
+    @staticmethod
+    def _compose_prompt(
+        loaded_prompt_path: str | Path | None,
+        loaded_prompt: str | None,
+        override_prompt: str | None,
+    ) -> str | None:
+        parts: list[str] = []
+        if loaded_prompt_path:
+            path = Path(loaded_prompt_path)
+            if not path.exists():
+                raise ThenvoiConfigError(
+                    f"Prompt file not found at {path}. Update prompt_path to a readable file."
+                )
+            parts.append(path.read_text(encoding="utf-8").strip())
+        if loaded_prompt:
+            parts.append(loaded_prompt.strip())
+        if override_prompt:
+            parts.append(override_prompt.strip())
+        if not parts:
+            return None
+        return "\n\n# Developer Instructions\n\n" + "\n\n".join(
+            part for part in parts if part
+        )
+
+    @staticmethod
+    def _apply_composition_options(
+        *,
+        adapter: FrameworkAdapter | SimpleAdapter,
+        tools: list[Any] | None,
+        capabilities: list[str] | None,
+        include_categories: list[str] | None,
+        include_tools: list[str] | None,
+        exclude_tools: list[str] | None,
+        emit: list[str] | None,
+        prompt: str | None,
+        prompt_path: str | Path | None,
+    ) -> None:
+        setattr(adapter, "custom_tools", tools or [])
+        setattr(adapter, "capabilities", capabilities or [])
+        setattr(adapter, "include_categories", include_categories)
+        setattr(adapter, "include_tools", include_tools)
+        setattr(adapter, "exclude_tools", exclude_tools)
+        setattr(adapter, "emit", emit or [])
+        if prompt is not None:
+            if hasattr(adapter, "custom_section"):
+                setattr(adapter, "custom_section", prompt)
+            elif hasattr(adapter, "config") and hasattr(
+                adapter.config, "custom_section"
+            ):
+                adapter.config.custom_section = prompt
+        if prompt_path is not None:
+            setattr(adapter, "prompt_path", Path(prompt_path))
 
     @property
     def runtime(self) -> PlatformRuntime:

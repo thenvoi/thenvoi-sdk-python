@@ -1,12 +1,12 @@
-"""
-Agent configuration utilities.
+"""Agent configuration utilities."""
 
-Usage:
-    from thenvoi.config import load_agent_config
+from thenvoi.config.loader import get_config_path, load_agent_config
+from thenvoi.config.registry import build_adapter_from_config
+from thenvoi.config.types import AgentConfig
 
-    agent_id, api_key = load_agent_config("my_agent")
-"""
-
-from thenvoi.config.loader import load_agent_config, get_config_path
-
-__all__ = ["load_agent_config", "get_config_path"]
+__all__ = [
+    "AgentConfig",
+    "build_adapter_from_config",
+    "load_agent_config",
+    "get_config_path",
+]
