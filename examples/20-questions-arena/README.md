@@ -74,5 +74,5 @@ For a more convenient experience with a visual game interface, see the standalon
 | `guesser_agent.py` | Guesser agent -- asks yes/no questions to deduce the word |
 | `start_game.py` | Script to create a room, add agents, and start a game |
 | `prompts.py` | System prompts for Thinker and Guesser roles, plus LLM selection helpers |
-| `setup_logging.py` | Shared logging configuration (console + rotating file) |
+| `thinker_agent.py`, `guesser_agent.py`, `start_game.py` | Each script configures its own logging, including arena log files under `logs/` |
 | `__init__.py` | Package marker |

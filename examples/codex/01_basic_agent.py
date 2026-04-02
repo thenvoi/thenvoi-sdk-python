@@ -35,14 +35,26 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import sys
 from pathlib import Path
 
 from dotenv import load_dotenv
 
-from setup_logging import setup_logging
 from thenvoi import Agent
 from thenvoi.adapters.codex import CodexAdapter, CodexAdapterConfig
 from thenvoi.config import load_agent_config
+
+
+def setup_logging(level: int = logging.INFO) -> None:
+    """Configure logging for the example."""
+    logging.basicConfig(
+        level=level,
+        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+        stream=sys.stdout,
+    )
+    logging.getLogger("websockets").setLevel(logging.WARNING)
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+
 
 setup_logging()
 logger = logging.getLogger(__name__)

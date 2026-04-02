@@ -28,13 +28,11 @@ import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from thenvoi.example_support.logging import setup_logging
-
 from thenvoi import Agent
 from thenvoi.adapters import GeminiAdapter
 from thenvoi.config import load_agent_config
 
-setup_logging()
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 

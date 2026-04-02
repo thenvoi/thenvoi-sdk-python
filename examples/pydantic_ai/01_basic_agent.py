@@ -23,12 +23,11 @@ import os
 
 from dotenv import load_dotenv
 
-from thenvoi.example_support.logging import setup_logging
 from thenvoi import Agent
 from thenvoi.adapters import PydanticAIAdapter
 from thenvoi.config import load_agent_config
 
-setup_logging()
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 

@@ -78,10 +78,22 @@ from dotenv import load_dotenv
 
 from demo_orchestrator.agent import OrchestratorAgent
 from demo_orchestrator.agent_executor import OrchestratorAgentExecutor
-from setup_logging import setup_logging
 from thenvoi import Agent
 from thenvoi.adapters import A2AGatewayAdapter
 from thenvoi.config import load_agent_config
+
+
+def setup_logging(level: int = logging.INFO) -> None:
+    """Configure logging for the example."""
+    logging.basicConfig(
+        level=level,
+        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+    )
+    logging.getLogger("httpcore").setLevel(logging.WARNING)
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("uvicorn").setLevel(logging.WARNING)
+
 
 setup_logging()
 load_dotenv()

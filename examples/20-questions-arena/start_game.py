@@ -15,8 +15,10 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from logging.handlers import RotatingFileHandler
 import os
 import sys
+from pathlib import Path
 
 from dotenv import load_dotenv
 from thenvoi_rest import AsyncRestClient, ChatMessageRequest, ParticipantRequest
@@ -25,10 +27,40 @@ from thenvoi_rest.human_api_chats.types.create_my_chat_room_request_chat import 
 )
 from thenvoi_rest.types import ChatMessageRequestMentionsItem as Mention
 
-from setup_logging import setup_logging
 from thenvoi.config import load_agent_config
 
 logger = logging.getLogger(__name__)
+
+_ARENA_DIR = Path(__file__).resolve().parent
+_LOG_DIR = _ARENA_DIR / "logs"
+
+
+def setup_logging(level: int = logging.INFO, agent_tag: str | None = None) -> None:
+    """Configure logging to console and a rotating file."""
+    fmt = "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
+    datefmt = "%Y-%m-%d %H:%M:%S"
+
+    logging.basicConfig(level=logging.WARNING, format=fmt, datefmt=datefmt)
+    logging.getLogger("thenvoi").setLevel(level)
+
+    _LOG_DIR.mkdir(exist_ok=True)
+    filename = f"{agent_tag}.log" if agent_tag else "20-questions-arena.log"
+    file_handler = RotatingFileHandler(
+        _LOG_DIR / filename,
+        maxBytes=5 * 1024 * 1024,
+        backupCount=3,
+    )
+    file_handler.setLevel(logging.DEBUG)
+    file_handler.setFormatter(logging.Formatter(fmt, datefmt=datefmt))
+    logging.getLogger().addHandler(file_handler)
+
+    for name in (
+        "phoenix_channels_python_client",
+        "langchain",
+        "langchain_openai",
+        "langchain_anthropic",
+    ):
+        logging.getLogger(name).setLevel(logging.DEBUG)
 
 
 def _load_agent_id(config_key: str) -> str | None:

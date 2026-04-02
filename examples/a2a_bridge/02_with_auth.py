@@ -21,11 +21,23 @@ import os
 
 from dotenv import load_dotenv
 
-from setup_logging import setup_logging
 from thenvoi import Agent
 from thenvoi.adapters import A2AAdapter
 from thenvoi.config import load_agent_config
 from thenvoi.integrations.a2a import A2AAuth
+
+
+def setup_logging(level: int = logging.INFO, a2a_debug: bool = False) -> None:
+    """Configure logging to show only Thenvoi logs."""
+    logging.basicConfig(
+        level=logging.WARNING,
+        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+    )
+    logging.getLogger("thenvoi").setLevel(level)
+    if a2a_debug:
+        logging.getLogger("thenvoi.integrations.a2a").setLevel(logging.DEBUG)
+
 
 setup_logging()
 logger = logging.getLogger(__name__)

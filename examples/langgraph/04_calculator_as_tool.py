@@ -34,13 +34,12 @@ from langgraph.checkpoint.memory import InMemorySaver
 
 from standalone_calculator import create_calculator_graph
 
-from thenvoi.example_support.logging import setup_logging
 from thenvoi import Agent
 from thenvoi.adapters import LangGraphAdapter
 from thenvoi.config import load_agent_config
 from thenvoi.integrations.langgraph import graph_as_tool
 
-setup_logging()
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 

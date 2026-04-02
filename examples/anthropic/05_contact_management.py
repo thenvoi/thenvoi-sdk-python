@@ -24,13 +24,24 @@ import os
 
 from dotenv import load_dotenv
 
-from setup_logging import setup_logging
 from thenvoi import Agent
 from thenvoi.adapters import AnthropicAdapter
 from thenvoi.config import load_agent_config
 from thenvoi.platform.event import ContactEvent, ContactRequestReceivedEvent
 from thenvoi.runtime.contact_tools import ContactTools
 from thenvoi.runtime.types import ContactEventConfig, ContactEventStrategy
+
+
+def setup_logging(level: int = logging.INFO) -> None:
+    """Configure logging to show only Thenvoi logs."""
+    logging.basicConfig(
+        level=logging.WARNING,
+        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+    )
+    logging.getLogger("thenvoi").setLevel(level)
+    logging.getLogger("thenvoi_anthropic_agent").setLevel(level)
+
 
 setup_logging()
 logger = logging.getLogger(__name__)

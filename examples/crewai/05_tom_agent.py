@@ -31,10 +31,21 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from prompts.characters import generate_tom_prompt
 
-from setup_logging import setup_logging
 from thenvoi import Agent
 from thenvoi.adapters import CrewAIAdapter
 from thenvoi.config import load_agent_config
+
+
+def setup_logging(level: int = logging.INFO) -> None:
+    """Configure logging to show only Thenvoi logs."""
+    logging.basicConfig(
+        level=logging.WARNING,
+        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+    )
+    logging.getLogger("thenvoi").setLevel(level)
+    logging.getLogger("thenvoi_crewai_agent").setLevel(level)
+
 
 setup_logging()
 logger = logging.getLogger(__name__)
