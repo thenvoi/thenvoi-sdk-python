@@ -1,233 +1,32 @@
-# Agent Configuration for External Agents
+# Minimal config: two required fields in YAML, adapter supplied in Python.
+# Copy this file to agent_config.yaml and fill in real credentials.
+planner:
+  agent_id: "00000000-0000-0000-0000-000000000000"
+  api_key: "replace-with-api-key"
+
+# Full config example (commented out):
+# planner:
+#   agent_id: "00000000-0000-0000-0000-000000000000"
+#   api_key: "${THENVOI_API_KEY}"
+#   capabilities:
+#     - memory
+#     - contacts
+#   emit:
+#     - thoughts
+#     - tool_calls
+#   prompt_path: prompts/planner.md
+#   prompt: |
+#     Keep replies concise.
+#   adapter:
+#     # Supported adapter types:
+#     # anthropic, gemini, claude_sdk, codex, langgraph, crewai,
+#     # pydantic_ai, google_adk, parlant, letta, opencode
+#     type: anthropic
+#     model: claude-sonnet-4-5
 #
-# IMPORTANT: Keep this file secure - it contains agent-specific API keys
-# Add agent_config.yaml to .gitignore to avoid committing secrets
-#
-# SETUP INSTRUCTIONS:
-# 1. Create external agents in the Thenvoi platform
-# 2. Generate an API key for each agent in the platform
-# 3. Copy the agent_id and api_key here
-# 4. The agent name and description are stored on the platform (not here)
-#
-# Each agent entry requires:
-#   agent_id: The unique ID from the platform (required)
-#   api_key: The agent-specific API key from the platform (required)
-
-# =============================================================================
-# LangGraph Examples
-# =============================================================================
-
-# 01_simple_agent.py
-simple_agent:
-  agent_id: ""  # Required: Copy from platform after creating external agent
-  api_key: ""   # Required: Copy agent-specific API key from platform
-
-# 02_custom_tools.py
-custom_tools_agent:
-  agent_id: ""
-  api_key: ""
-
-# 03_custom_personality.py
-custom_personality_agent:
-  agent_id: ""
-  api_key: ""
-
-# 04_calculator_as_tool.py
-calculator_agent:
-  agent_id: ""
-  api_key: ""
-
-# 05_rag_as_tool.py
-rag_agent:
-  agent_id: ""
-  api_key: ""
-
-# 06_delegate_to_sql_agent.py
-sql_agent:
-  agent_id: ""
-  api_key: ""
-
-# 07_tom_agent.py - see tom_agent in Shared Agents section
-# 08_jerry_agent.py - see jerry_agent in Shared Agents section
-
-# =============================================================================
-# Claude SDK Examples
-# =============================================================================
-
-# 01_basic_agent.py
-claude_sdk_basic:
-  agent_id: ""
-  api_key: ""
-
-# 02_extended_thinking.py
-claude_sdk_extended_thinking:
-  agent_id: ""
-  api_key: ""
-
-# 03_tom_agent.py - see tom_agent in Shared Agents section
-# 04_jerry_agent.py - see jerry_agent in Shared Agents section
-
-# =============================================================================
-# Anthropic Examples
-# =============================================================================
-
-# 01_basic_agent.py
-anthropic_agent:
-  agent_id: ""
-  api_key: ""
-
-# 02_custom_instructions.py - see support_agent in Shared Agents section
-# 03_tom_agent.py - see tom_agent in Shared Agents section
-# 04_jerry_agent.py - see jerry_agent in Shared Agents section
-
-# =============================================================================
-# Pydantic AI Examples
-# =============================================================================
-
-# 01_basic_agent.py
-pydantic_agent:
-  agent_id: ""
-  api_key: ""
-
-# 02_custom_instructions.py - see support_agent in Shared Agents section
-# 03_tom_agent.py - see tom_agent in Shared Agents section
-# 04_jerry_agent.py - see jerry_agent in Shared Agents section
-
-# =============================================================================
-# Parlant Examples
-# =============================================================================
-
-# 01_basic_agent.py, 02_with_guidelines.py
-parlant_agent:
-  agent_id: ""
-  api_key: ""
-
-# 03_support_agent.py - see support_agent in Shared Agents section
-# 04_tom_agent.py - see tom_agent in Shared Agents section
-# 05_jerry_agent.py - see jerry_agent in Shared Agents section
-
-# =============================================================================
-# CrewAI Examples
-# =============================================================================
-
-# 01_basic_agent.py, 02_role_based_agent.py
-crewai_agent:
-  agent_id: ""
-  api_key: ""
-
-# 03_coordinator_agent.py
-coordinator_agent:
-  agent_id: ""
-  api_key: ""
-
-# 04_research_crew.py - Research Analyst
-research_agent:
-  agent_id: ""
-  api_key: ""
-
-# 04_research_crew.py - Content Writer
-writer_agent:
-  agent_id: ""
-  api_key: ""
-
-# 04_research_crew.py - Editor
-editor_agent:
-  agent_id: ""
-  api_key: ""
-
-# 05_tom_agent.py - see tom_agent in Shared Agents section
-# 06_jerry_agent.py - see jerry_agent in Shared Agents section
-
-# =============================================================================
-# Gemini Examples
-# =============================================================================
-
-# 01_basic_agent.py
-gemini_agent:
-  agent_id: ""
-  api_key: ""
-
-# Google ADK Examples
-# =============================================================================
-
-# 01_basic_agent.py, 02_custom_instructions.py
-google_adk_agent:
-  agent_id: ""
-  api_key: ""
-
-# =============================================================================
-# A2A Gateway Examples
-# =============================================================================
-
-# 01_basic_gateway.py, 02_with_demo_agent.py
-gateway_agent:
-  agent_id: ""
-  api_key: ""
-
-# =============================================================================
-# A2A Bridge Examples
-# =============================================================================
-
-# 01_basic_agent.py, 02_with_auth.py
-a2a_agent:
-  agent_id: ""
-  api_key: ""
-
-# =============================================================================
-# ACP Examples
-# =============================================================================
-
-# 01_basic_acp_server.py
-acp_server_agent:
-  agent_id: ""
-  api_key: ""
-
-# 02_acp_client.py
-acp_client_agent:
-  agent_id: ""
-  api_key: ""
-
-# =============================================================================
-# 20 Questions Arena Examples
-# =============================================================================
-
-# Thinker agent - picks a secret word and answers yes/no questions
-arena_thinker:
-  agent_id: ""
-  api_key: ""
-
-# Guesser agents - ask yes/no questions to guess the word
-# Run multiple guessers with different models for a competitive game
-arena_guesser:
-  agent_id: ""
-  api_key: ""
-
-arena_guesser_2:
-  agent_id: ""
-  api_key: ""
-
-arena_guesser_3:
-  agent_id: ""
-  api_key: ""
-
-# =============================================================================
-# Shared Agents (used by multiple frameworks)
-# =============================================================================
-
-# Tom the cat character agent
-# Used by: langgraph/07, claude_sdk/03, anthropic/03, pydantic_ai/03, parlant/04, crewai/05
-tom_agent:
-  agent_id: ""
-  api_key: ""
-
-# Jerry the mouse character agent
-# Used by: langgraph/08, claude_sdk/04, anthropic/04, pydantic_ai/04, parlant/05, crewai/06
-jerry_agent:
-  agent_id: ""
-  api_key: ""
-
-# Support agent for customer service examples
-# Used by: anthropic/02, pydantic_ai/02, parlant/03
-support_agent:
-  agent_id: ""
-  api_key: ""
+# reviewer:
+#   agent_id: "11111111-1111-1111-1111-111111111111"
+#   api_key: "${REVIEWER_API_KEY:-dev-reviewer-key}"
+#   adapter:
+#     type: gemini
+#     model: gemini-2.5-flash

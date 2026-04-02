@@ -22,9 +22,8 @@ try:
     from claude_agent_sdk.types import CanUseTool
 except ImportError as e:
     raise ImportError(
-        "claude-agent-sdk is required for Claude SDK examples.\n"
-        "Install with: pip install claude-agent-sdk\n"
-        "Or: uv add claude-agent-sdk"
+        "claude-agent-sdk is required for ClaudeSDKAdapter. "
+        "Install with: pip install thenvoi-sdk[claude_sdk] or uv add thenvoi-sdk[claude_sdk]"
     ) from e
 
 logger = logging.getLogger(__name__)

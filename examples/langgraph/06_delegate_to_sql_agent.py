@@ -37,7 +37,7 @@ from langgraph.checkpoint.memory import InMemorySaver
 
 from standalone_sql_agent import create_sql_agent, download_chinook_db
 
-from setup_logging import setup_logging
+from thenvoi.example_support.logging import setup_logging
 from thenvoi import Agent
 from thenvoi.adapters import LangGraphAdapter
 from thenvoi.config import load_agent_config

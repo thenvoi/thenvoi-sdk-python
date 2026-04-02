@@ -7,7 +7,13 @@ instructions appended for multi-participant chat room behavior.
 
 from __future__ import annotations
 
-from claude_agent_sdk.types import SystemPromptPreset
+try:
+    from claude_agent_sdk.types import SystemPromptPreset
+except ImportError as e:
+    raise ImportError(
+        "claude-agent-sdk is required for ClaudeSDKAdapter. "
+        "Install with: pip install thenvoi-sdk[claude_sdk] or uv add thenvoi-sdk[claude_sdk]"
+    ) from e
 
 
 def generate_claude_sdk_agent_prompt(

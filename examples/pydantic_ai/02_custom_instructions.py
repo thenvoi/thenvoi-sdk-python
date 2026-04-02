@@ -22,7 +22,7 @@ import os
 
 from dotenv import load_dotenv
 
-from setup_logging import setup_logging
+from thenvoi.example_support.logging import setup_logging
 from thenvoi import Agent
 from thenvoi.adapters import PydanticAIAdapter
 from thenvoi.config import load_agent_config

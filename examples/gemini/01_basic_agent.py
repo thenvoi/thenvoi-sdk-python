@@ -28,7 +28,7 @@ import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from setup_logging import setup_logging
+from thenvoi.example_support.logging import setup_logging
 
 from thenvoi import Agent
 from thenvoi.adapters import GeminiAdapter

@@ -39,6 +39,8 @@ if TYPE_CHECKING:
     )
     from thenvoi.adapters.gemini import GeminiAdapter as GeminiAdapter
     from thenvoi.adapters.google_adk import GoogleADKAdapter as GoogleADKAdapter
+    from thenvoi.adapters.letta import LettaAdapter as LettaAdapter
+    from thenvoi.adapters.letta import LettaAdapterConfig as LettaAdapterConfig
 
 __all__ = [
     "LangGraphAdapter",
@@ -56,6 +58,8 @@ __all__ = [
     "ThenvoiACPServerAdapter",
     "GeminiAdapter",
     "GoogleADKAdapter",
+    "LettaAdapter",
+    "LettaAdapterConfig",
 ]
 
 
@@ -121,4 +125,12 @@ def __getattr__(name: str) -> type:
         from thenvoi.adapters.google_adk import GoogleADKAdapter
 
         return GoogleADKAdapter
+    elif name == "LettaAdapter":
+        from thenvoi.adapters.letta import LettaAdapter
+
+        return LettaAdapter
+    elif name == "LettaAdapterConfig":
+        from thenvoi.adapters.letta import LettaAdapterConfig
+
+        return LettaAdapterConfig
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

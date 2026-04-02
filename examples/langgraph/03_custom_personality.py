@@ -22,7 +22,7 @@ from dotenv import load_dotenv
 from langchain_openai import ChatOpenAI
 from langgraph.checkpoint.memory import InMemorySaver
 
-from setup_logging import setup_logging
+from thenvoi.example_support.logging import setup_logging
 from thenvoi import Agent
 from thenvoi.adapters import LangGraphAdapter
 from thenvoi.config import load_agent_config

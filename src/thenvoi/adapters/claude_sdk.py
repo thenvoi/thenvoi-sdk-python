@@ -20,16 +20,43 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Literal
 
+from thenvoi.core.protocols import AgentToolsProtocol
+from thenvoi.core.simple_adapter import SimpleAdapter
+from thenvoi.core.types import PlatformMessage
+from thenvoi.converters.claude_sdk import (
+    ClaudeSDKHistoryConverter,
+    ClaudeSDKSessionState,
+)
+from thenvoi.integrations.claude_sdk.prompts import generate_claude_sdk_agent_prompt
+from thenvoi.integrations.claude_sdk.session_manager import ClaudeSessionManager
+from thenvoi.integrations.mcp.backends import (
+    ThenvoiMCPBackend,
+    create_thenvoi_mcp_backend,
+)
+from thenvoi.runtime.custom_tools import CustomToolDef
+from thenvoi.runtime.tools import (
+    ALL_TOOL_NAMES,
+    BASE_TOOL_NAMES,
+    MEMORY_TOOL_NAMES,
+    iter_tool_definitions,
+    mcp_tool_names,
+)
+
+_CLAUDE_SDK_IMPORT_ERROR = (
+    "claude-agent-sdk is required for ClaudeSDKAdapter. "
+    "Install with: pip install thenvoi-sdk[claude_sdk] or uv add thenvoi-sdk[claude_sdk]"
+)
+
 try:
     from claude_agent_sdk import (
-        ClaudeSDKClient,
-        ClaudeAgentOptions,
         AssistantMessage,
+        ClaudeAgentOptions,
+        ClaudeSDKClient,
+        ResultMessage,
         TextBlock,
         ThinkingBlock,
-        ToolUseBlock,
         ToolResultBlock,
-        ResultMessage,
+        ToolUseBlock,
     )
     from claude_agent_sdk._errors import CLIConnectionError
     from claude_agent_sdk.types import (
@@ -43,33 +70,7 @@ try:
         ToolPermissionContext,
     )
 except ImportError as e:
-    raise ImportError(
-        "claude-agent-sdk is required for Claude SDK examples.\n"
-        "Install with: pip install claude-agent-sdk\n"
-        "Or: uv add claude-agent-sdk"
-    ) from e
-
-from thenvoi.core.protocols import AgentToolsProtocol
-from thenvoi.core.simple_adapter import SimpleAdapter
-from thenvoi.core.types import PlatformMessage
-from thenvoi.converters.claude_sdk import (
-    ClaudeSDKHistoryConverter,
-    ClaudeSDKSessionState,
-)
-from thenvoi.integrations.mcp.backends import (
-    ThenvoiMCPBackend,
-    create_thenvoi_mcp_backend,
-)
-from thenvoi.integrations.claude_sdk.session_manager import ClaudeSessionManager
-from thenvoi.integrations.claude_sdk.prompts import generate_claude_sdk_agent_prompt
-from thenvoi.runtime.custom_tools import CustomToolDef
-from thenvoi.runtime.tools import (
-    ALL_TOOL_NAMES,
-    BASE_TOOL_NAMES,
-    MEMORY_TOOL_NAMES,
-    iter_tool_definitions,
-    mcp_tool_names,
-)
+    raise ImportError(_CLAUDE_SDK_IMPORT_ERROR) from e
 
 logger = logging.getLogger(__name__)
 

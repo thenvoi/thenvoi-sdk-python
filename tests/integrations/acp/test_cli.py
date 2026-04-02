@@ -29,14 +29,19 @@ class TestParseArgs:
 
     def test_parse_args_defaults(self) -> None:
         """Should use default values for optional args."""
-        args = parse_args(
-            [
-                "--agent-id",
-                "agent-123",
-                "--api-key",
-                "key-abc",
-            ]
-        )
+        with patch.dict(
+            os.environ,
+            {},
+            clear=True,
+        ):
+            args = parse_args(
+                [
+                    "--agent-id",
+                    "agent-123",
+                    "--api-key",
+                    "key-abc",
+                ]
+            )
 
         assert args.rest_url == "https://app.thenvoi.com"
         assert args.ws_url == "wss://app.thenvoi.com/api/v1/socket/websocket"
