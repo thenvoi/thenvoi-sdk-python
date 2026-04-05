@@ -64,7 +64,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--api-key",
         default=os.environ.get("THENVOI_API_KEY"),
-        help="API key for authentication (env: THENVOI_API_KEY)",
+        help="API key for authentication (env: THENVOI_API_KEY). Prefer env var over CLI to avoid exposing the key in process listings.",
     )
     parser.add_argument(
         "--rest-url",
@@ -114,7 +114,7 @@ async def find_peer_by_handle(
 
     Returns dict with 'id', 'name', 'handle' or None if not found.
     """
-    handle = handle.lstrip("@")
+    handle = handle.lstrip("@").lower()
     page = 1
     while True:
         if auth_mode == "agent":
@@ -135,18 +135,19 @@ async def find_peer_by_handle(
 
         for peer in response.data:
             peer_handle = getattr(peer, "handle", None) or ""
-            logger.debug(
-                "Peer: name=%s, handle=%s, id=%s",
-                peer.name,
-                peer_handle,
-                peer.id,
-            )
-            if peer_handle == handle:
+            if peer_handle.lower() == handle:
                 return {
                     "id": peer.id,
                     "name": peer.name,
                     "handle": peer_handle,
                 }
+
+        logger.debug(
+            "Scanned %d peers on page %d, no match for '%s'",
+            len(response.data),
+            page,
+            handle,
+        )
 
         total_pages = (
             getattr(response.metadata, "total_pages", 1) if response.metadata else 1
@@ -179,7 +180,7 @@ async def run(args: argparse.Namespace) -> str:
             "Message is required. Provide --message or set THENVOI_MESSAGE."
         )
 
-    client = AsyncRestClient(api_key=args.api_key, base_url=args.rest_url)
+    client = AsyncRestClient(api_key=args.api_key, base_url=args.rest_url.rstrip("/"))
 
     # Step 1: Look up the target peer by handle
     logger.info("Looking up peer with handle: %s", args.target_handle)
@@ -204,7 +205,10 @@ async def run(args: argparse.Namespace) -> str:
             request_options=DEFAULT_REQUEST_OPTIONS,
         )
     room_id = chat_response.data.id
-    logger.info("Created chatroom: %s", room_id)
+    logger.warning(
+        "Created chatroom: %s (will attempt to add participant and send message)",
+        room_id,
+    )
 
     # Step 3: Add the target agent as a participant
     logger.info("Adding %s to chatroom...", peer["name"])
