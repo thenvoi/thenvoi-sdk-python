@@ -1,0 +1,279 @@
+"""
+Thenvoi trigger — create a chatroom and send a message to a target agent.
+
+Use this to trigger a Thenvoi process from cron jobs, CI/CD pipelines, GitHub Actions,
+or any external automation.
+
+Configuration is accepted via CLI arguments and environment variables (CLI takes precedence).
+
+Exit codes:
+    0 — success (prints chatroom ID to stdout)
+    1 — failure (prints error message to stderr)
+
+Examples:
+    # Agent authentication
+    thenvoi-trigger \\
+        --api-key "$THENVOI_API_KEY" \\
+        --target-handle "@owner/my-agent" \\
+        --message "Run the daily report"
+
+    # User authentication
+    thenvoi-trigger \\
+        --api-key "$THENVOI_USER_API_KEY" \\
+        --auth-mode user \\
+        --target-handle "@owner/my-agent" \\
+        --message "Please review the latest PR"
+
+    # Using environment variables
+    THENVOI_API_KEY=key THENVOI_TARGET_HANDLE=@owner/agent \\
+        thenvoi-trigger --message "Hello"
+"""
+
+from __future__ import annotations
+
+import argparse
+import asyncio
+import logging
+import os
+import sys
+
+from thenvoi_rest import (
+    AsyncRestClient,
+    ChatMessageRequest,
+    ChatMessageRequestMentionsItem,
+    ChatRoomRequest,
+    ParticipantRequest,
+)
+from thenvoi_rest.core.request_options import RequestOptions
+from thenvoi_rest.human_api_chats.types.create_my_chat_room_request_chat import (
+    CreateMyChatRoomRequestChat,
+)
+
+logger = logging.getLogger(__name__)
+
+DEFAULT_REST_URL = "https://app.thenvoi.com/"
+DEFAULT_REQUEST_OPTIONS: RequestOptions = {"max_retries": 3}
+
+
+def build_parser() -> argparse.ArgumentParser:
+    """Build the CLI argument parser."""
+    parser = argparse.ArgumentParser(
+        prog="thenvoi-trigger",
+        description="Create a Thenvoi chatroom and send a message to a target agent.",
+    )
+    parser.add_argument(
+        "--api-key",
+        default=os.environ.get("THENVOI_API_KEY"),
+        help="API key for authentication (env: THENVOI_API_KEY)",
+    )
+    parser.add_argument(
+        "--rest-url",
+        default=os.environ.get("THENVOI_REST_URL", DEFAULT_REST_URL),
+        help=(
+            f"Thenvoi REST API URL (env: THENVOI_REST_URL, default: {DEFAULT_REST_URL})"
+        ),
+    )
+    parser.add_argument(
+        "--auth-mode",
+        choices=["agent", "user"],
+        default=os.environ.get("THENVOI_AUTH_MODE", "agent"),
+        help=(
+            "Authentication mode: 'agent' or 'user' "
+            "(env: THENVOI_AUTH_MODE, default: agent)"
+        ),
+    )
+    parser.add_argument(
+        "--target-handle",
+        default=os.environ.get("THENVOI_TARGET_HANDLE"),
+        help=(
+            "Handle of the target agent, e.g. @owner/agent-name "
+            "(env: THENVOI_TARGET_HANDLE)"
+        ),
+    )
+    parser.add_argument(
+        "--message",
+        default=os.environ.get("THENVOI_MESSAGE"),
+        help="Message to send to the target agent (env: THENVOI_MESSAGE)",
+    )
+    parser.add_argument(
+        "--verbose",
+        action="store_true",
+        default=False,
+        help="Enable verbose logging",
+    )
+    return parser
+
+
+async def find_peer_by_handle(
+    client: AsyncRestClient,
+    handle: str,
+    auth_mode: str,
+) -> dict[str, str] | None:
+    """
+    Paginate through peers to find one matching the given handle.
+
+    Returns dict with 'id', 'name', 'handle' or None if not found.
+    """
+    handle = handle.lstrip("@")
+    page = 1
+    while True:
+        if auth_mode == "agent":
+            response = await client.agent_api_peers.list_agent_peers(
+                page=page,
+                page_size=100,
+                request_options=DEFAULT_REQUEST_OPTIONS,
+            )
+        else:
+            response = await client.human_api_peers.list_my_peers(
+                page=page,
+                page_size=100,
+                request_options=DEFAULT_REQUEST_OPTIONS,
+            )
+
+        if not response.data:
+            break
+
+        for peer in response.data:
+            peer_handle = getattr(peer, "handle", None) or ""
+            logger.debug(
+                "Peer: name=%s, handle=%s, id=%s",
+                peer.name,
+                peer_handle,
+                peer.id,
+            )
+            if peer_handle == handle:
+                return {
+                    "id": peer.id,
+                    "name": peer.name,
+                    "handle": peer_handle,
+                }
+
+        total_pages = (
+            getattr(response.metadata, "total_pages", 1) if response.metadata else 1
+        )
+        if page >= total_pages:
+            break
+        page += 1
+
+    return None
+
+
+async def run(args: argparse.Namespace) -> str:
+    """
+    Execute the trigger flow.
+
+    Returns the chatroom ID on success.
+    Raises ValueError or RuntimeError on failure.
+    """
+    if not args.api_key:
+        raise ValueError(
+            "API key is required. Provide --api-key or set THENVOI_API_KEY."
+        )
+    if not args.target_handle:
+        raise ValueError(
+            "Target handle is required. "
+            "Provide --target-handle or set THENVOI_TARGET_HANDLE."
+        )
+    if not args.message:
+        raise ValueError(
+            "Message is required. Provide --message or set THENVOI_MESSAGE."
+        )
+
+    client = AsyncRestClient(api_key=args.api_key, base_url=args.rest_url)
+
+    # Step 1: Look up the target peer by handle
+    logger.info("Looking up peer with handle: %s", args.target_handle)
+    peer = await find_peer_by_handle(client, args.target_handle, args.auth_mode)
+    if not peer:
+        raise ValueError(
+            f"Target agent with handle '{args.target_handle}' not found. "
+            "Verify the handle is correct and that you have access to this peer."
+        )
+    logger.info("Found peer: %s (id=%s)", peer["name"], peer["id"])
+
+    # Step 2: Create a new chatroom
+    logger.info("Creating chatroom...")
+    if args.auth_mode == "agent":
+        chat_response = await client.agent_api_chats.create_agent_chat(
+            chat=ChatRoomRequest(),
+            request_options=DEFAULT_REQUEST_OPTIONS,
+        )
+    else:
+        chat_response = await client.human_api_chats.create_my_chat_room(
+            chat=CreateMyChatRoomRequestChat(),
+            request_options=DEFAULT_REQUEST_OPTIONS,
+        )
+    room_id = chat_response.data.id
+    logger.info("Created chatroom: %s", room_id)
+
+    # Step 3: Add the target agent as a participant
+    logger.info("Adding %s to chatroom...", peer["name"])
+    if args.auth_mode == "agent":
+        await client.agent_api_participants.add_agent_chat_participant(
+            chat_id=room_id,
+            participant=ParticipantRequest(participant_id=peer["id"]),
+            request_options=DEFAULT_REQUEST_OPTIONS,
+        )
+    else:
+        await client.human_api_participants.add_my_chat_participant(
+            chat_id=room_id,
+            participant=ParticipantRequest(participant_id=peer["id"]),
+            request_options=DEFAULT_REQUEST_OPTIONS,
+        )
+    logger.info("Added participant: %s", peer["name"])
+
+    # Step 4: Send the message mentioning the target agent
+    logger.info("Sending message...")
+    mention = ChatMessageRequestMentionsItem(
+        id=peer["id"],
+        handle=peer["handle"],
+    )
+    message_request = ChatMessageRequest(
+        content=args.message,
+        mentions=[mention],
+    )
+    if args.auth_mode == "agent":
+        await client.agent_api_messages.create_agent_chat_message(
+            chat_id=room_id,
+            message=message_request,
+            request_options=DEFAULT_REQUEST_OPTIONS,
+        )
+    else:
+        await client.human_api_messages.send_my_chat_message(
+            chat_id=room_id,
+            message=message_request,
+            request_options=DEFAULT_REQUEST_OPTIONS,
+        )
+    logger.info("Message sent successfully")
+
+    return room_id
+
+
+def main() -> None:
+    """CLI entry point."""
+    parser = build_parser()
+    args = parser.parse_args()
+
+    level = logging.DEBUG if args.verbose else logging.WARNING
+    logging.basicConfig(
+        level=level,
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+        stream=sys.stderr,
+    )
+
+    try:
+        room_id = asyncio.run(run(args))
+    except (ValueError, RuntimeError) as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
+    except Exception as e:
+        logger.exception("Unexpected error: %s", e)
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
+
+    print(room_id)
+    sys.exit(0)
+
+
+if __name__ == "__main__":
+    main()
