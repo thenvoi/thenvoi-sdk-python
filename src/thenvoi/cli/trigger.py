@@ -205,50 +205,55 @@ async def run(args: argparse.Namespace) -> str:
             request_options=DEFAULT_REQUEST_OPTIONS,
         )
     room_id = chat_response.data.id
-    logger.warning(
-        "Created chatroom: %s (will attempt to add participant and send message)",
-        room_id,
-    )
+    logger.info("Created chatroom: %s", room_id)
 
     # Step 3: Add the target agent as a participant
-    logger.info("Adding %s to chatroom...", peer["name"])
-    if args.auth_mode == "agent":
-        await client.agent_api_participants.add_agent_chat_participant(
-            chat_id=room_id,
-            participant=ParticipantRequest(participant_id=peer["id"]),
-            request_options=DEFAULT_REQUEST_OPTIONS,
-        )
-    else:
-        await client.human_api_participants.add_my_chat_participant(
-            chat_id=room_id,
-            participant=ParticipantRequest(participant_id=peer["id"]),
-            request_options=DEFAULT_REQUEST_OPTIONS,
-        )
-    logger.info("Added participant: %s", peer["name"])
-
     # Step 4: Send the message mentioning the target agent
-    logger.info("Sending message...")
-    mention = ChatMessageRequestMentionsItem(
-        id=peer["id"],
-        handle=peer["handle"],
-    )
-    message_request = ChatMessageRequest(
-        content=args.message,
-        mentions=[mention],
-    )
-    if args.auth_mode == "agent":
-        await client.agent_api_messages.create_agent_chat_message(
-            chat_id=room_id,
-            message=message_request,
-            request_options=DEFAULT_REQUEST_OPTIONS,
+    # Wrapped in try/except so we log the orphan room ID on partial failure.
+    try:
+        logger.info("Adding %s to chatroom...", peer["name"])
+        if args.auth_mode == "agent":
+            await client.agent_api_participants.add_agent_chat_participant(
+                chat_id=room_id,
+                participant=ParticipantRequest(participant_id=peer["id"]),
+                request_options=DEFAULT_REQUEST_OPTIONS,
+            )
+        else:
+            await client.human_api_participants.add_my_chat_participant(
+                chat_id=room_id,
+                participant=ParticipantRequest(participant_id=peer["id"]),
+                request_options=DEFAULT_REQUEST_OPTIONS,
+            )
+        logger.info("Added participant: %s", peer["name"])
+
+        logger.info("Sending message...")
+        mention = ChatMessageRequestMentionsItem(
+            id=peer["id"],
+            handle=peer["handle"],
         )
-    else:
-        await client.human_api_messages.send_my_chat_message(
-            chat_id=room_id,
-            message=message_request,
-            request_options=DEFAULT_REQUEST_OPTIONS,
+        message_request = ChatMessageRequest(
+            content=args.message,
+            mentions=[mention],
         )
-    logger.info("Message sent successfully")
+        if args.auth_mode == "agent":
+            await client.agent_api_messages.create_agent_chat_message(
+                chat_id=room_id,
+                message=message_request,
+                request_options=DEFAULT_REQUEST_OPTIONS,
+            )
+        else:
+            await client.human_api_messages.send_my_chat_message(
+                chat_id=room_id,
+                message=message_request,
+                request_options=DEFAULT_REQUEST_OPTIONS,
+            )
+        logger.info("Message sent successfully")
+    except Exception:
+        logger.error(
+            "Failed after creating room %s — room may need manual cleanup",
+            room_id,
+        )
+        raise
 
     return room_id
 
@@ -258,7 +263,7 @@ def main() -> None:
     parser = build_parser()
     args = parser.parse_args()
 
-    level = logging.DEBUG if args.verbose else logging.WARNING
+    level = logging.DEBUG if args.verbose else logging.INFO
     logging.basicConfig(
         level=level,
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
@@ -268,14 +273,15 @@ def main() -> None:
     try:
         room_id = asyncio.run(run(args))
     except (ValueError, RuntimeError) as e:
-        print(f"Error: {e}", file=sys.stderr)
+        sys.stderr.write(f"Error: {e}\n")
         sys.exit(1)
     except Exception as e:
         logger.exception("Unexpected error: %s", e)
-        print(f"Error: {e}", file=sys.stderr)
+        sys.stderr.write(f"Error: {e}\n")
         sys.exit(1)
 
-    print(room_id)
+    # stdout carries the machine-readable room ID (intentional print for CLI output)
+    sys.stdout.write(room_id + "\n")
     sys.exit(0)
 
 

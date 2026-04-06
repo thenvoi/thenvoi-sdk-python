@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from thenvoi.cli.trigger import build_parser, find_peer_by_handle, run
+from thenvoi.cli.trigger import build_parser, find_peer_by_handle, main, run
 
 
 # --- Helpers ---
@@ -325,3 +325,137 @@ class TestRun:
         mock_client.human_api_chats.create_my_chat_room.assert_called_once()
         mock_client.human_api_participants.add_my_chat_participant.assert_called_once()
         mock_client.human_api_messages.send_my_chat_message.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_partial_failure_logs_orphan_room(self):
+        args = _make_args(auth_mode="agent")
+        peer = {"id": "peer-1", "name": "Test Agent", "handle": "owner/agent"}
+
+        with (
+            patch(
+                "thenvoi.cli.trigger.find_peer_by_handle",
+                new_callable=AsyncMock,
+                return_value=peer,
+            ),
+            patch("thenvoi.cli.trigger.AsyncRestClient") as MockClient,
+            patch("thenvoi.cli.trigger.logger") as mock_logger,
+        ):
+            mock_client = AsyncMock()
+            MockClient.return_value = mock_client
+            mock_client.agent_api_chats.create_agent_chat.return_value = (
+                _make_chat_response("orphan-room")
+            )
+            mock_client.agent_api_participants.add_agent_chat_participant.side_effect = RuntimeError(
+                "connection failed"
+            )
+
+            with pytest.raises(RuntimeError, match="connection failed"):
+                await run(args)
+
+        mock_logger.error.assert_called_once_with(
+            "Failed after creating room %s — room may need manual cleanup",
+            "orphan-room",
+        )
+
+
+# --- main() tests ---
+
+
+class TestMain:
+    def test_exits_0_on_success(self, monkeypatch):
+        monkeypatch.setattr(
+            "sys.argv",
+            [
+                "thenvoi-trigger",
+                "--api-key",
+                "k",
+                "--target-handle",
+                "@a/b",
+                "--message",
+                "hi",
+            ],
+        )
+        with (
+            patch("thenvoi.cli.trigger.asyncio.run", return_value="room-ok"),
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            main()
+        assert exc_info.value.code == 0
+
+    def test_exits_1_on_missing_api_key(self, monkeypatch):
+        monkeypatch.delenv("THENVOI_API_KEY", raising=False)
+        monkeypatch.setattr("sys.argv", ["thenvoi-trigger"])
+
+        with (
+            patch(
+                "thenvoi.cli.trigger.asyncio.run",
+                side_effect=ValueError("API key is required"),
+            ),
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            main()
+        assert exc_info.value.code == 1
+
+    def test_exits_1_on_unexpected_error(self, monkeypatch):
+        monkeypatch.setattr(
+            "sys.argv",
+            [
+                "thenvoi-trigger",
+                "--api-key",
+                "k",
+                "--target-handle",
+                "@a/b",
+                "--message",
+                "hi",
+            ],
+        )
+        with (
+            patch("thenvoi.cli.trigger.asyncio.run", side_effect=Exception("boom")),
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            main()
+        assert exc_info.value.code == 1
+
+    def test_writes_room_id_to_stdout(self, monkeypatch, capsys):
+        monkeypatch.setattr(
+            "sys.argv",
+            [
+                "thenvoi-trigger",
+                "--api-key",
+                "k",
+                "--target-handle",
+                "@a/b",
+                "--message",
+                "hi",
+            ],
+        )
+        with (
+            patch("thenvoi.cli.trigger.asyncio.run", return_value="room-xyz"),
+            pytest.raises(SystemExit),
+        ):
+            main()
+
+        assert capsys.readouterr().out.strip() == "room-xyz"
+
+    def test_writes_error_to_stderr(self, monkeypatch, capsys):
+        monkeypatch.setattr(
+            "sys.argv",
+            [
+                "thenvoi-trigger",
+                "--api-key",
+                "k",
+                "--target-handle",
+                "@a/b",
+                "--message",
+                "hi",
+            ],
+        )
+        with (
+            patch(
+                "thenvoi.cli.trigger.asyncio.run", side_effect=ValueError("bad input")
+            ),
+            pytest.raises(SystemExit),
+        ):
+            main()
+
+        assert "bad input" in capsys.readouterr().err
