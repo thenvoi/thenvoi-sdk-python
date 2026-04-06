@@ -893,11 +893,11 @@ class TestToolExecution:
         assert "content" in schema_fields
         assert "mentions" in schema_fields
 
-        # thenvoi_add_participant should have participant_name and role, but NOT room_id
+        # thenvoi_add_participant should have identifier and role, but NOT room_id
         add_participant = next(t for t in tools if t.name == "thenvoi_add_participant")
         schema_fields = add_participant.args_schema.model_fields
         assert "room_id" not in schema_fields
-        assert "participant_name" in schema_fields
+        assert "identifier" in schema_fields
         assert "role" in schema_fields
 
         # thenvoi_lookup_peers should have no user-facing parameters (pagination is hardcoded)

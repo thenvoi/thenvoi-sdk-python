@@ -15,6 +15,7 @@ from thenvoi.runtime.tools import (
     LookupPeersInput,
     GetParticipantsInput,
     CreateChatroomInput,
+    _matches_identifier,
 )
 
 
@@ -217,6 +218,43 @@ class TestAgentToolsSendEvent:
 
         with pytest.raises(RuntimeError, match="Failed to send event"):
             await tools.send_event("Error!", "error")
+
+
+class TestMatchesIdentifier:
+    """Tests for the _matches_identifier helper."""
+
+    def test_match_by_handle(self):
+        entity = {"handle": "alice", "name": "Alice Smith", "id": "u-1"}
+        assert _matches_identifier(entity, "alice") is True
+
+    def test_match_by_name(self):
+        entity = {"handle": "alice", "name": "Alice Smith", "id": "u-1"}
+        assert _matches_identifier(entity, "Alice Smith") is True
+
+    def test_match_by_id(self):
+        entity = {"handle": "alice", "name": "Alice Smith", "id": "u-1"}
+        assert _matches_identifier(entity, "u-1") is True
+
+    def test_case_insensitive(self):
+        entity = {"handle": "Alice", "name": "ALICE SMITH", "id": "U-1"}
+        assert _matches_identifier(entity, "alice") is True
+        assert _matches_identifier(entity, "alice smith") is True
+        assert _matches_identifier(entity, "u-1") is True
+
+    def test_no_match(self):
+        entity = {"handle": "alice", "name": "Alice Smith", "id": "u-1"}
+        assert _matches_identifier(entity, "bob") is False
+
+    def test_missing_fields(self):
+        """Should handle entities with missing or None fields."""
+        assert _matches_identifier({"name": "Alice"}, "Alice") is True
+        assert _matches_identifier({"handle": None, "name": "Alice"}, "Alice") is True
+        assert _matches_identifier({}, "anything") is False
+
+    def test_empty_identifier(self):
+        """Empty string should only match empty field values."""
+        entity = {"handle": "alice", "name": "Alice", "id": "u-1"}
+        assert _matches_identifier(entity, "") is False
 
 
 class TestAgentToolsAddParticipant:

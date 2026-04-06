@@ -509,7 +509,7 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
             )
 
         class AddParticipantInput(BaseModel):
-            participant_name: str = Field(
+            identifier: str = Field(
                 ...,
                 description=(
                     "Identifier of participant to add — can be a handle, name, "
@@ -521,7 +521,7 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
             )
 
         class RemoveParticipantInput(BaseModel):
-            participant_name: str = Field(
+            identifier: str = Field(
                 ...,
                 description=(
                     "Identifier of the participant to remove — "
@@ -681,16 +681,16 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
             args_schema: Type[BaseModel] = AddParticipantInput
 
             def _run(self, *_args: Any, **kwargs: Any) -> Any:
-                participant_name: str = kwargs.get("participant_name", "")
+                identifier: str = kwargs.get("identifier", "")
                 role: str = kwargs.get("role", "member")
 
                 async def execute(tools: AgentToolsProtocol) -> str:
                     await adapter._report_tool_call(
                         tools,
                         "thenvoi_add_participant",
-                        {"identifier": participant_name, "role": role},
+                        {"identifier": identifier, "role": role},
                     )
-                    result = await tools.add_participant(participant_name, role)
+                    result = await tools.add_participant(identifier, role)
                     await adapter._report_tool_result(
                         tools, "thenvoi_add_participant", result
                     )
@@ -704,15 +704,15 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
             args_schema: Type[BaseModel] = RemoveParticipantInput
 
             def _run(self, *_args: Any, **kwargs: Any) -> Any:
-                participant_name: str = kwargs.get("participant_name", "")
+                identifier: str = kwargs.get("identifier", "")
 
                 async def execute(tools: AgentToolsProtocol) -> str:
                     await adapter._report_tool_call(
                         tools,
                         "thenvoi_remove_participant",
-                        {"identifier": participant_name},
+                        {"identifier": identifier},
                     )
-                    result = await tools.remove_participant(participant_name)
+                    result = await tools.remove_participant(identifier)
                     await adapter._report_tool_result(
                         tools, "thenvoi_remove_participant", result
                     )
