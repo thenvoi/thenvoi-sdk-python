@@ -511,7 +511,10 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
         class AddParticipantInput(BaseModel):
             participant_name: str = Field(
                 ...,
-                description="Name of participant to add (must match from thenvoi_lookup_peers)",
+                description=(
+                    "Identifier of participant to add — can be a handle, name, "
+                    "or ID (from thenvoi_lookup_peers). Handles are the most reliable."
+                ),
             )
             role: str = Field(
                 default="member", description="Role: 'owner', 'admin', or 'member'"
@@ -519,7 +522,11 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
 
         class RemoveParticipantInput(BaseModel):
             participant_name: str = Field(
-                ..., description="Name of the participant to remove"
+                ...,
+                description=(
+                    "Identifier of the participant to remove — "
+                    "can be a handle, name, or ID"
+                ),
             )
 
         class GetParticipantsInput(BaseModel):
@@ -681,7 +688,7 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
                     await adapter._report_tool_call(
                         tools,
                         "thenvoi_add_participant",
-                        {"name": participant_name, "role": role},
+                        {"identifier": participant_name, "role": role},
                     )
                     result = await tools.add_participant(participant_name, role)
                     await adapter._report_tool_result(
@@ -703,7 +710,7 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
                     await adapter._report_tool_call(
                         tools,
                         "thenvoi_remove_participant",
-                        {"name": participant_name},
+                        {"identifier": participant_name},
                     )
                     result = await tools.remove_participant(participant_name)
                     await adapter._report_tool_result(

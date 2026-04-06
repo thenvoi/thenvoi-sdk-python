@@ -192,8 +192,8 @@ class TestCreateParlantTools:
         assert "content" in param_names
         assert "message_type" in param_names
 
-    def test_add_participant_tool_has_name_parameter(self):
-        """add_participant should have name parameter."""
+    def test_add_participant_tool_has_identifier_parameter(self):
+        """add_participant should have identifier parameter."""
         tools = create_parlant_tools()
 
         add_participant_entry = next(
@@ -201,7 +201,7 @@ class TestCreateParlantTools:
         )
         param_names = list(add_participant_entry.tool.parameters.keys())
 
-        assert "name" in param_names
+        assert "identifier" in param_names
 
     def test_lookup_peers_has_no_parameters(self):
         """lookup_peers should have no user-facing parameters (pagination is hardcoded)."""

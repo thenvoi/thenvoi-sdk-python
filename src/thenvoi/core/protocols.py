@@ -65,12 +65,14 @@ class AgentToolsProtocol(Protocol):
         """Send an event (tool_call, tool_result, thought, error, task)."""
         ...
 
-    async def add_participant(self, name: str, role: str = "member") -> dict[str, Any]:
-        """Add a participant to the current room by name."""
+    async def add_participant(
+        self, identifier: str, role: str = "member"
+    ) -> dict[str, Any]:
+        """Add a participant to the current room by handle, name, or ID."""
         ...
 
-    async def remove_participant(self, name: str) -> dict[str, Any]:
-        """Remove a participant from the current room by name."""
+    async def remove_participant(self, identifier: str) -> dict[str, Any]:
+        """Remove a participant from the current room by handle, name, or ID."""
         ...
 
     @property

@@ -39,20 +39,20 @@ def agent_tools_to_langchain(
             return f"Error sending message: {e}"
 
     async def add_participant_wrapper(
-        name: str, role: str = "member"
+        identifier: str, role: str = "member"
     ) -> dict[str, Any] | str:
-        """Add a participant (agent or user) to the chat room by name. Use thenvoi_lookup_peers first to find available agents."""
+        """Add a participant (agent or user) to the chat room. Use thenvoi_lookup_peers first to find available agents. Accepts a handle, name, or ID."""
         try:
-            return await tools.add_participant(name, role)
+            return await tools.add_participant(identifier, role)
         except Exception as e:
-            return f"Error adding participant '{name}': {e}"
+            return f"Error adding participant '{identifier}': {e}"
 
-    async def remove_participant_wrapper(name: str) -> dict[str, Any] | str:
-        """Remove a participant from the chat room by name."""
+    async def remove_participant_wrapper(identifier: str) -> dict[str, Any] | str:
+        """Remove a participant from the chat room. Accepts a handle, name, or ID."""
         try:
-            return await tools.remove_participant(name)
+            return await tools.remove_participant(identifier)
         except Exception as e:
-            return f"Error removing participant '{name}': {e}"
+            return f"Error removing participant '{identifier}': {e}"
 
     async def lookup_peers_wrapper(
         page: int = 1, page_size: int = 50

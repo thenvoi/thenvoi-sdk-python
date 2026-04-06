@@ -52,6 +52,7 @@ def mock_rest_client():
     participant1.id = "user-1"
     participant1.name = "User One"
     participant1.type = "User"
+    participant1.handle = "user-one"
     client.agent_api_participants.list_agent_chat_participants = AsyncMock(
         return_value=MagicMock(data=[participant1])
     )
@@ -61,6 +62,7 @@ def mock_rest_client():
     peer1.id = "agent-2"
     peer1.name = "Agent Two"
     peer1.type = "Agent"
+    peer1.handle = "agent-two"
     peer1.description = "Another agent"
     peers_response = MagicMock()
     peers_response.data = [peer1]
@@ -220,8 +222,8 @@ class TestAgentToolsSendEvent:
 class TestAgentToolsAddParticipant:
     """Test add_participant tool."""
 
-    async def test_add_participant_success(self, mock_rest_client):
-        """add_participant() should lookup and add via REST."""
+    async def test_add_participant_by_name(self, mock_rest_client):
+        """add_participant() should match by name and add via REST."""
         tools = AgentTools("room-123", mock_rest_client)
 
         result = await tools.add_participant("Agent Two", role="member")
@@ -231,6 +233,36 @@ class TestAgentToolsAddParticipant:
         assert result["role"] == "member"
         assert result["status"] == "added"
         mock_rest_client.agent_api_participants.add_agent_chat_participant.assert_called_once()
+
+    async def test_add_participant_by_handle(self, mock_rest_client):
+        """add_participant() should match by handle."""
+        tools = AgentTools("room-123", mock_rest_client)
+
+        result = await tools.add_participant("agent-two", role="member")
+
+        assert result["id"] == "agent-2"
+        assert result["name"] == "Agent Two"
+        assert result["status"] == "added"
+
+    async def test_add_participant_by_id(self, mock_rest_client):
+        """add_participant() should match by ID."""
+        tools = AgentTools("room-123", mock_rest_client)
+
+        result = await tools.add_participant("agent-2", role="member")
+
+        assert result["id"] == "agent-2"
+        assert result["name"] == "Agent Two"
+        assert result["status"] == "added"
+
+    async def test_add_participant_already_in_room_by_handle(self, mock_rest_client):
+        """add_participant() should detect already-in-room by handle."""
+        tools = AgentTools("room-123", mock_rest_client)
+
+        result = await tools.add_participant("user-one", role="member")
+
+        assert result["id"] == "user-1"
+        assert result["status"] == "already_in_room"
+        mock_rest_client.agent_api_participants.add_agent_chat_participant.assert_not_called()
 
     async def test_add_participant_not_found_raises(self, mock_rest_client):
         """add_participant() should raise if peer not found."""
@@ -247,8 +279,8 @@ class TestAgentToolsAddParticipant:
 class TestAgentToolsRemoveParticipant:
     """Test remove_participant tool."""
 
-    async def test_remove_participant_success(self, mock_rest_client):
-        """remove_participant() should lookup and remove via REST."""
+    async def test_remove_participant_by_name(self, mock_rest_client):
+        """remove_participant() should match by name and remove via REST."""
         tools = AgentTools("room-123", mock_rest_client)
 
         result = await tools.remove_participant("User One")
@@ -257,6 +289,16 @@ class TestAgentToolsRemoveParticipant:
         assert result["name"] == "User One"
         assert result["status"] == "removed"
         mock_rest_client.agent_api_participants.remove_agent_chat_participant.assert_called_once()
+
+    async def test_remove_participant_by_handle(self, mock_rest_client):
+        """remove_participant() should match by handle."""
+        tools = AgentTools("room-123", mock_rest_client)
+
+        result = await tools.remove_participant("user-one")
+
+        assert result["id"] == "user-1"
+        assert result["name"] == "User One"
+        assert result["status"] == "removed"
 
     async def test_remove_participant_not_found_raises(self, mock_rest_client):
         """remove_participant() should raise if not in room."""
@@ -699,7 +741,7 @@ class TestToolInputModels:
 
     def test_add_participant_input_defaults(self):
         """AddParticipantInput should have default role."""
-        model = AddParticipantInput(name="User")
+        model = AddParticipantInput(identifier="User")
         assert model.role == "member"
 
     def test_lookup_peers_input_defaults(self):

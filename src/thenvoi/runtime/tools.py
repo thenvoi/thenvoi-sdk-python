@@ -26,6 +26,16 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+def _matches_identifier(entity: dict[str, Any], identifier: str) -> bool:
+    """Check if *identifier* matches an entity's handle, name, or ID (case-insensitive)."""
+    val = identifier.lower()
+    for field in ("handle", "name", "id"):
+        entity_val = entity.get(field) or ""
+        if entity_val.lower() == val:
+            return True
+    return False
+
+
 @dataclass(frozen=True)
 class ToolDefinition:
     """Metadata for a built-in Thenvoi tool."""
@@ -79,14 +89,17 @@ class SendEventInput(BaseModel):
 
 
 class AddParticipantInput(BaseModel):
-    """Add a participant (agent or user) to the chat room by name.
+    """Add a participant (agent or user) to the chat room.
 
     IMPORTANT: Use thenvoi_lookup_peers() first to find available agents.
     """
 
-    name: str = Field(
+    identifier: str = Field(
         ...,
-        description="Name of participant to add (must match a name from thenvoi_lookup_peers)",
+        description=(
+            "Identifier of participant to add — can be a handle, name, or ID "
+            "(from thenvoi_lookup_peers). Handles are the most reliable."
+        ),
     )
     role: Literal["owner", "admin", "member"] = Field(
         "member", description="Role for the participant in this room"
@@ -94,9 +107,14 @@ class AddParticipantInput(BaseModel):
 
 
 class RemoveParticipantInput(BaseModel):
-    """Remove a participant from the chat room by name."""
+    """Remove a participant from the chat room."""
 
-    name: str = Field(..., description="Name of the participant to remove")
+    identifier: str = Field(
+        ...,
+        description=(
+            "Identifier of the participant to remove — can be a handle, name, or ID"
+        ),
+    )
 
 
 class LookupPeersInput(BaseModel):
@@ -663,25 +681,27 @@ class AgentTools(AgentToolsProtocol):
         )
         return response.data.id
 
-    async def add_participant(self, name: str, role: str = "member") -> dict[str, Any]:
+    async def add_participant(
+        self, identifier: str, role: str = "member"
+    ) -> dict[str, Any]:
         """
-        Add a participant to the current room by name.
+        Add a participant to the current room.
 
         Args:
-            name: Name of the participant (agent or user) to add
+            identifier: Handle, name, or ID of the participant to add
             role: Role in room - "owner", "admin", or "member" (default)
 
         Returns:
             Dict with added participant info (id, name, role, status)
 
         Raises:
-            ValueError: If participant not found by name
+            ValueError: If participant not found
         """
         from thenvoi.client.rest import ParticipantRequest
 
         logger.debug(
             "Adding participant '%s' with role '%s' to room %s",
-            name,
+            identifier,
             role,
             self.room_id,
         )
@@ -689,24 +709,26 @@ class AgentTools(AgentToolsProtocol):
         # First check if participant is already in the room
         current_participants = await self.get_participants()
         for p in current_participants:
-            if p.get("name", "").lower() == name.lower():
-                logger.debug("Participant '%s' is already in the room", name)
+            if _matches_identifier(p, identifier):
+                logger.debug("Participant '%s' is already in the room", identifier)
                 return {
                     "id": p["id"],
-                    "name": p["name"],
+                    "name": p.get("name", identifier),
                     "role": role,
                     "status": "already_in_room",
                 }
 
-        # Look up participant ID by name (paginates through all peers)
-        participant = await self._lookup_peer_by_name(name)
+        # Look up participant by identifier (paginates through all peers)
+        participant = await self._lookup_peer(identifier)
         if not participant:
             raise ValueError(
-                f"Participant '{name}' not found. Use thenvoi_lookup_peers to find available peers."
+                f"Participant '{identifier}' not found. "
+                "Use thenvoi_lookup_peers to find available peers."
             )
 
         participant_id = participant["id"]
-        logger.debug("Resolved '%s' to ID: %s", name, participant_id)
+        participant_name = participant.get("name", identifier)
+        logger.debug("Resolved '%s' to ID: %s", identifier, participant_id)
 
         await self.rest.agent_api_participants.add_agent_chat_participant(
             chat_id=self.room_id,
@@ -719,30 +741,30 @@ class AgentTools(AgentToolsProtocol):
         # allows @mentions to work immediately after add_participant returns.
         new_participant = {
             "id": participant_id,
-            "name": name,
+            "name": participant_name,
             "type": participant.get("type", "Agent"),
             "handle": participant.get("handle"),
         }
         self._participants.append(new_participant)
         logger.debug(
             "Updated participant cache: added %s, total=%s",
-            name,
+            participant_name,
             len(self._participants),
         )
 
         return {
             "id": participant_id,
-            "name": name,
+            "name": participant_name,
             "role": role,
             "status": "added",
         }
 
-    async def remove_participant(self, name: str) -> dict[str, Any]:
+    async def remove_participant(self, identifier: str) -> dict[str, Any]:
         """
-        Remove a participant from the current room by name.
+        Remove a participant from the current room.
 
         Args:
-            name: Name of the participant to remove
+            identifier: Handle, name, or ID of the participant to remove
 
         Returns:
             Dict with removed participant info (id, name, status)
@@ -750,21 +772,22 @@ class AgentTools(AgentToolsProtocol):
         Raises:
             ValueError: If participant not found in room
         """
-        logger.debug("Removing participant '%s' from room %s", name, self.room_id)
+        logger.debug("Removing participant '%s' from room %s", identifier, self.room_id)
 
-        # Look up participant ID by name from current room participants
+        # Look up participant by identifier from current room participants
         participants = await self.get_participants()
         participant = None
         for p in participants:
-            if p.get("name", "").lower() == name.lower():
+            if _matches_identifier(p, identifier):
                 participant = p
                 break
 
         if not participant:
-            raise ValueError(f"Participant '{name}' not found in this room.")
+            raise ValueError(f"Participant '{identifier}' not found in this room.")
 
         participant_id = participant["id"]
-        logger.debug("Resolved '%s' to ID: %s", name, participant_id)
+        participant_name = participant.get("name", identifier)
+        logger.debug("Resolved '%s' to ID: %s", identifier, participant_id)
 
         await self.rest.agent_api_participants.remove_agent_chat_participant(
             self.room_id,
@@ -780,13 +803,13 @@ class AgentTools(AgentToolsProtocol):
         ]
         logger.debug(
             "Updated participant cache: removed %s, total=%s",
-            name,
+            participant_name,
             len(self._participants),
         )
 
         return {
             "id": participant_id,
-            "name": name,
+            "name": participant_name,
             "status": "removed",
         }
 
@@ -1366,12 +1389,12 @@ class AgentTools(AgentToolsProtocol):
 
         return resolved
 
-    async def _lookup_peer_by_name(self, name: str) -> dict[str, Any] | None:
+    async def _lookup_peer(self, identifier: str) -> dict[str, Any] | None:
         """
-        Find a peer by name, paginating through all results.
+        Find a peer by identifier (handle, name, or ID), paginating through all results.
 
         Args:
-            name: Name to search for (case-insensitive)
+            identifier: Handle, name, or ID to search for (case-insensitive)
 
         Returns:
             Peer dict if found, None otherwise
@@ -1380,7 +1403,7 @@ class AgentTools(AgentToolsProtocol):
         while True:
             result = await self.lookup_peers(page=page, page_size=100)
             for peer in result["peers"]:
-                if peer.get("name", "").lower() == name.lower():
+                if _matches_identifier(peer, identifier):
                     return peer
 
             # Check if more pages

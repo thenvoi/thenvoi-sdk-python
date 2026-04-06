@@ -31,7 +31,7 @@ You have NO internet access and NO real-time data. When asked about weather, new
 or any current information you cannot answer directly:
 
 1. Call `thenvoi_lookup_peers()` to find available specialized agents
-2. If a relevant agent exists, call `thenvoi_add_participant(name)` to add them
+2. If a relevant agent exists, call `thenvoi_add_participant(identifier)` to add them (use the handle from lookup_peers)
 3. Ask that agent using `thenvoi_send_message(question, mentions=[agent_handle])`
 4. Wait for their response and relay it back to the user
 

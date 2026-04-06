@@ -208,26 +208,26 @@ def create_parlant_tools() -> list[Any]:
     @p.tool
     async def thenvoi_add_participant(
         context: ToolContext,
-        name: str,
+        identifier: str,
     ) -> ToolResult:
         """
         Invite an agent or user to join this chat room.
 
         Args:
             context: Parlant tool context (automatically provided)
-            name: REQUIRED - The name of the agent to add. Must match exactly from lookup_peers (e.g. "Pirate Captain", "Research Agent", "Weather Assistant")
+            identifier: REQUIRED - Handle, name, or ID of the agent to add. Handles are the most reliable. Use lookup_peers to find available agents.
 
         Returns:
             Success message or error description
 
         Example calls:
-            add_participant(name="Pirate Captain")
-            add_participant(name="Research Agent")
+            add_participant(identifier="pirate-captain")
+            add_participant(identifier="Research Agent")
         """
         logger.info(
-            "[Parlant Tool] add_participant called: session=%s, name=%s",
+            "[Parlant Tool] add_participant called: session=%s, identifier=%s",
             context.session_id,
-            name,
+            identifier,
         )
         tools = get_session_tools(context.session_id)
         if not tools:
@@ -238,47 +238,49 @@ def create_parlant_tools() -> list[Any]:
             return ToolResult(data="Error: No tools available in current context")
 
         try:
-            result = await tools.add_participant(name, "member")
+            result = await tools.add_participant(identifier, "member")
             status = result.get("status", "added")
             if status == "already_in_room":
-                logger.info("[Parlant Tool] '%s' is already in the room", name)
+                logger.info("[Parlant Tool] '%s' is already in the room", identifier)
                 return ToolResult(
-                    data=f"'{name}' is already in the room - no action needed"
+                    data=f"'{identifier}' is already in the room - no action needed"
                 )
-            logger.info("[Parlant Tool] Successfully added '%s' to the room", name)
-            return ToolResult(data=f"Successfully added '{name}' to the room")
+            logger.info(
+                "[Parlant Tool] Successfully added '%s' to the room", identifier
+            )
+            return ToolResult(data=f"Successfully added '{identifier}' to the room")
         except Exception as e:
             logger.error(
                 "[Parlant Tool] Error adding participant '%s': %s",
-                name,
+                identifier,
                 e,
                 exc_info=True,
             )
-            return ToolResult(data=f"Error adding participant '{name}': {e}")
+            return ToolResult(data=f"Error adding participant '{identifier}': {e}")
 
     @p.tool
     async def thenvoi_remove_participant(
         context: ToolContext,
-        name: str,
+        identifier: str,
     ) -> ToolResult:
         """
         Remove a participant from this chat room.
 
         Args:
             context: Parlant tool context (automatically provided)
-            name: REQUIRED - The name of the participant to remove. Must match exactly from get_participants (e.g. "Pirate Captain", "Research Agent")
+            identifier: REQUIRED - Handle, name, or ID of the participant to remove.
 
         Returns:
             Success message or error description
 
         Example calls:
-            remove_participant(name="Pirate Captain")
-            remove_participant(name="Research Agent")
+            remove_participant(identifier="pirate-captain")
+            remove_participant(identifier="Research Agent")
         """
         logger.info(
-            "[Parlant Tool] remove_participant called: session=%s, name=%s",
+            "[Parlant Tool] remove_participant called: session=%s, identifier=%s",
             context.session_id,
-            name,
+            identifier,
         )
         tools = get_session_tools(context.session_id)
         if not tools:
@@ -289,17 +291,19 @@ def create_parlant_tools() -> list[Any]:
             return ToolResult(data="Error: No tools available in current context")
 
         try:
-            await tools.remove_participant(name)
-            logger.info("[Parlant Tool] Successfully removed '%s' from the room", name)
-            return ToolResult(data=f"Successfully removed '{name}' from the room")
+            await tools.remove_participant(identifier)
+            logger.info(
+                "[Parlant Tool] Successfully removed '%s' from the room", identifier
+            )
+            return ToolResult(data=f"Successfully removed '{identifier}' from the room")
         except Exception as e:
             logger.error(
                 "[Parlant Tool] Error removing participant '%s': %s",
-                name,
+                identifier,
                 e,
                 exc_info=True,
             )
-            return ToolResult(data=f"Error removing participant '{name}': {e}")
+            return ToolResult(data=f"Error removing participant '{identifier}': {e}")
 
     @p.tool
     async def thenvoi_lookup_peers(

@@ -523,7 +523,7 @@ class TestExecutionReporting:
                 result_messages=[],
                 tool_calls=[
                     ("thenvoi_lookup_peers", {}, "call-1"),
-                    ("thenvoi_add_participant", {"name": "Helper"}, "call-2"),
+                    ("thenvoi_add_participant", {"identifier": "Helper"}, "call-2"),
                     ("thenvoi_send_message", {"content": "Done"}, "call-3"),
                 ],
                 tool_results=[

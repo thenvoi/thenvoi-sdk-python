@@ -79,7 +79,7 @@ class TestParticipantOperations:
         """Should track added participants."""
         tools = FakeAgentTools()
 
-        result = await tools.add_participant(name="Alice", role="admin")
+        result = await tools.add_participant(identifier="Alice", role="admin")
 
         assert len(tools.participants_added) == 1
         assert tools.participants_added[0]["name"] == "Alice"
@@ -90,7 +90,7 @@ class TestParticipantOperations:
         """Should track removed participants."""
         tools = FakeAgentTools()
 
-        result = await tools.remove_participant(name="Bob")
+        result = await tools.remove_participant(identifier="Bob")
 
         assert len(tools.participants_removed) == 1
         assert tools.participants_removed[0]["name"] == "Bob"
@@ -206,7 +206,9 @@ class TestUsageInAdapterTests:
 
         # Simulate LLM tool calls
         await tools.execute_tool_call("thenvoi_send_message", {"content": "Hi"})
-        await tools.execute_tool_call("thenvoi_add_participant", {"name": "Alice"})
+        await tools.execute_tool_call(
+            "thenvoi_add_participant", {"identifier": "Alice"}
+        )
 
         # Verify tool calls were made
         assert len(tools.tool_calls) == 2
