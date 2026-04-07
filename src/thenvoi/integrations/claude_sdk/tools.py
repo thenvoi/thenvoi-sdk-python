@@ -143,10 +143,14 @@ def _format_success_payload(
         }
     if tool_name == "thenvoi_get_participants":
         participants = result if isinstance(result, list) else []
+        # Convert Fern models to dicts for JSON serialization
+        serialized = [
+            p.model_dump() if hasattr(p, "model_dump") else p for p in participants
+        ]
         return {
             "status": "success",
-            "participants": participants,
-            "count": len(participants),
+            "participants": serialized,
+            "count": len(serialized),
         }
     if tool_name == "thenvoi_create_chatroom":
         return {
@@ -154,6 +158,9 @@ def _format_success_payload(
             "message": "Chat room created",
             "room_id": result,
         }
+    # Convert Pydantic models to dicts at serialization boundary
+    if hasattr(result, "model_dump"):
+        result = result.model_dump()
     if isinstance(result, dict):
         return {"status": "success", **result}
     return {"status": "success", "result": result}

@@ -558,7 +558,7 @@ class AgentTools(AgentToolsProtocol):
 
     async def send_message(
         self, content: str, mentions: list[str] | list[dict[str, str]] | None = None
-    ) -> dict[str, Any]:
+    ) -> Any:
         """
         Send a message to the current room.
 
@@ -566,9 +566,11 @@ class AgentTools(AgentToolsProtocol):
             content: Message content to send
             mentions: List of participant handles (strings). SDK resolves handles to IDs.
                       Format: @<username> for users, @<username>/<agent-name> for agents.
+                      Passing list[dict[str, str]] is deprecated; use list[str] instead.
 
         Returns:
-            Full API response dict with message details (id, content, sender, etc.)
+            Fern ChatMessage model (Pydantic). Serialized to dict by
+            execute_tool_call() at the adapter boundary.
 
         Raises:
             ValueError: If a mentioned handle is not found in participants
@@ -577,6 +579,15 @@ class AgentTools(AgentToolsProtocol):
             ChatMessageRequest,
             ChatMessageRequestMentionsItem,
         )
+
+        # Deprecation warning for dict-style mentions
+        if mentions and isinstance(mentions[0], dict):
+            warnings.warn(
+                "Passing mentions as list[dict] is deprecated. "
+                "Use list[str] with handles instead.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
 
         resolved_mentions = self._resolve_mentions(mentions or [])
 
@@ -607,14 +618,14 @@ class AgentTools(AgentToolsProtocol):
         )
         if not response.data:
             raise RuntimeError("Failed to send message - no response data")
-        return response.data.model_dump()
+        return response.data
 
     async def send_event(
         self,
         content: str,
         message_type: str,
         metadata: dict[str, Any] | None = None,
-    ) -> dict[str, Any]:
+    ) -> Any:
         """
         Send an event to the current room.
 
@@ -626,7 +637,8 @@ class AgentTools(AgentToolsProtocol):
             metadata: Optional structured data for the event
 
         Returns:
-            Full API response dict with event details
+            Fern ChatEvent model (Pydantic). Serialized to dict by
+            execute_tool_call() at the adapter boundary.
         """
         from thenvoi.client.rest import ChatEventRequest
 
@@ -643,7 +655,7 @@ class AgentTools(AgentToolsProtocol):
         )
         if not response.data:
             raise RuntimeError("Failed to send event - no response data")
-        return response.data.model_dump()
+        return response.data
 
     async def create_chatroom(self, task_id: str | None = None) -> str:
         """
@@ -685,14 +697,21 @@ class AgentTools(AgentToolsProtocol):
             self.room_id,
         )
 
-        # First check if participant is already in the room
-        current_participants = await self.get_participants()
-        for p in current_participants:
-            if p.get("name", "").lower() == name.lower():
+        # First check if participant is already in the room. Prefer cached
+        # snapshot but fall back to a fresh fetch if the cache is empty.
+        snapshot: list[dict[str, Any]] = list(self._participants)
+        if not snapshot:
+            fresh = await self.get_participants()
+            snapshot = [
+                p.model_dump() if hasattr(p, "model_dump") else p for p in fresh
+            ]
+
+        for cached in snapshot:
+            if cached.get("name", "").lower() == name.lower():
                 logger.debug("Participant '%s' is already in the room", name)
                 return {
-                    "id": p["id"],
-                    "name": p["name"],
+                    "id": cached.get("id"),
+                    "name": cached.get("name"),
                     "role": role,
                     "status": "already_in_room",
                 }
@@ -704,7 +723,7 @@ class AgentTools(AgentToolsProtocol):
                 f"Participant '{name}' not found. Use thenvoi_lookup_peers to find available peers."
             )
 
-        participant_id = participant["id"]
+        participant_id = participant.id
         logger.debug("Resolved '%s' to ID: %s", name, participant_id)
 
         await self.rest.agent_api_participants.add_agent_chat_participant(
@@ -719,8 +738,8 @@ class AgentTools(AgentToolsProtocol):
         new_participant = {
             "id": participant_id,
             "name": name,
-            "type": participant.get("type", "Agent"),
-            "handle": participant.get("handle"),
+            "type": getattr(participant, "type", "Agent"),
+            "handle": getattr(participant, "handle", None),
         }
         self._participants.append(new_participant)
         logger.debug(
@@ -751,18 +770,25 @@ class AgentTools(AgentToolsProtocol):
         """
         logger.debug("Removing participant '%s' from room %s", name, self.room_id)
 
-        # Look up participant ID by name from current room participants
-        participants = await self.get_participants()
-        participant = None
-        for p in participants:
-            if p.get("name", "").lower() == name.lower():
-                participant = p
+        # Look up participant ID by name. Prefer the cached snapshot, but
+        # fall back to a fresh API fetch when the cache is empty (e.g. when
+        # remove_participant is called before the WebSocket has populated it).
+        snapshot: list[dict[str, Any]] = list(self._participants)
+        if not snapshot:
+            fresh = await self.get_participants()
+            snapshot = [
+                p.model_dump() if hasattr(p, "model_dump") else p for p in fresh
+            ]
+
+        participant_id: str | None = None
+        for cached in snapshot:
+            if cached.get("name", "").lower() == name.lower():
+                participant_id = cached.get("id")
                 break
 
-        if not participant:
+        if not participant_id:
             raise ValueError(f"Participant '{name}' not found in this room.")
 
-        participant_id = participant["id"]
         logger.debug("Resolved '%s' to ID: %s", name, participant_id)
 
         await self.rest.agent_api_participants.remove_agent_chat_participant(
@@ -789,7 +815,7 @@ class AgentTools(AgentToolsProtocol):
             "status": "removed",
         }
 
-    async def lookup_peers(self, page: int = 1, page_size: int = 50) -> dict[str, Any]:
+    async def lookup_peers(self, page: int = 1, page_size: int = 50) -> Any:
         """
         Find available peers (agents and users) on the platform.
 
@@ -800,7 +826,9 @@ class AgentTools(AgentToolsProtocol):
             page_size: Items per page (default 50, max 100)
 
         Returns:
-            Dict with 'peers' list and 'metadata' (page, page_size, total_count, total_pages)
+            Fern ListAgentPeersResponse (Pydantic) with .data (list of peers)
+            and .metadata (pagination info). Serialized to dict by
+            execute_tool_call() at the adapter boundary.
         """
         logger.debug("Looking up peers: page=%s, page_size=%s", page, page_size)
         response = await self.rest.agent_api_peers.list_agent_peers(
@@ -810,38 +838,15 @@ class AgentTools(AgentToolsProtocol):
             request_options=DEFAULT_REQUEST_OPTIONS,
         )
 
-        peers = []
-        if response.data:
-            peers = [
-                {
-                    "id": peer.id,
-                    "name": peer.name,
-                    "type": getattr(peer, "type", "Agent"),
-                    "handle": getattr(peer, "handle", None),
-                    "description": peer.description,
-                }
-                for peer in response.data
-            ]
+        return response
 
-        metadata = {
-            "page": response.metadata.page if response.metadata else page,
-            "page_size": response.metadata.page_size
-            if response.metadata
-            else page_size,
-            "total_count": response.metadata.total_count
-            if response.metadata
-            else len(peers),
-            "total_pages": response.metadata.total_pages if response.metadata else 1,
-        }
-
-        return {"peers": peers, "metadata": metadata}
-
-    async def get_participants(self) -> list[dict[str, Any]]:
+    async def get_participants(self) -> Any:
         """
         Get participants in the current room.
 
         Returns:
-            List of participant information dictionaries
+            List of Fern ChatParticipant models (Pydantic). Serialized to
+            list[dict] by execute_tool_call() at the adapter boundary.
         """
         logger.debug("Getting participants for room %s", self.room_id)
         response = await self.rest.agent_api_participants.list_agent_chat_participants(
@@ -851,19 +856,11 @@ class AgentTools(AgentToolsProtocol):
         if not response.data:
             return []
 
-        return [
-            {
-                "id": p.id,
-                "name": p.name,
-                "type": p.type,
-                "handle": getattr(p, "handle", None),
-            }
-            for p in response.data
-        ]
+        return response.data
 
     # --- Contact management tools ---
 
-    async def list_contacts(self, page: int = 1, page_size: int = 50) -> dict[str, Any]:
+    async def list_contacts(self, page: int = 1, page_size: int = 50) -> Any:
         """
         List agent's contacts with pagination.
 
@@ -872,41 +869,17 @@ class AgentTools(AgentToolsProtocol):
             page_size: Items per page (default 50, max 100)
 
         Returns:
-            Dict with 'contacts' list and 'metadata' (page, page_size, total_count, total_pages)
+            Fern ListAgentContactsResponse (Pydantic) with .data and .metadata.
+            Serialized to dict by execute_tool_call() at the adapter boundary.
         """
         logger.debug("Listing contacts: page=%s, page_size=%s", page, page_size)
         response = await self.rest.agent_api_contacts.list_agent_contacts(
             page=page, page_size=page_size
         )
 
-        contacts = []
-        if response.data:
-            contacts = [
-                {
-                    "id": c.id,
-                    "handle": c.handle,
-                    "name": c.name,
-                    "type": c.type,
-                }
-                for c in response.data
-            ]
+        return response
 
-        metadata = {
-            "page": response.metadata.page if response.metadata else page,
-            "page_size": response.metadata.page_size
-            if response.metadata
-            else page_size,
-            "total_count": response.metadata.total_count
-            if response.metadata
-            else len(contacts),
-            "total_pages": response.metadata.total_pages if response.metadata else 1,
-        }
-
-        return {"contacts": contacts, "metadata": metadata}
-
-    async def add_contact(
-        self, handle: str, message: str | None = None
-    ) -> dict[str, Any]:
+    async def add_contact(self, handle: str, message: str | None = None) -> Any:
         """
         Send a contact request to add someone as a contact.
 
@@ -915,7 +888,8 @@ class AgentTools(AgentToolsProtocol):
             message: Optional message with the request
 
         Returns:
-            Dict with id and status ('pending' or 'approved')
+            Fern model with id and status ('pending' or 'approved').
+            Serialized to dict by execute_tool_call() at the adapter boundary.
         """
         logger.debug("Adding contact: handle=%s", handle)
         response = await self.rest.agent_api_contacts.add_agent_contact(
@@ -923,14 +897,11 @@ class AgentTools(AgentToolsProtocol):
         )
         if not response.data:
             raise RuntimeError("Failed to add contact - no response data")
-        return {
-            "id": response.data.id,
-            "status": response.data.status,
-        }
+        return response.data
 
     async def remove_contact(
         self, handle: str | None = None, contact_id: str | None = None
-    ) -> dict[str, Any]:
+    ) -> Any:
         """
         Remove an existing contact by handle or ID.
 
@@ -939,7 +910,8 @@ class AgentTools(AgentToolsProtocol):
             contact_id: Or contact record ID (UUID)
 
         Returns:
-            Dict with status ('removed')
+            Fern model with status ('removed').
+            Serialized to dict by execute_tool_call() at the adapter boundary.
 
         Raises:
             ValueError: If neither handle nor contact_id is provided
@@ -960,11 +932,11 @@ class AgentTools(AgentToolsProtocol):
         response = await self.rest.agent_api_contacts.remove_agent_contact(**kwargs)
         if not response.data:
             raise RuntimeError("Failed to remove contact - no response data")
-        return {"status": response.data.status}
+        return response.data
 
     async def list_contact_requests(
         self, page: int = 1, page_size: int = 50, sent_status: str = "pending"
-    ) -> dict[str, Any]:
+    ) -> Any:
         """
         List both received and sent contact requests.
 
@@ -974,7 +946,9 @@ class AgentTools(AgentToolsProtocol):
             sent_status: Filter sent requests by status (default 'pending')
 
         Returns:
-            Dict with 'received', 'sent' lists and 'metadata'
+            Fern ListAgentContactRequestsResponse (Pydantic) with .data
+            (.received, .sent) and .metadata. Serialized to dict by
+            execute_tool_call() at the adapter boundary.
         """
         logger.debug(
             "Listing contact requests: page=%s, page_size=%s, sent_status=%s",
@@ -986,62 +960,11 @@ class AgentTools(AgentToolsProtocol):
             page=page, page_size=page_size, sent_status=sent_status
         )
 
-        received = []
-        if response.data and response.data.received:
-            received = [
-                {
-                    "id": r.id,
-                    "from_handle": r.from_handle,
-                    "from_name": r.from_name,
-                    "message": r.message,
-                    "status": r.status,
-                    "inserted_at": str(r.inserted_at) if r.inserted_at else None,
-                }
-                for r in response.data.received
-            ]
-
-        sent = []
-        if response.data and response.data.sent:
-            sent = [
-                {
-                    "id": s.id,
-                    "to_handle": s.to_handle,
-                    "to_name": s.to_name,
-                    "message": s.message,
-                    "status": s.status,
-                    "inserted_at": str(s.inserted_at) if s.inserted_at else None,
-                }
-                for s in response.data.sent
-            ]
-
-        metadata = {
-            "page": response.metadata.page if response.metadata else page,
-            "page_size": response.metadata.page_size
-            if response.metadata
-            else page_size,
-            "received": {
-                "total": response.metadata.received.total
-                if response.metadata and response.metadata.received
-                else 0,
-                "total_pages": response.metadata.received.total_pages
-                if response.metadata and response.metadata.received
-                else 0,
-            },
-            "sent": {
-                "total": response.metadata.sent.total
-                if response.metadata and response.metadata.sent
-                else 0,
-                "total_pages": response.metadata.sent.total_pages
-                if response.metadata and response.metadata.sent
-                else 0,
-            },
-        }
-
-        return {"received": received, "sent": sent, "metadata": metadata}
+        return response
 
     async def respond_contact_request(
         self, action: str, handle: str | None = None, request_id: str | None = None
-    ) -> dict[str, Any]:
+    ) -> Any:
         """
         Respond to a contact request (approve, reject, or cancel).
 
@@ -1051,7 +974,8 @@ class AgentTools(AgentToolsProtocol):
             request_id: Or request ID (UUID)
 
         Returns:
-            Dict with id and status
+            Fern model with id and status.
+            Serialized to dict by execute_tool_call() at the adapter boundary.
 
         Raises:
             ValueError: If neither handle nor request_id is provided
@@ -1081,10 +1005,7 @@ class AgentTools(AgentToolsProtocol):
             raise RuntimeError(
                 "Failed to respond to contact request - no response data"
             )
-        return {
-            "id": response.data.id,
-            "status": response.data.status,
-        }
+        return response.data
 
     # --- Memory management tools ---
 
@@ -1098,7 +1019,7 @@ class AgentTools(AgentToolsProtocol):
         content_query: str | None = None,
         page_size: int = 50,
         status: str | None = None,
-    ) -> dict[str, Any]:
+    ) -> Any:
         """
         List memories accessible to the agent.
 
@@ -1113,7 +1034,8 @@ class AgentTools(AgentToolsProtocol):
             status: Filter by status (active, superseded, archived, all)
 
         Returns:
-            Dict with memories list and metadata
+            Fern ListAgentMemoriesResponse (Pydantic) with .data and .meta.
+            Serialized to dict by execute_tool_call() at the adapter boundary.
         """
         logger.debug(
             "Listing memories: subject_id=%s, scope=%s, system=%s",
@@ -1132,35 +1054,7 @@ class AgentTools(AgentToolsProtocol):
             status=status,
         )
 
-        memories = []
-        if response.data:
-            memories = [
-                {
-                    "id": m.id,
-                    "content": m.content,
-                    "system": m.system,
-                    "type": m.type,
-                    "segment": m.segment,
-                    "scope": m.scope,
-                    "status": m.status,
-                    "thought": m.thought,
-                    "subject_id": str(m.subject_id) if m.subject_id else None,
-                    "source_agent_id": str(m.source_agent_id)
-                    if m.source_agent_id
-                    else None,
-                    "inserted_at": str(m.inserted_at) if m.inserted_at else None,
-                }
-                for m in response.data
-            ]
-
-        metadata = {
-            "page_size": response.meta.page_size if response.meta else page_size,
-            "total_count": response.meta.total_count
-            if response.meta
-            else len(memories),
-        }
-
-        return {"memories": memories, "metadata": metadata}
+        return response
 
     async def store_memory(
         self,
@@ -1172,7 +1066,7 @@ class AgentTools(AgentToolsProtocol):
         scope: str = "subject",
         subject_id: str | None = None,
         metadata: dict[str, Any] | None = None,
-    ) -> dict[str, Any]:
+    ) -> Any:
         """
         Store a new memory entry.
 
@@ -1187,7 +1081,8 @@ class AgentTools(AgentToolsProtocol):
             metadata: Additional metadata (tags, references)
 
         Returns:
-            Dict with created memory details
+            Fern Memory model (Pydantic). Serialized to dict by
+            execute_tool_call() at the adapter boundary.
         """
         from thenvoi.client.rest import MemoryCreateRequest
 
@@ -1212,21 +1107,9 @@ class AgentTools(AgentToolsProtocol):
         )
         if not response.data:
             raise RuntimeError("Failed to store memory - no response data")
-        return {
-            "id": response.data.id,
-            "content": response.data.content,
-            "system": response.data.system,
-            "type": response.data.type,
-            "segment": response.data.segment,
-            "scope": response.data.scope,
-            "status": response.data.status,
-            "thought": response.data.thought,
-            "inserted_at": str(response.data.inserted_at)
-            if response.data.inserted_at
-            else None,
-        }
+        return response.data
 
-    async def get_memory(self, memory_id: str) -> dict[str, Any]:
+    async def get_memory(self, memory_id: str) -> Any:
         """
         Retrieve a specific memory by ID.
 
@@ -1234,33 +1117,16 @@ class AgentTools(AgentToolsProtocol):
             memory_id: Memory ID (UUID)
 
         Returns:
-            Dict with memory details
+            Fern Memory model (Pydantic). Serialized to dict by
+            execute_tool_call() at the adapter boundary.
         """
         logger.debug("Getting memory: id=%s", memory_id)
         response = await self.rest.agent_api_memories.get_agent_memory(id=memory_id)
         if not response.data:
             raise RuntimeError("Failed to get memory - no response data")
-        return {
-            "id": response.data.id,
-            "content": response.data.content,
-            "system": response.data.system,
-            "type": response.data.type,
-            "segment": response.data.segment,
-            "scope": response.data.scope,
-            "status": response.data.status,
-            "thought": response.data.thought,
-            "subject_id": str(response.data.subject_id)
-            if response.data.subject_id
-            else None,
-            "source_agent_id": str(response.data.source_agent_id)
-            if response.data.source_agent_id
-            else None,
-            "inserted_at": str(response.data.inserted_at)
-            if response.data.inserted_at
-            else None,
-        }
+        return response.data
 
-    async def supersede_memory(self, memory_id: str) -> dict[str, Any]:
+    async def supersede_memory(self, memory_id: str) -> Any:
         """
         Mark a memory as superseded (soft delete).
 
@@ -1268,7 +1134,8 @@ class AgentTools(AgentToolsProtocol):
             memory_id: Memory ID (UUID)
 
         Returns:
-            Dict with updated memory details
+            Fern Memory model (Pydantic). Serialized to dict by
+            execute_tool_call() at the adapter boundary.
         """
         logger.debug("Superseding memory: id=%s", memory_id)
         response = await self.rest.agent_api_memories.supersede_agent_memory(
@@ -1276,12 +1143,9 @@ class AgentTools(AgentToolsProtocol):
         )
         if not response.data:
             raise RuntimeError("Failed to supersede memory - no response data")
-        return {
-            "id": response.data.id,
-            "status": response.data.status,
-        }
+        return response.data
 
-    async def archive_memory(self, memory_id: str) -> dict[str, Any]:
+    async def archive_memory(self, memory_id: str) -> Any:
         """
         Archive a memory (hide but preserve).
 
@@ -1289,16 +1153,14 @@ class AgentTools(AgentToolsProtocol):
             memory_id: Memory ID (UUID)
 
         Returns:
-            Dict with updated memory details
+            Fern Memory model (Pydantic). Serialized to dict by
+            execute_tool_call() at the adapter boundary.
         """
         logger.debug("Archiving memory: id=%s", memory_id)
         response = await self.rest.agent_api_memories.archive_agent_memory(id=memory_id)
         if not response.data:
             raise RuntimeError("Failed to archive memory - no response data")
-        return {
-            "id": response.data.id,
-            "status": response.data.status,
-        }
+        return response.data
 
     # --- Mention resolution ---
 
@@ -1365,7 +1227,7 @@ class AgentTools(AgentToolsProtocol):
 
         return resolved
 
-    async def _lookup_peer_by_name(self, name: str) -> dict[str, Any] | None:
+    async def _lookup_peer_by_name(self, name: str) -> Any | None:
         """
         Find a peer by name, paginating through all results.
 
@@ -1373,18 +1235,20 @@ class AgentTools(AgentToolsProtocol):
             name: Name to search for (case-insensitive)
 
         Returns:
-            Peer dict if found, None otherwise
+            Fern peer model if found, None otherwise
         """
         page = 1
         while True:
             result = await self.lookup_peers(page=page, page_size=100)
-            for peer in result["peers"]:
-                if peer.get("name", "").lower() == name.lower():
+            peers = result.data or []
+            for peer in peers:
+                if peer.name and peer.name.lower() == name.lower():
                     return peer
 
             # Check if more pages
-            metadata = result["metadata"]
-            if page >= metadata.get("total_pages", 1):
+            metadata = result.metadata
+            total_pages = metadata.total_pages if metadata else 1
+            if page >= total_pages:
                 break
             page += 1
 

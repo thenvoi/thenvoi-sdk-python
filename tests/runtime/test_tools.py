@@ -52,6 +52,13 @@ def mock_rest_client():
     participant1.id = "user-1"
     participant1.name = "User One"
     participant1.type = "User"
+    participant1.handle = None
+    participant1.model_dump.return_value = {
+        "id": "user-1",
+        "name": "User One",
+        "type": "User",
+        "handle": None,
+    }
     client.agent_api_participants.list_agent_chat_participants = AsyncMock(
         return_value=MagicMock(data=[participant1])
     )
@@ -62,6 +69,7 @@ def mock_rest_client():
     peer1.name = "Agent Two"
     peer1.type = "Agent"
     peer1.description = "Another agent"
+    peer1.handle = None
     peers_response = MagicMock()
     peers_response.data = [peer1]
     peers_response.metadata = MagicMock()
@@ -69,6 +77,24 @@ def mock_rest_client():
     peers_response.metadata.page_size = 50
     peers_response.metadata.total_count = 1
     peers_response.metadata.total_pages = 1
+    peers_response.model_dump = MagicMock(
+        return_value={
+            "data": [
+                {
+                    "id": "agent-2",
+                    "name": "Agent Two",
+                    "type": "Agent",
+                    "description": "Another agent",
+                }
+            ],
+            "metadata": {
+                "page": 1,
+                "page_size": 50,
+                "total_count": 1,
+                "total_pages": 1,
+            },
+        }
+    )
     client.agent_api_peers.list_agent_peers = AsyncMock(return_value=peers_response)
 
     # Mock add_agent_chat_participant
@@ -140,12 +166,13 @@ class TestAgentToolsSendMessage:
     """Test send_message tool."""
 
     async def test_send_message_success(self, mock_rest_client, participants):
-        """send_message() should send via REST."""
+        """send_message() should send via REST and return the Fern model."""
         tools = AgentTools("room-123", mock_rest_client, participants)
 
         result = await tools.send_message("Hello!", mentions=["User One"])
 
-        assert result["id"] == "msg-123"
+        # Now returns Fern model (mock), not dict
+        assert result.model_dump()["id"] == "msg-123"
         mock_rest_client.agent_api_messages.create_agent_chat_message.assert_called_once()
 
     async def test_send_message_resolves_mentions(self, mock_rest_client, participants):
@@ -188,12 +215,13 @@ class TestAgentToolsSendEvent:
     """Test send_event tool."""
 
     async def test_send_event_success(self, mock_rest_client):
-        """send_event() should send via REST."""
+        """send_event() should send via REST and return the Fern model."""
         tools = AgentTools("room-123", mock_rest_client)
 
         result = await tools.send_event("Thinking...", "thought")
 
-        assert result["message_type"] == "thought"
+        # Now returns Fern model (mock), not dict
+        assert result.model_dump()["message_type"] == "thought"
         mock_rest_client.agent_api_events.create_agent_chat_event.assert_called_once()
 
     async def test_send_event_with_metadata(self, mock_rest_client):
@@ -274,14 +302,15 @@ class TestAgentToolsLookupPeers:
     """Test lookup_peers tool."""
 
     async def test_lookup_peers_success(self, mock_rest_client):
-        """lookup_peers() should return formatted results."""
+        """lookup_peers() should return the Fern response directly."""
         tools = AgentTools("room-123", mock_rest_client)
 
         result = await tools.lookup_peers(page=1, page_size=50)
 
-        assert len(result["peers"]) == 1
-        assert result["peers"][0]["name"] == "Agent Two"
-        assert result["metadata"]["page"] == 1
+        # Now returns full Fern response with .data and .metadata
+        assert len(result.data) == 1
+        assert result.data[0].name == "Agent Two"
+        assert result.metadata.page == 1
 
     async def test_lookup_peers_filters_by_room(self, mock_rest_client):
         """lookup_peers() should filter by not_in_chat."""
@@ -297,13 +326,13 @@ class TestAgentToolsGetParticipants:
     """Test get_participants tool."""
 
     async def test_get_participants_success(self, mock_rest_client):
-        """get_participants() should return formatted participants."""
+        """get_participants() should return Fern participant models."""
         tools = AgentTools("room-123", mock_rest_client)
 
         result = await tools.get_participants()
 
         assert len(result) == 1
-        assert result[0]["name"] == "User One"
+        assert result[0].name == "User One"
 
     async def test_get_participants_empty(self, mock_rest_client):
         """get_participants() should return empty list if none."""
@@ -450,8 +479,8 @@ class TestAgentToolsExecuteToolCall:
 
         result = await tools.execute_tool_call("thenvoi_lookup_peers", {"page": 1})
 
-        assert "peers" in result
-        assert "metadata" in result
+        # execute_tool_call calls .model_dump() on the Fern response
+        assert isinstance(result, dict)
 
     async def test_execute_get_participants(self, mock_rest_client):
         """execute_tool_call() should dispatch thenvoi_get_participants."""
@@ -559,7 +588,8 @@ class TestEmptyMentionsValidation:
 
         result = await tools.send_message("Hello!", mentions=["User One"])
 
-        assert "id" in result  # Normal response
+        # Now returns Fern model; verify it has the expected attribute
+        assert result.model_dump()["id"] == "msg-123"
         mock_rest_client.agent_api_messages.create_agent_chat_message.assert_called_once()
 
     async def test_execute_tool_call_returns_helpful_error(
