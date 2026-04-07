@@ -45,6 +45,7 @@ from thenvoi_rest import (
     ChatRoomRequest,
     ParticipantRequest,
 )
+from thenvoi_rest.core.api_error import ApiError
 from thenvoi_rest.core.request_options import RequestOptions
 from thenvoi_rest.human_api_chats.types.create_my_chat_room_request_chat import (
     CreateMyChatRoomRequestChat,
@@ -113,6 +114,16 @@ def build_parser() -> argparse.ArgumentParser:
         help="Enable verbose logging",
     )
     return parser
+
+
+def _format_api_error(err: ApiError, action: str) -> str:
+    """Extract a human-readable message from a Fern ApiError."""
+    body = getattr(err, "body", None)
+    error_obj = getattr(body, "error", None)
+    message = getattr(error_obj, "message", None)
+    if message:
+        return f"Failed to {action}: {message}"
+    return f"Failed to {action}: HTTP {err.status_code}"
 
 
 async def find_peer_by_handle(
@@ -205,16 +216,19 @@ async def run(args: argparse.Namespace) -> str:
 
     # Step 2: Create a new chatroom
     logger.info("Creating chatroom...")
-    if args.auth_mode == "agent":
-        chat_response = await client.agent_api_chats.create_agent_chat(
-            chat=ChatRoomRequest(),
-            request_options=DEFAULT_REQUEST_OPTIONS,
-        )
-    else:
-        chat_response = await client.human_api_chats.create_my_chat_room(
-            chat=CreateMyChatRoomRequestChat(),
-            request_options=DEFAULT_REQUEST_OPTIONS,
-        )
+    try:
+        if args.auth_mode == "agent":
+            chat_response = await client.agent_api_chats.create_agent_chat(
+                chat=ChatRoomRequest(),
+                request_options=DEFAULT_REQUEST_OPTIONS,
+            )
+        else:
+            chat_response = await client.human_api_chats.create_my_chat_room(
+                chat=CreateMyChatRoomRequestChat(),
+                request_options=DEFAULT_REQUEST_OPTIONS,
+            )
+    except ApiError as e:
+        raise RuntimeError(_format_api_error(e, "create chatroom")) from e
     room_id = chat_response.data.id
     logger.info("Created chatroom: %s", room_id)
 
@@ -259,6 +273,12 @@ async def run(args: argparse.Namespace) -> str:
                 request_options=DEFAULT_REQUEST_OPTIONS,
             )
         logger.info("Message sent successfully")
+    except ApiError as e:
+        logger.error(
+            "Failed after creating room %s — room may need manual cleanup",
+            room_id,
+        )
+        raise RuntimeError(_format_api_error(e, "complete trigger")) from e
     except Exception:
         logger.error(
             "Failed after creating room %s — room may need manual cleanup",

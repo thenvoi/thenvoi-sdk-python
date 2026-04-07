@@ -6,7 +6,14 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from thenvoi.cli.trigger import build_parser, find_peer_by_handle, main, run
+from thenvoi.cli.trigger import (
+    _format_api_error,
+    build_parser,
+    find_peer_by_handle,
+    main,
+    run,
+)
+from thenvoi_rest.core.api_error import ApiError
 
 
 # --- Helpers ---
@@ -42,7 +49,11 @@ def _make_args(**overrides) -> argparse.Namespace:
 
 
 def _fake_asyncio_run(return_value=None, side_effect=None):
-    """Create a fake asyncio.run that properly closes the coroutine to avoid warnings."""
+    """Create a fake asyncio.run that closes the coroutine to avoid warnings.
+
+    This means main() tests don't exercise the real async path — that's intentional;
+    the async flow is covered separately by TestRun which awaits run() directly.
+    """
 
     def _run(coro):
         coro.close()
@@ -369,6 +380,85 @@ class TestRun:
             "Failed after creating room %s — room may need manual cleanup",
             "orphan-room",
         )
+
+    @pytest.mark.asyncio
+    async def test_api_error_on_create_chat_shows_clean_message(self):
+        args = _make_args(auth_mode="agent")
+        peer = {"id": "peer-1", "name": "Test Agent", "handle": "owner/agent"}
+
+        body = SimpleNamespace(
+            error=SimpleNamespace(
+                message="Chat room limit reached. Upgrade to create more."
+            )
+        )
+        api_err = ApiError(status_code=403, body=body)
+
+        with (
+            patch(
+                "thenvoi.cli.trigger.find_peer_by_handle",
+                new_callable=AsyncMock,
+                return_value=peer,
+            ),
+            patch("thenvoi.cli.trigger.AsyncRestClient") as MockClient,
+        ):
+            mock_client = AsyncMock()
+            MockClient.return_value = mock_client
+            mock_client.agent_api_chats.create_agent_chat.side_effect = api_err
+
+            with pytest.raises(RuntimeError, match="Chat room limit reached"):
+                await run(args)
+
+    @pytest.mark.asyncio
+    async def test_api_error_on_send_message_shows_clean_message(self):
+        args = _make_args(auth_mode="agent")
+        peer = {"id": "peer-1", "name": "Test Agent", "handle": "owner/agent"}
+
+        body = SimpleNamespace(error=SimpleNamespace(message="Forbidden"))
+        api_err = ApiError(status_code=403, body=body)
+
+        with (
+            patch(
+                "thenvoi.cli.trigger.find_peer_by_handle",
+                new_callable=AsyncMock,
+                return_value=peer,
+            ),
+            patch("thenvoi.cli.trigger.AsyncRestClient") as MockClient,
+        ):
+            mock_client = AsyncMock()
+            MockClient.return_value = mock_client
+            mock_client.agent_api_chats.create_agent_chat.return_value = (
+                _make_chat_response("room-abc")
+            )
+            mock_client.agent_api_messages.create_agent_chat_message.side_effect = (
+                api_err
+            )
+
+            with pytest.raises(RuntimeError, match="Forbidden"):
+                await run(args)
+
+
+# --- _format_api_error tests ---
+
+
+class TestFormatApiError:
+    def test_extracts_message_from_body(self):
+        body = SimpleNamespace(
+            error=SimpleNamespace(message="Chat room limit reached.")
+        )
+        err = ApiError(status_code=403, body=body)
+        result = _format_api_error(err, "create chatroom")
+        assert result == "Failed to create chatroom: Chat room limit reached."
+
+    def test_falls_back_to_status_code(self):
+        err = ApiError(status_code=500, body=None)
+        result = _format_api_error(err, "send message")
+        assert result == "Failed to send message: HTTP 500"
+
+    def test_falls_back_when_no_error_attr(self):
+        body = SimpleNamespace()
+        err = ApiError(status_code=422, body=body)
+        result = _format_api_error(err, "add participant")
+        assert result == "Failed to add participant: HTTP 422"
 
 
 # --- main() tests ---
