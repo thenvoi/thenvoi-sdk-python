@@ -6,6 +6,7 @@ import asyncio
 import json
 import logging
 import time as _time
+import warnings
 from collections import OrderedDict
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -14,6 +15,7 @@ from typing import ClassVar, Any, Callable, Literal, Protocol
 from pydantic import BaseModel, Field, ValidationError
 
 from thenvoi.converters.codex import CodexHistoryConverter
+from thenvoi.core.exceptions import ThenvoiConfigError
 from thenvoi.core.protocols import AgentToolsProtocol
 from thenvoi.core.simple_adapter import SimpleAdapter
 from thenvoi.core.types import (
@@ -203,8 +205,31 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
     ) -> None:
         self._config = config or CodexAdapterConfig()
 
+        # --- Deprecation shim: boolean → features migration ---
+        # Only trigger for non-default booleans (enable_task_events defaults
+        # to True, so it doesn't count as "legacy usage").
+        _has_legacy_booleans = (
+            self._config.enable_execution_reporting or self._config.emit_thought_events
+        )
+        if _has_legacy_booleans and features is not None:
+            raise ThenvoiConfigError(
+                "Cannot pass both legacy boolean flags in CodexAdapterConfig "
+                "(enable_execution_reporting / emit_thought_events) "
+                "and 'features'. "
+                "Use features=AdapterFeatures(...) instead."
+            )
+
         # Build features from config booleans when not explicitly provided.
         if features is None:
+            if _has_legacy_booleans:
+                warnings.warn(
+                    "enable_execution_reporting and emit_thought_events in "
+                    "CodexAdapterConfig are deprecated. "
+                    "Use features=AdapterFeatures(emit={Emit.EXECUTION, "
+                    "Emit.THOUGHTS}) instead.",
+                    DeprecationWarning,
+                    stacklevel=2,
+                )
             emit: frozenset[Emit] = frozenset()
             if self._config.enable_execution_reporting:
                 emit = emit | frozenset({Emit.EXECUTION})

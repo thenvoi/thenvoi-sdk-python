@@ -46,6 +46,24 @@ class TestUniversalBooleanShims:
             adapter = GeminiAdapter(enable_memory_tools=True)
         assert Capability.MEMORY in adapter.features.capabilities
 
+    def test_gemini_enable_execution_reporting_warns(self) -> None:
+        from thenvoi.adapters.gemini import GeminiAdapter
+
+        with pytest.warns(
+            DeprecationWarning, match="enable_memory_tools|enable_execution_reporting"
+        ):
+            adapter = GeminiAdapter(enable_execution_reporting=True)
+        assert Emit.EXECUTION in adapter.features.emit
+
+    def test_gemini_both_booleans_and_features_raises(self) -> None:
+        from thenvoi.adapters.gemini import GeminiAdapter
+
+        with pytest.raises(ThenvoiConfigError, match="Cannot pass both"):
+            GeminiAdapter(
+                enable_memory_tools=True,
+                features=AdapterFeatures(capabilities={Capability.MEMORY}),
+            )
+
     def test_langgraph_enable_memory_tools_warns(self) -> None:
         from unittest.mock import MagicMock
 
@@ -76,6 +94,92 @@ class TestUniversalBooleanShims:
             adapter = ClaudeSDKAdapter(enable_execution_reporting=True)
         assert Emit.EXECUTION in adapter.features.emit
         assert Emit.THOUGHTS in adapter.features.emit
+
+    def test_crewai_enable_execution_reporting_warns(self) -> None:
+        from thenvoi.adapters.crewai import CrewAIAdapter
+
+        with pytest.warns(
+            DeprecationWarning, match="enable_execution_reporting|enable_memory_tools"
+        ):
+            adapter = CrewAIAdapter(enable_execution_reporting=True)
+        assert Emit.EXECUTION in adapter.features.emit
+
+    def test_crewai_enable_memory_tools_warns(self) -> None:
+        from thenvoi.adapters.crewai import CrewAIAdapter
+
+        with pytest.warns(
+            DeprecationWarning, match="enable_execution_reporting|enable_memory_tools"
+        ):
+            adapter = CrewAIAdapter(enable_memory_tools=True)
+        assert Capability.MEMORY in adapter.features.capabilities
+
+    def test_crewai_both_booleans_and_features_raises(self) -> None:
+        from thenvoi.adapters.crewai import CrewAIAdapter
+
+        with pytest.raises(ThenvoiConfigError, match="Cannot pass both"):
+            CrewAIAdapter(
+                enable_memory_tools=True,
+                features=AdapterFeatures(capabilities={Capability.MEMORY}),
+            )
+
+    def test_crewai_system_prompt_warns(self) -> None:
+        from thenvoi.adapters.crewai import CrewAIAdapter
+
+        with pytest.warns(DeprecationWarning, match="system_prompt.*deprecated"):
+            CrewAIAdapter(system_prompt="Be a helpful agent.")
+
+    def test_google_adk_enable_execution_reporting_warns(self) -> None:
+        from thenvoi.adapters.google_adk import GoogleADKAdapter
+
+        with pytest.warns(
+            DeprecationWarning, match="enable_execution_reporting|enable_memory_tools"
+        ):
+            adapter = GoogleADKAdapter(enable_execution_reporting=True)
+        assert Emit.EXECUTION in adapter.features.emit
+
+    def test_google_adk_enable_memory_tools_warns(self) -> None:
+        from thenvoi.adapters.google_adk import GoogleADKAdapter
+
+        with pytest.warns(
+            DeprecationWarning, match="enable_execution_reporting|enable_memory_tools"
+        ):
+            adapter = GoogleADKAdapter(enable_memory_tools=True)
+        assert Capability.MEMORY in adapter.features.capabilities
+
+    def test_google_adk_both_booleans_and_features_raises(self) -> None:
+        from thenvoi.adapters.google_adk import GoogleADKAdapter
+
+        with pytest.raises(ThenvoiConfigError, match="Cannot pass both"):
+            GoogleADKAdapter(
+                enable_execution_reporting=True,
+                features=AdapterFeatures(emit={Emit.EXECUTION}),
+            )
+
+    def test_codex_enable_execution_reporting_warns(self) -> None:
+        from thenvoi.adapters.codex import CodexAdapter, CodexAdapterConfig
+
+        config = CodexAdapterConfig(enable_execution_reporting=True)
+        with pytest.warns(DeprecationWarning, match="enable_execution_reporting"):
+            adapter = CodexAdapter(config=config)
+        assert Emit.EXECUTION in adapter.features.emit
+
+    def test_codex_emit_thought_events_warns(self) -> None:
+        from thenvoi.adapters.codex import CodexAdapter, CodexAdapterConfig
+
+        config = CodexAdapterConfig(emit_thought_events=True)
+        with pytest.warns(DeprecationWarning, match="emit_thought_events"):
+            adapter = CodexAdapter(config=config)
+        assert Emit.THOUGHTS in adapter.features.emit
+
+    def test_codex_config_booleans_and_features_raises(self) -> None:
+        from thenvoi.adapters.codex import CodexAdapter, CodexAdapterConfig
+
+        config = CodexAdapterConfig(enable_execution_reporting=True)
+        with pytest.raises(ThenvoiConfigError, match="Cannot pass both"):
+            CodexAdapter(
+                config=config,
+                features=AdapterFeatures(emit={Emit.EXECUTION}),
+            )
 
 
 class TestSelectiveRenameShims:
@@ -116,3 +220,15 @@ class TestSelectiveRenameShims:
 
         with pytest.warns(DeprecationWarning, match="custom_section"):
             GeminiAdapter(custom_section="Be concise.")
+
+    def test_gemini_api_key_and_gemini_api_key_conflict(self) -> None:
+        from thenvoi.adapters.gemini import GeminiAdapter
+
+        with pytest.raises(ThenvoiConfigError, match="Cannot pass both"):
+            GeminiAdapter(api_key="AIza-new", gemini_api_key="AIza-old")
+
+    def test_gemini_prompt_and_custom_section_conflict(self) -> None:
+        from thenvoi.adapters.gemini import GeminiAdapter
+
+        with pytest.raises(ThenvoiConfigError, match="Cannot pass both"):
+            GeminiAdapter(prompt="new", custom_section="old")
