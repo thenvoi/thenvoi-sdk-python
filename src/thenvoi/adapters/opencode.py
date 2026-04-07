@@ -208,6 +208,7 @@ class OpencodeAdapter(SimpleAdapter[OpencodeSessionState]):
             agent_description=agent_description,
             custom_section=self.config.custom_section,
             include_base_instructions=self.config.include_base_instructions,
+            features=self.features,
         ).strip()
         self._system_prompt = (
             f"{self._system_prompt}\n\n{_OPENCODE_SYSTEM_NOTE}".strip()

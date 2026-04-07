@@ -162,6 +162,7 @@ class GeminiAdapter(SimpleAdapter[GeminiMessages]):
             agent_description=agent_description,
             custom_section=self._prompt or "",
             include_base_instructions=self._include_base_instructions,
+            features=self.features,
         )
         logger.info("Gemini adapter started for agent: %s", agent_name)
 

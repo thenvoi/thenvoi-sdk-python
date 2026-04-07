@@ -140,6 +140,7 @@ class PydanticAIAdapter(SimpleAdapter[PydanticAIMessages]):
             agent_name=self.agent_name,
             agent_description=self.agent_description or "An AI assistant",
             custom_section=self.custom_section or "",
+            features=self.features,
         )
 
         # output_type=None disables output validation - we respond via tools only

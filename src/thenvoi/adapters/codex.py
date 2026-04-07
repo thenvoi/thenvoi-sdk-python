@@ -1627,6 +1627,7 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
             agent_description=self.agent_description or "An AI assistant",
             custom_section=self.config.custom_section,
             include_base_instructions=self.config.include_base_instructions,
+            features=self.features,
         )
 
     def _apply_turn_overrides(self, params: dict[str, Any]) -> None:
