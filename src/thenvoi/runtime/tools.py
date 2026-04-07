@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING, Any, Literal, cast
 from pydantic import BaseModel, Field, ValidationError
 
 from thenvoi.client.rest import ChatRoomRequest, DEFAULT_REQUEST_OPTIONS
+from thenvoi.core.exceptions import ThenvoiToolError
 from thenvoi.core.protocols import AgentToolsProtocol
 
 if TYPE_CHECKING:
@@ -585,13 +586,11 @@ class AgentTools(AgentToolsProtocol):
             participant_names = [
                 p.get("handle") or p["name"] for p in self._participants
             ]
-            return {
-                "error": (
-                    "At least one mention is required. "
-                    f"Available participants: {participant_names}. "
-                    "Please retry with mentions specifying who this message is for."
-                )
-            }
+            raise ThenvoiToolError(
+                "At least one mention is required. "
+                f"Available participants: {participant_names}. "
+                "Please retry with mentions specifying who this message is for."
+            )
 
         logger.debug("Sending message to room %s", self.room_id)
 
@@ -1468,16 +1467,21 @@ class AgentTools(AgentToolsProtocol):
         """
         Execute a tool call by name with validated arguments.
 
-        Convenience method for frameworks that need to dispatch tool calls
-        programmatically. Errors are caught and returned as strings so the
-        LLM can see them and potentially retry.
+        This is the single serialization boundary: individual tool methods
+        may return Pydantic models (Fern-generated or otherwise), and this
+        method converts them to dicts via .model_dump() so adapters always
+        receive JSON-serializable results.
+
+        Errors are caught and returned as strings so the LLM can see them
+        and potentially retry.
 
         Args:
             tool_name: Name of the tool to execute
             arguments: Arguments to pass to the tool (validated against Pydantic model)
 
         Returns:
-            Tool execution result, or error string if execution failed
+            Tool execution result (dict, string, or other JSON-serializable value),
+            or error string if execution failed
         """
         # Validate arguments against Pydantic model
         try:
@@ -1499,6 +1503,10 @@ class AgentTools(AgentToolsProtocol):
 
         try:
             method = getattr(self, definition.method_name)
-            return await method(**arguments)
+            result = await method(**arguments)
+            # Serialize Pydantic models to dicts at the adapter boundary
+            if hasattr(result, "model_dump"):
+                return result.model_dump()
+            return result
         except Exception as e:
             return f"Error executing {tool_name}: {e}"

@@ -498,55 +498,58 @@ class TestAgentToolsExecuteToolCall:
 class TestEmptyMentionsValidation:
     """Test that empty mentions return a helpful error with participant names."""
 
-    async def test_returns_error_with_participant_names(
+    async def test_raises_error_with_participant_names(
         self, mock_rest_client, participants
     ):
-        """Should return error listing available participants when mentions empty."""
+        """Should raise ThenvoiToolError listing available participants when mentions empty."""
+        from thenvoi.core.exceptions import ThenvoiToolError
+
         tools = AgentTools("room-123", mock_rest_client, participants)
 
-        result = await tools.send_message("Hello!", mentions=[])
+        with pytest.raises(
+            ThenvoiToolError, match="At least one mention is required"
+        ) as exc_info:
+            await tools.send_message("Hello!", mentions=[])
 
-        assert isinstance(result, dict)
-        assert "error" in result
-        assert "At least one mention is required" in result["error"]
-        assert "@user-one" in result["error"]
-        assert "@user-two" in result["error"]
+        assert "@user-one" in str(exc_info.value)
+        assert "@user-two" in str(exc_info.value)
         # Should NOT have called the API
         mock_rest_client.agent_api_messages.create_agent_chat_message.assert_not_called()
 
-    async def test_returns_error_when_mentions_none(
+    async def test_raises_error_when_mentions_none(
         self, mock_rest_client, participants
     ):
-        """Should return error when mentions is None."""
+        """Should raise ThenvoiToolError when mentions is None."""
+        from thenvoi.core.exceptions import ThenvoiToolError
+
         tools = AgentTools("room-123", mock_rest_client, participants)
 
-        result = await tools.send_message("Hello!", mentions=None)
-
-        assert isinstance(result, dict)
-        assert "error" in result
-        assert "At least one mention is required" in result["error"]
+        with pytest.raises(ThenvoiToolError, match="At least one mention is required"):
+            await tools.send_message("Hello!", mentions=None)
 
     async def test_uses_handle_when_available(self, mock_rest_client):
         """Should prefer handle over name in error message."""
+        from thenvoi.core.exceptions import ThenvoiToolError
+
         participants = [
             {"id": "user-1", "name": "User One", "type": "User", "handle": "@user-one"},
         ]
         tools = AgentTools("room-123", mock_rest_client, participants)
 
-        result = await tools.send_message("Hello!", mentions=[])
-
-        assert "@user-one" in result["error"]
+        with pytest.raises(ThenvoiToolError, match="@user-one"):
+            await tools.send_message("Hello!", mentions=[])
 
     async def test_uses_name_when_no_handle(self, mock_rest_client):
         """Should fall back to participant name when handle is missing."""
+        from thenvoi.core.exceptions import ThenvoiToolError
+
         participants = [
             {"id": "user-1", "name": "User One", "type": "User"},
         ]
         tools = AgentTools("room-123", mock_rest_client, participants)
 
-        result = await tools.send_message("Hello!", mentions=[])
-
-        assert "User One" in result["error"]
+        with pytest.raises(ThenvoiToolError, match="User One"):
+            await tools.send_message("Hello!", mentions=[])
 
     async def test_no_error_when_mentions_provided(
         self, mock_rest_client, participants
@@ -562,15 +565,15 @@ class TestEmptyMentionsValidation:
     async def test_execute_tool_call_returns_helpful_error(
         self, mock_rest_client, participants
     ):
-        """execute_tool_call should surface the helpful error for empty mentions."""
+        """execute_tool_call catches ThenvoiToolError and surfaces it as a string."""
         tools = AgentTools("room-123", mock_rest_client, participants)
 
         result = await tools.execute_tool_call(
             "thenvoi_send_message", {"content": "Hello!", "mentions": []}
         )
 
-        assert isinstance(result, dict)
-        assert "At least one mention is required" in result["error"]
+        assert isinstance(result, str)
+        assert "At least one mention is required" in result
 
 
 class TestMentionResolution:
