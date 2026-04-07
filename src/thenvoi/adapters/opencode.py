@@ -134,7 +134,7 @@ class OpencodeAdapter(SimpleAdapter[OpencodeSessionState]):
         {Emit.EXECUTION, Emit.TASK_EVENTS}
     )
     SUPPORTED_CAPABILITIES: ClassVar[frozenset[Capability]] = frozenset(
-        {Capability.MEMORY}
+        {Capability.MEMORY, Capability.CONTACTS}
     )
 
     def __init__(

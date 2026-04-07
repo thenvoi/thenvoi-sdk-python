@@ -286,7 +286,7 @@ class GoogleADKAdapter(SimpleAdapter[GoogleADKMessages]):
 
     SUPPORTED_EMIT: ClassVar[frozenset[Emit]] = frozenset({Emit.EXECUTION})
     SUPPORTED_CAPABILITIES: ClassVar[frozenset[Capability]] = frozenset(
-        {Capability.MEMORY}
+        {Capability.MEMORY, Capability.CONTACTS}
     )
 
     def __init__(

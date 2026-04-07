@@ -175,7 +175,7 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
 
     SUPPORTED_EMIT: ClassVar[frozenset[Emit]] = frozenset({Emit.EXECUTION})
     SUPPORTED_CAPABILITIES: ClassVar[frozenset[Capability]] = frozenset(
-        {Capability.MEMORY}
+        {Capability.MEMORY, Capability.CONTACTS}
     )
 
     def __init__(
@@ -245,6 +245,10 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
                 DeprecationWarning,
                 stacklevel=2,
             )
+            # NOTE: unlike ClaudeSDK, CrewAI's legacy enable_execution_reporting
+            # maps to {Emit.EXECUTION} only (no THOUGHTS). CrewAI had no native
+            # thought emission under this flag, so migrating to THOUGHTS would
+            # turn on a new behavior, not preserve existing behavior.
             features = AdapterFeatures(
                 emit=frozenset({Emit.EXECUTION})
                 if enable_execution_reporting

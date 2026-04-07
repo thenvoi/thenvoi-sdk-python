@@ -59,7 +59,7 @@ class LangGraphAdapter(SimpleAdapter[LangChainMessages]):
 
     SUPPORTED_EMIT: ClassVar[frozenset[Emit]] = frozenset()
     SUPPORTED_CAPABILITIES: ClassVar[frozenset[Capability]] = frozenset(
-        {Capability.MEMORY}
+        {Capability.MEMORY, Capability.CONTACTS}
     )
 
     def __init__(

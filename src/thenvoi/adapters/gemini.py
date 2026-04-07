@@ -63,7 +63,7 @@ class GeminiAdapter(SimpleAdapter[GeminiMessages]):
     """
 
     SUPPORTED_EMIT = frozenset({Emit.EXECUTION})
-    SUPPORTED_CAPABILITIES = frozenset({Capability.MEMORY})
+    SUPPORTED_CAPABILITIES = frozenset({Capability.MEMORY, Capability.CONTACTS})
 
     def __init__(
         self,

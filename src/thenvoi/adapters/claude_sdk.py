@@ -166,7 +166,7 @@ class ClaudeSDKAdapter(SimpleAdapter[ClaudeSDKSessionState]):
     PermissionMode = Literal["default", "acceptEdits", "plan", "bypassPermissions"]
 
     SUPPORTED_EMIT = frozenset({Emit.EXECUTION, Emit.THOUGHTS})
-    SUPPORTED_CAPABILITIES = frozenset({Capability.MEMORY})
+    SUPPORTED_CAPABILITIES = frozenset({Capability.MEMORY, Capability.CONTACTS})
 
     def __init__(
         self,

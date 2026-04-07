@@ -191,7 +191,9 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
     SUPPORTED_EMIT: ClassVar[frozenset[Emit]] = frozenset(
         {Emit.EXECUTION, Emit.THOUGHTS, Emit.TASK_EVENTS}
     )
-    SUPPORTED_CAPABILITIES: ClassVar[frozenset[Capability]] = frozenset()
+    SUPPORTED_CAPABILITIES: ClassVar[frozenset[Capability]] = frozenset(
+        {Capability.MEMORY, Capability.CONTACTS}
+    )
 
     def __init__(
         self,

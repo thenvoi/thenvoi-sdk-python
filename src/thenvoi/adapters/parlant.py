@@ -59,7 +59,9 @@ class ParlantAdapter(SimpleAdapter[ParlantMessages]):
     """
 
     SUPPORTED_EMIT: ClassVar[frozenset[Emit]] = frozenset()
-    SUPPORTED_CAPABILITIES: ClassVar[frozenset[Capability]] = frozenset()
+    SUPPORTED_CAPABILITIES: ClassVar[frozenset[Capability]] = frozenset(
+        {Capability.MEMORY, Capability.CONTACTS}
+    )
 
     def __init__(
         self,
