@@ -208,17 +208,27 @@ class FakeAgentTools:
         return {"id": memory_id, "status": "archived"}
 
     def get_tool_schemas(
-        self, format: str, *, include_memory: bool = False
+        self,
+        format: str,
+        *,
+        include_memory: bool = False,
+        include_contacts: bool = True,
     ) -> list[dict[str, Any]]:
         return []
 
     def get_anthropic_tool_schemas(
-        self, *, include_memory: bool = False
+        self,
+        *,
+        include_memory: bool = False,
+        include_contacts: bool = True,
     ) -> list[dict[str, Any]]:
         return []
 
     def get_openai_tool_schemas(
-        self, *, include_memory: bool = False
+        self,
+        *,
+        include_memory: bool = False,
+        include_contacts: bool = True,
     ) -> list[dict[str, Any]]:
         return []
 
