@@ -592,18 +592,18 @@ class TestEmptyMentionsValidation:
         assert result.model_dump()["id"] == "msg-123"
         mock_rest_client.agent_api_messages.create_agent_chat_message.assert_called_once()
 
-    async def test_execute_tool_call_returns_helpful_error(
+    async def test_execute_tool_call_raises_thenvoi_tool_error(
         self, mock_rest_client, participants
     ):
-        """execute_tool_call catches ThenvoiToolError and surfaces it as a string."""
+        """execute_tool_call lets ThenvoiToolError propagate for wrapper translation."""
+        from thenvoi.core.exceptions import ThenvoiToolError
+
         tools = AgentTools("room-123", mock_rest_client, participants)
 
-        result = await tools.execute_tool_call(
-            "thenvoi_send_message", {"content": "Hello!", "mentions": []}
-        )
-
-        assert isinstance(result, str)
-        assert "At least one mention is required" in result
+        with pytest.raises(ThenvoiToolError, match="At least one mention is required"):
+            await tools.execute_tool_call(
+                "thenvoi_send_message", {"content": "Hello!", "mentions": []}
+            )
 
 
 class TestMentionResolution:

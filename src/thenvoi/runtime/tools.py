@@ -1336,8 +1336,9 @@ class AgentTools(AgentToolsProtocol):
         method converts them to dicts via .model_dump() so adapters always
         receive JSON-serializable results.
 
-        Errors are caught and returned as strings so the LLM can see them
-        and potentially retry.
+        ThenvoiToolError is re-raised so framework wrappers can translate it
+        into framework-native failure results. Unexpected exceptions are
+        caught and returned as error strings for the LLM.
 
         Args:
             tool_name: Name of the tool to execute
@@ -1345,7 +1346,10 @@ class AgentTools(AgentToolsProtocol):
 
         Returns:
             Tool execution result (dict, string, or other JSON-serializable value),
-            or error string if execution failed
+            or error string if an unexpected failure occurred
+
+        Raises:
+            ThenvoiToolError: When a tool method raises a typed tool failure
         """
         # Validate arguments against Pydantic model
         try:
@@ -1372,5 +1376,9 @@ class AgentTools(AgentToolsProtocol):
             if hasattr(result, "model_dump"):
                 return result.model_dump()
             return result
+        except ThenvoiToolError:
+            # Let ThenvoiToolError propagate so framework wrappers can
+            # translate it into framework-native failure results.
+            raise
         except Exception as e:
             return f"Error executing {tool_name}: {e}"
