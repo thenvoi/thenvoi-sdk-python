@@ -47,6 +47,7 @@ from setup_logging import setup_logging
 from thenvoi import Agent
 from thenvoi.adapters import ClaudeSDKAdapter
 from thenvoi.config import load_agent_config
+from thenvoi.core.types import AdapterFeatures, Emit
 
 setup_logging()
 logger = logging.getLogger(__name__)
@@ -77,7 +78,7 @@ complex problem-solving. When faced with challenging questions:
 3. Evaluate trade-offs
 4. Provide clear, well-reasoned answers""",
         max_thinking_tokens=10000,  # Enable extended thinking
-        enable_execution_reporting=True,  # Report thinking as events
+        features=AdapterFeatures(emit={Emit.EXECUTION}),  # Report thinking as events
     )
 
     # Create and start agent

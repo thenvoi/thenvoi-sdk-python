@@ -43,10 +43,10 @@ async def main() -> None:
     agent_id, api_key = load_agent_config("gemini_agent")
 
     # Create adapter with Gemini settings
-    # Requires GEMINI_API_KEY environment variable or pass gemini_api_key explicitly
+    # Requires GEMINI_API_KEY environment variable or pass api_key explicitly
     adapter = GeminiAdapter(
         model="gemini-2.5-flash",
-        custom_section="You are a helpful assistant. Be concise and friendly.",
+        prompt="You are a helpful assistant. Be concise and friendly.",
     )
 
     # Create and start agent

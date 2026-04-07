@@ -33,6 +33,7 @@ from setup_logging import setup_logging
 from thenvoi import Agent
 from thenvoi.adapters import GoogleADKAdapter
 from thenvoi.config import load_agent_config
+from thenvoi.core.types import AdapterFeatures, Emit
 
 setup_logging()
 logger = logging.getLogger(__name__)
@@ -58,7 +59,7 @@ async def main() -> None:
             "You are a research assistant specializing in summarizing information. "
             "Always provide sources when possible and be thorough but concise."
         ),
-        enable_execution_reporting=True,
+        features=AdapterFeatures(emit={Emit.EXECUTION}),
     )
 
     agent = Agent.create(

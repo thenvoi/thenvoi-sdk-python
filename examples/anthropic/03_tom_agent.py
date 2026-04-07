@@ -61,7 +61,7 @@ async def main() -> None:
     # Create adapter with Tom's character prompt
     adapter = AnthropicAdapter(
         model="claude-sonnet-4-5-20250929",
-        custom_section=generate_tom_prompt("Tom"),
+        prompt=generate_tom_prompt("Tom"),
     )
 
     # Create and start agent
