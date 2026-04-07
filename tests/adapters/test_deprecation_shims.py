@@ -232,3 +232,65 @@ class TestSelectiveRenameShims:
 
         with pytest.raises(ThenvoiConfigError, match="Cannot pass both"):
             GeminiAdapter(prompt="new", custom_section="old")
+
+
+class TestOpencodeDeprecationShims:
+    """Opencode config booleans must warn when non-default."""
+
+    def test_enable_execution_reporting_warns(self) -> None:
+        from thenvoi.adapters.opencode import OpencodeAdapter, OpencodeAdapterConfig
+
+        config = OpencodeAdapterConfig(enable_execution_reporting=True)
+        with pytest.warns(
+            DeprecationWarning,
+            match="enable_memory_tools and enable_execution_reporting",
+        ):
+            OpencodeAdapter(config=config)
+
+    def test_enable_memory_tools_warns(self) -> None:
+        from thenvoi.adapters.opencode import OpencodeAdapter, OpencodeAdapterConfig
+
+        config = OpencodeAdapterConfig(enable_memory_tools=True)
+        with pytest.warns(
+            DeprecationWarning,
+            match="enable_memory_tools and enable_execution_reporting",
+        ):
+            OpencodeAdapter(config=config)
+
+    def test_conflict_raises(self) -> None:
+        from thenvoi.adapters.opencode import OpencodeAdapter, OpencodeAdapterConfig
+
+        config = OpencodeAdapterConfig(enable_execution_reporting=True)
+        with pytest.raises(ThenvoiConfigError, match="Cannot pass both"):
+            OpencodeAdapter(config=config, features=AdapterFeatures())
+
+
+class TestLettaDeprecationShims:
+    """Letta config booleans must warn when non-default."""
+
+    def test_enable_execution_reporting_warns(self) -> None:
+        from thenvoi.adapters.letta import LettaAdapter, LettaAdapterConfig
+
+        config = LettaAdapterConfig(enable_execution_reporting=True)
+        with pytest.warns(
+            DeprecationWarning,
+            match="enable_memory_tools and enable_execution_reporting",
+        ):
+            LettaAdapter(config=config)
+
+    def test_enable_memory_tools_warns(self) -> None:
+        from thenvoi.adapters.letta import LettaAdapter, LettaAdapterConfig
+
+        config = LettaAdapterConfig(enable_memory_tools=True)
+        with pytest.warns(
+            DeprecationWarning,
+            match="enable_memory_tools and enable_execution_reporting",
+        ):
+            LettaAdapter(config=config)
+
+    def test_conflict_raises(self) -> None:
+        from thenvoi.adapters.letta import LettaAdapter, LettaAdapterConfig
+
+        config = LettaAdapterConfig(enable_memory_tools=True)
+        with pytest.raises(ThenvoiConfigError, match="Cannot pass both"):
+            LettaAdapter(config=config, features=AdapterFeatures())

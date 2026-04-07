@@ -5,11 +5,13 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import warnings
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import ClassVar, Any, Literal
 
 from thenvoi.converters.letta import LettaHistoryConverter, LettaSessionState
+from thenvoi.core.exceptions import ThenvoiConfigError
 from thenvoi.core.protocols import AgentToolsProtocol
 from thenvoi.core.simple_adapter import SimpleAdapter
 from thenvoi.core.types import AdapterFeatures, Capability, Emit, PlatformMessage
@@ -156,8 +158,32 @@ class LettaAdapter(SimpleAdapter[LettaSessionState]):
     ) -> None:
         self._config = config or LettaAdapterConfig()
 
+        # Detect non-default legacy booleans (enable_task_events defaults to
+        # True, so only enable_memory_tools and enable_execution_reporting
+        # count as "legacy usage").
+        _has_legacy_booleans = (
+            self._config.enable_memory_tools or self._config.enable_execution_reporting
+        )
+
+        if _has_legacy_booleans and features is not None:
+            raise ThenvoiConfigError(
+                "Cannot pass both legacy boolean flags in LettaAdapterConfig "
+                "(enable_memory_tools / enable_execution_reporting) "
+                "and 'features'. "
+                "Use features=AdapterFeatures(...) instead."
+            )
+
         # Build features from config booleans when not explicitly provided.
         if features is None:
+            if _has_legacy_booleans:
+                warnings.warn(
+                    "enable_memory_tools and enable_execution_reporting in "
+                    "LettaAdapterConfig are deprecated. "
+                    "Use features=AdapterFeatures(capabilities={Capability.MEMORY}, "
+                    "emit={Emit.EXECUTION}) instead.",
+                    DeprecationWarning,
+                    stacklevel=2,
+                )
             caps: frozenset[Capability] = frozenset()
             emit: frozenset[Emit] = frozenset()
             if self._config.enable_memory_tools:
