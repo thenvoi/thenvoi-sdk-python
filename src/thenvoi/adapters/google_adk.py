@@ -366,6 +366,7 @@ class GoogleADKAdapter(SimpleAdapter[GoogleADKMessages]):
             agent_name=agent_name,
             agent_description=agent_description,
             custom_section=self.custom_section or "",
+            features=self.features,
         )
 
         logger.info("Google ADK adapter started for agent: %s", agent_name)

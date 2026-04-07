@@ -152,6 +152,7 @@ class AnthropicAdapter(SimpleAdapter[AnthropicMessages]):
             agent_description=agent_description,
             custom_section=self._prompt or "",
             include_base_instructions=self._include_base_instructions,
+            features=self.features,
         )
         logger.info("Anthropic adapter started for agent: %s", agent_name)
 
