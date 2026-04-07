@@ -2,11 +2,20 @@
 
 from __future__ import annotations
 
+import logging
 from abc import ABC, abstractmethod
-from typing import Any, Generic, TypeVar, cast
+from typing import Any, ClassVar, Generic, TypeVar, cast
 
 from thenvoi.core.protocols import AgentToolsProtocol, HistoryConverter
-from thenvoi.core.types import AgentInput, PlatformMessage
+from thenvoi.core.types import (
+    AdapterFeatures,
+    AgentInput,
+    Capability,
+    Emit,
+    PlatformMessage,
+)
+
+logger = logging.getLogger(__name__)
 
 # Type variable for history type - bound by converter
 H = TypeVar("H")
@@ -19,8 +28,15 @@ class SimpleAdapter(Generic[H], ABC):
     Generic over H (history type) for full type safety.
     Users extend this and override on_message().
 
+    Subclasses should declare SUPPORTED_EMIT and SUPPORTED_CAPABILITIES
+    as class-level sets to document what they actually implement.
+    on_started() will warn if features request unsupported values.
+
     Example:
         class MyAdapter(SimpleAdapter[list[ChatMessage]]):
+            SUPPORTED_EMIT = frozenset({Emit.EXECUTION})
+            SUPPORTED_CAPABILITIES = frozenset({Capability.MEMORY})
+
             def __init__(self):
                 super().__init__(history_converter=MyHistoryConverter())
 
@@ -37,10 +53,14 @@ class SimpleAdapter(Generic[H], ABC):
                 ...
     """
 
+    SUPPORTED_EMIT: ClassVar[frozenset[Emit]] = frozenset()
+    SUPPORTED_CAPABILITIES: ClassVar[frozenset[Capability]] = frozenset()
+
     def __init__(
         self,
         *,
         history_converter: HistoryConverter[H] | None = None,
+        features: AdapterFeatures | None = None,
     ):
         """
         Initialize adapter.
@@ -48,8 +68,11 @@ class SimpleAdapter(Generic[H], ABC):
         Args:
             history_converter: Optional converter for automatic history conversion.
                               Pass via __init__ to avoid shared state issues.
+            features: Shared adapter feature settings (capabilities, emit, tool filters).
+                     Defaults to empty AdapterFeatures().
         """
         self.history_converter = history_converter
+        self.features = features or AdapterFeatures()
         self.agent_name: str = ""
         self.agent_description: str = ""
 
@@ -87,6 +110,22 @@ class SimpleAdapter(Generic[H], ABC):
         """Override for post-start setup."""
         self.agent_name = agent_name
         self.agent_description = agent_description
+
+        # Warn on unsupported feature values
+        unsupported_emit = self.features.emit - self.SUPPORTED_EMIT
+        if unsupported_emit:
+            logger.warning(
+                "%s does not support emit values: %s (they will have no effect)",
+                type(self).__name__,
+                unsupported_emit,
+            )
+        unsupported_caps = self.features.capabilities - self.SUPPORTED_CAPABILITIES
+        if unsupported_caps:
+            logger.warning(
+                "%s does not support capability values: %s (they will have no effect)",
+                type(self).__name__,
+                unsupported_caps,
+            )
 
         # Propagate agent name to converter if it supports it
         if self.history_converter and hasattr(self.history_converter, "set_agent_name"):
