@@ -14,13 +14,13 @@ from thenvoi.cli.trigger import build_parser, find_peer_by_handle, main, run
 
 def _make_peer(
     *,
-    id: str = "peer-1",
+    peer_id: str = "peer-1",
     name: str = "Test Agent",
     handle: str = "owner/agent",
 ):
     """Create a mock peer object."""
     peer = MagicMock()
-    peer.id = id
+    peer.id = peer_id
     peer.name = name
     peer.handle = handle
     return peer
@@ -34,10 +34,23 @@ def _make_args(**overrides) -> argparse.Namespace:
         "auth_mode": "agent",
         "target_handle": "@owner/agent",
         "message": "Hello agent",
+        "timeout": 120,
         "verbose": False,
     }
     defaults.update(overrides)
     return argparse.Namespace(**defaults)
+
+
+def _fake_asyncio_run(return_value=None, side_effect=None):
+    """Create a fake asyncio.run that properly closes the coroutine to avoid warnings."""
+
+    def _run(coro):
+        coro.close()
+        if side_effect is not None:
+            raise side_effect
+        return return_value
+
+    return _run
 
 
 def _make_peers_response(peers, total_pages=1, page=1):
@@ -164,8 +177,8 @@ class TestFindPeerByHandle:
 
     @pytest.mark.asyncio
     async def test_paginates_to_find_peer(self):
-        other_peer = _make_peer(id="other", name="Other", handle="other/agent")
-        target_peer = _make_peer(id="target", name="Target", handle="owner/target")
+        other_peer = _make_peer(peer_id="other", name="Other", handle="other/agent")
+        target_peer = _make_peer(peer_id="target", name="Target", handle="owner/target")
 
         client = AsyncMock()
         client.agent_api_peers.list_agent_peers.side_effect = [
@@ -376,7 +389,10 @@ class TestMain:
             ],
         )
         with (
-            patch("thenvoi.cli.trigger.asyncio.run", return_value="room-ok"),
+            patch(
+                "thenvoi.cli.trigger.asyncio.run",
+                side_effect=_fake_asyncio_run(return_value="room-ok"),
+            ),
             pytest.raises(SystemExit) as exc_info,
         ):
             main()
@@ -389,7 +405,9 @@ class TestMain:
         with (
             patch(
                 "thenvoi.cli.trigger.asyncio.run",
-                side_effect=ValueError("API key is required"),
+                side_effect=_fake_asyncio_run(
+                    side_effect=ValueError("API key is required")
+                ),
             ),
             pytest.raises(SystemExit) as exc_info,
         ):
@@ -410,11 +428,69 @@ class TestMain:
             ],
         )
         with (
-            patch("thenvoi.cli.trigger.asyncio.run", side_effect=Exception("boom")),
+            patch(
+                "thenvoi.cli.trigger.asyncio.run",
+                side_effect=_fake_asyncio_run(side_effect=Exception("boom")),
+            ),
             pytest.raises(SystemExit) as exc_info,
         ):
             main()
         assert exc_info.value.code == 1
+
+    def test_exits_1_on_timeout(self, monkeypatch):
+        monkeypatch.setattr(
+            "sys.argv",
+            [
+                "thenvoi-trigger",
+                "--api-key",
+                "k",
+                "--target-handle",
+                "@a/b",
+                "--message",
+                "hi",
+                "--timeout",
+                "30",
+            ],
+        )
+        import asyncio as _asyncio
+
+        with (
+            patch(
+                "thenvoi.cli.trigger.asyncio.run",
+                side_effect=_fake_asyncio_run(side_effect=_asyncio.TimeoutError()),
+            ),
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            main()
+        assert exc_info.value.code == 1
+
+    def test_timeout_error_message(self, monkeypatch, capsys):
+        monkeypatch.setattr(
+            "sys.argv",
+            [
+                "thenvoi-trigger",
+                "--api-key",
+                "k",
+                "--target-handle",
+                "@a/b",
+                "--message",
+                "hi",
+                "--timeout",
+                "45",
+            ],
+        )
+        import asyncio as _asyncio
+
+        with (
+            patch(
+                "thenvoi.cli.trigger.asyncio.run",
+                side_effect=_fake_asyncio_run(side_effect=_asyncio.TimeoutError()),
+            ),
+            pytest.raises(SystemExit),
+        ):
+            main()
+
+        assert "timed out after 45 seconds" in capsys.readouterr().err
 
     def test_writes_room_id_to_stdout(self, monkeypatch, capsys):
         monkeypatch.setattr(
@@ -430,7 +506,10 @@ class TestMain:
             ],
         )
         with (
-            patch("thenvoi.cli.trigger.asyncio.run", return_value="room-xyz"),
+            patch(
+                "thenvoi.cli.trigger.asyncio.run",
+                side_effect=_fake_asyncio_run(return_value="room-xyz"),
+            ),
             pytest.raises(SystemExit),
         ):
             main()
@@ -452,7 +531,8 @@ class TestMain:
         )
         with (
             patch(
-                "thenvoi.cli.trigger.asyncio.run", side_effect=ValueError("bad input")
+                "thenvoi.cli.trigger.asyncio.run",
+                side_effect=_fake_asyncio_run(side_effect=ValueError("bad input")),
             ),
             pytest.raises(SystemExit),
         ):

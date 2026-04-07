@@ -36,6 +36,7 @@ import asyncio
 import logging
 import os
 import sys
+from typing import Final
 
 from thenvoi_rest import (
     AsyncRestClient,
@@ -52,7 +53,8 @@ from thenvoi_rest.human_api_chats.types.create_my_chat_room_request_chat import 
 logger = logging.getLogger(__name__)
 
 DEFAULT_REST_URL = "https://app.thenvoi.com/"
-DEFAULT_REQUEST_OPTIONS: RequestOptions = {"max_retries": 3}
+DEFAULT_REQUEST_OPTIONS: Final[RequestOptions] = {"max_retries": 3}
+DEFAULT_TIMEOUT: Final[int] = 120
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -94,6 +96,15 @@ def build_parser() -> argparse.ArgumentParser:
         "--message",
         default=os.environ.get("THENVOI_MESSAGE"),
         help="Message to send to the target agent (env: THENVOI_MESSAGE)",
+    )
+    parser.add_argument(
+        "--timeout",
+        type=int,
+        default=int(os.environ.get("THENVOI_TRIGGER_TIMEOUT", str(DEFAULT_TIMEOUT))),
+        help=(
+            "Timeout in seconds for the entire operation "
+            f"(env: THENVOI_TRIGGER_TIMEOUT, default: {DEFAULT_TIMEOUT})"
+        ),
     )
     parser.add_argument(
         "--verbose",
@@ -258,6 +269,11 @@ async def run(args: argparse.Namespace) -> str:
     return room_id
 
 
+async def run_with_timeout(args: argparse.Namespace) -> str:
+    """Wrapper that applies a timeout to the trigger flow."""
+    return await asyncio.wait_for(run(args), timeout=args.timeout)
+
+
 def main() -> None:
     """CLI entry point."""
     parser = build_parser()
@@ -271,7 +287,10 @@ def main() -> None:
     )
 
     try:
-        room_id = asyncio.run(run(args))
+        room_id = asyncio.run(run_with_timeout(args))
+    except asyncio.TimeoutError:
+        sys.stderr.write(f"Error: operation timed out after {args.timeout} seconds\n")
+        sys.exit(1)
     except (ValueError, RuntimeError) as e:
         sys.stderr.write(f"Error: {e}\n")
         sys.exit(1)
