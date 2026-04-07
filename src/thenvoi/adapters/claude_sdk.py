@@ -330,6 +330,7 @@ class ClaudeSDKAdapter(SimpleAdapter[ClaudeSDKSessionState]):
             agent_name=agent_name,
             agent_description=agent_description,
             custom_section=self.custom_section,
+            features=self.features,
         )
 
         # Build SDK options

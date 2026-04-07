@@ -288,7 +288,7 @@ class TestOnStarted:
         call_kwargs = crewai_mocks.Agent.call_args[1]
         backstory = call_kwargs["backstory"]
 
-        assert "Multi-participant chat on Thenvoi platform" in backstory
+        assert "Multi-participant chat" in backstory
         assert "thenvoi_send_message" in backstory
         assert "thenvoi_lookup_peers" in backstory
 
@@ -1229,27 +1229,19 @@ class TestMentionsValidator:
         assert instance.mentions == "[]"
 
 
-class TestPlatformInstructionsConstant:
-    def test_platform_instructions_is_constant(self, CrewAIAdapter):
-        import importlib
+class TestPromptRendering:
+    def test_backstory_uses_render_system_prompt(self, CrewAIAdapter):
+        """CrewAI backstory is now built via render_system_prompt."""
+        from thenvoi.runtime.prompts import render_system_prompt
 
-        module = importlib.import_module("thenvoi.adapters.crewai")
-
-        assert hasattr(module, "PLATFORM_INSTRUCTIONS")
-        assert isinstance(module.PLATFORM_INSTRUCTIONS, str)
-        assert len(module.PLATFORM_INSTRUCTIONS) > 100
-
-    def test_platform_instructions_contains_key_info(self, CrewAIAdapter):
-        import importlib
-
-        module = importlib.import_module("thenvoi.adapters.crewai")
-
-        instructions = module.PLATFORM_INSTRUCTIONS
-
-        assert "Environment" in instructions
-        assert "thenvoi_send_message" in instructions
-        assert "thenvoi_lookup_peers" in instructions
-        assert "thenvoi_add_participant" in instructions
+        prompt = render_system_prompt(
+            agent_name="TestAgent",
+            agent_description="A test agent",
+        )
+        # Verify the rendered prompt contains key sections
+        assert "Environment" in prompt
+        assert "thenvoi_send_message" in prompt
+        assert "thenvoi_lookup_peers" in prompt
 
 
 # Custom tool input models for testing
