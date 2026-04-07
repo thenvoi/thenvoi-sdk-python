@@ -206,3 +206,52 @@ class TestCapabilityGatingEndToEnd:
 
             backstory = mock_agent_cls.call_args[1]["backstory"]
             assert "Memory Tools" not in backstory
+
+    async def test_anthropic_include_base_instructions_false_drops_base(self) -> None:
+        """include_base_instructions=False renders identity without base instructions."""
+        from thenvoi.adapters.anthropic import AnthropicAdapter
+
+        adapter = AnthropicAdapter(
+            prompt="Focus on Python.",
+            include_base_instructions=False,
+        )
+        await adapter.on_started("test-agent", "A test agent")
+
+        # Identity preserved
+        assert "test-agent" in adapter._system_prompt
+        # Custom section preserved
+        assert "Focus on Python." in adapter._system_prompt
+        # Base instructions stripped
+        assert "## Environment" not in adapter._system_prompt
+        assert "## Communication" not in adapter._system_prompt
+
+    async def test_anthropic_include_base_instructions_false_still_gates_capabilities(
+        self,
+    ) -> None:
+        """Capability sections respect include_base_instructions=False."""
+        from thenvoi.adapters.anthropic import AnthropicAdapter
+
+        adapter = AnthropicAdapter(
+            include_base_instructions=False,
+            features=AdapterFeatures(capabilities={Capability.MEMORY}),
+        )
+        await adapter.on_started("test-agent", "A test agent")
+
+        # Without base instructions, capability sections are also absent
+        # (they are part of the base instructions block)
+        assert "## Environment" not in adapter._system_prompt
+        assert "## Memory Tools" not in adapter._system_prompt
+
+    async def test_gemini_include_base_instructions_false_drops_base(self) -> None:
+        """GeminiAdapter honors include_base_instructions=False end-to-end."""
+        from thenvoi.adapters.gemini import GeminiAdapter
+
+        adapter = GeminiAdapter(
+            prompt="Focus on Python.",
+            include_base_instructions=False,
+        )
+        await adapter.on_started("test-agent", "A test agent")
+
+        assert "test-agent" in adapter._system_prompt
+        assert "Focus on Python." in adapter._system_prompt
+        assert "## Environment" not in adapter._system_prompt
