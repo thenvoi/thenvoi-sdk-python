@@ -154,6 +154,8 @@ class ExecutionContext:
         agent_id: str | None = None,
         on_participant_added: ParticipantAddedCallback | None = None,
         on_participant_removed: ParticipantRemovedCallback | None = None,
+        *,
+        hub_room_id: str | None = None,
     ):
         """
         Initialize execution context for a specific room.
@@ -166,6 +168,9 @@ class ExecutionContext:
             agent_id: Agent ID for filtering self-messages
             on_participant_added: Optional callback for participant_added events
             on_participant_removed: Optional callback for participant_removed events
+            hub_room_id: Optional hub-room ID. Forwarded to AgentTools so the
+                schema methods can auto-enable contact tools when this context
+                belongs to the hub room.
         """
         self.room_id = room_id
         self.link = link
@@ -174,6 +179,7 @@ class ExecutionContext:
         self._agent_id = agent_id
         self._on_participant_added = on_participant_added
         self._on_participant_removed = on_participant_removed
+        self.hub_room_id = hub_room_id
 
         # Per-room state
         self.queue: asyncio.Queue[PlatformEvent] = asyncio.Queue()

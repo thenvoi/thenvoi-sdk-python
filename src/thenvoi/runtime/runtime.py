@@ -100,6 +100,11 @@ class AgentRuntime:
         self._on_participant_added = on_participant_added
         self._on_participant_removed = on_participant_removed
 
+        # Hub room (set by PlatformRuntime when ContactEventStrategy.HUB_ROOM
+        # is active). Forwarded to ExecutionContext so AgentTools can
+        # auto-enable contact tools for the hub-room execution path.
+        self._hub_room_id: str | None = None
+
         # RoomPresence for cross-room management
         self.presence = RoomPresence(link, room_filter)
 
@@ -115,6 +120,16 @@ class AgentRuntime:
     def active_sessions(self) -> dict[str, Execution]:
         """Get active execution contexts by room_id."""
         return self.executions.copy()
+
+    def set_hub_room_id(self, hub_room_id: str | None) -> None:
+        """Register the hub-room ID so future executions can auto-enable contact tools.
+
+        Called by PlatformRuntime when ContactEventStrategy.HUB_ROOM is active
+        and the hub room has been created. AgentTools constructed for the hub
+        room (room_id == hub_room_id) will force-include contact-management
+        tool schemas regardless of adapter feature settings.
+        """
+        self._hub_room_id = hub_room_id
 
     async def start(self) -> None:
         """
@@ -205,6 +220,7 @@ class AgentRuntime:
                 agent_id=self.agent_id,
                 on_participant_added=self._on_participant_added,
                 on_participant_removed=self._on_participant_removed,
+                hub_room_id=self._hub_room_id,
             )
 
         self.executions[room_id] = execution
