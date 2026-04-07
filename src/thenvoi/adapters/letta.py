@@ -7,12 +7,12 @@ import json
 import logging
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Any, Literal
+from typing import ClassVar, Any, Literal
 
 from thenvoi.converters.letta import LettaHistoryConverter, LettaSessionState
 from thenvoi.core.protocols import AgentToolsProtocol
 from thenvoi.core.simple_adapter import SimpleAdapter
-from thenvoi.core.types import PlatformMessage
+from thenvoi.core.types import AdapterFeatures, Capability, Emit, PlatformMessage
 from thenvoi.runtime.prompts import render_system_prompt
 
 logger = logging.getLogger(__name__)
@@ -140,13 +140,39 @@ class LettaAdapter(SimpleAdapter[LettaSessionState]):
         await agent.run()
     """
 
+    SUPPORTED_EMIT: ClassVar[frozenset[Emit]] = frozenset(
+        {Emit.EXECUTION, Emit.TASK_EVENTS}
+    )
+    SUPPORTED_CAPABILITIES: ClassVar[frozenset[Capability]] = frozenset(
+        {Capability.MEMORY}
+    )
+
     def __init__(
         self,
         config: LettaAdapterConfig | None = None,
         history_converter: LettaHistoryConverter | None = None,
+        *,
+        features: AdapterFeatures | None = None,
     ) -> None:
-        super().__init__(history_converter=history_converter or LettaHistoryConverter())
-        self.config = config or LettaAdapterConfig()
+        self._config = config or LettaAdapterConfig()
+
+        # Build features from config booleans when not explicitly provided.
+        if features is None:
+            caps: frozenset[Capability] = frozenset()
+            emit: frozenset[Emit] = frozenset()
+            if self._config.enable_memory_tools:
+                caps = caps | frozenset({Capability.MEMORY})
+            if self._config.enable_execution_reporting:
+                emit = emit | frozenset({Emit.EXECUTION})
+            if self._config.enable_task_events:
+                emit = emit | frozenset({Emit.TASK_EVENTS})
+            features = AdapterFeatures(capabilities=caps, emit=emit)
+
+        super().__init__(
+            history_converter=history_converter or LettaHistoryConverter(),
+            features=features,
+        )
+        self.config = self._config
 
         # Letta SDK async client (shared across rooms)
         self._client: Any = None
@@ -450,7 +476,7 @@ class LettaAdapter(SimpleAdapter[LettaSessionState]):
                 if tool_name == "thenvoi_send_message":
                     used_send_message = True
 
-                if self.config.enable_execution_reporting:
+                if Emit.EXECUTION in self.features.emit:
                     if tool_name not in _SILENT_REPORTING_TOOLS:
                         await tools.send_event(
                             content=json.dumps(
@@ -466,7 +492,7 @@ class LettaAdapter(SimpleAdapter[LettaSessionState]):
 
             elif msg_type == "tool_return_message":
                 # MCP tool result — observe for reporting
-                if self.config.enable_execution_reporting:
+                if Emit.EXECUTION in self.features.emit:
                     tool_name = getattr(resp_msg, "tool_name", "unknown")
                     if tool_name not in _SILENT_REPORTING_TOOLS:
                         await tools.send_event(
@@ -756,7 +782,7 @@ class LettaAdapter(SimpleAdapter[LettaSessionState]):
         conversation_id: str | None = None,
     ) -> None:
         """Emit a task event with agent/room mapping metadata."""
-        if not self.config.enable_task_events:
+        if Emit.TASK_EVENTS not in self.features.emit:
             return
         try:
             if conversation_id is None:

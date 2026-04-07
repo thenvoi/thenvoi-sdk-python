@@ -6,6 +6,7 @@ import asyncio
 import logging
 import re
 from collections.abc import AsyncIterator
+from typing import ClassVar
 from uuid import uuid4
 
 from a2a.types import (
@@ -32,7 +33,7 @@ from thenvoi.client.rest import (
 from thenvoi.converters.a2a_gateway import GatewayHistoryConverter
 from thenvoi.core.protocols import AgentToolsProtocol
 from thenvoi.core.simple_adapter import SimpleAdapter
-from thenvoi.core.types import PlatformMessage
+from thenvoi.core.types import Capability, Emit, PlatformMessage
 from thenvoi.integrations.a2a.gateway.server import GatewayServer
 from thenvoi.integrations.a2a.gateway.types import GatewaySessionState, PendingA2ATask
 from thenvoi_rest import Peer
@@ -90,6 +91,9 @@ class A2AGatewayAdapter(SimpleAdapter[GatewaySessionState]):
         )
         await agent.run()
     """
+
+    SUPPORTED_EMIT: ClassVar[frozenset[Emit]] = frozenset()
+    SUPPORTED_CAPABILITIES: ClassVar[frozenset[Capability]] = frozenset()
 
     def __init__(
         self,

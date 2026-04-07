@@ -9,7 +9,7 @@ from collections import OrderedDict
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Any, Literal
+from typing import ClassVar, Any, Literal
 
 import httpx
 
@@ -17,7 +17,7 @@ from thenvoi.converters._utils import optional_str
 from thenvoi.converters.opencode import OpencodeHistoryConverter
 from thenvoi.core.protocols import AgentToolsProtocol
 from thenvoi.core.simple_adapter import SimpleAdapter
-from thenvoi.core.types import PlatformMessage
+from thenvoi.core.types import AdapterFeatures, Capability, Emit, PlatformMessage
 from thenvoi.integrations.mcp.backends import (
     ThenvoiMCPBackend,
     create_thenvoi_mcp_backend,
@@ -128,6 +128,13 @@ class OpencodeAdapter(SimpleAdapter[OpencodeSessionState]):
       * ``auto_reject`` -- questions are rejected immediately.
     """
 
+    SUPPORTED_EMIT: ClassVar[frozenset[Emit]] = frozenset(
+        {Emit.EXECUTION, Emit.TASK_EVENTS}
+    )
+    SUPPORTED_CAPABILITIES: ClassVar[frozenset[Capability]] = frozenset(
+        {Capability.MEMORY}
+    )
+
     def __init__(
         self,
         config: OpencodeAdapterConfig | None = None,
@@ -136,11 +143,27 @@ class OpencodeAdapter(SimpleAdapter[OpencodeSessionState]):
         history_converter: OpencodeHistoryConverter | None = None,
         client_factory: Callable[[OpencodeAdapterConfig], OpencodeClientProtocol]
         | None = None,
+        features: AdapterFeatures | None = None,
     ) -> None:
+        self._config = config or OpencodeAdapterConfig()
+
+        # Build features from config booleans when not explicitly provided.
+        if features is None:
+            caps: frozenset[Capability] = frozenset()
+            emit: frozenset[Emit] = frozenset()
+            if self._config.enable_memory_tools:
+                caps = caps | frozenset({Capability.MEMORY})
+            if self._config.enable_execution_reporting:
+                emit = emit | frozenset({Emit.EXECUTION})
+            if self._config.enable_task_events:
+                emit = emit | frozenset({Emit.TASK_EVENTS})
+            features = AdapterFeatures(capabilities=caps, emit=emit)
+
         super().__init__(
-            history_converter=history_converter or OpencodeHistoryConverter()
+            history_converter=history_converter or OpencodeHistoryConverter(),
+            features=features,
         )
-        self.config = config or OpencodeAdapterConfig()
+        self.config = self._config
         self._custom_tools: list[CustomToolDef] = list(additional_tools or [])
         self._client_factory = client_factory or self._default_client_factory
         self._client: OpencodeClientProtocol | None = None
@@ -217,7 +240,7 @@ class OpencodeAdapter(SimpleAdapter[OpencodeSessionState]):
             session_id, created, restored_missing_session = await self._ensure_session(
                 room_state, history
             )
-            if self.config.enable_task_events and (
+            if Emit.TASK_EVENTS in self.features.emit and (
                 room_state.persisted_session_id != session_id or is_session_bootstrap
             ):
                 await self._emit_session_task_event(
@@ -346,7 +369,9 @@ class OpencodeAdapter(SimpleAdapter[OpencodeSessionState]):
             return self._mcp_backend
 
         tool_definitions = list(
-            iter_tool_definitions(include_memory=self.config.enable_memory_tools)
+            iter_tool_definitions(
+                include_memory=Capability.MEMORY in self.features.capabilities
+            )
         )
         backend = await create_thenvoi_mcp_backend(
             kind="sse",
@@ -552,7 +577,7 @@ class OpencodeAdapter(SimpleAdapter[OpencodeSessionState]):
             room_state.assistant_part_types[part_id] = "reasoning"
             return
 
-        if part_type != "tool" or not self.config.enable_execution_reporting:
+        if part_type != "tool" or Emit.EXECUTION not in self.features.emit:
             return
 
         state = part.get("state") or {}

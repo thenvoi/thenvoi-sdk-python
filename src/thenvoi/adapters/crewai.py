@@ -15,7 +15,7 @@ import logging
 import threading
 import warnings
 from contextvars import ContextVar
-from typing import Any, Coroutine, Literal, Type, TypeVar
+from typing import ClassVar, Any, Coroutine, Literal, Type, TypeVar
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -31,9 +31,10 @@ except ImportError as e:
         "Or: uv add crewai nest-asyncio"
     ) from e
 
+from thenvoi.core.exceptions import ThenvoiConfigError
 from thenvoi.core.protocols import AgentToolsProtocol
 from thenvoi.core.simple_adapter import SimpleAdapter
-from thenvoi.core.types import PlatformMessage
+from thenvoi.core.types import AdapterFeatures, Capability, Emit, PlatformMessage
 from thenvoi.converters.crewai import CrewAIHistoryConverter, CrewAIMessages
 from thenvoi.runtime.custom_tools import CustomToolDef, get_custom_tool_name
 from thenvoi.runtime.tools import get_tool_description
@@ -172,6 +173,11 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
         the CrewAI LLM class (e.g., OPENAI_API_KEY, ANTHROPIC_API_KEY).
     """
 
+    SUPPORTED_EMIT: ClassVar[frozenset[Emit]] = frozenset({Emit.EXECUTION})
+    SUPPORTED_CAPABILITIES: ClassVar[frozenset[Capability]] = frozenset(
+        {Capability.MEMORY}
+    )
+
     def __init__(
         self,
         model: str = "gpt-4o",
@@ -188,6 +194,7 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
         history_converter: CrewAIHistoryConverter | None = None,
         additional_tools: list[CustomToolDef] | None = None,
         system_prompt: str | None = None,  # Deprecated
+        features: AdapterFeatures | None = None,
     ):
         """Initialize the CrewAI adapter.
 
@@ -221,8 +228,35 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
             if backstory is None:
                 backstory = system_prompt
 
+        # --- Deprecation shim: boolean → features migration ---
+        _has_legacy_booleans = enable_execution_reporting or enable_memory_tools
+        if _has_legacy_booleans and features is not None:
+            raise ThenvoiConfigError(
+                "Cannot pass both legacy boolean flags "
+                "(enable_execution_reporting / enable_memory_tools) and 'features'. "
+                "Use features=AdapterFeatures(...) instead."
+            )
+
+        if _has_legacy_booleans:
+            warnings.warn(
+                "enable_execution_reporting and enable_memory_tools are deprecated. "
+                "Use features=AdapterFeatures(emit={Emit.EXECUTION}, "
+                "capabilities={Capability.MEMORY}) instead.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            features = AdapterFeatures(
+                emit=frozenset({Emit.EXECUTION})
+                if enable_execution_reporting
+                else frozenset(),
+                capabilities=frozenset({Capability.MEMORY})
+                if enable_memory_tools
+                else frozenset(),
+            )
+
         super().__init__(
-            history_converter=history_converter or CrewAIHistoryConverter()
+            history_converter=history_converter or CrewAIHistoryConverter(),
+            features=features,
         )
 
         self.model = model
@@ -230,8 +264,6 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
         self.goal = goal
         self.backstory = backstory
         self.custom_section = custom_section
-        self.enable_execution_reporting = enable_execution_reporting
-        self.enable_memory_tools = enable_memory_tools
         self.verbose = verbose
         self.max_iter = max_iter
         self.max_rpm = max_rpm
@@ -343,7 +375,7 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
 
         Best-effort: event reporting must never crash tool execution.
         """
-        if self.enable_execution_reporting:
+        if Emit.EXECUTION in self.features.emit:
             try:
                 await tools.send_event(
                     content=json.dumps({"tool": tool_name, "input": input_data}),
@@ -366,7 +398,7 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
 
         Best-effort: event reporting must never crash tool execution.
         """
-        if self.enable_execution_reporting:
+        if Emit.EXECUTION in self.features.emit:
             try:
                 key = "error" if is_error else "result"
                 await tools.send_event(
@@ -1080,7 +1112,7 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
         ]
 
         # Memory management tools (enterprise only - opt-in)
-        if self.enable_memory_tools:
+        if Capability.MEMORY in self.features.capabilities:
             platform_tools.extend(
                 [
                     ListMemoriesTool(),

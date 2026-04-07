@@ -102,13 +102,17 @@ class TestInitialization:
 
     def test_execution_reporting_default(self):
         """Should default execution reporting to False."""
+        from thenvoi.core.types import Emit
+
         adapter = GoogleADKAdapter()
-        assert adapter.enable_execution_reporting is False
+        assert Emit.EXECUTION not in adapter.features.emit
 
     def test_memory_tools_default(self):
         """Should default memory tools to False."""
+        from thenvoi.core.types import Capability
+
         adapter = GoogleADKAdapter()
-        assert adapter.enable_memory_tools is False
+        assert Capability.MEMORY not in adapter.features.capabilities
 
     def test_empty_custom_tools(self):
         """Should default to empty custom tools list."""

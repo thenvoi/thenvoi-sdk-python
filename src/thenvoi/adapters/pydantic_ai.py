@@ -8,7 +8,8 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Any, Callable
+import warnings
+from typing import ClassVar, Any, Callable
 
 from pydantic_ai import (
     Agent,
@@ -22,9 +23,10 @@ from pydantic_ai.messages import (
     UserPromptPart,
 )
 
+from thenvoi.core.exceptions import ThenvoiConfigError
 from thenvoi.core.protocols import AgentToolsProtocol
 from thenvoi.core.simple_adapter import SimpleAdapter
-from thenvoi.core.types import PlatformMessage
+from thenvoi.core.types import AdapterFeatures, Capability, Emit, PlatformMessage
 from thenvoi.converters.pydantic_ai import (
     PydanticAIHistoryConverter,
     PydanticAIMessages,
@@ -51,6 +53,11 @@ class PydanticAIAdapter(SimpleAdapter[PydanticAIMessages]):
         await agent.run()
     """
 
+    SUPPORTED_EMIT: ClassVar[frozenset[Emit]] = frozenset({Emit.EXECUTION})
+    SUPPORTED_CAPABILITIES: ClassVar[frozenset[Capability]] = frozenset(
+        {Capability.MEMORY}
+    )
+
     def __init__(
         self,
         model: str,
@@ -60,6 +67,7 @@ class PydanticAIAdapter(SimpleAdapter[PydanticAIMessages]):
         enable_memory_tools: bool = False,
         history_converter: PydanticAIHistoryConverter | None = None,
         additional_tools: list[Callable[..., Any]] | None = None,
+        features: AdapterFeatures | None = None,
     ):
         """
         Initialize the Pydantic AI adapter.
@@ -68,26 +76,49 @@ class PydanticAIAdapter(SimpleAdapter[PydanticAIMessages]):
             model: Pydantic AI model string (e.g., "openai:gpt-4o", "anthropic:claude-3-5-sonnet-latest")
             system_prompt: Optional custom system prompt (overrides default)
             custom_section: Optional custom section added to default system prompt
-            enable_execution_reporting: If True, emit tool_call and tool_result events
-                to the platform for real-time visibility into agent activity.
-                Defaults to False for backwards compatibility.
-            enable_memory_tools: If True, includes memory management tools (enterprise only).
-                Defaults to False.
+            enable_execution_reporting: Deprecated. Use features=AdapterFeatures(emit={Emit.EXECUTION}).
+            enable_memory_tools: Deprecated. Use features=AdapterFeatures(capabilities={Capability.MEMORY}).
             history_converter: Optional custom history converter
             additional_tools: Optional list of PydanticAI-compatible tool functions.
                 Each function should follow PydanticAI's tool signature:
                 `def my_tool(ctx: RunContext[AgentToolsProtocol], arg1: str, ...) -> T`
                 These are registered via agent.tool() alongside platform tools.
+            features: Shared adapter feature settings (capabilities, emit, tool filters).
         """
+        # --- Deprecation shim: boolean → features migration ---
+        _has_legacy_booleans = enable_execution_reporting or enable_memory_tools
+        if _has_legacy_booleans and features is not None:
+            raise ThenvoiConfigError(
+                "Cannot pass both legacy boolean flags "
+                "(enable_execution_reporting / enable_memory_tools) and 'features'. "
+                "Use features=AdapterFeatures(...) instead."
+            )
+
+        if _has_legacy_booleans:
+            warnings.warn(
+                "enable_execution_reporting and enable_memory_tools are deprecated. "
+                "Use features=AdapterFeatures(emit={Emit.EXECUTION}, "
+                "capabilities={Capability.MEMORY}) instead.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            features = AdapterFeatures(
+                emit=frozenset({Emit.EXECUTION})
+                if enable_execution_reporting
+                else frozenset(),
+                capabilities=frozenset({Capability.MEMORY})
+                if enable_memory_tools
+                else frozenset(),
+            )
+
         super().__init__(
-            history_converter=history_converter or PydanticAIHistoryConverter()
+            history_converter=history_converter or PydanticAIHistoryConverter(),
+            features=features,
         )
 
         self.model = model
         self.system_prompt = system_prompt
         self.custom_section = custom_section
-        self.enable_execution_reporting = enable_execution_reporting
-        self.enable_memory_tools = enable_memory_tools
 
         self._agent: Agent[AgentToolsProtocol, None] | None = None
         # Conversation history per room (Pydantic AI is stateless, we maintain state)
@@ -310,7 +341,7 @@ class PydanticAIAdapter(SimpleAdapter[PydanticAIMessages]):
         agent.tool(thenvoi_respond_contact_request)
 
         # Memory management tools (enterprise only - opt-in)
-        if self.enable_memory_tools:
+        if Capability.MEMORY in self.features.capabilities:
 
             async def thenvoi_list_memories(
                 ctx: RunContext[AgentToolsProtocol],
@@ -483,7 +514,7 @@ class PydanticAIAdapter(SimpleAdapter[PydanticAIMessages]):
             message_history=self._message_history[room_id],
         ):
             if isinstance(event, FunctionToolCallEvent):
-                if self.enable_execution_reporting:
+                if Emit.EXECUTION in self.features.emit:
                     try:
                         await tools.send_event(
                             content=json.dumps(
@@ -498,7 +529,7 @@ class PydanticAIAdapter(SimpleAdapter[PydanticAIMessages]):
                     except Exception as e:
                         logger.warning("Failed to send tool_call event: %s", e)
             elif isinstance(event, FunctionToolResultEvent):
-                if self.enable_execution_reporting:
+                if Emit.EXECUTION in self.features.emit:
                     try:
                         await tools.send_event(
                             content=json.dumps(

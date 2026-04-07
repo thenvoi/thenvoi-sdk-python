@@ -8,14 +8,21 @@ from __future__ import annotations
 
 import json
 import logging
+import warnings
 from typing import Any, cast
 
 from anthropic import AsyncAnthropic
 from anthropic.types import Message, MessageParam, ToolParam, ToolUseBlock
 
+from thenvoi.core.exceptions import ThenvoiConfigError
 from thenvoi.core.protocols import AgentToolsProtocol
 from thenvoi.core.simple_adapter import SimpleAdapter
-from thenvoi.core.types import PlatformMessage
+from thenvoi.core.types import (
+    AdapterFeatures,
+    Capability,
+    Emit,
+    PlatformMessage,
+)
 from thenvoi.converters.anthropic import AnthropicHistoryConverter, AnthropicMessages
 from thenvoi.runtime.custom_tools import (
     CustomToolDef,
@@ -38,37 +45,94 @@ class AnthropicAdapter(SimpleAdapter[AnthropicMessages]):
     Example:
         adapter = AnthropicAdapter(
             model="claude-sonnet-4-5-20250929",
-            custom_section="You are a helpful assistant.",
+            prompt="You are a helpful assistant.",
+            features=AdapterFeatures(
+                capabilities={Capability.MEMORY},
+                emit={Emit.EXECUTION},
+            ),
         )
         agent = Agent.create(adapter=adapter, agent_id="...", api_key="...")
         await agent.run()
     """
 
+    SUPPORTED_EMIT = frozenset({Emit.EXECUTION})
+    SUPPORTED_CAPABILITIES = frozenset({Capability.MEMORY})
+
     def __init__(
         self,
         model: str = "claude-sonnet-4-5-20250929",
-        anthropic_api_key: str | None = None,
+        api_key: str | None = None,
         system_prompt: str | None = None,
-        custom_section: str | None = None,
+        prompt: str | None = None,
         max_tokens: int = 4096,
-        enable_execution_reporting: bool = False,
-        enable_memory_tools: bool = False,
         history_converter: AnthropicHistoryConverter | None = None,
         additional_tools: list[CustomToolDef] | None = None,
+        features: AdapterFeatures | None = None,
+        include_base_instructions: bool = True,
+        # --- Deprecated (one release, then remove) ---
+        anthropic_api_key: str | None = None,
+        custom_section: str | None = None,
+        enable_execution_reporting: bool = False,
+        enable_memory_tools: bool = False,
     ):
+        # --- Selective: api_key rename ---
+        if anthropic_api_key is not None:
+            warnings.warn(
+                "anthropic_api_key is deprecated, use api_key instead",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            if api_key is not None:
+                raise ThenvoiConfigError(
+                    "Cannot pass both api_key and anthropic_api_key"
+                )
+            api_key = anthropic_api_key
+
+        # --- Selective: prompt rename ---
+        if custom_section is not None:
+            warnings.warn(
+                "custom_section is deprecated, use prompt instead",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            if prompt is not None:
+                raise ThenvoiConfigError("Cannot pass both prompt and custom_section")
+            prompt = custom_section
+
+        # --- Universal: boolean → AdapterFeatures migration ---
+        if enable_memory_tools or enable_execution_reporting:
+            if features is not None:
+                raise ThenvoiConfigError(
+                    "Cannot pass both features= and legacy boolean params "
+                    "(enable_memory_tools, enable_execution_reporting)"
+                )
+            warnings.warn(
+                "enable_memory_tools/enable_execution_reporting are deprecated, "
+                "use features=AdapterFeatures(...) instead",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            caps: frozenset[Capability] = frozenset()
+            emit: frozenset[Emit] = frozenset()
+            if enable_memory_tools:
+                caps = caps | frozenset({Capability.MEMORY})
+            if enable_execution_reporting:
+                emit = emit | frozenset({Emit.EXECUTION})
+            features = AdapterFeatures(capabilities=caps, emit=emit)
+
         super().__init__(
-            history_converter=history_converter or AnthropicHistoryConverter()
+            history_converter=history_converter or AnthropicHistoryConverter(),
+            features=features,
         )
 
         self.model = model
         self.system_prompt = system_prompt
-        self.custom_section = custom_section
+        self._prompt = prompt
+        self._include_base_instructions = include_base_instructions
         self.max_tokens = max_tokens
-        self.enable_execution_reporting = enable_execution_reporting
-        self.enable_memory_tools = enable_memory_tools
 
         # Anthropic client (uses ANTHROPIC_API_KEY env var if not provided)
-        self.client = AsyncAnthropic(api_key=anthropic_api_key)
+        self.client = AsyncAnthropic(api_key=api_key)
 
         # Per-room conversation history (Anthropic SDK is stateless)
         self._message_history: dict[str, list[dict[str, Any]]] = {}
@@ -84,7 +148,8 @@ class AnthropicAdapter(SimpleAdapter[AnthropicMessages]):
         self._system_prompt = self.system_prompt or render_system_prompt(
             agent_name=agent_name,
             agent_description=agent_description,
-            custom_section=self.custom_section or "",
+            custom_section=self._prompt or "",
+            include_base_instructions=self._include_base_instructions,
         )
         logger.info("Anthropic adapter started for agent: %s", agent_name)
 
@@ -168,9 +233,8 @@ class AnthropicAdapter(SimpleAdapter[AnthropicMessages]):
         )
 
         # Get tool schemas in Anthropic format (typed helper)
-        tool_schemas = tools.get_anthropic_tool_schemas(
-            include_memory=self.enable_memory_tools
-        )
+        include_memory = Capability.MEMORY in self.features.capabilities
+        tool_schemas = tools.get_anthropic_tool_schemas(include_memory=include_memory)
         # Merge custom tool schemas
         if self._custom_tools:
             tool_schemas = list(tool_schemas)  # Make mutable copy
@@ -329,7 +393,7 @@ class AnthropicAdapter(SimpleAdapter[AnthropicMessages]):
 
             # Report tool call if enabled (JSON format with tool_call_id for linking)
             # Best-effort: event reporting must never crash tool execution
-            if self.enable_execution_reporting:
+            if Emit.EXECUTION in self.features.emit:
                 try:
                     await tools.send_event(
                         content=json.dumps(
@@ -367,7 +431,7 @@ class AnthropicAdapter(SimpleAdapter[AnthropicMessages]):
 
             # Report tool result if enabled (JSON format with tool_call_id for linking)
             # Best-effort: event reporting must never crash tool execution
-            if self.enable_execution_reporting:
+            if Emit.EXECUTION in self.features.emit:
                 try:
                     await tools.send_event(
                         content=json.dumps(

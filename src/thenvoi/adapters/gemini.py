@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import warnings
 from typing import Any, cast
 
 import httpx
@@ -21,9 +22,15 @@ except ImportError as e:
         "Or: uv add google-genai"
     ) from e
 
+from thenvoi.core.exceptions import ThenvoiConfigError
 from thenvoi.core.protocols import AgentToolsProtocol
 from thenvoi.core.simple_adapter import SimpleAdapter
-from thenvoi.core.types import PlatformMessage
+from thenvoi.core.types import (
+    AdapterFeatures,
+    Capability,
+    Emit,
+    PlatformMessage,
+)
 from thenvoi.converters.gemini import GeminiHistoryConverter, GeminiMessages
 from thenvoi.runtime.custom_tools import (
     CustomToolDef,
@@ -41,42 +48,105 @@ class GeminiAdapter(SimpleAdapter[GeminiMessages]):
     Gemini SDK adapter using SimpleAdapter pattern.
 
     Uses the official google-genai Python SDK with explicit tool-loop control.
+
+    Example:
+        adapter = GeminiAdapter(
+            model="gemini-2.5-flash",
+            prompt="You are a helpful assistant.",
+            features=AdapterFeatures(
+                capabilities={Capability.MEMORY},
+                emit={Emit.EXECUTION},
+            ),
+        )
+        agent = Agent.create(adapter=adapter, agent_id="...", api_key="...")
+        await agent.run()
     """
+
+    SUPPORTED_EMIT = frozenset({Emit.EXECUTION})
+    SUPPORTED_CAPABILITIES = frozenset({Capability.MEMORY})
 
     def __init__(
         self,
         model: str = "gemini-2.5-flash",
-        gemini_api_key: str | None = None,
+        api_key: str | None = None,
         system_prompt: str | None = None,
-        custom_section: str | None = None,
+        prompt: str | None = None,
         max_output_tokens: int | None = None,
         temperature: float | None = None,
-        enable_execution_reporting: bool = False,
-        enable_memory_tools: bool = False,
         max_tool_rounds: int = 20,
         max_retries: int = 2,
         retry_base_delay_s: float = 1.0,
         max_history_messages: int = 200,
         history_converter: GeminiHistoryConverter | None = None,
         additional_tools: list[CustomToolDef] | None = None,
+        features: AdapterFeatures | None = None,
+        include_base_instructions: bool = True,
+        # --- Deprecated (one release, then remove) ---
+        gemini_api_key: str | None = None,
+        custom_section: str | None = None,
+        enable_execution_reporting: bool = False,
+        enable_memory_tools: bool = False,
     ) -> None:
+        # --- Selective: api_key rename ---
+        if gemini_api_key is not None:
+            warnings.warn(
+                "gemini_api_key is deprecated, use api_key instead",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            if api_key is not None:
+                raise ThenvoiConfigError("Cannot pass both api_key and gemini_api_key")
+            api_key = gemini_api_key
+
+        # --- Selective: prompt rename ---
+        if custom_section is not None:
+            warnings.warn(
+                "custom_section is deprecated, use prompt instead",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            if prompt is not None:
+                raise ThenvoiConfigError("Cannot pass both prompt and custom_section")
+            prompt = custom_section
+
+        # --- Universal: boolean → AdapterFeatures migration ---
+        if enable_memory_tools or enable_execution_reporting:
+            if features is not None:
+                raise ThenvoiConfigError(
+                    "Cannot pass both features= and legacy boolean params "
+                    "(enable_memory_tools, enable_execution_reporting)"
+                )
+            warnings.warn(
+                "enable_memory_tools/enable_execution_reporting are deprecated, "
+                "use features=AdapterFeatures(...) instead",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            caps: frozenset[Capability] = frozenset()
+            emit: frozenset[Emit] = frozenset()
+            if enable_memory_tools:
+                caps = caps | frozenset({Capability.MEMORY})
+            if enable_execution_reporting:
+                emit = emit | frozenset({Emit.EXECUTION})
+            features = AdapterFeatures(capabilities=caps, emit=emit)
+
         super().__init__(
-            history_converter=history_converter or GeminiHistoryConverter()
+            history_converter=history_converter or GeminiHistoryConverter(),
+            features=features,
         )
 
         self.model = model
         self.system_prompt = system_prompt
-        self.custom_section = custom_section
+        self._prompt = prompt
+        self._include_base_instructions = include_base_instructions
         self.max_output_tokens = max_output_tokens
         self.temperature = temperature
-        self.enable_execution_reporting = enable_execution_reporting
-        self.enable_memory_tools = enable_memory_tools
         self.max_tool_rounds = max_tool_rounds
         self.max_retries = max_retries
         self.retry_base_delay_s = retry_base_delay_s
         self.max_history_messages = max_history_messages
 
-        self._gemini_api_key = gemini_api_key
+        self._api_key = api_key
         self.client: genai.Client | None = None
         self._message_history: dict[str, GeminiMessages] = {}
         self._system_prompt: str = ""
@@ -88,7 +158,8 @@ class GeminiAdapter(SimpleAdapter[GeminiMessages]):
         self._system_prompt = self.system_prompt or render_system_prompt(
             agent_name=agent_name,
             agent_description=agent_description,
-            custom_section=self.custom_section or "",
+            custom_section=self._prompt or "",
+            include_base_instructions=self._include_base_instructions,
         )
         logger.info("Gemini adapter started for agent: %s", agent_name)
 
@@ -251,11 +322,11 @@ class GeminiAdapter(SimpleAdapter[GeminiMessages]):
             return self.client
 
         try:
-            self.client = genai.Client(api_key=self._gemini_api_key)
+            self.client = genai.Client(api_key=self._api_key)
         except ValueError as e:
             raise ValueError(
                 "Gemini client initialization failed. Provide GEMINI_API_KEY or "
-                "pass gemini_api_key explicitly."
+                "pass api_key explicitly."
             ) from e
         return self.client
 
@@ -308,7 +379,7 @@ class GeminiAdapter(SimpleAdapter[GeminiMessages]):
         declarations: list[types.FunctionDeclaration] = []
 
         openai_schemas = tools.get_openai_tool_schemas(
-            include_memory=self.enable_memory_tools
+            include_memory=Capability.MEMORY in self.features.capabilities
         )
         for schema in openai_schemas:
             function = schema.get("function", {})
@@ -380,7 +451,7 @@ class GeminiAdapter(SimpleAdapter[GeminiMessages]):
             tool_input = dict(function_call.args or {})
             tool_call_id = function_call.id or f"gemini_tool_call_{index}"
 
-            if self.enable_execution_reporting:
+            if Emit.EXECUTION in self.features.emit:
                 try:
                     await tools.send_event(
                         content=json.dumps(
@@ -420,7 +491,7 @@ class GeminiAdapter(SimpleAdapter[GeminiMessages]):
                 is_error = True
                 logger.exception("Tool %s failed: %s", tool_name, e)
 
-            if self.enable_execution_reporting:
+            if Emit.EXECUTION in self.features.emit:
                 try:
                     await tools.send_event(
                         content=json.dumps(

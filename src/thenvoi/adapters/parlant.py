@@ -8,11 +8,11 @@ with the Thenvoi platform.
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any
+from typing import ClassVar, TYPE_CHECKING, Any
 
 from thenvoi.core.protocols import AgentToolsProtocol
 from thenvoi.core.simple_adapter import SimpleAdapter
-from thenvoi.core.types import PlatformMessage
+from thenvoi.core.types import AdapterFeatures, Capability, Emit, PlatformMessage
 from thenvoi.converters.parlant import ParlantHistoryConverter, ParlantMessages
 from thenvoi.integrations.parlant.tools import set_session_tools, was_message_sent
 from thenvoi.runtime.custom_tools import CustomToolDef
@@ -58,6 +58,9 @@ class ParlantAdapter(SimpleAdapter[ParlantMessages]):
             await thenvoi_agent.run()
     """
 
+    SUPPORTED_EMIT: ClassVar[frozenset[Emit]] = frozenset()
+    SUPPORTED_CAPABILITIES: ClassVar[frozenset[Capability]] = frozenset()
+
     def __init__(
         self,
         server: p.Server,
@@ -66,6 +69,7 @@ class ParlantAdapter(SimpleAdapter[ParlantMessages]):
         custom_section: str | None = None,
         history_converter: ParlantHistoryConverter | None = None,
         additional_tools: list[CustomToolDef] | None = None,
+        features: AdapterFeatures | None = None,
     ):
         """
         Initialize the Parlant SDK adapter.
@@ -77,9 +81,11 @@ class ParlantAdapter(SimpleAdapter[ParlantMessages]):
             custom_section: Custom instructions appended to agent description
             history_converter: Custom history converter (optional)
             additional_tools: List of custom tools as (InputModel, callable) tuples
+            features: Shared adapter feature settings (capabilities, emit, tool filters).
         """
         super().__init__(
-            history_converter=history_converter or ParlantHistoryConverter()
+            history_converter=history_converter or ParlantHistoryConverter(),
+            features=features,
         )
 
         self._server = server
