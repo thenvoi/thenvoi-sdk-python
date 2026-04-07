@@ -142,6 +142,16 @@ class LangGraphAdapter(SimpleAdapter[LangChainMessages]):
         self.include_tools = include_tools
         self.exclude_tools = exclude_tools
         self.include_categories = include_categories
+
+        # Validate filter params once at init — they are immutable.
+        from thenvoi.runtime.tools import validate_tool_filter
+
+        validate_tool_filter(
+            include_tools=self.include_tools,
+            exclude_tools=self.exclude_tools,
+            include_categories=self.include_categories,
+        )
+
         self._system_prompt: str = ""
         # Track rooms that have already been bootstrapped to avoid injecting
         # duplicate system prompts when the checkpointer retains state across

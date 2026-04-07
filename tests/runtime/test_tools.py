@@ -21,7 +21,7 @@ from thenvoi.runtime.tools import (
     GetParticipantsInput,
     CreateChatroomInput,
     iter_tool_definitions,
-    _validate_tool_filter,
+    validate_tool_filter,
 )
 
 
@@ -853,8 +853,8 @@ class TestToolFiltering:
         assert names == {"thenvoi_send_message", "thenvoi_store_memory"}
 
     def test_validate_tool_filter_accepts_valid(self):
-        """_validate_tool_filter should not raise for valid inputs."""
-        _validate_tool_filter(
+        """validate_tool_filter should not raise for valid inputs."""
+        validate_tool_filter(
             include_tools=["thenvoi_send_message"],
             exclude_tools=["thenvoi_send_event"],
             include_categories=["chat"],

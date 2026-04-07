@@ -477,39 +477,26 @@ def iter_tool_definitions(
     Raises:
         ValueError: If any tool name or category is unknown.
     """
-    _validate_tool_filter(
+    validate_tool_filter(
         include_tools=include_tools,
         exclude_tools=exclude_tools,
         include_categories=include_categories,
     )
 
-    definitions = list(TOOL_DEFINITIONS.values())
+    # Start with the memory-gate baseline
+    baseline = ALL_TOOL_NAMES if include_memory else BASE_TOOL_NAMES
 
-    # Legacy memory filter (applied first as baseline)
-    if not include_memory:
-        definitions = [d for d in definitions if d.name not in MEMORY_TOOL_NAMES]
+    allowed_names = filter_tool_names(
+        baseline,
+        include_tools=include_tools,
+        exclude_tools=exclude_tools,
+        include_categories=include_categories,
+    )
 
-    # Category filter: keep only tools that belong to the requested categories
-    if include_categories is not None:
-        allowed = frozenset[str]()
-        for cat in include_categories:
-            allowed = allowed | TOOL_CATEGORIES[cat]
-        definitions = [d for d in definitions if d.name in allowed]
-
-    # Allowlist: keep only explicitly named tools
-    if include_tools is not None:
-        allowed_set = frozenset(include_tools)
-        definitions = [d for d in definitions if d.name in allowed_set]
-
-    # Denylist: remove explicitly named tools
-    if exclude_tools is not None:
-        denied = frozenset(exclude_tools)
-        definitions = [d for d in definitions if d.name not in denied]
-
-    return definitions
+    return [d for d in TOOL_DEFINITIONS.values() if d.name in allowed_names]
 
 
-def _validate_tool_filter(
+def validate_tool_filter(
     *,
     include_tools: list[str] | None = None,
     exclude_tools: list[str] | None = None,
@@ -540,6 +527,40 @@ def _validate_tool_filter(
                 f"Unknown categories in include_categories: {sorted(unknown)}. "
                 f"Valid categories: {sorted(valid_categories)}"
             )
+
+
+def filter_tool_names(
+    all_names: frozenset[str],
+    *,
+    include_tools: list[str] | None = None,
+    exclude_tools: list[str] | None = None,
+    include_categories: list[str] | None = None,
+) -> frozenset[str]:
+    """Apply category / allowlist / denylist filtering to a set of tool names.
+
+    Filtering order:
+      1. If *include_categories* is set, keep only tools in those categories.
+      2. If *include_tools* is set, keep only those specific tools.
+      3. If *exclude_tools* is set, remove those tools.
+
+    Callers should run ``validate_tool_filter()`` once at init time;
+    this function assumes the inputs are already validated.
+    """
+    names = set(all_names)
+
+    if include_categories is not None:
+        allowed: set[str] = set()
+        for cat in include_categories:
+            allowed |= TOOL_CATEGORIES[cat]
+        names &= allowed
+
+    if include_tools is not None:
+        names &= set(include_tools)
+
+    if exclude_tools is not None:
+        names -= set(exclude_tools)
+
+    return frozenset(names)
 
 
 def format_tool_validation_error(tool_name: str, error: ValidationError) -> str:

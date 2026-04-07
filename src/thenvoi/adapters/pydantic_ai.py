@@ -33,9 +33,9 @@ from thenvoi.runtime.prompts import render_system_prompt
 from thenvoi.runtime.tools import (
     ALL_TOOL_NAMES,
     MEMORY_TOOL_NAMES,
-    TOOL_CATEGORIES,
-    _validate_tool_filter,
+    filter_tool_names,
     get_tool_description,
+    validate_tool_filter,
 )
 
 logger = logging.getLogger(__name__)
@@ -101,6 +101,13 @@ class PydanticAIAdapter(SimpleAdapter[PydanticAIMessages]):
         self.exclude_tools = exclude_tools
         self.include_categories = include_categories
 
+        # Validate filter params once at init — they are immutable.
+        validate_tool_filter(
+            include_tools=self.include_tools,
+            exclude_tools=self.exclude_tools,
+            include_categories=self.include_categories,
+        )
+
         self._agent: Agent[AgentToolsProtocol, None] | None = None
         # Conversation history per room (Pydantic AI is stateless, we maintain state)
         self._message_history: dict[str, list] = {}
@@ -135,23 +142,18 @@ class PydanticAIAdapter(SimpleAdapter[PydanticAIMessages]):
         # All tools catch exceptions and return error strings so LLM can see failures
 
         # Compute which platform tools are allowed based on filtering params
-        _validate_tool_filter(
+        # (already validated at __init__ time)
+        baseline = (
+            ALL_TOOL_NAMES
+            if self.enable_memory_tools
+            else ALL_TOOL_NAMES - MEMORY_TOOL_NAMES
+        )
+        allowed_names = filter_tool_names(
+            baseline,
             include_tools=self.include_tools,
             exclude_tools=self.exclude_tools,
             include_categories=self.include_categories,
         )
-        allowed_names = set(ALL_TOOL_NAMES)
-        if not self.enable_memory_tools:
-            allowed_names -= MEMORY_TOOL_NAMES
-        if self.include_categories is not None:
-            cat_names: set[str] = set()
-            for cat in self.include_categories:
-                cat_names |= TOOL_CATEGORIES[cat]
-            allowed_names &= cat_names
-        if self.include_tools is not None:
-            allowed_names &= set(self.include_tools)
-        if self.exclude_tools is not None:
-            allowed_names -= set(self.exclude_tools)
 
         def _should_register(name: str) -> bool:
             return name in allowed_names

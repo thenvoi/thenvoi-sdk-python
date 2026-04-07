@@ -11,8 +11,7 @@ from langchain_core.tools import StructuredTool
 
 from thenvoi.core.protocols import AgentToolsProtocol
 from thenvoi.runtime.tools import (
-    TOOL_CATEGORIES,
-    _validate_tool_filter,
+    filter_tool_names,
     get_tool_description,
 )
 
@@ -38,11 +37,6 @@ def agent_tools_to_langchain(
     Returns:
         List of LangChain StructuredTool instances
     """
-    _validate_tool_filter(
-        include_tools=include_tools,
-        exclude_tools=exclude_tools,
-        include_categories=include_categories,
-    )
 
     # Create wrapper functions that capture the tools instance
     # All wrappers catch exceptions and return error strings so LLM can see failures
@@ -327,19 +321,13 @@ def agent_tools_to_langchain(
             ]
         )
 
-    # Apply tool filters
-    if include_categories is not None:
-        allowed = frozenset[str]()
-        for cat in include_categories:
-            allowed = allowed | TOOL_CATEGORIES[cat]
-        platform_tools = [t for t in platform_tools if t.name in allowed]
-
-    if include_tools is not None:
-        allowed_set = frozenset(include_tools)
-        platform_tools = [t for t in platform_tools if t.name in allowed_set]
-
-    if exclude_tools is not None:
-        denied = frozenset(exclude_tools)
-        platform_tools = [t for t in platform_tools if t.name not in denied]
+    # Apply tool filters (validation done at adapter __init__ time)
+    allowed_names = filter_tool_names(
+        frozenset(t.name for t in platform_tools),
+        include_tools=include_tools,
+        exclude_tools=exclude_tools,
+        include_categories=include_categories,
+    )
+    platform_tools = [t for t in platform_tools if t.name in allowed_names]
 
     return platform_tools
