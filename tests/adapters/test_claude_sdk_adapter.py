@@ -618,7 +618,10 @@ class TestCustomTools:
         assert backend is mock_backend
         mock_create_backend.assert_awaited_once()
         tool_definitions = mock_create_backend.await_args.kwargs["tool_definitions"]
-        assert len(tool_definitions) == 12
+        assert len(tool_definitions) == 7
+        tool_names = [td.name for td in tool_definitions]
+        assert "thenvoi_send_message" in tool_names
+        assert "thenvoi_list_contacts" not in tool_names  # no CONTACTS capability
 
     @pytest.mark.asyncio
     async def test_custom_tools_registered_with_memory_tools_enabled(self):
@@ -651,7 +654,10 @@ class TestCustomTools:
         assert backend is mock_backend
         mock_create_backend.assert_awaited_once()
         tool_definitions = mock_create_backend.await_args.kwargs["tool_definitions"]
-        assert len(tool_definitions) == 17
+        assert len(tool_definitions) == 12
+        tool_names = [td.name for td in tool_definitions]
+        assert "thenvoi_list_memories" in tool_names  # memory enabled
+        assert "thenvoi_list_contacts" not in tool_names  # no CONTACTS capability
 
     def test_tool_name_derived_from_input_model(self):
         """Tool name should be derived from Pydantic model class name."""

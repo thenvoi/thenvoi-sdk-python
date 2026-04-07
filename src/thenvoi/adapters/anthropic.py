@@ -246,7 +246,11 @@ class AnthropicAdapter(SimpleAdapter[AnthropicMessages]):
 
         # Get tool schemas in Anthropic format (typed helper)
         include_memory = Capability.MEMORY in self.features.capabilities
-        tool_schemas = tools.get_anthropic_tool_schemas(include_memory=include_memory)
+        include_contacts = Capability.CONTACTS in self.features.capabilities
+        tool_schemas = tools.get_anthropic_tool_schemas(
+            include_memory=include_memory,
+            include_contacts=include_contacts,
+        )
         # Merge custom tool schemas
         if self._custom_tools:
             tool_schemas = list(tool_schemas)  # Make mutable copy

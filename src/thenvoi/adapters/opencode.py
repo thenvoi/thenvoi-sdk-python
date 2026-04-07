@@ -397,7 +397,8 @@ class OpencodeAdapter(SimpleAdapter[OpencodeSessionState]):
 
         tool_definitions = list(
             iter_tool_definitions(
-                include_memory=Capability.MEMORY in self.features.capabilities
+                include_memory=Capability.MEMORY in self.features.capabilities,
+                include_contacts=Capability.CONTACTS in self.features.capabilities,
             )
         )
         backend = await create_thenvoi_mcp_backend(
