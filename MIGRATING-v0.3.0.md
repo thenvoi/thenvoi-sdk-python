@@ -229,15 +229,15 @@ await agent.run()
 The adapter is still constructed in Python — only the credentials come
 from YAML. This preserves type safety for adapter-specific options.
 
-## Optional dependency: `claude-sdk`
+## Optional dependency: `claude_sdk`
 
-`claude-agent-sdk` moved from a hard dependency to the `claude-sdk`
+`claude-agent-sdk` moved from a hard dependency to the `claude_sdk`
 optional extra. If you were using `ClaudeSDKAdapter`, install the extra:
 
 ```bash
-pip install thenvoi-sdk[claude-sdk]
+pip install thenvoi-sdk[claude_sdk]
 # or
-uv add thenvoi-sdk[claude-sdk]
+uv add thenvoi-sdk[claude_sdk]
 ```
 
 If you do not use `ClaudeSDKAdapter`, you no longer pull in
