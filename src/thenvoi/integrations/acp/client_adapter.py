@@ -416,6 +416,7 @@ class ACPClientAdapter(SimpleAdapter[ACPClientSessionState]):
             agent_name=agent_name,
             agent_description=agent_desc,
             include_base_instructions=False,
+            features=self.features,
         )
 
         room_context = (

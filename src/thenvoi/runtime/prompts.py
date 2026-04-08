@@ -75,9 +75,14 @@ and `thenvoi_respond_contact_request` to handle incoming requests.
 """
 
 # Backward-compatible template dict (used by runtime/__init__.py export)
+# Keep this in sync with render_system_prompt(include_base_instructions=True)
+# for the default structure (identity + base instructions + developer section).
 TEMPLATES: dict[str, str] = {
-    "default": "You are {agent_name}, {agent_description}.\n\n{custom_section}\n"
-    + BASE_INSTRUCTIONS,
+    "default": (
+        "You are {agent_name}, {agent_description}.\n\n"
+        + BASE_INSTRUCTIONS.strip()
+        + "\n\n## Developer Instructions\n\n{custom_section}"
+    ),
 }
 
 
