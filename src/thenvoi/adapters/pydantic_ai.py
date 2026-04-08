@@ -119,6 +119,7 @@ class PydanticAIAdapter(SimpleAdapter[PydanticAIMessages]):
         self.model = model
         self.system_prompt = system_prompt
         self.custom_section = custom_section
+        self._system_prompt: str | None = None
 
         self._agent: Agent[AgentToolsProtocol, None] | None = None
         # Conversation history per room (Pydantic AI is stateless, we maintain state)
@@ -142,6 +143,7 @@ class PydanticAIAdapter(SimpleAdapter[PydanticAIMessages]):
             custom_section=self.custom_section or "",
             features=self.features,
         )
+        self._system_prompt = system
 
         # output_type=None disables output validation - we respond via tools only
         agent: Agent[AgentToolsProtocol, None] = Agent(  # type: ignore[call-overload]
