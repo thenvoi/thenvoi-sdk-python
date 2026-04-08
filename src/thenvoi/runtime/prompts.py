@@ -74,9 +74,10 @@ to see your contacts, `thenvoi_add_contact` to send contact requests,
 and `thenvoi_respond_contact_request` to handle incoming requests.
 """
 
-# Backward-compatible template dict (used by runtime/__init__.py export)
-# Keep this in sync with render_system_prompt(include_base_instructions=True)
-# for the default structure (identity + base instructions + developer section).
+# Backward-compatible template dict — DEPRECATED.
+# This static template does NOT include capability-gated sections (MEMORY_SECTION,
+# CONTACT_SECTION) that render_system_prompt() now produces dynamically.
+# Prefer calling render_system_prompt() directly.
 TEMPLATES: dict[str, str] = {
     "default": (
         "You are {agent_name}, {agent_description}.\n\n"
