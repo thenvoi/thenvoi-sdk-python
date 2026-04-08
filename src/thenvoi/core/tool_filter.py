@@ -25,6 +25,17 @@ def filter_tool_schemas(
 ) -> list[T]:
     """Apply include/exclude/category filters from AdapterFeatures.
 
+    Filters are applied in strict precedence order:
+
+    1. **include_categories** — keep only schemas whose category is in the set.
+    2. **include_tools** — keep only schemas whose name is in the set.
+    3. **exclude_tools** — drop schemas whose name is in the set.
+
+    Each stage narrows the result of the previous one, so
+    ``include_categories=["chat"]`` + ``include_tools=["thenvoi_store_memory"]``
+    yields an empty list when ``thenvoi_store_memory`` is not in the ``"chat"``
+    category.
+
     Args:
         schemas: List of tool schemas (any type).
         features: AdapterFeatures with filtering config.
@@ -53,14 +64,20 @@ def filter_tool_schemas(
         names = set(features.include_tools)
         unmatched = names - available_names
         if unmatched:
-            logger.warning("include_tools contains unknown names: %s", unmatched)
+            logger.warning(
+                "include_tools contains unknown names: %s",
+                ", ".join(sorted(unmatched)),
+            )
         result = [s for s in result if get_name(s) in names]
 
     if features.exclude_tools is not None:
         names = set(features.exclude_tools)
         unmatched = names - available_names
         if unmatched:
-            logger.warning("exclude_tools contains unknown names: %s", unmatched)
+            logger.warning(
+                "exclude_tools contains unknown names: %s",
+                ", ".join(sorted(unmatched)),
+            )
         result = [s for s in result if get_name(s) not in names]
 
     return result
