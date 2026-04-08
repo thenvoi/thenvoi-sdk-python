@@ -15,7 +15,7 @@ from acp.schema import HttpMcpServer, SseMcpServer
 from thenvoi.converters.acp_client import ACPClientHistoryConverter
 from thenvoi.core.protocols import AgentToolsProtocol
 from thenvoi.core.simple_adapter import SimpleAdapter
-from thenvoi.core.types import Capability, Emit, PlatformMessage
+from thenvoi.core.types import AdapterFeatures, Capability, Emit, PlatformMessage
 from thenvoi.integrations.acp.client_types import (
     ACPClientSessionState,
     ThenvoiACPClient,
@@ -110,6 +110,7 @@ class ACPClientAdapter(SimpleAdapter[ACPClientSessionState]):
         rest_url: str | None = None,
         inject_thenvoi_tools: bool = True,
         auth_method: str | None = None,
+        features: AdapterFeatures | None = None,
     ) -> None:
         """Initialize ACP client adapter.
 
@@ -129,7 +130,10 @@ class ACPClientAdapter(SimpleAdapter[ACPClientSessionState]):
                          Required for agents that need auth (e.g., "cursor_login"
                          for Cursor). Set to None to skip authentication.
         """
-        super().__init__(history_converter=ACPClientHistoryConverter())
+        super().__init__(
+            history_converter=ACPClientHistoryConverter(),
+            features=features,
+        )
         self._command = command if isinstance(command, list) else [command]
         self._env = env
         self._cwd = os.path.abspath(cwd or ".")

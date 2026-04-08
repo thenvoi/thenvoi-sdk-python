@@ -25,7 +25,7 @@ from a2a.utils import get_message_text
 from thenvoi.converters.a2a import A2AHistoryConverter
 from thenvoi.core.protocols import AgentToolsProtocol
 from thenvoi.core.simple_adapter import SimpleAdapter
-from thenvoi.core.types import Capability, Emit, PlatformMessage
+from thenvoi.core.types import AdapterFeatures, Capability, Emit, PlatformMessage
 from thenvoi.integrations.a2a.types import A2AAuth, A2ASessionState
 
 logger = logging.getLogger(__name__)
@@ -108,6 +108,7 @@ class A2AAdapter(SimpleAdapter[A2ASessionState]):
         remote_url: str,
         auth: A2AAuth | None = None,
         streaming: bool = True,
+        features: AdapterFeatures | None = None,
     ) -> None:
         """Initialize A2A adapter.
 
@@ -116,7 +117,10 @@ class A2AAdapter(SimpleAdapter[A2ASessionState]):
             auth: Optional authentication configuration.
             streaming: Whether to use streaming mode (SSE) for responses.
         """
-        super().__init__(history_converter=A2AHistoryConverter())
+        super().__init__(
+            history_converter=A2AHistoryConverter(),
+            features=features,
+        )
         self.remote_url = remote_url
         self.auth = auth
         self.streaming = streaming

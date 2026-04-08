@@ -9,7 +9,7 @@ from __future__ import annotations
 import json
 import logging
 import warnings
-from typing import Any, cast
+from typing import Any, ClassVar, cast
 
 from anthropic import AsyncAnthropic
 from anthropic.types import Message, MessageParam, ToolParam, ToolUseBlock
@@ -55,8 +55,10 @@ class AnthropicAdapter(SimpleAdapter[AnthropicMessages]):
         await agent.run()
     """
 
-    SUPPORTED_EMIT = frozenset({Emit.EXECUTION})
-    SUPPORTED_CAPABILITIES = frozenset({Capability.MEMORY, Capability.CONTACTS})
+    SUPPORTED_EMIT: ClassVar[frozenset[Emit]] = frozenset({Emit.EXECUTION})
+    SUPPORTED_CAPABILITIES: ClassVar[frozenset[Capability]] = frozenset(
+        {Capability.MEMORY, Capability.CONTACTS}
+    )
 
     def __init__(
         self,
