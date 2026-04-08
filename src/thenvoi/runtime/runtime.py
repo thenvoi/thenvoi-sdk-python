@@ -8,7 +8,7 @@ Framework-light users can use RoomPresence or ThenvoiLink directly.
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Awaitable, Callable
+from typing import TYPE_CHECKING, Awaitable, Callable, Protocol
 
 from thenvoi.platform.event import PlatformEvent
 
@@ -25,8 +25,23 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-# Factory type for custom execution implementations
-ExecutionFactory = Callable[[str, "ThenvoiLink"], Execution]
+
+class ExecutionFactory(Protocol):
+    """Factory type for custom execution implementations.
+
+    Preferred signature supports hub-room propagation:
+        factory(room_id, link, hub_room_id=<id or None>)
+
+    Legacy two-argument factories are still supported for backward compatibility.
+    """
+
+    def __call__(
+        self,
+        room_id: str,
+        link: "ThenvoiLink",
+        *,
+        hub_room_id: str | None = None,
+    ) -> Execution: ...
 
 
 class AgentRuntime:
@@ -53,8 +68,13 @@ class AgentRuntime:
         await runtime.run()
 
     Example (custom execution factory):
-        def letta_factory(room_id: str, link: ThenvoiLink) -> Execution:
-            return LettaExecution(room_id, link)
+        def letta_factory(
+            room_id: str,
+            link: ThenvoiLink,
+            *,
+            hub_room_id: str | None = None,
+        ) -> Execution:
+            return LettaExecution(room_id, link, hub_room_id=hub_room_id)
 
         runtime = AgentRuntime(
             link,
@@ -210,7 +230,16 @@ class AgentRuntime:
 
         # Use factory if provided, otherwise create ExecutionContext
         if self._execution_factory:
-            execution = self._execution_factory(room_id, self.link)
+            try:
+                execution = self._execution_factory(
+                    room_id,
+                    self.link,
+                    hub_room_id=self._hub_room_id,
+                )
+            except TypeError:
+                # Backward compatibility: support legacy factories that
+                # accept only (room_id, link).
+                execution = self._execution_factory(room_id, self.link)
         else:
             execution = ExecutionContext(
                 room_id=room_id,

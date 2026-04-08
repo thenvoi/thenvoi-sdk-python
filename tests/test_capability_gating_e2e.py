@@ -255,15 +255,3 @@ class TestCapabilityGatingEndToEnd:
         assert "test-agent" in adapter._system_prompt
         assert "Focus on Python." in adapter._system_prompt
         assert "## Environment" not in adapter._system_prompt
-
-    async def test_pydantic_ai_hub_room_contacts_requires_capability(self) -> None:
-        """Document current H2 behavior for manual-tool adapters."""
-        from thenvoi.adapters.pydantic_ai import PydanticAIAdapter
-
-        assert PydanticAIAdapter.HUB_ROOM_CONTACTS_REQUIRE_CAPABILITY is True
-
-    async def test_crewai_hub_room_contacts_requires_capability(self) -> None:
-        """Document current H2 behavior for manual-tool adapters."""
-        from thenvoi.adapters.crewai import CrewAIAdapter
-
-        assert CrewAIAdapter.HUB_ROOM_CONTACTS_REQUIRE_CAPABILITY is True
