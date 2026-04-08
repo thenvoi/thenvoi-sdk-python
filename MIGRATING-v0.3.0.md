@@ -175,11 +175,11 @@ contains a "## Contact Management Tools" section.
 
 When `ContactEventStrategy.HUB_ROOM` is active, the runtime
 automatically exposes contact-management tool schemas to the LLM in the
-hub room, regardless of the adapter's `Capability.CONTACTS` setting. The
-hub-room system prompt instructs the LLM to call those tools, so they
-must be available — this avoids a class of silent misconfigurations
-where the prompt instructs the model to call tools that were not
-exposed.
+hub room for adapters that source schemas from `AgentTools.get_tool_schemas()`.
+
+Adapters that register tool functions manually (for example CrewAI and
+PydanticAI) still gate contact tools with `Capability.CONTACTS`, so keep
+that capability enabled for hub-room contact management on those adapters.
 
 ## Exception hierarchy
 
