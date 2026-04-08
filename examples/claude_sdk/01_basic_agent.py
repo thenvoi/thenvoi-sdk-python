@@ -66,7 +66,7 @@ async def main() -> None:
     adapter = ClaudeSDKAdapter(
         model="claude-sonnet-4-5-20250929",
         custom_section="You are a helpful assistant. Be concise and friendly.",
-        features=AdapterFeatures(emit={Emit.EXECUTION}),
+        features=AdapterFeatures(emit={Emit.EXECUTION, Emit.THOUGHTS}),
     )
 
     # Create and start agent

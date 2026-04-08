@@ -65,7 +65,7 @@ async def main() -> None:
     adapter = ClaudeSDKAdapter(
         model="claude-sonnet-4-5-20250929",
         custom_section=generate_tom_prompt("Tom"),
-        features=AdapterFeatures(emit={Emit.EXECUTION}),
+        features=AdapterFeatures(emit={Emit.EXECUTION, Emit.THOUGHTS}),
     )
 
     # Create and start agent

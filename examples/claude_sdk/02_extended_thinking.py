@@ -78,7 +78,9 @@ complex problem-solving. When faced with challenging questions:
 3. Evaluate trade-offs
 4. Provide clear, well-reasoned answers""",
         max_thinking_tokens=10000,  # Enable extended thinking
-        features=AdapterFeatures(emit={Emit.EXECUTION}),  # Report thinking as events
+        features=AdapterFeatures(
+            emit={Emit.EXECUTION, Emit.THOUGHTS}
+        ),  # Report execution and thinking as events
     )
 
     # Create and start agent

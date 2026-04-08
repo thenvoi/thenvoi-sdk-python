@@ -240,7 +240,7 @@ async def main() -> None:
         model=model,
         custom_section=final_prompt,
         max_thinking_tokens=thinking_tokens,
-        features=AdapterFeatures(emit={Emit.EXECUTION}),
+        features=AdapterFeatures(emit={Emit.EXECUTION, Emit.THOUGHTS}),
         additional_tools=custom_tools if custom_tools else None,
         cwd=workspace,
     )
