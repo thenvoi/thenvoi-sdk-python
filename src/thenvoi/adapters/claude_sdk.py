@@ -18,7 +18,7 @@ import warnings
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, ClassVar, Literal
 
 try:
     from claude_agent_sdk import (
@@ -165,8 +165,12 @@ class ClaudeSDKAdapter(SimpleAdapter[ClaudeSDKSessionState]):
 
     PermissionMode = Literal["default", "acceptEdits", "plan", "bypassPermissions"]
 
-    SUPPORTED_EMIT = frozenset({Emit.EXECUTION, Emit.THOUGHTS})
-    SUPPORTED_CAPABILITIES = frozenset({Capability.MEMORY, Capability.CONTACTS})
+    SUPPORTED_EMIT: ClassVar[frozenset[Emit]] = frozenset(
+        {Emit.EXECUTION, Emit.THOUGHTS}
+    )
+    SUPPORTED_CAPABILITIES: ClassVar[frozenset[Capability]] = frozenset(
+        {Capability.MEMORY, Capability.CONTACTS}
+    )
 
     def __init__(
         self,
