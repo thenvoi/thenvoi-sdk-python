@@ -46,6 +46,7 @@ class SimpleAdapter(Generic[H], ABC):
                 tools: AgentToolsProtocol,
                 history: list[ChatMessage],  # Fully typed!
                 participants_msg: str | None,
+                contacts_msg: str | None,
                 *,
                 is_session_bootstrap: bool,
                 room_id: str,
