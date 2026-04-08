@@ -9,6 +9,7 @@ from thenvoi.core.exceptions import (
     ThenvoiConnectionError,
     ThenvoiError,
     ThenvoiToolError,
+    _levenshtein,
 )
 
 
@@ -96,3 +97,32 @@ class TestConfigErrorWithSuggestion:
     def test_empty_haystack_no_suggestion(self) -> None:
         err = ThenvoiConfigError.with_suggestion("Bad name.", "anything", [])
         assert "Did you mean" not in str(err)
+
+
+class TestLevenshtein:
+    """Direct tests for _levenshtein edge cases."""
+
+    def test_identical_strings(self) -> None:
+        assert _levenshtein("memory", "memory") == 0
+
+    def test_empty_source(self) -> None:
+        assert _levenshtein("", "abc") == 3
+
+    def test_empty_target(self) -> None:
+        assert _levenshtein("abc", "") == 3
+
+    def test_both_empty(self) -> None:
+        assert _levenshtein("", "") == 0
+
+    def test_single_insertion(self) -> None:
+        assert _levenshtein("memry", "memory") == 1
+
+    def test_single_deletion(self) -> None:
+        assert _levenshtein("memory", "memry") == 1
+
+    def test_single_substitution(self) -> None:
+        assert _levenshtein("memory", "memary") == 1
+
+    def test_transposition(self) -> None:
+        # Standard Levenshtein treats transposition as 2 edits (delete + insert)
+        assert _levenshtein("ab", "ba") == 2

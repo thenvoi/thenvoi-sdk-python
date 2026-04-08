@@ -52,8 +52,8 @@ class AdapterFeatures:
     include_categories: tuple[str, ...] | None = None
 
     def __post_init__(self) -> None:
-        object.__setattr__(self, "capabilities", frozenset(self.capabilities))
-        object.__setattr__(self, "emit", frozenset(self.emit))
+        object.__setattr__(self, "capabilities", frozenset(self.capabilities or ()))
+        object.__setattr__(self, "emit", frozenset(self.emit or ()))
         if self.include_tools is not None:
             object.__setattr__(self, "include_tools", tuple(self.include_tools))
         if self.exclude_tools is not None:

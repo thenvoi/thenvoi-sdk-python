@@ -84,3 +84,11 @@ class TestAdapterFeatures:
         f1 = AdapterFeatures(capabilities={Capability.MEMORY})
         f2 = AdapterFeatures(capabilities={Capability.CONTACTS})
         assert f1 != f2
+
+    def test_none_capabilities_treated_as_empty(self) -> None:
+        f = AdapterFeatures(capabilities=None)  # type: ignore[arg-type]
+        assert f.capabilities == frozenset()
+
+    def test_none_emit_treated_as_empty(self) -> None:
+        f = AdapterFeatures(emit=None)  # type: ignore[arg-type]
+        assert f.emit == frozenset()
