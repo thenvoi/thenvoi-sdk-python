@@ -118,14 +118,14 @@ class SimpleAdapter(Generic[H], ABC):
             logger.warning(
                 "%s does not support emit values: %s (they will have no effect)",
                 type(self).__name__,
-                unsupported_emit,
+                ", ".join(sorted(e.value for e in unsupported_emit)),
             )
         unsupported_caps = self.features.capabilities - self.SUPPORTED_CAPABILITIES
         if unsupported_caps:
             logger.warning(
                 "%s does not support capability values: %s (they will have no effect)",
                 type(self).__name__,
-                unsupported_caps,
+                ", ".join(sorted(c.value for c in unsupported_caps)),
             )
 
         # Propagate agent name to converter if it supports it

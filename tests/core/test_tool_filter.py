@@ -99,3 +99,16 @@ class TestFilterToolSchemas:
         f = AdapterFeatures(include_tools=["thenvoi_send_message"])
         result = filter_tool_schemas([], f, get_name=_get_name)
         assert result == []
+
+    def test_category_then_include_precedence_yields_empty(self) -> None:
+        """Categories filter first, so include_tools on a tool outside that
+        category still produces an empty result."""
+        f = AdapterFeatures(
+            include_categories=["chat"],
+            include_tools=["thenvoi_store_memory"],
+        )
+        result = filter_tool_schemas(
+            SAMPLE_TOOLS, f, get_name=_get_name, get_category=_get_category
+        )
+        # thenvoi_store_memory is category "memory", excluded by categories step
+        assert result == []
