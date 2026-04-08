@@ -1374,6 +1374,11 @@ class AgentTools(AgentToolsProtocol):
             # Serialize Pydantic models to dicts at the adapter boundary
             if hasattr(result, "model_dump"):
                 return result.model_dump()
+            if isinstance(result, list):
+                return [
+                    item.model_dump() if hasattr(item, "model_dump") else item
+                    for item in result
+                ]
             return result
         except ThenvoiToolError:
             # Let ThenvoiToolError propagate so framework wrappers can

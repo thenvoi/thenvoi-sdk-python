@@ -24,6 +24,7 @@ except ImportError as e:
         "Or: uv add claude-agent-sdk"
     ) from e
 
+from thenvoi.core.exceptions import ThenvoiToolError
 from thenvoi.core.protocols import AgentToolsProtocol
 from thenvoi.runtime.custom_tools import (
     CustomToolDef,
@@ -219,7 +220,7 @@ def _build_builtin_sdk_tool(
             return _make_result(
                 _format_success_payload(definition.name, call_args, result)
             )
-        except ValueError as error:
+        except (ValueError, ThenvoiToolError) as error:
             if (
                 definition.name == "thenvoi_send_message"
                 and get_participant_handles is not None

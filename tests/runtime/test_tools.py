@@ -489,6 +489,8 @@ class TestAgentToolsExecuteToolCall:
         result = await tools.execute_tool_call("thenvoi_get_participants", {})
 
         assert isinstance(result, list)
+        assert result[0]["id"] == "user-1"
+        assert result[0]["name"] == "User One"
 
     async def test_execute_unknown_tool(self, mock_rest_client):
         """execute_tool_call() should return error for unknown tool."""
