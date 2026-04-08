@@ -34,6 +34,7 @@ from setup_logging import setup_logging  # pyrefly: ignore[missing-import]
 from thenvoi import Agent
 from thenvoi.adapters.opencode import OpencodeAdapter, OpencodeAdapterConfig
 from thenvoi.config import load_agent_config
+from thenvoi.core.types import AdapterFeatures, Emit
 
 setup_logging()
 logger = logging.getLogger(__name__)
@@ -60,7 +61,7 @@ async def main() -> None:
             agent=os.getenv("OPENCODE_AGENT") or None,
             custom_section="You are a helpful assistant. Keep replies concise.",
             approval_mode=os.getenv("OPENCODE_APPROVAL_MODE", "manual"),  # type: ignore[arg-type]  # env var is str; invalid values fall through to manual mode
-            enable_execution_reporting=True,
+            features=AdapterFeatures(emit={Emit.EXECUTION}),
         )
     )
 

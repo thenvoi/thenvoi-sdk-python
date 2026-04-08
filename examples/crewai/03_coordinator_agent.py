@@ -30,6 +30,7 @@ from setup_logging import setup_logging
 from thenvoi import Agent
 from thenvoi.adapters import CrewAIAdapter
 from thenvoi.config import load_agent_config
+from thenvoi.core.types import AdapterFeatures, Emit
 
 setup_logging()
 logger = logging.getLogger(__name__)
@@ -76,7 +77,7 @@ When coordinating:
 6. Synthesize outputs from multiple agents
 7. Clean up by removing agents no longer needed
 """,
-        enable_execution_reporting=True,
+        features=AdapterFeatures(emit={Emit.EXECUTION}),
         verbose=True,
     )
 

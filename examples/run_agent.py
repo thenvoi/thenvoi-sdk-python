@@ -68,6 +68,7 @@ from dotenv import load_dotenv
 
 from thenvoi import Agent
 from thenvoi.config import load_agent_config
+from thenvoi.core.types import AdapterFeatures, Emit
 from thenvoi.platform.event import ContactRequestReceivedEvent, ContactEvent
 from thenvoi.runtime.contact_tools import ContactTools
 from thenvoi.runtime.types import ContactEventConfig, ContactEventStrategy
@@ -280,7 +281,7 @@ async def run_pydantic_ai_agent(
     adapter = PydanticAIAdapter(
         model=model,
         custom_section=section,
-        enable_execution_reporting=enable_streaming,
+        features=AdapterFeatures(emit={Emit.EXECUTION}) if enable_streaming else None,
     )
 
     agent = Agent.create(
@@ -323,8 +324,8 @@ async def run_anthropic_agent(
 
     adapter = AnthropicAdapter(
         model=model,
-        custom_section=custom_section,
-        enable_execution_reporting=enable_streaming,
+        prompt=custom_section,
+        features=AdapterFeatures(emit={Emit.EXECUTION}) if enable_streaming else None,
     )
 
     agent = Agent.create(
@@ -368,7 +369,7 @@ async def run_claude_sdk_agent(
         model=model,
         custom_section=custom_section,
         max_thinking_tokens=10000 if enable_thinking else None,
-        enable_execution_reporting=enable_streaming,
+        features=AdapterFeatures(emit={Emit.EXECUTION}) if enable_streaming else None,
     )
 
     agent = Agent.create(
@@ -409,7 +410,7 @@ async def run_parlant_agent(
         model=model,
         custom_section=custom_section,
         guidelines=PARLANT_GUIDELINES,
-        enable_execution_reporting=enable_streaming,
+        features=AdapterFeatures(emit={Emit.EXECUTION}) if enable_streaming else None,
     )
 
     agent = Agent.create(
@@ -443,7 +444,7 @@ async def run_crewai_agent(
         goal=CREWAI_DEFAULTS["goal"],
         backstory=CREWAI_DEFAULTS["backstory"],
         custom_section=custom_section,
-        enable_execution_reporting=enable_streaming,
+        features=AdapterFeatures(emit={Emit.EXECUTION}) if enable_streaming else None,
     )
 
     agent = Agent.create(
@@ -541,7 +542,7 @@ async def run_pydantic_ai_contacts_agent(
     adapter = PydanticAIAdapter(
         model=model,
         custom_section=CONTACTS_INSTRUCTIONS,
-        enable_execution_reporting=True,  # Show tool calls
+        features=AdapterFeatures(emit={Emit.EXECUTION}),  # Show tool calls
     )
 
     agent = Agent.create(
@@ -596,7 +597,7 @@ async def run_contacts_auto_agent(
         model=model,
         custom_section="""You are a helpful assistant. Contact requests are handled automatically.
 When you see system messages about new contacts, acknowledge them to the user.""",
-        enable_execution_reporting=True,
+        features=AdapterFeatures(emit={Emit.EXECUTION}),
     )
 
     agent = Agent.create(
@@ -655,7 +656,7 @@ Actions available:
 - thenvoi_respond_contact_request(action="approve", handle="...")
 - thenvoi_respond_contact_request(action="reject", handle="...")
 """,
-        enable_execution_reporting=True,
+        features=AdapterFeatures(emit={Emit.EXECUTION}),
     )
 
     agent = Agent.create(
@@ -705,7 +706,7 @@ You will receive system messages when contacts are added or removed.
 These appear as "[Contacts]: @handle (name) is now a contact" or similar.
 Acknowledge these updates to the user when you see them.
 """,
-        enable_execution_reporting=True,
+        features=AdapterFeatures(emit={Emit.EXECUTION}),
     )
 
     agent = Agent.create(
