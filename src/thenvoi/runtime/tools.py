@@ -697,14 +697,14 @@ class AgentTools(AgentToolsProtocol):
             self.room_id,
         )
 
-        # First check if participant is already in the room. Prefer cached
-        # snapshot but fall back to a fresh fetch if the cache is empty.
-        snapshot: list[dict[str, Any]] = list(self._participants)
-        if not snapshot:
-            fresh = await self.get_participants()
-            snapshot = [
-                p.model_dump() if hasattr(p, "model_dump") else p for p in fresh
-            ]
+        # First check if participant is already in the room. Always prefer a
+        # fresh server snapshot to avoid stale-cache decisions after room updates.
+        fresh = await self.get_participants()
+        snapshot = [p.model_dump() if hasattr(p, "model_dump") else p for p in fresh]
+        if snapshot:
+            self._participants = snapshot
+        else:
+            snapshot = list(self._participants)
 
         for cached in snapshot:
             if cached.get("name", "").lower() == name.lower():
@@ -770,15 +770,14 @@ class AgentTools(AgentToolsProtocol):
         """
         logger.debug("Removing participant '%s' from room %s", name, self.room_id)
 
-        # Look up participant ID by name. Prefer the cached snapshot, but
-        # fall back to a fresh API fetch when the cache is empty (e.g. when
-        # remove_participant is called before the WebSocket has populated it).
-        snapshot: list[dict[str, Any]] = list(self._participants)
-        if not snapshot:
-            fresh = await self.get_participants()
-            snapshot = [
-                p.model_dump() if hasattr(p, "model_dump") else p for p in fresh
-            ]
+        # Look up participant ID by name. Always prefer a fresh server snapshot
+        # to avoid stale-cache decisions after room updates.
+        fresh = await self.get_participants()
+        snapshot = [p.model_dump() if hasattr(p, "model_dump") else p for p in fresh]
+        if snapshot:
+            self._participants = snapshot
+        else:
+            snapshot = list(self._participants)
 
         participant_id: str | None = None
         for cached in snapshot:
