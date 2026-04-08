@@ -57,6 +57,7 @@ class PydanticAIAdapter(SimpleAdapter[PydanticAIMessages]):
     SUPPORTED_CAPABILITIES: ClassVar[frozenset[Capability]] = frozenset(
         {Capability.MEMORY, Capability.CONTACTS}
     )
+    HUB_ROOM_CONTACTS_REQUIRE_CAPABILITY: ClassVar[bool] = True
 
     def __init__(
         self,
