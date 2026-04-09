@@ -416,14 +416,19 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
                 )
 
     @staticmethod
-    def _serialize_success_result(result: dict[str, Any]) -> str:
+    def _serialize_success_result(result: Any) -> str:
         """Serialize a successful tool result without losing domain status fields."""
-        payload = dict(result)
-        result_status = payload.pop("status", None)
-        response: dict[str, Any] = {"status": "success", **payload}
-        if result_status is not None:
-            response["result_status"] = result_status
-        return json.dumps(response)
+        # Convert Pydantic models to dicts at serialization boundary
+        if hasattr(result, "model_dump"):
+            result = result.model_dump()
+        if isinstance(result, dict):
+            payload = dict(result)
+            result_status = payload.pop("status", None)
+            response: dict[str, Any] = {"status": "success", **payload}
+            if result_status is not None:
+                response["result_status"] = result_status
+            return json.dumps(response, default=str)
+        return json.dumps({"status": "success", "result": result}, default=str)
 
     def _convert_custom_tools_to_crewai(self) -> list[BaseTool]:
         """Convert CustomToolDef tuples to CrewAI BaseTool instances.
@@ -760,15 +765,24 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
                         tools, "thenvoi_get_participants", {}
                     )
                     participants = await tools.get_participants()
+                    # Convert Fern models to dicts for JSON serialization
+                    serialized = (
+                        [
+                            p.model_dump() if hasattr(p, "model_dump") else p
+                            for p in participants
+                        ]
+                        if isinstance(participants, list)
+                        else participants
+                    )
                     result = {
                         "status": "success",
-                        "participants": participants,
+                        "participants": serialized,
                         "count": len(participants),
                     }
                     await adapter._report_tool_result(
                         tools, "thenvoi_get_participants", result
                     )
-                    return json.dumps(result)
+                    return json.dumps(result, default=str)
 
                 return adapter._execute_tool("thenvoi_get_participants", execute)
 
