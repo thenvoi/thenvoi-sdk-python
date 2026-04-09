@@ -39,7 +39,9 @@ def _matches_identifier(entity: dict[str, Any], identifier: str) -> bool:
     """
     # Handle comparison — normalize both sides
     entity_handle = entity.get("handle") or ""
-    if entity_handle and _normalize_handle(entity_handle) == _normalize_handle(identifier):
+    if entity_handle and _normalize_handle(entity_handle) == _normalize_handle(
+        identifier
+    ):
         return True
 
     # Name and ID — plain case-insensitive comparison
