@@ -173,7 +173,9 @@ async def find_peer_by_handle(
         )
 
         total_pages = (
-            getattr(response.metadata, "total_pages", 1) if response.metadata else 1
+            getattr(response.metadata, "total_pages", None) or 1
+            if response.metadata
+            else 1
         )
         if page >= total_pages:
             break
@@ -276,13 +278,15 @@ async def run(args: argparse.Namespace) -> str:
                 )
             logger.info("Message sent successfully")
         except ApiError as e:
-            logger.error(
+            logger.warning(
                 "Failed after creating room %s — room may need manual cleanup",
                 room_id,
             )
-            raise RuntimeError(_format_api_error(e, "complete trigger")) from e
+            raise RuntimeError(
+                f"{_format_api_error(e, 'complete trigger')} (orphan room: {room_id})"
+            ) from e
         except Exception:
-            logger.error(
+            logger.warning(
                 "Failed after creating room %s — room may need manual cleanup",
                 room_id,
             )

@@ -82,7 +82,8 @@ def _make_chat_response(room_id="room-123"):
 def _make_mock_client():
     """Create a mock AsyncRestClient with async-compatible aclose."""
     mock_client = AsyncMock()
-    mock_client._client_wrapper.httpx_client.aclose = AsyncMock()
+    # Match the real Fern chain: AsyncClientWrapper → AsyncHttpClient → httpx.AsyncClient
+    mock_client._client_wrapper.httpx_client.httpx_client.aclose = AsyncMock()
     return mock_client
 
 
@@ -412,7 +413,7 @@ class TestRun:
             with pytest.raises(RuntimeError, match="connection failed"):
                 await run(args)
 
-        mock_logger.error.assert_called_once_with(
+        mock_logger.warning.assert_called_once_with(
             "Failed after creating room %s — room may need manual cleanup",
             "orphan-room",
         )
