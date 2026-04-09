@@ -1089,13 +1089,19 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
             GetParticipantsTool(),
             LookupPeersTool(),
             CreateChatroomTool(),
-            # Contact management tools
-            ListContactsTool(),
-            AddContactTool(),
-            RemoveContactTool(),
-            ListContactRequestsTool(),
-            RespondContactRequestTool(),
         ]
+
+        # Contact management tools (opt-in via Capability.CONTACTS)
+        if Capability.CONTACTS in self.features.capabilities:
+            platform_tools.extend(
+                [
+                    ListContactsTool(),
+                    AddContactTool(),
+                    RemoveContactTool(),
+                    ListContactRequestsTool(),
+                    RespondContactRequestTool(),
+                ]
+            )
 
         # Memory management tools (enterprise only - opt-in)
         if Capability.MEMORY in self.features.capabilities:

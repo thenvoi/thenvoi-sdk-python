@@ -91,19 +91,23 @@ class AgentToolsProtocol(Protocol):
         ...
 
     def get_tool_schemas(
-        self, format: str, *, include_memory: bool = False
+        self,
+        format: str,
+        *,
+        include_memory: bool = False,
+        include_contacts: bool = True,
     ) -> list[dict[str, Any]] | list["ToolParam"]:
         """Get tool schemas in provider-specific format (openai/anthropic)."""
         ...
 
     def get_anthropic_tool_schemas(
-        self, *, include_memory: bool = False
+        self, *, include_memory: bool = False, include_contacts: bool = True
     ) -> list["ToolParam"]:
         """Get tool schemas in Anthropic format (strongly typed)."""
         ...
 
     def get_openai_tool_schemas(
-        self, *, include_memory: bool = False
+        self, *, include_memory: bool = False, include_contacts: bool = True
     ) -> list[dict[str, Any]]:
         """Get tool schemas in OpenAI format (strongly typed)."""
         ...

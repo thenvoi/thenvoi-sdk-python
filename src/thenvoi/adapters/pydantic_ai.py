@@ -252,96 +252,102 @@ class PydanticAIAdapter(SimpleAdapter[PydanticAIMessages]):
         )
         agent.tool(thenvoi_create_chatroom)
 
-        # Contact management tools
-        async def thenvoi_list_contacts(
-            ctx: RunContext[AgentToolsProtocol],
-            page: int = 1,
-            page_size: int = 50,
-        ) -> dict[str, Any] | str:
-            try:
-                return await ctx.deps.list_contacts(page, page_size)
-            except Exception as e:
-                return f"Error listing contacts: {e}"
+        # Contact management tools (opt-in via Capability.CONTACTS)
+        if Capability.CONTACTS in self.features.capabilities:
 
-        thenvoi_list_contacts.__doc__ = get_tool_description("thenvoi_list_contacts")
-        agent.tool(thenvoi_list_contacts)
-
-        async def thenvoi_add_contact(
-            ctx: RunContext[AgentToolsProtocol],
-            handle: str,
-            message: str | None = None,
-        ) -> dict[str, Any] | str:
-            try:
-                return await ctx.deps.add_contact(handle, message)
-            except Exception as e:
-                return f"Error adding contact '{handle}': {e}"
-
-        thenvoi_add_contact.__doc__ = get_tool_description("thenvoi_add_contact")
-        agent.tool(thenvoi_add_contact)
-
-        async def thenvoi_remove_contact(
-            ctx: RunContext[AgentToolsProtocol],
-            handle: str | None = None,
-            contact_id: str | None = None,
-        ) -> dict[str, Any] | str:
-            try:
-                return await ctx.deps.remove_contact(handle, contact_id)
-            except Exception as e:
-                return f"Error removing contact: {e}"
-
-        thenvoi_remove_contact.__doc__ = get_tool_description("thenvoi_remove_contact")
-        agent.tool(thenvoi_remove_contact)
-
-        async def thenvoi_list_contact_requests(
-            ctx: RunContext[AgentToolsProtocol],
-            page: int = 1,
-            page_size: int = 50,
-            sent_status: str = "pending",
-        ) -> dict[str, Any] | str:
-            try:
-                return await ctx.deps.list_contact_requests(
-                    page, page_size, sent_status
-                )
-            except Exception as e:
-                return f"Error listing contact requests: {e}"
-
-        thenvoi_list_contact_requests.__doc__ = get_tool_description(
-            "thenvoi_list_contact_requests"
-        )
-        agent.tool(thenvoi_list_contact_requests)
-
-        async def thenvoi_respond_contact_request(
-            ctx: RunContext[AgentToolsProtocol],
-            action: str,
-            handle: str | None = None,
-            request_id: str | None = None,
-        ) -> dict[str, Any] | str:
-            logger.info(
-                "thenvoi_respond_contact_request called: action=%s, handle=%s, request_id=%s",
-                action,
-                handle,
-                request_id,
-            )
-            try:
-                result = await ctx.deps.respond_contact_request(
-                    action, handle, request_id
-                )
-                logger.info("thenvoi_respond_contact_request result: %s", result)
-                return result
-            except Exception as e:
-                logger.error("thenvoi_respond_contact_request error: %s", e)
-                error_msg = f"Error responding to contact request: {e}"
-                # Auto-send error event so it's visible in the room
+            async def thenvoi_list_contacts(
+                ctx: RunContext[AgentToolsProtocol],
+                page: int = 1,
+                page_size: int = 50,
+            ) -> dict[str, Any] | str:
                 try:
-                    await ctx.deps.send_event(error_msg, "error")
-                except Exception:
-                    pass  # Don't fail if error reporting fails
-                return error_msg
+                    return await ctx.deps.list_contacts(page, page_size)
+                except Exception as e:
+                    return f"Error listing contacts: {e}"
 
-        thenvoi_respond_contact_request.__doc__ = get_tool_description(
-            "thenvoi_respond_contact_request"
-        )
-        agent.tool(thenvoi_respond_contact_request)
+            thenvoi_list_contacts.__doc__ = get_tool_description(
+                "thenvoi_list_contacts"
+            )
+            agent.tool(thenvoi_list_contacts)
+
+            async def thenvoi_add_contact(
+                ctx: RunContext[AgentToolsProtocol],
+                handle: str,
+                message: str | None = None,
+            ) -> dict[str, Any] | str:
+                try:
+                    return await ctx.deps.add_contact(handle, message)
+                except Exception as e:
+                    return f"Error adding contact '{handle}': {e}"
+
+            thenvoi_add_contact.__doc__ = get_tool_description("thenvoi_add_contact")
+            agent.tool(thenvoi_add_contact)
+
+            async def thenvoi_remove_contact(
+                ctx: RunContext[AgentToolsProtocol],
+                handle: str | None = None,
+                contact_id: str | None = None,
+            ) -> dict[str, Any] | str:
+                try:
+                    return await ctx.deps.remove_contact(handle, contact_id)
+                except Exception as e:
+                    return f"Error removing contact: {e}"
+
+            thenvoi_remove_contact.__doc__ = get_tool_description(
+                "thenvoi_remove_contact"
+            )
+            agent.tool(thenvoi_remove_contact)
+
+            async def thenvoi_list_contact_requests(
+                ctx: RunContext[AgentToolsProtocol],
+                page: int = 1,
+                page_size: int = 50,
+                sent_status: str = "pending",
+            ) -> dict[str, Any] | str:
+                try:
+                    return await ctx.deps.list_contact_requests(
+                        page, page_size, sent_status
+                    )
+                except Exception as e:
+                    return f"Error listing contact requests: {e}"
+
+            thenvoi_list_contact_requests.__doc__ = get_tool_description(
+                "thenvoi_list_contact_requests"
+            )
+            agent.tool(thenvoi_list_contact_requests)
+
+            async def thenvoi_respond_contact_request(
+                ctx: RunContext[AgentToolsProtocol],
+                action: str,
+                handle: str | None = None,
+                request_id: str | None = None,
+            ) -> dict[str, Any] | str:
+                logger.info(
+                    "thenvoi_respond_contact_request called: action=%s, handle=%s, request_id=%s",
+                    action,
+                    handle,
+                    request_id,
+                )
+                try:
+                    result = await ctx.deps.respond_contact_request(
+                        action, handle, request_id
+                    )
+                    logger.info("thenvoi_respond_contact_request result: %s", result)
+                    return result
+                except Exception as e:
+                    logger.error("thenvoi_respond_contact_request error: %s", e)
+                    error_msg = f"Error responding to contact request: {e}"
+                    # Auto-send error event so it's visible in the room
+                    try:
+                        await ctx.deps.send_event(error_msg, "error")
+                    except Exception:
+                        pass  # Don't fail if error reporting fails
+                    return error_msg
+
+            thenvoi_respond_contact_request.__doc__ = get_tool_description(
+                "thenvoi_respond_contact_request"
+            )
+            agent.tool(thenvoi_respond_contact_request)
 
         # Memory management tools (enterprise only - opt-in)
         if Capability.MEMORY in self.features.capabilities:

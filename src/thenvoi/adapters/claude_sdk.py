@@ -382,7 +382,13 @@ class ClaudeSDKAdapter(SimpleAdapter[ClaudeSDKSessionState]):
     async def _create_mcp_backend(self) -> ThenvoiMCPBackend:
         """Create shared MCP backend that uses stored room tools."""
         include_memory = Capability.MEMORY in self.features.capabilities
-        tool_definitions = list(iter_tool_definitions(include_memory=include_memory))
+        include_contacts = Capability.CONTACTS in self.features.capabilities
+        tool_definitions = list(
+            iter_tool_definitions(
+                include_memory=include_memory,
+                include_contacts=include_contacts,
+            )
+        )
         backend = await create_thenvoi_mcp_backend(
             kind="sdk",
             tool_definitions=tool_definitions,
