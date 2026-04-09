@@ -288,7 +288,7 @@ async def run(args: argparse.Namespace) -> str:
             )
             raise
     finally:
-        await client._client_wrapper.httpx_client.aclose()
+        await client._client_wrapper.httpx_client.httpx_client.aclose()
 
     return room_id
 
