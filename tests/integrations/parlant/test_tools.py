@@ -141,7 +141,10 @@ class TestCreateParlantTools:
         tools = create_parlant_tools()
 
         assert isinstance(tools, list)
-        assert len(tools) == 12
+        # Non-empty; specific tool names are verified in the next test.
+        # Avoid hardcoded counts so adding/removing tools doesn't silently
+        # break this assertion — the next test validates the exact contract.
+        assert len(tools) > 0
 
     def test_returns_expected_tool_names(self):
         """Should return tools with expected names."""
@@ -215,6 +218,44 @@ class TestCreateParlantTools:
         # Pagination was intentionally removed to simplify the API
         # The function uses hardcoded defaults (page=1, page_size=50)
         assert param_names == []
+
+    def test_excludes_contact_tools_without_capability(self):
+        """Contact tools excluded when CONTACTS capability is absent."""
+        from thenvoi.core.types import AdapterFeatures
+
+        tools = create_parlant_tools(features=AdapterFeatures())
+        tool_names = [t.tool.name for t in tools]
+
+        assert "thenvoi_send_message" in tool_names
+        assert "thenvoi_create_chatroom" in tool_names
+        assert "thenvoi_list_contacts" not in tool_names
+        assert "thenvoi_add_contact" not in tool_names
+        assert "thenvoi_remove_contact" not in tool_names
+        assert "thenvoi_list_contact_requests" not in tool_names
+        assert "thenvoi_respond_contact_request" not in tool_names
+
+    def test_includes_contact_tools_with_capability(self):
+        """Contact tools included when CONTACTS capability is present."""
+        from thenvoi.core.types import AdapterFeatures, Capability
+
+        tools = create_parlant_tools(
+            features=AdapterFeatures(capabilities={Capability.CONTACTS})
+        )
+        tool_names = [t.tool.name for t in tools]
+
+        assert "thenvoi_list_contacts" in tool_names
+        assert "thenvoi_add_contact" in tool_names
+        assert "thenvoi_remove_contact" in tool_names
+        assert "thenvoi_list_contact_requests" in tool_names
+        assert "thenvoi_respond_contact_request" in tool_names
+
+    def test_includes_contact_tools_when_no_features(self):
+        """Contact tools included when features is None (backward compat)."""
+        tools = create_parlant_tools(features=None)
+        tool_names = [t.tool.name for t in tools]
+
+        assert "thenvoi_list_contacts" in tool_names
+        assert "thenvoi_respond_contact_request" in tool_names
 
 
 class TestParlantToolFunctions:

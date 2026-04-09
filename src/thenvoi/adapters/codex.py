@@ -757,7 +757,10 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
         dynamic_tools: list[dict[str, Any]] = []
         seen: set[str] = set()
 
-        for schema in tools.get_openai_tool_schemas():
+        for schema in tools.get_openai_tool_schemas(
+            include_memory=Capability.MEMORY in self.features.capabilities,
+            include_contacts=Capability.CONTACTS in self.features.capabilities,
+        ):
             if not isinstance(schema, dict):
                 continue
 
