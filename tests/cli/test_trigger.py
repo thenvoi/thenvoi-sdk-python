@@ -79,6 +79,13 @@ def _make_chat_response(room_id="room-123"):
     return resp
 
 
+def _make_mock_client():
+    """Create a mock AsyncRestClient with async-compatible aclose."""
+    mock_client = AsyncMock()
+    mock_client._client_wrapper.httpx_client.aclose = AsyncMock()
+    return mock_client
+
+
 # --- build_parser tests ---
 
 
@@ -296,8 +303,9 @@ class TestRun:
                 new_callable=AsyncMock,
                 return_value=None,
             ),
-            patch("thenvoi.cli.trigger.AsyncRestClient"),
+            patch("thenvoi.cli.trigger.AsyncRestClient") as MockClient,
         ):
+            MockClient.return_value = _make_mock_client()
             with pytest.raises(ValueError, match="not found"):
                 await run(args)
 
@@ -314,7 +322,7 @@ class TestRun:
             ),
             patch("thenvoi.cli.trigger.AsyncRestClient") as MockClient,
         ):
-            mock_client = AsyncMock()
+            mock_client = _make_mock_client()
             MockClient.return_value = mock_client
             mock_client.agent_api_chats.create_agent_chat.return_value = (
                 _make_chat_response()
@@ -339,7 +347,7 @@ class TestRun:
             ),
             patch("thenvoi.cli.trigger.AsyncRestClient") as MockClient,
         ):
-            mock_client = AsyncMock()
+            mock_client = _make_mock_client()
             MockClient.return_value = mock_client
             mock_client.agent_api_chats.create_agent_chat.return_value = (
                 _make_chat_response("room-abc")
@@ -365,7 +373,7 @@ class TestRun:
             ),
             patch("thenvoi.cli.trigger.AsyncRestClient") as MockClient,
         ):
-            mock_client = AsyncMock()
+            mock_client = _make_mock_client()
             MockClient.return_value = mock_client
             mock_client.human_api_chats.create_my_chat_room.return_value = (
                 _make_chat_response("room-xyz")
@@ -392,7 +400,7 @@ class TestRun:
             patch("thenvoi.cli.trigger.AsyncRestClient") as MockClient,
             patch("thenvoi.cli.trigger.logger") as mock_logger,
         ):
-            mock_client = AsyncMock()
+            mock_client = _make_mock_client()
             MockClient.return_value = mock_client
             mock_client.agent_api_chats.create_agent_chat.return_value = (
                 _make_chat_response("orphan-room")
@@ -429,7 +437,7 @@ class TestRun:
             ),
             patch("thenvoi.cli.trigger.AsyncRestClient") as MockClient,
         ):
-            mock_client = AsyncMock()
+            mock_client = _make_mock_client()
             MockClient.return_value = mock_client
             mock_client.agent_api_chats.create_agent_chat.side_effect = api_err
 
@@ -452,7 +460,7 @@ class TestRun:
             ),
             patch("thenvoi.cli.trigger.AsyncRestClient") as MockClient,
         ):
-            mock_client = AsyncMock()
+            mock_client = _make_mock_client()
             MockClient.return_value = mock_client
             mock_client.agent_api_chats.create_agent_chat.return_value = (
                 _make_chat_response("room-abc")

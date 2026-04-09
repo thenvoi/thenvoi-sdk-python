@@ -205,87 +205,90 @@ async def run(args: argparse.Namespace) -> str:
 
     client = AsyncRestClient(api_key=args.api_key, base_url=args.rest_url.rstrip("/"))
 
-    # Step 1: Look up the target peer by handle
-    logger.info("Looking up peer with handle: %s", args.target_handle)
-    peer = await find_peer_by_handle(client, args.target_handle, args.auth_mode)
-    if not peer:
-        raise ValueError(
-            f"Target agent with handle '{args.target_handle}' not found. "
-            "Verify the handle is correct and that you have access to this peer."
-        )
-    logger.info("Found peer: %s (id=%s)", peer["name"], peer["id"])
-
-    # Step 2: Create a new chatroom
-    logger.info("Creating chatroom...")
     try:
-        if args.auth_mode == "agent":
-            chat_response = await client.agent_api_chats.create_agent_chat(
-                chat=ChatRoomRequest(),
-                request_options=DEFAULT_REQUEST_OPTIONS,
+        # Step 1: Look up the target peer by handle
+        logger.info("Looking up peer with handle: %s", args.target_handle)
+        peer = await find_peer_by_handle(client, args.target_handle, args.auth_mode)
+        if not peer:
+            raise ValueError(
+                f"Target agent with handle '{args.target_handle}' not found. "
+                "Verify the handle is correct and that you have access to this peer."
             )
-        else:
-            chat_response = await client.human_api_chats.create_my_chat_room(
-                chat=CreateMyChatRoomRequestChat(),
-                request_options=DEFAULT_REQUEST_OPTIONS,
-            )
-    except ApiError as e:
-        raise RuntimeError(_format_api_error(e, "create chatroom")) from e
-    room_id = chat_response.data.id
-    logger.info("Created chatroom: %s", room_id)
+        logger.info("Found peer: %s (id=%s)", peer["name"], peer["id"])
 
-    # Step 3: Add the target agent as a participant
-    # Step 4: Send the message mentioning the target agent
-    # Wrapped in try/except so we log the orphan room ID on partial failure.
-    try:
-        logger.info("Adding %s to chatroom...", peer["name"])
-        if args.auth_mode == "agent":
-            await client.agent_api_participants.add_agent_chat_participant(
-                chat_id=room_id,
-                participant=ParticipantRequest(participant_id=peer["id"]),
-                request_options=DEFAULT_REQUEST_OPTIONS,
-            )
-        else:
-            await client.human_api_participants.add_my_chat_participant(
-                chat_id=room_id,
-                participant=ParticipantRequest(participant_id=peer["id"]),
-                request_options=DEFAULT_REQUEST_OPTIONS,
-            )
-        logger.info("Added participant: %s", peer["name"])
+        # Step 2: Create a new chatroom
+        logger.info("Creating chatroom...")
+        try:
+            if args.auth_mode == "agent":
+                chat_response = await client.agent_api_chats.create_agent_chat(
+                    chat=ChatRoomRequest(),
+                    request_options=DEFAULT_REQUEST_OPTIONS,
+                )
+            else:
+                chat_response = await client.human_api_chats.create_my_chat_room(
+                    chat=CreateMyChatRoomRequestChat(),
+                    request_options=DEFAULT_REQUEST_OPTIONS,
+                )
+        except ApiError as e:
+            raise RuntimeError(_format_api_error(e, "create chatroom")) from e
+        room_id = chat_response.data.id
+        logger.info("Created chatroom: %s", room_id)
 
-        logger.info("Sending message...")
-        mention = ChatMessageRequestMentionsItem(
-            id=peer["id"],
-            handle=peer["handle"],
-        )
-        message_request = ChatMessageRequest(
-            content=args.message,
-            mentions=[mention],
-        )
-        if args.auth_mode == "agent":
-            await client.agent_api_messages.create_agent_chat_message(
-                chat_id=room_id,
-                message=message_request,
-                request_options=DEFAULT_REQUEST_OPTIONS,
+        # Step 3: Add the target agent as a participant
+        # Step 4: Send the message mentioning the target agent
+        # Wrapped in try/except so we log the orphan room ID on partial failure.
+        try:
+            logger.info("Adding %s to chatroom...", peer["name"])
+            if args.auth_mode == "agent":
+                await client.agent_api_participants.add_agent_chat_participant(
+                    chat_id=room_id,
+                    participant=ParticipantRequest(participant_id=peer["id"]),
+                    request_options=DEFAULT_REQUEST_OPTIONS,
+                )
+            else:
+                await client.human_api_participants.add_my_chat_participant(
+                    chat_id=room_id,
+                    participant=ParticipantRequest(participant_id=peer["id"]),
+                    request_options=DEFAULT_REQUEST_OPTIONS,
+                )
+            logger.info("Added participant: %s", peer["name"])
+
+            logger.info("Sending message...")
+            mention = ChatMessageRequestMentionsItem(
+                id=peer["id"],
+                handle=peer["handle"],
             )
-        else:
-            await client.human_api_messages.send_my_chat_message(
-                chat_id=room_id,
-                message=message_request,
-                request_options=DEFAULT_REQUEST_OPTIONS,
+            message_request = ChatMessageRequest(
+                content=args.message,
+                mentions=[mention],
             )
-        logger.info("Message sent successfully")
-    except ApiError as e:
-        logger.error(
-            "Failed after creating room %s — room may need manual cleanup",
-            room_id,
-        )
-        raise RuntimeError(_format_api_error(e, "complete trigger")) from e
-    except Exception:
-        logger.error(
-            "Failed after creating room %s — room may need manual cleanup",
-            room_id,
-        )
-        raise
+            if args.auth_mode == "agent":
+                await client.agent_api_messages.create_agent_chat_message(
+                    chat_id=room_id,
+                    message=message_request,
+                    request_options=DEFAULT_REQUEST_OPTIONS,
+                )
+            else:
+                await client.human_api_messages.send_my_chat_message(
+                    chat_id=room_id,
+                    message=message_request,
+                    request_options=DEFAULT_REQUEST_OPTIONS,
+                )
+            logger.info("Message sent successfully")
+        except ApiError as e:
+            logger.error(
+                "Failed after creating room %s — room may need manual cleanup",
+                room_id,
+            )
+            raise RuntimeError(_format_api_error(e, "complete trigger")) from e
+        except Exception:
+            logger.error(
+                "Failed after creating room %s — room may need manual cleanup",
+                room_id,
+            )
+            raise
+    finally:
+        await client._client_wrapper.httpx_client.aclose()
 
     return room_id
 
