@@ -187,6 +187,34 @@ class TestFindPeerByHandle:
         assert result is not None
 
     @pytest.mark.asyncio
+    async def test_matches_when_api_returns_at_prefixed_handle(self):
+        """Regression: backend may return '@owner/agent' instead of 'owner/agent'."""
+        peer = _make_peer(handle="@owner/agent")
+        client = AsyncMock()
+        client.agent_api_peers.list_agent_peers.return_value = _make_peers_response(
+            [peer]
+        )
+
+        result = await find_peer_by_handle(client, "@owner/agent", "agent")
+
+        assert result is not None
+        assert result["id"] == "peer-1"
+
+    @pytest.mark.asyncio
+    async def test_matches_when_api_returns_at_prefix_and_input_has_none(self):
+        """Regression: input without @ should still match API response with @."""
+        peer = _make_peer(handle="@owner/agent")
+        client = AsyncMock()
+        client.agent_api_peers.list_agent_peers.return_value = _make_peers_response(
+            [peer]
+        )
+
+        result = await find_peer_by_handle(client, "owner/agent", "agent")
+
+        assert result is not None
+        assert result["id"] == "peer-1"
+
+    @pytest.mark.asyncio
     async def test_paginates_to_find_peer(self):
         other_peer = _make_peer(peer_id="other", name="Other", handle="other/agent")
         target_peer = _make_peer(peer_id="target", name="Target", handle="owner/target")

@@ -38,6 +38,7 @@ import os
 import sys
 from typing import Final
 
+from thenvoi.runtime.types import normalize_handle
 from thenvoi_rest import (
     AsyncRestClient,
     ChatMessageRequest,
@@ -136,7 +137,7 @@ async def find_peer_by_handle(
 
     Returns dict with 'id', 'name', 'handle' or None if not found.
     """
-    handle = handle.lstrip("@").lower()
+    normalized = (normalize_handle(handle) or "").lower()
     page = 1
     while True:
         if auth_mode == "agent":
@@ -157,7 +158,7 @@ async def find_peer_by_handle(
 
         for peer in response.data:
             peer_handle = getattr(peer, "handle", None) or ""
-            if peer_handle.lower() == handle:
+            if (normalize_handle(peer_handle) or "").lower() == normalized:
                 return {
                     "id": peer.id,
                     "name": peer.name,
@@ -168,7 +169,7 @@ async def find_peer_by_handle(
             "Scanned %d peers on page %d, no match for '%s'",
             len(response.data),
             page,
-            handle,
+            normalized,
         )
 
         total_pages = (
