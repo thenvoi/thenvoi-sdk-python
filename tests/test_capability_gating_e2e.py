@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import pytest
 
+from thenvoi.adapters.claude_sdk import _CLAUDE_SDK_AVAILABLE as _HAS_CLAUDE_SDK
 from thenvoi.core.types import AdapterFeatures, Capability
 
 
@@ -129,6 +130,10 @@ class TestCapabilityGatingEndToEnd:
         # But base instructions are still present
         assert "## Environment" in adapter._system_prompt
 
+    @pytest.mark.skipif(
+        not _HAS_CLAUDE_SDK,
+        reason="claude-agent-sdk not installed (pip install thenvoi-sdk[claude_sdk])",
+    )
     async def test_claude_sdk_adapter_renders_memory_section_when_enabled(
         self,
     ) -> None:
@@ -145,6 +150,10 @@ class TestCapabilityGatingEndToEnd:
         assert "Memory Tools" in prompt["append"]
         assert "thenvoi_store_memory" in prompt["append"]
 
+    @pytest.mark.skipif(
+        not _HAS_CLAUDE_SDK,
+        reason="claude-agent-sdk not installed (pip install thenvoi-sdk[claude_sdk])",
+    )
     async def test_claude_sdk_adapter_omits_memory_section_when_disabled(
         self,
     ) -> None:
@@ -158,6 +167,10 @@ class TestCapabilityGatingEndToEnd:
         )
         assert "Memory Tools" not in prompt["append"]
 
+    @pytest.mark.skipif(
+        not _HAS_CLAUDE_SDK,
+        reason="claude-agent-sdk not installed (pip install thenvoi-sdk[claude_sdk])",
+    )
     async def test_claude_sdk_adapter_renders_contacts_section_when_enabled(
         self,
     ) -> None:
