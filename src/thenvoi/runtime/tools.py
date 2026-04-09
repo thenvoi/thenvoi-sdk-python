@@ -11,7 +11,7 @@ import warnings
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Literal, cast
 
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import AliasChoices, BaseModel, Field, ValidationError
 
 from thenvoi.client.rest import ChatRoomRequest, DEFAULT_REQUEST_OPTIONS
 from thenvoi.core.protocols import AgentToolsProtocol
@@ -26,10 +26,25 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+def _normalize_handle(value: str) -> str:
+    """Strip leading ``@`` so ``@alice`` and ``alice`` compare equal."""
+    return value.lstrip("@").lower()
+
+
 def _matches_identifier(entity: dict[str, Any], identifier: str) -> bool:
-    """Check if *identifier* matches an entity's handle, name, or ID (case-insensitive)."""
+    """Check if *identifier* matches an entity's handle, name, or ID (case-insensitive).
+
+    Handles are compared after stripping the ``@`` prefix so that ``@alice``
+    and ``alice`` are treated as equivalent.
+    """
+    # Handle comparison — normalize both sides
+    entity_handle = entity.get("handle") or ""
+    if entity_handle and _normalize_handle(entity_handle) == _normalize_handle(identifier):
+        return True
+
+    # Name and ID — plain case-insensitive comparison
     val = identifier.lower()
-    for field in ("handle", "name", "id"):
+    for field in ("name", "id"):
         entity_val = entity.get(field) or ""
         if entity_val.lower() == val:
             return True
@@ -96,6 +111,8 @@ class AddParticipantInput(BaseModel):
 
     identifier: str = Field(
         ...,
+        alias="identifier",
+        validation_alias=AliasChoices("identifier", "name"),
         description=(
             "Identifier of participant to add — can be a handle, name, or ID "
             "(from thenvoi_lookup_peers). Handles are the most reliable."
@@ -111,6 +128,8 @@ class RemoveParticipantInput(BaseModel):
 
     identifier: str = Field(
         ...,
+        alias="identifier",
+        validation_alias=AliasChoices("identifier", "name"),
         description=(
             "Identifier of the participant to remove — can be a handle, name, or ID"
         ),

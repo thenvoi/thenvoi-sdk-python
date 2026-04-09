@@ -70,7 +70,7 @@ This is required so users can see your reasoning process.
 -> thenvoi_send_event("I can't check weather directly. Looking for a Weather Agent.", message_type="thought")
 -> thenvoi_lookup_peers()
 -> thenvoi_send_event("Found Weather Agent. Adding to room.", message_type="thought")
--> thenvoi_add_participant("Weather Agent")
+-> thenvoi_add_participant("@john/weather-agent")
 -> thenvoi_send_message("What's the weather in Tokyo?", mentions=["@john/weather-agent"])
 
 [Weather Agent]: Tokyo is 15°C and cloudy.

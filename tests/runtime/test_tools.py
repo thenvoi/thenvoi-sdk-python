@@ -251,6 +251,20 @@ class TestMatchesIdentifier:
         assert _matches_identifier({"handle": None, "name": "Alice"}, "Alice") is True
         assert _matches_identifier({}, "anything") is False
 
+    def test_at_prefix_normalization(self):
+        """@alice and alice should match regardless of which side has the prefix."""
+        entity_with_at = {"handle": "@alice", "name": "Alice Smith", "id": "u-1"}
+        entity_without_at = {"handle": "alice", "name": "Alice Smith", "id": "u-1"}
+
+        # identifier has @, entity doesn't
+        assert _matches_identifier(entity_without_at, "@alice") is True
+        # entity has @, identifier doesn't
+        assert _matches_identifier(entity_with_at, "alice") is True
+        # both have @
+        assert _matches_identifier(entity_with_at, "@alice") is True
+        # neither has @
+        assert _matches_identifier(entity_without_at, "alice") is True
+
     def test_empty_identifier(self):
         """Empty string should only match empty field values."""
         entity = {"handle": "alice", "name": "Alice", "id": "u-1"}
@@ -301,6 +315,44 @@ class TestAgentToolsAddParticipant:
         assert result["id"] == "user-1"
         assert result["status"] == "already_in_room"
         mock_rest_client.agent_api_participants.add_agent_chat_participant.assert_not_called()
+
+    async def test_add_participant_ambiguous_name_resolved_by_handle(
+        self, mock_rest_client
+    ):
+        """Two peers with the same display name — handle disambiguates (INT-287)."""
+        peer_a = MagicMock()
+        peer_a.id = "agent-a"
+        peer_a.name = "Weather Agent"
+        peer_a.type = "Agent"
+        peer_a.handle = "@alice/weather"
+        peer_a.description = "Alice's weather agent"
+
+        peer_b = MagicMock()
+        peer_b.id = "agent-b"
+        peer_b.name = "Weather Agent"
+        peer_b.type = "Agent"
+        peer_b.handle = "@bob/weather"
+        peer_b.description = "Bob's weather agent"
+
+        peers_response = MagicMock()
+        peers_response.data = [peer_a, peer_b]
+        peers_response.metadata = MagicMock()
+        peers_response.metadata.page = 1
+        peers_response.metadata.page_size = 100
+        peers_response.metadata.total_count = 2
+        peers_response.metadata.total_pages = 1
+        mock_rest_client.agent_api_peers.list_agent_peers = AsyncMock(
+            return_value=peers_response
+        )
+
+        tools = AgentTools("room-123", mock_rest_client)
+
+        # Using handle should pick the correct one
+        result = await tools.add_participant("@bob/weather", role="member")
+
+        assert result["id"] == "agent-b"
+        assert result["name"] == "Weather Agent"
+        assert result["status"] == "added"
 
     async def test_add_participant_not_found_raises(self, mock_rest_client):
         """add_participant() should raise if peer not found."""
@@ -781,6 +833,18 @@ class TestToolInputModels:
         """AddParticipantInput should have default role."""
         model = AddParticipantInput(identifier="User")
         assert model.role == "member"
+
+    def test_add_participant_input_accepts_legacy_name_field(self):
+        """AddParticipantInput should accept 'name' as alias for backward compat."""
+        model = AddParticipantInput.model_validate({"name": "Agent Two"})
+        assert model.identifier == "Agent Two"
+
+    def test_remove_participant_input_accepts_legacy_name_field(self):
+        """RemoveParticipantInput should accept 'name' as alias for backward compat."""
+        from thenvoi.runtime.tools import RemoveParticipantInput
+
+        model = RemoveParticipantInput.model_validate({"name": "User One"})
+        assert model.identifier == "User One"
 
     def test_lookup_peers_input_defaults(self):
         """LookupPeersInput should have defaults."""
