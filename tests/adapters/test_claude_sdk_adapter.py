@@ -18,6 +18,7 @@ import pytest
 
 from thenvoi.adapters.claude_sdk import (
     ClaudeSDKAdapter,
+    _CLAUDE_SDK_AVAILABLE,
     _PendingApproval,
     _pre_tool_use_continue_hook,
     THENVOI_ALL_TOOLS,
@@ -27,6 +28,11 @@ from thenvoi.adapters.claude_sdk import (
 from thenvoi.converters.claude_sdk import ClaudeSDKSessionState
 from thenvoi.runtime.tools import ALL_TOOL_NAMES
 from thenvoi.core.types import PlatformMessage
+
+pytestmark = pytest.mark.skipif(
+    not _CLAUDE_SDK_AVAILABLE,
+    reason="claude-agent-sdk not installed (pip install thenvoi-sdk[claude_sdk])",
+)
 
 
 @pytest.fixture

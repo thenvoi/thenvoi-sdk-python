@@ -7,7 +7,10 @@ instructions appended for multi-participant chat room behavior.
 
 from __future__ import annotations
 
-from claude_agent_sdk.types import SystemPromptPreset
+try:
+    from claude_agent_sdk.types import SystemPromptPreset  # type: ignore[import-not-found]
+except ImportError:
+    SystemPromptPreset = None  # type: ignore[assignment,misc]
 
 from thenvoi.core.types import AdapterFeatures, Capability
 
@@ -196,6 +199,6 @@ Action: mcp__thenvoi__thenvoi_send_message
 {memory_section}{contact_section}{custom_text}
 """
 
-    return SystemPromptPreset(
+    return SystemPromptPreset(  # type: ignore[not-callable]
         type="preset", preset="claude_code", append=thenvoi_instructions
     )

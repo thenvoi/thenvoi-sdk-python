@@ -16,12 +16,12 @@ from collections.abc import Awaitable, Callable, Sequence
 from typing import Any
 
 try:
-    from claude_agent_sdk import SdkMcpTool, create_sdk_mcp_server, tool
+    from claude_agent_sdk import SdkMcpTool, create_sdk_mcp_server, tool  # type: ignore[import-not-found]
 except ImportError as e:
     raise ImportError(
-        "claude-agent-sdk is required for Claude SDK examples.\n"
-        "Install with: pip install claude-agent-sdk\n"
-        "Or: uv add claude-agent-sdk"
+        "claude-agent-sdk is required for Claude SDK tools.\n"
+        "Install with: pip install thenvoi-sdk[claude_sdk]\n"
+        "Or: uv add thenvoi-sdk[claude_sdk]"
     ) from e
 
 from thenvoi.core.exceptions import ThenvoiToolError

@@ -166,8 +166,6 @@ dev = [
     "python-dotenv>=1.0",
     # Include bridge_agentcore deps for testing
     "boto3>=1.35.0",
-    # Include claude-sdk for testing (Node.js required at runtime, not at install)
-    "claude-agent-sdk>=0.1.16",
     # Development tools
     "pre-commit>=3.0.0",
     "ruff>=0.8.0",
