@@ -149,3 +149,62 @@ class TestAdapterCleanup:
 
         # Should not raise
         await adapter.on_cleanup("nonexistent-room")
+
+
+class TestAdapterFeaturesContract:
+    """Every adapter must declare its supported emit/capability set.
+
+    Catches regressions where a new adapter is added without declaring
+    SUPPORTED_EMIT or SUPPORTED_CAPABILITIES — which would break the
+    feature warning mechanism in SimpleAdapter.on_started().
+    """
+
+    def test_supported_emit_declared(self, adapter_config):
+        """Every adapter class must define SUPPORTED_EMIT as a frozenset."""
+        from thenvoi.core.types import Emit
+
+        adapter = adapter_config.adapter_factory()
+        cls = type(adapter)
+        assert hasattr(cls, "SUPPORTED_EMIT"), (
+            f"{adapter_config.display_name}: missing SUPPORTED_EMIT class var. "
+            f"Declare it as `SUPPORTED_EMIT: ClassVar[frozenset[Emit]] = frozenset({{...}})`."
+        )
+        supported = cls.SUPPORTED_EMIT
+        assert isinstance(supported, frozenset), (
+            f"{adapter_config.display_name}.SUPPORTED_EMIT must be a frozenset, "
+            f"got {type(supported).__name__}"
+        )
+        for value in supported:
+            assert isinstance(value, Emit), (
+                f"{adapter_config.display_name}.SUPPORTED_EMIT contains non-Emit "
+                f"value: {value!r}"
+            )
+
+    def test_supported_capabilities_declared(self, adapter_config):
+        """Every adapter class must define SUPPORTED_CAPABILITIES as a frozenset."""
+        from thenvoi.core.types import Capability
+
+        adapter = adapter_config.adapter_factory()
+        cls = type(adapter)
+        assert hasattr(cls, "SUPPORTED_CAPABILITIES"), (
+            f"{adapter_config.display_name}: missing SUPPORTED_CAPABILITIES class var. "
+            f"Declare it as "
+            f"`SUPPORTED_CAPABILITIES: ClassVar[frozenset[Capability]] = frozenset({{...}})`."
+        )
+        supported = cls.SUPPORTED_CAPABILITIES
+        assert isinstance(supported, frozenset), (
+            f"{adapter_config.display_name}.SUPPORTED_CAPABILITIES must be a frozenset, "
+            f"got {type(supported).__name__}"
+        )
+        for value in supported:
+            assert isinstance(value, Capability), (
+                f"{adapter_config.display_name}.SUPPORTED_CAPABILITIES contains "
+                f"non-Capability value: {value!r}"
+            )
+
+    def test_features_param_accepted(self, adapter_config):
+        """Every adapter constructor must accept features=AdapterFeatures(...)."""
+        from thenvoi.core.types import AdapterFeatures
+
+        adapter = adapter_config.adapter_factory(features=AdapterFeatures())
+        assert adapter.features == AdapterFeatures()

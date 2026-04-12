@@ -316,6 +316,32 @@ class TestParlantToolFunctions:
         assert "At least one mention is required" in result.data
 
     @pytest.mark.asyncio
+    async def test_send_message_translates_thenvoi_tool_error(
+        self, parlant_tools, mock_tools, mock_context
+    ):
+        """ThenvoiToolError from underlying tool must surface as ToolResult, not crash.
+
+        Pins the wrapper translation contract: framework wrappers must catch
+        ThenvoiToolError raised by AgentTools and return a model-visible
+        failure value so the LLM can recover, instead of letting the exception
+        crash the turn.
+        """
+        from thenvoi.core.exceptions import ThenvoiToolError
+
+        mock_tools.send_message.side_effect = ThenvoiToolError(
+            "Backend rejected message: 503 Service Unavailable"
+        )
+        set_session_tools(mock_context.session_id, mock_tools)
+
+        send_message = parlant_tools["thenvoi_send_message"]
+        # Must NOT raise — wrapper translates the exception to a tool failure
+        result = await send_message(mock_context, "Hello", "Alice")
+
+        # Result is a ToolResult with the error text visible to the LLM
+        assert "Error sending message" in result.data
+        assert "503" in result.data
+
+    @pytest.mark.asyncio
     async def test_send_event_calls_tools_send_event(
         self, parlant_tools, mock_tools, mock_context
     ):

@@ -14,6 +14,7 @@ from typing import Awaitable, Callable, Set
 from thenvoi.client.rest import DEFAULT_REQUEST_OPTIONS
 from thenvoi.platform.event import (
     RoomAddedEvent,
+    RoomDeletedEvent,
     RoomRemovedEvent,
     PlatformEvent,
     ContactEvent,
@@ -167,8 +168,8 @@ class RoomPresence:
         match event:
             case RoomAddedEvent():
                 await self._handle_room_added(event)
-            case RoomRemovedEvent():
-                await self._handle_room_removed(event)
+            case RoomRemovedEvent() | RoomDeletedEvent():
+                await self._handle_room_left(event)
             case (
                 ContactRequestReceivedEvent()
                 | ContactRequestUpdatedEvent()
@@ -217,14 +218,20 @@ class RoomPresence:
         logger.info("Agent joined room: %s", room_id)
 
     async def _handle_room_removed(self, event: RoomRemovedEvent) -> None:
-        """
-        Handle room_removed event.
+        """Handle room_removed event."""
+        await self._handle_room_left(event)
 
-        Extracted from ThenvoiAgent._on_room_removed().
+    async def _handle_room_left(
+        self, event: RoomRemovedEvent | RoomDeletedEvent
+    ) -> None:
+        """
+        Handle room_removed and room_deleted events.
+
+        Both events mean the room should be torn down locally.
         """
         room_id = event.room_id
         if not room_id:
-            logger.warning("room_removed event without room_id")
+            logger.warning("%s event without room_id", event.type)
             return
 
         # Unsubscribe from room channels
@@ -240,7 +247,7 @@ class RoomPresence:
             except Exception as e:
                 logger.error("on_room_left error for %s: %s", room_id, e, exc_info=True)
 
-        logger.info("Agent left room: %s", room_id)
+        logger.info("Agent left room via %s: %s", event.type, room_id)
 
     async def _handle_room_event(self, event: PlatformEvent) -> None:
         """

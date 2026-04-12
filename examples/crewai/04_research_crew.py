@@ -45,6 +45,7 @@ from setup_logging import setup_logging
 from thenvoi import Agent
 from thenvoi.adapters import CrewAIAdapter
 from thenvoi.config import load_agent_config
+from thenvoi.core.types import AdapterFeatures, Emit
 
 setup_logging()
 logger = logging.getLogger(__name__)
@@ -158,12 +159,12 @@ async def main() -> None:
 
     # Create adapter with crew member configuration
     adapter = CrewAIAdapter(
-        model="gpt-4o",
+        model="gpt-4o-mini",
         role=member["role"],
         goal=member["goal"],
         backstory=member["backstory"],
         custom_section=member["custom_section"],
-        enable_execution_reporting=True,
+        features=AdapterFeatures(emit={Emit.EXECUTION}),
     )
 
     # Create and start agent

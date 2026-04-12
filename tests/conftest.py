@@ -24,6 +24,7 @@ from thenvoi.client.streaming import (
     MessageCreatedPayload,
     MessageMetadata,
     RoomAddedPayload,
+    RoomDeletedPayload,
     RoomRemovedPayload,
     ParticipantAddedPayload,
     ParticipantRemovedPayload,
@@ -35,6 +36,7 @@ from thenvoi.client.streaming import (
 from thenvoi.platform.event import (
     MessageEvent,
     RoomAddedEvent,
+    RoomDeletedEvent,
     RoomRemovedEvent,
     ParticipantAddedEvent,
     ParticipantRemovedEvent,
@@ -110,6 +112,12 @@ def make_room_removed_event(
         removed_at=kwargs.get("removed_at", "2024-01-01T00:00:00Z"),
     )
     return RoomRemovedEvent(room_id=room_id, payload=payload)
+
+
+def make_room_deleted_event(room_id: str = "room-123") -> RoomDeletedEvent:
+    """Create a RoomDeletedEvent using SDK-native types."""
+    payload = RoomDeletedPayload(id=room_id)
+    return RoomDeletedEvent(room_id=room_id, payload=payload)
 
 
 def make_participant_added_event(

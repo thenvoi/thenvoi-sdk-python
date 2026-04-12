@@ -61,7 +61,7 @@ async def main() -> None:
     # Create adapter with Jerry's character prompt
     adapter = AnthropicAdapter(
         model="claude-sonnet-4-5-20250929",
-        custom_section=generate_jerry_prompt("Jerry"),
+        prompt=generate_jerry_prompt("Jerry"),
     )
 
     # Create and start agent

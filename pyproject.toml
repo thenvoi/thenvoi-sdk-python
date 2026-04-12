@@ -34,6 +34,9 @@ dependencies = [
 codex = [
     "websockets>=13.0",
 ]
+opencode = [
+    "httpx>=0.24.0",
+]
 letta = [
     "letta-client>=0.1.0",
 ]

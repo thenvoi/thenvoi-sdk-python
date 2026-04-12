@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime
 from typing import Any
 
+from thenvoi.converters._utils import optional_str, parse_iso_datetime
 from thenvoi.core.protocols import HistoryConverter
 from thenvoi.integrations.codex.types import CodexSessionState
 
@@ -39,26 +39,11 @@ class CodexHistoryConverter(HistoryConverter["CodexSessionState"]):
             if not thread_id:
                 continue
 
-            created_at = self._parse_iso_datetime(metadata.get("codex_created_at"))
+            created_at = parse_iso_datetime(metadata.get("codex_created_at"))
             return CodexSessionState(
                 thread_id=str(thread_id),
-                room_id=self._optional_str(metadata.get("codex_room_id")),
+                room_id=optional_str(metadata.get("codex_room_id")),
                 created_at=created_at,
             )
 
         return CodexSessionState()
-
-    @staticmethod
-    def _parse_iso_datetime(value: Any) -> datetime | None:
-        if not isinstance(value, str) or not value:
-            return None
-        try:
-            return datetime.fromisoformat(value.replace("Z", "+00:00"))
-        except ValueError:
-            return None
-
-    @staticmethod
-    def _optional_str(value: Any) -> str | None:
-        if value is None:
-            return None
-        return str(value)

@@ -360,6 +360,24 @@ class TestGatewayServerMessageStream:
         assert '"taskId":"task-123"' in content
         assert '"final":true' in content
 
+    def test_message_stream_returns_400_for_invalid_payload(
+        self, server_with_callback: tuple[GatewayServer, AsyncMock]
+    ) -> None:
+        """Legacy stream endpoint should reject malformed message payloads."""
+        server, _ = server_with_callback
+        app = server._build_app()
+        client = TestClient(app)
+
+        response = client.post(
+            "/agents/weather-agent/v1/message:stream",
+            json={"jsonrpc": "2.0", "method": "message/send"},
+        )
+
+        assert response.status_code == 400
+        data = response.json()
+        assert data["error"] == "Invalid A2A message payload"
+        assert data["details"]
+
     def test_message_stream_handles_multiple_events(
         self, server_with_callback: tuple[GatewayServer, AsyncMock]
     ) -> None:
@@ -563,6 +581,56 @@ class TestGatewayServerJsonRpc:
         assert "req-123" in content
         assert '"taskId":' in content
         assert "task-123" in content
+
+    def test_jsonrpc_send_returns_invalid_params_for_bad_message(
+        self, server_with_callback: tuple[GatewayServer, AsyncMock]
+    ) -> None:
+        """JSON-RPC send should return an invalid params error for bad message data."""
+        server, _ = server_with_callback
+        app = server._build_app()
+        client = TestClient(app)
+
+        response = client.post(
+            "/agents/weather-agent",
+            json={
+                "jsonrpc": "2.0",
+                "id": "req-invalid",
+                "method": "message/send",
+                "params": {"message": {"parts": []}},
+            },
+        )
+
+        assert response.status_code == 400
+        data = response.json()
+        assert data["jsonrpc"] == "2.0"
+        assert data["id"] == "req-invalid"
+        assert data["error"]["code"] == -32602
+        assert data["error"]["message"] == "Invalid params"
+        assert data["error"]["data"]
+
+    def test_jsonrpc_stream_returns_invalid_params_for_bad_message(
+        self, server_with_callback: tuple[GatewayServer, AsyncMock]
+    ) -> None:
+        """JSON-RPC stream should surface invalid params as SSE instead of crashing."""
+        server, _ = server_with_callback
+        app = server._build_app()
+        client = TestClient(app)
+
+        response = client.post(
+            "/agents/weather-agent",
+            json={
+                "jsonrpc": "2.0",
+                "id": "req-invalid-stream",
+                "method": "message/stream",
+                "params": {"message": {"parts": []}},
+            },
+        )
+
+        assert response.status_code == 400
+        assert "text/event-stream" in response.headers["content-type"]
+        content = response.text
+        assert '"code": -32602' in content
+        assert "req-invalid-stream" in content
 
     def test_jsonrpc_resolves_by_uuid(
         self, server_with_callback: tuple[GatewayServer, AsyncMock]

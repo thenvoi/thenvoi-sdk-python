@@ -7,7 +7,7 @@ import logging
 import os
 from collections.abc import Awaitable, Callable
 from contextlib import AbstractAsyncContextManager
-from typing import Any, Literal, Protocol, cast
+from typing import ClassVar, Any, Literal, Protocol, cast
 
 from acp import spawn_agent_process, text_block
 from acp.schema import HttpMcpServer, SseMcpServer
@@ -15,7 +15,7 @@ from acp.schema import HttpMcpServer, SseMcpServer
 from thenvoi.converters.acp_client import ACPClientHistoryConverter
 from thenvoi.core.protocols import AgentToolsProtocol
 from thenvoi.core.simple_adapter import SimpleAdapter
-from thenvoi.core.types import PlatformMessage
+from thenvoi.core.types import AdapterFeatures, Capability, Emit, PlatformMessage
 from thenvoi.integrations.acp.client_types import (
     ACPClientSessionState,
     ThenvoiACPClient,
@@ -97,6 +97,9 @@ class ACPClientAdapter(SimpleAdapter[ACPClientSessionState]):
         await agent.run()
     """
 
+    SUPPORTED_EMIT: ClassVar[frozenset[Emit]] = frozenset()
+    SUPPORTED_CAPABILITIES: ClassVar[frozenset[Capability]] = frozenset()
+
     def __init__(
         self,
         command: str | list[str],
@@ -107,6 +110,7 @@ class ACPClientAdapter(SimpleAdapter[ACPClientSessionState]):
         rest_url: str | None = None,
         inject_thenvoi_tools: bool = True,
         auth_method: str | None = None,
+        features: AdapterFeatures | None = None,
     ) -> None:
         """Initialize ACP client adapter.
 
@@ -126,7 +130,10 @@ class ACPClientAdapter(SimpleAdapter[ACPClientSessionState]):
                          Required for agents that need auth (e.g., "cursor_login"
                          for Cursor). Set to None to skip authentication.
         """
-        super().__init__(history_converter=ACPClientHistoryConverter())
+        super().__init__(
+            history_converter=ACPClientHistoryConverter(),
+            features=features,
+        )
         self._command = command if isinstance(command, list) else [command]
         self._env = env
         self._cwd = os.path.abspath(cwd or ".")

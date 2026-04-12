@@ -18,7 +18,7 @@ import warnings
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, ClassVar, Literal
 
 try:
     from claude_agent_sdk import (
@@ -49,9 +49,10 @@ except ImportError as e:
         "Or: uv add claude-agent-sdk"
     ) from e
 
+from thenvoi.core.exceptions import ThenvoiConfigError
 from thenvoi.core.protocols import AgentToolsProtocol
 from thenvoi.core.simple_adapter import SimpleAdapter
-from thenvoi.core.types import PlatformMessage
+from thenvoi.core.types import AdapterFeatures, Capability, Emit, PlatformMessage
 from thenvoi.converters.claude_sdk import (
     ClaudeSDKHistoryConverter,
     ClaudeSDKSessionState,
@@ -164,6 +165,13 @@ class ClaudeSDKAdapter(SimpleAdapter[ClaudeSDKSessionState]):
 
     PermissionMode = Literal["default", "acceptEdits", "plan", "bypassPermissions"]
 
+    SUPPORTED_EMIT: ClassVar[frozenset[Emit]] = frozenset(
+        {Emit.EXECUTION, Emit.THOUGHTS}
+    )
+    SUPPORTED_CAPABILITIES: ClassVar[frozenset[Capability]] = frozenset(
+        {Capability.MEMORY, Capability.CONTACTS}
+    )
+
     def __init__(
         self,
         model: str = "claude-sonnet-4-5-20250929",
@@ -182,6 +190,7 @@ class ClaudeSDKAdapter(SimpleAdapter[ClaudeSDKSessionState]):
         approval_timeout_decision: ApprovalDecision = "decline",
         max_pending_approvals_per_room: int = 50,
         approval_authorized_senders: set[str] | None = None,
+        features: AdapterFeatures | None = None,
     ):
         """
         Initialize the Claude SDK adapter.
@@ -191,16 +200,19 @@ class ClaudeSDKAdapter(SimpleAdapter[ClaudeSDKSessionState]):
             custom_section: Custom instructions added to system prompt
             max_thinking_tokens: Max tokens for extended thinking (optional)
             permission_mode: SDK permission mode
-            enable_execution_reporting: If True, emit tool_call/tool_result events
-            enable_memory_tools: If True, includes memory management tools (enterprise only).
-                Defaults to False.
+            enable_execution_reporting: Deprecated. Use
+                ``features=AdapterFeatures(emit={Emit.EXECUTION, Emit.THOUGHTS})``.
+                If True, emit tool_call/tool_result *and* thought events.
+            enable_memory_tools: Deprecated. Use
+                ``features=AdapterFeatures(capabilities={Capability.MEMORY})``.
+                If True, includes memory management tools (enterprise only).
             history_converter: Optional custom history converter
             additional_tools: Optional list of custom tools as (PydanticModel, callable)
                 tuples. These are converted to MCP tools internally.
             cwd: Working directory for Claude Code sessions. If set, Claude Code
                 will operate in this directory (e.g., a mounted git repo).
             approval_mode: Chat-based approval mode.  ``None`` (default) disables
-                chat-based approval — the SDK's ``permission_mode`` controls
+                chat-based approval -- the SDK's ``permission_mode`` controls
                 approvals entirely.  Set to ``"manual"`` to route approval
                 requests to the chat room (``/approve``, ``/decline``),
                 ``"auto_accept"`` to approve everything, or ``"auto_decline"``
@@ -217,17 +229,57 @@ class ClaudeSDKAdapter(SimpleAdapter[ClaudeSDKSessionState]):
                 issue ``/approve`` and ``/decline`` commands.  When ``None``
                 (default), any room participant can approve.  ``/approvals``
                 and ``/status`` are always available to all participants.
+            features: Unified adapter feature settings. When provided alongside
+                deprecated ``enable_execution_reporting`` or ``enable_memory_tools``,
+                raises ``ThenvoiConfigError``.
         """
+        # --- Shim deprecated params into features -------------------------
+        _has_legacy = enable_execution_reporting or enable_memory_tools
+        if _has_legacy and features is not None:
+            raise ThenvoiConfigError(
+                "Cannot combine 'features' with deprecated "
+                "'enable_execution_reporting' / 'enable_memory_tools'. "
+                "Use AdapterFeatures exclusively."
+            )
+
+        if _has_legacy:
+            _emit: set[Emit] = set()
+            _caps: set[Capability] = set()
+
+            if enable_execution_reporting:
+                warnings.warn(
+                    "enable_execution_reporting is deprecated. "
+                    "Use features=AdapterFeatures(emit={Emit.EXECUTION, Emit.THOUGHTS}).",
+                    DeprecationWarning,
+                    stacklevel=2,
+                )
+                # ClaudeSDK historically emitted both execution AND thought
+                # events under this single flag.
+                _emit.update({Emit.EXECUTION, Emit.THOUGHTS})
+
+            if enable_memory_tools:
+                warnings.warn(
+                    "enable_memory_tools is deprecated. "
+                    "Use features=AdapterFeatures(capabilities={Capability.MEMORY}).",
+                    DeprecationWarning,
+                    stacklevel=2,
+                )
+                _caps.add(Capability.MEMORY)
+
+            features = AdapterFeatures(
+                capabilities=frozenset(_caps),
+                emit=frozenset(_emit),
+            )
+
         super().__init__(
-            history_converter=history_converter or ClaudeSDKHistoryConverter()
+            history_converter=history_converter or ClaudeSDKHistoryConverter(),
+            features=features,
         )
 
         self.model = model
         self.custom_section = custom_section
         self.max_thinking_tokens = max_thinking_tokens
         self.permission_mode: ClaudeSDKAdapter.PermissionMode = permission_mode
-        self.enable_execution_reporting = enable_execution_reporting
-        self.enable_memory_tools = enable_memory_tools
         if cwd and not Path(cwd).is_dir():
             raise ValueError(f"cwd does not exist or is not a directory: {cwd}")
         self.cwd = cwd
@@ -328,9 +380,8 @@ class ClaudeSDKAdapter(SimpleAdapter[ClaudeSDKSessionState]):
 
     async def _create_mcp_backend(self) -> ThenvoiMCPBackend:
         """Create shared MCP backend that uses stored room tools."""
-        tool_definitions = list(
-            iter_tool_definitions(include_memory=self.enable_memory_tools)
-        )
+        include_memory = Capability.MEMORY in self.features.capabilities
+        tool_definitions = list(iter_tool_definitions(include_memory=include_memory))
         backend = await create_thenvoi_mcp_backend(
             kind="sdk",
             tool_definitions=tool_definitions,
@@ -534,7 +585,7 @@ class ClaudeSDKAdapter(SimpleAdapter[ClaudeSDKSessionState]):
                                 block.thinking[:100],
                             )
                             # Report thinking as event if enabled
-                            if self.enable_execution_reporting:
+                            if Emit.THOUGHTS in self.features.emit:
                                 try:
                                     await tools.send_event(
                                         content=block.thinking,
@@ -552,7 +603,7 @@ class ClaudeSDKAdapter(SimpleAdapter[ClaudeSDKSessionState]):
                             block.name,
                             str(block.input)[:100],
                         )
-                        if self.enable_execution_reporting:
+                        if Emit.EXECUTION in self.features.emit:
                             try:
                                 await tools.send_event(
                                     content=json.dumps(
@@ -574,7 +625,7 @@ class ClaudeSDKAdapter(SimpleAdapter[ClaudeSDKSessionState]):
                             block.tool_use_id[:20],
                             block.is_error,
                         )
-                        if self.enable_execution_reporting:
+                        if Emit.EXECUTION in self.features.emit:
                             try:
                                 await tools.send_event(
                                     content=json.dumps(

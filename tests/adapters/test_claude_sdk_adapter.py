@@ -62,16 +62,20 @@ class TestInitialization:
     """Tests for adapter initialization (memory tools specific)."""
 
     def test_default_initialization(self):
-        """Should initialize with enable_memory_tools=False by default."""
+        """Should initialize with no memory capability by default."""
         adapter = ClaudeSDKAdapter()
 
-        assert adapter.enable_memory_tools is False
+        from thenvoi.core.types import Capability
+
+        assert Capability.MEMORY not in adapter.features.capabilities
 
     def test_enable_memory_tools(self):
-        """Should accept enable_memory_tools parameter."""
+        """Should accept enable_memory_tools parameter (deprecated)."""
         adapter = ClaudeSDKAdapter(enable_memory_tools=True)
 
-        assert adapter.enable_memory_tools is True
+        from thenvoi.core.types import Capability
+
+        assert Capability.MEMORY in adapter.features.capabilities
 
 
 class TestOnStarted:
