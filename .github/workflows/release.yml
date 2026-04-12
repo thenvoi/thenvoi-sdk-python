@@ -61,9 +61,24 @@ jobs:
         if: steps.release.outputs.release_created == 'true'
         run: uv build
 
-      - name: Publish to PyPI
+      - name: Publish thenvoi-sdk to PyPI
         if: steps.release.outputs.release_created == 'true'
         uses: pypa/gh-action-pypi-publish@release/v1
+
+      - name: Rebuild as band-sdk
+        if: steps.release.outputs.release_created == 'true'
+        run: |
+          sed -i 's/^name = "thenvoi-sdk"/name = "band-sdk"/' pyproject.toml
+          rm -rf dist/
+          uv build
+
+      - name: Publish band-sdk to PyPI
+        if: steps.release.outputs.release_created == 'true'
+        uses: pypa/gh-action-pypi-publish@release/v1
+
+      - name: Restore pyproject.toml
+        if: steps.release.outputs.release_created == 'true'
+        run: git checkout pyproject.toml
 
       - name: Publish release summary
         if: steps.release.outputs.release_created == 'true'
