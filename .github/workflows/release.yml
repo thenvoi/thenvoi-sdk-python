@@ -15,6 +15,12 @@ jobs:
     runs-on: ubuntu-latest
     environment: release
     concurrency: release
+    outputs:
+      release_created: ${{ steps.release.outputs.release_created }}
+      major: ${{ steps.release.outputs.major }}
+      minor: ${{ steps.release.outputs.minor }}
+      patch: ${{ steps.release.outputs.patch }}
+      tag_name: ${{ steps.release.outputs.tag_name }}
 
     steps:
       - name: Checkout repository
@@ -39,51 +45,78 @@ jobs:
           manifest-file: .release-please-manifest.json
           target-branch: main
 
+  publish-thenvoi:
+    needs: [release]
+    if: needs.release.outputs.release_created == 'true'
+    runs-on: ubuntu-latest
+    environment: release
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
       - name: Set up Python
-        if: steps.release.outputs.release_created == 'true'
         uses: actions/setup-python@v6
         with:
           python-version: "3.12"
 
       - name: Configure git to use HTTPS for GitHub
-        if: steps.release.outputs.release_created == 'true'
         run: git config --global url."https://github.com/".insteadOf "git@github.com:"
 
       - name: Install uv
-        if: steps.release.outputs.release_created == 'true'
         uses: astral-sh/setup-uv@v7
 
       - name: Install dependencies
-        if: steps.release.outputs.release_created == 'true'
         run: uv sync --all-groups
 
       - name: Build package
-        if: steps.release.outputs.release_created == 'true'
         run: uv build
 
       - name: Publish thenvoi-sdk to PyPI
-        if: steps.release.outputs.release_created == 'true'
         uses: pypa/gh-action-pypi-publish@release/v1
 
-      - name: Rebuild as band-sdk
-        if: steps.release.outputs.release_created == 'true'
+  publish-band:
+    needs: [release]
+    if: needs.release.outputs.release_created == 'true'
+    runs-on: ubuntu-latest
+    environment: release
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Configure git to use HTTPS for GitHub
+        run: git config --global url."https://github.com/".insteadOf "git@github.com:"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+
+      - name: Install dependencies
+        run: uv sync --all-groups
+
+      - name: Build as band-sdk
         run: |
           sed -i 's/^name = "thenvoi-sdk"/name = "band-sdk"/' pyproject.toml
-          rm -rf dist/
           uv build
 
       - name: Publish band-sdk to PyPI
-        if: steps.release.outputs.release_created == 'true'
         uses: pypa/gh-action-pypi-publish@release/v1
 
-      - name: Restore pyproject.toml
-        if: steps.release.outputs.release_created == 'true'
-        run: git checkout pyproject.toml
-
+  summary:
+    needs: [release, publish-thenvoi, publish-band]
+    if: needs.release.outputs.release_created == 'true'
+    runs-on: ubuntu-latest
+    steps:
       - name: Publish release summary
-        if: steps.release.outputs.release_created == 'true'
         run: |
           echo "## Release Summary" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Version:** ${{ steps.release.outputs.major }}.${{ steps.release.outputs.minor }}.${{ steps.release.outputs.patch }}" >> $GITHUB_STEP_SUMMARY
-          echo "**Tag:** ${{ steps.release.outputs.tag_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Version:** ${{ needs.release.outputs.major }}.${{ needs.release.outputs.minor }}.${{ needs.release.outputs.patch }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Tag:** ${{ needs.release.outputs.tag_name }}" >> $GITHUB_STEP_SUMMARY
