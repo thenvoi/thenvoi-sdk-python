@@ -223,7 +223,13 @@ class TestTriggerUserMode:
         assert user_api_client is not None
 
         # Find a peer visible to the user
-        peers_response = await user_api_client.human_api_peers.list_my_peers()
+        try:
+            peers_response = await user_api_client.human_api_peers.list_my_peers()
+        except Exception as exc:
+            # Human API may require Enterprise plan
+            if "plan_required" in str(exc) or "403" in str(exc):
+                pytest.skip("Human API requires Enterprise plan")
+            raise
         assert peers_response.data and len(peers_response.data) > 0, (
             "User needs at least one peer for trigger test"
         )
