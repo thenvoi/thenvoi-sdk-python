@@ -11,7 +11,7 @@ import warnings
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Literal, cast
 
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import AliasChoices, BaseModel, Field, ValidationError
 
 from thenvoi.client.rest import ChatRoomRequest, DEFAULT_REQUEST_OPTIONS
 from thenvoi.core.exceptions import ThenvoiToolError
@@ -25,6 +25,42 @@ if TYPE_CHECKING:
     from .execution import ExecutionContext
 
 logger = logging.getLogger(__name__)
+
+
+def _normalize_handle(value: str) -> str:
+    """Strip leading ``@`` so ``@alice`` and ``alice`` compare equal."""
+    return value.lstrip("@").lower()
+
+
+def _entity_field(entity: dict[str, Any] | Any, field: str) -> str:
+    """Read a field from a dict or a Fern/Pydantic model, returning ``""`` on miss."""
+    if isinstance(entity, dict):
+        return entity.get(field) or ""
+    return getattr(entity, field, None) or ""
+
+
+def _matches_identifier(entity: dict[str, Any] | Any, identifier: str) -> bool:
+    """Check if *identifier* matches an entity's handle, name, or ID (case-insensitive).
+
+    Handles are compared after stripping the ``@`` prefix so that ``@alice``
+    and ``alice`` are treated as equivalent.
+
+    *entity* may be a plain dict (cached participant) or a Fern Pydantic model.
+    """
+    # Handle comparison — normalize both sides
+    entity_handle = _entity_field(entity, "handle")
+    if entity_handle and _normalize_handle(entity_handle) == _normalize_handle(
+        identifier
+    ):
+        return True
+
+    # Name and ID — plain case-insensitive comparison
+    val = identifier.lower()
+    for field in ("name", "id"):
+        entity_val = _entity_field(entity, field)
+        if entity_val and entity_val.lower() == val:
+            return True
+    return False
 
 
 @dataclass(frozen=True)
@@ -80,14 +116,20 @@ class SendEventInput(BaseModel):
 
 
 class AddParticipantInput(BaseModel):
-    """Add a participant (agent or user) to the chat room by name.
+    """Add a participant (agent or user) to the chat room.
 
     IMPORTANT: Use thenvoi_lookup_peers() first to find available agents.
     """
 
-    name: str = Field(
+    identifier: str = Field(
         ...,
-        description="Name of participant to add (must match a name from thenvoi_lookup_peers)",
+        alias="identifier",
+        validation_alias=AliasChoices("identifier", "name"),
+        description=(
+            "Identifier of participant to add — can be a handle, name, or ID "
+            "(from thenvoi_lookup_peers). Prefer the exact ID returned by "
+            "thenvoi_lookup_peers; handles are mainly for mentions."
+        ),
     )
     role: Literal["owner", "admin", "member"] = Field(
         "member", description="Role for the participant in this room"
@@ -95,9 +137,16 @@ class AddParticipantInput(BaseModel):
 
 
 class RemoveParticipantInput(BaseModel):
-    """Remove a participant from the chat room by name."""
+    """Remove a participant from the chat room."""
 
-    name: str = Field(..., description="Name of the participant to remove")
+    identifier: str = Field(
+        ...,
+        alias="identifier",
+        validation_alias=AliasChoices("identifier", "name"),
+        description=(
+            "Identifier of the participant to remove — can be a handle, name, or ID"
+        ),
+    )
 
 
 class LookupPeersInput(BaseModel):
@@ -452,17 +501,28 @@ def get_tool_description(name: str) -> str:
     return f"Execute {name}"
 
 
-def iter_tool_definitions(*, include_memory: bool = False) -> list[ToolDefinition]:
-    """Return built-in tool definitions with optional memory tool inclusion."""
-    definitions = list(TOOL_DEFINITIONS.values())
-    if include_memory:
-        return definitions
+def iter_tool_definitions(
+    *, include_memory: bool = False, include_contacts: bool = True
+) -> list[ToolDefinition]:
+    """Return built-in tool definitions with optional category filtering.
 
-    return [
-        definition
-        for definition in definitions
-        if definition.name not in MEMORY_TOOL_NAMES
-    ]
+    Args:
+        include_memory: Include memory tools (enterprise). Default False.
+        include_contacts: Include contact-management tools. Default True for
+            backward compatibility. Pass False to gate contact tools behind
+            ``Capability.CONTACTS``. The hub-room execution path always
+            forces this to True regardless of adapter preference (see
+            ``AgentTools.get_tool_schemas`` HUB_ROOM auto-enable rule).
+    """
+    definitions = list(TOOL_DEFINITIONS.values())
+    excluded: set[str] = set()
+    if not include_memory:
+        excluded |= MEMORY_TOOL_NAMES
+    if not include_contacts:
+        excluded |= CONTACT_TOOL_NAMES
+    if not excluded:
+        return definitions
+    return [definition for definition in definitions if definition.name not in excluded]
 
 
 def format_tool_validation_error(tool_name: str, error: ValidationError) -> str:
@@ -521,6 +581,8 @@ class AgentTools(AgentToolsProtocol):
         room_id: str,
         rest: "AsyncRestClient",
         participants: list[dict[str, Any]] | None = None,
+        *,
+        hub_room_id: str | None = None,
     ):
         """
         Initialize AgentTools for a specific room.
@@ -529,10 +591,18 @@ class AgentTools(AgentToolsProtocol):
             room_id: The room this tools instance is bound to
             rest: AsyncRestClient for API calls
             participants: Optional list of participants for mention resolution
+            hub_room_id: Optional hub-room ID. When this AgentTools instance
+                is bound to the hub room (room_id == hub_room_id), the
+                contact-management tool schemas are force-included regardless
+                of the ``include_contacts`` argument to schema methods. The
+                hub-room system prompt instructs the LLM to call contact
+                tools, so they must be exposed even if the adapter would
+                otherwise gate them.
         """
         self.room_id = room_id
         self.rest = rest
         self._participants = participants or []
+        self._hub_room_id = hub_room_id
 
     @property
     def participants(self) -> list[dict[str, Any]]:
@@ -552,7 +622,12 @@ class AgentTools(AgentToolsProtocol):
         Returns:
             AgentTools instance bound to the context's room
         """
-        return cls(ctx.room_id, ctx.link.rest, ctx.participants)
+        return cls(
+            ctx.room_id,
+            ctx.link.rest,
+            ctx.participants,
+            hub_room_id=getattr(ctx, "hub_room_id", None),
+        )
 
     # --- Tool methods ---
 
@@ -674,25 +749,27 @@ class AgentTools(AgentToolsProtocol):
         )
         return response.data.id
 
-    async def add_participant(self, name: str, role: str = "member") -> dict[str, Any]:
+    async def add_participant(
+        self, identifier: str, role: str = "member"
+    ) -> dict[str, Any]:
         """
-        Add a participant to the current room by name.
+        Add a participant to the current room.
 
         Args:
-            name: Name of the participant (agent or user) to add
+            identifier: Handle, name, or ID of the participant to add
             role: Role in room - "owner", "admin", or "member" (default)
 
         Returns:
             Dict with added participant info (id, name, role, status)
 
         Raises:
-            ValueError: If participant not found by name
+            ValueError: If participant not found
         """
         from thenvoi.client.rest import ParticipantRequest
 
         logger.debug(
             "Adding participant '%s' with role '%s' to room %s",
-            name,
+            identifier,
             role,
             self.room_id,
         )
@@ -707,24 +784,29 @@ class AgentTools(AgentToolsProtocol):
             snapshot = list(self._participants)
 
         for cached in snapshot:
-            if cached.get("name", "").lower() == name.lower():
-                logger.debug("Participant '%s' is already in the room", name)
+            if _matches_identifier(cached, identifier):
+                cached_id = cached.get("id")
+                if not cached_id:
+                    raise ValueError(f"Participant '{identifier}' has no ID.")
+                logger.debug("Participant '%s' is already in the room", identifier)
                 return {
-                    "id": cached.get("id"),
-                    "name": cached.get("name"),
+                    "id": cached_id,
+                    "name": cached.get("name", identifier),
                     "role": role,
                     "status": "already_in_room",
                 }
 
-        # Look up participant ID by name (paginates through all peers)
-        participant = await self._lookup_peer_by_name(name)
+        # Look up participant by identifier (paginates through all peers)
+        participant = await self._lookup_peer(identifier)
         if not participant:
             raise ValueError(
-                f"Participant '{name}' not found. Use thenvoi_lookup_peers to find available peers."
+                f"Participant '{identifier}' not found. "
+                "Use thenvoi_lookup_peers to find available peers."
             )
 
         participant_id = participant.id
-        logger.debug("Resolved '%s' to ID: %s", name, participant_id)
+        participant_name = getattr(participant, "name", None) or identifier
+        logger.debug("Resolved '%s' to ID: %s", identifier, participant_id)
 
         await self.rest.agent_api_participants.add_agent_chat_participant(
             chat_id=self.room_id,
@@ -737,30 +819,30 @@ class AgentTools(AgentToolsProtocol):
         # allows @mentions to work immediately after add_participant returns.
         new_participant = {
             "id": participant_id,
-            "name": name,
+            "name": participant_name,
             "type": getattr(participant, "type", "Agent"),
             "handle": getattr(participant, "handle", None),
         }
         self._participants.append(new_participant)
         logger.debug(
             "Updated participant cache: added %s, total=%s",
-            name,
+            participant_name,
             len(self._participants),
         )
 
         return {
             "id": participant_id,
-            "name": name,
+            "name": participant_name,
             "role": role,
             "status": "added",
         }
 
-    async def remove_participant(self, name: str) -> dict[str, Any]:
+    async def remove_participant(self, identifier: str) -> dict[str, Any]:
         """
-        Remove a participant from the current room by name.
+        Remove a participant from the current room.
 
         Args:
-            name: Name of the participant to remove
+            identifier: Handle, name, or ID of the participant to remove
 
         Returns:
             Dict with removed participant info (id, name, status)
@@ -768,9 +850,9 @@ class AgentTools(AgentToolsProtocol):
         Raises:
             ValueError: If participant not found in room
         """
-        logger.debug("Removing participant '%s' from room %s", name, self.room_id)
+        logger.debug("Removing participant '%s' from room %s", identifier, self.room_id)
 
-        # Look up participant ID by name. Always prefer a fresh server snapshot
+        # Look up participant by identifier. Always prefer a fresh server snapshot
         # to avoid stale-cache decisions after room updates.
         fresh = await self.get_participants()
         snapshot = [p.model_dump() if hasattr(p, "model_dump") else p for p in fresh]
@@ -779,16 +861,20 @@ class AgentTools(AgentToolsProtocol):
         else:
             snapshot = list(self._participants)
 
-        participant_id: str | None = None
+        participant: dict[str, Any] | None = None
         for cached in snapshot:
-            if cached.get("name", "").lower() == name.lower():
-                participant_id = cached.get("id")
+            if _matches_identifier(cached, identifier):
+                participant = cached
                 break
 
-        if not participant_id:
-            raise ValueError(f"Participant '{name}' not found in this room.")
+        if not participant:
+            raise ValueError(f"Participant '{identifier}' not found in this room.")
 
-        logger.debug("Resolved '%s' to ID: %s", name, participant_id)
+        participant_id = participant.get("id")
+        if not participant_id:
+            raise ValueError(f"Participant '{identifier}' has no ID.")
+        participant_name = participant.get("name", identifier)
+        logger.debug("Resolved '%s' to ID: %s", identifier, participant_id)
 
         await self.rest.agent_api_participants.remove_agent_chat_participant(
             self.room_id,
@@ -804,13 +890,13 @@ class AgentTools(AgentToolsProtocol):
         ]
         logger.debug(
             "Updated participant cache: removed %s, total=%s",
-            name,
+            participant_name,
             len(self._participants),
         )
 
         return {
             "id": participant_id,
-            "name": name,
+            "name": participant_name,
             "status": "removed",
         }
 
@@ -1226,12 +1312,12 @@ class AgentTools(AgentToolsProtocol):
 
         return resolved
 
-    async def _lookup_peer_by_name(self, name: str) -> Any | None:
+    async def _lookup_peer(self, identifier: str) -> Any | None:
         """
-        Find a peer by name, paginating through all results.
+        Find a peer by identifier (handle, name, or ID), paginating through all results.
 
         Args:
-            name: Name to search for (case-insensitive)
+            identifier: Handle, name, or ID to search for (case-insensitive)
 
         Returns:
             Fern peer model if found, None otherwise
@@ -1241,7 +1327,7 @@ class AgentTools(AgentToolsProtocol):
             result = await self.lookup_peers(page=page, page_size=100)
             peers = result.data or []
             for peer in peers:
-                if peer.name and peer.name.lower() == name.lower():
+                if _matches_identifier(peer, identifier):
                     return peer
 
             # Check if more pages
@@ -1260,8 +1346,22 @@ class AgentTools(AgentToolsProtocol):
         """Get Pydantic models for all tools."""
         return TOOL_MODELS
 
+    @property
+    def is_hub_room(self) -> bool:
+        """True if this AgentTools is bound to the contact hub room.
+
+        When True, contact-management tool schemas are force-included by
+        the schema methods regardless of the caller's include_contacts
+        argument.
+        """
+        return self._hub_room_id is not None and self.room_id == self._hub_room_id
+
     def get_tool_schemas(
-        self, format: str, *, include_memory: bool = False
+        self,
+        format: str,
+        *,
+        include_memory: bool = False,
+        include_contacts: bool = True,
     ) -> list[dict[str, Any]] | list["ToolParam"]:
         """
         Get tool schemas in provider-specific format.
@@ -1269,6 +1369,12 @@ class AgentTools(AgentToolsProtocol):
         Args:
             format: Target format - "openai" or "anthropic"
             include_memory: If True, include memory tools (enterprise only)
+            include_contacts: If True (default), include contact management
+                tools. Adapters that gate contacts behind ``Capability.CONTACTS``
+                should pass ``False`` when CONTACTS is not in features.
+                When this AgentTools is bound to the hub room
+                (``self.is_hub_room``), this argument is ignored and contact
+                tools are always included.
 
         Returns:
             List of tool definitions in the requested format
@@ -1281,8 +1387,17 @@ class AgentTools(AgentToolsProtocol):
                 f"Invalid format: {format}. Must be 'openai' or 'anthropic'"
             )
 
+        # HUB_ROOM auto-enable: force contact tools on for the hub-room
+        # execution path. The hub-room prompt instructs the LLM to call
+        # contact tools, so they must be exposed regardless of adapter
+        # preference.
+        effective_include_contacts = include_contacts or self.is_hub_room
+
         tools: list[Any] = []
-        for definition in iter_tool_definitions(include_memory=include_memory):
+        for definition in iter_tool_definitions(
+            include_memory=include_memory,
+            include_contacts=effective_include_contacts,
+        ):
             schema = definition.input_model.model_json_schema()
             # Remove Pydantic-specific keys
             schema.pop("title", None)
@@ -1309,21 +1424,35 @@ class AgentTools(AgentToolsProtocol):
         return tools
 
     def get_anthropic_tool_schemas(
-        self, *, include_memory: bool = False
+        self,
+        *,
+        include_memory: bool = False,
+        include_contacts: bool = True,
     ) -> list["ToolParam"]:
         """Get tool schemas in Anthropic format (strongly typed)."""
         return cast(
             list["ToolParam"],
-            self.get_tool_schemas("anthropic", include_memory=include_memory),
+            self.get_tool_schemas(
+                "anthropic",
+                include_memory=include_memory,
+                include_contacts=include_contacts,
+            ),
         )
 
     def get_openai_tool_schemas(
-        self, *, include_memory: bool = False
+        self,
+        *,
+        include_memory: bool = False,
+        include_contacts: bool = True,
     ) -> list[dict[str, Any]]:
         """Get tool schemas in OpenAI format (strongly typed)."""
         return cast(
             list[dict[str, Any]],
-            self.get_tool_schemas("openai", include_memory=include_memory),
+            self.get_tool_schemas(
+                "openai",
+                include_memory=include_memory,
+                include_contacts=include_contacts,
+            ),
         )
 
     async def execute_tool_call(self, tool_name: str, arguments: dict[str, Any]) -> Any:

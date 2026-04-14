@@ -757,7 +757,10 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
         dynamic_tools: list[dict[str, Any]] = []
         seen: set[str] = set()
 
-        for schema in tools.get_openai_tool_schemas():
+        for schema in tools.get_openai_tool_schemas(
+            include_memory=Capability.MEMORY in self.features.capabilities,
+            include_contacts=Capability.CONTACTS in self.features.capabilities,
+        ):
             if not isinstance(schema, dict):
                 continue
 
@@ -1627,6 +1630,7 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
             agent_description=self.agent_description or "An AI assistant",
             custom_section=self.config.custom_section,
             include_base_instructions=self.config.include_base_instructions,
+            features=self.features,
         )
 
     def _apply_turn_overrides(self, params: dict[str, Any]) -> None:

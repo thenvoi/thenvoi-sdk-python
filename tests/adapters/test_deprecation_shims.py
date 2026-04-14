@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import pytest
 
+from thenvoi.adapters.claude_sdk import _CLAUDE_SDK_AVAILABLE as _HAS_CLAUDE_SDK
 from thenvoi.core.exceptions import ThenvoiConfigError
 from thenvoi.core.types import AdapterFeatures, Capability, Emit
 
@@ -84,6 +85,10 @@ class TestUniversalBooleanShims:
             )
         assert Emit.EXECUTION in adapter.features.emit
 
+    @pytest.mark.skipif(
+        not _HAS_CLAUDE_SDK,
+        reason="claude-agent-sdk not installed (pip install thenvoi-sdk[claude_sdk])",
+    )
     def test_claude_sdk_enable_execution_reporting_maps_to_execution_and_thoughts(
         self,
     ) -> None:

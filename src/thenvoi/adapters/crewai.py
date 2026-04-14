@@ -37,6 +37,7 @@ from thenvoi.core.simple_adapter import SimpleAdapter
 from thenvoi.core.types import AdapterFeatures, Capability, Emit, PlatformMessage
 from thenvoi.converters.crewai import CrewAIHistoryConverter, CrewAIMessages
 from thenvoi.runtime.custom_tools import CustomToolDef, get_custom_tool_name
+from thenvoi.runtime.prompts import render_system_prompt
 from thenvoi.runtime.tools import get_tool_description
 
 logger = logging.getLogger(__name__)
@@ -55,43 +56,6 @@ _current_room_context: ContextVar[tuple[str, AgentToolsProtocol] | None] = Conte
 )
 
 MessageType = Literal["thought", "error", "task"]
-
-PLATFORM_INSTRUCTIONS = """## Environment
-
-Multi-participant chat on Thenvoi platform. Messages show sender: [Name]: content.
-Use the `thenvoi_send_message` tool to respond. Plain text output is not delivered.
-
-## CRITICAL: Delegate When You Cannot Help Directly
-
-You have NO internet access and NO real-time data. When asked about weather, news, stock prices,
-or any current information you cannot answer directly:
-
-1. Call `thenvoi_lookup_peers` to find available specialized agents
-2. If a relevant agent exists, call `thenvoi_add_participant` to add them
-3. Ask that agent using `thenvoi_send_message` with their handle in mentions
-4. Wait for their response and relay it back to the user
-
-NEVER say "I can't do that" without first checking if another agent can help via `thenvoi_lookup_peers`.
-
-## CRITICAL: Do NOT Remove Agents Automatically
-
-After adding an agent to help with a task:
-1. Ask your question and wait for their response
-2. Relay their response back to the original requester
-3. **Do NOT remove the agent** - they stay silent unless mentioned and may be useful for follow-ups
-
-Only remove agents if the user explicitly requests it.
-
-## CRITICAL: Always Relay Information Back to the Requester
-
-When someone asks you to get information from another agent:
-1. Ask the other agent for the information
-2. When you receive the response, IMMEDIATELY relay it back to the ORIGINAL REQUESTER
-3. Do NOT just thank the helper agent - the requester is waiting for their answer!
-
-## IMPORTANT: Always Share Your Thinking
-
-Call `thenvoi_send_event` with message_type="thought" BEFORE every action to share your reasoning."""
 
 
 def _ensure_nest_asyncio() -> None:
@@ -286,19 +250,23 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
         role = self.role or agent_name
         goal = self.goal or agent_description or "Help users accomplish their tasks"
 
-        backstory_parts = []
         if self.backstory:
-            backstory_parts.append(self.backstory)
-        else:
-            backstory_parts.append(
-                f"You are {agent_name}, a collaborative AI agent on the Thenvoi platform."
+            # User provided full backstory -- append capability-gated platform
+            # instructions so the LLM knows about memory/contact tools if enabled.
+            platform_prompt = render_system_prompt(
+                agent_name=agent_name,
+                agent_description=agent_description,
+                custom_section=self.custom_section or "",
+                features=self.features,
             )
-
-        if self.custom_section:
-            backstory_parts.append(self.custom_section)
-
-        backstory_parts.append(PLATFORM_INSTRUCTIONS)
-        backstory = "\n\n".join(backstory_parts)
+            backstory = f"{self.backstory}\n\n{platform_prompt}"
+        else:
+            backstory = render_system_prompt(
+                agent_name=agent_name,
+                agent_description=agent_description,
+                custom_section=self.custom_section or "",
+                features=self.features,
+            )
 
         tools = self._create_crewai_tools()
 
@@ -550,17 +518,25 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
             )
 
         class AddParticipantInput(BaseModel):
-            participant_name: str = Field(
+            identifier: str = Field(
                 ...,
-                description="Name of participant to add (must match from thenvoi_lookup_peers)",
+                description=(
+                    "Identifier of participant to add — can be a handle, name, "
+                    "or ID (from thenvoi_lookup_peers). Prefer the exact ID "
+                    "returned by thenvoi_lookup_peers; handles are mainly for mentions."
+                ),
             )
             role: str = Field(
                 default="member", description="Role: 'owner', 'admin', or 'member'"
             )
 
         class RemoveParticipantInput(BaseModel):
-            participant_name: str = Field(
-                ..., description="Name of the participant to remove"
+            identifier: str = Field(
+                ...,
+                description=(
+                    "Identifier of the participant to remove — "
+                    "can be a handle, name, or ID"
+                ),
             )
 
         class GetParticipantsInput(BaseModel):
@@ -715,16 +691,16 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
             args_schema: Type[BaseModel] = AddParticipantInput
 
             def _run(self, *_args: Any, **kwargs: Any) -> Any:
-                participant_name: str = kwargs.get("participant_name", "")
+                identifier: str = kwargs.get("identifier", "")
                 role: str = kwargs.get("role", "member")
 
                 async def execute(tools: AgentToolsProtocol) -> str:
                     await adapter._report_tool_call(
                         tools,
                         "thenvoi_add_participant",
-                        {"name": participant_name, "role": role},
+                        {"identifier": identifier, "role": role},
                     )
-                    result = await tools.add_participant(participant_name, role)
+                    result = await tools.add_participant(identifier, role)
                     await adapter._report_tool_result(
                         tools, "thenvoi_add_participant", result
                     )
@@ -738,15 +714,15 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
             args_schema: Type[BaseModel] = RemoveParticipantInput
 
             def _run(self, *_args: Any, **kwargs: Any) -> Any:
-                participant_name: str = kwargs.get("participant_name", "")
+                identifier: str = kwargs.get("identifier", "")
 
                 async def execute(tools: AgentToolsProtocol) -> str:
                     await adapter._report_tool_call(
                         tools,
                         "thenvoi_remove_participant",
-                        {"name": participant_name},
+                        {"identifier": identifier},
                     )
-                    result = await tools.remove_participant(participant_name)
+                    result = await tools.remove_participant(identifier)
                     await adapter._report_tool_result(
                         tools, "thenvoi_remove_participant", result
                     )
@@ -1121,13 +1097,19 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
             GetParticipantsTool(),
             LookupPeersTool(),
             CreateChatroomTool(),
-            # Contact management tools
-            ListContactsTool(),
-            AddContactTool(),
-            RemoveContactTool(),
-            ListContactRequestsTool(),
-            RespondContactRequestTool(),
         ]
+
+        # Contact management tools (opt-in via Capability.CONTACTS)
+        if Capability.CONTACTS in self.features.capabilities:
+            platform_tools.extend(
+                [
+                    ListContactsTool(),
+                    AddContactTool(),
+                    RemoveContactTool(),
+                    ListContactRequestsTool(),
+                    RespondContactRequestTool(),
+                ]
+            )
 
         # Memory management tools (enterprise only - opt-in)
         if Capability.MEMORY in self.features.capabilities:

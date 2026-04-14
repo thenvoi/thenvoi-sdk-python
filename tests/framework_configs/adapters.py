@@ -15,6 +15,7 @@ from typing import Any, Callable
 from unittest.mock import MagicMock
 
 from tests.framework_configs._sentinel import IN_CI, MISSING, _MissingSentinel
+from thenvoi.adapters.claude_sdk import _CLAUDE_SDK_AVAILABLE as _HAS_CLAUDE_SDK
 
 __all__ = ["AdapterConfig", "ADAPTER_CONFIGS", "ADAPTER_EXCLUDED_MODULES"]
 
@@ -371,8 +372,11 @@ def _build_crewai_config() -> AdapterConfig:
     )
 
 
-def _build_claude_sdk_config() -> AdapterConfig:
-    from thenvoi.adapters.claude_sdk import ClaudeSDKAdapter
+def _build_claude_sdk_config() -> AdapterConfig | None:
+    from thenvoi.adapters.claude_sdk import _CLAUDE_SDK_AVAILABLE, ClaudeSDKAdapter
+
+    if not _CLAUDE_SDK_AVAILABLE:
+        return None  # optional dep not installed; skip in CI
 
     return AdapterConfig(
         framework_id="claude_sdk",
@@ -567,7 +571,12 @@ def _build_gemini_config() -> AdapterConfig:
 # on_cleanup contract), so they cannot share the same conformance tests.
 # acp uses the ACP protocol (Agent Client Protocol) with a similar non-standard
 # lifecycle (ACP JSON-RPC over stdio), so it is also excluded.
-ADAPTER_EXCLUDED_MODULES: frozenset[str] = frozenset({"a2a", "a2a_gateway", "acp"})
+# claude_sdk is excluded when claude-agent-sdk optional dep is not installed.
+
+_excluded = {"a2a", "a2a_gateway", "acp"}
+if not _HAS_CLAUDE_SDK:
+    _excluded = _excluded | {"claude_sdk"}
+ADAPTER_EXCLUDED_MODULES: frozenset[str] = frozenset(_excluded)
 
 
 def _build_google_adk_config() -> AdapterConfig:
@@ -628,7 +637,9 @@ def _build_adapter_configs() -> list[AdapterConfig]:
     configs: list[AdapterConfig] = []
     for builder in _ADAPTER_CONFIG_BUILDERS:
         try:
-            configs.append(builder())
+            result = builder()
+            if result is not None:
+                configs.append(result)
         except Exception as exc:
             if IN_CI:
                 raise RuntimeError(
