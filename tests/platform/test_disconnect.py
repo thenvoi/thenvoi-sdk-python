@@ -309,6 +309,20 @@ class TestThenvoiLinkDisconnect:
 
         assert link._is_connected is False
 
+    @pytest.mark.asyncio
+    async def test_second_disconnect_is_ignored(self):
+        """Only the first disconnect should queue an event."""
+        link = ThenvoiLink(agent_id="agent-1", api_key="key")
+        link._is_connected = True
+
+        await link._on_ws_disconnect("replaced", {"reason": "replaced"})
+        await link._on_ws_disconnect("transport closed", None)
+
+        # Only one event should be queued
+        assert link._event_queue.qsize() == 1
+        event = link._event_queue.get_nowait()
+        assert event.reason == "replaced"
+
 
 # ---------------------------------------------------------------------------
 # RoomPresence — DisconnectedEvent routing

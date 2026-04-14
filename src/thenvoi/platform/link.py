@@ -265,7 +265,12 @@ class ThenvoiLink:
         transport-level disconnects.  Logs a human-readable message and
         queues a ``DisconnectedEvent`` so consumers (RoomPresence, adapters)
         can react.
+
+        Guarded so that only the first disconnect fires the event — a
+        ``phx_close`` followed by a transport drop won't produce duplicates.
         """
+        if not self._is_connected:
+            return
         logger.warning("Platform connection lost: %s", reason)
         self._is_connected = False
         event = DisconnectedEvent(reason=reason, raw=raw)
