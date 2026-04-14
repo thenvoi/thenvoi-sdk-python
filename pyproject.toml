@@ -37,6 +37,10 @@ codex = [
 opencode = [
     "httpx>=0.24.0",
 ]
+koreai = [
+    "PyJWT>=2.0.0",
+    "aiohttp>=3.9.0",
+]
 letta = [
     "letta-client>=0.1.0",
 ]

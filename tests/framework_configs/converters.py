@@ -264,6 +264,7 @@ CONVERTER_EXCLUDED_MODULES: frozenset[str] = frozenset(
         "codex",
         "letta",
         "opencode",
+        "koreai",
     }
 )
 
