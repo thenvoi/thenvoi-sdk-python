@@ -25,7 +25,7 @@ For the reverse direction (IDE connects to Thenvoi), see:
 Architecture:
     Thenvoi Platform (message arrives in room)
       -> ACPClientAdapter
-        -> acp.spawn_agent_process("cursor", "agent", "acp")
+        -> Cursor ACP subprocess
           -> Cursor CLI Agent (with Thenvoi MCP tools injected)
             -> session_update responses streamed back
         -> Posts response to Thenvoi room
