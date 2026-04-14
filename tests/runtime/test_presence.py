@@ -123,7 +123,8 @@ class TestRoomPresenceStart:
         room2.id = "room-2"
         room2.model_dump.return_value = {"id": "room-2"}
         mock_link.rest.agent_api_chats.list_agent_chats.return_value = MagicMock(
-            data=[room1, room2]
+            data=[room1, room2],
+            metadata=MagicMock(total_pages=1),
         )
 
         presence = RoomPresence(mock_link, auto_subscribe_existing=True)
