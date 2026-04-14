@@ -28,6 +28,7 @@ from .event import (
     ContactRequestUpdatedEvent,
     ContactAddedEvent,
     ContactRemovedEvent,
+    DisconnectedEvent,
     PlatformEvent,
 )
 
@@ -122,7 +123,12 @@ class ThenvoiLink:
             logger.warning("Already connected")
             return
 
-        self._ws = WebSocketClient(self.ws_url, self.api_key, self.agent_id)
+        self._ws = WebSocketClient(
+            self.ws_url,
+            self.api_key,
+            self.agent_id,
+            on_disconnect=self._on_ws_disconnect,
+        )
         await self._ws.__aenter__()
         self._is_connected = True
         logger.info("Connected to platform")
@@ -249,6 +255,48 @@ class ThenvoiLink:
             await self._ws.leave_agent_contacts_channel(self.agent_id)
         except Exception as e:
             logger.warning("Error unsubscribing from agent_contacts: %s", e)
+
+    # --- Disconnect handling ---
+
+    async def _on_ws_disconnect(
+        self, reason: str, raw: dict | None, topic: str | None = None
+    ) -> None:
+        """Handle disconnect notifications from the WebSocket layer.
+
+        Called for both channel-level events (phx_close / phx_error) and
+        transport-level disconnects.
+
+        Channel-level disconnects (topic is set) are always surfaced — each
+        carries distinct information about which channel was closed and why.
+        For example, the server may close ``chat_room:X`` (unauthorized) and
+        then ``agent_rooms:Y`` (replaced) before the transport drops.
+
+        Transport-level disconnects (topic is None) are deduped so only the
+        first fires, preventing a ``phx_close`` followed by a transport drop
+        from producing duplicate events.
+
+        Note: the ``_is_connected`` guard is safe without a lock because both
+        channel-level and transport-level callbacks run on the same event loop.
+        """
+        if topic is None:
+            # Transport-level disconnect — dedup so only the first fires
+            if not self._is_connected:
+                return
+            self._is_connected = False
+            logger.warning("Platform connection lost: %s", reason)
+        else:
+            # Channel-level disconnect — always surface these
+            logger.warning("Channel disconnected (%s): %s", topic, reason)
+
+        # Parse room_id from channel topic (e.g. "chat_room:room-123")
+        room_id: str | None = None
+        if topic and ":" in topic:
+            prefix, _, entity_id = topic.partition(":")
+            if prefix == "chat_room":
+                room_id = entity_id
+
+        event = DisconnectedEvent(reason=reason, raw=raw, room_id=room_id)
+        self._queue_event(event)
 
     # --- Event handlers (from ThenvoiAgent, unified into PlatformEvent) ---
 

@@ -16,6 +16,7 @@ from thenvoi.platform.event import (
     RoomAddedEvent,
     RoomDeletedEvent,
     RoomRemovedEvent,
+    DisconnectedEvent,
     PlatformEvent,
     ContactEvent,
     ContactRequestReceivedEvent,
@@ -93,6 +94,7 @@ class RoomPresence:
             None
         )
         self.on_contact_event: ContactEventHandler | None = None
+        self.on_disconnected: Callable[[str], Awaitable[None]] | None = None
 
         # Internal task for consuming events from link
         self._event_task: asyncio.Task | None = None
@@ -170,6 +172,8 @@ class RoomPresence:
                 await self._handle_room_added(event)
             case RoomRemovedEvent() | RoomDeletedEvent():
                 await self._handle_room_left(event)
+            case DisconnectedEvent():
+                await self._handle_disconnected(event)
             case (
                 ContactRequestReceivedEvent()
                 | ContactRequestUpdatedEvent()
@@ -289,6 +293,19 @@ class RoomPresence:
                     e,
                     exc_info=True,
                 )
+
+    async def _handle_disconnected(self, event: DisconnectedEvent) -> None:
+        """Handle platform disconnect event.
+
+        Logs the reason and forwards to ``on_disconnected`` callback so
+        the runtime / adapter layer can react (e.g. stop processing).
+        """
+        logger.warning("Platform disconnected: %s", event.reason)
+        if self.on_disconnected:
+            try:
+                await self.on_disconnected(event.reason)
+            except Exception as e:
+                logger.error("on_disconnected callback error: %s", e, exc_info=True)
 
     async def _subscribe_to_existing_rooms(self) -> None:
         """

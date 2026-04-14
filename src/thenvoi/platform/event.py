@@ -125,6 +125,22 @@ class ContactRemovedEvent:
     raw: dict[str, Any] | None = None
 
 
+@dataclass
+class DisconnectedEvent:
+    """WebSocket disconnected event with reason.
+
+    Fired when the platform closes the connection (e.g. another instance
+    connected with the same agent ID) or when a transport-level disconnect
+    is detected.  The ``reason`` field contains a human-readable explanation;
+    ``raw`` preserves the original payload for diagnostics.
+    """
+
+    type: Literal["disconnected"] = "disconnected"
+    room_id: str | None = None  # Always None — connection-level event
+    reason: str = "unknown"
+    raw: dict[str, Any] | None = None
+
+
 # Contact event union (for type narrowing)
 ContactEvent = (
     ContactRequestReceivedEvent
@@ -146,4 +162,5 @@ PlatformEvent = (
     | ContactRequestUpdatedEvent
     | ContactAddedEvent
     | ContactRemovedEvent
+    | DisconnectedEvent
 )

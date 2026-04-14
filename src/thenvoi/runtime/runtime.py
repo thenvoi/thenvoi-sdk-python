@@ -110,6 +110,7 @@ class AgentRuntime:
         self.presence.on_room_joined = self._on_room_joined
         self.presence.on_room_left = self._on_room_left
         self.presence.on_room_event = self._on_room_event
+        self.presence.on_disconnected = self._on_disconnected
 
     @property
     def active_sessions(self) -> dict[str, Execution]:
@@ -184,6 +185,28 @@ class AgentRuntime:
             await execution.on_event(event)
         else:
             logger.warning("No execution for room %s, event dropped", room_id)
+
+    async def _on_disconnected(self, reason: str) -> None:
+        """Handle platform disconnect — cancel active executions.
+
+        The connection is dead, so executions can't send results back.
+        Cancel them immediately (timeout=None) and run cleanup callbacks
+        so adapters can release resources.
+        """
+        logger.error(
+            "Agent %s disconnected from platform: %s",
+            self.agent_id,
+            reason,
+        )
+        for room_id in list(self.executions.keys()):
+            try:
+                await self._destroy_execution(room_id, timeout=None)
+            except Exception as e:
+                logger.error(
+                    "Failed to stop execution for room %s on disconnect: %s",
+                    room_id,
+                    e,
+                )
 
     # --- Execution management ---
 

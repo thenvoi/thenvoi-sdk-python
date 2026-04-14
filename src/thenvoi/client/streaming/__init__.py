@@ -7,6 +7,7 @@ Usage:
 """
 
 from thenvoi.client.streaming.client import (
+    KNOWN_DISCONNECT_REASONS,
     WebSocketClient,
     MessageCreatedPayload,
     RoomAddedPayload,
@@ -20,9 +21,12 @@ from thenvoi.client.streaming.client import (
     ContactRequestUpdatedPayload,
     ContactAddedPayload,
     ContactRemovedPayload,
+    extract_disconnect_reason,
+    humanize_disconnect_reason,
 )
 
 __all__ = [
+    "KNOWN_DISCONNECT_REASONS",
     "WebSocketClient",
     "MessageCreatedPayload",
     "RoomAddedPayload",
@@ -36,4 +40,6 @@ __all__ = [
     "ContactRequestUpdatedPayload",
     "ContactAddedPayload",
     "ContactRemovedPayload",
+    "extract_disconnect_reason",
+    "humanize_disconnect_reason",
 ]

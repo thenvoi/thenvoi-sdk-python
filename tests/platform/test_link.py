@@ -95,7 +95,12 @@ class TestThenvoiLinkConnection:
         link = ThenvoiLink(agent_id="agent-123", api_key="test-key")
         await link.connect()
 
-        mock_ws_class.assert_called_once_with(link.ws_url, link.api_key, link.agent_id)
+        mock_ws_class.assert_called_once_with(
+            link.ws_url,
+            link.api_key,
+            link.agent_id,
+            on_disconnect=link._on_ws_disconnect,
+        )
         mock_ws_client.__aenter__.assert_called_once()
         assert link.is_connected is True
 
