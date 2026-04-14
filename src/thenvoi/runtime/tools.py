@@ -841,6 +841,8 @@ class AgentTools(AgentToolsProtocol):
             raise ValueError(f"Participant '{identifier}' not found in this room.")
 
         participant_id = participant.get("id")
+        if not participant_id:
+            raise ValueError(f"Participant '{identifier}' has no ID.")
         participant_name = participant.get("name", identifier)
         logger.debug("Resolved '%s' to ID: %s", identifier, participant_id)
 

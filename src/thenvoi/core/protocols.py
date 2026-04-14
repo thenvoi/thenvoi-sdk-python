@@ -65,9 +65,7 @@ class AgentToolsProtocol(Protocol):
         """Send an event (tool_call, tool_result, thought, error, task)."""
         ...
 
-    async def add_participant(
-        self, identifier: str, role: str = "member"
-    ) -> Any:
+    async def add_participant(self, identifier: str, role: str = "member") -> Any:
         """Add a participant to the current room by handle, name, or ID."""
         ...
 
