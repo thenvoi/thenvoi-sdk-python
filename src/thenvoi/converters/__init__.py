@@ -71,6 +71,9 @@ if TYPE_CHECKING:
     from thenvoi.converters.opencode import (
         OpencodeHistoryConverter as OpencodeHistoryConverter,
     )
+    from thenvoi.converters.koreai import (
+        KoreAIHistoryConverter as KoreAIHistoryConverter,
+    )
 
 __all__ = [
     "LangChainHistoryConverter",
@@ -94,6 +97,7 @@ __all__ = [
     "GoogleADKHistoryConverter",
     "GoogleADKMessages",
     "OpencodeHistoryConverter",
+    "KoreAIHistoryConverter",
 ]
 
 
@@ -197,5 +201,9 @@ def __getattr__(name: str) -> type:
         from thenvoi.converters.opencode import OpencodeHistoryConverter
 
         return OpencodeHistoryConverter
+    elif name == "KoreAIHistoryConverter":
+        from thenvoi.converters.koreai import KoreAIHistoryConverter
+
+        return KoreAIHistoryConverter
 
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

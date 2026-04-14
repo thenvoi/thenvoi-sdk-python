@@ -42,6 +42,8 @@ if TYPE_CHECKING:
     from thenvoi.adapters.google_adk import GoogleADKAdapter as GoogleADKAdapter
     from thenvoi.adapters.opencode import OpencodeAdapter as OpencodeAdapter
     from thenvoi.adapters.opencode import OpencodeAdapterConfig as OpencodeAdapterConfig
+    from thenvoi.adapters.koreai import KoreAIAdapter as KoreAIAdapter
+    from thenvoi.adapters.koreai import KoreAIConfig as KoreAIConfig
 
 __all__ = [
     "LangGraphAdapter",
@@ -61,6 +63,8 @@ __all__ = [
     "GoogleADKAdapter",
     "OpencodeAdapter",
     "OpencodeAdapterConfig",
+    "KoreAIAdapter",
+    "KoreAIConfig",
 ]
 
 
@@ -134,4 +138,12 @@ def __getattr__(name: str) -> type:
         from thenvoi.adapters.opencode import OpencodeAdapterConfig
 
         return OpencodeAdapterConfig
+    elif name == "KoreAIAdapter":
+        from thenvoi.adapters.koreai import KoreAIAdapter
+
+        return KoreAIAdapter
+    elif name == "KoreAIConfig":
+        from thenvoi.adapters.koreai import KoreAIConfig
+
+        return KoreAIConfig
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
