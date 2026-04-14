@@ -176,6 +176,7 @@ dev = [
 
 [project.scripts]
 thenvoi-acp = "thenvoi.integrations.acp.cli:entry_point"
+thenvoi-trigger = "thenvoi.cli.trigger:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
