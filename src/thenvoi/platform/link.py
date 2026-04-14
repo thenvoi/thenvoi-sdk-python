@@ -28,6 +28,7 @@ from .event import (
     ContactRequestUpdatedEvent,
     ContactAddedEvent,
     ContactRemovedEvent,
+    DisconnectedEvent,
     PlatformEvent,
 )
 
@@ -122,7 +123,12 @@ class ThenvoiLink:
             logger.warning("Already connected")
             return
 
-        self._ws = WebSocketClient(self.ws_url, self.api_key, self.agent_id)
+        self._ws = WebSocketClient(
+            self.ws_url,
+            self.api_key,
+            self.agent_id,
+            on_disconnect=self._on_ws_disconnect,
+        )
         await self._ws.__aenter__()
         self._is_connected = True
         logger.info("Connected to platform")
@@ -249,6 +255,21 @@ class ThenvoiLink:
             await self._ws.leave_agent_contacts_channel(self.agent_id)
         except Exception as e:
             logger.warning("Error unsubscribing from agent_contacts: %s", e)
+
+    # --- Disconnect handling ---
+
+    async def _on_ws_disconnect(self, reason: str, raw: dict | None) -> None:
+        """Handle disconnect notifications from the WebSocket layer.
+
+        Called for both channel-level events (phx_close / phx_error) and
+        transport-level disconnects.  Logs a human-readable message and
+        queues a ``DisconnectedEvent`` so consumers (RoomPresence, adapters)
+        can react.
+        """
+        logger.warning("Platform connection lost: %s", reason)
+        self._is_connected = False
+        event = DisconnectedEvent(reason=reason, raw=raw)
+        self._queue_event(event)
 
     # --- Event handlers (from ThenvoiAgent, unified into PlatformEvent) ---
 

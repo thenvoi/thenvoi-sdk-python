@@ -13,6 +13,27 @@ from pydantic import BaseModel, ConfigDict, ValidationError
 
 logger = logging.getLogger(__name__)
 
+# Phoenix protocol events that indicate channel/connection errors
+_PHX_CLOSE = "phx_close"
+_PHX_ERROR = "phx_error"
+
+# Callback type: (human_reason, raw_payload | None) -> None
+DisconnectCallback = Callable[[str, dict | None], Awaitable[None]]
+
+# Map well-known backend reason strings to human-readable messages.
+# Unknown reasons fall back to including the raw payload.
+KNOWN_DISCONNECT_REASONS: dict[str, str] = {
+    "replaced": (
+        "Another instance connected with the same agent ID "
+        "— only one connection per agent is allowed"
+    ),
+    "kicked": "Agent was removed by the platform",
+    "token_expired": "Authentication token expired or was revoked",
+    "invalid_token": "Authentication token is invalid",
+    "normal": "Server closed the connection normally",
+    "unauthorized": "Not authorized to join this channel",
+}
+
 
 # WebSocket message payloads (based on actual backend messages)
 # Using Pydantic for runtime validation
@@ -178,11 +199,68 @@ _PAYLOAD_MODELS: dict[str, type[BaseModel]] = {
 }
 
 
+def extract_disconnect_reason(payload: dict) -> str:
+    """Extract a reason string from a phx_close / phx_error payload.
+
+    Tries common Phoenix payload shapes in order:
+      1. ``{"reason": "..."}``
+      2. ``{"response": {"reason": "..."}}``
+      3. ``{"message": "..."}``
+    Falls back to ``"unknown"`` if none match.
+    """
+    if "reason" in payload:
+        return str(payload["reason"])
+    response = payload.get("response")
+    if isinstance(response, dict) and "reason" in response:
+        return str(response["reason"])
+    if "message" in payload:
+        return str(payload["message"])
+    return "unknown"
+
+
+def humanize_disconnect_reason(reason: str, raw_payload: dict | None = None) -> str:
+    """Return a human-readable disconnect message.
+
+    If *reason* matches a well-known key the canned explanation is returned.
+    Otherwise the raw reason (and optionally the full payload) is included so
+    operators can diagnose unknown scenarios.
+    """
+    if reason in KNOWN_DISCONNECT_REASONS:
+        return KNOWN_DISCONNECT_REASONS[reason]
+    if raw_payload:
+        return "Disconnected: %s (raw: %s)" % (reason, raw_payload)
+    return "Disconnected: %s" % reason
+
+
+def _extract_transport_reason(error: Exception | None) -> str:
+    """Best-effort reason from a transport-level disconnect exception.
+
+    The ``websockets`` library raises ``ConnectionClosed`` subclasses that
+    carry ``.code`` and ``.reason`` attributes.  We surface those when
+    available; otherwise we fall back to ``str(error)``.
+    """
+    if error is None:
+        return "connection_closed"
+    # websockets.exceptions.ConnectionClosed has .reason and .code
+    if hasattr(error, "reason") and error.reason:
+        return str(error.reason)
+    if hasattr(error, "code"):
+        return "close_code_%s" % error.code
+    return str(error)
+
+
 class WebSocketClient:
-    def __init__(self, ws_url: str, api_key: str, agent_id: str | None = None):
+    def __init__(
+        self,
+        ws_url: str,
+        api_key: str,
+        agent_id: str | None = None,
+        on_disconnect: DisconnectCallback | None = None,
+    ):
         self.ws_url = ws_url
         self.api_key = api_key
         self.agent_id = agent_id
+        self._on_disconnect = on_disconnect
         self._validation_error_count: int = 0
 
     @property
@@ -205,6 +283,7 @@ class WebSocketClient:
             self.ws_url,
             self.api_key,
             protocol_version=PhoenixChannelsProtocolVersion.V2,
+            on_disconnect=self._on_transport_disconnect,
         )
         if self.agent_id:
             self.client.channel_socket_url += f"&agent_id={self.agent_id}"
@@ -216,9 +295,40 @@ class WebSocketClient:
         if self.client:
             await self.client.__aexit__(exc_type, exc_val, exc_tb)
 
+    async def _on_transport_disconnect(self, error: Exception | None) -> None:
+        """Handle transport-level disconnects from PHXChannelsClient."""
+        reason = _extract_transport_reason(error)
+        human = humanize_disconnect_reason(reason)
+        logger.warning("[WebSocket] Transport disconnected: %s", human)
+        if self._on_disconnect:
+            raw = {"error": str(error)} if error else None
+            try:
+                await self._on_disconnect(human, raw)
+            except Exception:  # noqa: BLE001
+                logger.exception("[WebSocket] Error in disconnect callback")
+
     async def _handle_events(self, message: PHXMessage, event_handlers: dict):
         """Generic async event handler that maps events to their corresponding async callbacks"""
         logger.debug("[WebSocket] Received event: %s", message.event)
+
+        # Intercept Phoenix close / error events before normal dispatch.
+        # These indicate the server is closing the channel (e.g. duplicate
+        # agent connection) and must be surfaced to the caller.
+        if message.event in (_PHX_CLOSE, _PHX_ERROR):
+            reason = extract_disconnect_reason(message.payload)
+            human = humanize_disconnect_reason(reason, message.payload)
+            logger.warning(
+                "[WebSocket] Channel %s on topic %s: %s",
+                message.event,
+                message.topic,
+                human,
+            )
+            if self._on_disconnect:
+                try:
+                    await self._on_disconnect(human, message.payload)
+                except Exception:  # noqa: BLE001
+                    logger.exception("[WebSocket] Error in disconnect callback")
+            return
 
         # Check if we have a handler for this event
         if message.event not in event_handlers:

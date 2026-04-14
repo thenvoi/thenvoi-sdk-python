@@ -6,10 +6,11 @@ Components:
     PlatformEvent: Single event type for all platform events
 """
 
-from .event import PlatformEvent
+from .event import DisconnectedEvent, PlatformEvent
 from .link import ThenvoiLink
 
 __all__ = [
+    "DisconnectedEvent",
     "ThenvoiLink",
     "PlatformEvent",
 ]
