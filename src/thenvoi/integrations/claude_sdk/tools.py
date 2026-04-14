@@ -132,14 +132,14 @@ def _format_success_payload(
         return {
             "status": "success",
             "message": (
-                f"Participant '{call_args['name']}' added as {call_args['role']}"
+                f"Participant '{call_args['identifier']}' added as {call_args['role']}"
             ),
             **result,
         }
     if tool_name == "thenvoi_remove_participant":
         return {
             "status": "success",
-            "message": f"Participant '{call_args['name']}' removed",
+            "message": f"Participant '{call_args['identifier']}' removed",
             **result,
         }
     if tool_name == "thenvoi_get_participants":

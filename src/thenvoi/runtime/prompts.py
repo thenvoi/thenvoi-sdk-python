@@ -46,7 +46,7 @@ If multiple participants mention you, address each in turn.
 
 When asked about something outside your capabilities:
 1. Call `thenvoi_lookup_peers()` to find available specialized agents.
-2. If a relevant agent exists, call `thenvoi_add_participant(name)` to bring them in.
+2. If a relevant agent exists, call `thenvoi_add_participant(identifier)` to bring them in. Prefer the exact peer ID returned by `thenvoi_lookup_peers()`; handles are for mentions.
 3. Send the question to that agent via `thenvoi_send_message(question, mentions=[agent_handle])`.
 4. Relay their response back to the original requester.
 5. Do NOT remove added agents automatically; they stay silent unless mentioned.

@@ -81,13 +81,15 @@ class FakeAgentTools:
         self.events_sent.append(event)
         return event
 
-    async def add_participant(self, name: str, role: str = "member") -> dict[str, Any]:
-        participant = {"id": f"p-{name}", "name": name, "role": role}
+    async def add_participant(
+        self, identifier: str, role: str = "member"
+    ) -> dict[str, Any]:
+        participant = {"id": f"p-{identifier}", "name": identifier, "role": role}
         self.participants_added.append(participant)
         return participant
 
-    async def remove_participant(self, name: str) -> dict[str, Any]:
-        participant = {"id": f"p-{name}", "name": name}
+    async def remove_participant(self, identifier: str) -> dict[str, Any]:
+        participant = {"id": f"p-{identifier}", "name": identifier}
         self.participants_removed.append(participant)
         return participant
 

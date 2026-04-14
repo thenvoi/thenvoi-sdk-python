@@ -185,13 +185,13 @@ class PydanticAIAdapter(SimpleAdapter[PydanticAIMessages]):
 
         async def thenvoi_add_participant(
             ctx: RunContext[AgentToolsProtocol],
-            name: str,
+            identifier: str,
             role: str = "member",
         ) -> dict[str, Any] | str:
             try:
-                return await ctx.deps.add_participant(name, role)
+                return await ctx.deps.add_participant(identifier, role)
             except Exception as e:
-                return f"Error adding participant '{name}': {e}"
+                return f"Error adding participant '{identifier}': {e}"
 
         thenvoi_add_participant.__doc__ = get_tool_description(
             "thenvoi_add_participant"
@@ -200,12 +200,12 @@ class PydanticAIAdapter(SimpleAdapter[PydanticAIMessages]):
 
         async def thenvoi_remove_participant(
             ctx: RunContext[AgentToolsProtocol],
-            name: str,
+            identifier: str,
         ) -> dict[str, Any] | str:
             try:
-                return await ctx.deps.remove_participant(name)
+                return await ctx.deps.remove_participant(identifier)
             except Exception as e:
-                return f"Error removing participant '{name}': {e}"
+                return f"Error removing participant '{identifier}': {e}"
 
         thenvoi_remove_participant.__doc__ = get_tool_description(
             "thenvoi_remove_participant"

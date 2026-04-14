@@ -115,7 +115,7 @@ Plain text responses will NOT be delivered. Always call the tool.
 ```json
 {{
   "room_id": "abc-123-def",
-  "name": "Weather Agent",
+  "identifier": "@john/weather-agent",
   "role": "member"
 }}
 ```
@@ -131,7 +131,7 @@ Plain text responses will NOT be delivered. Always call the tool.
 ```json
 {{
   "room_id": "abc-123-def",
-  "name": "Weather Agent"
+  "identifier": "@john/weather-agent"
 }}
 ```
 
