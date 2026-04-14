@@ -150,6 +150,15 @@ class TestThenvoiLinkConnection:
 
         assert link._subscribed_rooms == set()
 
+    async def test_reconnect_keeps_tracked_room_subscriptions(self):
+        """_on_reconnected() should preserve room tracking for PHX re-subscriptions."""
+        link = ThenvoiLink(agent_id="agent-123", api_key="test-key")
+        link._subscribed_rooms.update({"room-1", "room-2"})
+
+        await link._on_reconnected()
+
+        assert link._subscribed_rooms == {"room-1", "room-2"}
+
     async def test_disconnect_when_not_connected_is_noop(self):
         """disconnect() when not connected should be a no-op."""
         link = ThenvoiLink(agent_id="agent-123", api_key="test-key")

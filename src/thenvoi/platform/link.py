@@ -279,14 +279,12 @@ class ThenvoiLink:
     async def _on_reconnected(self) -> None:
         """Handle PHX client reconnection.
 
-        Clears stale subscription tracking and emits a ReconnectedEvent
-        so RoomPresence can re-derive room state from the server.
-        The PHX client already re-subscribes to agent-level channels
-        (agent_rooms, agent_contacts) via _resubscribe_topics().
-        Room-level channels are re-derived by RoomPresence.
+        PHXChannelsClient re-subscribes previously joined topics before calling
+        this hook, so room subscription tracking must stay intact here.
+        RoomPresence can then reconcile tracked rooms against the server state
+        without leaking channels or replaying duplicate room joins.
         """
-        logger.info("WebSocket reconnected — clearing stale room subscriptions")
-        self._subscribed_rooms.clear()
+        logger.info("WebSocket reconnected — reconciling room state")
         self._queue_event(ReconnectedEvent())
 
     async def _on_disconnected(self, error: Exception | None) -> None:

@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import Awaitable, Callable, Set
+from typing import Any, Awaitable, Callable, Set
 
 from thenvoi.client.rest import DEFAULT_REQUEST_OPTIONS
 from thenvoi.platform.event import (
@@ -254,22 +254,29 @@ class RoomPresence:
 
     async def _handle_reconnect(self) -> None:
         """
-        Re-derive room state from server after WebSocket reconnection.
+        Reconcile tracked rooms with the server after WebSocket reconnection.
 
-        Instead of replaying stale subscriptions, fetches the current room
-        list from the API and subscribes fresh. Notifies on_room_left for
-        rooms we were in but are no longer returned by the API.
+        PHXChannelsClient already re-subscribes previously joined room topics.
+        This method therefore syncs local room state against the API instead of
+        replaying room joins, unsubscribing rooms that disappeared while the
+        socket was down and only subscribing rooms that are newly discovered.
         """
-        logger.info("Handling reconnection — re-subscribing to rooms from API")
+        logger.info("Handling reconnection — syncing rooms from API")
         old_rooms = self.rooms.copy()
-        self.rooms.clear()
 
-        if self.auto_subscribe_existing:
-            await self._subscribe_to_existing_rooms()
+        try:
+            rooms_from_api = await self._list_existing_rooms()
+        except Exception as e:
+            logger.warning("Failed to sync rooms after reconnect: %s", e)
+            return
 
-        # Notify left for rooms we were in but are no longer present
-        gone_rooms = old_rooms - self.rooms
+        current_room_ids = {room_id for room_id, _ in rooms_from_api}
+        self.rooms = old_rooms & current_room_ids
+
+        gone_rooms = old_rooms - current_room_ids
         for room_id in gone_rooms:
+            await self.link.unsubscribe_room(room_id)
+            self.rooms.discard(room_id)
             if self.on_room_left:
                 try:
                     await self.on_room_left(room_id)
@@ -277,6 +284,50 @@ class RoomPresence:
                     logger.warning(
                         "on_room_left error for %s during reconnect: %s", room_id, e
                     )
+
+        if not self.auto_subscribe_existing:
+            return
+
+        new_rooms = [
+            (room_id, payload)
+            for room_id, payload in rooms_from_api
+            if room_id not in old_rooms
+        ]
+        if not new_rooms:
+            return
+
+        async def safe_subscribe(room_id: str, payload: dict[str, Any]) -> bool:
+            """Subscribe to a single room discovered during reconnect."""
+            try:
+                await self.link.subscribe_room(room_id)
+                self.rooms.add(room_id)
+
+                if self.on_room_joined:
+                    await self.on_room_joined(room_id, payload)
+                return True
+            except Exception as e:
+                logger.warning(
+                    "Failed to subscribe to room %s during reconnect: %s",
+                    room_id,
+                    e,
+                )
+                self.rooms.discard(room_id)
+                return False
+
+        results = await asyncio.gather(
+            *[safe_subscribe(room_id, payload) for room_id, payload in new_rooms],
+        )
+        succeeded = sum(1 for result in results if result)
+        failed = len(results) - succeeded
+
+        if failed:
+            logger.warning(
+                "Subscribed to %s rooms during reconnect (%s failed)",
+                succeeded,
+                failed,
+            )
+        else:
+            logger.info("Subscribed to %s rooms during reconnect", succeeded)
 
     async def _handle_room_event(self, event: PlatformEvent) -> None:
         """
@@ -319,6 +370,34 @@ class RoomPresence:
                     exc_info=True,
                 )
 
+    async def _list_existing_rooms(self) -> list[tuple[str, dict[str, Any]]]:
+        """Fetch all current rooms from the API, applying the room filter."""
+        all_rooms = []
+        page = 1
+        page_size = 100
+        while True:
+            response = await self.link.rest.agent_api_chats.list_agent_chats(
+                page=page,
+                page_size=page_size,
+                request_options=DEFAULT_REQUEST_OPTIONS,
+            )
+            if response.data:
+                all_rooms.extend(response.data)
+
+            total_pages = getattr(response.metadata, "total_pages", None)
+            if total_pages is None or page >= total_pages:
+                break
+            page += 1
+
+        rooms: list[tuple[str, dict[str, Any]]] = []
+        for room in all_rooms:
+            payload = room.model_dump(exclude_none=True)
+            if self.room_filter and not self.room_filter(payload):
+                continue
+            rooms.append((room.id, payload))
+
+        return rooms
+
     async def _subscribe_to_existing_rooms(self) -> None:
         """
         Subscribe to all rooms where agent is a participant.
@@ -330,39 +409,11 @@ class RoomPresence:
         logger.debug("Subscribing to existing rooms")
 
         try:
-            # Fetch all rooms across pages (API default page_size=20, max=100)
-            all_rooms = []
-            page = 1
-            page_size = 100
-            while True:
-                response = await self.link.rest.agent_api_chats.list_agent_chats(
-                    page=page,
-                    page_size=page_size,
-                    request_options=DEFAULT_REQUEST_OPTIONS,
-                )
-                if response.data:
-                    all_rooms.extend(response.data)
-
-                total_pages = getattr(response.metadata, "total_pages", None)
-                if total_pages is None or page >= total_pages:
-                    break
-                page += 1
-
-            if not all_rooms:
-                return
-
-            # Filter rooms
-            rooms_to_join = []
-            for room in all_rooms:
-                payload = room.model_dump(exclude_none=True)
-                if self.room_filter and not self.room_filter(payload):
-                    continue
-                rooms_to_join.append((room.id, payload))
-
+            rooms_to_join = await self._list_existing_rooms()
             if not rooms_to_join:
                 return
 
-            async def safe_subscribe(room_id: str, payload: dict) -> bool:
+            async def safe_subscribe(room_id: str, payload: dict[str, Any]) -> bool:
                 """Subscribe to a single room, returning True on success."""
                 try:
                     await self.link.subscribe_room(room_id)
@@ -378,7 +429,7 @@ class RoomPresence:
 
             # Join all rooms in parallel to avoid starving the heartbeat
             results = await asyncio.gather(
-                *[safe_subscribe(rid, p) for rid, p in rooms_to_join],
+                *[safe_subscribe(rid, payload) for rid, payload in rooms_to_join],
             )
             succeeded = sum(1 for r in results if r)
             failed = len(results) - succeeded
