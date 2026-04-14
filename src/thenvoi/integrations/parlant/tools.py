@@ -27,6 +27,8 @@ import logging
 import warnings
 from typing import Any, Optional
 
+from thenvoi.core.types import AdapterFeatures, Capability
+
 logger = logging.getLogger(__name__)
 
 # Session-keyed registry to hold tools for each session
@@ -92,12 +94,15 @@ def get_current_tools() -> Optional[Any]:
     return None  # Always returns None, tools now accessed via session_id
 
 
-def create_parlant_tools() -> list[Any]:
-    """
-    Create Parlant tool definitions that wrap Thenvoi tools.
+def create_parlant_tools(features: AdapterFeatures | None = None) -> list[Any]:
+    """Create Parlant tool definitions that wrap Thenvoi tools.
 
     These tools use context variables to access the current room's
     AgentToolsProtocol during execution.
+
+    Args:
+        features: Optional adapter features. When CONTACTS capability is absent,
+            contact-management tools are excluded from the returned list.
 
     Returns:
         List of Parlant ToolEntry objects
@@ -215,7 +220,7 @@ def create_parlant_tools() -> list[Any]:
 
         Args:
             context: Parlant tool context (automatically provided)
-            identifier: REQUIRED - Handle, name, or ID of the agent to add. Handles are the most reliable. Use lookup_peers to find available agents.
+            identifier: REQUIRED - Handle, name, or ID of the agent to add. Prefer the exact ID returned by lookup_peers; handles are mainly for mentions. Use lookup_peers to find available agents.
 
         Returns:
             Success message or error description
@@ -438,6 +443,8 @@ def create_parlant_tools() -> list[Any]:
         except Exception as e:
             logger.error("[Parlant Tool] Error creating chatroom: %s", e, exc_info=True)
             return ToolResult(data=f"Error creating chatroom: {e}")
+
+    include_contacts = features is None or Capability.CONTACTS in features.capabilities
 
     @p.tool
     async def thenvoi_list_contacts(
@@ -679,7 +686,7 @@ def create_parlant_tools() -> list[Any]:
             )
             return ToolResult(data=f"Error responding to contact request: {e}")
 
-    return [
+    tools = [
         thenvoi_send_message,
         thenvoi_send_event,
         thenvoi_add_participant,
@@ -687,9 +694,17 @@ def create_parlant_tools() -> list[Any]:
         thenvoi_lookup_peers,
         thenvoi_get_participants,
         thenvoi_create_chatroom,
-        thenvoi_list_contacts,
-        thenvoi_add_contact,
-        thenvoi_remove_contact,
-        thenvoi_list_contact_requests,
-        thenvoi_respond_contact_request,
     ]
+
+    if include_contacts:
+        tools.extend(
+            [
+                thenvoi_list_contacts,
+                thenvoi_add_contact,
+                thenvoi_remove_contact,
+                thenvoi_list_contact_requests,
+                thenvoi_respond_contact_request,
+            ]
+        )
+
+    return tools

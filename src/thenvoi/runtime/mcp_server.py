@@ -438,6 +438,16 @@ class LocalMCPServer:
         )
 
     def _reserve_socket(self) -> tuple[socket.socket, int]:
+        # Port 0 → ask the OS for any free port (race-free, ideal for tests)
+        if self._port_min == 0:
+            reserved_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            reserved_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            reserved_socket.bind((self._host, 0))
+            port = reserved_socket.getsockname()[1]
+            reserved_socket.listen(2048)
+            reserved_socket.setblocking(False)
+            return reserved_socket, port
+
         last_error: OSError | None = None
         for port in range(self._port_min, self._port_max + 1):
             reserved_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
