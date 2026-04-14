@@ -29,6 +29,7 @@ from setup_logging import setup_logging
 from thenvoi import Agent
 from thenvoi.adapters import CrewAIAdapter
 from thenvoi.config import load_agent_config
+from thenvoi.core.types import AdapterFeatures, Emit
 
 logger = logging.getLogger(__name__)
 CONFIG_PATH = Path(__file__).with_name("agents.yaml")
@@ -72,7 +73,7 @@ When the room is active:
 
 Do not try to coordinate the room. Your job is to synthesize.
 """,
-        enable_execution_reporting=True,
+        features=AdapterFeatures(emit={Emit.EXECUTION}),
         verbose=True,
     )
 

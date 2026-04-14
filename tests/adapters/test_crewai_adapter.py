@@ -1017,8 +1017,10 @@ class TestExecutionReporting:
         adapter_enabled = CrewAIAdapter(enable_execution_reporting=True)
         adapter_disabled = CrewAIAdapter(enable_execution_reporting=False)
 
-        assert adapter_enabled.enable_execution_reporting is True
-        assert adapter_disabled.enable_execution_reporting is False
+        from thenvoi.core.types import Emit
+
+        assert Emit.EXECUTION in adapter_enabled.features.emit
+        assert Emit.EXECUTION not in adapter_disabled.features.emit
 
     def test_reports_tool_call_when_enabled(
         self, CrewAIAdapter, crewai_mocks, mock_tools, room_context

@@ -24,6 +24,7 @@ except ImportError as e:
         "Or: uv add claude-agent-sdk"
     ) from e
 
+from thenvoi.core.exceptions import ThenvoiToolError
 from thenvoi.core.protocols import AgentToolsProtocol
 from thenvoi.runtime.custom_tools import (
     CustomToolDef,
@@ -143,10 +144,14 @@ def _format_success_payload(
         }
     if tool_name == "thenvoi_get_participants":
         participants = result if isinstance(result, list) else []
+        # Convert Fern models to dicts for JSON serialization
+        serialized = [
+            p.model_dump() if hasattr(p, "model_dump") else p for p in participants
+        ]
         return {
             "status": "success",
-            "participants": participants,
-            "count": len(participants),
+            "participants": serialized,
+            "count": len(serialized),
         }
     if tool_name == "thenvoi_create_chatroom":
         return {
@@ -154,6 +159,9 @@ def _format_success_payload(
             "message": "Chat room created",
             "room_id": result,
         }
+    # Convert Pydantic models to dicts at serialization boundary
+    if hasattr(result, "model_dump"):
+        result = result.model_dump()
     if isinstance(result, dict):
         return {"status": "success", **result}
     return {"status": "success", "result": result}
@@ -212,7 +220,7 @@ def _build_builtin_sdk_tool(
             return _make_result(
                 _format_success_payload(definition.name, call_args, result)
             )
-        except ValueError as error:
+        except (ValueError, ThenvoiToolError) as error:
             if (
                 definition.name == "thenvoi_send_message"
                 and get_participant_handles is not None

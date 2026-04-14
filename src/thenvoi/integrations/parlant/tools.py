@@ -336,22 +336,22 @@ def create_parlant_tools() -> list[Any]:
             # Use defaults - pagination rarely needed for agent lookups
             result = await tools.lookup_peers(page=1, page_size=50)
             logger.info("[Parlant Tool] lookup_peers result: %s", result)
-            if isinstance(result, dict):
-                peers = result.get("peers", [])
-                metadata = result.get("metadata", {})
-                if not peers:
-                    return ToolResult(data="No available agents found")
+            # Normalize Fern model -> dict for uniform handling
+            data = result.model_dump() if hasattr(result, "model_dump") else result
+            peers = data.get("data") or data.get("peers") or []
+            metadata = data.get("metadata") or {}
+            if not peers:
+                return ToolResult(data="No available agents found")
 
-                lines = [
-                    f"Available agents (page {metadata.get('page', 1)} of {metadata.get('total_pages', 1)}):"
-                ]
-                for peer in peers:
-                    name = peer.get("name", "Unknown")
-                    desc = peer.get("description", "No description")
-                    peer_type = peer.get("type", "Agent")
-                    lines.append(f"- {name} ({peer_type}): {desc}")
-                return ToolResult(data="\n".join(lines))
-            return ToolResult(data=str(result))
+            page_num = metadata.get("page", 1)
+            total_pages = metadata.get("total_pages", 1)
+            lines = [f"Available agents (page {page_num} of {total_pages}):"]
+            for peer in peers:
+                name = peer.get("name", "Unknown")
+                desc = peer.get("description") or "No description"
+                peer_type = peer.get("type", "Agent")
+                lines.append(f"- {name} ({peer_type}): {desc}")
+            return ToolResult(data="\n".join(lines))
         except Exception as e:
             logger.error("[Parlant Tool] Error looking up peers: %s", e, exc_info=True)
             return ToolResult(data=f"Error looking up peers: {e}")
@@ -383,11 +383,15 @@ def create_parlant_tools() -> list[Any]:
         try:
             result = await tools.get_participants()
             logger.info("[Parlant Tool] get_participants result: %s", result)
+            # Normalize Fern models -> dicts for uniform handling
             if isinstance(result, list):
-                if not result:
+                items = [
+                    p.model_dump() if hasattr(p, "model_dump") else p for p in result
+                ]
+                if not items:
                     return ToolResult(data="No participants in the room")
                 lines = ["Current participants:"]
-                for participant in result:
+                for participant in items:
                     name = participant.get("name", "Unknown")
                     p_type = participant.get("type", "Unknown")
                     lines.append(f"- {name} ({p_type})")
@@ -467,7 +471,9 @@ def create_parlant_tools() -> list[Any]:
 
         try:
             result = await tools.list_contacts(page, page_size)
-            return ToolResult(data=json.dumps(result, default=str))
+            # Fern model: serialize via model_dump if available, fallback to str
+            data = result.model_dump() if hasattr(result, "model_dump") else result
+            return ToolResult(data=json.dumps(data, default=str))
         except Exception as e:
             logger.error("[Parlant Tool] Error listing contacts: %s", e, exc_info=True)
             return ToolResult(data=f"Error listing contacts: {e}")
@@ -507,7 +513,10 @@ def create_parlant_tools() -> list[Any]:
 
         try:
             result = await tools.add_contact(handle, message if message else None)
-            status = result.get("status", "pending")
+            data = result.model_dump() if hasattr(result, "model_dump") else result
+            status = (
+                data.get("status", "pending") if isinstance(data, dict) else "pending"
+            )
             return ToolResult(data=f"Contact request to {handle}: {status}")
         except Exception as e:
             logger.error("[Parlant Tool] Error adding contact: %s", e, exc_info=True)
@@ -598,7 +607,9 @@ def create_parlant_tools() -> list[Any]:
 
         try:
             result = await tools.list_contact_requests(page, page_size, sent_status)
-            return ToolResult(data=json.dumps(result, default=str))
+            # Fern model: serialize via model_dump if available, fallback to str
+            data = result.model_dump() if hasattr(result, "model_dump") else result
+            return ToolResult(data=json.dumps(data, default=str))
         except Exception as e:
             logger.error(
                 "[Parlant Tool] Error listing contact requests: %s", e, exc_info=True
@@ -657,7 +668,8 @@ def create_parlant_tools() -> list[Any]:
 
         try:
             result = await tools.respond_contact_request(action, h, rid)
-            status = result.get("status", action)
+            data = result.model_dump() if hasattr(result, "model_dump") else result
+            status = data.get("status", action) if isinstance(data, dict) else action
             return ToolResult(data=f"Contact request {action}d: {status}")
         except Exception as e:
             logger.error(

@@ -58,7 +58,7 @@ async def main() -> None:
 
     adapter = AnthropicAdapter(
         model="claude-sonnet-4-5-20250929",
-        custom_section=(
+        prompt=(
             "You are a helpful assistant with contact management capabilities.\n"
             "You can list, add, and remove contacts, and manage contact requests.\n"
             "Incoming contact requests are auto-approved."

@@ -36,6 +36,7 @@ from thenvoi import Agent
 from thenvoi.adapters import CrewAIAdapter
 from thenvoi.config import load_agent_config
 from thenvoi.runtime.types import ContactEventConfig, ContactEventStrategy
+from thenvoi.core.types import AdapterFeatures, Capability
 
 setup_logging()
 logger = logging.getLogger(__name__)
@@ -76,7 +77,7 @@ async def main() -> None:
             "When a system message reports that a contact was added or removed, "
             "treat it as fresh room context."
         ),
-        enable_memory_tools=True,
+        features=AdapterFeatures(capabilities={Capability.MEMORY}),
     )
 
     contact_config = ContactEventConfig(

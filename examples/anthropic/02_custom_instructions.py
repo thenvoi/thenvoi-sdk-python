@@ -27,6 +27,7 @@ from setup_logging import setup_logging
 from thenvoi import Agent
 from thenvoi.adapters import AnthropicAdapter
 from thenvoi.config import load_agent_config
+from thenvoi.core.types import AdapterFeatures, Emit
 
 setup_logging()
 logger = logging.getLogger(__name__)
@@ -66,9 +67,9 @@ async def main() -> None:
     # Create adapter with custom instructions and execution reporting
     adapter = AnthropicAdapter(
         model="claude-sonnet-4-5-20250929",
-        custom_section=CUSTOM_PROMPT,
+        prompt=CUSTOM_PROMPT,
         # Enable execution reporting to see tool calls in the chat
-        enable_execution_reporting=True,
+        features=AdapterFeatures(emit={Emit.EXECUTION}),
     )
 
     # Create and start agent

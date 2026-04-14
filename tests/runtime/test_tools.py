@@ -54,6 +54,12 @@ def mock_rest_client():
     participant1.name = "User One"
     participant1.type = "User"
     participant1.handle = "user-one"
+    participant1.model_dump.return_value = {
+        "id": "user-1",
+        "name": "User One",
+        "type": "User",
+        "handle": "user-one",
+    }
     client.agent_api_participants.list_agent_chat_participants = AsyncMock(
         return_value=MagicMock(data=[participant1])
     )
@@ -72,6 +78,24 @@ def mock_rest_client():
     peers_response.metadata.page_size = 50
     peers_response.metadata.total_count = 1
     peers_response.metadata.total_pages = 1
+    peers_response.model_dump = MagicMock(
+        return_value={
+            "data": [
+                {
+                    "id": "agent-2",
+                    "name": "Agent Two",
+                    "type": "Agent",
+                    "description": "Another agent",
+                }
+            ],
+            "metadata": {
+                "page": 1,
+                "page_size": 50,
+                "total_count": 1,
+                "total_pages": 1,
+            },
+        }
+    )
     client.agent_api_peers.list_agent_peers = AsyncMock(return_value=peers_response)
 
     # Mock add_agent_chat_participant
@@ -143,12 +167,13 @@ class TestAgentToolsSendMessage:
     """Test send_message tool."""
 
     async def test_send_message_success(self, mock_rest_client, participants):
-        """send_message() should send via REST."""
+        """send_message() should send via REST and return the Fern model."""
         tools = AgentTools("room-123", mock_rest_client, participants)
 
         result = await tools.send_message("Hello!", mentions=["User One"])
 
-        assert result["id"] == "msg-123"
+        # Now returns Fern model (mock), not dict
+        assert result.model_dump()["id"] == "msg-123"
         mock_rest_client.agent_api_messages.create_agent_chat_message.assert_called_once()
 
     async def test_send_message_resolves_mentions(self, mock_rest_client, participants):
@@ -191,12 +216,13 @@ class TestAgentToolsSendEvent:
     """Test send_event tool."""
 
     async def test_send_event_success(self, mock_rest_client):
-        """send_event() should send via REST."""
+        """send_event() should send via REST and return the Fern model."""
         tools = AgentTools("room-123", mock_rest_client)
 
         result = await tools.send_event("Thinking...", "thought")
 
-        assert result["message_type"] == "thought"
+        # Now returns Fern model (mock), not dict
+        assert result.model_dump()["message_type"] == "thought"
         mock_rest_client.agent_api_events.create_agent_chat_event.assert_called_once()
 
     async def test_send_event_with_metadata(self, mock_rest_client):
@@ -406,14 +432,15 @@ class TestAgentToolsLookupPeers:
     """Test lookup_peers tool."""
 
     async def test_lookup_peers_success(self, mock_rest_client):
-        """lookup_peers() should return formatted results."""
+        """lookup_peers() should return the Fern response directly."""
         tools = AgentTools("room-123", mock_rest_client)
 
         result = await tools.lookup_peers(page=1, page_size=50)
 
-        assert len(result["peers"]) == 1
-        assert result["peers"][0]["name"] == "Agent Two"
-        assert result["metadata"]["page"] == 1
+        # Now returns full Fern response with .data and .metadata
+        assert len(result.data) == 1
+        assert result.data[0].name == "Agent Two"
+        assert result.metadata.page == 1
 
     async def test_lookup_peers_filters_by_room(self, mock_rest_client):
         """lookup_peers() should filter by not_in_chat."""
@@ -429,13 +456,13 @@ class TestAgentToolsGetParticipants:
     """Test get_participants tool."""
 
     async def test_get_participants_success(self, mock_rest_client):
-        """get_participants() should return formatted participants."""
+        """get_participants() should return Fern participant models."""
         tools = AgentTools("room-123", mock_rest_client)
 
         result = await tools.get_participants()
 
         assert len(result) == 1
-        assert result[0]["name"] == "User One"
+        assert result[0].name == "User One"
 
     async def test_get_participants_empty(self, mock_rest_client):
         """get_participants() should return empty list if none."""
@@ -582,8 +609,8 @@ class TestAgentToolsExecuteToolCall:
 
         result = await tools.execute_tool_call("thenvoi_lookup_peers", {"page": 1})
 
-        assert "peers" in result
-        assert "metadata" in result
+        # execute_tool_call calls .model_dump() on the Fern response
+        assert isinstance(result, dict)
 
     async def test_execute_get_participants(self, mock_rest_client):
         """execute_tool_call() should dispatch thenvoi_get_participants."""
@@ -592,6 +619,8 @@ class TestAgentToolsExecuteToolCall:
         result = await tools.execute_tool_call("thenvoi_get_participants", {})
 
         assert isinstance(result, list)
+        assert result[0]["id"] == "user-1"
+        assert result[0]["name"] == "User One"
 
     async def test_execute_unknown_tool(self, mock_rest_client):
         """execute_tool_call() should return error for unknown tool."""
@@ -630,55 +659,58 @@ class TestAgentToolsExecuteToolCall:
 class TestEmptyMentionsValidation:
     """Test that empty mentions return a helpful error with participant names."""
 
-    async def test_returns_error_with_participant_names(
+    async def test_raises_error_with_participant_names(
         self, mock_rest_client, participants
     ):
-        """Should return error listing available participants when mentions empty."""
+        """Should raise ThenvoiToolError listing available participants when mentions empty."""
+        from thenvoi.core.exceptions import ThenvoiToolError
+
         tools = AgentTools("room-123", mock_rest_client, participants)
 
-        result = await tools.send_message("Hello!", mentions=[])
+        with pytest.raises(
+            ThenvoiToolError, match="At least one mention is required"
+        ) as exc_info:
+            await tools.send_message("Hello!", mentions=[])
 
-        assert isinstance(result, dict)
-        assert "error" in result
-        assert "At least one mention is required" in result["error"]
-        assert "@user-one" in result["error"]
-        assert "@user-two" in result["error"]
+        assert "@user-one" in str(exc_info.value)
+        assert "@user-two" in str(exc_info.value)
         # Should NOT have called the API
         mock_rest_client.agent_api_messages.create_agent_chat_message.assert_not_called()
 
-    async def test_returns_error_when_mentions_none(
+    async def test_raises_error_when_mentions_none(
         self, mock_rest_client, participants
     ):
-        """Should return error when mentions is None."""
+        """Should raise ThenvoiToolError when mentions is None."""
+        from thenvoi.core.exceptions import ThenvoiToolError
+
         tools = AgentTools("room-123", mock_rest_client, participants)
 
-        result = await tools.send_message("Hello!", mentions=None)
-
-        assert isinstance(result, dict)
-        assert "error" in result
-        assert "At least one mention is required" in result["error"]
+        with pytest.raises(ThenvoiToolError, match="At least one mention is required"):
+            await tools.send_message("Hello!", mentions=None)
 
     async def test_uses_handle_when_available(self, mock_rest_client):
         """Should prefer handle over name in error message."""
+        from thenvoi.core.exceptions import ThenvoiToolError
+
         participants = [
             {"id": "user-1", "name": "User One", "type": "User", "handle": "@user-one"},
         ]
         tools = AgentTools("room-123", mock_rest_client, participants)
 
-        result = await tools.send_message("Hello!", mentions=[])
-
-        assert "@user-one" in result["error"]
+        with pytest.raises(ThenvoiToolError, match="@user-one"):
+            await tools.send_message("Hello!", mentions=[])
 
     async def test_uses_name_when_no_handle(self, mock_rest_client):
         """Should fall back to participant name when handle is missing."""
+        from thenvoi.core.exceptions import ThenvoiToolError
+
         participants = [
             {"id": "user-1", "name": "User One", "type": "User"},
         ]
         tools = AgentTools("room-123", mock_rest_client, participants)
 
-        result = await tools.send_message("Hello!", mentions=[])
-
-        assert "User One" in result["error"]
+        with pytest.raises(ThenvoiToolError, match="User One"):
+            await tools.send_message("Hello!", mentions=[])
 
     async def test_no_error_when_mentions_provided(
         self, mock_rest_client, participants
@@ -688,21 +720,22 @@ class TestEmptyMentionsValidation:
 
         result = await tools.send_message("Hello!", mentions=["User One"])
 
-        assert "id" in result  # Normal response
+        # Now returns Fern model; verify it has the expected attribute
+        assert result.model_dump()["id"] == "msg-123"
         mock_rest_client.agent_api_messages.create_agent_chat_message.assert_called_once()
 
-    async def test_execute_tool_call_returns_helpful_error(
+    async def test_execute_tool_call_raises_thenvoi_tool_error(
         self, mock_rest_client, participants
     ):
-        """execute_tool_call should surface the helpful error for empty mentions."""
+        """execute_tool_call lets ThenvoiToolError propagate for wrapper translation."""
+        from thenvoi.core.exceptions import ThenvoiToolError
+
         tools = AgentTools("room-123", mock_rest_client, participants)
 
-        result = await tools.execute_tool_call(
-            "thenvoi_send_message", {"content": "Hello!", "mentions": []}
-        )
-
-        assert isinstance(result, dict)
-        assert "At least one mention is required" in result["error"]
+        with pytest.raises(ThenvoiToolError, match="At least one mention is required"):
+            await tools.execute_tool_call(
+                "thenvoi_send_message", {"content": "Hello!", "mentions": []}
+            )
 
 
 class TestMentionResolution:
