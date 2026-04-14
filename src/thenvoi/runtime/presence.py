@@ -16,6 +16,7 @@ from thenvoi.platform.event import (
     RoomAddedEvent,
     RoomDeletedEvent,
     RoomRemovedEvent,
+    ReconnectedEvent,
     PlatformEvent,
     ContactEvent,
     ContactRequestReceivedEvent,
@@ -170,6 +171,8 @@ class RoomPresence:
                 await self._handle_room_added(event)
             case RoomRemovedEvent() | RoomDeletedEvent():
                 await self._handle_room_left(event)
+            case ReconnectedEvent():
+                await self._handle_reconnect()
             case (
                 ContactRequestReceivedEvent()
                 | ContactRequestUpdatedEvent()
@@ -249,6 +252,32 @@ class RoomPresence:
 
         logger.info("Agent left room via %s: %s", event.type, room_id)
 
+    async def _handle_reconnect(self) -> None:
+        """
+        Re-derive room state from server after WebSocket reconnection.
+
+        Instead of replaying stale subscriptions, fetches the current room
+        list from the API and subscribes fresh. Notifies on_room_left for
+        rooms we were in but are no longer returned by the API.
+        """
+        logger.info("Handling reconnection — re-subscribing to rooms from API")
+        old_rooms = self.rooms.copy()
+        self.rooms.clear()
+
+        if self.auto_subscribe_existing:
+            await self._subscribe_to_existing_rooms()
+
+        # Notify left for rooms we were in but are no longer present
+        gone_rooms = old_rooms - self.rooms
+        for room_id in gone_rooms:
+            if self.on_room_left:
+                try:
+                    await self.on_room_left(room_id)
+                except Exception as e:
+                    logger.warning(
+                        "on_room_left error for %s during reconnect: %s", room_id, e
+                    )
+
     async def _handle_room_event(self, event: PlatformEvent) -> None:
         """
         Handle room-specific events (message, participant changes).
@@ -294,42 +323,74 @@ class RoomPresence:
         """
         Subscribe to all rooms where agent is a participant.
 
-        Extracted from ThenvoiAgent._subscribe_to_existing_rooms().
+        Fetches room list from the API (paginated) and joins channels in
+        parallel. Each room join is isolated so one failure doesn't affect
+        others.
         """
         logger.debug("Subscribing to existing rooms")
 
         try:
-            response = await self.link.rest.agent_api_chats.list_agent_chats(
-                request_options=DEFAULT_REQUEST_OPTIONS,
-            )
-            if not response.data:
+            # Fetch all rooms across pages (API default page_size=20, max=100)
+            all_rooms = []
+            page = 1
+            page_size = 100
+            while True:
+                response = await self.link.rest.agent_api_chats.list_agent_chats(
+                    page=page,
+                    page_size=page_size,
+                    request_options=DEFAULT_REQUEST_OPTIONS,
+                )
+                if response.data:
+                    all_rooms.extend(response.data)
+
+                total_pages = getattr(response.metadata, "total_pages", None)
+                if total_pages is None or page >= total_pages:
+                    break
+                page += 1
+
+            if not all_rooms:
                 return
 
-            for room in response.data:
-                room_id = room.id
+            # Filter rooms
+            rooms_to_join = []
+            for room in all_rooms:
                 payload = room.model_dump(exclude_none=True)
-
-                # Apply filter if configured
                 if self.room_filter and not self.room_filter(payload):
                     continue
+                rooms_to_join.append((room.id, payload))
 
-                # Track and subscribe
-                self.rooms.add(room_id)
-                await self.link.subscribe_room(room_id)
+            if not rooms_to_join:
+                return
 
-                # Notify callback
-                if self.on_room_joined:
-                    try:
+            async def safe_subscribe(room_id: str, payload: dict) -> bool:
+                """Subscribe to a single room, returning True on success."""
+                try:
+                    await self.link.subscribe_room(room_id)
+                    self.rooms.add(room_id)
+
+                    if self.on_room_joined:
                         await self.on_room_joined(room_id, payload)
-                    except Exception as e:
-                        logger.error(
-                            "on_room_joined error for %s: %s",
-                            room_id,
-                            e,
-                            exc_info=True,
-                        )
+                    return True
+                except Exception as e:
+                    logger.warning("Failed to subscribe to room %s: %s", room_id, e)
+                    self.rooms.discard(room_id)
+                    return False
 
-            logger.info("Subscribed to %s existing rooms", len(self.rooms))
+            # Join all rooms in parallel to avoid starving the heartbeat
+            results = await asyncio.gather(
+                *[safe_subscribe(rid, p) for rid, p in rooms_to_join],
+            )
+            succeeded = sum(1 for r in results if r)
+            failed = len(results) - succeeded
+
+            if failed:
+                logger.warning(
+                    "Subscribed to %s existing rooms (%s failed)",
+                    succeeded,
+                    failed,
+                )
+            else:
+                logger.info("Subscribed to %s existing rooms", succeeded)
 
         except Exception as e:
             logger.warning("Failed to subscribe to existing rooms: %s", e)
