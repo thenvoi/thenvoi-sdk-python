@@ -452,17 +452,28 @@ def get_tool_description(name: str) -> str:
     return f"Execute {name}"
 
 
-def iter_tool_definitions(*, include_memory: bool = False) -> list[ToolDefinition]:
-    """Return built-in tool definitions with optional memory tool inclusion."""
-    definitions = list(TOOL_DEFINITIONS.values())
-    if include_memory:
-        return definitions
+def iter_tool_definitions(
+    *, include_memory: bool = False, include_contacts: bool = True
+) -> list[ToolDefinition]:
+    """Return built-in tool definitions with optional category filtering.
 
-    return [
-        definition
-        for definition in definitions
-        if definition.name not in MEMORY_TOOL_NAMES
-    ]
+    Args:
+        include_memory: Include memory tools (enterprise). Default False.
+        include_contacts: Include contact-management tools. Default True for
+            backward compatibility. Pass False to gate contact tools behind
+            ``Capability.CONTACTS``. The hub-room execution path always
+            forces this to True regardless of adapter preference (see
+            ``AgentTools.get_tool_schemas`` HUB_ROOM auto-enable rule).
+    """
+    definitions = list(TOOL_DEFINITIONS.values())
+    excluded: set[str] = set()
+    if not include_memory:
+        excluded |= MEMORY_TOOL_NAMES
+    if not include_contacts:
+        excluded |= CONTACT_TOOL_NAMES
+    if not excluded:
+        return definitions
+    return [definition for definition in definitions if definition.name not in excluded]
 
 
 def format_tool_validation_error(tool_name: str, error: ValidationError) -> str:
@@ -521,6 +532,8 @@ class AgentTools(AgentToolsProtocol):
         room_id: str,
         rest: "AsyncRestClient",
         participants: list[dict[str, Any]] | None = None,
+        *,
+        hub_room_id: str | None = None,
     ):
         """
         Initialize AgentTools for a specific room.
@@ -529,10 +542,18 @@ class AgentTools(AgentToolsProtocol):
             room_id: The room this tools instance is bound to
             rest: AsyncRestClient for API calls
             participants: Optional list of participants for mention resolution
+            hub_room_id: Optional hub-room ID. When this AgentTools instance
+                is bound to the hub room (room_id == hub_room_id), the
+                contact-management tool schemas are force-included regardless
+                of the ``include_contacts`` argument to schema methods. The
+                hub-room system prompt instructs the LLM to call contact
+                tools, so they must be exposed even if the adapter would
+                otherwise gate them.
         """
         self.room_id = room_id
         self.rest = rest
         self._participants = participants or []
+        self._hub_room_id = hub_room_id
 
     @property
     def participants(self) -> list[dict[str, Any]]:
@@ -552,7 +573,12 @@ class AgentTools(AgentToolsProtocol):
         Returns:
             AgentTools instance bound to the context's room
         """
-        return cls(ctx.room_id, ctx.link.rest, ctx.participants)
+        return cls(
+            ctx.room_id,
+            ctx.link.rest,
+            ctx.participants,
+            hub_room_id=getattr(ctx, "hub_room_id", None),
+        )
 
     # --- Tool methods ---
 
@@ -1260,8 +1286,22 @@ class AgentTools(AgentToolsProtocol):
         """Get Pydantic models for all tools."""
         return TOOL_MODELS
 
+    @property
+    def is_hub_room(self) -> bool:
+        """True if this AgentTools is bound to the contact hub room.
+
+        When True, contact-management tool schemas are force-included by
+        the schema methods regardless of the caller's include_contacts
+        argument.
+        """
+        return self._hub_room_id is not None and self.room_id == self._hub_room_id
+
     def get_tool_schemas(
-        self, format: str, *, include_memory: bool = False
+        self,
+        format: str,
+        *,
+        include_memory: bool = False,
+        include_contacts: bool = True,
     ) -> list[dict[str, Any]] | list["ToolParam"]:
         """
         Get tool schemas in provider-specific format.
@@ -1269,6 +1309,12 @@ class AgentTools(AgentToolsProtocol):
         Args:
             format: Target format - "openai" or "anthropic"
             include_memory: If True, include memory tools (enterprise only)
+            include_contacts: If True (default), include contact management
+                tools. Adapters that gate contacts behind ``Capability.CONTACTS``
+                should pass ``False`` when CONTACTS is not in features.
+                When this AgentTools is bound to the hub room
+                (``self.is_hub_room``), this argument is ignored and contact
+                tools are always included.
 
         Returns:
             List of tool definitions in the requested format
@@ -1281,8 +1327,17 @@ class AgentTools(AgentToolsProtocol):
                 f"Invalid format: {format}. Must be 'openai' or 'anthropic'"
             )
 
+        # HUB_ROOM auto-enable: force contact tools on for the hub-room
+        # execution path. The hub-room prompt instructs the LLM to call
+        # contact tools, so they must be exposed regardless of adapter
+        # preference.
+        effective_include_contacts = include_contacts or self.is_hub_room
+
         tools: list[Any] = []
-        for definition in iter_tool_definitions(include_memory=include_memory):
+        for definition in iter_tool_definitions(
+            include_memory=include_memory,
+            include_contacts=effective_include_contacts,
+        ):
             schema = definition.input_model.model_json_schema()
             # Remove Pydantic-specific keys
             schema.pop("title", None)
@@ -1309,21 +1364,35 @@ class AgentTools(AgentToolsProtocol):
         return tools
 
     def get_anthropic_tool_schemas(
-        self, *, include_memory: bool = False
+        self,
+        *,
+        include_memory: bool = False,
+        include_contacts: bool = True,
     ) -> list["ToolParam"]:
         """Get tool schemas in Anthropic format (strongly typed)."""
         return cast(
             list["ToolParam"],
-            self.get_tool_schemas("anthropic", include_memory=include_memory),
+            self.get_tool_schemas(
+                "anthropic",
+                include_memory=include_memory,
+                include_contacts=include_contacts,
+            ),
         )
 
     def get_openai_tool_schemas(
-        self, *, include_memory: bool = False
+        self,
+        *,
+        include_memory: bool = False,
+        include_contacts: bool = True,
     ) -> list[dict[str, Any]]:
         """Get tool schemas in OpenAI format (strongly typed)."""
         return cast(
             list[dict[str, Any]],
-            self.get_tool_schemas("openai", include_memory=include_memory),
+            self.get_tool_schemas(
+                "openai",
+                include_memory=include_memory,
+                include_contacts=include_contacts,
+            ),
         )
 
     async def execute_tool_call(self, tool_name: str, arguments: dict[str, Any]) -> Any:

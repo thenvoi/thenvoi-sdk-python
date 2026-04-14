@@ -21,7 +21,7 @@ from pathlib import Path
 from typing import Any, ClassVar, Literal
 
 try:
-    from claude_agent_sdk import (
+    from claude_agent_sdk import (  # type: ignore[import-not-found]
         ClaudeSDKClient,
         ClaudeAgentOptions,
         AssistantMessage,
@@ -31,8 +31,8 @@ try:
         ToolResultBlock,
         ResultMessage,
     )
-    from claude_agent_sdk._errors import CLIConnectionError
-    from claude_agent_sdk.types import (
+    from claude_agent_sdk._errors import CLIConnectionError  # type: ignore[import-not-found]
+    from claude_agent_sdk.types import (  # type: ignore[import-not-found]
         CanUseTool,
         HookContext,
         HookInput,
@@ -42,12 +42,10 @@ try:
         PermissionResultDeny,
         ToolPermissionContext,
     )
-except ImportError as e:
-    raise ImportError(
-        "claude-agent-sdk is required for Claude SDK examples.\n"
-        "Install with: pip install claude-agent-sdk\n"
-        "Or: uv add claude-agent-sdk"
-    ) from e
+
+    _CLAUDE_SDK_AVAILABLE = True
+except ImportError:
+    _CLAUDE_SDK_AVAILABLE = False
 
 from thenvoi.core.exceptions import ThenvoiConfigError
 from thenvoi.core.protocols import AgentToolsProtocol
@@ -233,6 +231,12 @@ class ClaudeSDKAdapter(SimpleAdapter[ClaudeSDKSessionState]):
                 deprecated ``enable_execution_reporting`` or ``enable_memory_tools``,
                 raises ``ThenvoiConfigError``.
         """
+        if not _CLAUDE_SDK_AVAILABLE:
+            raise ImportError(
+                "claude-agent-sdk is required for ClaudeSDKAdapter.\n"
+                "Install with: pip install thenvoi-sdk[claude_sdk]\n"
+                "Or: uv add thenvoi-sdk[claude_sdk]"
+            )
         # --- Shim deprecated params into features -------------------------
         _has_legacy = enable_execution_reporting or enable_memory_tools
         if _has_legacy and features is not None:
@@ -330,6 +334,7 @@ class ClaudeSDKAdapter(SimpleAdapter[ClaudeSDKSessionState]):
             agent_name=agent_name,
             agent_description=agent_description,
             custom_section=self.custom_section,
+            features=self.features,
         )
 
         # Build SDK options
@@ -381,7 +386,13 @@ class ClaudeSDKAdapter(SimpleAdapter[ClaudeSDKSessionState]):
     async def _create_mcp_backend(self) -> ThenvoiMCPBackend:
         """Create shared MCP backend that uses stored room tools."""
         include_memory = Capability.MEMORY in self.features.capabilities
-        tool_definitions = list(iter_tool_definitions(include_memory=include_memory))
+        include_contacts = Capability.CONTACTS in self.features.capabilities
+        tool_definitions = list(
+            iter_tool_definitions(
+                include_memory=include_memory,
+                include_contacts=include_contacts,
+            )
+        )
         backend = await create_thenvoi_mcp_backend(
             kind="sdk",
             tool_definitions=tool_definitions,
