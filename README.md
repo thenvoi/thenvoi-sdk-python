@@ -455,6 +455,14 @@ Set `GEMINI_API_KEY` in your environment for Gemini SDK authentication.
 | `02_custom_instructions.py` | Custom system prompt with Gemini 2.5 Pro and execution reporting |
 | `03_custom_tools.py` | Custom tools (calculator, weather) via `additional_tools` |
 
+### ACP Client (`examples/acp/`)
+
+| File | Description |
+|------|-------------|
+| `02_acp_client.py` | Basic ACP bridge forwarding Thenvoi messages to an external ACP agent |
+| `04_acp_client_rich_streaming.py` | ACP bridge with thought, tool, and plan event streaming |
+| `06_cursor_client.py` | ACP bridge to Cursor's ACP agent with Thenvoi MCP tools |
+
 ### A2A Adapter (`examples/a2a_bridge/`)
 
 | File | Description |
@@ -502,6 +510,9 @@ uv run python examples/run_agent.py --example codex --agent darter --codex-sandb
 
 # Codex via WebSocket transport (dev/diagnostics)
 uv run python examples/run_agent.py --example codex --agent darter --codex-transport ws --codex-ws-url ws://127.0.0.1:8765
+
+# ACP Client (bridge Thenvoi rooms to an external ACP agent)
+uv run examples/acp/02_acp_client.py
 
 # A2A Adapter (call external A2A agents from Thenvoi)
 uv run python examples/run_agent.py --example a2a --a2a-url http://localhost:10000

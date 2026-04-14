@@ -8,7 +8,7 @@ This module provides bidirectional ACP support:
 
 2. **ACP Client Adapter** (Thenvoi -> External ACP Agent): Thenvoi forwards
    messages to external ACP agents (Codex CLI, Gemini CLI, Claude Code, etc.)
-   as peers.
+   as peers via a Thenvoi bridge layered over a generic ACP runtime.
 
 Example (ACP Server):
     from thenvoi import Agent
