@@ -758,9 +758,12 @@ class AgentTools(AgentToolsProtocol):
 
         for cached in snapshot:
             if _matches_identifier(cached, identifier):
+                cached_id = cached.get("id")
+                if not cached_id:
+                    raise ValueError(f"Participant '{identifier}' has no ID.")
                 logger.debug("Participant '%s' is already in the room", identifier)
                 return {
-                    "id": cached.get("id"),
+                    "id": cached_id,
                     "name": cached.get("name", identifier),
                     "role": role,
                     "status": "already_in_room",
