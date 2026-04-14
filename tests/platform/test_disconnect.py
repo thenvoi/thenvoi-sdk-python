@@ -362,18 +362,166 @@ class TestThenvoiLinkDisconnect:
         assert link._is_connected is False
 
     @pytest.mark.asyncio
-    async def test_second_disconnect_is_ignored(self):
-        """Only the first disconnect should queue an event."""
+    async def test_second_transport_disconnect_is_deduped(self):
+        """Only the first transport-level disconnect should queue an event."""
         link = ThenvoiLink(agent_id="agent-1", api_key="key")
         link._is_connected = True
 
         await link._on_ws_disconnect("replaced", {"reason": "replaced"})
         await link._on_ws_disconnect("transport closed", None)
 
-        # Only one event should be queued
+        # Only one event should be queued (both are transport-level, no topic)
         assert link._event_queue.qsize() == 1
         event = link._event_queue.get_nowait()
         assert event.reason == "replaced"
+
+    @pytest.mark.asyncio
+    async def test_channel_disconnect_does_not_flip_is_connected(self):
+        """Channel-level disconnects should not change _is_connected."""
+        link = ThenvoiLink(agent_id="agent-1", api_key="key")
+        link._is_connected = True
+
+        await link._on_ws_disconnect("unauthorized", None, "chat_room:room-1")
+
+        assert link._is_connected is True
+        assert link._event_queue.qsize() == 1
+
+    @pytest.mark.asyncio
+    async def test_multiple_channel_disconnects_all_surface(self):
+        """Each channel-level disconnect should produce an event."""
+        link = ThenvoiLink(agent_id="agent-1", api_key="key")
+        link._is_connected = True
+
+        await link._on_ws_disconnect("Not authorized", None, "chat_room:room-1")
+        await link._on_ws_disconnect(
+            "Another instance connected", None, "agent_rooms:agent-1"
+        )
+
+        assert link._event_queue.qsize() == 2
+        e1 = link._event_queue.get_nowait()
+        e2 = link._event_queue.get_nowait()
+        assert e1.reason == "Not authorized"
+        assert e1.room_id == "room-1"
+        assert e2.reason == "Another instance connected"
+        assert e2.room_id is None  # agent_rooms doesn't map to room_id
+
+    @pytest.mark.asyncio
+    async def test_channel_then_transport_produces_two_events(self):
+        """A channel close followed by transport drop should both fire."""
+        link = ThenvoiLink(agent_id="agent-1", api_key="key")
+        link._is_connected = True
+
+        # Channel-level phx_close (with topic)
+        await link._on_ws_disconnect(
+            "Another instance connected", {"reason": "replaced"}, "agent_rooms:agent-1"
+        )
+        # Transport-level disconnect (no topic)
+        await link._on_ws_disconnect("connection_closed", None)
+
+        assert link._event_queue.qsize() == 2
+        assert link._is_connected is False
+
+
+# ---------------------------------------------------------------------------
+# AgentRuntime — execution cleanup on disconnect
+# ---------------------------------------------------------------------------
+
+
+class TestRuntimeDisconnect:
+    """Test that AgentRuntime cancels executions on disconnect."""
+
+    @pytest.fixture
+    def mock_link(self):
+        link = MagicMock()
+        link.agent_id = "agent-1"
+        link.is_connected = True
+        link.connect = AsyncMock()
+        link.subscribe_agent_rooms = AsyncMock()
+        link.subscribe_room = AsyncMock()
+        link.unsubscribe_room = AsyncMock()
+        link.run_forever = AsyncMock()
+        link.rest = MagicMock()
+        link.rest.agent_api_chats = MagicMock()
+        link.rest.agent_api_chats.list_agent_chats = AsyncMock(
+            return_value=MagicMock(data=[])
+        )
+        return link
+
+    @pytest.mark.asyncio
+    async def test_on_disconnected_cancels_executions(self, mock_link):
+        from thenvoi.runtime.runtime import AgentRuntime
+
+        runtime = AgentRuntime(
+            link=mock_link, agent_id="agent-1", on_execute=AsyncMock()
+        )
+
+        # Add mock executions
+        exec1 = MagicMock()
+        exec1.stop = AsyncMock(return_value=True)
+        exec2 = MagicMock()
+        exec2.stop = AsyncMock(return_value=True)
+        runtime.executions["room-1"] = exec1
+        runtime.executions["room-2"] = exec2
+
+        await runtime._on_disconnected("replaced")
+
+        # Both executions should have been stopped with timeout=None (immediate)
+        exec1.stop.assert_awaited_once_with(timeout=None)
+        exec2.stop.assert_awaited_once_with(timeout=None)
+        assert len(runtime.executions) == 0
+
+    @pytest.mark.asyncio
+    async def test_on_disconnected_handles_stop_errors(self, mock_link):
+        from thenvoi.runtime.runtime import AgentRuntime
+
+        runtime = AgentRuntime(
+            link=mock_link, agent_id="agent-1", on_execute=AsyncMock()
+        )
+
+        # First execution raises on stop, second should still be stopped
+        exec1 = MagicMock()
+        exec1.stop = AsyncMock(side_effect=RuntimeError("boom"))
+        exec2 = MagicMock()
+        exec2.stop = AsyncMock(return_value=True)
+        runtime.executions["room-1"] = exec1
+        runtime.executions["room-2"] = exec2
+
+        # Should not raise
+        await runtime._on_disconnected("replaced")
+
+        exec1.stop.assert_awaited_once()
+        exec2.stop.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_on_disconnected_calls_session_cleanup(self, mock_link):
+        from thenvoi.runtime.runtime import AgentRuntime
+
+        cleanup = AsyncMock()
+        runtime = AgentRuntime(
+            link=mock_link,
+            agent_id="agent-1",
+            on_execute=AsyncMock(),
+            on_session_cleanup=cleanup,
+        )
+
+        exec1 = MagicMock()
+        exec1.stop = AsyncMock(return_value=True)
+        runtime.executions["room-1"] = exec1
+
+        await runtime._on_disconnected("replaced")
+
+        cleanup.assert_awaited_once_with("room-1")
+
+    @pytest.mark.asyncio
+    async def test_on_disconnected_no_executions(self, mock_link):
+        """Should handle empty executions gracefully."""
+        from thenvoi.runtime.runtime import AgentRuntime
+
+        runtime = AgentRuntime(
+            link=mock_link, agent_id="agent-1", on_execute=AsyncMock()
+        )
+
+        await runtime._on_disconnected("replaced")  # Should not raise
 
 
 # ---------------------------------------------------------------------------

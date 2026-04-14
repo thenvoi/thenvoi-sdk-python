@@ -264,20 +264,29 @@ class ThenvoiLink:
         """Handle disconnect notifications from the WebSocket layer.
 
         Called for both channel-level events (phx_close / phx_error) and
-        transport-level disconnects.  Logs a human-readable message and
-        queues a ``DisconnectedEvent`` so consumers (RoomPresence, adapters)
-        can react.
+        transport-level disconnects.
 
-        Guarded so that only the first disconnect fires the event — a
-        ``phx_close`` followed by a transport drop won't produce duplicates.
+        Channel-level disconnects (topic is set) are always surfaced — each
+        carries distinct information about which channel was closed and why.
+        For example, the server may close ``chat_room:X`` (unauthorized) and
+        then ``agent_rooms:Y`` (replaced) before the transport drops.
+
+        Transport-level disconnects (topic is None) are deduped so only the
+        first fires, preventing a ``phx_close`` followed by a transport drop
+        from producing duplicate events.
 
         Note: the ``_is_connected`` guard is safe without a lock because both
         channel-level and transport-level callbacks run on the same event loop.
         """
-        if not self._is_connected:
-            return
-        logger.warning("Platform connection lost: %s", reason)
-        self._is_connected = False
+        if topic is None:
+            # Transport-level disconnect — dedup so only the first fires
+            if not self._is_connected:
+                return
+            self._is_connected = False
+            logger.warning("Platform connection lost: %s", reason)
+        else:
+            # Channel-level disconnect — always surface these
+            logger.warning("Channel disconnected (%s): %s", topic, reason)
 
         # Parse room_id from channel topic (e.g. "chat_room:room-123")
         room_id: str | None = None

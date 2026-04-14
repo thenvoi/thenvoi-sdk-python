@@ -187,16 +187,26 @@ class AgentRuntime:
             logger.warning("No execution for room %s, event dropped", room_id)
 
     async def _on_disconnected(self, reason: str) -> None:
-        """Handle platform disconnect — log and surface reason.
+        """Handle platform disconnect — cancel active executions.
 
-        TODO: cancel active executions and notify adapters so they don't
-        continue processing against a dead connection.
+        The connection is dead, so executions can't send results back.
+        Cancel them immediately (timeout=None) and run cleanup callbacks
+        so adapters can release resources.
         """
         logger.error(
             "Agent %s disconnected from platform: %s",
             self.agent_id,
             reason,
         )
+        for room_id in list(self.executions.keys()):
+            try:
+                await self._destroy_execution(room_id, timeout=None)
+            except Exception as e:
+                logger.error(
+                    "Failed to stop execution for room %s on disconnect: %s",
+                    room_id,
+                    e,
+                )
 
     # --- Execution management ---
 
