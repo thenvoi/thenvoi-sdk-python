@@ -187,7 +187,11 @@ class AgentRuntime:
             logger.warning("No execution for room %s, event dropped", room_id)
 
     async def _on_disconnected(self, reason: str) -> None:
-        """Handle platform disconnect — log and surface reason."""
+        """Handle platform disconnect — log and surface reason.
+
+        TODO: cancel active executions and notify adapters so they don't
+        continue processing against a dead connection.
+        """
         logger.error(
             "Agent %s disconnected from platform: %s",
             self.agent_id,

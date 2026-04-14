@@ -21,8 +21,9 @@ from thenvoi.client.streaming.client import (
     WebSocketClient,
     extract_disconnect_reason,
     humanize_disconnect_reason,
-    _extract_transport_reason,
 )
+from websockets.exceptions import ConnectionClosedError
+from websockets.frames import Close
 from thenvoi.platform.event import DisconnectedEvent
 from thenvoi.platform.link import ThenvoiLink
 from thenvoi.runtime.presence import RoomPresence
@@ -100,34 +101,56 @@ class TestHumanizeDisconnectReason:
 
 
 # ---------------------------------------------------------------------------
-# _extract_transport_reason
+# Transport reason extraction (tested via _on_transport_disconnect)
 # ---------------------------------------------------------------------------
 
 
 class TestExtractTransportReason:
-    """Test transport-level disconnect reason extraction."""
+    """Test transport-level disconnect reason extraction via _on_transport_disconnect."""
 
-    def test_none_error(self):
-        assert _extract_transport_reason(None) == "connection_closed"
+    @pytest.mark.asyncio
+    async def test_none_error(self):
+        on_disconnect = AsyncMock()
+        client = WebSocketClient(
+            ws_url="wss://test.com/ws", api_key="key", on_disconnect=on_disconnect
+        )
+        await client._on_transport_disconnect(None)
+        human, _, _ = on_disconnect.call_args[0]
+        assert "connection_closed" in human
 
-    def test_error_with_reason_attr(self):
-        err = Exception("boom")
-        err.reason = "replaced"  # type: ignore[attr-defined]
-        assert _extract_transport_reason(err) == "replaced"
+    @pytest.mark.asyncio
+    async def test_connection_closed_with_reason(self):
+        on_disconnect = AsyncMock()
+        client = WebSocketClient(
+            ws_url="wss://test.com/ws", api_key="key", on_disconnect=on_disconnect
+        )
+        err = ConnectionClosedError(Close(4001, "replaced"), None)
+        assert err.rcvd is not None and err.rcvd.reason == "replaced"
+        await client._on_transport_disconnect(err)
+        human, _, _ = on_disconnect.call_args[0]
+        assert "same agent ID" in human
 
-    def test_error_with_code_attr(self):
-        err = Exception("boom")
-        err.code = 4001  # type: ignore[attr-defined]
-        assert _extract_transport_reason(err) == "close_code_4001"
+    @pytest.mark.asyncio
+    async def test_connection_closed_with_code_only(self):
+        on_disconnect = AsyncMock()
+        client = WebSocketClient(
+            ws_url="wss://test.com/ws", api_key="key", on_disconnect=on_disconnect
+        )
+        err = ConnectionClosedError(Close(4001, ""), None)
+        assert err.rcvd is not None and err.rcvd.reason == ""
+        await client._on_transport_disconnect(err)
+        human, _, _ = on_disconnect.call_args[0]
+        assert "4001" in human
 
-    def test_error_with_empty_reason_falls_to_code(self):
-        err = Exception("boom")
-        err.reason = ""  # type: ignore[attr-defined]
-        err.code = 4001  # type: ignore[attr-defined]
-        assert _extract_transport_reason(err) == "close_code_4001"
-
-    def test_generic_exception(self):
-        assert _extract_transport_reason(RuntimeError("oops")) == "oops"
+    @pytest.mark.asyncio
+    async def test_generic_exception(self):
+        on_disconnect = AsyncMock()
+        client = WebSocketClient(
+            ws_url="wss://test.com/ws", api_key="key", on_disconnect=on_disconnect
+        )
+        await client._on_transport_disconnect(RuntimeError("oops"))
+        human, _, _ = on_disconnect.call_args[0]
+        assert "oops" in human
 
 
 # ---------------------------------------------------------------------------
@@ -160,9 +183,10 @@ class TestWebSocketClientHandlePhxEvents:
         await client._handle_events(msg, {"room_added": AsyncMock()})  # type: ignore[arg-type]
 
         on_disconnect.assert_awaited_once()
-        human, raw = on_disconnect.call_args[0]
+        human, raw, topic = on_disconnect.call_args[0]
         assert "same agent ID" in human
         assert raw == {"reason": "replaced"}
+        assert topic == "agent_rooms:agent-1"
 
     @pytest.mark.asyncio
     async def test_phx_error_triggers_callback(self, ws_client):
@@ -175,8 +199,9 @@ class TestWebSocketClientHandlePhxEvents:
         await client._handle_events(msg, {})  # type: ignore[arg-type]
 
         on_disconnect.assert_awaited_once()
-        human, _ = on_disconnect.call_args[0]
+        human, _, topic = on_disconnect.call_args[0]
         assert "Not authorized" in human
+        assert topic == "chat_room:room-1"
 
     @pytest.mark.asyncio
     async def test_phx_close_unknown_reason_includes_raw(self, ws_client):
@@ -189,7 +214,7 @@ class TestWebSocketClientHandlePhxEvents:
         await client._handle_events(msg, {})  # type: ignore[arg-type]
 
         on_disconnect.assert_awaited_once()
-        human, raw = on_disconnect.call_args[0]
+        human, raw, _ = on_disconnect.call_args[0]
         assert "unknown" in human
         assert "weird_field" in str(raw)
 
@@ -252,14 +277,15 @@ class TestWebSocketClientTransportDisconnect:
             api_key="key",
             on_disconnect=on_disconnect,
         )
-        err = Exception("connection reset")
-        err.reason = "replaced"  # type: ignore[attr-defined]
+        err = ConnectionClosedError(Close(4001, "replaced"), None)
+        assert err.rcvd is not None and err.rcvd.reason == "replaced"
         await client._on_transport_disconnect(err)
 
         on_disconnect.assert_awaited_once()
-        human, raw = on_disconnect.call_args[0]
+        human, raw, topic = on_disconnect.call_args[0]
         assert "same agent ID" in human
         assert raw is not None
+        assert topic is None  # transport-level has no topic
 
     @pytest.mark.asyncio
     async def test_transport_disconnect_none_error(self):
@@ -272,9 +298,10 @@ class TestWebSocketClientTransportDisconnect:
         await client._on_transport_disconnect(None)
 
         on_disconnect.assert_awaited_once()
-        human, raw = on_disconnect.call_args[0]
+        human, raw, topic = on_disconnect.call_args[0]
         assert "connection_closed" in human
         assert raw is None
+        assert topic is None
 
 
 # ---------------------------------------------------------------------------
@@ -286,7 +313,7 @@ class TestThenvoiLinkDisconnect:
     """Test ThenvoiLink queues DisconnectedEvent on disconnect."""
 
     @pytest.mark.asyncio
-    async def test_queues_disconnected_event(self):
+    async def test_queues_disconnected_event_without_topic(self):
         link = ThenvoiLink(agent_id="agent-1", api_key="key")
         link._is_connected = True
 
@@ -299,6 +326,31 @@ class TestThenvoiLinkDisconnect:
         assert event.reason == "Server closed normally"
         assert event.raw == {"reason": "normal"}
         assert event.room_id is None
+
+    @pytest.mark.asyncio
+    async def test_queues_disconnected_event_with_chat_room_topic(self):
+        link = ThenvoiLink(agent_id="agent-1", api_key="key")
+        link._is_connected = True
+
+        await link._on_ws_disconnect(
+            "Not authorized",
+            {"response": {"reason": "unauthorized"}},
+            "chat_room:room-42",
+        )
+
+        event = link._event_queue.get_nowait()
+        assert isinstance(event, DisconnectedEvent)
+        assert event.room_id == "room-42"
+
+    @pytest.mark.asyncio
+    async def test_queues_disconnected_event_with_non_chat_topic(self):
+        link = ThenvoiLink(agent_id="agent-1", api_key="key")
+        link._is_connected = True
+
+        await link._on_ws_disconnect("replaced", None, "agent_rooms:agent-1")
+
+        event = link._event_queue.get_nowait()
+        assert event.room_id is None  # agent_rooms topic doesn't map to room_id
 
     @pytest.mark.asyncio
     async def test_disconnect_sets_is_connected_false(self):

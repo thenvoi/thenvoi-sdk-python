@@ -10,6 +10,7 @@ from phoenix_channels_python_client.client import (
 )
 from phoenix_channels_python_client.phx_messages import PHXMessage
 from pydantic import BaseModel, ConfigDict, ValidationError
+from websockets.exceptions import ConnectionClosed
 
 logger = logging.getLogger(__name__)
 
@@ -17,8 +18,8 @@ logger = logging.getLogger(__name__)
 _PHX_CLOSE = "phx_close"
 _PHX_ERROR = "phx_error"
 
-# Callback type: (human_reason, raw_payload | None) -> None
-DisconnectCallback = Callable[[str, dict | None], Awaitable[None]]
+# Callback type: (human_reason, raw_payload | None, topic | None) -> None
+DisconnectCallback = Callable[[str, dict | None, str | None], Awaitable[None]]
 
 # Map well-known backend reason strings to human-readable messages.
 # Unknown reasons fall back to including the raw payload.
@@ -228,8 +229,8 @@ def humanize_disconnect_reason(reason: str, raw_payload: dict | None = None) -> 
     if reason in KNOWN_DISCONNECT_REASONS:
         return KNOWN_DISCONNECT_REASONS[reason]
     if raw_payload:
-        return "Disconnected: %s (raw: %s)" % (reason, raw_payload)
-    return "Disconnected: %s" % reason
+        return f"Disconnected: {reason} (raw: {raw_payload})"
+    return f"Disconnected: {reason}"
 
 
 def _extract_transport_reason(error: Exception | None) -> str:
@@ -241,11 +242,10 @@ def _extract_transport_reason(error: Exception | None) -> str:
     """
     if error is None:
         return "connection_closed"
-    # websockets.exceptions.ConnectionClosed has .reason and .code
-    if hasattr(error, "reason") and error.reason:
-        return str(error.reason)
-    if hasattr(error, "code"):
-        return "close_code_%s" % error.code
+    if isinstance(error, ConnectionClosed) and error.rcvd is not None:
+        if error.rcvd.reason:
+            return str(error.rcvd.reason)
+        return f"close_code_{error.rcvd.code}"
     return str(error)
 
 
@@ -303,7 +303,7 @@ class WebSocketClient:
         if self._on_disconnect:
             raw = {"error": str(error)} if error else None
             try:
-                await self._on_disconnect(human, raw)
+                await self._on_disconnect(human, raw, None)
             except Exception:  # noqa: BLE001
                 logger.exception("[WebSocket] Error in disconnect callback")
 
@@ -325,7 +325,7 @@ class WebSocketClient:
             )
             if self._on_disconnect:
                 try:
-                    await self._on_disconnect(human, message.payload)
+                    await self._on_disconnect(human, message.payload, message.topic)
                 except Exception:  # noqa: BLE001
                     logger.exception("[WebSocket] Error in disconnect callback")
             return

@@ -258,7 +258,9 @@ class ThenvoiLink:
 
     # --- Disconnect handling ---
 
-    async def _on_ws_disconnect(self, reason: str, raw: dict | None) -> None:
+    async def _on_ws_disconnect(
+        self, reason: str, raw: dict | None, topic: str | None = None
+    ) -> None:
         """Handle disconnect notifications from the WebSocket layer.
 
         Called for both channel-level events (phx_close / phx_error) and
@@ -268,12 +270,23 @@ class ThenvoiLink:
 
         Guarded so that only the first disconnect fires the event — a
         ``phx_close`` followed by a transport drop won't produce duplicates.
+
+        Note: the ``_is_connected`` guard is safe without a lock because both
+        channel-level and transport-level callbacks run on the same event loop.
         """
         if not self._is_connected:
             return
         logger.warning("Platform connection lost: %s", reason)
         self._is_connected = False
-        event = DisconnectedEvent(reason=reason, raw=raw)
+
+        # Parse room_id from channel topic (e.g. "chat_room:room-123")
+        room_id: str | None = None
+        if topic and ":" in topic:
+            prefix, _, entity_id = topic.partition(":")
+            if prefix == "chat_room":
+                room_id = entity_id
+
+        event = DisconnectedEvent(reason=reason, raw=raw, room_id=room_id)
         self._queue_event(event)
 
     # --- Event handlers (from ThenvoiAgent, unified into PlatformEvent) ---
