@@ -8,6 +8,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from thenvoi.integrations.acp.client_adapter import ACPClientAdapter
+from thenvoi.integrations.acp.client_profiles import CursorACPClientProfile
+from thenvoi.integrations.acp.client_runtime import ACPCollectingClient
 from thenvoi.integrations.acp.client_types import (
     ACPClientSessionState,
     ThenvoiACPClient,
@@ -854,13 +856,13 @@ class TestACPClientAdapterStop:
         assert adapter._ctx is None
 
 
-class TestThenvoiACPClientCursorExtensions:
-    """Tests for Cursor-specific extension handling in ThenvoiACPClient."""
+class TestACPCollectingClientCursorProfileExtensions:
+    """Tests for Cursor-specific extension handling via ACP client profiles."""
 
     @pytest.mark.asyncio
     async def test_ext_method_cursor_ask_question(self) -> None:
         """Should auto-select first option for cursor/ask_question."""
-        client = ThenvoiACPClient()
+        client = ACPCollectingClient(profile=CursorACPClientProfile())
 
         result = await client.ext_method(
             "cursor/ask_question",
@@ -878,7 +880,7 @@ class TestThenvoiACPClientCursorExtensions:
     @pytest.mark.asyncio
     async def test_ext_method_cursor_ask_question_empty_options(self) -> None:
         """Should cancel when no options provided."""
-        client = ThenvoiACPClient()
+        client = ACPCollectingClient(profile=CursorACPClientProfile())
 
         result = await client.ext_method("cursor/ask_question", {"options": []})
 
@@ -887,7 +889,7 @@ class TestThenvoiACPClientCursorExtensions:
     @pytest.mark.asyncio
     async def test_ext_method_cursor_create_plan(self) -> None:
         """Should auto-approve cursor/create_plan."""
-        client = ThenvoiACPClient()
+        client = ACPCollectingClient(profile=CursorACPClientProfile())
 
         result = await client.ext_method("cursor/create_plan", {"plan": "stuff"})
 
@@ -896,7 +898,7 @@ class TestThenvoiACPClientCursorExtensions:
     @pytest.mark.asyncio
     async def test_ext_method_unknown_returns_empty(self) -> None:
         """Should return empty dict for unknown extension methods."""
-        client = ThenvoiACPClient()
+        client = ACPCollectingClient(profile=CursorACPClientProfile())
 
         result = await client.ext_method("unknown/method", {})
 
@@ -905,7 +907,7 @@ class TestThenvoiACPClientCursorExtensions:
     @pytest.mark.asyncio
     async def test_ext_notification_cursor_update_todos(self) -> None:
         """Should collect todo updates as plan chunks."""
-        client = ThenvoiACPClient()
+        client = ACPCollectingClient(profile=CursorACPClientProfile())
 
         await client.ext_notification(
             "cursor/update_todos",
@@ -927,7 +929,7 @@ class TestThenvoiACPClientCursorExtensions:
     @pytest.mark.asyncio
     async def test_ext_notification_cursor_task(self) -> None:
         """Should collect task results as text chunks."""
-        client = ThenvoiACPClient()
+        client = ACPCollectingClient(profile=CursorACPClientProfile())
 
         await client.ext_notification(
             "cursor/task",
@@ -942,7 +944,7 @@ class TestThenvoiACPClientCursorExtensions:
     @pytest.mark.asyncio
     async def test_ext_notification_no_session_id_is_noop(self) -> None:
         """Should do nothing when no session_id is present."""
-        client = ThenvoiACPClient()
+        client = ACPCollectingClient(profile=CursorACPClientProfile())
 
         await client.ext_notification(
             "cursor/update_todos",

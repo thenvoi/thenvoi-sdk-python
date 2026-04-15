@@ -97,9 +97,13 @@ class ACPClientAdapter(SimpleAdapter[ACPClientSessionState]):
         self._session_lock = asyncio.Lock()
 
         # Transitional compatibility shims for existing adapter tests and
-        # internal callers. Runtime-owned state lives in ACPRuntime; these
-        # properties can be removed once the test surface stops reaching into
-        # adapter internals.
+        # internal callers.
+        #
+        # Architecture note (INT-284): this adapter is the Thenvoi bridge layer
+        # (room/session mapping, system-context bootstrapping, Thenvoi MCP policy,
+        # and platform event emission). ACP subprocess/session lifecycle lives in
+        # ACPRuntime. These properties exist only to preserve test surface during
+        # migration and can be removed once tests stop reaching into internals.
 
     @property
     def _conn(self) -> ACPConnectionProtocol | None:
