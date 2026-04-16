@@ -53,6 +53,16 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+class _ResyncRequest:
+    """Sentinel pushed into the execution queue to trigger an immediate /next resync.
+
+    Used by request_resync() so a reconnect signal wakes the Phase 2 loop
+    without waiting for the idle-timeout to expire.
+    """
+
+    type: str = "_resync"  # Matches the .type attribute pattern of PlatformEvent
+
+
 def _error_label(e: Exception) -> str:
     """Return a non-empty label for an exception, falling back to the class name."""
     return str(e).strip() or type(e).__name__
@@ -116,6 +126,14 @@ class Execution(Protocol):
 
     async def on_event(self, event: PlatformEvent) -> None:
         """Handle a platform event for this room."""
+        ...
+
+    async def request_resync(self) -> None:
+        """Signal the process loop to re-poll /next immediately.
+
+        Called after WebSocket reconnect to catch messages that arrived while
+        the socket was down. Custom implementations may provide a no-op.
+        """
         ...
 
 
@@ -360,6 +378,17 @@ class ExecutionContext:
 
         self.queue.put_nowait(event)
         logger.debug("Event %s enqueued for room %s", event.type, self.room_id)
+
+    async def request_resync(self) -> None:
+        """
+        Signal the process loop to re-poll /next immediately.
+
+        Pushes a sentinel into the event queue so the Phase 2 loop wakes up
+        and runs a /next catch-up without waiting for the idle timeout. Called
+        by AgentRuntime after WebSocket reconnect.
+        """
+        self.queue.put_nowait(_ResyncRequest())  # type: ignore[arg-type]
+        logger.debug("ExecutionContext %s: Resync sentinel enqueued", self.room_id)
 
     # --- Participant management ---
 
@@ -715,9 +744,35 @@ class ExecutionContext:
                 self.room_id,
             )
 
-            # Phase 2: Process from WebSocket queue only
+            # Phase 2: Process from WebSocket queue, with idle-timeout resync safety net
             while True:
-                event = await self.queue.get()
+                logger.debug(
+                    "ExecutionContext %s: Waiting for next event (queue size=%d)",
+                    self.room_id,
+                    self.queue.qsize(),
+                )
+                try:
+                    event = await asyncio.wait_for(
+                        self.queue.get(),
+                        timeout=self.config.idle_resync_seconds,
+                    )
+                except asyncio.TimeoutError:
+                    logger.debug(
+                        "ExecutionContext %s: Idle for %ss, re-polling /next",
+                        self.room_id,
+                        self.config.idle_resync_seconds,
+                    )
+                    await self._resync_pending_messages()
+                    continue
+
+                if isinstance(event, _ResyncRequest):
+                    logger.debug(
+                        "ExecutionContext %s: Resync requested (post-reconnect)",
+                        self.room_id,
+                    )
+                    await self._resync_pending_messages()
+                    continue
+
                 await self._process_event(event)
 
         except asyncio.CancelledError:
@@ -849,6 +904,64 @@ class ExecutionContext:
         Delegates to ThenvoiLink.get_next_message().
         """
         return await self.link.get_next_message(self.room_id)
+
+    async def _resync_pending_messages(self) -> None:
+        """
+        Poll /next to catch up on messages missed while idle or disconnected.
+
+        Runs the same REST catch-up loop as startup sync but without the
+        WebSocket sync-point marker. Called:
+        - After idle timeout in Phase 2 (platform may have missed a push)
+        - After WebSocket reconnect (messages arrived during downtime)
+        """
+        logger.debug(
+            "ExecutionContext %s: Re-polling /next for missed messages", self.room_id
+        )
+        caught_up = 0
+        try:
+            while True:
+                next_msg = await self._get_next_message()
+                if next_msg is None:
+                    break
+
+                if self._retry_tracker.is_permanently_failed(next_msg.id):
+                    logger.warning(
+                        "ExecutionContext %s: Skipping permanently failed message %s during resync",
+                        self.room_id,
+                        next_msg.id,
+                    )
+                    break
+
+                logger.info(
+                    "ExecutionContext %s: Catching up missed message %s via /next resync",
+                    self.room_id,
+                    next_msg.id,
+                )
+                await self._process_backlog_message(next_msg)
+                caught_up += 1
+
+                if self._retry_tracker.is_permanently_failed(next_msg.id):
+                    break
+
+        except Exception as e:
+            logger.error(
+                "ExecutionContext %s: Error during /next resync: %s",
+                self.room_id,
+                e,
+                exc_info=True,
+            )
+
+        if caught_up:
+            logger.info(
+                "ExecutionContext %s: Caught up %d missed message(s) via /next resync",
+                self.room_id,
+                caught_up,
+            )
+        else:
+            logger.debug(
+                "ExecutionContext %s: No missed messages found via /next resync",
+                self.room_id,
+            )
 
     async def _process_backlog_message(self, msg: PlatformMessage) -> None:
         """

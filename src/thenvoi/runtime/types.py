@@ -83,6 +83,9 @@ class SessionConfig:
     max_context_messages: int = 100
     max_message_retries: int = 1  # Max attempts per message before permanently failing
     enable_context_hydration: bool = True  # Whether to fetch history from platform API
+    idle_resync_seconds: int = (
+        60  # Phase 2 idle timeout before /next re-poll (safety net)
+    )
 
 
 @dataclass
