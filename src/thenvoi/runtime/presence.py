@@ -262,34 +262,44 @@ class RoomPresence:
         replaying room joins, unsubscribing rooms that disappeared while the
         socket was down and only subscribing rooms that are newly discovered.
 
-        After room reconciliation, on_reconnected is called so callers can
-        trigger a /next resync to catch messages that arrived during downtime.
+        on_reconnected is always fired at the end so callers can trigger a
+        /next resync for already-active rooms even if room reconciliation hit a
+        transient API failure.
         """
         logger.info("Handling reconnection — syncing rooms from API")
         old_rooms = self.rooms.copy()
 
         try:
-            rooms_from_api = await self._list_existing_rooms()
-        except Exception as e:
-            logger.warning("Failed to sync rooms after reconnect: %s", e)
-            return
+            try:
+                rooms_from_api = await self._list_existing_rooms()
+            except Exception as e:
+                logger.warning("Failed to sync rooms after reconnect: %s", e)
+                return
 
-        current_room_ids = {room_id for room_id, _ in rooms_from_api}
-        self.rooms = old_rooms & current_room_ids
+            current_room_ids = {room_id for room_id, _ in rooms_from_api}
+            self.rooms = old_rooms & current_room_ids
 
-        gone_rooms = old_rooms - current_room_ids
-        for room_id in gone_rooms:
-            await self.link.unsubscribe_room(room_id)
-            self.rooms.discard(room_id)
-            if self.on_room_left:
+            gone_rooms = old_rooms - current_room_ids
+            for room_id in gone_rooms:
                 try:
-                    await self.on_room_left(room_id)
+                    await self.link.unsubscribe_room(room_id)
                 except Exception as e:
                     logger.warning(
-                        "on_room_left error for %s during reconnect: %s", room_id, e
+                        "Failed to unsubscribe room %s during reconnect: %s",
+                        room_id,
+                        e,
                     )
+                self.rooms.discard(room_id)
+                if self.on_room_left:
+                    try:
+                        await self.on_room_left(room_id)
+                    except Exception as e:
+                        logger.warning(
+                            "on_room_left error for %s during reconnect: %s",
+                            room_id,
+                            e,
+                        )
 
-        try:
             if not self.auto_subscribe_existing:
                 return
 

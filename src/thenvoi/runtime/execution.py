@@ -131,6 +131,11 @@ class Execution(Protocol):
     async def request_resync(self) -> None:
         """Signal the process loop to re-poll /next immediately.
 
+        .. versionchanged:: 0.2.0
+            Custom ``Execution`` implementations should add ``request_resync()``.
+            ``AgentRuntime`` falls back safely for legacy implementations that do
+            not provide it, but typed protocol conformance now includes this method.
+
         Called after WebSocket reconnect to catch messages that arrived while
         the socket was down. Custom implementations may provide a no-op.
         """
@@ -387,7 +392,7 @@ class ExecutionContext:
         and runs a /next catch-up without waiting for the idle timeout. Called
         by AgentRuntime after WebSocket reconnect.
         """
-        self.queue.put_nowait(_ResyncRequest())  # type: ignore[arg-type]
+        self.queue.put_nowait(_ResyncRequest())  # type: ignore[arg-type]  # Sentinel is intentionally not a PlatformEvent.
         logger.debug("ExecutionContext %s: Resync sentinel enqueued", self.room_id)
 
     # --- Participant management ---
