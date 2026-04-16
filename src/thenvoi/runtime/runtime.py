@@ -232,6 +232,12 @@ class AgentRuntime:
             len(self.executions),
         )
         for room_id, execution in list(self.executions.items()):
+            if not hasattr(execution, "request_resync"):
+                logger.debug(
+                    "Execution for room %s does not support request_resync, skipping",
+                    room_id,
+                )
+                continue
             try:
                 await execution.request_resync()
             except Exception as e:

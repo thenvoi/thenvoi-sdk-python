@@ -778,9 +778,7 @@ class ExecutionContext:
         except asyncio.CancelledError:
             logger.debug("ExecutionContext %s cancelled", self.room_id)
         except Exception as e:
-            logger.error(
-                "ExecutionContext %s error: %s", self.room_id, e, exc_info=True
-            )
+            logger.exception("ExecutionContext %s error: %s", self.room_id, e)
 
         logger.debug("ExecutionContext %s loop exited", self.room_id)
 
@@ -855,9 +853,7 @@ class ExecutionContext:
                     break
 
         except Exception as e:
-            logger.error(
-                "ExecutionContext %s: Sync error: %s", self.room_id, e, exc_info=True
-            )
+            logger.exception("ExecutionContext %s: Sync error: %s", self.room_id, e)
 
         logger.debug("ExecutionContext %s: Synchronization complete", self.room_id)
         self._sync_complete = True
@@ -944,11 +940,10 @@ class ExecutionContext:
                     break
 
         except Exception as e:
-            logger.error(
+            logger.exception(
                 "ExecutionContext %s: Error during /next resync: %s",
                 self.room_id,
                 e,
-                exc_info=True,
             )
 
         if caught_up:
@@ -1205,7 +1200,7 @@ class ExecutionContext:
             logger.debug("Event %s processed successfully", event.type)
 
         except Exception as e:
-            logger.error("Error processing %s: %s", event.type, e, exc_info=True)
+            logger.exception("Error processing %s: %s", event.type, e)
             # For messages: mark as failed on server
             if isinstance(event, MessageEvent) and msg_id:
                 await self.link.mark_failed(self.room_id, msg_id, _error_label(e))
