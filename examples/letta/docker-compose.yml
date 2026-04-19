@@ -18,7 +18,7 @@ services:
     ports:
       - "8002:8002"
     environment:
-      THENVOI_REST_URL: ${THENVOI_REST_URL:-https://app.band.ai/dashboard}
+      THENVOI_REST_URL: ${THENVOI_REST_URL:-https://app.band.ai}
       THENVOI_API_KEY: ${THENVOI_API_KEY:-}
       MCP_PORT: "8002"
 

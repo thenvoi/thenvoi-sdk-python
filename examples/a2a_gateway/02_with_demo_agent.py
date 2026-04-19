@@ -28,8 +28,8 @@ Prerequisites:
     1. Configure gateway credentials:
        - preferred: gateway_agent in agent_config.yaml
        - fallback: THENVOI_API_KEY and optional THENVOI_AGENT_ID
-       - THENVOI_WS_URL: WebSocket URL (default: wss://app.band.ai/dashboard/api/v1/socket/websocket)
-       - THENVOI_REST_URL: REST API URL (default: https://app.band.ai/dashboard)
+       - THENVOI_WS_URL: WebSocket URL (default: wss://app.band.ai/api/v1/socket/websocket)
+       - THENVOI_REST_URL: REST API URL (default: https://app.band.ai)
        - OPENAI_API_KEY: OpenAI API key for the orchestrator
 
     2. Have peers configured on the Thenvoi platform
@@ -122,10 +122,8 @@ def _require_openai_api_key() -> str:
 
 async def run_gateway() -> None:
     """Run the A2A Gateway that exposes Thenvoi peers."""
-    ws_url = os.getenv(
-        "THENVOI_WS_URL", "wss://app.band.ai/dashboard/api/v1/socket/websocket"
-    )
-    rest_url = os.getenv("THENVOI_REST_URL", "https://app.band.ai/dashboard")
+    ws_url = os.getenv("THENVOI_WS_URL", "wss://app.band.ai/api/v1/socket/websocket")
+    rest_url = os.getenv("THENVOI_REST_URL", "https://app.band.ai")
     agent_id, api_key = _load_gateway_credentials()
 
     gateway_url = f"http://{GATEWAY_HOST}:{GATEWAY_PORT}"

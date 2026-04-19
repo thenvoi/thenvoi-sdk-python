@@ -41,8 +41,8 @@ class TestParseArgs:
             ]
         )
 
-        assert args.rest_url == "https://app.band.ai/dashboard"
-        assert args.ws_url == "wss://app.band.ai/dashboard/api/v1/socket/websocket"
+        assert args.rest_url == "https://app.band.ai"
+        assert args.ws_url == "wss://app.band.ai/api/v1/socket/websocket"
         assert args.log_level == "INFO"
 
     def test_parse_args_custom_urls(self) -> None:

@@ -148,8 +148,8 @@ class TestBridgeConfig:
             monkeypatch.delenv(var, raising=False)
 
         config = BridgeConfig.from_env()
-        assert config.ws_url == "wss://app.band.ai/dashboard/api/v1/socket/websocket"
-        assert config.rest_url == "https://app.band.ai/dashboard"
+        assert config.ws_url == "wss://app.band.ai/api/v1/socket/websocket"
+        assert config.rest_url == "https://app.band.ai"
         assert config.health_port == 8080
         assert config.health_host == "0.0.0.0"
         assert config.session_ttl == 86400.0

@@ -340,8 +340,8 @@ uv run pyrefly check
 
 ## Environment Variables
 
-- `THENVOI_REST_URL`: REST API URL (default: https://app.band.ai/dashboard)
-- `THENVOI_WS_URL`: WebSocket URL (default: wss://app.band.ai/dashboard/api/v1/socket/websocket)
+- `THENVOI_REST_URL`: REST API URL (default: https://app.band.ai)
+- `THENVOI_WS_URL`: WebSocket URL (default: wss://app.band.ai/api/v1/socket/websocket)
 - `THENVOI_API_KEY_USER`: User API key for E2E WebSocket observer and trigger messages
 - `OPENAI_API_KEY`: OpenAI API key (for LangGraph examples)
 - `ANTHROPIC_API_KEY`: Anthropic API key (for Anthropic/Claude SDK examples)

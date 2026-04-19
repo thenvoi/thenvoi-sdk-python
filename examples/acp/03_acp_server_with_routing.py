@@ -25,8 +25,8 @@ Architecture:
 Prerequisites:
     1. Set environment variables:
        - THENVOI_API_KEY: Your Thenvoi API key
-       - THENVOI_WS_URL: WebSocket URL (default: wss://app.band.ai/dashboard/api/v1/socket/websocket)
-       - THENVOI_REST_URL: REST API URL (default: https://app.band.ai/dashboard)
+       - THENVOI_WS_URL: WebSocket URL (default: wss://app.band.ai/api/v1/socket/websocket)
+       - THENVOI_REST_URL: REST API URL (default: https://app.band.ai)
 
     2. Have peers configured on the Thenvoi platform
 
@@ -59,10 +59,8 @@ logger = logging.getLogger(__name__)
 async def main() -> None:
     load_dotenv()
 
-    ws_url = os.getenv(
-        "THENVOI_WS_URL", "wss://app.band.ai/dashboard/api/v1/socket/websocket"
-    )
-    rest_url = os.getenv("THENVOI_REST_URL", "https://app.band.ai/dashboard")
+    ws_url = os.getenv("THENVOI_WS_URL", "wss://app.band.ai/api/v1/socket/websocket")
+    rest_url = os.getenv("THENVOI_REST_URL", "https://app.band.ai")
     # ACP server examples check env vars first because editors (Zed, Cursor)
     # typically inject credentials via environment when spawning the subprocess.
     api_key = os.getenv("THENVOI_API_KEY")

@@ -36,14 +36,14 @@ def parse_args(args: list[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument(
         "--rest-url",
-        default=os.environ.get("THENVOI_REST_URL", "https://app.band.ai/dashboard"),
-        help="Thenvoi REST API URL (default: https://app.band.ai/dashboard)",
+        default=os.environ.get("THENVOI_REST_URL", "https://app.band.ai"),
+        help="Thenvoi REST API URL (default: https://app.band.ai)",
     )
     parser.add_argument(
         "--ws-url",
         default=os.environ.get(
             "THENVOI_WS_URL",
-            "wss://app.band.ai/dashboard/api/v1/socket/websocket",
+            "wss://app.band.ai/api/v1/socket/websocket",
         ),
         help="Thenvoi WebSocket URL",
     )

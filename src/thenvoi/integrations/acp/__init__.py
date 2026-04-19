@@ -16,7 +16,7 @@ Example (ACP Server):
     from acp import run_agent
 
     adapter = ThenvoiACPServerAdapter(
-        rest_url="https://app.band.ai/dashboard",
+        rest_url="https://app.band.ai",
         api_key="your-api-key",
     )
     server = ACPServer(adapter)

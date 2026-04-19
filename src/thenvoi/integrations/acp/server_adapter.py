@@ -61,7 +61,7 @@ class ThenvoiACPServerAdapter(SimpleAdapter[ACPSessionState]):
         from thenvoi.integrations.acp import ThenvoiACPServerAdapter, ACPServer
 
         adapter = ThenvoiACPServerAdapter(
-            rest_url="https://app.band.ai/dashboard",
+            rest_url="https://app.band.ai",
             api_key="your-api-key",
         )
         server = ACPServer(adapter)
@@ -72,7 +72,7 @@ class ThenvoiACPServerAdapter(SimpleAdapter[ACPSessionState]):
 
     def __init__(
         self,
-        rest_url: str = "https://app.band.ai/dashboard",
+        rest_url: str = "https://app.band.ai",
         api_key: str = "",
     ) -> None:
         """Initialize ACP server adapter.

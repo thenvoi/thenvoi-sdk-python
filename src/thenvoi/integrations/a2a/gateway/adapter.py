@@ -79,7 +79,7 @@ class A2AGatewayAdapter(SimpleAdapter[GatewaySessionState]):
         from thenvoi.integrations.a2a.gateway import A2AGatewayAdapter
 
         adapter = A2AGatewayAdapter(
-            rest_url="https://app.band.ai/dashboard",
+            rest_url="https://app.band.ai",
             api_key="your-api-key",
             gateway_url="http://localhost:10000",
             port=10000,
@@ -97,7 +97,7 @@ class A2AGatewayAdapter(SimpleAdapter[GatewaySessionState]):
 
     def __init__(
         self,
-        rest_url: str = "https://app.band.ai/dashboard",
+        rest_url: str = "https://app.band.ai",
         api_key: str = "",
         gateway_url: str = "http://localhost:10000",
         port: int = 10000,
