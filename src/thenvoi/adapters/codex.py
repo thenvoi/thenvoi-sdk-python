@@ -400,11 +400,11 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
             self._selected_model or self.config.model or "auto",
             self.config.sandbox or "default",
             self.config.approval_mode,
-            self.config.enable_execution_reporting,
+            Emit.EXECUTION in self.features.emit,
             self.config.enable_self_config_tools,
-            self.config.enable_task_events,
+            Emit.TASK_EVENTS in self.features.emit,
             self.config.emit_turn_task_markers,
-            self.config.emit_thought_events,
+            Emit.THOUGHTS in self.features.emit,
             self.config.stream_reasoning_events,
             self.config.stream_plan_events,
             self.config.stream_commentary_events,
@@ -517,7 +517,7 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
             # Phase 2: Turn STARTED lifecycle event with input summary
             if (
                 self.config.emit_turn_lifecycle_events
-                and self.config.enable_task_events
+                and Emit.TASK_EVENTS in self.features.emit
             ):
                 input_summary = (msg.content or "")[:200]
                 try:
@@ -741,7 +741,7 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
                 if event.method == "context/compacted":
                     if (
                         self.config.emit_turn_lifecycle_events
-                        and self.config.enable_task_events
+                        and Emit.TASK_EVENTS in self.features.emit
                     ):
                         compacted_thread = str(params.get("threadId") or thread_id)
                         compacted_turn = str(params.get("turnId") or turn_id or "")
@@ -772,7 +772,7 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
                 if event.method == "turn/diff/updated":
                     if (
                         self.config.emit_diff_events
-                        and self.config.enable_execution_reporting
+                        and Emit.EXECUTION in self.features.emit
                     ):
                         await self._forward_diff_event(
                             tools=tools,
@@ -1515,7 +1515,10 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
             )
 
         # Phase 2: Enriched turn lifecycle events
-        if self.config.emit_turn_lifecycle_events and self.config.enable_task_events:
+        if (
+            self.config.emit_turn_lifecycle_events
+            and Emit.TASK_EVENTS in self.features.emit
+        ):
             lifecycle_metadata: dict[str, Any] = {
                 "codex_event_type": "turn_lifecycle",
                 "codex_room_id": room_id,
@@ -1615,7 +1618,7 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
         metadata: dict[str, Any],
     ) -> None:
         """Inner dispatch for item events — may raise on API errors."""
-        # Tool-like items gated on enable_execution_reporting
+        # Tool-like items gated on Emit.EXECUTION
         if item_type in {
             "commandExecution",
             "fileChange",
@@ -1643,7 +1646,7 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
             )
             return
 
-        # Thought-like items gated on emit_thought_events
+        # Thought-like items gated on Emit.THOUGHTS
         if item_type in {
             "reasoning",
             "plan",
@@ -1808,7 +1811,7 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
                 "Use `/approvals` to list pending approvals."
             )
             # Emit enriched metadata as a task event for UI rendering
-            if self.config.enable_task_events:
+            if Emit.TASK_EVENTS in self.features.emit:
                 approval_metadata: dict[str, Any] = {
                     "codex_event_type": "approval_request",
                     "codex_approval_type": self._approval_type(event.method),
@@ -2142,7 +2145,7 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
         entry: ApprovalAuditEntry,
     ) -> None:
         """Emit a task event for an approval decision."""
-        if not self.config.enable_task_events:
+        if Emit.TASK_EVENTS not in self.features.emit:
             return
         try:
             await tools.send_event(
