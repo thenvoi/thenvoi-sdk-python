@@ -15,7 +15,7 @@ import logging
 import threading
 import warnings
 from contextvars import ContextVar
-from typing import ClassVar, Any, Coroutine, Literal, Type, TypeVar
+from typing import Callable, ClassVar, Any, Coroutine, Literal, Type, TypeVar
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -42,6 +42,19 @@ from thenvoi.runtime.tools import get_tool_description
 logger = logging.getLogger(__name__)
 
 T = TypeVar("T")
+
+
+def _never_cache(*_args: Any, **_kwargs: Any) -> bool:
+    """cache_function override for every Thenvoi CrewAI tool.
+
+    Thenvoi tools reach the current room via the _current_room_context
+    ContextVar, not via tool arguments. CrewAI's CacheHandler keys entries
+    by (tool_name, input_string) — room identity never enters the key —
+    so caching would leak results across rooms. Returning False here
+    disables CrewAI's per-tool cache write unconditionally.
+    """
+    return False
+
 
 # Module-level state for nest_asyncio patch.
 # See module docstring for important notes about global process impact.
@@ -461,6 +474,7 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
                     name: str = _tool_name  # type: ignore[misc]
                     description: str = _tool_desc  # type: ignore[misc]
                     args_schema: Type[BaseModel] = model
+                    cache_function: Callable = _never_cache
 
                     def _run(self, *_args: Any, **kwargs: Any) -> Any:
                         async def execute(_tools: AgentToolsProtocol) -> str:
@@ -667,6 +681,7 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
             name: str = "thenvoi_send_message"
             description: str = get_tool_description("thenvoi_send_message")
             args_schema: Type[BaseModel] = SendMessageInput
+            cache_function: Callable = _never_cache
 
             # *_args is required by BaseTool's _run signature even though we don't use it
             def _run(self, *_args: Any, **kwargs: Any) -> Any:
@@ -696,6 +711,7 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
             name: str = "thenvoi_send_event"
             description: str = get_tool_description("thenvoi_send_event")
             args_schema: Type[BaseModel] = SendEventInput
+            cache_function: Callable = _never_cache
 
             def _run(self, *_args: Any, **kwargs: Any) -> Any:
                 content: str = kwargs.get("content", "")
@@ -713,6 +729,7 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
             name: str = "thenvoi_add_participant"
             description: str = get_tool_description("thenvoi_add_participant")
             args_schema: Type[BaseModel] = AddParticipantInput
+            cache_function: Callable = _never_cache
 
             def _run(self, *_args: Any, **kwargs: Any) -> Any:
                 participant_name: str = kwargs.get("participant_name", "")
@@ -736,6 +753,7 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
             name: str = "thenvoi_remove_participant"
             description: str = get_tool_description("thenvoi_remove_participant")
             args_schema: Type[BaseModel] = RemoveParticipantInput
+            cache_function: Callable = _never_cache
 
             def _run(self, *_args: Any, **kwargs: Any) -> Any:
                 participant_name: str = kwargs.get("participant_name", "")
@@ -758,6 +776,7 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
             name: str = "thenvoi_get_participants"
             description: str = get_tool_description("thenvoi_get_participants")
             args_schema: Type[BaseModel] = GetParticipantsInput
+            cache_function: Callable = _never_cache
 
             def _run(self, *_args: Any, **_kwargs: Any) -> Any:
                 async def execute(tools: AgentToolsProtocol) -> str:
@@ -790,6 +809,7 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
             name: str = "thenvoi_lookup_peers"
             description: str = get_tool_description("thenvoi_lookup_peers")
             args_schema: Type[BaseModel] = LookupPeersInput
+            cache_function: Callable = _never_cache
 
             # *_args is required by BaseTool's _run signature even though we don't use it
             def _run(self, *_args: Any, **_kwargs: Any) -> Any:
@@ -814,6 +834,7 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
             name: str = "thenvoi_create_chatroom"
             description: str = get_tool_description("thenvoi_create_chatroom")
             args_schema: Type[BaseModel] = CreateChatroomInput
+            cache_function: Callable = _never_cache
 
             def _run(self, *_args: Any, **kwargs: Any) -> Any:
                 task_id: str | None = kwargs.get("task_id")
@@ -840,6 +861,7 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
             name: str = "thenvoi_list_contacts"
             description: str = get_tool_description("thenvoi_list_contacts")
             args_schema: Type[BaseModel] = ListContactsInput
+            cache_function: Callable = _never_cache
 
             def _run(self, *_args: Any, **kwargs: Any) -> Any:
                 page: int = kwargs.get("page", 1)
@@ -863,6 +885,7 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
             name: str = "thenvoi_add_contact"
             description: str = get_tool_description("thenvoi_add_contact")
             args_schema: Type[BaseModel] = AddContactInput
+            cache_function: Callable = _never_cache
 
             def _run(self, *_args: Any, **kwargs: Any) -> Any:
                 handle: str = kwargs.get("handle", "")
@@ -886,6 +909,7 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
             name: str = "thenvoi_remove_contact"
             description: str = get_tool_description("thenvoi_remove_contact")
             args_schema: Type[BaseModel] = RemoveContactInput
+            cache_function: Callable = _never_cache
 
             def _run(self, *_args: Any, **kwargs: Any) -> Any:
                 handle: str | None = kwargs.get("handle")
@@ -909,6 +933,7 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
             name: str = "thenvoi_list_contact_requests"
             description: str = get_tool_description("thenvoi_list_contact_requests")
             args_schema: Type[BaseModel] = ListContactRequestsInput
+            cache_function: Callable = _never_cache
 
             def _run(self, *_args: Any, **kwargs: Any) -> Any:
                 page: int = kwargs.get("page", 1)
@@ -939,6 +964,7 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
             name: str = "thenvoi_respond_contact_request"
             description: str = get_tool_description("thenvoi_respond_contact_request")
             args_schema: Type[BaseModel] = RespondContactRequestInput
+            cache_function: Callable = _never_cache
 
             def _run(self, *_args: Any, **kwargs: Any) -> Any:
                 action: str = kwargs.get("action", "")
@@ -966,6 +992,7 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
             name: str = "thenvoi_list_memories"
             description: str = get_tool_description("thenvoi_list_memories")
             args_schema: Type[BaseModel] = ListMemoriesInput
+            cache_function: Callable = _never_cache
 
             def _run(self, *_args: Any, **kwargs: Any) -> Any:
                 subject_id = kwargs.get("subject_id")
@@ -1013,6 +1040,7 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
             name: str = "thenvoi_store_memory"
             description: str = get_tool_description("thenvoi_store_memory")
             args_schema: Type[BaseModel] = StoreMemoryInput
+            cache_function: Callable = _never_cache
 
             def _run(self, *_args: Any, **kwargs: Any) -> Any:
                 content = kwargs.get("content", "")
@@ -1057,6 +1085,7 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
             name: str = "thenvoi_get_memory"
             description: str = get_tool_description("thenvoi_get_memory")
             args_schema: Type[BaseModel] = GetMemoryInput
+            cache_function: Callable = _never_cache
 
             def _run(self, *_args: Any, **kwargs: Any) -> Any:
                 memory_id = kwargs.get("memory_id", "")
@@ -1077,6 +1106,7 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
             name: str = "thenvoi_supersede_memory"
             description: str = get_tool_description("thenvoi_supersede_memory")
             args_schema: Type[BaseModel] = SupersedeMemoryInput
+            cache_function: Callable = _never_cache
 
             def _run(self, *_args: Any, **kwargs: Any) -> Any:
                 memory_id = kwargs.get("memory_id", "")
@@ -1097,6 +1127,7 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
             name: str = "thenvoi_archive_memory"
             description: str = get_tool_description("thenvoi_archive_memory")
             args_schema: Type[BaseModel] = ArchiveMemoryInput
+            cache_function: Callable = _never_cache
 
             def _run(self, *_args: Any, **kwargs: Any) -> Any:
                 memory_id = kwargs.get("memory_id", "")
