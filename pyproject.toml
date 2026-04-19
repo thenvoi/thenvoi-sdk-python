@@ -255,8 +255,12 @@ project_excludes = [
     "tests/**",                 # Tests use mocks with duck typing
     "examples/**",              # Examples use local imports
     "thenvoi-bridge/**",        # Standalone bridge app, not in src/ import root
-    "src/thenvoi/adapters/parlant.py",       # parlant is in a conflict group, not installable alongside crewai
-    "src/thenvoi/integrations/parlant/**",   # same — optional parlant integration
+]
+# Parlant is in a conflict group with crewai and not installed in the default
+# venv. Rather than excluding the files (which loses type coverage in a
+# dev-parlant venv), tell pyrefly to treat missing parlant modules as Any.
+ignore-missing-imports = [
+    "parlant.*",
 ]
 # Disable the default **/.[!/.]*/** exclude so pyrefly works inside
 # .claude/worktrees/ (git worktree paths contain a hidden directory).
