@@ -255,6 +255,8 @@ project_excludes = [
     "tests/**",                 # Tests use mocks with duck typing
     "examples/**",              # Examples use local imports
     "thenvoi-bridge/**",        # Standalone bridge app, not in src/ import root
+    "src/thenvoi/adapters/parlant.py",       # parlant is in a conflict group, not installable alongside crewai
+    "src/thenvoi/integrations/parlant/**",   # same — optional parlant integration
 ]
 # Disable the default **/.[!/.]*/** exclude so pyrefly works inside
 # .claude/worktrees/ (git worktree paths contain a hidden directory).
