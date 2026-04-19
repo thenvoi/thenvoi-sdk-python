@@ -140,6 +140,6 @@ __all__ = [
 ]
 
 try:
-    __version__ = _get_version("thenvoi-sdk")
+    __version__ = _get_version("band-sdk")
 except PackageNotFoundError:
     __version__ = "0.1.0"  # Fallback for editable installs

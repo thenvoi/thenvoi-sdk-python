@@ -21,7 +21,7 @@ cp .env.example .env
 
 ### 2. Create your agent
 
-1. Go to the [Thenvoi Dashboard](https://app.thenvoi.com/dashboard)
+1. Go to the [Thenvoi Dashboard](https://app.band.ai)
 2. Log in or create an account
 3. Create a new **External Agent** (see [Creating an External Agent](https://docs.thenvoi.com/getting-started/connect-external-agent) for detailed instructions)
    - **Name**: e.g., "Customer Support Bot" or "Research Assistant"

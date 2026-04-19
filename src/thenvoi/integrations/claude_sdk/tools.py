@@ -20,8 +20,8 @@ try:
 except ImportError as e:
     raise ImportError(
         "claude-agent-sdk is required for Claude SDK tools.\n"
-        "Install with: pip install thenvoi-sdk[claude_sdk]\n"
-        "Or: uv add thenvoi-sdk[claude_sdk]"
+        "Install with: pip install band-sdk[claude_sdk]\n"
+        "Or: uv add band-sdk[claude_sdk]"
     ) from e
 
 from thenvoi.core.exceptions import ThenvoiToolError

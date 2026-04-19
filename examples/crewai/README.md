@@ -146,7 +146,7 @@ That matters because:
 
 - `load_agent_config()` expects `agent_config.yaml` in the working directory
 - some examples import shared helper modules from the `examples/` tree
-- `uv run` uses the local checkout of `thenvoi-sdk`, so branch-local fixes are included
+- `uv run` uses the local checkout of `band-sdk`, so branch-local fixes are included
 
 Typical pattern:
 

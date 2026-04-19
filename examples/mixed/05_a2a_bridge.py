@@ -1,9 +1,9 @@
 # /// script
 # requires-python = ">=3.11"
-# dependencies = ["thenvoi-sdk[a2a]"]
+# dependencies = ["band-sdk[a2a]"]
 #
 # [tool.uv.sources]
-# thenvoi-sdk = { git = "https://github.com/thenvoi/thenvoi-sdk-python.git" }
+# band-sdk = { git = "https://github.com/thenvoi/thenvoi-sdk-python.git" }
 # ///
 """
 Mixed-example bridge launcher.
@@ -39,10 +39,8 @@ CONFIG_PATH = Path(__file__).with_name("agents.yaml")
 
 def _load_platform_urls() -> tuple[str, str]:
     """Load Thenvoi URLs, defaulting to the hosted platform."""
-    ws_url = os.getenv(
-        "THENVOI_WS_URL", "wss://app.thenvoi.com/api/v1/socket/websocket"
-    )
-    rest_url = os.getenv("THENVOI_REST_URL", "https://app.thenvoi.com")
+    ws_url = os.getenv("THENVOI_WS_URL", "wss://app.band.ai/api/v1/socket/websocket")
+    rest_url = os.getenv("THENVOI_REST_URL", "https://app.band.ai")
 
     return ws_url, rest_url
 

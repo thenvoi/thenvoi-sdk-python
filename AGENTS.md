@@ -261,7 +261,7 @@ THENVOI_AGENT_ID=my-agent THENVOI_API_KEY=key thenvoi-acp
 acp = ["agent-client-protocol"]
 ```
 
-Install with: `pip install thenvoi-sdk[acp]` or `uv add thenvoi-sdk[acp]`
+Install with: `pip install band-sdk[acp]` or `uv add band-sdk[acp]`
 
 ## REST Client OMIT vs Null
 
@@ -340,8 +340,8 @@ uv run pyrefly check
 
 ## Environment Variables
 
-- `THENVOI_REST_URL`: REST API URL (default: https://app.thenvoi.com)
-- `THENVOI_WS_URL`: WebSocket URL (default: wss://app.thenvoi.com/api/v1/socket/websocket)
+- `THENVOI_REST_URL`: REST API URL (default: https://app.band.ai)
+- `THENVOI_WS_URL`: WebSocket URL (default: wss://app.band.ai/api/v1/socket/websocket)
 - `THENVOI_API_KEY_USER`: User API key for E2E WebSocket observer and trigger messages
 - `OPENAI_API_KEY`: OpenAI API key (for LangGraph examples)
 - `ANTHROPIC_API_KEY`: Anthropic API key (for Anthropic/Claude SDK examples)
@@ -418,10 +418,10 @@ Every example file must include PEP 723 inline script metadata at the top for st
 ```python
 # /// script
 # requires-python = ">=3.11"
-# dependencies = ["thenvoi-sdk[<extra>]"]
+# dependencies = ["band-sdk[<extra>]"]
 #
 # [tool.uv.sources]
-# thenvoi-sdk = { git = "https://github.com/thenvoi/thenvoi-sdk-python.git" }
+# band-sdk = { git = "https://github.com/thenvoi/thenvoi-sdk-python.git" }
 # ///
 """
 Brief description of what this example does.

@@ -81,7 +81,7 @@ From the repo root:
 uv sync --extra a2a
 ```
 
-When you run these examples from this repository, `uv run` uses the local checkout of `thenvoi-sdk`.
+When you run these examples from this repository, `uv run` uses the local checkout of `band-sdk`.
 
 ## Running the examples
 
@@ -199,7 +199,7 @@ Run it from the repo root with the checked-in script metadata intact:
 uv run examples/a2a_bridge/01_basic_agent.py
 ```
 
-That command now uses the local checkout of `thenvoi-sdk`.
+That command now uses the local checkout of `band-sdk`.
 
 ### The conversation restarts after reconnect
 

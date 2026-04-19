@@ -1,9 +1,9 @@
 # /// script
 # requires-python = ">=3.11"
-# dependencies = ["thenvoi-sdk[acp]"]
+# dependencies = ["band-sdk[acp]"]
 #
 # [tool.uv.sources]
-# thenvoi-sdk = { git = "https://github.com/thenvoi/thenvoi-sdk-python.git" }
+# band-sdk = { git = "https://github.com/thenvoi/thenvoi-sdk-python.git" }
 # ///
 """
 JetBrains ACP Server - Use Thenvoi as an ACP agent in JetBrains IDEs.
@@ -54,7 +54,7 @@ JetBrains Configuration (~/.jetbrains/acp.json):
     }
 
 Prerequisites:
-    1. Install: pip install thenvoi-sdk[acp]
+    1. Install: pip install band-sdk[acp]
     2. Set THENVOI_API_KEY and THENVOI_AGENT_ID
 
 Run standalone for testing:
@@ -88,10 +88,8 @@ logger = logging.getLogger(__name__)
 async def main() -> None:
     load_dotenv()
 
-    ws_url = os.getenv(
-        "THENVOI_WS_URL", "wss://app.thenvoi.com/api/v1/socket/websocket"
-    )
-    rest_url = os.getenv("THENVOI_REST_URL", "https://app.thenvoi.com")
+    ws_url = os.getenv("THENVOI_WS_URL", "wss://app.band.ai/api/v1/socket/websocket")
+    rest_url = os.getenv("THENVOI_REST_URL", "https://app.band.ai")
     # JetBrains IDEs inject credentials via ~/.jetbrains/acp.json env config.
     # Fall back to agent_config.yaml for standalone testing.
     api_key = os.getenv("THENVOI_API_KEY")

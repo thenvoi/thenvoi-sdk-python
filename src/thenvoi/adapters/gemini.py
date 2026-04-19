@@ -18,7 +18,7 @@ try:
 except ImportError as e:
     raise ImportError(
         "google-genai is required for Gemini adapter.\n"
-        "Install with: pip install 'thenvoi-sdk[gemini]'\n"
+        "Install with: pip install 'band-sdk[gemini]'\n"
         "Or: uv add google-genai"
     ) from e
 

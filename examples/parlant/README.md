@@ -107,8 +107,8 @@ cp agent_config.yaml.example agent_config.yaml
 
 ```bash
 # Thenvoi platform URLs (required)
-THENVOI_WS_URL=wss://app.thenvoi.com/api/v1/socket/websocket
-THENVOI_REST_URL=https://app.thenvoi.com
+THENVOI_WS_URL=wss://app.band.ai/api/v1/socket/websocket
+THENVOI_REST_URL=https://app.band.ai
 
 # OpenAI API key (used by Parlant for LLM)
 OPENAI_API_KEY=your-openai-key
@@ -116,7 +116,7 @@ OPENAI_API_KEY=your-openai-key
 
 ### 3. Add agent credentials to `agent_config.yaml`
 
-1. Create an external agent on the [Thenvoi Platform](https://app.thenvoi.com)
+1. Create an external agent on the [Thenvoi Platform](https://app.band.ai)
 2. Generate an API key for the agent
 3. Edit `agent_config.yaml` and fill in the Parlant agent section:
 
@@ -198,5 +198,5 @@ Install the Parlant extra:
 ```bash
 uv sync --extra parlant
 # or
-pip install 'thenvoi-sdk[parlant]'
+pip install 'band-sdk[parlant]'
 ```

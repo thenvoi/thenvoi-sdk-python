@@ -1,9 +1,9 @@
 # /// script
 # requires-python = ">=3.11"
-# dependencies = ["thenvoi-sdk[a2a_gateway]"]
+# dependencies = ["band-sdk[a2a_gateway]"]
 #
 # [tool.uv.sources]
-# thenvoi-sdk = { git = "https://github.com/thenvoi/thenvoi-sdk-python.git" }
+# band-sdk = { git = "https://github.com/thenvoi/thenvoi-sdk-python.git" }
 # ///
 """
 Basic A2A Gateway adapter example.
@@ -33,8 +33,8 @@ Prerequisites:
     1. Configure gateway credentials:
        - preferred: gateway_agent in agent_config.yaml
        - fallback: THENVOI_API_KEY and optional THENVOI_AGENT_ID
-       - THENVOI_WS_URL: WebSocket URL (default: wss://app.thenvoi.com/api/v1/socket/websocket)
-       - THENVOI_REST_URL: REST API URL (default: https://app.thenvoi.com)
+       - THENVOI_WS_URL: WebSocket URL (default: wss://app.band.ai/api/v1/socket/websocket)
+       - THENVOI_REST_URL: REST API URL (default: https://app.band.ai)
 
     2. Have peers configured on the Thenvoi platform
 
@@ -67,10 +67,8 @@ logger = logging.getLogger(__name__)
 async def main() -> None:
     load_dotenv()
 
-    ws_url = os.getenv(
-        "THENVOI_WS_URL", "wss://app.thenvoi.com/api/v1/socket/websocket"
-    )
-    rest_url = os.getenv("THENVOI_REST_URL", "https://app.thenvoi.com")
+    ws_url = os.getenv("THENVOI_WS_URL", "wss://app.band.ai/api/v1/socket/websocket")
+    rest_url = os.getenv("THENVOI_REST_URL", "https://app.band.ai")
     try:
         agent_id, api_key = load_agent_config("gateway_agent")
         logger.info("Loaded gateway credentials from agent_config.yaml")

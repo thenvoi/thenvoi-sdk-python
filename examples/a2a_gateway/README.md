@@ -84,7 +84,7 @@ If you want the orchestrator demo too:
 uv sync --extra a2a_gateway_demo
 ```
 
-When you run these examples from this repository, `uv run` uses the local checkout of `thenvoi-sdk`.
+When you run these examples from this repository, `uv run` uses the local checkout of `band-sdk`.
 
 ## Running the basic gateway
 

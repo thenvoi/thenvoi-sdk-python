@@ -237,7 +237,7 @@ class LettaAdapter(SimpleAdapter[LettaSessionState]):
         except ImportError:
             raise ImportError(
                 "letta-client is required for LettaAdapter. "
-                "Install with: pip install thenvoi-sdk[letta]"
+                "Install with: pip install band-sdk[letta]"
             )
 
         client_kwargs: dict[str, Any] = {
