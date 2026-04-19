@@ -73,7 +73,7 @@ jobs:
       - name: Build package
         run: uv build
 
-      - name: Publish thenvoi-sdk to PyPI
+      - name: Publish band-sdk to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
 
   publish-band:
@@ -103,7 +103,7 @@ jobs:
 
       - name: Build as band-sdk
         run: |
-          sed -i 's/^name = "thenvoi-sdk"/name = "band-sdk"/' pyproject.toml
+          sed -i 's/^name = "band-sdk"/name = "band-sdk"/' pyproject.toml
           uv build
 
       - name: Publish band-sdk to PyPI

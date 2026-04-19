@@ -31,7 +31,7 @@ from thenvoi.core.types import PlatformMessage
 
 pytestmark = pytest.mark.skipif(
     not _CLAUDE_SDK_AVAILABLE,
-    reason="claude-agent-sdk not installed (pip install thenvoi-sdk[claude_sdk])",
+    reason="claude-agent-sdk not installed (pip install band-sdk[claude_sdk])",
 )
 
 

@@ -27,7 +27,7 @@ try:
 except ImportError as e:
     raise ImportError(
         "crewai is required for CrewAI adapter.\n"
-        "Install with: pip install 'thenvoi-sdk[crewai]'\n"
+        "Install with: pip install 'band-sdk[crewai]'\n"
         "Or: uv add crewai nest-asyncio"
     ) from e
 

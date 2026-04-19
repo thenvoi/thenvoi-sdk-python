@@ -1,9 +1,9 @@
 # /// script
 # requires-python = ">=3.11"
-# dependencies = ["thenvoi-sdk[acp]"]
+# dependencies = ["band-sdk[acp]"]
 #
 # [tool.uv.sources]
-# thenvoi-sdk = { git = "https://github.com/thenvoi/thenvoi-sdk-python.git" }
+# band-sdk = { git = "https://github.com/thenvoi/thenvoi-sdk-python.git" }
 # ///
 """
 JetBrains ACP Server - Use Thenvoi as an ACP agent in JetBrains IDEs.
@@ -54,7 +54,7 @@ JetBrains Configuration (~/.jetbrains/acp.json):
     }
 
 Prerequisites:
-    1. Install: pip install thenvoi-sdk[acp]
+    1. Install: pip install band-sdk[acp]
     2. Set THENVOI_API_KEY and THENVOI_AGENT_ID
 
 Run standalone for testing:

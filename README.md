@@ -603,7 +603,7 @@ docker compose up --build langgraph-01-simple
 
 ```bash
 # Build
-docker build -t thenvoi-sdk .
+docker build -t band-sdk .
 
 # Run (load .env first)
 set -a && source .env && set +a
@@ -612,7 +612,7 @@ docker run --rm \
   -e THENVOI_WS_URL="${THENVOI_WS_URL}" \
   -e OPENAI_API_KEY="${OPENAI_API_KEY}" \
   -v ./agent_config.yaml:/app/agent_config.yaml \
-  thenvoi-sdk \
+  band-sdk \
   uv run --extra langgraph python examples/langgraph/01_simple_agent.py
 ```
 
@@ -630,14 +630,14 @@ docker compose -f examples/codex/docker-compose.yml exec codex-agent /app/docker
 
 Dependency modes:
 - Default (portable): uses publishable dependencies in-container (`uv sync`), with phoenix channels fetched over HTTPS tarball (no SSH/submodule access).
-- Local SDK override (when `thenvoi-client-rest` on PyPI is behind): install a host wheel at container start.
+- Local SDK override (when `band-client-rest` on PyPI is behind): install a host wheel at container start.
 - Runtime execution uses `/app/.venv/bin/python` (not `uv run`) to avoid re-resolving host-local `tool.uv.sources` paths from mounted repo files.
 - Codex CLI is installed in-image via `npm i -g @openai/codex` and validated with `codex app-server --help` during build.
 - Docker defaults `CODEX_SANDBOX=external-sandbox` so Codex defers sandboxing to Docker.
 
 ```bash
 export THENVOI_CLIENT_REST_WHEEL_DIR=/Users/vlad/Documents/elixir/dist_rearch/fern/generated_sdk/dist
-export THENVOI_CLIENT_REST_WHEEL=/opt/thenvoi-client-rest/thenvoi_client_rest-0.0.1.dev6-py3-none-any.whl
+export THENVOI_CLIENT_REST_WHEEL=/opt/band-client-rest/thenvoi_client_rest-0.0.1.dev6-py3-none-any.whl
 docker compose -f examples/codex/docker-compose.yml up --build codex-agent
 ```
 
@@ -654,7 +654,7 @@ If you need both local wheels in one run:
 
 ```bash
 export THENVOI_CLIENT_REST_WHEEL_DIR=/Users/vlad/Documents/elixir/dist_rearch/fern/generated_sdk/dist
-export THENVOI_CLIENT_REST_WHEEL=/opt/thenvoi-client-rest/thenvoi_client_rest-0.0.1.dev6-py3-none-any.whl
+export THENVOI_CLIENT_REST_WHEEL=/opt/band-client-rest/thenvoi_client_rest-0.0.1.dev6-py3-none-any.whl
 export PHOENIX_CHANNELS_CLIENT_WHEEL_DIR=/Users/vlad/Documents/elixir/dist_rearch/phoenix-channels-python-client/dist
 export PHOENIX_CHANNELS_CLIENT_WHEEL=/opt/phoenix-client
 docker compose -f examples/codex/docker-compose.yml build --no-cache codex-agent

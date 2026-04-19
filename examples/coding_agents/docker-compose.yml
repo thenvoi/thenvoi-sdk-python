@@ -45,7 +45,7 @@ x-codex: &codex-base
     - ${HOME}/.config/gh:/home/codex/.config/gh:ro
     - ${HOME}/.ssh:/home/codex/.ssh:ro
     - ${HOME}/.gitconfig:/home/codex/.gitconfig:ro
-    - ${THENVOI_CLIENT_REST_WHEEL_DIR:-/tmp/thenvoi-client-rest}:/opt/thenvoi-client-rest:ro
+    - ${THENVOI_CLIENT_REST_WHEEL_DIR:-/tmp/band-client-rest}:/opt/band-client-rest:ro
     - ${PHOENIX_CHANNELS_CLIENT_WHEEL_DIR:-/tmp/phoenix-client}:/opt/phoenix-client:ro
   extra_hosts:
     - "host.docker.internal:host-gateway"

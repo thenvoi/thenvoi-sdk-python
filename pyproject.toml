@@ -3,7 +3,7 @@ requires = ["setuptools>=68.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "thenvoi-sdk"
+name = "band-sdk"
 version = "0.2.6"
 description = "A Python SDK for Thenvoi API"
 readme = "README.md"
@@ -22,7 +22,7 @@ classifiers = [
 ]
 
 dependencies = [
-    "thenvoi-client-rest==0.0.4",
+    "band-client-rest==0.0.4",
     "phoenix-channels-python-client>=0.1.5",
     "python-dotenv>=1.1.1",
     "pyyaml>=6.0",
@@ -120,7 +120,7 @@ bridge_langchain = [
 ]
 
 dev = [
-    "thenvoi-testing-python>=0.1.2",
+    "band-testing-python>=0.1.2",
     "pytest>=7.0.0",
     "pytest-asyncio>=0.21.0",
     "pytest-mock>=3.10.0",

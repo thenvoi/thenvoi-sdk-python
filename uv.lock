@@ -6243,7 +6243,7 @@ wheels = [
 ]
 
 [[package]]
-name = "thenvoi-client-rest"
+name = "band-client-rest"
 version = "0.0.4"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
@@ -6258,7 +6258,7 @@ wheels = [
 ]
 
 [[package]]
-name = "thenvoi-sdk"
+name = "band-sdk"
 version = "0.2.6"
 source = { editable = "." }
 dependencies = [
@@ -6266,7 +6266,7 @@ dependencies = [
     { name = "phoenix-channels-python-client" },
     { name = "python-dotenv" },
     { name = "pyyaml" },
-    { name = "thenvoi-client-rest" },
+    { name = "band-client-rest" },
 ]
 
 [package.optional-dependencies]
@@ -6359,7 +6359,7 @@ dev = [
     { name = "python-dotenv" },
     { name = "ruff" },
     { name = "starlette" },
-    { name = "thenvoi-testing-python" },
+    { name = "band-testing-python" },
     { name = "uvicorn" },
 ]
 gemini = [
@@ -6479,8 +6479,8 @@ requires-dist = [
     { name = "starlette", marker = "extra == 'a2a-gateway-demo'", specifier = ">=0.40.0" },
     { name = "starlette", marker = "extra == 'acp'", specifier = ">=0.40.0" },
     { name = "starlette", marker = "extra == 'dev'", specifier = ">=0.40.0" },
-    { name = "thenvoi-client-rest", specifier = "==0.0.4" },
-    { name = "thenvoi-testing-python", marker = "extra == 'dev'", specifier = ">=0.1.2" },
+    { name = "band-client-rest", specifier = "==0.0.4" },
+    { name = "band-testing-python", marker = "extra == 'dev'", specifier = ">=0.1.2" },
     { name = "uvicorn", marker = "extra == 'a2a-gateway'", specifier = ">=0.32.0" },
     { name = "uvicorn", marker = "extra == 'a2a-gateway-demo'", specifier = ">=0.32.0" },
     { name = "uvicorn", marker = "extra == 'acp'", specifier = ">=0.32.0" },
@@ -6491,7 +6491,7 @@ requires-dist = [
 provides-extras = ["codex", "opencode", "letta", "pydantic-ai", "anthropic", "langgraph", "claude-sdk", "parlant", "crewai", "gemini", "a2a", "a2a-gateway", "a2a-gateway-demo", "acp", "bridge", "bridge-agentcore", "google-adk", "bridge-langchain", "dev"]
 
 [[package]]
-name = "thenvoi-testing-python"
+name = "band-testing-python"
 version = "0.1.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [

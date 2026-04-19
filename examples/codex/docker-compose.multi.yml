@@ -26,7 +26,7 @@ services:
       - ${HOME}/.config/gh:/home/codex/.config/gh:ro
       - ${HOME}/.ssh:/home/codex/.ssh:ro
       - ${HOME}/.gitconfig:/home/codex/.gitconfig:ro
-      - ${THENVOI_CLIENT_REST_WHEEL_DIR:-/tmp/thenvoi-client-rest}:/opt/thenvoi-client-rest:ro
+      - ${THENVOI_CLIENT_REST_WHEEL_DIR:-/tmp/band-client-rest}:/opt/band-client-rest:ro
       - ${PHOENIX_CHANNELS_CLIENT_WHEEL_DIR:-/tmp/phoenix-client}:/opt/phoenix-client:ro
       - codex_state:/state
       - codex_prompts:/prompts
@@ -81,7 +81,7 @@ services:
       - ${HOME}/.config/gh:/home/codex/.config/gh:ro
       - ${HOME}/.ssh:/home/codex/.ssh:ro
       - ${HOME}/.gitconfig:/home/codex/.gitconfig:ro
-      - ${THENVOI_CLIENT_REST_WHEEL_DIR:-/tmp/thenvoi-client-rest}:/opt/thenvoi-client-rest:ro
+      - ${THENVOI_CLIENT_REST_WHEEL_DIR:-/tmp/band-client-rest}:/opt/band-client-rest:ro
       - ${PHOENIX_CHANNELS_CLIENT_WHEEL_DIR:-/tmp/phoenix-client}:/opt/phoenix-client:ro
       - codex_state:/state
       - codex_prompts:/prompts

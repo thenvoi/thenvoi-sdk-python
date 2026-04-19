@@ -234,8 +234,8 @@ class ClaudeSDKAdapter(SimpleAdapter[ClaudeSDKSessionState]):
         if not _CLAUDE_SDK_AVAILABLE:
             raise ImportError(
                 "claude-agent-sdk is required for ClaudeSDKAdapter.\n"
-                "Install with: pip install thenvoi-sdk[claude_sdk]\n"
-                "Or: uv add thenvoi-sdk[claude_sdk]"
+                "Install with: pip install band-sdk[claude_sdk]\n"
+                "Or: uv add band-sdk[claude_sdk]"
             )
         # --- Shim deprecated params into features -------------------------
         _has_legacy = enable_execution_reporting or enable_memory_tools

@@ -198,5 +198,5 @@ Install the Parlant extra:
 ```bash
 uv sync --extra parlant
 # or
-pip install 'thenvoi-sdk[parlant]'
+pip install 'band-sdk[parlant]'
 ```
