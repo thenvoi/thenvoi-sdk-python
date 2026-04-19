@@ -181,9 +181,9 @@ Resources:
               ValueFrom: !Ref RuntimeArnSecretArn
           Environment:
             - Name: THENVOI_WS_URL
-              Value: wss://app.band.ai/api/v1/socket/websocket
+              Value: wss://app.band.ai/dashboard/api/v1/socket/websocket
             - Name: THENVOI_REST_URL
-              Value: https://app.band.ai
+              Value: https://app.band.ai/dashboard
             - Name: AWS_DEFAULT_REGION
               Value: !Ref AwsRegion
             - Name: HEALTH_HOST

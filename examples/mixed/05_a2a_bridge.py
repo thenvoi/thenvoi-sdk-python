@@ -39,8 +39,10 @@ CONFIG_PATH = Path(__file__).with_name("agents.yaml")
 
 def _load_platform_urls() -> tuple[str, str]:
     """Load Thenvoi URLs, defaulting to the hosted platform."""
-    ws_url = os.getenv("THENVOI_WS_URL", "wss://app.band.ai/api/v1/socket/websocket")
-    rest_url = os.getenv("THENVOI_REST_URL", "https://app.band.ai")
+    ws_url = os.getenv(
+        "THENVOI_WS_URL", "wss://app.band.ai/dashboard/api/v1/socket/websocket"
+    )
+    rest_url = os.getenv("THENVOI_REST_URL", "https://app.band.ai/dashboard")
 
     return ws_url, rest_url
 

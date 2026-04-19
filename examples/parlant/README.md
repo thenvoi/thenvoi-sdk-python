@@ -107,8 +107,8 @@ cp agent_config.yaml.example agent_config.yaml
 
 ```bash
 # Thenvoi platform URLs (required)
-THENVOI_WS_URL=wss://app.band.ai/api/v1/socket/websocket
-THENVOI_REST_URL=https://app.band.ai
+THENVOI_WS_URL=wss://app.band.ai/dashboard/api/v1/socket/websocket
+THENVOI_REST_URL=https://app.band.ai/dashboard
 
 # OpenAI API key (used by Parlant for LLM)
 OPENAI_API_KEY=your-openai-key

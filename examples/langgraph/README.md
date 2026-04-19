@@ -40,8 +40,8 @@ agent = Agent.create(
     adapter=adapter,
     agent_id="your-agent-id",
     api_key="your-api-key",
-    ws_url="wss://app.band.ai/api/v1/socket/websocket",
-    rest_url="https://app.band.ai",
+    ws_url="wss://app.band.ai/dashboard/api/v1/socket/websocket",
+    rest_url="https://app.band.ai/dashboard",
 )
 await agent.run()
 ```

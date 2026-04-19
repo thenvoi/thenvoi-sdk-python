@@ -40,8 +40,10 @@ async def main() -> None:
     setup_logging()
     load_dotenv()
 
-    ws_url = os.getenv("THENVOI_WS_URL", "wss://app.band.ai/api/v1/socket/websocket")
-    rest_url = os.getenv("THENVOI_REST_URL", "https://app.band.ai")
+    ws_url = os.getenv(
+        "THENVOI_WS_URL", "wss://app.band.ai/dashboard/api/v1/socket/websocket"
+    )
+    rest_url = os.getenv("THENVOI_REST_URL", "https://app.band.ai/dashboard")
 
     agent_id, api_key = load_agent_config(
         "mixed_strategy_agent",

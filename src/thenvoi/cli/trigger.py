@@ -54,7 +54,7 @@ from thenvoi_rest.human_api_chats.types.create_my_chat_room_request_chat import 
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_REST_URL = "https://app.band.ai/"
+DEFAULT_REST_URL = "https://app.band.ai/dashboard/"
 DEFAULT_REQUEST_OPTIONS: Final[RequestOptions] = {"max_retries": 3}
 DEFAULT_TIMEOUT: Final[int] = 120
 

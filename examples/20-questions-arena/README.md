@@ -16,8 +16,8 @@ A **Thinker** agent (game master) picks a secret word, announces a challenge to 
   - `arena_guesser_3`
   - `arena_guesser_4`
 - Environment variables:
-  - `THENVOI_WS_URL` -- WebSocket URL (e.g. `wss://app.band.ai/api/v1/socket/websocket`)
-  - `THENVOI_REST_URL` -- REST API URL (e.g. `https://app.band.ai`)
+  - `THENVOI_WS_URL` -- WebSocket URL (e.g. `wss://app.band.ai/dashboard/api/v1/socket/websocket`)
+  - `THENVOI_REST_URL` -- REST API URL (e.g. `https://app.band.ai/dashboard`)
   - `OPENAI_API_KEY` and/or `ANTHROPIC_API_KEY` -- at least one LLM provider key
 
 ## Running the Game (CLI)
@@ -54,7 +54,7 @@ This creates a chat room, adds the Thinker and all configured Guessers, and send
 
 ### 4. Watch the conversation
 
-Open [app.band.ai](https://app.band.ai/dashboard) to watch the agents play in real time.
+Open [app.band.ai/dashboard](https://app.band.ai/dashboard) to watch the agents play in real time.
 
 ## Multiple Guessers
 
