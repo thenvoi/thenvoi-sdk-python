@@ -737,8 +737,8 @@ cp agent_config.yaml.example agent_config.yaml
 
 ```bash
 # Platform URLs
-THENVOI_REST_URL=https://app.thenvoi.com
-THENVOI_WS_URL=wss://app.thenvoi.com/api/v1/socket/websocket
+THENVOI_REST_URL=https://app.band.ai
+THENVOI_WS_URL=wss://app.band.ai/api/v1/socket/websocket
 
 # LLM API Keys - fill these in
 OPENAI_API_KEY=sk-your-key-here

@@ -123,7 +123,7 @@ class ACPClientAdapter(SimpleAdapter[ACPClientSessionState]):
             mcp_servers: Optional list of MCP server configs to pass to agent.
             additional_tools: Optional custom tools to expose through the local
                               Thenvoi MCP server.
-            rest_url: Thenvoi REST API base URL (default: https://app.thenvoi.com).
+            rest_url: Thenvoi REST API base URL (default: https://app.band.ai).
             inject_thenvoi_tools: Whether to auto-inject Thenvoi MCP tools
                                   into each session via a local MCP server.
             auth_method: ACP authentication method to call after initialize.
@@ -139,7 +139,7 @@ class ACPClientAdapter(SimpleAdapter[ACPClientSessionState]):
         self._cwd = os.path.abspath(cwd or ".")
         self._mcp_servers = list(mcp_servers or [])
         self._custom_tools: list[CustomToolDef] = list(additional_tools or [])
-        self._rest_url = rest_url or "https://app.thenvoi.com"
+        self._rest_url = rest_url or "https://app.band.ai"
         self._validate_rest_url(self._rest_url)
         self._inject_thenvoi_tools = inject_thenvoi_tools
         self._auth_method = auth_method

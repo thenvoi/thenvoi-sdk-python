@@ -49,8 +49,8 @@ class BridgeConfig(BaseModel):
 
     agent_id: str
     api_key: str = Field(repr=False)
-    ws_url: str = "wss://app.thenvoi.com/api/v1/socket/websocket"
-    rest_url: str = "https://app.thenvoi.com"
+    ws_url: str = "wss://app.band.ai/api/v1/socket/websocket"
+    rest_url: str = "https://app.band.ai"
     agent_mapping: str
     health_port: int = 8080
     health_host: str = "0.0.0.0"

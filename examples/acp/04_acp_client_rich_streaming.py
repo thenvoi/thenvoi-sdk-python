@@ -70,10 +70,8 @@ logger = logging.getLogger(__name__)
 async def main() -> None:
     load_dotenv()
 
-    ws_url = os.getenv(
-        "THENVOI_WS_URL", "wss://app.thenvoi.com/api/v1/socket/websocket"
-    )
-    rest_url = os.getenv("THENVOI_REST_URL", "https://app.thenvoi.com")
+    ws_url = os.getenv("THENVOI_WS_URL", "wss://app.band.ai/api/v1/socket/websocket")
+    rest_url = os.getenv("THENVOI_REST_URL", "https://app.band.ai")
 
     # Load agent credentials from agent_config.yaml
     agent_id, api_key = load_agent_config("acp_client_agent")
