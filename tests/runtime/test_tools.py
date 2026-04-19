@@ -161,6 +161,23 @@ class TestAgentToolsFromContext:
         assert tools.rest is mock_rest_client
         assert tools._participants == participants
 
+    def test_from_context_stores_ctx_backref(self, mock_rest_client, participants):
+        """from_context() should store a backref to the ExecutionContext."""
+        mock_ctx = MagicMock()
+        mock_ctx.room_id = "room-456"
+        mock_ctx.link = MagicMock()
+        mock_ctx.link.rest = mock_rest_client
+        mock_ctx.participants = participants
+
+        tools = AgentTools.from_context(mock_ctx)
+
+        assert tools._ctx is mock_ctx
+
+    def test_direct_construction_has_no_ctx(self, mock_rest_client):
+        """Direct construction without ctx kwarg defaults to None (backward-compat)."""
+        tools = AgentTools("room-123", mock_rest_client)
+        assert tools._ctx is None
+
 
 class TestAgentToolsSendMessage:
     """Test send_message tool."""
@@ -271,6 +288,31 @@ class TestAgentToolsAddParticipant:
         with pytest.raises(ValueError, match="Participant 'Unknown' not found"):
             await tools.add_participant("Unknown")
 
+    async def test_add_participant_updates_ctx_participants(self, mock_rest_client):
+        """add_participant() should also push to ExecutionContext when ctx is set."""
+        mock_ctx = MagicMock()
+        tools = AgentTools("room-123", mock_rest_client, ctx=mock_ctx)
+
+        result = await tools.add_participant("Agent Two", role="member")
+
+        assert result["id"] == "agent-2"
+        # ctx.add_participant called once with the resolved participant dict
+        mock_ctx.add_participant.assert_called_once()
+        pushed = mock_ctx.add_participant.call_args.args[0]
+        assert pushed["id"] == "agent-2"
+        assert pushed["name"] == "Agent Two"
+        assert pushed["type"] == "Agent"
+
+    async def test_add_participant_without_ctx_does_not_crash(self, mock_rest_client):
+        """add_participant() must still work when ctx is None (direct construction)."""
+        tools = AgentTools("room-123", mock_rest_client)  # no ctx
+
+        result = await tools.add_participant("Agent Two", role="member")
+
+        assert result["id"] == "agent-2"
+        # Per-instance cache still updated
+        assert any(p["id"] == "agent-2" for p in tools._participants)
+
 
 class TestAgentToolsRemoveParticipant:
     """Test remove_participant tool."""
@@ -296,6 +338,27 @@ class TestAgentToolsRemoveParticipant:
 
         with pytest.raises(ValueError, match="not found in this room"):
             await tools.remove_participant("Unknown")
+
+    async def test_remove_participant_updates_ctx_participants(self, mock_rest_client):
+        """remove_participant() should also remove from ExecutionContext when ctx is set."""
+        mock_ctx = MagicMock()
+        tools = AgentTools("room-123", mock_rest_client, ctx=mock_ctx)
+
+        result = await tools.remove_participant("User One")
+
+        assert result["id"] == "user-1"
+        mock_ctx.remove_participant.assert_called_once_with("user-1")
+
+    async def test_remove_participant_without_ctx_does_not_crash(
+        self, mock_rest_client
+    ):
+        """remove_participant() must still work when ctx is None."""
+        tools = AgentTools("room-123", mock_rest_client)  # no ctx
+
+        result = await tools.remove_participant("User One")
+
+        assert result["id"] == "user-1"
+        assert not any(p.get("id") == "user-1" for p in tools._participants)
 
 
 class TestAgentToolsLookupPeers:

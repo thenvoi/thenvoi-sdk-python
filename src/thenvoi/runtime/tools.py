@@ -521,6 +521,8 @@ class AgentTools(AgentToolsProtocol):
         room_id: str,
         rest: "AsyncRestClient",
         participants: list[dict[str, Any]] | None = None,
+        *,
+        ctx: "ExecutionContext | None" = None,
     ):
         """
         Initialize AgentTools for a specific room.
@@ -529,10 +531,15 @@ class AgentTools(AgentToolsProtocol):
             room_id: The room this tools instance is bound to
             rest: AsyncRestClient for API calls
             participants: Optional list of participants for mention resolution
+            ctx: Optional ExecutionContext backref. When provided, successful
+                add_participant / remove_participant calls also update
+                ctx._participants so the next preprocessing pass sees the
+                change before the WebSocket participant event arrives.
         """
         self.room_id = room_id
         self.rest = rest
         self._participants = participants or []
+        self._ctx = ctx
 
     @property
     def participants(self) -> list[dict[str, Any]]:
@@ -552,7 +559,7 @@ class AgentTools(AgentToolsProtocol):
         Returns:
             AgentTools instance bound to the context's room
         """
-        return cls(ctx.room_id, ctx.link.rest, ctx.participants)
+        return cls(ctx.room_id, ctx.link.rest, ctx.participants, ctx=ctx)
 
     # --- Tool methods ---
 
@@ -741,6 +748,15 @@ class AgentTools(AgentToolsProtocol):
             "type": getattr(participant, "type", "Agent"),
             "handle": getattr(participant, "handle", None),
         }
+        # Propagate to ExecutionContext if we have a backref, so the next
+        # preprocessing pass (which rebuilds AgentTools from ctx.participants)
+        # sees the peer before the WebSocket participant_added event arrives.
+        # ExecutionContext.add_participant is idempotent, so WS re-delivery is safe.
+        # Out of scope: the "already_in_room" early-return above does not sync
+        # ctx — if ctx._participants is stale while the server already has the
+        # peer, WS is still the recovery path.
+        if self._ctx is not None:
+            self._ctx.add_participant(new_participant)
         self._participants.append(new_participant)
         logger.debug(
             "Updated participant cache: added %s, total=%s",
@@ -799,6 +815,10 @@ class AgentTools(AgentToolsProtocol):
         # Update internal participant cache
         # NOTE: WebSocket will eventually deliver participant_removed event, but this
         # prevents @mentions to the removed participant immediately after removal.
+        # Propagate to ExecutionContext if we have a backref; remove_participant
+        # is idempotent (filters by id), so WS re-delivery is safe.
+        if self._ctx is not None:
+            self._ctx.remove_participant(participant_id)
         self._participants = [
             p for p in self._participants if p.get("id") != participant_id
         ]
