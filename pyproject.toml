@@ -92,7 +92,7 @@ a2a_gateway_demo = [
     "click>=8.0.0",         # CLI for demo orchestrator
 ]
 acp = [
-    "agent-client-protocol>=0.8.0",  # ACP Python SDK
+    "agent-client-protocol>=0.9.0",  # ACP Python SDK
     "mcp>=1.25.0",
     "starlette>=0.40.0",
     "uvicorn>=0.32.0",
@@ -152,7 +152,7 @@ dev = [
     "crewai==1.14.2",
     "nest-asyncio>=1.6.0",  # Required for CrewAI adapter sync-to-async bridging
     # Include ACP deps for testing
-    "agent-client-protocol>=0.8.0",
+    "agent-client-protocol>=0.9.0",
     "mcp>=1.25.0",
     # Include Gemini SDK for testing
     "google-genai>=1.43.0",
