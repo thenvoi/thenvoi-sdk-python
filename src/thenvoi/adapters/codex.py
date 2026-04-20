@@ -86,6 +86,16 @@ _LOCAL_COMMANDS: frozenset[str] = frozenset(
     }
 )
 
+# How many tokens from the start of the message to scan for a slash command.
+# Allows leading @mentions (which the platform prepends) but stops well short
+# of the message body where a slash word is just prose.
+_COMMAND_TOKEN_SEARCH_LIMIT = 5
+
+# Upper bound on cached task titles (room-lifecycle map used to preserve the
+# title between task_started and task_complete events).  500 covers bursty
+# conversations while keeping memory bounded.
+_MAX_TASK_TITLES = 500
+
 
 # ---------------------------------------------------------------------------
 # Self-configuration tools — let Codex change its own model/reasoning at runtime
@@ -309,7 +319,7 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
         self._room_threads: dict[str, str] = {}
         self._prompt_injected_rooms: set[str] = set()
         self._task_titles_by_id: OrderedDict[str, str] = OrderedDict()
-        self._max_task_titles: int = 500
+        self._max_task_titles: int = _MAX_TASK_TITLES
         self._pending_approvals: dict[str, dict[str, _PendingApproval]] = {}
         self._raw_history_by_room: dict[str, list[dict[str, Any]]] = {}
         self._needs_history_injection: set[str] = set()
@@ -327,7 +337,12 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
         self._sdk_request_context: (
             tuple[AgentToolsProtocol, PlatformMessage, str] | None
         ) = None
-        # Single client receive queue means turn processing must be serialized.
+        # Single client receive queue means turn processing must be serialized
+        # — the lock is adapter-wide, not per-room.  A pending manual approval
+        # in room A therefore blocks turn processing in every other room for
+        # up to ``approval_wait_timeout_s`` (300s default). Approval resolution
+        # commands (/approve, /decline) are handled *outside* this lock in
+        # ``on_message`` so they can unblock a waiting turn.
         self._rpc_lock = asyncio.Lock()
 
     def _build_self_config_tools(self) -> list[CustomToolDef]:
@@ -1412,7 +1427,7 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
             await self._client.respond(event.id, {"decision": decision})
 
             # Record audit trail
-            self._record_approval_audit(
+            audit_entry = self._record_approval_audit(
                 room_id=room_id,
                 request_id=str(event.id),
                 method=event.method,
@@ -1421,13 +1436,11 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
                 summary=summary,
                 session_level=bool(session_key and session_key in room_session),
             )
-            audit_entries = self._approval_audit.get(room_id, [])
-            if audit_entries:
-                await self._emit_approval_audit_event(
-                    tools=tools,
-                    room_id=room_id,
-                    entry=audit_entries[-1],
-                )
+            await self._emit_approval_audit_event(
+                tools=tools,
+                room_id=room_id,
+                entry=audit_entry,
+            )
 
             if (
                 self.config.approval_mode != "manual"
@@ -1463,7 +1476,12 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
                         },
                     )
                 except Exception:
-                    logger.exception("Failed to emit approval thought event")
+                    # Best-effort telemetry — never fail the turn on thought
+                    # emission failures.
+                    logger.debug(
+                        "Failed to emit approval thought event",
+                        exc_info=True,
+                    )
             return False
 
         await self._client.respond_error(
@@ -1608,10 +1626,12 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
                 metadata=metadata,
             )
         except Exception:
-            logger.exception(
+            # Best-effort telemetry — never fail the turn on emit failures.
+            logger.debug(
                 "Failed to emit %s event for item %s (best-effort)",
                 item_type,
                 item_id,
+                exc_info=True,
             )
 
     async def _emit_item_event(
@@ -1953,7 +1973,19 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
             error_obj = {"message": error_msg}
         will_retry = bool(params.get("willRetry", False))
         if will_retry:
-            logger.warning("Codex transient error (will retry): %s", error_msg)
+            # Include retry metadata so a retry storm is observable in logs
+            # even though we don't surface transient errors to the user.
+            retry_attempt = params.get("retryAttempt") or params.get("attempt")
+            retry_after_s = params.get("retryAfterSeconds") or params.get("retryAfter")
+            logger.warning(
+                "Codex transient error (will retry, attempt=%s, retry_after=%ss, "
+                "thread=%s, turn=%s): %s",
+                retry_attempt,
+                retry_after_s,
+                thread_id,
+                turn_id,
+                error_msg,
+            )
             return
 
         logger.error("Codex error: %s", error_msg)
@@ -2138,8 +2170,8 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
         decided_by: str,
         summary: str = "",
         session_level: bool = False,
-    ) -> None:
-        """Record an approval decision for audit purposes."""
+    ) -> ApprovalAuditEntry:
+        """Record an approval decision and return the stored entry."""
         entry = ApprovalAuditEntry(
             request_id=str(request_id),
             method=method,
@@ -2154,6 +2186,7 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
         # Cap the audit trail to avoid unbounded memory growth in long sessions.
         if len(audit_list) > self.config.max_approval_audit_per_room:
             del audit_list[: len(audit_list) - self.config.max_approval_audit_per_room]
+        return entry
 
     async def _emit_approval_audit_event(
         self,
@@ -2642,22 +2675,52 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
                 return model_id
         return None
 
-    @staticmethod
-    def _is_model_unavailable_error(exc: CodexJsonRpcError) -> bool:
-        """Check if the error indicates the requested model is not available."""
+    # Known structured error type tags that indicate the model is not
+    # available.  Codex's codexErrorInfo.type is the authoritative signal
+    # when present; message substrings are a fragile fallback for servers
+    # that don't yet emit structured error info.
+    _MODEL_UNAVAILABLE_ERROR_TYPES: frozenset[str] = frozenset(
+        {
+            "ModelNotFound",
+            "ModelNotAvailable",
+            "ModelUnavailable",
+            "Unauthorized",  # "no access to model X"
+        }
+    )
+    _MODEL_UNAVAILABLE_PHRASES: tuple[str, ...] = (
+        "model not found",
+        "model not available",
+        "is not available",
+        "model_not_found",
+        "model unavailable",
+        "does not have access",
+        "no access to model",
+    )
+
+    @classmethod
+    def _is_model_unavailable_error(cls, exc: CodexJsonRpcError) -> bool:
+        """Check if the error indicates the requested model is not available.
+
+        Prefers structured ``codexErrorInfo.type`` signals on ``exc.data``
+        when available; falls back to substring matching on the message for
+        server versions that don't yet emit structured error info.
+        """
+        data = exc.data if isinstance(exc.data, dict) else None
+        if data is not None:
+            codex_info = data.get("codexErrorInfo")
+            if isinstance(codex_info, dict):
+                err_type = codex_info.get("type")
+                if (
+                    isinstance(err_type, str)
+                    and err_type in cls._MODEL_UNAVAILABLE_ERROR_TYPES
+                ):
+                    return True
+                # HTTP 404 on turn/start with any model-shaped error.
+                if codex_info.get("httpStatus") == 404:
+                    return True
+
         msg = exc.message.lower()
-        return any(
-            phrase in msg
-            for phrase in (
-                "model not found",
-                "model not available",
-                "is not available",
-                "model_not_found",
-                "model unavailable",
-                "does not have access",
-                "no access to model",
-            )
-        )
+        return any(phrase in msg for phrase in cls._MODEL_UNAVAILABLE_PHRASES)
 
     def _apply_thread_sandbox(
         self, params: dict[str, Any], *, room_id: str | None = None
@@ -2698,8 +2761,15 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
 
         logger.warning("Ignoring unsupported Codex sandbox value: %s", effective)
 
-    # SandboxMode (thread/start) uses kebab-case: "read-only", "workspace-write", etc.
-    # SandboxPolicy (turn/start) uses camelCase type tags: "readOnly", "workspaceWrite", etc.
+    # Codex app-server has two sandbox fields with different wire formats:
+    #   - thread/start.sandbox: SandboxMode enum, kebab-case strings
+    #     ("read-only", "workspace-write", "danger-full-access").
+    #   - turn/start.sandboxPolicy: SandboxPolicy tagged union, camelCase
+    #     type tags ("readOnly", "workspaceWrite", "dangerFullAccess",
+    #     "externalSandbox").
+    # This mapping bridges the two.  If the Codex protocol renames tags,
+    # update both this mapping and _canonical_sandbox_key's aliases.
+    # Reference: codex-app-server protocol types (thread/start, turn/start).
     _SANDBOX_MODE_TO_POLICY_TYPE: dict[str, str] = {
         "read-only": "readOnly",
         "workspace-write": "workspaceWrite",
@@ -2823,8 +2893,13 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
         When set to ``"binary"``, keys on the command binary (first token) so
         ``/approve-session`` on ``npm test`` auto-approves all ``npm`` commands.
 
-        For file changes (and other methods), keys on the full method string
-        regardless of granularity.
+        For file changes, keys on the set of paths being modified so
+        ``/approve-session`` on a request touching ``src/foo.py`` only
+        auto-approves future requests touching the same path(s).  When no
+        paths are present we return an empty string so session-level approval
+        is refused — keying on the bare method string would turn
+        ``/approve-session`` into a blanket "approve every future file change"
+        switch, which is a security footgun.
         """
         if method == "item/commandExecution/requestApproval":
             command = params.get("command")
@@ -2836,7 +2911,43 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
             # No identifiable command — return empty so session-level approval
             # is not possible (avoids a blanket wildcard match).
             return ""
-        return method
+
+        if method == "item/fileChange/requestApproval":
+            paths = self._extract_file_change_paths(params)
+            if not paths:
+                # No identifiable paths — refuse session-level approval so
+                # one /approve-session can't auto-approve every future file
+                # change in this room.
+                return ""
+            # Sort for a stable key regardless of change order.
+            return "fileChange:" + "|".join(sorted(paths))
+
+        # Unknown method — refuse session-level approval rather than key on
+        # the bare method string (which would collapse all future requests
+        # of this method into one bucket).
+        return ""
+
+    @staticmethod
+    def _extract_file_change_paths(params: dict[str, Any]) -> list[str]:
+        """Extract file paths from an item/fileChange/requestApproval payload."""
+        paths: list[str] = []
+        changes = params.get("changes")
+        if isinstance(changes, list):
+            for change in changes:
+                if isinstance(change, dict):
+                    path = change.get("path")
+                    if isinstance(path, str) and path:
+                        paths.append(path)
+        # Some payload variants carry paths at the top level.
+        for key in ("path", "paths"):
+            value = params.get(key)
+            if isinstance(value, str) and value:
+                paths.append(value)
+            elif isinstance(value, list):
+                for p in value:
+                    if isinstance(p, str) and p:
+                        paths.append(p)
+        return paths
 
     @staticmethod
     def _task_event_id(params: dict[str, Any]) -> str | None:
@@ -2910,7 +3021,7 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
         # Only look for a /command in the first few tokens (to allow for
         # leading @mentions which the platform prepends) but not deep in
         # the message body where a slash word is just prose.
-        search_limit = min(len(tokens), 5)
+        search_limit = min(len(tokens), _COMMAND_TOKEN_SEARCH_LIMIT)
         for idx in range(search_limit):
             token = tokens[idx]
             if not token.startswith("/") or len(token) == 1:

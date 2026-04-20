@@ -126,6 +126,16 @@ class CodexSdkClient:
             config=self._sdk_config,
             approval_handler=self._server_request_bridge,
         )
+        # Fail loudly on SDK upgrades that remove the private _request_raw
+        # API we depend on (see request() below).  pyproject.toml pins
+        # codex-app-server-sdk ~=0.2.0 but a minor bump could still drop it.
+        if not hasattr(self._sync_client, "_request_raw"):
+            raise RuntimeError(
+                "codex-app-server-sdk is missing the private '_request_raw' "
+                "method that thenvoi-sdk depends on. This indicates an "
+                "incompatible SDK version. Pin codex-app-server-sdk ~=0.2.0 "
+                "or file an upstream request for a public request() API."
+            )
         await asyncio.to_thread(self._sync_client.start)
         self._connected = True
 

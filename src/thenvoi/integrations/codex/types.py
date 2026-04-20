@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -232,7 +235,30 @@ class CodexTokenUsage:
                 self.input_tokens + self.output_tokens + self.reasoning_tokens
             )
 
-        # Compute per-turn deltas
+        # Compute per-turn deltas.  Cumulative counters should never go
+        # backwards; if they do, the server likely switched to delta-shaped
+        # payloads (or reset the thread) and our cumulative accumulation
+        # silently corrupts itself.  Clamp to 0 so UI counters don't go
+        # negative, but warn so operators can spot the regression.
+        if (
+            self.input_tokens < prev_input
+            or self.output_tokens < prev_output
+            or self.reasoning_tokens < prev_reasoning
+            or self.total_tokens < prev_total
+        ):
+            logger.warning(
+                "Codex token usage counter decreased (input %s->%s, output %s->%s, "
+                "reasoning %s->%s, total %s->%s). Expected cumulative totals; "
+                "protocol may have changed to deltas.",
+                prev_input,
+                self.input_tokens,
+                prev_output,
+                self.output_tokens,
+                prev_reasoning,
+                self.reasoning_tokens,
+                prev_total,
+                self.total_tokens,
+            )
         self.turn_input_tokens = max(0, self.input_tokens - prev_input)
         self.turn_output_tokens = max(0, self.output_tokens - prev_output)
         self.turn_reasoning_tokens = max(0, self.reasoning_tokens - prev_reasoning)

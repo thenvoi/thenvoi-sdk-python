@@ -4896,13 +4896,18 @@ class TestCodexTypes:
         key = adapter._session_approval_key("item/commandExecution/requestApproval", {})
         assert key == ""
 
-    def test_session_approval_key_method_for_file_changes(self) -> None:
-        """Session approval key uses full method for file changes."""
+    def test_session_approval_key_empty_for_file_changes_without_paths(self) -> None:
+        """Session approval refuses fileChange requests that carry no paths.
+
+        Previously the bare method name was used, which turned a single
+        /approve-session into a blanket "approve every future file change"
+        switch.  We now require a path signature.
+        """
         adapter = CodexAdapter(config=CodexAdapterConfig())
         key = adapter._session_approval_key(
             "item/fileChange/requestApproval", {"reason": "update"}
         )
-        assert key == "item/fileChange/requestApproval"
+        assert key == ""
 
 
 class TestSessionAutoApproval:
@@ -6133,3 +6138,159 @@ class TestReviewFixesPhase2:
 
         assert "Python >= 3.12" in str(exc_info.value)
         assert "thenvoi-sdk[codex]" in str(exc_info.value)
+
+
+class TestReviewFixesPhase3:
+    """Safeguards added in response to a secondary review pass."""
+
+    def test_file_change_session_key_requires_paths(self) -> None:
+        """/approve-session must refuse fileChange requests with no paths."""
+        adapter = CodexAdapter(config=CodexAdapterConfig(transport="ws"))
+        key = adapter._session_approval_key(
+            "item/fileChange/requestApproval",
+            {"reason": "something vague"},
+        )
+        assert key == ""
+
+    def test_file_change_session_key_uses_paths_when_present(self) -> None:
+        """fileChange session key includes sorted path list for stable matching."""
+        adapter = CodexAdapter(config=CodexAdapterConfig(transport="ws"))
+        key1 = adapter._session_approval_key(
+            "item/fileChange/requestApproval",
+            {"changes": [{"path": "b.py"}, {"path": "a.py"}]},
+        )
+        key2 = adapter._session_approval_key(
+            "item/fileChange/requestApproval",
+            {"changes": [{"path": "a.py"}, {"path": "b.py"}]},
+        )
+        assert key1 == key2
+        assert key1 == "fileChange:a.py|b.py"
+
+    def test_file_change_session_key_handles_top_level_paths(self) -> None:
+        """fileChange session key also picks up top-level path/paths fields."""
+        adapter = CodexAdapter(config=CodexAdapterConfig(transport="ws"))
+        key = adapter._session_approval_key(
+            "item/fileChange/requestApproval",
+            {"paths": ["src/foo.py", "src/bar.py"]},
+        )
+        assert "src/foo.py" in key
+        assert "src/bar.py" in key
+
+    def test_unknown_approval_method_returns_empty_key(self) -> None:
+        """Session-level approval refuses unknown methods rather than bucketing them."""
+        adapter = CodexAdapter(config=CodexAdapterConfig(transport="ws"))
+        assert adapter._session_approval_key("item/unknown/requestApproval", {}) == ""
+
+    @pytest.mark.asyncio
+    async def test_approve_session_refused_for_fileChange_without_paths(self) -> None:
+        """/approve-session for a fileChange request with no paths is rejected."""
+        events = [
+            _event_request(
+                88,
+                "item/fileChange/requestApproval",
+                {"reason": "write something"},
+            ),
+        ]
+        fake_client = FakeCodexClient(events=events)
+        adapter = CodexAdapter(
+            config=CodexAdapterConfig(
+                transport="ws",
+                approval_mode="manual",
+                approval_wait_timeout_s=0.05,
+                approval_timeout_decision="decline",
+            ),
+            client_factory=lambda _config: fake_client,
+        )
+        tools = ToolSchemaFakeTools()
+        await adapter.on_started("Agent", "A coding agent")
+
+        await adapter.on_message(
+            make_platform_message(),
+            tools,
+            CodexSessionState(),
+            participants_msg=None,
+            contacts_msg=None,
+            is_session_bootstrap=True,
+            room_id="room-1",
+        )
+
+        # Manual approval times out and the pending record is cleared,
+        # so /approve-session reports no pending approvals rather than
+        # storing an empty session key.
+        tools.messages_sent.clear()
+        await adapter.on_message(
+            make_platform_message(content="/approve-session 88"),
+            tools,
+            CodexSessionState(),
+            participants_msg=None,
+            contacts_msg=None,
+            is_session_bootstrap=False,
+            room_id="room-1",
+        )
+        assert any("No pending approvals" in m["content"] for m in tools.messages_sent)
+        assert "room-1" not in adapter._session_approved
+
+    def test_model_unavailable_matches_structured_error_type(self) -> None:
+        """_is_model_unavailable_error trusts codexErrorInfo.type when present."""
+        err = CodexJsonRpcError(
+            code=-32000,
+            message="some opaque server message",
+            data={"codexErrorInfo": {"type": "ModelNotFound"}},
+        )
+        assert CodexAdapter._is_model_unavailable_error(err) is True
+
+    def test_model_unavailable_matches_http_404(self) -> None:
+        """HTTP 404 signals model-not-found regardless of message wording."""
+        err = CodexJsonRpcError(
+            code=-32000,
+            message="",
+            data={"codexErrorInfo": {"httpStatus": 404}},
+        )
+        assert CodexAdapter._is_model_unavailable_error(err) is True
+
+    def test_model_unavailable_falls_back_to_substring(self) -> None:
+        """When no structured info is present, substring matching still works."""
+        err = CodexJsonRpcError(
+            code=-32000,
+            message="Requested model not available on this account",
+        )
+        assert CodexAdapter._is_model_unavailable_error(err) is True
+
+    def test_model_unavailable_returns_false_for_unrelated_error(self) -> None:
+        err = CodexJsonRpcError(code=-32000, message="network blip")
+        assert CodexAdapter._is_model_unavailable_error(err) is False
+
+    def test_token_usage_warns_on_non_monotonic_counters(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """A decreasing cumulative counter triggers a warning."""
+        from thenvoi.integrations.codex.types import CodexTokenUsage
+
+        usage = CodexTokenUsage()
+        usage.update({"usage": {"inputTokens": 100, "outputTokens": 100}})
+        with caplog.at_level(
+            logging.WARNING, logger="thenvoi.integrations.codex.types"
+        ):
+            usage.update({"usage": {"inputTokens": 50, "outputTokens": 50}})
+        assert any(
+            "token usage counter decreased" in record.message.lower()
+            for record in caplog.records
+        )
+        # Deltas clamped to 0 rather than going negative.
+        assert usage.turn_input_tokens == 0
+        assert usage.turn_output_tokens == 0
+
+    def test_record_approval_audit_returns_entry(self) -> None:
+        """_record_approval_audit returns the entry it appended."""
+        adapter = CodexAdapter(config=CodexAdapterConfig(transport="ws"))
+        entry = adapter._record_approval_audit(
+            room_id="room-1",
+            request_id="req-1",
+            method="item/commandExecution/requestApproval",
+            decision="accept",
+            decided_by="tester",
+            summary="command: ls",
+        )
+        assert entry.request_id == "req-1"
+        assert entry.decision == "accept"
+        assert adapter._approval_audit["room-1"][-1] is entry
