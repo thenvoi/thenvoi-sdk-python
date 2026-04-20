@@ -18,6 +18,7 @@ from collections.abc import Awaitable, Callable
 from typing import Any
 
 from .rpc_base import CodexJsonRpcError, RpcEvent
+from .types import CODEX_APPROVAL_METHODS
 
 logger = logging.getLogger(__name__)
 
@@ -31,16 +32,6 @@ AsyncRequestHandler = Callable[..., Awaitable[dict[str, Any] | None]]
 # it from ``approval_wait_timeout_s`` so manual approvals are not truncated.
 _DEFAULT_SERVER_REQUEST_TIMEOUT_S = 300.0
 
-# Methods whose default must be an explicit decline when the adapter can't
-# produce a real decision — shipping an empty dict is ambiguous and some
-# servers interpret it as accept.
-_APPROVAL_METHODS: frozenset[str] = frozenset(
-    {
-        "item/commandExecution/requestApproval",
-        "item/fileChange/requestApproval",
-    }
-)
-
 
 def _safe_default_response(method: str) -> dict[str, Any]:
     """Return a safe default response for a server request we can't handle.
@@ -48,7 +39,7 @@ def _safe_default_response(method: str) -> dict[str, Any]:
     Approval requests default to ``decline`` (never silent-accept); all
     other methods get an empty dict.
     """
-    if method in _APPROVAL_METHODS:
+    if method in CODEX_APPROVAL_METHODS:
         return {"decision": "decline"}
     return {}
 
@@ -199,9 +190,13 @@ class CodexSdkClient:
                 if retry_on_overload:
                     from codex_app_server import retry_on_overload as _retry  # type: ignore[missing-import]
 
-                    # TODO: _request_raw is a private API — request a public
-                    # request(method, params) upstream and migrate once available.
-                    # Pin codex-app-server ~=0.2.0 to guard against breakage.
+                    # NOTE: _request_raw is a private SDK API.  We pin
+                    # codex-app-server-sdk ~=0.2.0 and verify the attribute
+                    # exists in connect() (see runtime guard there) so an
+                    # incompatible release fails loudly at startup rather
+                    # than at request time.  Tracked in INT-226 follow-up:
+                    # file an upstream request for a public
+                    # ``request(method, params)`` and migrate once available.
                     return _retry(  # type: ignore[return-value]
                         lambda: self._sync_client._request_raw(method, params),  # noqa: SLF001
                     )
@@ -345,7 +340,7 @@ class CodexSdkClient:
         silently auto-approved when the adapter is not ready to handle them
         (e.g. during ``request()`` calls or before the handler is registered).
         """
-        if method in _APPROVAL_METHODS:
+        if method in CODEX_APPROVAL_METHODS:
             logger.warning(
                 "SDK bridge: auto-declining approval request (method=%s) "
                 "because no async handler is available",

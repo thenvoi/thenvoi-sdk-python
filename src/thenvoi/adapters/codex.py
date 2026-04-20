@@ -33,6 +33,7 @@ from thenvoi.integrations.codex import (
     RpcEvent,
 )
 from thenvoi.integrations.codex.types import (
+    CODEX_APPROVAL_METHODS,
     ApprovalAuditEntry,
     CodexSessionState,
     CodexTokenUsage,
@@ -66,15 +67,6 @@ _SILENT_REPORTING_TOOLS: frozenset[str] = frozenset(
     }
 )
 
-# Server-request methods that must never default to anything other than an
-# explicit ``decline`` when the adapter can't produce a real decision.
-_APPROVAL_METHODS: frozenset[str] = frozenset(
-    {
-        "item/commandExecution/requestApproval",
-        "item/fileChange/requestApproval",
-    }
-)
-
 # Slash commands recognised by _extract_local_command().
 _LOCAL_COMMANDS: frozenset[str] = frozenset(
     {
@@ -105,11 +97,13 @@ _COMMAND_TOKEN_SEARCH_LIMIT = 5
 # conversations while keeping memory bounded.
 _MAX_TASK_TITLES = 500
 
-# Cap on the raw diff string forwarded in ``turn/diff/updated`` task metadata.
-# Diffs can be megabytes on large refactors; shipping the full blob inflates
-# WebSocket frames and chat-event storage.  Consumers that need the full diff
-# should request it from Codex directly.
-_MAX_DIFF_METADATA_BYTES = 64 * 1024
+# Cap on the raw diff string forwarded in ``turn/diff/updated`` task metadata,
+# expressed in characters (not bytes).  Diffs can be megabytes on large
+# refactors; shipping the full blob inflates WebSocket frames and chat-event
+# storage.  Consumers that need the full diff should request it from Codex
+# directly.  For mostly-ASCII diffs this maps roughly 1:1 to bytes; for
+# heavily multi-byte content the wire size can be up to ~4x larger.
+_MAX_DIFF_METADATA_CHARS = 64 * 1024
 
 
 # ---------------------------------------------------------------------------
@@ -200,7 +194,17 @@ class _TurnResult:
 
 @dataclass
 class CodexAdapterConfig:
-    """Runtime configuration for Codex adapter sessions."""
+    """Runtime configuration for Codex adapter sessions.
+
+    Notes on ``transport``:
+        - ``"stdio"`` and ``"ws"`` work on all supported Python versions.
+        - ``"sdk"`` requires the optional ``codex-app-server`` dependency,
+          which only publishes wheels for Python >= 3.12.  On 3.11 and
+          below, ``pip install thenvoi-sdk[codex]`` silently omits it and
+          constructing an ``"sdk"``-transport adapter raises ``ImportError``
+          at ``on_started()``.  Use ``"stdio"`` / ``"ws"`` on older
+          interpreters.
+    """
 
     transport: TransportKind = "stdio"
     model: str | None = None
@@ -1022,7 +1026,9 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
                 # Default to ``decline`` for approval methods so a missing
                 # context can never silent-accept a command or file change.
                 default = (
-                    {"decision": "decline"} if event.method in _APPROVAL_METHODS else {}
+                    {"decision": "decline"}
+                    if event.method in CODEX_APPROVAL_METHODS
+                    else {}
                 )
                 await self._client.respond(event.id, default)
             return
@@ -1316,6 +1322,24 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
         room_id: str,
         event: RpcEvent,
     ) -> bool:
+        """Dispatch a server-initiated request (tool call, approval).
+
+        Concurrency model: this coroutine mutates adapter state
+        (``_pending_approvals``, ``_session_approved``, ``_approval_audit``,
+        ``_task_titles_by_id``) without an explicit lock.  It is safe
+        because the only two call sites both run on the single adapter
+        event loop:
+
+        1. The turn-processing loop in ``_process_turn_events`` (stdio / ws
+           transports) which is already serialized by ``_rpc_lock``.
+        2. The SDK bridge's ``_handle_sdk_server_request``, which is
+           scheduled via ``asyncio.run_coroutine_threadsafe`` on the same
+           loop while a turn is awaiting ``recv_event``.
+
+        Because asyncio runs one coroutine at a time, every synchronous
+        span inside this method is atomic.  If a new caller is ever added
+        from a different thread, this routine must be re-audited.
+        """
         if self._client is None:
             raise RuntimeError("CodexAdapter client is None — was on_started() called?")
         if event.id is None:
@@ -1425,99 +1449,14 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
 
             return tool_name == "thenvoi_send_message" and tool_call_succeeded
 
-        if event.method in _APPROVAL_METHODS:
-            summary = self._approval_summary(event.method, params)
-
-            # Check session-level auto-approval first
-            session_key = self._session_approval_key(event.method, params)
-            room_session = self._session_approved.get(room_id, set())
-            if session_key and session_key in room_session:
-                decision: ApprovalDecision = "acceptForSession"
-                decided_by = "session_policy"
-            elif self.config.approval_mode == "manual":
-                try:
-                    decision = await self._resolve_manual_approval(
-                        tools=tools,
-                        msg=msg,
-                        room_id=room_id,
-                        event=event,
-                        summary=summary,
-                        params=params,
-                    )
-                    decided_by = msg.sender_name or msg.sender_type or "user"
-                except Exception:
-                    # Ensure we still answer the server request even if human-facing
-                    # notification fails.
-                    logger.exception(
-                        "Manual approval flow failed; defaulting to decline"
-                    )
-                    decision = "decline"
-                    decided_by = "system_fallback"
-            else:
-                decision = (
-                    "accept"
-                    if self.config.approval_mode == "auto_accept"
-                    else "decline"
-                )
-                decided_by = f"policy:{self.config.approval_mode}"
-            await self._client.respond(event.id, {"decision": decision})
-
-            # Record audit trail
-            audit_entry = self._record_approval_audit(
-                room_id=room_id,
-                request_id=str(event.id),
-                method=event.method,
-                decision=decision,
-                decided_by=decided_by,
-                summary=summary,
-                session_level=bool(session_key and session_key in room_session),
-            )
-            await self._emit_approval_audit_event(
+        if event.method in CODEX_APPROVAL_METHODS:
+            await self._handle_approval_request(
                 tools=tools,
+                msg=msg,
                 room_id=room_id,
-                entry=audit_entry,
+                event=event,
+                params=params,
             )
-
-            if (
-                self.config.approval_mode != "manual"
-                and self.config.approval_text_notifications
-            ):
-                mention = [
-                    {
-                        "id": msg.sender_id,
-                        "name": msg.sender_name or msg.sender_type,
-                    }
-                ]
-                try:
-                    await tools.send_message(
-                        f"Approval requested ({summary}). Policy decision: {decision}.",
-                        mentions=mention,
-                    )
-                except Exception:
-                    logger.exception("Failed to send approval policy notification")
-
-            if Emit.THOUGHTS in self.features.emit:
-                try:
-                    await tools.send_event(
-                        content=f"Codex approval request handled automatically ({decision}).",
-                        message_type="thought",
-                        metadata={
-                            "codex_approval_method": event.method,
-                            "codex_approval_type": self._approval_type(event.method),
-                            "codex_approval_options": [
-                                "accept",
-                                "acceptForSession",
-                                "decline",
-                            ],
-                        },
-                    )
-                except Exception:
-                    # Best-effort telemetry — never fail the turn on thought
-                    # emission failures.
-                    logger.debug(
-                        "Failed to emit approval thought event",
-                        exc_info=True,
-                    )
             return False
 
         await self._client.respond_error(
@@ -1526,6 +1465,118 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
             message=f"Unhandled server request: {event.method}",
         )
         return False
+
+    async def _handle_approval_request(
+        self,
+        *,
+        tools: AgentToolsProtocol,
+        msg: PlatformMessage,
+        room_id: str,
+        event: RpcEvent,
+        params: dict[str, Any],
+    ) -> None:
+        """Resolve a Codex approval request (command / file change).
+
+        Splits off from :meth:`_handle_server_request` for readability.
+        Same concurrency guarantees apply — see the docstring there.
+        """
+        if self._client is None:
+            raise RuntimeError("CodexAdapter client is None — was on_started() called?")
+        if event.id is None:
+            return
+
+        summary = self._approval_summary(event.method, params)
+
+        # Check session-level auto-approval first.
+        session_key = self._session_approval_key(event.method, params)
+        room_session = self._session_approved.get(room_id, set())
+        session_hit = bool(session_key and session_key in room_session)
+
+        if session_hit:
+            decision: ApprovalDecision = "acceptForSession"
+            decided_by = "session_policy"
+        elif self.config.approval_mode == "manual":
+            try:
+                decision = await self._resolve_manual_approval(
+                    tools=tools,
+                    msg=msg,
+                    room_id=room_id,
+                    event=event,
+                    summary=summary,
+                    params=params,
+                )
+                decided_by = msg.sender_name or msg.sender_type or "user"
+            except Exception:
+                # Ensure we still answer the server request even if the
+                # human-facing notification flow fails.
+                logger.exception("Manual approval flow failed; defaulting to decline")
+                decision = "decline"
+                decided_by = "system_fallback"
+        else:
+            decision = (
+                "accept" if self.config.approval_mode == "auto_accept" else "decline"
+            )
+            decided_by = f"policy:{self.config.approval_mode}"
+
+        await self._client.respond(event.id, {"decision": decision})
+
+        audit_entry = self._record_approval_audit(
+            room_id=room_id,
+            request_id=str(event.id),
+            method=event.method,
+            decision=decision,
+            decided_by=decided_by,
+            summary=summary,
+            session_level=session_hit,
+        )
+        await self._emit_approval_audit_event(
+            tools=tools,
+            room_id=room_id,
+            entry=audit_entry,
+        )
+
+        if (
+            self.config.approval_mode != "manual"
+            and self.config.approval_text_notifications
+        ):
+            mention = [
+                {
+                    "id": msg.sender_id,
+                    "name": msg.sender_name or msg.sender_type,
+                }
+            ]
+            try:
+                await tools.send_message(
+                    f"Approval requested ({summary}). Policy decision: {decision}.",
+                    mentions=mention,
+                )
+            except Exception:
+                logger.exception("Failed to send approval policy notification")
+
+        if Emit.THOUGHTS in self.features.emit:
+            try:
+                await tools.send_event(
+                    content=(
+                        f"Codex approval request handled automatically ({decision})."
+                    ),
+                    message_type="thought",
+                    metadata={
+                        "codex_approval_method": event.method,
+                        "codex_approval_type": self._approval_type(event.method),
+                        "codex_approval_options": [
+                            "accept",
+                            "acceptForSession",
+                            "decline",
+                        ],
+                    },
+                )
+            except Exception:
+                # Best-effort telemetry — never fail the turn on thought
+                # emission failures.
+                logger.debug(
+                    "Failed to emit approval thought event",
+                    exc_info=True,
+                )
 
     async def _emit_turn_outcome(
         self,
@@ -2174,10 +2225,10 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
 
         diff_truncated = False
         original_length = len(diff_content)
-        if original_length > _MAX_DIFF_METADATA_BYTES:
+        if original_length > _MAX_DIFF_METADATA_CHARS:
             diff_content = (
-                diff_content[:_MAX_DIFF_METADATA_BYTES]
-                + f"\n... [truncated, {original_length - _MAX_DIFF_METADATA_BYTES} more chars]"
+                diff_content[:_MAX_DIFF_METADATA_CHARS]
+                + f"\n... [truncated, {original_length - _MAX_DIFF_METADATA_CHARS} more chars]"
             )
             diff_truncated = True
 

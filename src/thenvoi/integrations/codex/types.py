@@ -10,6 +10,18 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 
+# Server-request methods that must never default to anything other than an
+# explicit ``decline`` when the adapter can't produce a real decision.
+# Shared between the adapter and the SDK bridge so a new approval method is
+# added in exactly one place.
+CODEX_APPROVAL_METHODS: frozenset[str] = frozenset(
+    {
+        "item/commandExecution/requestApproval",
+        "item/fileChange/requestApproval",
+    }
+)
+
+
 @dataclass
 class CodexSessionState:
     """Session state extracted from platform history for Codex rehydration."""
