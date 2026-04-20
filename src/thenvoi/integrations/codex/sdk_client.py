@@ -12,6 +12,7 @@ from __future__ import annotations
 import asyncio
 import concurrent.futures
 import logging
+import sys
 import threading
 from collections.abc import Awaitable, Callable
 from typing import Any
@@ -25,8 +26,10 @@ logger = logging.getLogger(__name__)
 AsyncRequestHandler = Callable[..., Awaitable[dict[str, Any] | None]]
 
 # Default timeout for blocking the SDK thread while waiting for async
-# server-request resolution (seconds).
-_SERVER_REQUEST_TIMEOUT_S = 300.0
+# server-request resolution (seconds).  Callers override this via the
+# ``server_request_timeout_s`` constructor argument; the adapter derives
+# it from ``approval_wait_timeout_s`` so manual approvals are not truncated.
+_DEFAULT_SERVER_REQUEST_TIMEOUT_S = 300.0
 
 
 class CodexSdkClient:
@@ -47,14 +50,25 @@ class CodexSdkClient:
         client_title: str = "Thenvoi Codex Adapter",
         client_version: str = "0.1.0",
         experimental_api: bool = True,
+        server_request_timeout_s: float = _DEFAULT_SERVER_REQUEST_TIMEOUT_S,
     ) -> None:
         try:
             from codex_app_server import AppServerClient, AppServerConfig  # type: ignore[missing-import]
         except ImportError as exc:
+            if sys.version_info < (3, 12):
+                raise ImportError(
+                    "transport='sdk' requires codex-app-server, which "
+                    f"requires Python >= 3.12 (current: {sys.version_info.major}."
+                    f"{sys.version_info.minor}). "
+                    "Use transport='stdio' or transport='ws' on older Python, "
+                    "or upgrade to Python 3.12+ and reinstall with "
+                    "`pip install thenvoi-sdk[codex]`."
+                ) from exc
             raise ImportError(
                 "codex-app-server is required for transport='sdk'. "
                 "Install with: pip install thenvoi-sdk[codex]"
             ) from exc
+        self._server_request_timeout_s = server_request_timeout_s
 
         self._sdk_config = AppServerConfig(
             codex_bin=codex_bin,
@@ -271,7 +285,7 @@ class CodexSdkClient:
 
         # Block the SDK thread until the adapter calls respond().
         try:
-            return response_future.result(timeout=_SERVER_REQUEST_TIMEOUT_S)
+            return response_future.result(timeout=self._server_request_timeout_s)
         except concurrent.futures.TimeoutError:
             logger.warning(
                 "SDK bridge: timed out waiting for server-request response "

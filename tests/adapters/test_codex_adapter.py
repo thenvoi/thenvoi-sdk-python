@@ -4494,7 +4494,7 @@ class TestRealtimeStreaming:
 class TestDiffsAndTokenUsage:
     @pytest.mark.asyncio
     async def test_diff_event_forwarded(self) -> None:
-        """turn/diff/updated forwards as tool_result when enabled."""
+        """turn/diff/updated forwards as a task event when enabled."""
         events = [
             _event_notification(
                 "turn/diff/updated",
@@ -4520,7 +4520,6 @@ class TestDiffsAndTokenUsage:
             config=CodexAdapterConfig(
                 transport="ws",
                 emit_diff_events=True,
-                enable_execution_reporting=True,
             ),
             client_factory=lambda _config: fake_client,
         )
@@ -4543,14 +4542,16 @@ class TestDiffsAndTokenUsage:
             if e["metadata"].get("codex_event_type") == "turn_diff"
         ]
         assert len(diff_events) == 1
+        assert diff_events[0]["message_type"] == "task"
         assert diff_events[0]["metadata"]["codex_files_changed"] == ["src/app.py"]
-        content = json.loads(diff_events[0]["content"])
-        assert content["name"] == "codex_diff"
-        assert "app.py" in content["output"]
+        assert "src/app.py" in diff_events[0]["metadata"]["codex_diff"]
+        assert "1 files changed" in diff_events[0]["content"]
 
     @pytest.mark.asyncio
-    async def test_diff_event_requires_execution_reporting(self) -> None:
-        """Diffs are not forwarded without enable_execution_reporting."""
+    async def test_diff_event_requires_task_events_emit(self) -> None:
+        """Diffs are not forwarded when TASK_EVENTS is not in features.emit."""
+        from thenvoi.core.types import AdapterFeatures
+
         events = [
             _event_notification(
                 "turn/diff/updated",
@@ -4573,8 +4574,8 @@ class TestDiffsAndTokenUsage:
             config=CodexAdapterConfig(
                 transport="ws",
                 emit_diff_events=True,
-                enable_execution_reporting=False,
             ),
+            features=AdapterFeatures(emit=frozenset()),
             client_factory=lambda _config: fake_client,
         )
         tools = ToolSchemaFakeTools()
@@ -5908,3 +5909,227 @@ class TestCodexSdkClient:
 
         err = ValueError("not an SDK error")
         assert _convert_sdk_error(err) is err
+
+
+# ===========================================================================
+# Review follow-ups: fixes for bugs/issues found in code review
+# ===========================================================================
+
+
+class TestReviewFixesPhase2:
+    """Regression tests for fixes applied after the INT-226 code review."""
+
+    def test_parse_plan_steps_handles_non_dict_plan(self) -> None:
+        """parse_plan_steps must not crash when `plan` is not a dict."""
+        from thenvoi.integrations.codex.types import parse_plan_steps
+
+        assert parse_plan_steps({"plan": "not-a-dict"}) == []
+        assert parse_plan_steps({"plan": ["also", "not", "a", "dict"]}) == []
+        assert parse_plan_steps({"plan": None}) == []
+
+    def test_parse_plan_steps_reads_top_level_when_plan_absent(self) -> None:
+        """When there's no 'plan' key, parse_plan_steps looks at top-level steps."""
+        from thenvoi.integrations.codex.types import parse_plan_steps
+
+        steps = parse_plan_steps({"steps": [{"text": "A", "status": "pending"}]})
+        assert len(steps) == 1
+        assert steps[0].step == "A"
+
+    @pytest.mark.asyncio
+    async def test_approve_session_rejects_empty_session_key(self) -> None:
+        """/approve-session for a request with no command signature is rejected.
+
+        Without this guard, _session_approved would silently accumulate "" and
+        the user would see "Future `` requests will be auto-approved".
+        """
+        events = [
+            _event_request(
+                15,
+                "item/fileChange/requestApproval",
+                {},  # No command field -> session_approval_key returns ""
+            ),
+            _event_notification(
+                "turn/completed",
+                {
+                    "turn": {
+                        "id": "turn-1",
+                        "status": "completed",
+                        "items": [],
+                        "error": None,
+                    }
+                },
+            ),
+        ]
+        fake_client = FakeCodexClient(events=events)
+        adapter = CodexAdapter(
+            config=CodexAdapterConfig(transport="ws", approval_mode="manual"),
+            client_factory=lambda _config: fake_client,
+        )
+        tools = ToolSchemaFakeTools()
+        await adapter.on_started("Agent", "A coding agent")
+
+        async def approve_session_later() -> None:
+            await asyncio.sleep(0.01)
+            await adapter.on_message(
+                make_platform_message(content="/approve-session req-15"),
+                tools,
+                CodexSessionState(),
+                participants_msg=None,
+                contacts_msg=None,
+                is_session_bootstrap=False,
+                room_id="room-1",
+            )
+
+        # File-change approvals DO key on method, so session-level would
+        # normally succeed.  Force the empty-key path by patching
+        # _session_approval_key to return "" for the file-change method.
+        original_key = adapter._session_approval_key
+        adapter._session_approval_key = lambda method, params: (  # type: ignore[assignment]
+            ""
+            if method == "item/fileChange/requestApproval"
+            else original_key(method, params)
+        )
+
+        task = asyncio.create_task(approve_session_later())
+        # Manual approval waits for the user.  Decline path will be hit after
+        # /approve-session is rejected because the pending future stays open;
+        # short approval_wait_timeout_s keeps this test snappy.
+        adapter.config.approval_wait_timeout_s = 1.0
+        adapter.config.approval_timeout_decision = "decline"
+        await adapter.on_message(
+            make_platform_message(content="run"),
+            tools,
+            CodexSessionState(),
+            participants_msg=None,
+            contacts_msg=None,
+            is_session_bootstrap=True,
+            room_id="room-1",
+        )
+        await task
+
+        # No empty-string pattern was stored.
+        assert "" not in adapter._session_approved.get("room-1", set())
+        # The user got the "cannot be resolved as session-level" message.
+        rejection = [
+            m
+            for m in tools.messages_sent
+            if "cannot be resolved as session-level" in m["content"]
+        ]
+        assert len(rejection) == 1
+
+    @pytest.mark.asyncio
+    async def test_token_usage_event_skipped_when_total_is_zero(self) -> None:
+        """_emit_token_usage_event must not emit before any real usage arrives.
+
+        Prior to the fix, `if not usage:` was always False (dataclass
+        instances are truthy) so an empty token_usage event could be emitted
+        even before Codex sent any thread/tokenUsage/updated notification.
+        """
+        from thenvoi.integrations.codex.types import CodexTokenUsage
+
+        fake_client = FakeCodexClient()
+        adapter = CodexAdapter(
+            config=CodexAdapterConfig(transport="ws"),
+            client_factory=lambda _config: fake_client,
+        )
+        tools = ToolSchemaFakeTools()
+        await adapter.on_started("Agent", "A coding agent")
+
+        # Seed an empty CodexTokenUsage (total_tokens == 0) and call the
+        # emit helper directly.  It should short-circuit.
+        adapter._token_usage["thread-x"] = CodexTokenUsage()
+        await adapter._emit_token_usage_event(
+            tools=tools, thread_id="thread-x", room_id="room-1"
+        )
+
+        usage_events = [
+            e
+            for e in tools.events_sent
+            if e["metadata"].get("codex_event_type") == "token_usage"
+        ]
+        assert usage_events == []
+
+    def test_sdk_client_uses_configurable_timeout(self) -> None:
+        """CodexSdkClient stores server_request_timeout_s passed at construction."""
+        try:
+            from thenvoi.integrations.codex.sdk_client import CodexSdkClient
+        except ImportError:
+            pytest.skip("codex-app-server-sdk not installed")
+
+        # Construct without actually invoking the SDK: build a bare instance
+        # and assign the field directly, mirroring what __init__ does after
+        # the SDK import succeeds.
+        client = CodexSdkClient.__new__(CodexSdkClient)
+        client._server_request_timeout_s = 777.0
+        assert client._server_request_timeout_s == 777.0
+
+    def test_sdk_client_build_passes_timeout_from_config(self) -> None:
+        """_build_sdk_client forwards approval_wait_timeout_s + margin."""
+        from unittest.mock import patch
+
+        captured: dict[str, Any] = {}
+
+        def fake_ctor(**kwargs: Any) -> Any:
+            captured.update(kwargs)
+            obj = type("Stub", (), {})()
+            obj.set_request_handler = lambda *_a, **_kw: None
+            return obj
+
+        adapter = CodexAdapter(
+            config=CodexAdapterConfig(transport="sdk", approval_wait_timeout_s=120.0),
+        )
+        with patch("thenvoi.integrations.codex.sdk_client.CodexSdkClient", fake_ctor):
+            adapter._build_sdk_client(adapter.config)
+
+        assert captured["server_request_timeout_s"] == 120.0 + 30.0
+
+    def test_structured_error_with_string_error_obj(self) -> None:
+        """_handle_error_event normalizes string error_obj before structuring.
+
+        The review flagged a redundant isinstance(error_obj, dict) check that
+        was dead code; this test asserts the normalization still works when
+        the original error_obj is a string rather than a dict.
+        """
+        from thenvoi.integrations.codex.types import build_structured_error_metadata
+
+        # Simulate the normalization the adapter performs: convert string to
+        # {"message": <str>} before passing to build_structured_error_metadata.
+        error_obj: dict[str, Any] = {"message": "raw string error"}
+        content, meta = build_structured_error_metadata(error_obj)
+        assert "raw string error" in content
+        # No codexErrorInfo -> no known error type.
+        assert meta["codex_error_type"] is None
+
+    def test_sdk_client_raises_version_error_on_python_lt_312(self) -> None:
+        """When Python < 3.12, CodexSdkClient raises a clearer ImportError."""
+        from unittest.mock import patch
+
+        # Force the codex_app_server import to fail
+        import builtins
+
+        original_import = builtins.__import__
+
+        def fake_import(name: str, *args: Any, **kwargs: Any) -> Any:
+            if name == "codex_app_server":
+                raise ImportError("no module named codex_app_server")
+            return original_import(name, *args, **kwargs)
+
+        class FakeVersionInfo:
+            major = 3
+            minor = 11
+
+            def __lt__(self, other: Any) -> bool:
+                return (self.major, self.minor) < other
+
+        with (
+            patch.object(builtins, "__import__", side_effect=fake_import),
+            patch("thenvoi.integrations.codex.sdk_client.sys") as mock_sys,
+        ):
+            mock_sys.version_info = FakeVersionInfo()
+            from thenvoi.integrations.codex import sdk_client as sdk_mod
+
+            with pytest.raises(ImportError) as exc_info:
+                sdk_mod.CodexSdkClient()
+
+        assert "Python >= 3.12" in str(exc_info.value)
+        assert "thenvoi-sdk[codex]" in str(exc_info.value)

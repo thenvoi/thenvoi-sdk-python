@@ -772,7 +772,7 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
                 if event.method == "turn/diff/updated":
                     if (
                         self.config.emit_diff_events
-                        and Emit.EXECUTION in self.features.emit
+                        and Emit.TASK_EVENTS in self.features.emit
                     ):
                         await self._forward_diff_event(
                             tools=tools,
@@ -957,6 +957,11 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
             dict(config.codex_env) if config.codex_env else None
         )
 
+        # Give the SDK bridge enough headroom to outlive the adapter's
+        # manual-approval wait.  A 30s margin covers event-loop latency and
+        # the couple of notifications that follow the approval resolution.
+        bridge_timeout_s = config.approval_wait_timeout_s + 30.0
+
         sdk_client = CodexSdkClient(
             cwd=config.cwd,
             env=env_dict,
@@ -965,6 +970,7 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
             client_title=config.client_title,
             client_version=config.client_version,
             experimental_api=config.experimental_api,
+            server_request_timeout_s=bridge_timeout_s,
         )
         sdk_client.set_request_handler(self._handle_sdk_server_request)
         return sdk_client
@@ -1951,7 +1957,7 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
             return
 
         logger.error("Codex error: %s", error_msg)
-        if self.config.structured_errors and isinstance(error_obj, dict):
+        if self.config.structured_errors:
             content, err_meta = build_structured_error_metadata(
                 error_obj, thread_id=thread_id, turn_id=turn_id
             )
@@ -2056,7 +2062,10 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
     ) -> None:
         """Emit a task event with current token usage."""
         usage = self._token_usage.get(thread_id)
-        if not usage:
+        # Dataclass instances are always truthy, so check for None and the
+        # zero-tokens sentinel explicitly — otherwise we'd emit an empty event
+        # before any thread/tokenUsage/updated notification has arrived.
+        if usage is None or usage.total_tokens == 0:
             return
         metadata = usage.to_metadata()
         metadata["codex_thread_id"] = thread_id
@@ -2079,28 +2088,37 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
         thread_id: str,
         turn_id: str | None,
     ) -> None:
-        """Forward turn/diff/updated as a tool_result event."""
+        """Forward turn/diff/updated as a task event.
+
+        Diffs are semantically separate from tool results, so we emit a task
+        event with ``codex_event_type=turn_diff`` and carry the raw diff in
+        metadata.  Consumers filter on ``codex_event_type`` rather than the
+        generic ``tool_result`` channel.
+        """
         diff_content = params.get("diff") or params.get("content") or ""
         files_changed: list[str] = []
         files_raw = params.get("files") or params.get("filesChanged") or []
         if isinstance(files_raw, list):
             files_changed = [str(f) for f in files_raw if f]
+        summary = (
+            f"{len(files_changed)} files changed" if files_changed else "diff updated"
+        )
         try:
             await tools.send_event(
-                content=json.dumps(
-                    {
-                        "name": "codex_diff",
-                        "output": str(diff_content),
-                        "tool_call_id": turn_id or "",
-                    }
+                content=self._build_task_event_content(
+                    task_id=turn_id,
+                    task="Codex diff",
+                    status="updated",
+                    summary=summary,
                 ),
-                message_type="tool_result",
+                message_type="task",
                 metadata={
                     "codex_event_type": "turn_diff",
                     "codex_thread_id": thread_id,
                     "codex_turn_id": turn_id,
                     "codex_room_id": room_id,
                     "codex_files_changed": files_changed,
+                    "codex_diff": str(diff_content),
                 },
             )
         except Exception:
@@ -2496,6 +2514,19 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
             raise RuntimeError("No matching pending approval after token lookup")
 
         is_session = command == "approve-session"
+        # Session-level approval needs a non-empty key (e.g. a concrete command
+        # string) so future requests can match.  Reject early so we never store
+        # an empty string in _session_approved or report a misleading
+        # "Future `` requests will be auto-approved" message to the user.
+        if is_session and not selected.session_key:
+            await tools.send_message(
+                f"Approval `{token}` cannot be resolved as session-level: "
+                "this request has no command signature to match against. "
+                f"Use `/approve {token}` for a one-shot approval instead.",
+                mentions=mention,
+            )
+            return True
+
         decision_value: ApprovalDecision
         if is_session:
             decision_value = "acceptForSession"

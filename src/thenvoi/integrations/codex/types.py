@@ -123,8 +123,10 @@ class CodexPlanStep:
 
 def parse_plan_steps(params: dict[str, Any]) -> list[CodexPlanStep]:
     """Extract plan steps from a turn/plan/updated event payload."""
-    plan = params.get("plan") or params
-    steps_raw = plan.get("steps") or []
+    plan = params.get("plan")
+    if not isinstance(plan, dict):
+        plan = params
+    steps_raw = plan.get("steps") if isinstance(plan, dict) else None
     if not isinstance(steps_raw, list):
         return []
     steps: list[CodexPlanStep] = []
@@ -152,7 +154,26 @@ class CodexTokenUsage:
 
     Each ``thread/tokenUsage/updated`` event carries cumulative totals,
     so :meth:`update` performs a full replacement (not additive accumulation).
-    Per-turn deltas are computed by subtracting the previous snapshot.
+    Per-turn deltas are computed by subtracting the previous cumulative
+    snapshot captured inside :meth:`update` itself.
+
+    Lifecycle:
+
+    1. The adapter creates a ``CodexTokenUsage`` the first time a thread
+       emits a token-usage event.
+    2. At the start of every turn the adapter calls
+       :meth:`reset_turn_deltas` so that display code can render "0 tokens
+       this turn so far" rather than stale numbers from the previous turn.
+    3. Each incoming ``thread/tokenUsage/updated`` during the turn calls
+       :meth:`update`, which snapshots the previous cumulative counters,
+       replaces them with the new cumulative values, and recomputes the
+       per-turn deltas from ``new - previous``.
+
+    :meth:`reset_turn_deltas` and :meth:`update` do not interfere: the
+    delta computation in ``update`` reads the current cumulative fields
+    (``input_tokens`` etc.), not the ``turn_*`` fields, so resetting the
+    turn fields is safe mid-turn and still produces correct deltas on the
+    next update.
     """
 
     input_tokens: int = 0
