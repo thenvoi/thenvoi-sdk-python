@@ -150,12 +150,13 @@ class CodexSdkClient:
         )
         # Fail loudly on SDK upgrades that remove the private _request_raw
         # API we depend on (see request() below).  pyproject.toml pins
-        # codex-app-server-sdk ~=0.2.0 but a minor bump could still drop it.
+        # codex-app-server-sdk ==0.2.0 exactly because even a patch release
+        # could drop this private attribute.
         if not hasattr(self._sync_client, "_request_raw"):
             raise RuntimeError(
                 "codex-app-server-sdk is missing the private '_request_raw' "
                 "method that thenvoi-sdk depends on. This indicates an "
-                "incompatible SDK version. Pin codex-app-server-sdk ~=0.2.0 "
+                "incompatible SDK version. Pin codex-app-server-sdk ==0.2.0 "
                 "or file an upstream request for a public request() API."
             )
         await asyncio.to_thread(self._sync_client.start)
@@ -197,11 +198,11 @@ class CodexSdkClient:
                     from codex_app_server import retry_on_overload as _retry  # type: ignore[missing-import]
 
                     # NOTE: _request_raw is a private SDK API.  We pin
-                    # codex-app-server-sdk ~=0.2.0 and verify the attribute
-                    # exists in connect() (see runtime guard there) so an
-                    # incompatible release fails loudly at startup rather
-                    # than at request time.  Tracked in INT-226 follow-up:
-                    # file an upstream request for a public
+                    # codex-app-server-sdk ==0.2.0 exactly and verify the
+                    # attribute exists in connect() (see runtime guard there)
+                    # so an incompatible release fails loudly at startup
+                    # rather than at request time.  Tracked in INT-226
+                    # follow-up: file an upstream request for a public
                     # ``request(method, params)`` and migrate once available.
                     return _retry(  # type: ignore[return-value]
                         lambda: self._sync_client._request_raw(method, params),  # noqa: SLF001

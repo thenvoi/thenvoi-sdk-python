@@ -204,6 +204,15 @@ class CodexAdapterConfig:
           constructing an ``"sdk"``-transport adapter raises ``ImportError``
           at ``on_started()``.  Use ``"stdio"`` / ``"ws"`` on older
           interpreters.
+
+    Turn task events:
+        ``emit_turn_task_markers`` and ``emit_turn_lifecycle_events`` are
+        independent channels.  Enabling both will produce **two** task
+        events per completed turn: one "Codex turn" marker and one
+        enriched "Codex turn lifecycle" event (plus a "started" lifecycle
+        event at turn start).  Consumers that render task timelines
+        should pick exactly one channel — typically the lifecycle channel
+        when its extra metadata is desired.
     """
 
     transport: TransportKind = "stdio"
@@ -246,6 +255,11 @@ class CodexAdapterConfig:
     fallback_models: tuple[str, ...] = ("gpt-5.2", "gpt-5.3-codex")
     max_pending_approvals_per_room: int = 50
     max_approval_audit_per_room: int = 100
+    # Upper bound on session-level approvals retained per room
+    # (``/approve-session`` patterns).  Evicted LRU-style when exceeded so a
+    # long-lived room that approves many distinct commands can't grow this
+    # set without bound.
+    max_session_approved_per_room: int = 100
     # Upper bound for the transport client's close() during on_cleanup so
     # _rpc_lock can't be held indefinitely if the underlying subprocess or
     # socket is unresponsive.  ``None`` disables the bound (legacy behavior).
@@ -350,8 +364,10 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
         self._token_usage: dict[str, CodexTokenUsage] = {}
         # Approval audit trail per room
         self._approval_audit: dict[str, list[ApprovalAuditEntry]] = {}
-        # Session-level approved patterns (room_id -> set of method strings)
-        self._session_approved: dict[str, set[str]] = {}
+        # Session-level approved patterns.  OrderedDict (used as an ordered
+        # set) so insertion order is preserved for LRU eviction when a room
+        # hits ``max_session_approved_per_room``.  Value is unused.
+        self._session_approved: dict[str, OrderedDict[str, None]] = {}
         # Per-room sandbox overrides (set via /sandbox command)
         self._sandbox_overrides: dict[str, str] = {}
         # SDK transport: context for async server-request handling.
@@ -1505,8 +1521,8 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
 
         # Check session-level auto-approval first.
         session_key = self._session_approval_key(event.method, params)
-        room_session = self._session_approved.get(room_id, set())
-        session_hit = bool(session_key and session_key in room_session)
+        room_session = self._session_approved.get(room_id)
+        session_hit = bool(session_key and room_session and session_key in room_session)
 
         if session_hit:
             decision: ApprovalDecision = "acceptForSession"
@@ -1652,8 +1668,13 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
                 "codex_thread_id": thread_id,
                 "codex_turn_id": turn_id,
                 "codex_turn_status": turn_status,
-                "codex_duration_s": round(duration_s, 2),
             }
+            # Match the marker path: only include duration once it's been
+            # measured.  Avoids a misleading "0.0s" on synthetic paths that
+            # emit lifecycle events without timing (e.g. future code paths
+            # that reuse _emit_turn_outcome without a real turn_start).
+            if duration_s > 0:
+                lifecycle_metadata["codex_duration_s"] = round(duration_s, 2)
             if turn_error:
                 lifecycle_metadata["codex_error"] = turn_error
             if has_usage:
@@ -2277,6 +2298,23 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
     # Phase 1: Approval audit trail
     # ------------------------------------------------------------------
 
+    def _record_session_approval(self, room_id: str, key: str) -> None:
+        """Register ``key`` as a session-level auto-approval for ``room_id``.
+
+        Maintains insertion order so the oldest entry is evicted when the
+        room exceeds ``max_session_approved_per_room``.  Moving an existing
+        key to the most-recent position on re-approval keeps frequently
+        re-approved commands from being evicted.
+        """
+        room = self._session_approved.setdefault(room_id, OrderedDict())
+        if key in room:
+            room.move_to_end(key)
+        else:
+            room[key] = None
+        cap = self.config.max_session_approved_per_room
+        while len(room) > cap:
+            room.popitem(last=False)
+
     def _record_approval_audit(
         self,
         *,
@@ -2369,7 +2407,7 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
             usage_line = (
                 usage.format_summary() if usage and usage.total_tokens > 0 else "none"
             )
-            session_approvals = len(self._session_approved.get(room_id, set()))
+            session_approvals = len(self._session_approved.get(room_id) or ())
             status_text = (
                 "Codex status:\n"
                 f"- transport: {self.config.transport}\n"
@@ -2473,9 +2511,19 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
                     mentions=mention,
                 )
                 return True
-            # Support "--confirm" flag at end of args for danger-full-access
-            confirm_flag = "--confirm" in mode_arg.split()
-            mode_token = mode_arg.replace("--confirm", "").strip()
+            # Parse tokens explicitly so "--confirm-anything-else" is surfaced
+            # as an unknown mode instead of silently stripped away.
+            tokens = mode_arg.split()
+            confirm_flag = "--confirm" in tokens
+            mode_tokens = [tok for tok in tokens if tok != "--confirm"]
+            if len(mode_tokens) != 1:
+                await tools.send_message(
+                    "Usage: `/sandbox <read-only|workspace-write|danger-full-access> "
+                    "[--confirm]`.",
+                    mentions=mention,
+                )
+                return True
+            mode_token = mode_tokens[0]
             normalized = self._normalize_sandbox_mode(mode_token)
             if normalized is None:
                 await tools.send_message(
@@ -2507,7 +2555,7 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
             return True
 
         if command == "permissions":
-            session_approved = self._session_approved.get(room_id, set())
+            session_approved = self._session_approved.get(room_id) or ()
             audit = self._approval_audit.get(room_id, [])
             lines = ["Effective permissions:"]
             lines.append(f"- approval_mode: {self.config.approval_mode}")
@@ -2689,7 +2737,7 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
 
         # Session-level: register the session key for auto-approval
         if is_session:
-            self._session_approved.setdefault(room_id, set()).add(selected.session_key)
+            self._record_session_approval(room_id, selected.session_key)
             await tools.send_message(
                 f"Approval `{token}` resolved as `acceptForSession` (session-level). "
                 f"Future `{selected.session_key}` requests will be auto-approved.",

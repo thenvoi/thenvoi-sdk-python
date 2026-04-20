@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from collections import deque
+from collections import OrderedDict, deque
 from datetime import datetime
 from typing import Any
 from uuid import uuid4
@@ -3752,8 +3752,8 @@ class TestEnrichedApprovals:
         await task
 
         # Verify session-level was recorded with full command key
-        assert "commandExecution:npm test" in adapter._session_approved.get(
-            "room-1", set()
+        assert "commandExecution:npm test" in (
+            adapter._session_approved.get("room-1") or ()
         )
         # Verify approval message mentions session-level
         session_msgs = [
@@ -4995,7 +4995,9 @@ class TestSessionAutoApproval:
         await adapter.on_started("Agent", "A coding agent")
 
         # Pre-seed the session-approved set as if /approve-session was used for "npm install"
-        adapter._session_approved["room-1"] = {"commandExecution:npm install"}
+        adapter._session_approved["room-1"] = OrderedDict(
+            [("commandExecution:npm install", None)]
+        )
 
         await adapter.on_message(
             make_platform_message(content="install deps"),
@@ -5047,7 +5049,9 @@ class TestSessionAutoApproval:
         await adapter.on_started("Agent", "A coding agent")
 
         # Pre-seed session approval for "npm install" only
-        adapter._session_approved["room-1"] = {"commandExecution:npm install"}
+        adapter._session_approved["room-1"] = OrderedDict(
+            [("commandExecution:npm install", None)]
+        )
 
         await adapter.on_message(
             make_platform_message(content="publish package"),
@@ -5097,7 +5101,9 @@ class TestSessionAutoApproval:
         await adapter.on_started("Agent", "A coding agent")
 
         # Pre-seed session approval for npm binary
-        adapter._session_approved["room-1"] = {"commandExecution:npm"}
+        adapter._session_approved["room-1"] = OrderedDict(
+            [("commandExecution:npm", None)]
+        )
 
         await adapter.on_message(
             make_platform_message(content="install deps"),
@@ -5194,6 +5200,42 @@ class TestAuditCap:
         # Should keep the most recent entries
         assert audit[0].request_id == "5"
         assert audit[-1].request_id == "9"
+
+    def test_session_approved_capped_at_limit(self) -> None:
+        """Session approvals evict LRU when max_session_approved_per_room is hit."""
+        adapter = CodexAdapter(
+            config=CodexAdapterConfig(transport="ws", max_session_approved_per_room=3),
+            client_factory=lambda _config: FakeCodexClient(),
+        )
+        for i in range(5):
+            adapter._record_session_approval("room-1", f"commandExecution:cmd{i}")
+        room = adapter._session_approved["room-1"]
+        assert list(room.keys()) == [
+            "commandExecution:cmd2",
+            "commandExecution:cmd3",
+            "commandExecution:cmd4",
+        ]
+
+    def test_session_approval_reinsert_moves_to_end(self) -> None:
+        """Re-approving an existing key moves it to the most-recent slot."""
+        adapter = CodexAdapter(
+            config=CodexAdapterConfig(transport="ws", max_session_approved_per_room=3),
+            client_factory=lambda _config: FakeCodexClient(),
+        )
+        adapter._record_session_approval("room-1", "commandExecution:a")
+        adapter._record_session_approval("room-1", "commandExecution:b")
+        adapter._record_session_approval("room-1", "commandExecution:c")
+        # Re-approve the oldest — it should move to the end.
+        adapter._record_session_approval("room-1", "commandExecution:a")
+        adapter._record_session_approval("room-1", "commandExecution:d")
+        room = adapter._session_approved["room-1"]
+        # "b" is the oldest after re-approving "a", so it's the one evicted.
+        assert "commandExecution:b" not in room
+        assert list(room.keys()) == [
+            "commandExecution:c",
+            "commandExecution:a",
+            "commandExecution:d",
+        ]
 
 
 class TestReviewFixes:
@@ -5434,7 +5476,9 @@ class TestAcceptForSession:
         await adapter.on_started("Agent", "A coding agent")
 
         # Pre-seed session approval for the exact command
-        adapter._session_approved["room-1"] = {"commandExecution:npm install"}
+        adapter._session_approved["room-1"] = OrderedDict(
+            [("commandExecution:npm install", None)]
+        )
 
         await adapter.on_message(
             make_platform_message(content="install deps"),
@@ -6066,8 +6110,8 @@ class TestCodexSdkClient:
 # ===========================================================================
 
 
-class TestReviewFixesPhase2:
-    """Regression tests for fixes applied after the INT-226 code review."""
+class TestPlanStepsRobustness:
+    """parse_plan_steps tolerance for malformed payloads."""
 
     def test_parse_plan_steps_handles_non_dict_plan(self) -> None:
         """parse_plan_steps must not crash when `plan` is not a dict."""
@@ -6085,8 +6129,14 @@ class TestReviewFixesPhase2:
         assert len(steps) == 1
         assert steps[0].step == "A"
 
+
+class TestSessionApprovalValidation:
+    """Guards that stop /approve-session from storing bogus session keys."""
+
     @pytest.mark.asyncio
-    async def test_approve_session_rejects_empty_session_key(self) -> None:
+    async def test_approve_session_rejects_empty_session_key(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """/approve-session for a request with no command signature is rejected.
 
         Without this guard, _session_approved would silently accumulate "" and
@@ -6134,11 +6184,13 @@ class TestReviewFixesPhase2:
         # normally succeed.  Force the empty-key path by patching
         # _session_approval_key to return "" for the file-change method.
         original_key = adapter._session_approval_key
-        adapter._session_approval_key = lambda method, params: (  # type: ignore[assignment]
-            ""
-            if method == "item/fileChange/requestApproval"
-            else original_key(method, params)
-        )
+
+        def _patched_key(method: str, params: dict[str, Any]) -> str:
+            if method == "item/fileChange/requestApproval":
+                return ""
+            return original_key(method, params)
+
+        monkeypatch.setattr(adapter, "_session_approval_key", _patched_key)
 
         task = asyncio.create_task(approve_session_later())
         # Manual approval waits for the user.  Decline path will be hit after
@@ -6158,7 +6210,7 @@ class TestReviewFixesPhase2:
         await task
 
         # No empty-string pattern was stored.
-        assert "" not in adapter._session_approved.get("room-1", set())
+        assert "" not in (adapter._session_approved.get("room-1") or ())
         # The user got the "cannot be resolved as session-level" message.
         rejection = [
             m
@@ -6166,6 +6218,10 @@ class TestReviewFixesPhase2:
             if "cannot be resolved as session-level" in m["content"]
         ]
         assert len(rejection) == 1
+
+
+class TestTokenUsageEmission:
+    """Emission guards for _emit_token_usage_event."""
 
     @pytest.mark.asyncio
     async def test_token_usage_event_skipped_when_total_is_zero(self) -> None:
@@ -6198,6 +6254,10 @@ class TestReviewFixesPhase2:
             if e["metadata"].get("codex_event_type") == "token_usage"
         ]
         assert usage_events == []
+
+
+class TestSdkClientConstruction:
+    """CodexSdkClient construction, timeout plumbing, and import guards."""
 
     def test_sdk_client_uses_configurable_timeout(self) -> None:
         """CodexSdkClient stores server_request_timeout_s passed at construction."""
@@ -6233,6 +6293,10 @@ class TestReviewFixesPhase2:
 
         assert captured["server_request_timeout_s"] == 120.0 + 30.0
 
+
+class TestStructuredErrorNormalization:
+    """build_structured_error_metadata handling of non-standard inputs."""
+
     def test_structured_error_with_string_error_obj(self) -> None:
         """_handle_error_event normalizes string error_obj before structuring.
 
@@ -6249,6 +6313,10 @@ class TestReviewFixesPhase2:
         assert "raw string error" in content
         # No codexErrorInfo -> no known error type.
         assert meta["codex_error_type"] is None
+
+
+class TestSdkClientVersionGuard:
+    """CodexSdkClient import-time diagnostics on unsupported Python versions."""
 
     def test_sdk_client_raises_version_error_on_python_lt_312(self) -> None:
         """When Python < 3.12, CodexSdkClient raises a clearer ImportError."""
@@ -6285,8 +6353,8 @@ class TestReviewFixesPhase2:
         assert "thenvoi-sdk[codex]" in str(exc_info.value)
 
 
-class TestReviewFixesPhase3:
-    """Safeguards added in response to a secondary review pass."""
+class TestSessionApprovalKeying:
+    """_session_approval_key behaviour across method/param shapes."""
 
     def test_file_change_session_key_requires_paths(self) -> None:
         """/approve-session must refuse fileChange requests with no paths."""
@@ -6375,6 +6443,10 @@ class TestReviewFixesPhase3:
         assert any("No pending approvals" in m["content"] for m in tools.messages_sent)
         assert "room-1" not in adapter._session_approved
 
+
+class TestModelUnavailableDetection:
+    """_is_model_unavailable_error across structured and unstructured errors."""
+
     def test_model_unavailable_matches_structured_error_type(self) -> None:
         """_is_model_unavailable_error trusts codexErrorInfo.type when present."""
         err = CodexJsonRpcError(
@@ -6405,6 +6477,10 @@ class TestReviewFixesPhase3:
         err = CodexJsonRpcError(code=-32000, message="network blip")
         assert CodexAdapter._is_model_unavailable_error(err) is False
 
+
+class TestTokenUsageCounterMonotonicity:
+    """CodexTokenUsage protection against non-monotonic cumulative updates."""
+
     def test_token_usage_warns_on_non_monotonic_counters(
         self, caplog: pytest.LogCaptureFixture
     ) -> None:
@@ -6424,6 +6500,10 @@ class TestReviewFixesPhase3:
         # Deltas clamped to 0 rather than going negative.
         assert usage.turn_input_tokens == 0
         assert usage.turn_output_tokens == 0
+
+
+class TestApprovalAuditRecording:
+    """_record_approval_audit API surface."""
 
     def test_record_approval_audit_returns_entry(self) -> None:
         """_record_approval_audit returns the entry it appended."""
