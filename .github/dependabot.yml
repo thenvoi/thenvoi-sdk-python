@@ -13,8 +13,7 @@ updates:
       - "dependencies"
       - "python"
     reviewers:
-      - "dan-naiger-thenvoi"
-      - "yael-avioz-thenvoi"
+      - "thenvoi/integrations-team"
 
   # GitHub Actions
   - package-ecosystem: "github-actions"
