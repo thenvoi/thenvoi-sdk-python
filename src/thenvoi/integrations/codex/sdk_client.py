@@ -109,6 +109,12 @@ class CodexSdkClient:
         ] = {}
         self._pending_lock = threading.Lock()
 
+        # Scheduled server-request handler futures.  Tracked so ``close()``
+        # can cancel any coroutines that haven't resolved yet — without this,
+        # a handler scheduled just before close would run (and potentially
+        # log errors) after the event loop no longer expects work.
+        self._handler_futures: set[concurrent.futures.Future[Any]] = set()
+
         # Guard: when set, server requests during request() auto-handle.
         # threading.Event is used instead of a plain bool because _in_request
         # is written from the asyncio.to_thread worker and read from the SDK's
@@ -253,12 +259,21 @@ class CodexSdkClient:
                 if not future.done():
                     future.set_result(_safe_default_response(method))
             self._pending_server_responses.clear()
+            handler_futures = list(self._handler_futures)
+            self._handler_futures.clear()
+        for handler_future in handler_futures:
+            if not handler_future.done():
+                handler_future.cancel()
         if self._sync_client is not None:
             try:
                 await asyncio.to_thread(self._sync_client.close)
             except Exception:
                 logger.debug("Exception during SDK client close", exc_info=True)
             self._sync_client = None
+
+    def _discard_handler_future(self, future: concurrent.futures.Future[Any]) -> None:
+        with self._pending_lock:
+            self._handler_futures.discard(future)
 
     # ------------------------------------------------------------------
     # Server-request bridge (sync callback → async handler)
@@ -314,7 +329,10 @@ class CodexSdkClient:
                 if entry is not None and not entry[0].done():
                     entry[0].set_result(_safe_default_response(method))
 
-        asyncio.run_coroutine_threadsafe(_run_handler(), self._loop)
+        handler_future = asyncio.run_coroutine_threadsafe(_run_handler(), self._loop)
+        with self._pending_lock:
+            self._handler_futures.add(handler_future)
+        handler_future.add_done_callback(self._discard_handler_future)
 
         # Block the SDK thread until the adapter calls respond().
         try:

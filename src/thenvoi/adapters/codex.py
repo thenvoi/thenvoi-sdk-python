@@ -246,6 +246,10 @@ class CodexAdapterConfig:
     fallback_models: tuple[str, ...] = ("gpt-5.2", "gpt-5.3-codex")
     max_pending_approvals_per_room: int = 50
     max_approval_audit_per_room: int = 100
+    # Upper bound for the transport client's close() during on_cleanup so
+    # _rpc_lock can't be held indefinitely if the underlying subprocess or
+    # socket is unresponsive.  ``None`` disables the bound (legacy behavior).
+    client_close_timeout_s: float | None = 10.0
     session_approval_granularity: Literal["binary", "full_command"] = "full_command"
     # --- Phase 1: Structured errors & enriched approvals ---
     structured_errors: bool = True
@@ -936,7 +940,19 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
             if self._client is None:
                 return
             try:
-                await self._client.close()
+                close_coro = self._client.close()
+                timeout = self.config.client_close_timeout_s
+                if timeout is not None:
+                    try:
+                        await asyncio.wait_for(close_coro, timeout=timeout)
+                    except asyncio.TimeoutError:
+                        logger.warning(
+                            "Codex client.close() exceeded %ss timeout; "
+                            "dropping client reference",
+                            timeout,
+                        )
+                else:
+                    await close_coro
             finally:
                 self._client = None
                 self._initialized = False
