@@ -31,6 +31,27 @@ AsyncRequestHandler = Callable[..., Awaitable[dict[str, Any] | None]]
 # it from ``approval_wait_timeout_s`` so manual approvals are not truncated.
 _DEFAULT_SERVER_REQUEST_TIMEOUT_S = 300.0
 
+# Methods whose default must be an explicit decline when the adapter can't
+# produce a real decision — shipping an empty dict is ambiguous and some
+# servers interpret it as accept.
+_APPROVAL_METHODS: frozenset[str] = frozenset(
+    {
+        "item/commandExecution/requestApproval",
+        "item/fileChange/requestApproval",
+    }
+)
+
+
+def _safe_default_response(method: str) -> dict[str, Any]:
+    """Return a safe default response for a server request we can't handle.
+
+    Approval requests default to ``decline`` (never silent-accept); all
+    other methods get an empty dict.
+    """
+    if method in _APPROVAL_METHODS:
+        return {"decision": "decline"}
+    return {}
+
 
 class CodexSdkClient:
     """Wraps the official ``codex-app-server`` ``AppServerClient``.
@@ -87,9 +108,13 @@ class CodexSdkClient:
         self._connected = False
 
         # Server-request bridge state (keyed by synthetic request id).
+        # Each entry pairs the future with the originating method so that
+        # cleanup paths (close, handler failure, timeout) can resolve with a
+        # method-appropriate default (e.g. ``decline`` for approvals) rather
+        # than an ambiguous empty dict.
         self._next_synthetic_id = 0
         self._pending_server_responses: dict[
-            int, concurrent.futures.Future[dict[str, Any]]
+            int, tuple[concurrent.futures.Future[dict[str, Any]], str]
         ] = {}
         self._pending_lock = threading.Lock()
 
@@ -201,9 +226,9 @@ class CodexSdkClient:
 
     async def respond(self, request_id: int | str, result: dict[str, Any]) -> None:
         with self._pending_lock:
-            future = self._pending_server_responses.pop(int(request_id), None)
-        if future is not None and not future.done():
-            future.set_result(result)
+            entry = self._pending_server_responses.pop(int(request_id), None)
+        if entry is not None and not entry[0].done():
+            entry[0].set_result(result)
 
     async def respond_error(
         self,
@@ -217,19 +242,21 @@ class CodexSdkClient:
             "error": {"code": code, "message": message, "data": data},
         }
         with self._pending_lock:
-            future = self._pending_server_responses.pop(int(request_id), None)
-        if future is not None and not future.done():
-            future.set_result(error_result)
+            entry = self._pending_server_responses.pop(int(request_id), None)
+        if entry is not None and not entry[0].done():
+            entry[0].set_result(error_result)
 
     async def close(self) -> None:
         if not self._connected:
             return
         self._connected = False
-        # Fail any pending server-request futures so threads unblock.
+        # Fail any pending server-request futures so threads unblock.  Use a
+        # method-appropriate default (``decline`` for approvals) so that a
+        # close racing with a pending approval can't silent-accept.
         with self._pending_lock:
-            for future in self._pending_server_responses.values():
+            for future, method in self._pending_server_responses.values():
                 if not future.done():
-                    future.set_result({})
+                    future.set_result(_safe_default_response(method))
             self._pending_server_responses.clear()
         if self._sync_client is not None:
             try:
@@ -266,7 +293,7 @@ class CodexSdkClient:
             concurrent.futures.Future()
         )
         with self._pending_lock:
-            self._pending_server_responses[req_id] = response_future
+            self._pending_server_responses[req_id] = (response_future, method)
 
         # Build an RpcEvent that looks like the custom client would emit.
         rpc_event = RpcEvent(
@@ -285,11 +312,12 @@ class CodexSdkClient:
                 await handler(rpc_event)
             except Exception:
                 logger.exception("SDK bridge: async request handler failed")
-                # Unblock the waiting thread with an empty result.
+                # Unblock the waiting thread with a safe default (decline for
+                # approvals) so close/failure never silent-accepts.
                 with self._pending_lock:
-                    fut = self._pending_server_responses.pop(req_id, None)
-                if fut is not None and not fut.done():
-                    fut.set_result({})
+                    entry = self._pending_server_responses.pop(req_id, None)
+                if entry is not None and not entry[0].done():
+                    entry[0].set_result(_safe_default_response(method))
 
         asyncio.run_coroutine_threadsafe(_run_handler(), self._loop)
 
@@ -305,7 +333,7 @@ class CodexSdkClient:
             )
             with self._pending_lock:
                 self._pending_server_responses.pop(req_id, None)
-            return {}
+            return _safe_default_response(method)
 
     @staticmethod
     def _auto_handle_server_request(
@@ -317,10 +345,7 @@ class CodexSdkClient:
         silently auto-approved when the adapter is not ready to handle them
         (e.g. during ``request()`` calls or before the handler is registered).
         """
-        if method in {
-            "item/commandExecution/requestApproval",
-            "item/fileChange/requestApproval",
-        }:
+        if method in _APPROVAL_METHODS:
             logger.warning(
                 "SDK bridge: auto-declining approval request (method=%s) "
                 "because no async handler is available",

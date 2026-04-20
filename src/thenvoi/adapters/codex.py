@@ -66,6 +66,15 @@ _SILENT_REPORTING_TOOLS: frozenset[str] = frozenset(
     }
 )
 
+# Server-request methods that must never default to anything other than an
+# explicit ``decline`` when the adapter can't produce a real decision.
+_APPROVAL_METHODS: frozenset[str] = frozenset(
+    {
+        "item/commandExecution/requestApproval",
+        "item/fileChange/requestApproval",
+    }
+)
+
 # Slash commands recognised by _extract_local_command().
 _LOCAL_COMMANDS: frozenset[str] = frozenset(
     {
@@ -95,6 +104,12 @@ _COMMAND_TOKEN_SEARCH_LIMIT = 5
 # title between task_started and task_complete events).  500 covers bursty
 # conversations while keeping memory bounded.
 _MAX_TASK_TITLES = 500
+
+# Cap on the raw diff string forwarded in ``turn/diff/updated`` task metadata.
+# Diffs can be megabytes on large refactors; shipping the full blob inflates
+# WebSocket frames and chat-event storage.  Consumers that need the full diff
+# should request it from Codex directly.
+_MAX_DIFF_METADATA_BYTES = 64 * 1024
 
 
 # ---------------------------------------------------------------------------
@@ -999,9 +1014,17 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
         ``self._client.respond()`` to unblock the SDK thread.
         """
         if self._sdk_request_context is None:
-            logger.warning("SDK server request received but no request context set")
-            if self._client is not None:
-                await self._client.respond(event.id or 0, {})
+            logger.warning(
+                "SDK server request received but no request context set (method=%s)",
+                event.method,
+            )
+            if self._client is not None and event.id is not None:
+                # Default to ``decline`` for approval methods so a missing
+                # context can never silent-accept a command or file change.
+                default = (
+                    {"decision": "decline"} if event.method in _APPROVAL_METHODS else {}
+                )
+                await self._client.respond(event.id, default)
             return
         tools, msg, room_id = self._sdk_request_context
         await self._handle_server_request(
@@ -1020,12 +1043,15 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
         try:
             result = await self._client.request("model/list", {})
         except Exception:
-            logger.warning("model/list failed; using fallback model id", exc_info=True)
-            return _DEFAULT_MODEL
+            logger.warning(
+                "model/list failed; using first configured fallback model",
+                exc_info=True,
+            )
+            return self._first_configured_fallback()
 
         data = result.get("data") if isinstance(result, dict) else None
         if not isinstance(data, list):
-            return _DEFAULT_MODEL
+            return self._first_configured_fallback()
 
         visible_models = [
             entry
@@ -1040,6 +1066,19 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
                 return model_id
         if visible_models:
             return str(visible_models[0]["id"])
+        return self._first_configured_fallback()
+
+    def _first_configured_fallback(self) -> str:
+        """Return the first operator-configured fallback, or the hard default.
+
+        ``_select_model`` calls this when ``model/list`` fails or returns no
+        visible models — honouring ``config.fallback_models`` here keeps the
+        operator's override authoritative across both initial auto-selection
+        and post-failure retries (``_find_fallback_model``).
+        """
+        fallbacks = self.config.fallback_models
+        if fallbacks:
+            return fallbacks[0]
         return _DEFAULT_MODEL
 
     async def _ensure_thread(
@@ -1386,10 +1425,7 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
 
             return tool_name == "thenvoi_send_message" and tool_call_succeeded
 
-        if event.method in {
-            "item/commandExecution/requestApproval",
-            "item/fileChange/requestApproval",
-        }:
+        if event.method in _APPROVAL_METHODS:
             summary = self._approval_summary(event.method, params)
 
             # Check session-level auto-approval first
@@ -2127,7 +2163,7 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
         metadata.  Consumers filter on ``codex_event_type`` rather than the
         generic ``tool_result`` channel.
         """
-        diff_content = params.get("diff") or params.get("content") or ""
+        diff_content = str(params.get("diff") or params.get("content") or "")
         files_changed: list[str] = []
         files_raw = params.get("files") or params.get("filesChanged") or []
         if isinstance(files_raw, list):
@@ -2135,6 +2171,27 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
         summary = (
             f"{len(files_changed)} files changed" if files_changed else "diff updated"
         )
+
+        diff_truncated = False
+        original_length = len(diff_content)
+        if original_length > _MAX_DIFF_METADATA_BYTES:
+            diff_content = (
+                diff_content[:_MAX_DIFF_METADATA_BYTES]
+                + f"\n... [truncated, {original_length - _MAX_DIFF_METADATA_BYTES} more chars]"
+            )
+            diff_truncated = True
+
+        metadata: dict[str, Any] = {
+            "codex_event_type": "turn_diff",
+            "codex_thread_id": thread_id,
+            "codex_turn_id": turn_id,
+            "codex_room_id": room_id,
+            "codex_files_changed": files_changed,
+            "codex_diff": diff_content,
+        }
+        if diff_truncated:
+            metadata["codex_diff_truncated"] = True
+            metadata["codex_diff_original_length"] = original_length
         try:
             await tools.send_event(
                 content=self._build_task_event_content(
@@ -2144,14 +2201,7 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
                     summary=summary,
                 ),
                 message_type="task",
-                metadata={
-                    "codex_event_type": "turn_diff",
-                    "codex_thread_id": thread_id,
-                    "codex_turn_id": turn_id,
-                    "codex_room_id": room_id,
-                    "codex_files_changed": files_changed,
-                    "codex_diff": str(diff_content),
-                },
+                metadata=metadata,
             )
         except Exception:
             logger.debug("Failed to forward diff event", exc_info=True)

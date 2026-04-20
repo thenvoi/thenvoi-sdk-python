@@ -3210,10 +3210,10 @@ class TestHistoryInjection:
             )
 
     @pytest.mark.asyncio
-    async def test_model_fallback_uses_hardcoded_default_when_model_list_fails(
+    async def test_model_fallback_uses_configured_defaults_when_model_list_fails(
         self,
     ) -> None:
-        """When model/list fails during fallback, hardcoded defaults are used."""
+        """When model/list fails during fallback, ``config.fallback_models`` is used."""
         events = [
             _event_notification(
                 "turn/completed",
@@ -3250,6 +3250,9 @@ class TestHistoryInjection:
         tools = ToolSchemaFakeTools()
         await adapter.on_started("Agent", "An agent")
 
+        # Auto-selection without model/list picks fallback_models[0] = gpt-5.2
+        assert adapter._selected_model == "gpt-5.2"
+
         msg = make_platform_message(room_id="room-1", content="hello")
         await adapter.on_message(
             msg,
@@ -3261,9 +3264,34 @@ class TestHistoryInjection:
             room_id="room-1",
         )
 
-        # Should fall back to gpt-5.2 from hardcoded defaults
-        # (gpt-5.3-codex excluded since it was the auto-selected model that failed)
-        assert adapter._selected_model == "gpt-5.2"
+        # turn/start with gpt-5.2 fails; fallback excludes it and picks the
+        # next configured default (gpt-5.3-codex).
+        assert adapter._selected_model == "gpt-5.3-codex"
+
+    @pytest.mark.asyncio
+    async def test_select_model_honours_custom_fallback_when_model_list_empty(
+        self,
+    ) -> None:
+        """Operator-configured ``fallback_models[0]`` wins when model/list returns no data."""
+        fake_client = FakeCodexClient(
+            events=[
+                _event_notification(
+                    "turn/completed",
+                    {"turn": {"id": "turn-1", "status": "completed"}},
+                ),
+            ],
+            model_list_result={"data": []},
+        )
+        adapter = CodexAdapter(
+            config=CodexAdapterConfig(
+                model=None,
+                fallback_models=("custom-model-x", "custom-model-y"),
+            ),
+            client_factory=lambda _config: fake_client,
+        )
+        await adapter.on_started("Agent", "An agent")
+
+        assert adapter._selected_model == "custom-model-x"
 
     @pytest.mark.asyncio
     async def test_non_model_error_not_caught_by_fallback(self) -> None:
@@ -5752,6 +5780,61 @@ class TestSdkTransport:
         # Before any message, context should be None
         assert adapter._sdk_request_context is None
 
+    @pytest.mark.asyncio
+    async def test_sdk_server_request_without_context_declines_approvals(self) -> None:
+        """No _sdk_request_context → approval methods default to decline, not silent-accept."""
+        fake_client = FakeCodexClient()
+        adapter = CodexAdapter(
+            config=CodexAdapterConfig(transport="ws"),
+            client_factory=lambda _config: fake_client,
+        )
+        adapter._client = fake_client
+        adapter._sdk_request_context = None
+
+        from thenvoi.integrations.codex import RpcEvent
+
+        await adapter._handle_sdk_server_request(
+            RpcEvent(
+                kind="request",
+                method="item/commandExecution/requestApproval",
+                params={"command": "rm -rf /"},
+                id=7,
+                raw={},
+            ),
+        )
+        responses = [
+            (req_id, payload)
+            for req_id, payload in fake_client.responses
+            if req_id == 7
+        ]
+        assert responses == [(7, {"decision": "decline"})]
+
+    @pytest.mark.asyncio
+    async def test_sdk_server_request_without_context_empty_for_non_approval(
+        self,
+    ) -> None:
+        """Non-approval methods without context get an empty dict response."""
+        fake_client = FakeCodexClient()
+        adapter = CodexAdapter(
+            config=CodexAdapterConfig(transport="ws"),
+            client_factory=lambda _config: fake_client,
+        )
+        adapter._client = fake_client
+        adapter._sdk_request_context = None
+
+        from thenvoi.integrations.codex import RpcEvent
+
+        await adapter._handle_sdk_server_request(
+            RpcEvent(
+                kind="request",
+                method="item/tool/call",
+                params={"tool": "unknown"},
+                id=8,
+                raw={},
+            ),
+        )
+        assert (8, {}) in fake_client.responses
+
 
 class TestCodexSdkClient:
     """Unit tests for :class:`CodexSdkClient` (mocked SDK)."""
@@ -5837,7 +5920,7 @@ class TestCodexSdkClient:
         client._pending_lock = __import__("threading").Lock()
 
         future: concurrent.futures.Future[dict[str, Any]] = concurrent.futures.Future()
-        client._pending_server_responses[42] = future
+        client._pending_server_responses[42] = (future, "item/tool/call")
 
         await client.respond(42, {"decision": "accept"})
 
@@ -5860,7 +5943,7 @@ class TestCodexSdkClient:
         client._pending_lock = __import__("threading").Lock()
 
         future: concurrent.futures.Future[dict[str, Any]] = concurrent.futures.Future()
-        client._pending_server_responses[99] = future
+        client._pending_server_responses[99] = (future, "item/tool/call")
 
         await client.respond_error(99, code=-32000, message="fail")
 
@@ -5868,6 +5951,46 @@ class TestCodexSdkClient:
         assert future.result() == {
             "error": {"code": -32000, "message": "fail", "data": None},
         }
+
+    @pytest.mark.asyncio
+    async def test_close_resolves_pending_approvals_with_decline(self) -> None:
+        """close() must resolve pending approval futures with ``decline`` — never silent-accept."""
+        try:
+            from thenvoi.integrations.codex.sdk_client import CodexSdkClient
+        except ImportError:
+            pytest.skip("codex-app-server-sdk not installed")
+
+        import concurrent.futures
+
+        client = CodexSdkClient.__new__(CodexSdkClient)
+        client._connected = True
+        client._sync_client = None
+        client._pending_server_responses = {}
+        client._pending_lock = __import__("threading").Lock()
+
+        approval_future: concurrent.futures.Future[dict[str, Any]] = (
+            concurrent.futures.Future()
+        )
+        tool_future: concurrent.futures.Future[dict[str, Any]] = (
+            concurrent.futures.Future()
+        )
+        client._pending_server_responses[1] = (
+            approval_future,
+            "item/commandExecution/requestApproval",
+        )
+        client._pending_server_responses[2] = (
+            tool_future,
+            "item/tool/call",
+        )
+
+        await client.close()
+
+        assert approval_future.done()
+        # Pending approval must never silent-accept on close.
+        assert approval_future.result() == {"decision": "decline"}
+        assert tool_future.done()
+        # Non-approval methods get an empty dict (no safe "null" response).
+        assert tool_future.result() == {}
 
     def test_server_request_bridge_auto_handles_during_request(self) -> None:
         """During _in_request=True, server requests are auto-declined."""
