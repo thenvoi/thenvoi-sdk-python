@@ -221,17 +221,13 @@ class TestGracefulShutdownHandler:
             "agent.stop was cancelled mid-flight; asyncio.shield is missing"
         )
 
-    async def test_shutdown_handles_cancelled_error(self, mock_agent):
-        """_shutdown should log and run best-effort cleanup when cancelled."""
+    async def test_shutdown_reraises_cancelled_error(self, mock_agent):
+        """_shutdown should log and re-raise CancelledError without a second stop."""
         stop_calls: list[float] = []
 
         async def tracking_stop(*, timeout):
             stop_calls.append(timeout)
-            # First call (the shielded one) raises CancelledError to simulate
-            # the shield being bypassed; second call is the best-effort cleanup.
-            if len(stop_calls) == 1:
-                raise asyncio.CancelledError()
-            return True
+            raise asyncio.CancelledError()
 
         mock_agent.stop = AsyncMock(side_effect=tracking_stop)
         shutdown = GracefulShutdown(mock_agent, timeout=5.0)
@@ -239,8 +235,10 @@ class TestGracefulShutdownHandler:
         with pytest.raises(asyncio.CancelledError):
             await shutdown._shutdown()
 
-        # First call uses the configured timeout, second is the best-effort quick stop.
-        assert stop_calls == [5.0, 0.0]
+        # Only one call — asyncio.shield keeps the original agent.stop running
+        # in the background on real cancellation; starting a concurrent second
+        # stop would race on AgentRuntime's per-room executions teardown.
+        assert stop_calls == [5.0]
 
 
 class TestGracefulShutdownWaitForShutdown:

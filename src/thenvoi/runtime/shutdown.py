@@ -193,8 +193,10 @@ class GracefulShutdown:
 
         # Guard FIRST — before any side effects. The documented contract is
         # "subsequent signals are ignored", and user-provided on_signal callbacks
-        # (e.g. paging/alerting) may not be idempotent.
-        if self._shutting_down or self._shutdown_task is not None:
+        # (e.g. paging/alerting) may not be idempotent. _handle_signal runs in
+        # event-loop callback context and never yields between the flag set and
+        # create_task below, so checking the flag alone is sufficient.
+        if self._shutting_down:
             logger.debug(
                 "Received %s but shutdown already in progress, ignoring", sig_name
             )
@@ -241,22 +243,15 @@ class GracefulShutdown:
             else:
                 logger.warning("Agent shut down with processing interrupted")
         except asyncio.CancelledError:
-            # CancelledError inherits from BaseException (Py3.8+) so the generic
-            # Exception handler below doesn't catch it. Without this branch, a
-            # cancelled shutdown surfaces only as a task-exception warning and
-            # leaves partial cleanup state. Try a best-effort quick stop so
-            # resources are released even when the loop is tearing down.
+            # CancelledError inherits from BaseException (Py3.8+), so the
+            # generic Exception handler below doesn't catch it. asyncio.shield
+            # keeps the inner agent.stop() running in the background, so we do
+            # NOT kick off a second concurrent stop here: AgentRuntime.stop
+            # iterates executions.keys() with no in-flight guard, and two
+            # concurrent stops would race on per-room teardown.
             logger.warning(
-                "Shutdown was cancelled; attempting best-effort quick cleanup"
+                "Shutdown was cancelled; shielded agent.stop continues in background"
             )
-            try:
-                await self.agent.stop(timeout=0.0)
-            except Exception as cleanup_err:
-                logger.error(
-                    "Quick-cleanup after cancellation failed: %s",
-                    cleanup_err,
-                    exc_info=True,
-                )
             raise
         except Exception as e:
             logger.error("Error during shutdown: %s", e, exc_info=True)
