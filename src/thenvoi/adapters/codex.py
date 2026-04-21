@@ -897,6 +897,14 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
                     # on the next message instead of reusing a dead client.
                     self._client = None
                     self._initialized = False
+                    # Clear per-room state that references the dead session so
+                    # the next turn does a fresh thread/start instead of reusing
+                    # a cached thread_id the new subprocess doesn't know about.
+                    stale_rooms = list(self._room_threads.keys())
+                    self._room_threads.clear()
+                    self._raw_history_by_room.clear()
+                    for stale_room in stale_rooms:
+                        self._clear_pending_approvals_for_room(stale_room)
                     break
 
                 if event.method == "turn/completed":
@@ -940,6 +948,11 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
         return result
 
     async def on_cleanup(self, room_id: str) -> None:
+        # NOTE: _rpc_lock is adapter-wide, so cleanup for room B blocks if
+        # room A holds the lock during a pending manual approval (up to
+        # approval_wait_timeout_s).  This is a known limitation of the single-
+        # client architecture — the lock serializes all turn processing and
+        # cleanup across rooms.
         async with self._rpc_lock:
             thread_id = self._room_threads.pop(room_id, None)
             if thread_id:
@@ -974,6 +987,10 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
                 self._initialized = False
                 self._selected_model = None
                 self._task_titles_by_id.clear()
+                # Defensive: wipe all pending approvals globally on last-room
+                # teardown.  Per-room cleanup already resolves futures to
+                # "decline" via _clear_pending_approvals_for_room, so this
+                # catches any leaked entries from rooms whose cleanup failed.
                 self._pending_approvals.clear()
                 self._token_usage.clear()
                 self._approval_audit.clear()

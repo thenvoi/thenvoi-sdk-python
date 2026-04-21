@@ -6,7 +6,7 @@ import asyncio
 import json
 import logging
 from collections import OrderedDict, deque
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 from uuid import uuid4
 
@@ -1570,6 +1570,44 @@ class TestCodexAdapter:
         # After transport/closed, client state should be reset
         assert adapter._client is None
         assert adapter._initialized is False
+
+    @pytest.mark.asyncio
+    async def test_transport_closed_clears_per_room_state(self) -> None:
+        """After transport/closed, per-room state (thread_id, raw_history,
+        pending approvals) must be cleared so the next turn does a fresh
+        thread/start instead of reusing a cached thread_id from the dead
+        session."""
+        events = [
+            _event_notification(
+                "transport/closed",
+                {"reason": "Codex process exited unexpectedly"},
+            )
+        ]
+        fake_client = FakeCodexClient(events=events)
+        adapter = CodexAdapter(
+            config=CodexAdapterConfig(transport="ws"),
+            client_factory=lambda _config: fake_client,
+        )
+        tools = ToolSchemaFakeTools()
+        await adapter.on_started("Codex Agent", "A coding agent")
+
+        # Pre-populate per-room state to simulate an active session.
+        adapter._room_threads["room-1"] = "old-thread-id"
+        adapter._raw_history_by_room["room-1"] = [{"role": "user", "content": "hi"}]
+
+        await adapter.on_message(
+            make_platform_message(),
+            tools,
+            CodexSessionState(),
+            participants_msg=None,
+            contacts_msg=None,
+            is_session_bootstrap=False,
+            room_id="room-1",
+        )
+
+        # Per-room state should be cleared so next turn starts fresh.
+        assert "room-1" not in adapter._room_threads
+        assert "room-1" not in adapter._raw_history_by_room
 
     @pytest.mark.asyncio
     async def test_turn_timeout_sends_interrupt_and_clean_error(self) -> None:
@@ -6066,6 +6104,7 @@ class TestCodexSdkClient:
             pytest.skip("codex-app-server-sdk not installed")
 
         client = CodexSdkClient.__new__(CodexSdkClient)
+        client._connected = True
         client._in_request = __import__("threading").Event()
         client._in_request.set()
         client._loop = None
@@ -6814,60 +6853,48 @@ class TestMalformedPayloadTolerance:
 class TestCleanupOnCancel:
     @pytest.mark.asyncio
     async def test_pending_approvals_cleared_on_room_cleanup(self) -> None:
-        """on_cleanup must drop pending approval futures so a cancelled turn
-        doesn't leave stale state behind."""
-        events = [
-            _event_request(
-                42,
-                "item/commandExecution/requestApproval",
-                {"command": "rm -rf /"},
-            ),
-            _event_notification(
-                "turn/completed",
-                {
-                    "turn": {
-                        "id": "turn-1",
-                        "status": "completed",
-                        "items": [],
-                        "error": None,
-                    }
-                },
-            ),
-        ]
-        fake_client = FakeCodexClient(events=events)
+        """on_cleanup must resolve pending approval futures to 'decline'.
+
+        Directly populates adapter state to isolate cleanup behavior from
+        the _rpc_lock held by on_message — this verifies that
+        _clear_pending_approvals_for_room resolves futures to 'decline',
+        not that the natural approval timeout fired first.
+        """
+        fake_client = FakeCodexClient(events=[])
         adapter = CodexAdapter(
             config=CodexAdapterConfig(
                 transport="ws",
                 approval_mode="manual",
-                approval_wait_timeout_s=0.05,
+                approval_wait_timeout_s=30.0,
             ),
             client_factory=lambda _config: fake_client,
         )
-        tools = ToolSchemaFakeTools()
         await adapter.on_started("Agent", "A coding agent")
 
-        turn_task = asyncio.create_task(
-            adapter.on_message(
-                make_platform_message(),
-                tools,
-                CodexSessionState(),
-                participants_msg=None,
-                contacts_msg=None,
-                is_session_bootstrap=True,
-                room_id="room-1",
-            )
-        )
-        await _wait_for_pending_approval(adapter, "room-1")
+        # Simulate an active room with a pending approval.
+        loop = asyncio.get_running_loop()
+        approval_future: asyncio.Future[str] = loop.create_future()
+        from thenvoi.adapters.codex import _PendingApproval
+
+        adapter._room_threads["room-1"] = "thr-1"
+        adapter._pending_approvals["room-1"] = {
+            "token-1": _PendingApproval(
+                request_id=42,
+                method="item/commandExecution/requestApproval",
+                summary="rm -rf /",
+                created_at=datetime.now(timezone.utc),
+                future=approval_future,
+                session_key="cmd:rm -rf /",
+            ),
+        }
 
         await adapter.on_cleanup("room-1")
 
         assert adapter._pending_approvals.get("room-1", {}) == {}
         assert "room-1" not in adapter._room_threads
-        turn_task.cancel()
-        try:
-            await turn_task
-        except (asyncio.CancelledError, Exception):
-            pass
+        # Verify cleanup resolved the future to "decline".
+        assert approval_future.done()
+        assert approval_future.result() == "decline"
 
 
 class TestTurnLifecycleEventsDisabled:

@@ -292,9 +292,10 @@ class CodexSdkClient:
         Otherwise, schedule the adapter's async handler on the event loop,
         block this thread until a result is ready, and return it to the SDK.
         """
+        if not self._connected:
+            return self._auto_handle_server_request(method, params)
         if self._in_request.is_set():
             return self._auto_handle_server_request(method, params)
-
         if self._loop is None or self._request_handler is None:
             return self._auto_handle_server_request(method, params)
 
@@ -304,6 +305,11 @@ class CodexSdkClient:
             concurrent.futures.Future()
         )
         with self._pending_lock:
+            # Re-check _connected under the lock to close the TOCTOU window
+            # with close(), which flips _connected=False and drains
+            # _pending_server_responses under the same lock.
+            if not self._connected:
+                return self._auto_handle_server_request(method, params)
             self._pending_server_responses[req_id] = (response_future, method)
 
         # Build an RpcEvent that looks like the custom client would emit.
