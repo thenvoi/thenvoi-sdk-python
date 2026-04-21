@@ -475,6 +475,7 @@ class ACPServer(Agent):
         Args:
             prompt: List of ACP content blocks (TextContentBlock, etc.).
             session_id: The ACP session identifier.
+            message_id: Optional message identifier from the client.
             **kwargs: Additional keyword arguments.
 
         Returns:
@@ -517,6 +518,28 @@ class ACPServer(Agent):
         """
         logger.info("ACP cancel for session %s", session_id)
         await self._adapter.cancel_prompt(session_id)
+
+    async def close_session(
+        self, session_id: str, **kwargs: Any
+    ) -> CloseSessionResponse | None:
+        """Handle ACP close_session request.
+
+        Cleans up all state for the session via the adapter.
+
+        Args:
+            session_id: The ACP session identifier.
+            **kwargs: Additional keyword arguments.
+
+        Returns:
+            CloseSessionResponse acknowledgement, or None if session not found.
+        """
+        room_id = self._adapter.get_room_for_session(session_id)
+        if room_id is None:
+            logger.debug("close_session: session %s not found", session_id)
+            return None
+        logger.info("Closing ACP session %s (room %s)", session_id, room_id)
+        await self._adapter.on_cleanup(room_id)
+        return CloseSessionResponse()
 
     @staticmethod
     def _extract_text(prompt: list[Any]) -> str:

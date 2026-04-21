@@ -437,6 +437,13 @@ def _build_pydantic_ai_config() -> AdapterConfig:
 def _build_parlant_config() -> AdapterConfig:
     from thenvoi.adapters.parlant import ParlantAdapter
 
+    try:
+        import parlant.sdk  # noqa: F401
+
+        _parlant_available = True
+    except ImportError:
+        _parlant_available = False
+
     return AdapterConfig(
         framework_id="parlant",
         display_name="Parlant",
@@ -454,6 +461,9 @@ def _build_parlant_config() -> AdapterConfig:
             "custom_section": "Be helpful.",
         },
         has_custom_tools_attr=False,
+        # on_started does a runtime `from parlant.core.application import Application`
+        # which fails when parlant SDK is not installed (conflict group with crewai).
+        skip_on_started_conformance=not _parlant_available,
     )
 
 
