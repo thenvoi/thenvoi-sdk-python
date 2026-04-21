@@ -98,12 +98,13 @@ _COMMAND_TOKEN_SEARCH_LIMIT = 5
 _MAX_TASK_TITLES = 500
 
 # Cap on the raw diff string forwarded in ``turn/diff/updated`` task metadata,
-# expressed in characters (not bytes).  Diffs can be megabytes on large
-# refactors; shipping the full blob inflates WebSocket frames and chat-event
-# storage.  Consumers that need the full diff should request it from Codex
-# directly.  For mostly-ASCII diffs this maps roughly 1:1 to bytes; for
-# heavily multi-byte content the wire size can be up to ~4x larger.
-_MAX_DIFF_METADATA_CHARS = 64 * 1024
+# expressed in UTF-8 bytes.  Diffs can be megabytes on large refactors;
+# shipping the full blob inflates WebSocket frames and chat-event storage.
+# Consumers that need the full diff should request it from Codex directly.
+# Enforcing the cap on encoded bytes (not Python characters) bounds the wire
+# size uniformly regardless of whether the diff contains ASCII or heavy
+# multi-byte content (emoji, CJK).
+_MAX_DIFF_METADATA_BYTES = 64 * 1024
 
 
 # ---------------------------------------------------------------------------
@@ -264,6 +265,25 @@ class CodexAdapterConfig:
     # _rpc_lock can't be held indefinitely if the underlying subprocess or
     # socket is unresponsive.  ``None`` disables the bound (legacy behavior).
     client_close_timeout_s: float | None = 10.0
+    # Matching rules for session-level auto-approval (``/approve-session``).
+    #
+    # ``"full_command"`` (default, more restrictive) — the key is the exact
+    #     command string after ``.strip()`` on the single ``command`` field
+    #     of the approval payload.  Matching is byte-exact and case-sensitive;
+    #     only leading/trailing whitespace is normalised.  ``npm test`` does
+    #     NOT match ``npm  test`` (double space), ``NPM TEST`` (case), or
+    #     ``npm test --watch`` (trailing args).
+    #
+    # ``"binary"`` (less restrictive) — the key is just the first whitespace-
+    #     delimited token of the command.  ``/approve-session`` on ``npm test``
+    #     auto-approves every future command starting with ``npm`` in that
+    #     room, regardless of subcommand or arguments.  Intended for
+    #     trusted-binary shortcuts (``npm``, ``git``) where per-argv friction
+    #     outweighs the safety margin.  Not recommended for commands that can
+    #     take destructive flags (``rm``, ``git push --force``).
+    #
+    # File-change approvals always key on the sorted set of paths being
+    # modified, independent of this flag.
     session_approval_granularity: Literal["binary", "full_command"] = "full_command"
     # --- Phase 1: Structured errors & enriched approvals ---
     structured_errors: bool = True
@@ -442,6 +462,21 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
         self._log_startup_config(agent_name)
 
     def _log_startup_config(self, agent_name: str) -> None:
+        # The two turn-task channels are independent by design but rendering
+        # both produces duplicated timeline entries in most UIs.  Warn once
+        # at startup so operators catch the misconfiguration instead of
+        # discovering it as "twice as many events" downstream.
+        if (
+            self.config.emit_turn_task_markers
+            and self.config.emit_turn_lifecycle_events
+            and Emit.TASK_EVENTS in self.features.emit
+        ):
+            logger.warning(
+                "Codex adapter: both emit_turn_task_markers and "
+                "emit_turn_lifecycle_events are enabled — consumers will "
+                "receive two task events per turn.  Pick exactly one channel "
+                "(typically emit_turn_lifecycle_events for the richer metadata)."
+            )
         logger.info(
             "Codex adapter started: agent=%s, transport=%s, model=%s, "
             "sandbox=%s, approval_mode=%s, "
@@ -2277,12 +2312,20 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
             f"{len(files_changed)} files changed" if files_changed else "diff updated"
         )
 
+        # Enforce the cap on UTF-8 bytes (not Python characters) so a diff
+        # loaded with emoji or CJK can't silently inflate the WebSocket
+        # frame well past the intended budget.
         diff_truncated = False
+        diff_bytes = diff_content.encode("utf-8")
+        original_byte_length = len(diff_bytes)
         original_length = len(diff_content)
-        if original_length > _MAX_DIFF_METADATA_CHARS:
-            diff_content = (
-                diff_content[:_MAX_DIFF_METADATA_CHARS]
-                + f"\n... [truncated, {original_length - _MAX_DIFF_METADATA_CHARS} more chars]"
+        if original_byte_length > _MAX_DIFF_METADATA_BYTES:
+            truncated_bytes = diff_bytes[:_MAX_DIFF_METADATA_BYTES]
+            # Drop any trailing partial UTF-8 sequence introduced by slicing
+            # inside a multi-byte character.
+            diff_content = truncated_bytes.decode("utf-8", errors="ignore") + (
+                f"\n... [truncated, {original_byte_length - _MAX_DIFF_METADATA_BYTES} "
+                f"more bytes]"
             )
             diff_truncated = True
 
@@ -2297,6 +2340,7 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
         if diff_truncated:
             metadata["codex_diff_truncated"] = True
             metadata["codex_diff_original_length"] = original_length
+            metadata["codex_diff_original_bytes"] = original_byte_length
         try:
             await tools.send_event(
                 content=self._build_task_event_content(

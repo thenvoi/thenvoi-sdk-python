@@ -9,6 +9,13 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
+# Cap on free-form strings copied from Codex error payloads into structured
+# event metadata.  ``additionalDetails`` is attacker-influenceable (it echoes
+# upstream API errors, prompt content, etc.) and gets rendered by downstream
+# UIs, so we bound it before shipping.  2 KiB is generous enough for a stack
+# trace or a long error string while keeping WebSocket frames modest.
+_MAX_ERROR_DETAIL_CHARS = 2048
+
 
 # Server-request methods that must never default to anything other than an
 # explicit ``decline`` when the adapter can't produce a real decision.
@@ -83,6 +90,14 @@ def build_structured_error_metadata(
     The ``error_obj`` is typically the ``error`` field from a turn payload or an
     ``error`` notification.  It may contain a nested ``codexErrorInfo`` dict with
     a ``type`` field identifying the error class.
+
+    ``additionalDetails`` echoes upstream strings that may be attacker-controlled
+    (e.g. error messages from a downstream HTTP target) and will be rendered by
+    downstream UIs.  Consumers MUST treat the resulting
+    ``codex_additional_details`` metadata field as untrusted — escape it before
+    rendering as HTML/Markdown.  This helper caps the length at
+    ``_MAX_ERROR_DETAIL_CHARS`` (2 KiB) so a hostile payload can't blow up
+    WebSocket frames or downstream storage.
     """
     codex_info = error_obj.get("codexErrorInfo") or {}
     if not isinstance(codex_info, dict):
@@ -117,10 +132,31 @@ def build_structured_error_metadata(
         metadata["codex_thread_id"] = thread_id
     if turn_id:
         metadata["codex_turn_id"] = turn_id
-    if additional:
-        metadata["codex_additional_details"] = additional
+    if additional is not None:
+        capped = _cap_error_detail(additional)
+        if capped is not None:
+            metadata["codex_additional_details"] = capped
 
     return content, metadata
+
+
+def _cap_error_detail(value: Any) -> Any:
+    """Cap free-form error detail strings to ``_MAX_ERROR_DETAIL_CHARS``.
+
+    Strings longer than the cap are truncated with a marker; other JSON-like
+    scalar types are returned as-is.  Returns ``None`` to signal "drop this
+    field" for falsy values so callers can ``is not None`` through.
+    """
+    if isinstance(value, str):
+        if not value:
+            return None
+        if len(value) > _MAX_ERROR_DETAIL_CHARS:
+            return (
+                value[:_MAX_ERROR_DETAIL_CHARS]
+                + f"... [truncated, {len(value) - _MAX_ERROR_DETAIL_CHARS} more chars]"
+            )
+        return value
+    return value
 
 
 # ---------------------------------------------------------------------------
@@ -229,48 +265,56 @@ class CodexTokenUsage:
         prev_reasoning = self.reasoning_tokens
         prev_total = self.total_tokens
 
-        self.input_tokens = _get("inputTokens", "input_tokens")
-        self.output_tokens = _get("outputTokens", "output_tokens")
-        self.reasoning_tokens = _get("reasoningTokens", "reasoning_tokens")
+        new_input = _get("inputTokens", "input_tokens")
+        new_output = _get("outputTokens", "output_tokens")
+        new_reasoning = _get("reasoningTokens", "reasoning_tokens")
         total = usage.get("totalTokens")
         if total is None:
             total = usage.get("total_tokens")
         if total is not None:
             try:
-                self.total_tokens = int(total)
+                new_total = int(total)
             except (ValueError, TypeError):
-                self.total_tokens = (
-                    self.input_tokens + self.output_tokens + self.reasoning_tokens
-                )
+                new_total = new_input + new_output + new_reasoning
         else:
-            self.total_tokens = (
-                self.input_tokens + self.output_tokens + self.reasoning_tokens
-            )
+            new_total = new_input + new_output + new_reasoning
 
-        # Compute per-turn deltas.  Cumulative counters should never go
-        # backwards; if they do, the server likely switched to delta-shaped
-        # payloads (or reset the thread) and our cumulative accumulation
-        # silently corrupts itself.  Clamp to 0 so UI counters don't go
-        # negative, but warn so operators can spot the regression.
+        # Cumulative counters should never go backwards.  Late events from a
+        # previous turn (or a protocol regression to delta-shaped payloads)
+        # can deliver a smaller cumulative than what we already have; if we
+        # replaced the field we would double-count the difference on the next
+        # real event (prev=smaller, new=larger → inflated delta).  Warn once
+        # and keep the larger of the two so cumulative stays monotonic.
         if (
-            self.input_tokens < prev_input
-            or self.output_tokens < prev_output
-            or self.reasoning_tokens < prev_reasoning
-            or self.total_tokens < prev_total
+            new_input < prev_input
+            or new_output < prev_output
+            or new_reasoning < prev_reasoning
+            or new_total < prev_total
         ):
             logger.warning(
                 "Codex token usage counter decreased (input %s->%s, output %s->%s, "
-                "reasoning %s->%s, total %s->%s). Expected cumulative totals; "
-                "protocol may have changed to deltas.",
+                "reasoning %s->%s, total %s->%s). Keeping previous maximum to "
+                "preserve monotonic cumulative; protocol may have changed to deltas.",
                 prev_input,
-                self.input_tokens,
+                new_input,
                 prev_output,
-                self.output_tokens,
+                new_output,
                 prev_reasoning,
-                self.reasoning_tokens,
+                new_reasoning,
                 prev_total,
-                self.total_tokens,
+                new_total,
             )
+
+        self.input_tokens = max(prev_input, new_input)
+        self.output_tokens = max(prev_output, new_output)
+        self.reasoning_tokens = max(prev_reasoning, new_reasoning)
+        self.total_tokens = max(prev_total, new_total)
+
+        # Per-turn deltas are the rise from the cumulative at turn start
+        # (``prev_*`` at the first update of the turn, carried forward
+        # through subsequent updates because ``reset_turn_deltas`` zeroes
+        # only the ``turn_*`` fields).  Clamp to 0 so a rewound event never
+        # produces a negative delta.
         self.turn_input_tokens = max(0, self.input_tokens - prev_input)
         self.turn_output_tokens = max(0, self.output_tokens - prev_output)
         self.turn_reasoning_tokens = max(0, self.reasoning_tokens - prev_reasoning)

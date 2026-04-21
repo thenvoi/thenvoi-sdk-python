@@ -80,6 +80,20 @@ class CodexSdkClient:
                 "codex-app-server is required for transport='sdk'. "
                 "Install with: pip install thenvoi-sdk[codex]"
             ) from exc
+        # Fail loudly at construction on SDK upgrades that remove the private
+        # ``_request_raw`` API we depend on (see ``request()`` below).
+        # ``pyproject.toml`` pins ``codex-app-server-sdk==0.2.0`` precisely
+        # because even a patch release could drop this private attribute.
+        # Checking at ``__init__`` (before ``connect()``) means a stale wheel
+        # from a mismatched lockfile state fails at adapter construction
+        # rather than during the first turn.
+        if not hasattr(AppServerClient, "_request_raw"):
+            raise RuntimeError(
+                "codex-app-server-sdk is missing the private '_request_raw' "
+                "method that thenvoi-sdk depends on. This indicates an "
+                "incompatible SDK version. Pin codex-app-server-sdk==0.2.0 "
+                "or file an upstream request for a public request() API."
+            )
         self._server_request_timeout_s = server_request_timeout_s
 
         self._sdk_config = AppServerConfig(
@@ -148,17 +162,6 @@ class CodexSdkClient:
             config=self._sdk_config,
             approval_handler=self._server_request_bridge,
         )
-        # Fail loudly on SDK upgrades that remove the private _request_raw
-        # API we depend on (see request() below).  pyproject.toml pins
-        # codex-app-server-sdk ==0.2.0 exactly because even a patch release
-        # could drop this private attribute.
-        if not hasattr(self._sync_client, "_request_raw"):
-            raise RuntimeError(
-                "codex-app-server-sdk is missing the private '_request_raw' "
-                "method that thenvoi-sdk depends on. This indicates an "
-                "incompatible SDK version. Pin codex-app-server-sdk ==0.2.0 "
-                "or file an upstream request for a public request() API."
-            )
         await asyncio.to_thread(self._sync_client.start)
         self._connected = True
 
@@ -265,6 +268,15 @@ class CodexSdkClient:
         for handler_future in handler_futures:
             if not handler_future.done():
                 handler_future.cancel()
+        # Await the cancelled handler coroutines so they actually exit (with
+        # ``CancelledError``) before we tear down the sync client and adapter
+        # state.  Without this, a handler mid-flight on the event loop could
+        # re-enter the adapter after ``_client`` has been cleared.
+        if handler_futures:
+            await asyncio.gather(
+                *(asyncio.wrap_future(f) for f in handler_futures),
+                return_exceptions=True,
+            )
         if self._sync_client is not None:
             try:
                 await asyncio.to_thread(self._sync_client.close)

@@ -6969,3 +6969,248 @@ class TestSdkClientCleanup:
 
         assert pending_future.cancelled() or pending_future.done()
         assert client._handler_futures == set()
+
+    @pytest.mark.asyncio
+    async def test_close_awaits_cancelled_handler_coroutines(self) -> None:
+        """close() waits for cancelled handler coroutines to actually exit.
+
+        Without this guarantee a handler cancelled mid-await could re-enter the
+        adapter after the sync client is torn down.
+        """
+        try:
+            from thenvoi.integrations.codex.sdk_client import CodexSdkClient
+        except ImportError:
+            pytest.skip("codex-app-server-sdk not installed")
+
+        client = CodexSdkClient.__new__(CodexSdkClient)
+        client._pending_lock = __import__("threading").Lock()
+        client._pending_server_responses = {}
+        client._handler_futures = set()
+        client._connected = True
+        client._sync_client = None
+
+        observed_cancellation = asyncio.Event()
+
+        async def _slow_handler() -> None:
+            try:
+                await asyncio.sleep(10)
+            except asyncio.CancelledError:
+                observed_cancellation.set()
+                raise
+
+        loop = asyncio.get_running_loop()
+        handler_future = asyncio.run_coroutine_threadsafe(_slow_handler(), loop)
+        client._handler_futures.add(handler_future)
+
+        await client.close()
+
+        assert observed_cancellation.is_set()
+        assert handler_future.cancelled() or handler_future.done()
+
+
+class TestTokenUsageCumulativeMonotonicity:
+    """Late events with smaller cumulative counters must not rewind state.
+
+    Without the max-preserving guard, a late ``thread/tokenUsage/updated``
+    from the previous turn can overwrite the cumulative totals with a
+    smaller value.  The next real event of the current turn then computes
+    ``turn_delta = new - (rewound)`` and double-counts the gap.
+    """
+
+    def test_late_smaller_event_does_not_corrupt_next_delta(self) -> None:
+        from thenvoi.integrations.codex.types import CodexTokenUsage
+
+        usage = CodexTokenUsage()
+        # End of previous turn: cumulative = 100.
+        usage.update({"usage": {"inputTokens": 100, "outputTokens": 0}})
+        assert usage.input_tokens == 100
+
+        # Adapter starts a new turn.
+        usage.reset_turn_deltas()
+
+        # Late event from the previous turn arrives with a smaller cumulative.
+        usage.update({"usage": {"inputTokens": 80, "outputTokens": 0}})
+        # Cumulative must stay at 100 (monotonic), turn delta clamped to 0.
+        assert usage.input_tokens == 100
+        assert usage.turn_input_tokens == 0
+
+        # First real event of the new turn: cumulative = 120.
+        usage.update({"usage": {"inputTokens": 120, "outputTokens": 0}})
+        # Turn delta is 120 - 100 = 20, NOT 120 - 80 = 40.
+        assert usage.turn_input_tokens == 20
+        assert usage.input_tokens == 120
+
+
+class TestStructuredErrorDetailCap:
+    """``additionalDetails`` is attacker-influenceable and must be capped."""
+
+    def test_long_additional_details_string_is_truncated(self) -> None:
+        from thenvoi.integrations.codex.types import (
+            _MAX_ERROR_DETAIL_CHARS,
+            build_structured_error_metadata,
+        )
+
+        long_detail = "x" * (_MAX_ERROR_DETAIL_CHARS + 500)
+        _, meta = build_structured_error_metadata(
+            {
+                "codexErrorInfo": {"type": "Unauthorized"},
+                "additionalDetails": long_detail,
+            }
+        )
+        detail = meta["codex_additional_details"]
+        assert isinstance(detail, str)
+        assert len(detail) < len(long_detail)
+        assert "truncated" in detail
+
+    def test_structured_dict_additional_details_are_preserved(self) -> None:
+        """Only string details are capped; dict/list payloads pass through."""
+        from thenvoi.integrations.codex.types import build_structured_error_metadata
+
+        payload = {"hint": "refresh token", "code": 401}
+        _, meta = build_structured_error_metadata(
+            {
+                "codexErrorInfo": {"type": "Unauthorized"},
+                "additionalDetails": payload,
+            }
+        )
+        assert meta["codex_additional_details"] == payload
+
+    def test_empty_additional_details_is_dropped(self) -> None:
+        """Empty strings are not echoed into metadata."""
+        from thenvoi.integrations.codex.types import build_structured_error_metadata
+
+        _, meta = build_structured_error_metadata(
+            {
+                "codexErrorInfo": {"type": "Unauthorized"},
+                "additionalDetails": "",
+            }
+        )
+        assert "codex_additional_details" not in meta
+
+
+class TestDiffByteCap:
+    """``turn/diff/updated`` metadata is bounded in UTF-8 bytes, not chars."""
+
+    @pytest.mark.asyncio
+    async def test_multibyte_diff_respects_byte_budget(self) -> None:
+        """A diff built from 4-byte codepoints is capped to the byte budget,
+        not the character budget (which would be ~4× larger on the wire)."""
+        from thenvoi.adapters.codex import _MAX_DIFF_METADATA_BYTES
+
+        # Each emoji is 4 UTF-8 bytes; use ~1.5× the byte budget worth.
+        emoji = "\U0001f600"
+        diff_chars = (_MAX_DIFF_METADATA_BYTES // 4) + 5000
+        big_diff = emoji * diff_chars
+        assert len(big_diff.encode("utf-8")) > _MAX_DIFF_METADATA_BYTES
+
+        events = [
+            _event_notification(
+                "turn/diff/updated",
+                {"diff": big_diff, "files": ["src/app.py"]},
+            ),
+            _event_notification(
+                "turn/completed",
+                {
+                    "turn": {
+                        "id": "turn-1",
+                        "status": "completed",
+                        "items": [],
+                        "error": None,
+                    }
+                },
+            ),
+        ]
+        fake_client = FakeCodexClient(events=events)
+        adapter = CodexAdapter(
+            config=CodexAdapterConfig(transport="ws", emit_diff_events=True),
+            client_factory=lambda _config: fake_client,
+        )
+        tools = ToolSchemaFakeTools()
+
+        await adapter.on_started("Agent", "A coding agent")
+        await adapter.on_message(
+            make_platform_message(),
+            tools,
+            CodexSessionState(),
+            participants_msg=None,
+            contacts_msg=None,
+            is_session_bootstrap=True,
+            room_id="room-1",
+        )
+
+        diff_events = [
+            e
+            for e in tools.events_sent
+            if e["metadata"].get("codex_event_type") == "turn_diff"
+        ]
+        assert len(diff_events) == 1
+        meta = diff_events[0]["metadata"]
+        emitted = meta["codex_diff"]
+        # The emitted diff (including the truncation marker) stays within a
+        # small overhead of the byte budget — nowhere near 4× it.
+        assert len(emitted.encode("utf-8")) <= _MAX_DIFF_METADATA_BYTES + 256
+        assert meta["codex_diff_truncated"] is True
+        assert meta["codex_diff_original_bytes"] > _MAX_DIFF_METADATA_BYTES
+
+
+class TestSlashCommandTokenBoundary:
+    """``_extract_local_command`` scans only the first few tokens."""
+
+    def test_command_past_search_limit_is_ignored(self) -> None:
+        """A slash command buried after the token limit must not fire."""
+        from thenvoi.adapters.codex import _COMMAND_TOKEN_SEARCH_LIMIT
+
+        prefix = " ".join(f"word{i}" for i in range(_COMMAND_TOKEN_SEARCH_LIMIT + 1))
+        content = f"{prefix} /approve a-1"
+        assert CodexAdapter._extract_local_command(content) is None
+
+    def test_command_at_last_scanned_token_is_recognised(self) -> None:
+        """The boundary itself is inclusive of the search limit."""
+        from thenvoi.adapters.codex import _COMMAND_TOKEN_SEARCH_LIMIT
+
+        prefix = " ".join(f"word{i}" for i in range(_COMMAND_TOKEN_SEARCH_LIMIT - 1))
+        content = f"{prefix} /approve a-1"
+        result = CodexAdapter._extract_local_command(content)
+        assert result == ("approve", "a-1")
+
+
+class TestDoubleEmitStartupWarning:
+    """Enabling both turn-task channels warns operators once at startup."""
+
+    @pytest.mark.asyncio
+    async def test_warns_when_both_channels_enabled(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        fake_client = FakeCodexClient()
+        adapter = CodexAdapter(
+            config=CodexAdapterConfig(
+                transport="ws",
+                emit_turn_task_markers=True,
+                emit_turn_lifecycle_events=True,
+            ),
+            client_factory=lambda _config: fake_client,
+        )
+        with caplog.at_level(logging.WARNING, logger="thenvoi.adapters.codex"):
+            await adapter.on_started("Agent", "A coding agent")
+        assert any(
+            "two task events per turn" in record.message for record in caplog.records
+        )
+
+    @pytest.mark.asyncio
+    async def test_no_warning_when_only_one_channel_enabled(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        fake_client = FakeCodexClient()
+        adapter = CodexAdapter(
+            config=CodexAdapterConfig(
+                transport="ws",
+                emit_turn_task_markers=True,
+                emit_turn_lifecycle_events=False,
+            ),
+            client_factory=lambda _config: fake_client,
+        )
+        with caplog.at_level(logging.WARNING, logger="thenvoi.adapters.codex"):
+            await adapter.on_started("Agent", "A coding agent")
+        assert not any(
+            "two task events per turn" in record.message for record in caplog.records
+        )
