@@ -29,6 +29,7 @@ from typing import Any
 import yaml
 
 from thenvoi.config.loader import load_agent_config
+from thenvoi.core.types import AdapterFeatures, Emit
 
 # Global flag for graceful shutdown
 _shutdown_event: asyncio.Event | None = None
@@ -239,7 +240,7 @@ async def main() -> None:
         model=model,
         custom_section=final_prompt,
         max_thinking_tokens=thinking_tokens,
-        enable_execution_reporting=True,
+        features=AdapterFeatures(emit={Emit.EXECUTION, Emit.THOUGHTS}),
         additional_tools=custom_tools if custom_tools else None,
         cwd=workspace,
     )

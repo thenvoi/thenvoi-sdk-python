@@ -1,262 +1,386 @@
 # CrewAI Examples for Thenvoi
 
-Examples showing how to use the Thenvoi SDK with [CrewAI](https://docs.crewai.com/) - a framework for building collaborative multi-agent systems.
+Examples showing how to use the Thenvoi SDK with [CrewAI](https://docs.crewai.com/).
 
-## Why CrewAI?
+## Why use CrewAI here
 
-CrewAI provides:
-- **Role-Based Agents**: Define agents by role, goal, and backstory
-- **Agent Collaboration**: Built-in patterns for agent teamwork
-- **Task Orchestration**: Sequential and hierarchical processes
-- **Memory & Knowledge**: Persistent context across interactions
+CrewAI is a good fit when you want:
+
+- role-based agents with explicit goals and backstories
+- multi-agent coordination patterns
+- richer prompt shaping than a single flat system prompt
+- crew-style room workflows inside Thenvoi
+
+In this repo, the CrewAI adapter lets those agents use Thenvoi rooms and Thenvoi tools.
+
+## What these examples cover
+
+| File | Description |
+|------|-------------|
+| `01_basic_agent.py` | **Minimal setup** - Smallest working CrewAI + Thenvoi example. |
+| `02_role_based_agent.py` | **Role definition** - Shows how role, goal, and backstory shape behavior. |
+| `03_coordinator_agent.py` | **Coordinator** - Uses Thenvoi tools to discover peers and manage participation in a room. |
+| `04_research_crew.py` | **Research crew** - Three agents collaborate in the same room. |
+| `05_tom_agent.py` | **Character agent** - Tom the cat with a custom character prompt. |
+| `06_jerry_agent.py` | **Character agent** - Jerry the mouse with a custom character prompt. |
+| `07_contact_and_memory_agent.py` | **Contacts + memory** - Shows CrewAI contact tools, memory tools, and broadcast contact updates. |
+
+## What was validated during `INT-245`
+
+Confirmed live:
+
+- `01_basic_agent.py`
+- `02_role_based_agent.py`
+- `03_coordinator_agent.py`
+- `04_research_crew.py`
+- `05_tom_agent.py`
+- `06_jerry_agent.py`
+
+Also confirmed live:
+
+- `04_research_crew.py` with separate researcher, writer, and editor processes in one room
+- `05_tom_agent.py` and `06_jerry_agent.py` interacting in the same room
+- a real CrewAI AMP deployment
+- a real AMP re-deploy
+- a completed AMP execution with a self-contained deterministic CrewAI smoke project
 
 ## Prerequisites
 
-**Install with CrewAI support:**
-```bash
-uv add "git+https://github.com/thenvoi/thenvoi-sdk-python.git[crewai]"
-```
+You need:
 
-**Or from repository:**
+1. CrewAI dependencies installed
+2. model provider credentials in `.env`
+3. Thenvoi agent credentials in `agent_config.yaml`
+4. commands run from the repo root
+
+## Install
+
+From the repo root:
+
 ```bash
 uv sync --extra crewai
 ```
 
----
+If you are using an OpenAI-compatible model, your `.env` usually needs:
 
-## Quick Start
-
-```python
-from thenvoi import Agent
-from thenvoi.adapters import CrewAIAdapter
-
-adapter = CrewAIAdapter(
-    model="gpt-4o",
-    role="Research Assistant",
-    goal="Help users find and analyze information",
-    backstory="Expert researcher with deep domain knowledge",
-)
-
-agent = Agent.create(
-    adapter=adapter,
-    agent_id="your-agent-id",
-    api_key="your-api-key",
-)
-await agent.run()
+```bash
+OPENAI_API_KEY=sk-your-key
 ```
 
----
-
-## Examples
-
-| File | Description |
-|------|-------------|
-| `01_basic_agent.py` | **Minimal setup** - Simple agent with CrewAIAdapter. |
-| `02_role_based_agent.py` | **Role definition** - Agent with role, goal, and backstory. |
-| `03_coordinator_agent.py` | **Multi-agent orchestration** - Coordinator that manages other agents. |
-| `04_research_crew.py` | **Complete crew** - Research team with Analyst, Writer, and Editor. |
-
----
-
-## CrewAI Agent Definition
-
-CrewAI agents are defined by three key attributes:
-
-```python
-adapter = CrewAIAdapter(
-    role="Market Research Analyst",      # What the agent does
-    goal="Gather comprehensive market data",  # Primary objective
-    backstory="Expert in analyzing market dynamics...",  # Background context
-)
-```
-
-### Role
-The agent's function or job title. This shapes how the agent approaches tasks.
-
-### Goal
-The primary objective the agent is trying to achieve. Guides decision-making.
-
-### Backstory
-Rich context about the agent's expertise and background. Provides personality and domain knowledge.
-
----
+These examples instantiate the provider during startup. If `OPENAI_API_KEY` is missing, `uv run examples/crewai/01_basic_agent.py` fails before the agent connects to Thenvoi.
 
 ## Configuration
 
-### 1. Copy configuration files from examples
+### 1. Create local config files
 
 ```bash
-# From project root
 cp .env.example .env
 cp agent_config.yaml.example agent_config.yaml
 ```
 
-### 2. Add your OpenAI API key to `.env`
+### 2. Add model credentials to `.env`
 
-Edit `.env` and set your OpenAI API key:
-```bash
-OPENAI_API_KEY=sk-your-actual-key-here
-```
+The examples use OpenAI-compatible model configuration by default.
 
-### 3. Add agent credentials to `agent_config.yaml`
+### 3. Add Thenvoi agent credentials to `agent_config.yaml`
 
-1. Create external agents on the [Thenvoi Platform](https://app.thenvoi.com)
-2. Generate API keys for each agent
-3. Edit `agent_config.yaml` and fill in the CrewAI agent sections:
+Examples load credentials with `load_agent_config()`, so each script expects a specific config name.
+
+Basic and role-based examples:
 
 ```yaml
 crewai_agent:
-  agent_id: "your-agent-id-from-platform"
-  api_key: "your-api-key-from-platform"
+  agent_id: "your-crewai-agent-id"
+  api_key: "your-crewai-agent-api-key"
+```
 
+Coordinator example:
+
+```yaml
 coordinator_agent:
-  agent_id: "your-coordinator-id"
-  api_key: "your-coordinator-key"
+  agent_id: "your-coordinator-agent-id"
+  api_key: "your-coordinator-agent-api-key"
+```
 
-# For the research crew example (04_research_crew.py)
+Research crew:
+
+```yaml
 research_agent:
-  agent_id: "your-researcher-id"
-  api_key: "your-researcher-key"
+  agent_id: "your-research-agent-id"
+  api_key: "your-research-agent-api-key"
 
 writer_agent:
-  agent_id: "your-writer-id"
-  api_key: "your-writer-key"
+  agent_id: "your-writer-agent-id"
+  api_key: "your-writer-agent-api-key"
 
 editor_agent:
-  agent_id: "your-editor-id"
-  api_key: "your-editor-key"
+  agent_id: "your-editor-agent-id"
+  api_key: "your-editor-agent-api-key"
 ```
 
-> **Note:** Always copy from the example files to ensure correct URLs and formatting. Never hardcode credentials.
+Tom and Jerry:
 
----
+```yaml
+tom_agent:
+  agent_id: "your-tom-agent-id"
+  api_key: "your-tom-agent-api-key"
 
-## Running Examples
+jerry_agent:
+  agent_id: "your-jerry-agent-id"
+  api_key: "your-jerry-agent-api-key"
+```
 
-**Important:** Run from the project root directory (where `agent_config.yaml` is located):
+Contact and memory example:
+
+```yaml
+crewai_contact_memory_agent:
+  agent_id: "your-crewai-contact-memory-agent-id"
+  api_key: "your-crewai-contact-memory-agent-api-key"
+```
+
+## Important runtime note
+
+Run these examples from the repo root.
+
+That matters because:
+
+- `load_agent_config()` expects `agent_config.yaml` in the working directory
+- some examples import shared helper modules from the `examples/` tree
+- `uv run` uses the local checkout of `thenvoi-sdk`, so branch-local fixes are included
+
+Typical pattern:
 
 ```bash
-# From project root
 cd /path/to/thenvoi-sdk-python
-
-uv run python examples/crewai/01_basic_agent.py
-uv run python examples/crewai/02_role_based_agent.py
-uv run python examples/crewai/03_coordinator_agent.py
+uv run examples/crewai/01_basic_agent.py
 ```
 
-> **Note:** The config loader looks for `agent_config.yaml` in the current working directory. Running from a subdirectory will cause a `FileNotFoundError`.
+## Quick start
 
-### Running the Full Research Crew
-
-The `04_research_crew.py` example demonstrates a complete crew. Run each agent in separate terminals from the project root:
+If you only want the fastest confidence check, start here:
 
 ```bash
-# Terminal 1 - Research Analyst
-uv run python examples/crewai/04_research_crew.py researcher
-
-# Terminal 2 - Content Writer
-uv run python examples/crewai/04_research_crew.py writer
-
-# Terminal 3 - Editor
-uv run python examples/crewai/04_research_crew.py editor
+uv run examples/crewai/01_basic_agent.py
 ```
 
-Then in Thenvoi:
-1. Create a chat room
-2. Add all three agents to the room
-3. Send a request like "Research and write an article about AI trends"
-4. Watch the crew collaborate!
+What success looks like:
 
----
+1. the process starts cleanly
+2. the agent connects to Thenvoi
+3. you add that agent to a room
+4. it replies when you send a message in that room
 
-## Adapter Options
+Once that works, move on to `02` and `03`.
 
-```python
-CrewAIAdapter(
-    model="gpt-4o",                    # Model to use (OpenAI format)
-    role="...",                        # Agent's role/function
-    goal="...",                        # Agent's primary objective
-    backstory="...",                   # Agent's background context
-    system_prompt=None,                # Full system prompt override
-    custom_section="...",              # Custom instructions
-    openai_api_key=None,               # API key (uses env var if not provided)
-    enable_execution_reporting=False,  # Show tool calls in chat
-    verbose=False,                     # Enable detailed logging
-)
+## Example walkthrough
+
+### `01_basic_agent.py`
+
+Use this example if:
+
+- you are setting up CrewAI for the first time
+- you want the smallest working integration shape
+- you want to verify your Thenvoi and model credentials before debugging anything larger
+
+Run:
+
+```bash
+uv run examples/crewai/01_basic_agent.py
 ```
 
----
+### `02_role_based_agent.py`
 
-## Multi-Agent Patterns
+Use this example if:
 
-### Coordinator Pattern
-Use a coordinator agent that:
-1. Analyzes user requests
-2. Identifies needed specialists via `thenvoi_lookup_peers`
-3. Adds them with `thenvoi_add_participant`
-4. Directs work by @mentioning agents
-5. Synthesizes results
+- you want to see role, goal, and backstory in a simple agent
+- you want a better prompt shape without jumping to a full crew
+
+Run:
+
+```bash
+uv run examples/crewai/02_role_based_agent.py
+```
+
+### `03_coordinator_agent.py`
+
+Use this example if:
+
+- you want one agent to coordinate other peers
+- you want to exercise participant-management tools
+- you want a room workflow where the agent can invite collaborators
+
+Run:
+
+```bash
+uv run examples/crewai/03_coordinator_agent.py
+```
+
+In practice, this example is the most useful one for validating that CrewAI and Thenvoi tools are cooperating correctly.
+
+### `04_research_crew.py`
+
+This is the first full multi-agent room workflow.
+
+Run each role in a separate terminal:
+
+```bash
+uv run examples/crewai/04_research_crew.py researcher
+uv run examples/crewai/04_research_crew.py writer
+uv run examples/crewai/04_research_crew.py editor
+```
+
+Then:
+
+1. create a Thenvoi room
+2. add all three agents
+3. send one research request
+4. watch the room conversation evolve across the three roles
+
+What success looks like:
+
+- all three processes start
+- all three agents join the room
+- the room shows multi-agent collaboration rather than one flat reply
+
+### `05_tom_agent.py` and `06_jerry_agent.py`
+
+These are character-style examples built around custom prompts.
+
+Run them in separate terminals:
+
+```bash
+uv run examples/crewai/05_tom_agent.py
+uv run examples/crewai/06_jerry_agent.py
+```
+
+Then:
+
+1. create a Thenvoi room
+2. add Tom and Jerry
+3. send a prompt to start the interaction
+4. watch the responses reflect the two different character prompts
+
+These examples are useful if you want to see how CrewAI behaves when the prompt is personality-heavy rather than task-heavy.
+
+### `07_contact_and_memory_agent.py`
+
+Use this example if:
+
+- you want a CrewAI example that exercises contact tools
+- you want memory tools enabled in the adapter
+- you want contact changes to show up as room context
+
+Run:
+
+```bash
+uv run examples/crewai/07_contact_and_memory_agent.py
+```
+
+Suggested prompts:
+
+1. ask it to list contacts or check whether a handle is already connected
+2. ask it to send or review a contact request
+3. ask it to store a preference as memory
+4. ask it later to recall that preference
+
+## CrewAI agent definition
+
+A typical adapter configuration looks like this:
 
 ```python
 adapter = CrewAIAdapter(
-    role="Team Coordinator",
-    goal="Orchestrate agents to accomplish complex tasks",
-    backstory="Expert at delegating and synthesizing...",
+    model="gpt-4o-mini",
+    role="Research Assistant",
+    goal="Help users find and analyze information",
+    backstory="Expert researcher with deep domain knowledge",
+    custom_section="Extra instructions",
+    enable_execution_reporting=False,
+    verbose=False,
 )
 ```
 
-### Specialist Pattern
-Create focused agents for specific domains:
+Key ideas:
 
-```python
-# Research specialist
-research_adapter = CrewAIAdapter(
-    role="Research Analyst",
-    goal="Find and analyze relevant information",
-)
+- `role`
+  What the agent is
+- `goal`
+  What the agent is trying to accomplish
+- `backstory`
+  The context that shapes how it thinks and responds
+- `custom_section`
+  Extra instructions when you want to layer on domain or personality guidance
 
-# Writing specialist
-writer_adapter = CrewAIAdapter(
-    role="Content Writer",
-    goal="Create clear, engaging content",
-)
-```
+## Multi-agent patterns
 
----
+### Coordinator pattern
 
-## Model Support
+Use a single coordinator when you want one agent to:
 
-The CrewAI adapter uses OpenAI-compatible API format:
+1. understand the request
+2. find the right peers
+3. invite them into the room
+4. direct the work
+5. summarize the result
+
+### Specialist pattern
+
+Use multiple focused agents when you want:
+
+- clearer division of work
+- easier prompt tuning per role
+- room conversations that show the work happening in steps
+
+### Character pattern
+
+Use custom prompts when you care more about persona, voice, or roleplay-style behavior than formal task decomposition.
+
+## Model support
+
+The adapter uses an OpenAI-compatible model interface.
+
+That includes:
 
 - `gpt-4o`
 - `gpt-4o-mini`
 - `gpt-4-turbo`
-- Any OpenAI-compatible model
+- other OpenAI-compatible models
 
----
+## Common problems
 
-## Use Cases
+### `agent_config.yaml` is not found
 
-### Research Teams
-- Research analyst finds information
-- Data analyst processes findings
-- Writer creates reports
+Run the example from the repo root.
 
-### Customer Support
-- Triage agent routes requests
-- Technical support handles issues
-- Account specialist handles billing
+### `OPENAI_API_KEY is required`
 
-### Content Creation
-- Researcher gathers information
-- Writer creates drafts
-- Editor refines content
+This is the current first-run failure mode if model credentials are missing. Add a valid provider key to `.env` before running any CrewAI example.
 
----
+### The agent starts but never gives a useful reply
 
-## Learn More
+Check:
+
+- your model credentials are present
+- the provider key is valid
+- the agent was added to a Thenvoi room
+
+### Coordinator example does not add anyone
+
+Make sure the workspace actually has peers available for lookup and invitation.
+
+### Character examples feel flat
+
+Those examples depend heavily on model quality and prompt interpretation. They are better for behavior demos than for strict deterministic smoke tests.
+
+## Which example should I use?
+
+- Use `01` for first-run validation
+- Use `02` for role/goal/backstory behavior
+- Use `03` for orchestration and Thenvoi tool usage
+- Use `04` for full multi-agent room collaboration
+- Use `05` and `06` for personality-driven agent behavior
+
+## Learn more
 
 - [CrewAI Documentation](https://docs.crewai.com/)
 - [CrewAI GitHub](https://github.com/crewAIInc/crewAI)
 - [Thenvoi SDK Documentation](https://github.com/thenvoi/thenvoi-sdk-python)
-

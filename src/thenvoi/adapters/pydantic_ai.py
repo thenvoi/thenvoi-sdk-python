@@ -8,7 +8,8 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Any, Callable
+import warnings
+from typing import ClassVar, Any, Callable
 
 from pydantic_ai import (
     Agent,
@@ -22,9 +23,10 @@ from pydantic_ai.messages import (
     UserPromptPart,
 )
 
+from thenvoi.core.exceptions import ThenvoiConfigError
 from thenvoi.core.protocols import AgentToolsProtocol
 from thenvoi.core.simple_adapter import SimpleAdapter
-from thenvoi.core.types import PlatformMessage
+from thenvoi.core.types import AdapterFeatures, Capability, Emit, PlatformMessage
 from thenvoi.converters.pydantic_ai import (
     PydanticAIHistoryConverter,
     PydanticAIMessages,
@@ -32,6 +34,7 @@ from thenvoi.converters.pydantic_ai import (
 from thenvoi.runtime.prompts import render_system_prompt
 from thenvoi.runtime.tools import (
     ALL_TOOL_NAMES,
+    CONTACT_TOOL_NAMES,
     MEMORY_TOOL_NAMES,
     filter_tool_names,
     get_tool_description,
@@ -57,6 +60,11 @@ class PydanticAIAdapter(SimpleAdapter[PydanticAIMessages]):
         await agent.run()
     """
 
+    SUPPORTED_EMIT: ClassVar[frozenset[Emit]] = frozenset({Emit.EXECUTION})
+    SUPPORTED_CAPABILITIES: ClassVar[frozenset[Capability]] = frozenset(
+        {Capability.MEMORY, Capability.CONTACTS}
+    )
+
     def __init__(
         self,
         model: str,
@@ -66,6 +74,7 @@ class PydanticAIAdapter(SimpleAdapter[PydanticAIMessages]):
         enable_memory_tools: bool = False,
         history_converter: PydanticAIHistoryConverter | None = None,
         additional_tools: list[Callable[..., Any]] | None = None,
+        features: AdapterFeatures | None = None,
         include_tools: list[str] | None = None,
         exclude_tools: list[str] | None = None,
         include_categories: list[str] | None = None,
@@ -77,29 +86,53 @@ class PydanticAIAdapter(SimpleAdapter[PydanticAIMessages]):
             model: Pydantic AI model string (e.g., "openai:gpt-4o", "anthropic:claude-3-5-sonnet-latest")
             system_prompt: Optional custom system prompt (overrides default)
             custom_section: Optional custom section added to default system prompt
-            enable_execution_reporting: If True, emit tool_call and tool_result events
-                to the platform for real-time visibility into agent activity.
-                Defaults to False for backwards compatibility.
-            enable_memory_tools: If True, includes memory management tools (enterprise only).
-                Defaults to False.
+            enable_execution_reporting: Deprecated. Use features=AdapterFeatures(emit={Emit.EXECUTION}).
+            enable_memory_tools: Deprecated. Use features=AdapterFeatures(capabilities={Capability.MEMORY}).
             history_converter: Optional custom history converter
             additional_tools: Optional list of PydanticAI-compatible tool functions.
                 Each function should follow PydanticAI's tool signature:
                 `def my_tool(ctx: RunContext[AgentToolsProtocol], arg1: str, ...) -> T`
                 These are registered via agent.tool() alongside platform tools.
+            features: Shared adapter feature settings (capabilities, emit, tool filters).
         """
+        # --- Deprecation shim: boolean → features migration ---
+        _has_legacy_booleans = enable_execution_reporting or enable_memory_tools
+        if _has_legacy_booleans and features is not None:
+            raise ThenvoiConfigError(
+                "Cannot pass both legacy boolean flags "
+                "(enable_execution_reporting / enable_memory_tools) and 'features'. "
+                "Use features=AdapterFeatures(...) instead."
+            )
+
+        if _has_legacy_booleans:
+            warnings.warn(
+                "enable_execution_reporting and enable_memory_tools are deprecated. "
+                "Use features=AdapterFeatures(emit={Emit.EXECUTION}, "
+                "capabilities={Capability.MEMORY}) instead.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            features = AdapterFeatures(
+                emit=frozenset({Emit.EXECUTION})
+                if enable_execution_reporting
+                else frozenset(),
+                capabilities=frozenset({Capability.MEMORY})
+                if enable_memory_tools
+                else frozenset(),
+            )
+
         super().__init__(
-            history_converter=history_converter or PydanticAIHistoryConverter()
+            history_converter=history_converter or PydanticAIHistoryConverter(),
+            features=features,
         )
 
         self.model = model
         self.system_prompt = system_prompt
         self.custom_section = custom_section
-        self.enable_execution_reporting = enable_execution_reporting
-        self.enable_memory_tools = enable_memory_tools
         self.include_tools = include_tools
         self.exclude_tools = exclude_tools
         self.include_categories = include_categories
+        self._system_prompt: str | None = None
 
         # Validate filter params once at init — they are immutable.
         validate_tool_filter(
@@ -128,7 +161,9 @@ class PydanticAIAdapter(SimpleAdapter[PydanticAIMessages]):
             agent_name=self.agent_name,
             agent_description=self.agent_description or "An AI assistant",
             custom_section=self.custom_section or "",
+            features=self.features,
         )
+        self._system_prompt = system
 
         # output_type=None disables output validation - we respond via tools only
         agent: Agent[AgentToolsProtocol, None] = Agent(  # type: ignore[call-overload]
@@ -141,13 +176,15 @@ class PydanticAIAdapter(SimpleAdapter[PydanticAIMessages]):
         # Register platform tools dynamically from centralized definitions
         # All tools catch exceptions and return error strings so LLM can see failures
 
-        # Compute which platform tools are allowed based on filtering params
-        # (already validated at __init__ time)
+        # Compute which platform tools are allowed based on capabilities and
+        # filtering params (already validated at __init__ time).
+        include_memory = Capability.MEMORY in self.features.capabilities
+        include_contacts = Capability.CONTACTS in self.features.capabilities
         baseline = (
-            ALL_TOOL_NAMES
-            if self.enable_memory_tools
-            else ALL_TOOL_NAMES - MEMORY_TOOL_NAMES
+            ALL_TOOL_NAMES if include_memory else ALL_TOOL_NAMES - MEMORY_TOOL_NAMES
         )
+        if not include_contacts:
+            baseline = baseline - CONTACT_TOOL_NAMES
         allowed_names = filter_tool_names(
             baseline,
             include_tools=self.include_tools,
@@ -191,13 +228,13 @@ class PydanticAIAdapter(SimpleAdapter[PydanticAIMessages]):
 
         async def thenvoi_add_participant(
             ctx: RunContext[AgentToolsProtocol],
-            name: str,
+            identifier: str,
             role: str = "member",
         ) -> dict[str, Any] | str:
             try:
-                return await ctx.deps.add_participant(name, role)
+                return await ctx.deps.add_participant(identifier, role)
             except Exception as e:
-                return f"Error adding participant '{name}': {e}"
+                return f"Error adding participant '{identifier}': {e}"
 
         thenvoi_add_participant.__doc__ = get_tool_description(
             "thenvoi_add_participant"
@@ -206,12 +243,12 @@ class PydanticAIAdapter(SimpleAdapter[PydanticAIMessages]):
 
         async def thenvoi_remove_participant(
             ctx: RunContext[AgentToolsProtocol],
-            name: str,
+            identifier: str,
         ) -> dict[str, Any] | str:
             try:
-                return await ctx.deps.remove_participant(name)
+                return await ctx.deps.remove_participant(identifier)
             except Exception as e:
-                return f"Error removing participant '{name}': {e}"
+                return f"Error removing participant '{identifier}': {e}"
 
         thenvoi_remove_participant.__doc__ = get_tool_description(
             "thenvoi_remove_participant"
@@ -258,99 +295,105 @@ class PydanticAIAdapter(SimpleAdapter[PydanticAIMessages]):
         )
         _register(thenvoi_create_chatroom)
 
-        # Contact management tools
-        async def thenvoi_list_contacts(
-            ctx: RunContext[AgentToolsProtocol],
-            page: int = 1,
-            page_size: int = 50,
-        ) -> dict[str, Any] | str:
-            try:
-                return await ctx.deps.list_contacts(page, page_size)
-            except Exception as e:
-                return f"Error listing contacts: {e}"
+        # Contact management tools (opt-in via Capability.CONTACTS)
+        if Capability.CONTACTS in self.features.capabilities:
 
-        thenvoi_list_contacts.__doc__ = get_tool_description("thenvoi_list_contacts")
-        _register(thenvoi_list_contacts)
-
-        async def thenvoi_add_contact(
-            ctx: RunContext[AgentToolsProtocol],
-            handle: str,
-            message: str | None = None,
-        ) -> dict[str, Any] | str:
-            try:
-                return await ctx.deps.add_contact(handle, message)
-            except Exception as e:
-                return f"Error adding contact '{handle}': {e}"
-
-        thenvoi_add_contact.__doc__ = get_tool_description("thenvoi_add_contact")
-        _register(thenvoi_add_contact)
-
-        async def thenvoi_remove_contact(
-            ctx: RunContext[AgentToolsProtocol],
-            handle: str | None = None,
-            contact_id: str | None = None,
-        ) -> dict[str, Any] | str:
-            try:
-                return await ctx.deps.remove_contact(handle, contact_id)
-            except Exception as e:
-                return f"Error removing contact: {e}"
-
-        thenvoi_remove_contact.__doc__ = get_tool_description("thenvoi_remove_contact")
-        _register(thenvoi_remove_contact)
-
-        async def thenvoi_list_contact_requests(
-            ctx: RunContext[AgentToolsProtocol],
-            page: int = 1,
-            page_size: int = 50,
-            sent_status: str = "pending",
-        ) -> dict[str, Any] | str:
-            try:
-                return await ctx.deps.list_contact_requests(
-                    page, page_size, sent_status
-                )
-            except Exception as e:
-                return f"Error listing contact requests: {e}"
-
-        thenvoi_list_contact_requests.__doc__ = get_tool_description(
-            "thenvoi_list_contact_requests"
-        )
-        _register(thenvoi_list_contact_requests)
-
-        async def thenvoi_respond_contact_request(
-            ctx: RunContext[AgentToolsProtocol],
-            action: str,
-            handle: str | None = None,
-            request_id: str | None = None,
-        ) -> dict[str, Any] | str:
-            logger.info(
-                "thenvoi_respond_contact_request called: action=%s, handle=%s, request_id=%s",
-                action,
-                handle,
-                request_id,
-            )
-            try:
-                result = await ctx.deps.respond_contact_request(
-                    action, handle, request_id
-                )
-                logger.info("thenvoi_respond_contact_request result: %s", result)
-                return result
-            except Exception as e:
-                logger.error("thenvoi_respond_contact_request error: %s", e)
-                error_msg = f"Error responding to contact request: {e}"
-                # Auto-send error event so it's visible in the room
+            async def thenvoi_list_contacts(
+                ctx: RunContext[AgentToolsProtocol],
+                page: int = 1,
+                page_size: int = 50,
+            ) -> dict[str, Any] | str:
                 try:
-                    await ctx.deps.send_event(error_msg, "error")
-                except Exception:
-                    pass  # Don't fail if error reporting fails
-                return error_msg
+                    return await ctx.deps.list_contacts(page, page_size)
+                except Exception as e:
+                    return f"Error listing contacts: {e}"
 
-        thenvoi_respond_contact_request.__doc__ = get_tool_description(
-            "thenvoi_respond_contact_request"
-        )
-        _register(thenvoi_respond_contact_request)
+            thenvoi_list_contacts.__doc__ = get_tool_description(
+                "thenvoi_list_contacts"
+            )
+            _register(thenvoi_list_contacts)
+
+            async def thenvoi_add_contact(
+                ctx: RunContext[AgentToolsProtocol],
+                handle: str,
+                message: str | None = None,
+            ) -> dict[str, Any] | str:
+                try:
+                    return await ctx.deps.add_contact(handle, message)
+                except Exception as e:
+                    return f"Error adding contact '{handle}': {e}"
+
+            thenvoi_add_contact.__doc__ = get_tool_description("thenvoi_add_contact")
+            _register(thenvoi_add_contact)
+
+            async def thenvoi_remove_contact(
+                ctx: RunContext[AgentToolsProtocol],
+                handle: str | None = None,
+                contact_id: str | None = None,
+            ) -> dict[str, Any] | str:
+                try:
+                    return await ctx.deps.remove_contact(handle, contact_id)
+                except Exception as e:
+                    return f"Error removing contact: {e}"
+
+            thenvoi_remove_contact.__doc__ = get_tool_description(
+                "thenvoi_remove_contact"
+            )
+            _register(thenvoi_remove_contact)
+
+            async def thenvoi_list_contact_requests(
+                ctx: RunContext[AgentToolsProtocol],
+                page: int = 1,
+                page_size: int = 50,
+                sent_status: str = "pending",
+            ) -> dict[str, Any] | str:
+                try:
+                    return await ctx.deps.list_contact_requests(
+                        page, page_size, sent_status
+                    )
+                except Exception as e:
+                    return f"Error listing contact requests: {e}"
+
+            thenvoi_list_contact_requests.__doc__ = get_tool_description(
+                "thenvoi_list_contact_requests"
+            )
+            _register(thenvoi_list_contact_requests)
+
+            async def thenvoi_respond_contact_request(
+                ctx: RunContext[AgentToolsProtocol],
+                action: str,
+                handle: str | None = None,
+                request_id: str | None = None,
+            ) -> dict[str, Any] | str:
+                logger.info(
+                    "thenvoi_respond_contact_request called: action=%s, handle=%s, request_id=%s",
+                    action,
+                    handle,
+                    request_id,
+                )
+                try:
+                    result = await ctx.deps.respond_contact_request(
+                        action, handle, request_id
+                    )
+                    logger.info("thenvoi_respond_contact_request result: %s", result)
+                    return result
+                except Exception as e:
+                    logger.error("thenvoi_respond_contact_request error: %s", e)
+                    error_msg = f"Error responding to contact request: {e}"
+                    # Auto-send error event so it's visible in the room
+                    try:
+                        await ctx.deps.send_event(error_msg, "error")
+                    except Exception:
+                        pass  # Don't fail if error reporting fails
+                    return error_msg
+
+            thenvoi_respond_contact_request.__doc__ = get_tool_description(
+                "thenvoi_respond_contact_request"
+            )
+            _register(thenvoi_respond_contact_request)
 
         # Memory management tools (enterprise only - opt-in)
-        if self.enable_memory_tools:
+        if Capability.MEMORY in self.features.capabilities:
 
             async def thenvoi_list_memories(
                 ctx: RunContext[AgentToolsProtocol],
@@ -523,7 +566,7 @@ class PydanticAIAdapter(SimpleAdapter[PydanticAIMessages]):
             message_history=self._message_history[room_id],
         ):
             if isinstance(event, FunctionToolCallEvent):
-                if self.enable_execution_reporting:
+                if Emit.EXECUTION in self.features.emit:
                     try:
                         await tools.send_event(
                             content=json.dumps(
@@ -538,7 +581,7 @@ class PydanticAIAdapter(SimpleAdapter[PydanticAIMessages]):
                     except Exception as e:
                         logger.warning("Failed to send tool_call event: %s", e)
             elif isinstance(event, FunctionToolResultEvent):
-                if self.enable_execution_reporting:
+                if Emit.EXECUTION in self.features.emit:
                     try:
                         await tools.send_event(
                             content=json.dumps(

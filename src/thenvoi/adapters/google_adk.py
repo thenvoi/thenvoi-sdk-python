@@ -12,13 +12,15 @@ import functools
 import json
 import logging
 import uuid
-from typing import TYPE_CHECKING, Any
+import warnings
+from typing import ClassVar, TYPE_CHECKING, Any
 
 from pydantic import ValidationError
 
+from thenvoi.core.exceptions import ThenvoiConfigError
 from thenvoi.core.protocols import AgentToolsProtocol
 from thenvoi.core.simple_adapter import SimpleAdapter
-from thenvoi.core.types import PlatformMessage
+from thenvoi.core.types import AdapterFeatures, Capability, Emit, PlatformMessage
 from thenvoi.converters.google_adk import GoogleADKHistoryConverter, GoogleADKMessages
 from thenvoi.runtime.custom_tools import (
     CustomToolDef,
@@ -282,6 +284,11 @@ class GoogleADKAdapter(SimpleAdapter[GoogleADKMessages]):
         await agent.run()
     """
 
+    SUPPORTED_EMIT: ClassVar[frozenset[Emit]] = frozenset({Emit.EXECUTION})
+    SUPPORTED_CAPABILITIES: ClassVar[frozenset[Capability]] = frozenset(
+        {Capability.MEMORY, Capability.CONTACTS}
+    )
+
     def __init__(
         self,
         model: str = "gemini-2.5-flash",
@@ -293,6 +300,7 @@ class GoogleADKAdapter(SimpleAdapter[GoogleADKMessages]):
         additional_tools: list[CustomToolDef] | None = None,
         max_history_messages: int = _DEFAULT_MAX_HISTORY_MESSAGES,
         max_transcript_chars: int = _DEFAULT_MAX_TRANSCRIPT_CHARS,
+        features: AdapterFeatures | None = None,
         include_tools: list[str] | None = None,
         exclude_tools: list[str] | None = None,
         include_categories: list[str] | None = None,
@@ -300,15 +308,40 @@ class GoogleADKAdapter(SimpleAdapter[GoogleADKMessages]):
         # Validate google-adk is installed early (cached, so cheap on repeat).
         _require_adk()
 
+        # --- Deprecation shim: boolean → features migration ---
+        _has_legacy_booleans = enable_execution_reporting or enable_memory_tools
+        if _has_legacy_booleans and features is not None:
+            raise ThenvoiConfigError(
+                "Cannot pass both legacy boolean flags "
+                "(enable_execution_reporting / enable_memory_tools) and 'features'. "
+                "Use features=AdapterFeatures(...) instead."
+            )
+
+        if _has_legacy_booleans:
+            warnings.warn(
+                "enable_execution_reporting and enable_memory_tools are deprecated. "
+                "Use features=AdapterFeatures(emit={Emit.EXECUTION}, "
+                "capabilities={Capability.MEMORY}) instead.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            features = AdapterFeatures(
+                emit=frozenset({Emit.EXECUTION})
+                if enable_execution_reporting
+                else frozenset(),
+                capabilities=frozenset({Capability.MEMORY})
+                if enable_memory_tools
+                else frozenset(),
+            )
+
         super().__init__(
-            history_converter=history_converter or GoogleADKHistoryConverter()
+            history_converter=history_converter or GoogleADKHistoryConverter(),
+            features=features,
         )
 
         self.model = model
         self._system_prompt_override = system_prompt
         self.custom_section = custom_section
-        self.enable_execution_reporting = enable_execution_reporting
-        self.enable_memory_tools = enable_memory_tools
         self.max_history_messages = max_history_messages
         self.include_tools = include_tools
         self.exclude_tools = exclude_tools
@@ -333,12 +366,22 @@ class GoogleADKAdapter(SimpleAdapter[GoogleADKMessages]):
         self._room_sessions: dict[str, str] = {}
 
     async def on_started(self, agent_name: str, agent_description: str) -> None:
-        """Render system prompt and create ADK agent after metadata is fetched."""
+        """Render system prompt and create ADK agent after metadata is fetched.
+
+        Prompt precedence (matches Anthropic/Gemini):
+          1. If ``system_prompt`` was provided at construction time, it wins —
+             ``custom_section`` and ``features``-based capability sections are
+             ignored. The override is passed through verbatim.
+          2. Otherwise, ``render_system_prompt`` renders the SDK base prompt
+             plus ``custom_section``, with capability sections gated on
+             ``features.capabilities``.
+        """
         await super().on_started(agent_name, agent_description)
         self._system_prompt = self._system_prompt_override or render_system_prompt(
             agent_name=agent_name,
             agent_description=agent_description,
             custom_section=self.custom_section or "",
+            features=self.features,
         )
 
         logger.info("Google ADK adapter started for agent: %s", agent_name)
@@ -347,7 +390,8 @@ class GoogleADKAdapter(SimpleAdapter[GoogleADKMessages]):
         """Build ADK tool bridges from Thenvoi tool schemas."""
         ToolBridge = _get_tool_bridge_class()
         openai_schemas = tools.get_openai_tool_schemas(
-            include_memory=self.enable_memory_tools,
+            include_memory=Capability.MEMORY in self.features.capabilities,
+            include_contacts=Capability.CONTACTS in self.features.capabilities,
             include_tools=self.include_tools,
             exclude_tools=self.exclude_tools,
             include_categories=self.include_categories,
@@ -515,7 +559,7 @@ class GoogleADKAdapter(SimpleAdapter[GoogleADKMessages]):
                 new_message=user_content,
             ):
                 # Report tool calls/results if enabled
-                if self.enable_execution_reporting:
+                if Emit.EXECUTION in self.features.emit:
                     try:
                         await self._report_event(event, tools)
                     except Exception as e:

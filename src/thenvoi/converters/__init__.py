@@ -13,6 +13,7 @@ Install the extra you need::
     uv add thenvoi-sdk[a2a]
     uv add thenvoi-sdk[codex]
     uv add thenvoi-sdk[google_adk]
+    uv add thenvoi-sdk[opencode]
 """
 
 from __future__ import annotations
@@ -67,6 +68,9 @@ if TYPE_CHECKING:
         GoogleADKHistoryConverter as GoogleADKHistoryConverter,
         GoogleADKMessages as GoogleADKMessages,
     )
+    from thenvoi.converters.opencode import (
+        OpencodeHistoryConverter as OpencodeHistoryConverter,
+    )
 
 __all__ = [
     "LangChainHistoryConverter",
@@ -89,6 +93,7 @@ __all__ = [
     "GeminiMessages",
     "GoogleADKHistoryConverter",
     "GoogleADKMessages",
+    "OpencodeHistoryConverter",
 ]
 
 
@@ -188,5 +193,9 @@ def __getattr__(name: str) -> type:
         if name == "GoogleADKHistoryConverter":
             return GoogleADKHistoryConverter
         return GoogleADKMessages
+    elif name == "OpencodeHistoryConverter":
+        from thenvoi.converters.opencode import OpencodeHistoryConverter
+
+        return OpencodeHistoryConverter
 
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

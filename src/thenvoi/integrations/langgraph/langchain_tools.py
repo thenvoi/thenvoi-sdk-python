@@ -20,6 +20,7 @@ def agent_tools_to_langchain(
     tools: AgentToolsProtocol,
     *,
     include_memory_tools: bool = False,
+    include_contacts: bool = True,
     include_tools: list[str] | None = None,
     exclude_tools: list[str] | None = None,
     include_categories: list[str] | None = None,
@@ -30,6 +31,7 @@ def agent_tools_to_langchain(
     Args:
         tools: AgentTools instance bound to a room
         include_memory_tools: If True, include memory tools (enterprise only)
+        include_contacts: If True, include contact management tools
         include_tools: If set, only include these specific tools (allowlist)
         exclude_tools: If set, exclude these specific tools (denylist)
         include_categories: If set, only include tools in these categories
@@ -50,20 +52,20 @@ def agent_tools_to_langchain(
             return f"Error sending message: {e}"
 
     async def add_participant_wrapper(
-        name: str, role: str = "member"
+        identifier: str, role: str = "member"
     ) -> dict[str, Any] | str:
-        """Add a participant (agent or user) to the chat room by name. Use thenvoi_lookup_peers first to find available agents."""
+        """Add a participant (agent or user) to the chat room. Use thenvoi_lookup_peers first to find available agents. Accepts a handle, name, or ID."""
         try:
-            return await tools.add_participant(name, role)
+            return await tools.add_participant(identifier, role)
         except Exception as e:
-            return f"Error adding participant '{name}': {e}"
+            return f"Error adding participant '{identifier}': {e}"
 
-    async def remove_participant_wrapper(name: str) -> dict[str, Any] | str:
-        """Remove a participant from the chat room by name."""
+    async def remove_participant_wrapper(identifier: str) -> dict[str, Any] | str:
+        """Remove a participant from the chat room. Accepts a handle, name, or ID."""
         try:
-            return await tools.remove_participant(name)
+            return await tools.remove_participant(identifier)
         except Exception as e:
-            return f"Error removing participant '{name}': {e}"
+            return f"Error removing participant '{identifier}': {e}"
 
     async def lookup_peers_wrapper(
         page: int = 1, page_size: int = 50
@@ -261,33 +263,39 @@ def agent_tools_to_langchain(
             name="thenvoi_send_event",
             description=get_tool_description("thenvoi_send_event"),
         ),
-        # Contact management tools
-        StructuredTool.from_function(
-            coroutine=list_contacts_wrapper,
-            name="thenvoi_list_contacts",
-            description=get_tool_description("thenvoi_list_contacts"),
-        ),
-        StructuredTool.from_function(
-            coroutine=add_contact_wrapper,
-            name="thenvoi_add_contact",
-            description=get_tool_description("thenvoi_add_contact"),
-        ),
-        StructuredTool.from_function(
-            coroutine=remove_contact_wrapper,
-            name="thenvoi_remove_contact",
-            description=get_tool_description("thenvoi_remove_contact"),
-        ),
-        StructuredTool.from_function(
-            coroutine=list_contact_requests_wrapper,
-            name="thenvoi_list_contact_requests",
-            description=get_tool_description("thenvoi_list_contact_requests"),
-        ),
-        StructuredTool.from_function(
-            coroutine=respond_contact_request_wrapper,
-            name="thenvoi_respond_contact_request",
-            description=get_tool_description("thenvoi_respond_contact_request"),
-        ),
     ]
+
+    # Contact management tools (opt-in via Capability.CONTACTS)
+    if include_contacts:
+        platform_tools.extend(
+            [
+                StructuredTool.from_function(
+                    coroutine=list_contacts_wrapper,
+                    name="thenvoi_list_contacts",
+                    description=get_tool_description("thenvoi_list_contacts"),
+                ),
+                StructuredTool.from_function(
+                    coroutine=add_contact_wrapper,
+                    name="thenvoi_add_contact",
+                    description=get_tool_description("thenvoi_add_contact"),
+                ),
+                StructuredTool.from_function(
+                    coroutine=remove_contact_wrapper,
+                    name="thenvoi_remove_contact",
+                    description=get_tool_description("thenvoi_remove_contact"),
+                ),
+                StructuredTool.from_function(
+                    coroutine=list_contact_requests_wrapper,
+                    name="thenvoi_list_contact_requests",
+                    description=get_tool_description("thenvoi_list_contact_requests"),
+                ),
+                StructuredTool.from_function(
+                    coroutine=respond_contact_request_wrapper,
+                    name="thenvoi_respond_contact_request",
+                    description=get_tool_description("thenvoi_respond_contact_request"),
+                ),
+            ]
+        )
 
     # Memory tools (enterprise only - opt-in)
     if include_memory_tools:

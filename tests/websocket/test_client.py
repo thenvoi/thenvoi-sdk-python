@@ -17,6 +17,7 @@ from thenvoi.client.streaming import (
     ParticipantAddedPayload,
     ParticipantRemovedPayload,
     RoomAddedPayload,
+    RoomDeletedPayload,
     RoomRemovedPayload,
     WebSocketClient,
 )
@@ -133,6 +134,26 @@ async def test_skips_invalid_room_removed_payload(caplog):
 
     assert not callback_called, "Callback should not be called for invalid payload"
     assert "Invalid room_removed payload" in caplog.text
+
+
+async def test_skips_invalid_room_deleted_payload(caplog):
+    """Should log error and skip when room_deleted payload is missing required fields."""
+    client = WebSocketClient("ws://localhost", "test-key", "agent-123")
+    callback_called = False
+
+    class MockMessage:
+        event = "room_deleted"
+        payload = {}
+
+    async def dummy_callback(payload):
+        nonlocal callback_called
+        callback_called = True
+
+    with caplog.at_level(logging.ERROR):
+        await client._handle_events(MockMessage(), {"room_deleted": dummy_callback})
+
+    assert not callback_called, "Callback should not be called for invalid payload"
+    assert "Invalid room_deleted payload" in caplog.text
 
 
 async def test_skips_invalid_participant_added_payload(caplog):
@@ -275,6 +296,24 @@ async def test_accepts_minimal_room_removed_payload():
     assert received_payload.removed_at is None
 
 
+async def test_accepts_minimal_room_deleted_payload():
+    """Should accept room_deleted with only required `id` field."""
+    client = WebSocketClient("ws://localhost", "test-key", "agent-123")
+    received_payload = None
+
+    async def test_callback(payload):
+        nonlocal received_payload
+        received_payload = payload
+
+    class MockMessage:
+        event = "room_deleted"
+        payload = {"id": "room-789"}
+
+    await client._handle_events(MockMessage(), {"room_deleted": test_callback})
+    assert isinstance(received_payload, RoomDeletedPayload)
+    assert received_payload.id == "room-789"
+
+
 async def test_accepts_valid_participant_added_payload():
     """Should accept valid participant_added payload and pass typed model to callback."""
     client = WebSocketClient("ws://localhost", "test-key", "agent-123")
@@ -367,6 +406,12 @@ async def test_accepts_valid_participant_removed_payload():
             },
             RoomRemovedPayload,
             id="room_removed",
+        ),
+        pytest.param(
+            "room_deleted",
+            {"id": "room-123"},
+            RoomDeletedPayload,
+            id="room_deleted",
         ),
         pytest.param(
             "participant_added",

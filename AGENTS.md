@@ -4,7 +4,7 @@ This is a Python SDK that connects AI agents to the Thenvoi collaborative platfo
 
 ## Core Features
 
-1. Multi-framework support (LangGraph, Anthropic, CrewAI, Claude SDK, Codex, Pydantic AI, Parlant, Gemini, Letta, Google ADK)
+1. Multi-framework support (LangGraph, Anthropic, CrewAI, Claude SDK, Codex, Pydantic AI, Parlant, Gemini, Letta, Google ADK, OpenCode)
 2. A2A protocol support: Bridge to external A2A agents and expose Thenvoi peers as A2A endpoints
 3. ACP integration: Editor-facing server and subprocess client adapters (Cursor, Codex, Claude Code)
 4. Platform tools for chat, contacts, and memory management
@@ -311,8 +311,11 @@ tests/
 ## Commands
 
 ```bash
-# Install dependencies
+# Install dependencies (all extras except parlant — see Dependency Conflicts below)
 uv sync --extra dev
+
+# Install parlant adapter deps (isolated from dev/crewai)
+uv sync --extra dev-parlant
 
 # Run unit tests
 uv run pytest tests/ --ignore=tests/integration/ --ignore=tests/e2e/ -v
@@ -337,6 +340,27 @@ uv run ruff check .
 uv run ruff format .
 uv run pyrefly check
 ```
+
+## Dependency Conflicts
+
+**crewai and parlant cannot coexist** in the same Python environment due to
+conflicting transitive dependencies:
+
+| Package | `opentelemetry-sdk` requirement |
+|---|---|
+| crewai 1.14.2 | `~=1.34.0` (>=1.34.0, <1.35.0) |
+| parlant >=3.1.0 | `>=1.37.0` |
+
+This is declared in `pyproject.toml` via `[tool.uv] conflicts` so `uv lock`
+resolves each in a separate fork.
+
+**Extras layout:**
+- `dev` — includes all framework deps **except** parlant
+- `dev-parlant` — includes parlant + test tooling only (no crewai)
+- `crewai` and `parlant` are mutually exclusive runtime extras
+
+**For CI:** parlant adapter tests require a separate job/step using
+`uv sync --extra dev-parlant`.
 
 ## Environment Variables
 

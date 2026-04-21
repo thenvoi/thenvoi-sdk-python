@@ -39,6 +39,8 @@ from thenvoi.platform.event import (
 from .types import (
     ConversationContext,
     PlatformMessage,
+    ParticipantAddedCallback,
+    ParticipantRemovedCallback,
     SessionConfig,
     SYNTHETIC_SENDER_TYPE,
     SYNTHETIC_CONTACT_EVENTS_SENDER_ID,
@@ -150,6 +152,10 @@ class ExecutionContext:
         on_execute: ExecutionHandler,
         config: SessionConfig | None = None,
         agent_id: str | None = None,
+        on_participant_added: ParticipantAddedCallback | None = None,
+        on_participant_removed: ParticipantRemovedCallback | None = None,
+        *,
+        hub_room_id: str | None = None,
     ):
         """
         Initialize execution context for a specific room.
@@ -160,12 +166,20 @@ class ExecutionContext:
             on_execute: Callback for handling events
             config: Optional session configuration
             agent_id: Agent ID for filtering self-messages
+            on_participant_added: Optional callback for participant_added events
+            on_participant_removed: Optional callback for participant_removed events
+            hub_room_id: Optional hub-room ID. Forwarded to AgentTools so the
+                schema methods can auto-enable contact tools when this context
+                belongs to the hub room.
         """
         self.room_id = room_id
         self.link = link
         self._on_execute = on_execute
         self.config = config or SessionConfig()
         self._agent_id = agent_id
+        self._on_participant_added = on_participant_added
+        self._on_participant_removed = on_participant_removed
+        self.hub_room_id = hub_room_id
 
         # Per-room state
         self.queue: asyncio.Queue[PlatformEvent] = asyncio.Queue()
@@ -542,12 +556,51 @@ class ExecutionContext:
             )
             self._context_hydrated = True
 
+    def _is_context_cache_expired(self) -> bool:
+        """Check whether the hydrated context cache has exceeded its TTL."""
+        if self._context_cache is None:
+            return False
+
+        ttl_seconds = self.config.context_cache_ttl_seconds
+        if ttl_seconds <= 0:
+            return True
+
+        age_seconds = (
+            datetime.now(timezone.utc) - self._context_cache.hydrated_at
+        ).total_seconds()
+        return age_seconds > ttl_seconds
+
+    def _invalidate_context_cache(self) -> None:
+        """Clear hydrated context so the next access refreshes it."""
+        self._context_cache = None
+        self._context_hydrated = False
+
+    def _expire_context_cache_if_needed(self) -> bool:
+        """Invalidate stale cached context before it can be returned."""
+        if not self._is_context_cache_expired():
+            return False
+
+        logger.debug("ExecutionContext %s: Context cache expired", self.room_id)
+        self._invalidate_context_cache()
+        return True
+
+    async def _ensure_fresh_context(self, *, force_refresh: bool = False) -> None:
+        """Hydrate context if missing, expired, or explicitly refreshed."""
+        if force_refresh:
+            self._invalidate_context_cache()
+        else:
+            self._expire_context_cache_if_needed()
+
+        if not self._context_hydrated:
+            await self.hydrate()
+
     def build_context(self) -> ConversationContext:
         """
         Build context dict for LLM.
 
         Returns cached context or empty context if not hydrated.
         """
+        self._expire_context_cache_if_needed()
         if self._context_cache:
             return self._context_cache
 
@@ -565,9 +618,7 @@ class ExecutionContext:
         Args:
             force_refresh: Force refresh from API even if cached
         """
-        if force_refresh or not self._context_hydrated:
-            self._context_hydrated = False
-            await self.hydrate()
+        await self._ensure_fresh_context(force_refresh=force_refresh)
 
         return self.build_context()
 
@@ -588,6 +639,7 @@ class ExecutionContext:
         Returns:
             List of message dicts ready for LLM formatting.
         """
+        self._expire_context_cache_if_needed()
         if not self.config.enable_context_hydration:
             return []
 
@@ -608,6 +660,36 @@ class ExecutionContext:
         from thenvoi.runtime.formatters import build_participants_message
 
         return build_participants_message(self._participants)
+
+    async def _notify_participant_added(self, event: ParticipantAddedEvent) -> None:
+        """Fire optional participant-added callback without breaking execution."""
+        if self._on_participant_added is None:
+            return
+
+        try:
+            await self._on_participant_added(self.room_id, event)
+        except Exception as e:
+            logger.error(
+                "on_participant_added error for %s: %s",
+                self.room_id,
+                e,
+                exc_info=True,
+            )
+
+    async def _notify_participant_removed(self, event: ParticipantRemovedEvent) -> None:
+        """Fire optional participant-removed callback without breaking execution."""
+        if self._on_participant_removed is None:
+            return
+
+        try:
+            await self._on_participant_removed(self.room_id, event)
+        except Exception as e:
+            logger.error(
+                "on_participant_removed error for %s: %s",
+                self.room_id,
+                e,
+                exc_info=True,
+            )
 
     # --- Internal processing ---
 
@@ -818,8 +900,7 @@ class ExecutionContext:
 
             # Hydrate context on first message (loads participants always,
             # history only if enable_context_hydration is True)
-            if not self._context_hydrated:
-                await self.hydrate()
+            await self._ensure_fresh_context()
 
             # Format timestamps for MessageCreatedPayload validation
             created_at_str = (
@@ -985,14 +1066,15 @@ class ExecutionContext:
 
             # Hydrate context on first event (loads participants always,
             # history only if enable_context_hydration is True)
-            if not self._context_hydrated:
-                await self.hydrate()
+            await self._ensure_fresh_context()
 
             # Handle participant events internally
             if isinstance(event, ParticipantAddedEvent) and event.payload:
                 self.add_participant(event.payload.model_dump())
+                await self._notify_participant_added(event)
             elif isinstance(event, ParticipantRemovedEvent) and event.payload:
                 self.remove_participant(event.payload.id)
+                await self._notify_participant_removed(event)
 
             # Call execution handler
             await self._on_execute(self, event)

@@ -15,6 +15,7 @@ from typing import Any, Callable
 from unittest.mock import MagicMock
 
 from tests.framework_configs._sentinel import IN_CI, MISSING, _MissingSentinel
+from thenvoi.adapters.claude_sdk import _CLAUDE_SDK_AVAILABLE as _HAS_CLAUDE_SDK
 
 __all__ = ["AdapterConfig", "ADAPTER_CONFIGS", "ADAPTER_EXCLUDED_MODULES"]
 
@@ -254,6 +255,12 @@ def _letta_factory(**kw: Any) -> Any:
     return LettaAdapter(**kw)
 
 
+def _opencode_factory(**kw: Any) -> Any:
+    from thenvoi.adapters.opencode import OpencodeAdapter
+
+    return OpencodeAdapter(**kw)
+
+
 def _gemini_factory(**kw: Any) -> Any:
     from thenvoi.adapters.gemini import GeminiAdapter
 
@@ -287,21 +294,16 @@ def _build_anthropic_config() -> AdapterConfig:
         expected_initial_values={
             "model": _default_from_init(AnthropicAdapter, "model"),
             "max_tokens": _default_from_init(AnthropicAdapter, "max_tokens"),
-            "enable_execution_reporting": _default_from_init(
-                AnthropicAdapter, "enable_execution_reporting"
-            ),
         },
         custom_kwargs={
             "model": "claude-opus-4-20250514",
             "max_tokens": 8192,
-            "custom_section": "Be helpful.",
-            "enable_execution_reporting": True,
+            "prompt": "Be helpful.",
         },
         custom_expected={
             "model": "claude-opus-4-20250514",
             "max_tokens": 8192,
-            "custom_section": "Be helpful.",
-            "enable_execution_reporting": True,
+            "_prompt": "Be helpful.",
         },
     )
 
@@ -341,9 +343,6 @@ def _build_crewai_config() -> AdapterConfig:
             "role": _default_from_init(crewai_cls, "role"),
             "goal": _default_from_init(crewai_cls, "goal"),
             "backstory": _default_from_init(crewai_cls, "backstory"),
-            "enable_execution_reporting": _default_from_init(
-                crewai_cls, "enable_execution_reporting"
-            ),
             "verbose": _default_from_init(crewai_cls, "verbose"),
             "max_iter": _default_from_init(crewai_cls, "max_iter"),
             "allow_delegation": _default_from_init(crewai_cls, "allow_delegation"),
@@ -354,7 +353,6 @@ def _build_crewai_config() -> AdapterConfig:
             "goal": "Find and analyze information",
             "backstory": "Expert researcher",
             "custom_section": "Be thorough.",
-            "enable_execution_reporting": True,
             "verbose": True,
             "max_iter": 30,
             "max_rpm": 10,
@@ -366,7 +364,6 @@ def _build_crewai_config() -> AdapterConfig:
             "goal": "Find and analyze information",
             "backstory": "Expert researcher",
             "custom_section": "Be thorough.",
-            "enable_execution_reporting": True,
             "verbose": True,
             "max_iter": 30,
             "max_rpm": 10,
@@ -375,8 +372,11 @@ def _build_crewai_config() -> AdapterConfig:
     )
 
 
-def _build_claude_sdk_config() -> AdapterConfig:
-    from thenvoi.adapters.claude_sdk import ClaudeSDKAdapter
+def _build_claude_sdk_config() -> AdapterConfig | None:
+    from thenvoi.adapters.claude_sdk import _CLAUDE_SDK_AVAILABLE, ClaudeSDKAdapter
+
+    if not _CLAUDE_SDK_AVAILABLE:
+        return None  # optional dep not installed; skip in CI
 
     return AdapterConfig(
         framework_id="claude_sdk",
@@ -389,23 +389,18 @@ def _build_claude_sdk_config() -> AdapterConfig:
                 ClaudeSDKAdapter, "max_thinking_tokens"
             ),
             "permission_mode": _default_from_init(ClaudeSDKAdapter, "permission_mode"),
-            "enable_execution_reporting": _default_from_init(
-                ClaudeSDKAdapter, "enable_execution_reporting"
-            ),
         },
         custom_kwargs={
             "model": "claude-opus-4-20250514",
             "custom_section": "Be helpful.",
             "max_thinking_tokens": 10000,
             "permission_mode": "bypassPermissions",
-            "enable_execution_reporting": True,
         },
         custom_expected={
             "model": "claude-opus-4-20250514",
             "custom_section": "Be helpful.",
             "max_thinking_tokens": 10000,
             "permission_mode": "bypassPermissions",
-            "enable_execution_reporting": True,
         },
         skip_on_started_conformance=True,  # on_started creates real MCP server + ClaudeSessionManager; tested in test_claude_sdk_adapter
     )
@@ -424,21 +419,16 @@ def _build_pydantic_ai_config() -> AdapterConfig:
             "model": _PYDANTIC_AI_INJECTED_MODEL,
             "system_prompt": _default_from_init(PydanticAIAdapter, "system_prompt"),
             "custom_section": _default_from_init(PydanticAIAdapter, "custom_section"),
-            "enable_execution_reporting": _default_from_init(
-                PydanticAIAdapter, "enable_execution_reporting"
-            ),
         },
         custom_kwargs={
             "model": "anthropic:claude-sonnet-4-5-20250929",
             "system_prompt": "You are a helpful bot.",
             "custom_section": "Be concise.",
-            "enable_execution_reporting": True,
         },
         custom_expected={
             "model": "anthropic:claude-sonnet-4-5-20250929",
             "system_prompt": "You are a helpful bot.",
             "custom_section": "Be concise.",
-            "enable_execution_reporting": True,
         },
         skip_on_started_conformance=True,  # on_started creates real OpenAI client; tested in test_pydantic_ai_adapter
     )
@@ -446,6 +436,13 @@ def _build_pydantic_ai_config() -> AdapterConfig:
 
 def _build_parlant_config() -> AdapterConfig:
     from thenvoi.adapters.parlant import ParlantAdapter
+
+    try:
+        import parlant.sdk  # noqa: F401
+
+        _parlant_available = True
+    except ImportError:
+        _parlant_available = False
 
     return AdapterConfig(
         framework_id="parlant",
@@ -464,6 +461,9 @@ def _build_parlant_config() -> AdapterConfig:
             "custom_section": "Be helpful.",
         },
         has_custom_tools_attr=False,
+        # on_started does a runtime `from parlant.core.application import Application`
+        # which fails when parlant SDK is not installed (conflict group with crewai).
+        skip_on_started_conformance=not _parlant_available,
     )
 
 
@@ -519,6 +519,38 @@ def _build_letta_config() -> AdapterConfig:
     )
 
 
+def _build_opencode_config() -> AdapterConfig:
+    from thenvoi.adapters.opencode import OpencodeAdapterConfig
+
+    return AdapterConfig(
+        framework_id="opencode",
+        display_name="OpenCode",
+        adapter_factory=_opencode_factory,
+        expected_initial_values={
+            "_custom_tools": [],
+            "config": OpencodeAdapterConfig(),
+        },
+        custom_kwargs={
+            "config": OpencodeAdapterConfig(
+                enable_execution_reporting=True,
+                approval_mode="auto_accept",
+                provider_id="opencode",
+                model_id="minimax-m2.5-free",
+            ),
+        },
+        custom_expected={
+            "config": OpencodeAdapterConfig(
+                enable_execution_reporting=True,
+                approval_mode="auto_accept",
+                provider_id="opencode",
+                model_id="minimax-m2.5-free",
+            ),
+        },
+        has_custom_tools_attr=True,
+        custom_tools_attr="_custom_tools",
+    )
+
+
 def _build_gemini_config() -> AdapterConfig:
     from thenvoi.adapters.gemini import GeminiAdapter
 
@@ -529,22 +561,16 @@ def _build_gemini_config() -> AdapterConfig:
         expected_initial_values={
             "model": _default_from_init(GeminiAdapter, "model"),
             "system_prompt": _default_from_init(GeminiAdapter, "system_prompt"),
-            "custom_section": _default_from_init(GeminiAdapter, "custom_section"),
-            "enable_execution_reporting": _default_from_init(
-                GeminiAdapter, "enable_execution_reporting"
-            ),
         },
         custom_kwargs={
             "model": "gemini-2.5-flash",
             "system_prompt": "You are a helpful bot.",
-            "custom_section": "Be concise.",
-            "enable_execution_reporting": True,
+            "prompt": "Be concise.",
         },
         custom_expected={
             "model": "gemini-2.5-flash",
             "system_prompt": "You are a helpful bot.",
-            "custom_section": "Be concise.",
-            "enable_execution_reporting": True,
+            "_prompt": "Be concise.",
         },
     )
 
@@ -555,7 +581,12 @@ def _build_gemini_config() -> AdapterConfig:
 # on_cleanup contract), so they cannot share the same conformance tests.
 # acp uses the ACP protocol (Agent Client Protocol) with a similar non-standard
 # lifecycle (ACP JSON-RPC over stdio), so it is also excluded.
-ADAPTER_EXCLUDED_MODULES: frozenset[str] = frozenset({"a2a", "a2a_gateway", "acp"})
+# claude_sdk is excluded when claude-agent-sdk optional dep is not installed.
+
+_excluded = {"a2a", "a2a_gateway", "acp"}
+if not _HAS_CLAUDE_SDK:
+    _excluded = _excluded | {"claude_sdk"}
+ADAPTER_EXCLUDED_MODULES: frozenset[str] = frozenset(_excluded)
 
 
 def _build_google_adk_config() -> AdapterConfig:
@@ -567,12 +598,6 @@ def _build_google_adk_config() -> AdapterConfig:
         adapter_factory=_google_adk_factory,
         expected_initial_values={
             "model": _default_from_init(GoogleADKAdapter, "model"),
-            "enable_execution_reporting": _default_from_init(
-                GoogleADKAdapter, "enable_execution_reporting"
-            ),
-            "enable_memory_tools": _default_from_init(
-                GoogleADKAdapter, "enable_memory_tools"
-            ),
             "custom_section": _default_from_init(GoogleADKAdapter, "custom_section"),
             "max_history_messages": _default_from_init(
                 GoogleADKAdapter, "max_history_messages"
@@ -584,12 +609,10 @@ def _build_google_adk_config() -> AdapterConfig:
         custom_kwargs={
             "model": "gemini-2.5-pro",
             "custom_section": "Be helpful.",
-            "enable_execution_reporting": True,
         },
         custom_expected={
             "model": "gemini-2.5-pro",
             "custom_section": "Be helpful.",
-            "enable_execution_reporting": True,
         },
         skip_on_started_conformance=False,
     )
@@ -604,6 +627,7 @@ _ADAPTER_CONFIG_BUILDERS: list[Callable[[], AdapterConfig]] = [
     _build_parlant_config,
     _build_codex_config,
     _build_letta_config,
+    _build_opencode_config,
     _build_gemini_config,
     _build_google_adk_config,
 ]
@@ -623,7 +647,9 @@ def _build_adapter_configs() -> list[AdapterConfig]:
     configs: list[AdapterConfig] = []
     for builder in _ADAPTER_CONFIG_BUILDERS:
         try:
-            configs.append(builder())
+            result = builder()
+            if result is not None:
+                configs.append(result)
         except Exception as exc:
             if IN_CI:
                 raise RuntimeError(

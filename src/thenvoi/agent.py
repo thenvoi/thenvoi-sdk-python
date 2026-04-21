@@ -5,13 +5,20 @@ from __future__ import annotations
 import logging
 from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as _get_version
+from pathlib import Path
 from types import TracebackType
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Any, cast
 
 from thenvoi.core.protocols import FrameworkAdapter, Preprocessor
 from thenvoi.core.simple_adapter import SimpleAdapter
 from thenvoi.runtime.platform_runtime import PlatformRuntime
-from thenvoi.runtime.types import AgentConfig, ContactEventConfig, SessionConfig
+from thenvoi.runtime.types import (
+    AgentConfig,
+    ContactEventConfig,
+    ParticipantAddedCallback,
+    ParticipantRemovedCallback,
+    SessionConfig,
+)
 from thenvoi.preprocessing.default import DefaultPreprocessor
 
 if TYPE_CHECKING:
@@ -96,6 +103,8 @@ class Agent:
         config: AgentConfig | None = None,
         session_config: SessionConfig | None = None,
         contact_config: ContactEventConfig | None = None,
+        on_participant_added: ParticipantAddedCallback | None = None,
+        on_participant_removed: ParticipantRemovedCallback | None = None,
         preprocessor: Preprocessor | None = None,
     ) -> "Agent":
         """
@@ -114,6 +123,8 @@ class Agent:
             contact_config: Contact event handling configuration.
                             Controls how contact requests and updates are processed.
                             See ContactEventConfig for strategies (DISABLED, CALLBACK, HUB_ROOM).
+            on_participant_added: Optional callback for participant_added events.
+            on_participant_removed: Optional callback for participant_removed events.
             preprocessor: Custom event preprocessor (default: DefaultPreprocessor)
         """
         runtime = PlatformRuntime(
@@ -124,11 +135,48 @@ class Agent:
             config=config,
             session_config=session_config,
             contact_config=contact_config,
+            on_participant_added=on_participant_added,
+            on_participant_removed=on_participant_removed,
         )
         return cls(
             runtime=runtime,
             adapter=adapter,
             preprocessor=preprocessor,
+        )
+
+    @classmethod
+    def from_config(
+        cls,
+        name: str,
+        *,
+        adapter: FrameworkAdapter | SimpleAdapter,
+        config_path: str | Path | None = None,
+        **kwargs: Any,
+    ) -> "Agent":
+        """
+        Create an Agent from YAML config + a constructed adapter.
+
+        Loads agent_id and api_key from YAML configuration.
+        The adapter is constructed by the caller in Python code.
+
+        Args:
+            name: Agent key in the YAML config file.
+            adapter: Pre-constructed framework adapter.
+            config_path: Path to agent_config.yaml. If None, searches
+                         the default locations.
+            **kwargs: Additional keyword arguments passed to create().
+
+        Returns:
+            Configured Agent instance.
+        """
+        from thenvoi.config.loader import load_agent_config
+
+        agent_id, api_key = load_agent_config(name, config_path=config_path)
+        return cls.create(
+            adapter=adapter,
+            agent_id=agent_id,
+            api_key=api_key,
+            **kwargs,
         )
 
     @property

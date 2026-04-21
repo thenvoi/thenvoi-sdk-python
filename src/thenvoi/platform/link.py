@@ -21,6 +21,8 @@ from .event import (
     MessageEvent,
     RoomAddedEvent,
     RoomRemovedEvent,
+    RoomDeletedEvent,
+    ReconnectedEvent,
     ParticipantAddedEvent,
     ParticipantRemovedEvent,
     ContactRequestReceivedEvent,
@@ -36,6 +38,7 @@ if TYPE_CHECKING:
         ParticipantAddedPayload,
         ParticipantRemovedPayload,
         RoomAddedPayload,
+        RoomDeletedPayload,
         RoomRemovedPayload,
         ContactRequestReceivedPayload,
         ContactRequestUpdatedPayload,
@@ -120,7 +123,13 @@ class ThenvoiLink:
             logger.warning("Already connected")
             return
 
-        self._ws = WebSocketClient(self.ws_url, self.api_key, self.agent_id)
+        self._ws = WebSocketClient(
+            self.ws_url,
+            self.api_key,
+            self.agent_id,
+            on_reconnect=self._on_reconnected,
+            on_disconnect=self._on_disconnected,
+        )
         await self._ws.__aenter__()
         self._is_connected = True
         logger.info("Connected to platform")
@@ -172,6 +181,8 @@ class ThenvoiLink:
         Subscribe to room messages and participants.
 
         Extracted from ThenvoiAgent._subscribe_to_room() lines 724-746.
+        Wraps each channel join so a single room failure doesn't crash
+        the entire subscription sequence.
         """
         if not self._ws:
             raise RuntimeError("Not connected")
@@ -179,18 +190,34 @@ class ThenvoiLink:
         if room_id in self._subscribed_rooms:
             return
 
-        # Subscribe to messages (from lines 733-736)
-        await self._ws.join_chat_room_channel(
-            room_id,
-            on_message_created=lambda msg: self._on_message_created(room_id, msg),
-        )
+        try:
+            # Subscribe to messages (from lines 733-736)
+            await self._ws.join_chat_room_channel(
+                room_id,
+                on_message_created=lambda msg: self._on_message_created(room_id, msg),
+            )
+        except Exception as e:
+            logger.warning("Failed to join chat_room:%s: %s", room_id, e)
+            return
 
-        # Subscribe to participant updates (from lines 739-743)
-        await self._ws.join_room_participants_channel(
-            room_id,
-            on_participant_added=lambda p: self._on_participant_added(room_id, p),
-            on_participant_removed=lambda p: self._on_participant_removed(room_id, p),
-        )
+        try:
+            # Subscribe to participant updates (from lines 739-743)
+            await self._ws.join_room_participants_channel(
+                room_id,
+                on_participant_added=lambda p: self._on_participant_added(room_id, p),
+                on_participant_removed=lambda p: self._on_participant_removed(
+                    room_id, p
+                ),
+                on_room_deleted=lambda p: self._on_room_deleted(room_id, p),
+            )
+        except Exception as e:
+            logger.warning("Failed to join room_participants:%s: %s", room_id, e)
+            # Clean up the chat_room channel we already joined
+            try:
+                await self._ws.leave_chat_room_channel(room_id)
+            except Exception:
+                pass
+            return
 
         self._subscribed_rooms.add(room_id)
         logger.debug("Subscribed to room %s", room_id)
@@ -249,6 +276,21 @@ class ThenvoiLink:
 
     # --- Event handlers (from ThenvoiAgent, unified into PlatformEvent) ---
 
+    async def _on_reconnected(self) -> None:
+        """Handle PHX client reconnection.
+
+        PHXChannelsClient re-subscribes previously joined topics before calling
+        this hook, so room subscription tracking must stay intact here.
+        RoomPresence can then reconcile tracked rooms against the server state
+        without leaking channels or replaying duplicate room joins.
+        """
+        logger.info("WebSocket reconnected — reconciling room state")
+        self._queue_event(ReconnectedEvent())
+
+    async def _on_disconnected(self, error: Exception | None) -> None:
+        """Handle PHX client disconnection."""
+        logger.warning("WebSocket disconnected: %s", error)
+
     def _queue_event(self, event: PlatformEvent) -> None:
         """Queue event for async iteration. Logs warning if queue is full."""
         try:
@@ -300,6 +342,20 @@ class ThenvoiLink:
         """
         event = MessageEvent(
             room_id=room_id,
+            payload=payload,
+        )
+        self._queue_event(event)
+
+    async def _on_room_deleted(
+        self, room_id: str, payload: "RoomDeletedPayload"
+    ) -> None:
+        """
+        Handle room_deleted from WebSocket.
+
+        Room deletions arrive on room_participants:{room_id} with a minimal payload.
+        """
+        event = RoomDeletedEvent(
+            room_id=room_id or payload.id,
             payload=payload,
         )
         self._queue_event(event)

@@ -141,7 +141,10 @@ class TestCreateParlantTools:
         tools = create_parlant_tools()
 
         assert isinstance(tools, list)
-        assert len(tools) == 12
+        # Non-empty; specific tool names are verified in the next test.
+        # Avoid hardcoded counts so adding/removing tools doesn't silently
+        # break this assertion — the next test validates the exact contract.
+        assert len(tools) > 0
 
     def test_returns_expected_tool_names(self):
         """Should return tools with expected names."""
@@ -192,8 +195,8 @@ class TestCreateParlantTools:
         assert "content" in param_names
         assert "message_type" in param_names
 
-    def test_add_participant_tool_has_name_parameter(self):
-        """add_participant should have name parameter."""
+    def test_add_participant_tool_has_identifier_parameter(self):
+        """add_participant should have identifier parameter."""
         tools = create_parlant_tools()
 
         add_participant_entry = next(
@@ -201,7 +204,7 @@ class TestCreateParlantTools:
         )
         param_names = list(add_participant_entry.tool.parameters.keys())
 
-        assert "name" in param_names
+        assert "identifier" in param_names
 
     def test_lookup_peers_has_no_parameters(self):
         """lookup_peers should have no user-facing parameters (pagination is hardcoded)."""
@@ -215,6 +218,44 @@ class TestCreateParlantTools:
         # Pagination was intentionally removed to simplify the API
         # The function uses hardcoded defaults (page=1, page_size=50)
         assert param_names == []
+
+    def test_excludes_contact_tools_without_capability(self):
+        """Contact tools excluded when CONTACTS capability is absent."""
+        from thenvoi.core.types import AdapterFeatures
+
+        tools = create_parlant_tools(features=AdapterFeatures())
+        tool_names = [t.tool.name for t in tools]
+
+        assert "thenvoi_send_message" in tool_names
+        assert "thenvoi_create_chatroom" in tool_names
+        assert "thenvoi_list_contacts" not in tool_names
+        assert "thenvoi_add_contact" not in tool_names
+        assert "thenvoi_remove_contact" not in tool_names
+        assert "thenvoi_list_contact_requests" not in tool_names
+        assert "thenvoi_respond_contact_request" not in tool_names
+
+    def test_includes_contact_tools_with_capability(self):
+        """Contact tools included when CONTACTS capability is present."""
+        from thenvoi.core.types import AdapterFeatures, Capability
+
+        tools = create_parlant_tools(
+            features=AdapterFeatures(capabilities={Capability.CONTACTS})
+        )
+        tool_names = [t.tool.name for t in tools]
+
+        assert "thenvoi_list_contacts" in tool_names
+        assert "thenvoi_add_contact" in tool_names
+        assert "thenvoi_remove_contact" in tool_names
+        assert "thenvoi_list_contact_requests" in tool_names
+        assert "thenvoi_respond_contact_request" in tool_names
+
+    def test_includes_contact_tools_when_no_features(self):
+        """Contact tools included when features is None (backward compat)."""
+        tools = create_parlant_tools(features=None)
+        tool_names = [t.tool.name for t in tools]
+
+        assert "thenvoi_list_contacts" in tool_names
+        assert "thenvoi_respond_contact_request" in tool_names
 
 
 class TestParlantToolFunctions:
@@ -314,6 +355,32 @@ class TestParlantToolFunctions:
         result = await send_message(mock_context, "Hello", "")
 
         assert "At least one mention is required" in result.data
+
+    @pytest.mark.asyncio
+    async def test_send_message_translates_thenvoi_tool_error(
+        self, parlant_tools, mock_tools, mock_context
+    ):
+        """ThenvoiToolError from underlying tool must surface as ToolResult, not crash.
+
+        Pins the wrapper translation contract: framework wrappers must catch
+        ThenvoiToolError raised by AgentTools and return a model-visible
+        failure value so the LLM can recover, instead of letting the exception
+        crash the turn.
+        """
+        from thenvoi.core.exceptions import ThenvoiToolError
+
+        mock_tools.send_message.side_effect = ThenvoiToolError(
+            "Backend rejected message: 503 Service Unavailable"
+        )
+        set_session_tools(mock_context.session_id, mock_tools)
+
+        send_message = parlant_tools["thenvoi_send_message"]
+        # Must NOT raise — wrapper translates the exception to a tool failure
+        result = await send_message(mock_context, "Hello", "Alice")
+
+        # Result is a ToolResult with the error text visible to the LLM
+        assert "Error sending message" in result.data
+        assert "503" in result.data
 
     @pytest.mark.asyncio
     async def test_send_event_calls_tools_send_event(

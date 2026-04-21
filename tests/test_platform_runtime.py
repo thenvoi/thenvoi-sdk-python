@@ -1,5 +1,6 @@
 """Tests for PlatformRuntime."""
 
+from thenvoi_rest.core.api_error import ApiError
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -223,6 +224,33 @@ class TestStart:
                 assert call_kwargs["on_session_cleanup"] is on_cleanup
 
     @pytest.mark.asyncio
+    async def test_passes_participant_callbacks_to_agent_runtime(
+        self, mock_link, mock_runtime
+    ):
+        """Should forward participant callbacks into AgentRuntime."""
+        with patch("thenvoi.runtime.platform_runtime.ThenvoiLink") as mock_link_class:
+            mock_link_class.return_value = mock_link
+            with patch(
+                "thenvoi.runtime.platform_runtime.AgentRuntime"
+            ) as mock_runtime_class:
+                mock_runtime_class.return_value = mock_runtime
+
+                on_participant_added = AsyncMock()
+                on_participant_removed = AsyncMock()
+                runtime = PlatformRuntime(
+                    agent_id="agent-123",
+                    api_key="test-key",
+                    on_participant_added=on_participant_added,
+                    on_participant_removed=on_participant_removed,
+                )
+
+                await runtime.start(on_execute=AsyncMock())
+
+                call_kwargs = mock_runtime_class.call_args.kwargs
+                assert call_kwargs["on_participant_added"] is on_participant_added
+                assert call_kwargs["on_participant_removed"] is on_participant_removed
+
+    @pytest.mark.asyncio
     async def test_uses_noop_cleanup_when_none_provided(self, mock_link, mock_runtime):
         """Should use noop cleanup when none provided."""
         with patch("thenvoi.runtime.platform_runtime.ThenvoiLink") as mock_link_class:
@@ -305,6 +333,42 @@ class TestStart:
             on_execute = AsyncMock()
             with pytest.raises(ValueError, match="has no description"):
                 await runtime.start(on_execute=on_execute)
+
+    @pytest.mark.asyncio
+    async def test_retries_metadata_fetch_on_rate_limit(self, mock_link, mock_runtime):
+        """Should retry agent metadata fetch when the platform returns 429."""
+        mock_agent = MagicMock()
+        mock_agent.name = "TestBot"
+        mock_agent.description = "A test bot"
+        mock_link.rest.agent_api_identity.get_agent_me = AsyncMock(
+            side_effect=[
+                ApiError(status_code=429, headers={}, body=""),
+                ApiError(status_code=429, headers={}, body=""),
+                MagicMock(data=mock_agent),
+            ]
+        )
+
+        with patch("thenvoi.runtime.platform_runtime.ThenvoiLink") as mock_link_class:
+            mock_link_class.return_value = mock_link
+            with patch(
+                "thenvoi.runtime.platform_runtime.AgentRuntime"
+            ) as mock_runtime_class:
+                mock_runtime_class.return_value = mock_runtime
+                with patch(
+                    "thenvoi.runtime.platform_runtime.asyncio.sleep",
+                    new=AsyncMock(),
+                ) as mock_sleep:
+                    runtime = PlatformRuntime(
+                        agent_id="agent-123",
+                        api_key="test-key",
+                    )
+
+                    await runtime.start(on_execute=AsyncMock())
+
+                    assert (
+                        mock_link.rest.agent_api_identity.get_agent_me.await_count == 3
+                    )
+                    assert mock_sleep.await_count == 2
 
 
 class TestStop:

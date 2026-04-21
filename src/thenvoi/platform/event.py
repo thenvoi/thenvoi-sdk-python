@@ -15,6 +15,7 @@ from thenvoi.client.streaming import (
     MessageCreatedPayload,
     RoomAddedPayload,
     RoomRemovedPayload,
+    RoomDeletedPayload,
     ParticipantAddedPayload,
     ParticipantRemovedPayload,
     ContactRequestReceivedPayload,
@@ -51,6 +52,16 @@ class RoomRemovedEvent:
     type: Literal["room_removed"] = "room_removed"
     room_id: str | None = None
     payload: RoomRemovedPayload | None = None
+    raw: dict[str, Any] | None = None
+
+
+@dataclass
+class RoomDeletedEvent:
+    """Room deleted event."""
+
+    type: Literal["room_deleted"] = "room_deleted"
+    room_id: str | None = None
+    payload: RoomDeletedPayload | None = None
     raw: dict[str, Any] | None = None
 
 
@@ -114,6 +125,20 @@ class ContactRemovedEvent:
     raw: dict[str, Any] | None = None
 
 
+@dataclass
+class ReconnectedEvent:
+    """Emitted when the WebSocket reconnects after a disconnection.
+
+    Signals RoomPresence to re-derive room state from the server
+    instead of relying on stale subscription state.
+    """
+
+    type: Literal["reconnected"] = "reconnected"
+    room_id: str | None = None
+    payload: None = None
+    raw: dict[str, Any] | None = None
+
+
 # Contact event union (for type narrowing)
 ContactEvent = (
     ContactRequestReceivedEvent
@@ -128,10 +153,12 @@ PlatformEvent = (
     MessageEvent
     | RoomAddedEvent
     | RoomRemovedEvent
+    | RoomDeletedEvent
     | ParticipantAddedEvent
     | ParticipantRemovedEvent
     | ContactRequestReceivedEvent
     | ContactRequestUpdatedEvent
     | ContactAddedEvent
     | ContactRemovedEvent
+    | ReconnectedEvent
 )

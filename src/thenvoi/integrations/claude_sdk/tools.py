@@ -16,14 +16,15 @@ from collections.abc import Awaitable, Callable, Sequence
 from typing import Any
 
 try:
-    from claude_agent_sdk import SdkMcpTool, create_sdk_mcp_server, tool
+    from claude_agent_sdk import SdkMcpTool, create_sdk_mcp_server, tool  # type: ignore[import-not-found]
 except ImportError as e:
     raise ImportError(
-        "claude-agent-sdk is required for Claude SDK examples.\n"
-        "Install with: pip install claude-agent-sdk\n"
-        "Or: uv add claude-agent-sdk"
+        "claude-agent-sdk is required for Claude SDK tools.\n"
+        "Install with: pip install thenvoi-sdk[claude_sdk]\n"
+        "Or: uv add thenvoi-sdk[claude_sdk]"
     ) from e
 
+from thenvoi.core.exceptions import ThenvoiToolError
 from thenvoi.core.protocols import AgentToolsProtocol
 from thenvoi.runtime.custom_tools import (
     CustomToolDef,
@@ -131,22 +132,26 @@ def _format_success_payload(
         return {
             "status": "success",
             "message": (
-                f"Participant '{call_args['name']}' added as {call_args['role']}"
+                f"Participant '{call_args['identifier']}' added as {call_args['role']}"
             ),
             **result,
         }
     if tool_name == "thenvoi_remove_participant":
         return {
             "status": "success",
-            "message": f"Participant '{call_args['name']}' removed",
+            "message": f"Participant '{call_args['identifier']}' removed",
             **result,
         }
     if tool_name == "thenvoi_get_participants":
         participants = result if isinstance(result, list) else []
+        # Convert Fern models to dicts for JSON serialization
+        serialized = [
+            p.model_dump() if hasattr(p, "model_dump") else p for p in participants
+        ]
         return {
             "status": "success",
-            "participants": participants,
-            "count": len(participants),
+            "participants": serialized,
+            "count": len(serialized),
         }
     if tool_name == "thenvoi_create_chatroom":
         return {
@@ -154,6 +159,9 @@ def _format_success_payload(
             "message": "Chat room created",
             "room_id": result,
         }
+    # Convert Pydantic models to dicts at serialization boundary
+    if hasattr(result, "model_dump"):
+        result = result.model_dump()
     if isinstance(result, dict):
         return {"status": "success", **result}
     return {"status": "success", "result": result}
@@ -212,7 +220,7 @@ def _build_builtin_sdk_tool(
             return _make_result(
                 _format_success_payload(definition.name, call_args, result)
             )
-        except ValueError as error:
+        except (ValueError, ThenvoiToolError) as error:
             if (
                 definition.name == "thenvoi_send_message"
                 and get_participant_handles is not None

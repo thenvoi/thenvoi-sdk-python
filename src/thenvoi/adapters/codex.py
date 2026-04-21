@@ -6,17 +6,25 @@ import asyncio
 import json
 import logging
 import time as _time
+import warnings
 from collections import OrderedDict
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Any, Callable, Literal, Protocol
+from typing import ClassVar, Any, Callable, Literal, Protocol
 
 from pydantic import BaseModel, Field, ValidationError
 
 from thenvoi.converters.codex import CodexHistoryConverter
+from thenvoi.core.exceptions import ThenvoiConfigError
 from thenvoi.core.protocols import AgentToolsProtocol
 from thenvoi.core.simple_adapter import SimpleAdapter
-from thenvoi.core.types import AgentInput, PlatformMessage
+from thenvoi.core.types import (
+    AdapterFeatures,
+    AgentInput,
+    Capability,
+    Emit,
+    PlatformMessage,
+)
 from thenvoi.integrations.codex import (
     CodexJsonRpcError,
     CodexStdioClient,
@@ -184,6 +192,13 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
     events metadata and restored via CodexHistoryConverter on bootstrap.
     """
 
+    SUPPORTED_EMIT: ClassVar[frozenset[Emit]] = frozenset(
+        {Emit.EXECUTION, Emit.THOUGHTS, Emit.TASK_EVENTS}
+    )
+    SUPPORTED_CAPABILITIES: ClassVar[frozenset[Capability]] = frozenset(
+        {Capability.MEMORY, Capability.CONTACTS}
+    )
+
     def __init__(
         self,
         config: CodexAdapterConfig | None = None,
@@ -192,9 +207,54 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
         history_converter: CodexHistoryConverter | None = None,
         client_factory: Callable[[CodexAdapterConfig], _CodexClientProtocol]
         | None = None,
+        features: AdapterFeatures | None = None,
     ) -> None:
-        super().__init__(history_converter=history_converter or CodexHistoryConverter())
-        self.config = config or CodexAdapterConfig()
+        self._config = config or CodexAdapterConfig()
+
+        # --- Deprecation shim: boolean → features migration ---
+        # Only trigger for non-default booleans (enable_task_events defaults
+        # to True, so it doesn't count as "legacy usage").
+        _has_legacy_booleans = (
+            self._config.enable_execution_reporting
+            or self._config.emit_thought_events
+            or self._config.enable_memory_tools
+        )
+        if _has_legacy_booleans and features is not None:
+            raise ThenvoiConfigError(
+                "Cannot pass both legacy boolean flags in CodexAdapterConfig "
+                "(enable_execution_reporting / emit_thought_events / "
+                "enable_memory_tools) and 'features'. "
+                "Use features=AdapterFeatures(...) instead."
+            )
+
+        # Build features from config booleans when not explicitly provided.
+        if features is None:
+            if _has_legacy_booleans:
+                warnings.warn(
+                    "enable_execution_reporting, emit_thought_events, and "
+                    "enable_memory_tools in CodexAdapterConfig are deprecated. "
+                    "Use features=AdapterFeatures(emit={Emit.EXECUTION, "
+                    "Emit.THOUGHTS}, capabilities={Capability.MEMORY}) instead.",
+                    DeprecationWarning,
+                    stacklevel=2,
+                )
+            emit: frozenset[Emit] = frozenset()
+            if self._config.enable_execution_reporting:
+                emit = emit | frozenset({Emit.EXECUTION})
+            if self._config.emit_thought_events:
+                emit = emit | frozenset({Emit.THOUGHTS})
+            if self._config.enable_task_events:
+                emit = emit | frozenset({Emit.TASK_EVENTS})
+            capabilities: frozenset[Capability] = frozenset()
+            if self._config.enable_memory_tools:
+                capabilities = capabilities | frozenset({Capability.MEMORY})
+            features = AdapterFeatures(capabilities=capabilities, emit=emit)
+
+        super().__init__(
+            history_converter=history_converter or CodexHistoryConverter(),
+            features=features,
+        )
+        self.config = self._config
         self._custom_tools: list[CustomToolDef] = list(additional_tools or [])
         if self.config.enable_self_config_tools:
             self._custom_tools.extend(self._build_self_config_tools())
@@ -366,7 +426,10 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
             turn = turn_started.get("turn") if isinstance(turn_started, dict) else {}
             turn_id = str((turn or {}).get("id") or "")
 
-            if self.config.enable_task_events and self.config.emit_turn_task_markers:
+            if (
+                Emit.TASK_EVENTS in self.features.emit
+                and self.config.emit_turn_task_markers
+            ):
                 await tools.send_event(
                     content=self._build_task_event_content(
                         task_id=turn_id or None,
@@ -633,7 +696,7 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
                 if thread_id:
                     self._room_threads[room_id] = thread_id
                     self._raw_history_by_room.pop(room_id, None)
-                    if self.config.enable_task_events:
+                    if Emit.TASK_EVENTS in self.features.emit:
                         await tools.send_event(
                             content=self._build_task_event_content(
                                 task_id=thread_id,
@@ -680,7 +743,7 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
 
         self._room_threads[room_id] = thread_id
 
-        if self.config.enable_task_events:
+        if Emit.TASK_EVENTS in self.features.emit:
             await tools.send_event(
                 content=self._build_task_event_content(
                     task_id=thread_id,
@@ -704,7 +767,8 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
         seen: set[str] = set()
 
         for schema in tools.get_openai_tool_schemas(
-            include_memory=self.config.enable_memory_tools,
+            include_memory=Capability.MEMORY in self.features.capabilities,
+            include_contacts=Capability.CONTACTS in self.features.capabilities,
             include_tools=self.config.include_tools,
             exclude_tools=self.config.exclude_tools,
             include_categories=self.config.include_categories,
@@ -859,7 +923,7 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
             # Don't emit reporting for platform tools that already produce
             # visible output (messages/events) — reporting them is redundant.
             should_report = (
-                self.config.enable_execution_reporting
+                Emit.EXECUTION in self.features.emit
                 and tool_name not in _SILENT_REPORTING_TOOLS
             )
 
@@ -998,7 +1062,7 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
                 except Exception:
                     logger.exception("Failed to send approval policy notification")
 
-            if self.config.emit_thought_events:
+            if Emit.THOUGHTS in self.features.emit:
                 try:
                     await tools.send_event(
                         content=f"Codex approval request handled automatically ({decision}).",
@@ -1029,7 +1093,10 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
         final_text: str,
         saw_send_message_tool: bool,
     ) -> None:
-        if self.config.enable_task_events and self.config.emit_turn_task_markers:
+        if (
+            Emit.TASK_EVENTS in self.features.emit
+            and self.config.emit_turn_task_markers
+        ):
             summary = f"Thread: {thread_id}"
             if turn_error:
                 summary += f" | Error: {turn_error}"
@@ -1132,7 +1199,7 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
             "imageView",
             "collabAgentToolCall",
         }:
-            if not self.config.enable_execution_reporting:
+            if Emit.EXECUTION not in self.features.emit:
                 return
             name, args, output = self._extract_tool_item(item_type, item)
             await tools.send_event(
@@ -1159,7 +1226,7 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
             "enteredReviewMode",
             "exitedReviewMode",
         }:
-            if not self.config.emit_thought_events:
+            if Emit.THOUGHTS not in self.features.emit:
                 return
             text = self._extract_thought_text(item_type, item)
             await tools.send_event(
@@ -1345,7 +1412,7 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
         method: str,
         params: dict[str, Any],
     ) -> None:
-        if not self.config.enable_task_events:
+        if Emit.TASK_EVENTS not in self.features.emit:
             return
 
         is_started = method == "codex/event/task_started"
@@ -1575,6 +1642,7 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
             agent_description=self.agent_description or "An AI assistant",
             custom_section=self.config.custom_section,
             include_base_instructions=self.config.include_base_instructions,
+            features=self.features,
         )
 
     def _apply_turn_overrides(self, params: dict[str, Any]) -> None:

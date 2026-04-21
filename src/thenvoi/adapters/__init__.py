@@ -14,6 +14,7 @@ Install the extra you need::
     uv add thenvoi-sdk[a2a_gateway]
     uv add thenvoi-sdk[codex]
     uv add thenvoi-sdk[google_adk]
+    uv add thenvoi-sdk[opencode]
 """
 
 from __future__ import annotations
@@ -39,6 +40,10 @@ if TYPE_CHECKING:
     )
     from thenvoi.adapters.gemini import GeminiAdapter as GeminiAdapter
     from thenvoi.adapters.google_adk import GoogleADKAdapter as GoogleADKAdapter
+    from thenvoi.adapters.opencode import OpencodeAdapter as OpencodeAdapter
+    from thenvoi.adapters.opencode import OpencodeAdapterConfig as OpencodeAdapterConfig
+    from thenvoi.adapters.letta import LettaAdapter as LettaAdapter
+    from thenvoi.adapters.letta import LettaAdapterConfig as LettaAdapterConfig
 
 __all__ = [
     "LangGraphAdapter",
@@ -56,6 +61,10 @@ __all__ = [
     "ThenvoiACPServerAdapter",
     "GeminiAdapter",
     "GoogleADKAdapter",
+    "OpencodeAdapter",
+    "OpencodeAdapterConfig",
+    "LettaAdapter",
+    "LettaAdapterConfig",
 ]
 
 
@@ -121,4 +130,20 @@ def __getattr__(name: str) -> type:
         from thenvoi.adapters.google_adk import GoogleADKAdapter
 
         return GoogleADKAdapter
+    elif name == "OpencodeAdapter":
+        from thenvoi.adapters.opencode import OpencodeAdapter
+
+        return OpencodeAdapter
+    elif name == "OpencodeAdapterConfig":
+        from thenvoi.adapters.opencode import OpencodeAdapterConfig
+
+        return OpencodeAdapterConfig
+    elif name == "LettaAdapter":
+        from thenvoi.adapters.letta import LettaAdapter
+
+        return LettaAdapter
+    elif name == "LettaAdapterConfig":
+        from thenvoi.adapters.letta import LettaAdapterConfig
+
+        return LettaAdapterConfig
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

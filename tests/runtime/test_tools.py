@@ -20,6 +20,7 @@ from thenvoi.runtime.tools import (
     LookupPeersInput,
     GetParticipantsInput,
     CreateChatroomInput,
+    _matches_identifier,
     iter_tool_definitions,
     validate_tool_filter,
 )
@@ -59,6 +60,13 @@ def mock_rest_client():
     participant1.id = "user-1"
     participant1.name = "User One"
     participant1.type = "User"
+    participant1.handle = "user-one"
+    participant1.model_dump.return_value = {
+        "id": "user-1",
+        "name": "User One",
+        "type": "User",
+        "handle": "user-one",
+    }
     client.agent_api_participants.list_agent_chat_participants = AsyncMock(
         return_value=MagicMock(data=[participant1])
     )
@@ -68,6 +76,7 @@ def mock_rest_client():
     peer1.id = "agent-2"
     peer1.name = "Agent Two"
     peer1.type = "Agent"
+    peer1.handle = "agent-two"
     peer1.description = "Another agent"
     peers_response = MagicMock()
     peers_response.data = [peer1]
@@ -76,6 +85,24 @@ def mock_rest_client():
     peers_response.metadata.page_size = 50
     peers_response.metadata.total_count = 1
     peers_response.metadata.total_pages = 1
+    peers_response.model_dump = MagicMock(
+        return_value={
+            "data": [
+                {
+                    "id": "agent-2",
+                    "name": "Agent Two",
+                    "type": "Agent",
+                    "description": "Another agent",
+                }
+            ],
+            "metadata": {
+                "page": 1,
+                "page_size": 50,
+                "total_count": 1,
+                "total_pages": 1,
+            },
+        }
+    )
     client.agent_api_peers.list_agent_peers = AsyncMock(return_value=peers_response)
 
     # Mock add_agent_chat_participant
@@ -143,16 +170,169 @@ class TestAgentToolsFromContext:
         assert tools._participants == participants
 
 
+class TestAgentToolsContextSyncBack:
+    """Regression tests for AgentTools._ctx sync-back to ExecutionContext.
+
+    Before the fix, AgentTools.from_context() copied ctx.participants (which
+    returns a shallow copy via property).  Mutations to the tools instance
+    (add/remove participant) never propagated back to the ExecutionContext.
+    On the next turn, from_context() would copy the stale list again.
+    """
+
+    @pytest.mark.asyncio
+    async def test_add_participant_syncs_back_to_ctx(self, mock_rest_client):
+        """add_participant() must call ctx.add_participant() with full dict."""
+        mock_ctx = MagicMock()
+        mock_ctx.room_id = "room-456"
+        mock_ctx.link = MagicMock()
+        mock_ctx.link.rest = mock_rest_client
+        mock_ctx.participants = []
+        mock_ctx.hub_room_id = None
+        mock_ctx.add_participant = MagicMock()
+
+        # Override list_agent_chat_participants to return empty (avoid "already_in_room")
+        mock_rest_client.agent_api_participants.list_agent_chat_participants = (
+            AsyncMock(return_value=MagicMock(data=[]))
+        )
+
+        tools = AgentTools.from_context(mock_ctx)
+        assert tools._ctx is mock_ctx
+
+        await tools.add_participant("Agent Two")
+
+        mock_ctx.add_participant.assert_called_once()
+        added = mock_ctx.add_participant.call_args.args[0]
+        assert added["id"] == "agent-2"
+        assert added["name"] == "Agent Two"
+        assert added["type"] == "Agent"
+        assert added["handle"] == "agent-two"
+
+    @pytest.mark.asyncio
+    async def test_remove_participant_syncs_back_to_ctx(self, mock_rest_client):
+        """remove_participant() must call ctx.remove_participant() with correct ID."""
+        participant = {
+            "id": "user-1",
+            "name": "User One",
+            "type": "User",
+            "handle": "user-one",
+        }
+
+        mock_ctx = MagicMock()
+        mock_ctx.room_id = "room-456"
+        mock_ctx.link = MagicMock()
+        mock_ctx.link.rest = mock_rest_client
+        mock_ctx.participants = [participant]
+        mock_ctx.hub_room_id = None
+        mock_ctx.remove_participant = MagicMock()
+
+        # Return same participant from REST so snapshot matches
+        p_mock = MagicMock()
+        p_mock.id = "user-1"
+        p_mock.name = "User One"
+        p_mock.type = "User"
+        p_mock.handle = "user-one"
+        p_mock.model_dump.return_value = participant
+        mock_rest_client.agent_api_participants.list_agent_chat_participants = (
+            AsyncMock(return_value=MagicMock(data=[p_mock]))
+        )
+
+        tools = AgentTools.from_context(mock_ctx)
+        await tools.remove_participant("User One")
+
+        mock_ctx.remove_participant.assert_called_once_with("user-1")
+
+    @pytest.mark.asyncio
+    async def test_add_participant_persists_across_recreated_tools(
+        self, mock_rest_client
+    ):
+        """Added participant must survive tools recreation via from_context().
+
+        Uses real ExecutionContext — its ``participants`` property returns a
+        copy, so without the _ctx backref the mutation would be lost.
+        """
+        from thenvoi.runtime.execution import ExecutionContext
+
+        ctx = ExecutionContext(
+            room_id="room-789",
+            link=MagicMock(rest=mock_rest_client),
+            on_execute=AsyncMock(),
+        )
+
+        # Empty room
+        mock_rest_client.agent_api_participants.list_agent_chat_participants = (
+            AsyncMock(return_value=MagicMock(data=[]))
+        )
+
+        # Turn 1: add participant
+        tools1 = AgentTools.from_context(ctx)
+        await tools1.add_participant("Agent Two")
+
+        assert len(ctx._participants) == 1
+        assert ctx._participants[0]["id"] == "agent-2"
+
+        # Turn 2: recreate tools — participant must still be there
+        tools2 = AgentTools.from_context(ctx)
+        assert len(tools2._participants) == 1
+        assert tools2._participants[0]["id"] == "agent-2"
+
+    @pytest.mark.asyncio
+    async def test_remove_participant_persists_across_recreated_tools(
+        self, mock_rest_client
+    ):
+        """Removed participant must stay removed after tools recreation.
+
+        Uses real ExecutionContext — its ``participants`` property returns a
+        copy, so without the _ctx backref the removal would be lost.
+        """
+        from thenvoi.runtime.execution import ExecutionContext
+
+        participant = {
+            "id": "user-1",
+            "name": "User One",
+            "type": "User",
+            "handle": "user-one",
+        }
+
+        ctx = ExecutionContext(
+            room_id="room-789",
+            link=MagicMock(rest=mock_rest_client),
+            on_execute=AsyncMock(),
+        )
+        ctx._participants = [participant]
+
+        # REST snapshot must match ctx._participants
+        p_mock = MagicMock()
+        p_mock.id = "user-1"
+        p_mock.name = "User One"
+        p_mock.type = "User"
+        p_mock.handle = "user-one"
+        p_mock.model_dump.return_value = participant
+        mock_rest_client.agent_api_participants.list_agent_chat_participants = (
+            AsyncMock(return_value=MagicMock(data=[p_mock]))
+        )
+
+        # Turn 1: remove participant
+        tools1 = AgentTools.from_context(ctx)
+        await tools1.remove_participant("User One")
+
+        assert len(ctx._participants) == 0
+
+        # Turn 2: recreate tools — participant must stay removed
+        tools2 = AgentTools.from_context(ctx)
+        assert len(tools2._participants) == 0
+
+
 class TestAgentToolsSendMessage:
     """Test send_message tool."""
 
     async def test_send_message_success(self, mock_rest_client, participants):
-        """send_message() should send via REST."""
+        """send_message() should send via REST and return the Fern model."""
         tools = AgentTools("room-123", mock_rest_client, participants)
 
         result = await tools.send_message("Hello!", mentions=["User One"])
 
-        assert result["id"] == "msg-123"
+        # Now returns Fern model (mock), not dict
+        assert result.model_dump()["id"] == "msg-123"
         mock_rest_client.agent_api_messages.create_agent_chat_message.assert_called_once()
 
     async def test_send_message_resolves_mentions(self, mock_rest_client, participants):
@@ -195,12 +375,13 @@ class TestAgentToolsSendEvent:
     """Test send_event tool."""
 
     async def test_send_event_success(self, mock_rest_client):
-        """send_event() should send via REST."""
+        """send_event() should send via REST and return the Fern model."""
         tools = AgentTools("room-123", mock_rest_client)
 
         result = await tools.send_event("Thinking...", "thought")
 
-        assert result["message_type"] == "thought"
+        # Now returns Fern model (mock), not dict
+        assert result.model_dump()["message_type"] == "thought"
         mock_rest_client.agent_api_events.create_agent_chat_event.assert_called_once()
 
     async def test_send_event_with_metadata(self, mock_rest_client):
@@ -224,11 +405,62 @@ class TestAgentToolsSendEvent:
             await tools.send_event("Error!", "error")
 
 
+class TestMatchesIdentifier:
+    """Tests for the _matches_identifier helper."""
+
+    def test_match_by_handle(self):
+        entity = {"handle": "alice", "name": "Alice Smith", "id": "u-1"}
+        assert _matches_identifier(entity, "alice") is True
+
+    def test_match_by_name(self):
+        entity = {"handle": "alice", "name": "Alice Smith", "id": "u-1"}
+        assert _matches_identifier(entity, "Alice Smith") is True
+
+    def test_match_by_id(self):
+        entity = {"handle": "alice", "name": "Alice Smith", "id": "u-1"}
+        assert _matches_identifier(entity, "u-1") is True
+
+    def test_case_insensitive(self):
+        entity = {"handle": "Alice", "name": "ALICE SMITH", "id": "U-1"}
+        assert _matches_identifier(entity, "alice") is True
+        assert _matches_identifier(entity, "alice smith") is True
+        assert _matches_identifier(entity, "u-1") is True
+
+    def test_no_match(self):
+        entity = {"handle": "alice", "name": "Alice Smith", "id": "u-1"}
+        assert _matches_identifier(entity, "bob") is False
+
+    def test_missing_fields(self):
+        """Should handle entities with missing or None fields."""
+        assert _matches_identifier({"name": "Alice"}, "Alice") is True
+        assert _matches_identifier({"handle": None, "name": "Alice"}, "Alice") is True
+        assert _matches_identifier({}, "anything") is False
+
+    def test_at_prefix_normalization(self):
+        """@alice and alice should match regardless of which side has the prefix."""
+        entity_with_at = {"handle": "@alice", "name": "Alice Smith", "id": "u-1"}
+        entity_without_at = {"handle": "alice", "name": "Alice Smith", "id": "u-1"}
+
+        # identifier has @, entity doesn't
+        assert _matches_identifier(entity_without_at, "@alice") is True
+        # entity has @, identifier doesn't
+        assert _matches_identifier(entity_with_at, "alice") is True
+        # both have @
+        assert _matches_identifier(entity_with_at, "@alice") is True
+        # neither has @
+        assert _matches_identifier(entity_without_at, "alice") is True
+
+    def test_empty_identifier(self):
+        """Empty string should only match empty field values."""
+        entity = {"handle": "alice", "name": "Alice", "id": "u-1"}
+        assert _matches_identifier(entity, "") is False
+
+
 class TestAgentToolsAddParticipant:
     """Test add_participant tool."""
 
-    async def test_add_participant_success(self, mock_rest_client):
-        """add_participant() should lookup and add via REST."""
+    async def test_add_participant_by_name(self, mock_rest_client):
+        """add_participant() should match by name and add via REST."""
         tools = AgentTools("room-123", mock_rest_client)
 
         result = await tools.add_participant("Agent Two", role="member")
@@ -238,6 +470,74 @@ class TestAgentToolsAddParticipant:
         assert result["role"] == "member"
         assert result["status"] == "added"
         mock_rest_client.agent_api_participants.add_agent_chat_participant.assert_called_once()
+
+    async def test_add_participant_by_handle(self, mock_rest_client):
+        """add_participant() should match by handle."""
+        tools = AgentTools("room-123", mock_rest_client)
+
+        result = await tools.add_participant("agent-two", role="member")
+
+        assert result["id"] == "agent-2"
+        assert result["name"] == "Agent Two"
+        assert result["status"] == "added"
+
+    async def test_add_participant_by_id(self, mock_rest_client):
+        """add_participant() should match by ID."""
+        tools = AgentTools("room-123", mock_rest_client)
+
+        result = await tools.add_participant("agent-2", role="member")
+
+        assert result["id"] == "agent-2"
+        assert result["name"] == "Agent Two"
+        assert result["status"] == "added"
+
+    async def test_add_participant_already_in_room_by_handle(self, mock_rest_client):
+        """add_participant() should detect already-in-room by handle."""
+        tools = AgentTools("room-123", mock_rest_client)
+
+        result = await tools.add_participant("user-one", role="member")
+
+        assert result["id"] == "user-1"
+        assert result["status"] == "already_in_room"
+        mock_rest_client.agent_api_participants.add_agent_chat_participant.assert_not_called()
+
+    async def test_add_participant_ambiguous_name_resolved_by_handle(
+        self, mock_rest_client
+    ):
+        """Two peers with the same display name — handle disambiguates (INT-287)."""
+        peer_a = MagicMock()
+        peer_a.id = "agent-a"
+        peer_a.name = "Weather Agent"
+        peer_a.type = "Agent"
+        peer_a.handle = "@alice/weather"
+        peer_a.description = "Alice's weather agent"
+
+        peer_b = MagicMock()
+        peer_b.id = "agent-b"
+        peer_b.name = "Weather Agent"
+        peer_b.type = "Agent"
+        peer_b.handle = "@bob/weather"
+        peer_b.description = "Bob's weather agent"
+
+        peers_response = MagicMock()
+        peers_response.data = [peer_a, peer_b]
+        peers_response.metadata = MagicMock()
+        peers_response.metadata.page = 1
+        peers_response.metadata.page_size = 100
+        peers_response.metadata.total_count = 2
+        peers_response.metadata.total_pages = 1
+        mock_rest_client.agent_api_peers.list_agent_peers = AsyncMock(
+            return_value=peers_response
+        )
+
+        tools = AgentTools("room-123", mock_rest_client)
+
+        # Using handle should pick the correct one
+        result = await tools.add_participant("@bob/weather", role="member")
+
+        assert result["id"] == "agent-b"
+        assert result["name"] == "Weather Agent"
+        assert result["status"] == "added"
 
     async def test_add_participant_not_found_raises(self, mock_rest_client):
         """add_participant() should raise if peer not found."""
@@ -254,8 +554,8 @@ class TestAgentToolsAddParticipant:
 class TestAgentToolsRemoveParticipant:
     """Test remove_participant tool."""
 
-    async def test_remove_participant_success(self, mock_rest_client):
-        """remove_participant() should lookup and remove via REST."""
+    async def test_remove_participant_by_name(self, mock_rest_client):
+        """remove_participant() should match by name and remove via REST."""
         tools = AgentTools("room-123", mock_rest_client)
 
         result = await tools.remove_participant("User One")
@@ -264,6 +564,16 @@ class TestAgentToolsRemoveParticipant:
         assert result["name"] == "User One"
         assert result["status"] == "removed"
         mock_rest_client.agent_api_participants.remove_agent_chat_participant.assert_called_once()
+
+    async def test_remove_participant_by_handle(self, mock_rest_client):
+        """remove_participant() should match by handle."""
+        tools = AgentTools("room-123", mock_rest_client)
+
+        result = await tools.remove_participant("user-one")
+
+        assert result["id"] == "user-1"
+        assert result["name"] == "User One"
+        assert result["status"] == "removed"
 
     async def test_remove_participant_not_found_raises(self, mock_rest_client):
         """remove_participant() should raise if not in room."""
@@ -281,14 +591,15 @@ class TestAgentToolsLookupPeers:
     """Test lookup_peers tool."""
 
     async def test_lookup_peers_success(self, mock_rest_client):
-        """lookup_peers() should return formatted results."""
+        """lookup_peers() should return the Fern response directly."""
         tools = AgentTools("room-123", mock_rest_client)
 
         result = await tools.lookup_peers(page=1, page_size=50)
 
-        assert len(result["peers"]) == 1
-        assert result["peers"][0]["name"] == "Agent Two"
-        assert result["metadata"]["page"] == 1
+        # Now returns full Fern response with .data and .metadata
+        assert len(result.data) == 1
+        assert result.data[0].name == "Agent Two"
+        assert result.metadata.page == 1
 
     async def test_lookup_peers_filters_by_room(self, mock_rest_client):
         """lookup_peers() should filter by not_in_chat."""
@@ -304,13 +615,13 @@ class TestAgentToolsGetParticipants:
     """Test get_participants tool."""
 
     async def test_get_participants_success(self, mock_rest_client):
-        """get_participants() should return formatted participants."""
+        """get_participants() should return Fern participant models."""
         tools = AgentTools("room-123", mock_rest_client)
 
         result = await tools.get_participants()
 
         assert len(result) == 1
-        assert result[0]["name"] == "User One"
+        assert result[0].name == "User One"
 
     async def test_get_participants_empty(self, mock_rest_client):
         """get_participants() should return empty list if none."""
@@ -380,8 +691,22 @@ class TestAgentToolsSchemas:
 
         schemas = tools.get_tool_schemas("openai")
 
-        # 12 base tools (7 basic + 5 contact), memory tools excluded by default
-        assert len(schemas) == 12
+        tool_names = [s["function"]["name"] for s in schemas]
+        # Base platform tools
+        assert "thenvoi_send_message" in tool_names
+        assert "thenvoi_send_event" in tool_names
+        assert "thenvoi_add_participant" in tool_names
+        assert "thenvoi_remove_participant" in tool_names
+        assert "thenvoi_get_participants" in tool_names
+        assert "thenvoi_lookup_peers" in tool_names
+        assert "thenvoi_create_chatroom" in tool_names
+        # Contact tools included by default
+        assert "thenvoi_list_contacts" in tool_names
+        assert "thenvoi_add_contact" in tool_names
+        # Memory tools excluded by default
+        assert "thenvoi_list_memories" not in tool_names
+        assert "thenvoi_store_memory" not in tool_names
+
         send_msg = next(
             s for s in schemas if s["function"]["name"] == "thenvoi_send_message"
         )
@@ -395,12 +720,16 @@ class TestAgentToolsSchemas:
 
         schemas = tools.get_tool_schemas("openai", include_memory=True)
 
-        # 17 tools (12 base + 5 memory)
-        assert len(schemas) == 17
-        # Verify memory tools are included
         tool_names = [s["function"]["name"] for s in schemas]
+        # Memory tools present
         assert "thenvoi_list_memories" in tool_names
         assert "thenvoi_store_memory" in tool_names
+        assert "thenvoi_get_memory" in tool_names
+        assert "thenvoi_supersede_memory" in tool_names
+        assert "thenvoi_archive_memory" in tool_names
+        # Base and contact tools still present
+        assert "thenvoi_send_message" in tool_names
+        assert "thenvoi_list_contacts" in tool_names
 
     def test_get_tool_schemas_anthropic(self, mock_rest_client):
         """get_tool_schemas('anthropic') should return Anthropic format (memory tools excluded by default)."""
@@ -408,8 +737,11 @@ class TestAgentToolsSchemas:
 
         schemas = tools.get_tool_schemas("anthropic")
 
-        # 12 base tools (7 basic + 5 contact), memory tools excluded by default
-        assert len(schemas) == 12
+        tool_names = [s["name"] for s in schemas]
+        assert "thenvoi_send_message" in tool_names
+        assert "thenvoi_list_contacts" in tool_names
+        assert "thenvoi_list_memories" not in tool_names
+
         send_msg = next(s for s in schemas if s["name"] == "thenvoi_send_message")
         assert "input_schema" in send_msg
         assert "description" in send_msg
@@ -420,12 +752,11 @@ class TestAgentToolsSchemas:
 
         schemas = tools.get_tool_schemas("anthropic", include_memory=True)
 
-        # 17 tools (12 base + 5 memory)
-        assert len(schemas) == 17
-        # Verify memory tools are included
         tool_names = [s["name"] for s in schemas]
         assert "thenvoi_list_memories" in tool_names
         assert "thenvoi_store_memory" in tool_names
+        assert "thenvoi_send_message" in tool_names
+        assert "thenvoi_list_contacts" in tool_names
 
 
 class TestAgentToolsExecuteToolCall:
@@ -457,8 +788,8 @@ class TestAgentToolsExecuteToolCall:
 
         result = await tools.execute_tool_call("thenvoi_lookup_peers", {"page": 1})
 
-        assert "peers" in result
-        assert "metadata" in result
+        # execute_tool_call calls .model_dump() on the Fern response
+        assert isinstance(result, dict)
 
     async def test_execute_get_participants(self, mock_rest_client):
         """execute_tool_call() should dispatch thenvoi_get_participants."""
@@ -467,6 +798,8 @@ class TestAgentToolsExecuteToolCall:
         result = await tools.execute_tool_call("thenvoi_get_participants", {})
 
         assert isinstance(result, list)
+        assert result[0]["id"] == "user-1"
+        assert result[0]["name"] == "User One"
 
     async def test_execute_unknown_tool(self, mock_rest_client):
         """execute_tool_call() should return error for unknown tool."""
@@ -505,55 +838,58 @@ class TestAgentToolsExecuteToolCall:
 class TestEmptyMentionsValidation:
     """Test that empty mentions return a helpful error with participant names."""
 
-    async def test_returns_error_with_participant_names(
+    async def test_raises_error_with_participant_names(
         self, mock_rest_client, participants
     ):
-        """Should return error listing available participants when mentions empty."""
+        """Should raise ThenvoiToolError listing available participants when mentions empty."""
+        from thenvoi.core.exceptions import ThenvoiToolError
+
         tools = AgentTools("room-123", mock_rest_client, participants)
 
-        result = await tools.send_message("Hello!", mentions=[])
+        with pytest.raises(
+            ThenvoiToolError, match="At least one mention is required"
+        ) as exc_info:
+            await tools.send_message("Hello!", mentions=[])
 
-        assert isinstance(result, dict)
-        assert "error" in result
-        assert "At least one mention is required" in result["error"]
-        assert "@user-one" in result["error"]
-        assert "@user-two" in result["error"]
+        assert "@user-one" in str(exc_info.value)
+        assert "@user-two" in str(exc_info.value)
         # Should NOT have called the API
         mock_rest_client.agent_api_messages.create_agent_chat_message.assert_not_called()
 
-    async def test_returns_error_when_mentions_none(
+    async def test_raises_error_when_mentions_none(
         self, mock_rest_client, participants
     ):
-        """Should return error when mentions is None."""
+        """Should raise ThenvoiToolError when mentions is None."""
+        from thenvoi.core.exceptions import ThenvoiToolError
+
         tools = AgentTools("room-123", mock_rest_client, participants)
 
-        result = await tools.send_message("Hello!", mentions=None)
-
-        assert isinstance(result, dict)
-        assert "error" in result
-        assert "At least one mention is required" in result["error"]
+        with pytest.raises(ThenvoiToolError, match="At least one mention is required"):
+            await tools.send_message("Hello!", mentions=None)
 
     async def test_uses_handle_when_available(self, mock_rest_client):
         """Should prefer handle over name in error message."""
+        from thenvoi.core.exceptions import ThenvoiToolError
+
         participants = [
             {"id": "user-1", "name": "User One", "type": "User", "handle": "@user-one"},
         ]
         tools = AgentTools("room-123", mock_rest_client, participants)
 
-        result = await tools.send_message("Hello!", mentions=[])
-
-        assert "@user-one" in result["error"]
+        with pytest.raises(ThenvoiToolError, match="@user-one"):
+            await tools.send_message("Hello!", mentions=[])
 
     async def test_uses_name_when_no_handle(self, mock_rest_client):
         """Should fall back to participant name when handle is missing."""
+        from thenvoi.core.exceptions import ThenvoiToolError
+
         participants = [
             {"id": "user-1", "name": "User One", "type": "User"},
         ]
         tools = AgentTools("room-123", mock_rest_client, participants)
 
-        result = await tools.send_message("Hello!", mentions=[])
-
-        assert "User One" in result["error"]
+        with pytest.raises(ThenvoiToolError, match="User One"):
+            await tools.send_message("Hello!", mentions=[])
 
     async def test_no_error_when_mentions_provided(
         self, mock_rest_client, participants
@@ -563,21 +899,22 @@ class TestEmptyMentionsValidation:
 
         result = await tools.send_message("Hello!", mentions=["User One"])
 
-        assert "id" in result  # Normal response
+        # Now returns Fern model; verify it has the expected attribute
+        assert result.model_dump()["id"] == "msg-123"
         mock_rest_client.agent_api_messages.create_agent_chat_message.assert_called_once()
 
-    async def test_execute_tool_call_returns_helpful_error(
+    async def test_execute_tool_call_raises_thenvoi_tool_error(
         self, mock_rest_client, participants
     ):
-        """execute_tool_call should surface the helpful error for empty mentions."""
+        """execute_tool_call lets ThenvoiToolError propagate for wrapper translation."""
+        from thenvoi.core.exceptions import ThenvoiToolError
+
         tools = AgentTools("room-123", mock_rest_client, participants)
 
-        result = await tools.execute_tool_call(
-            "thenvoi_send_message", {"content": "Hello!", "mentions": []}
-        )
-
-        assert isinstance(result, dict)
-        assert "At least one mention is required" in result["error"]
+        with pytest.raises(ThenvoiToolError, match="At least one mention is required"):
+            await tools.execute_tool_call(
+                "thenvoi_send_message", {"content": "Hello!", "mentions": []}
+            )
 
 
 class TestMentionResolution:
@@ -706,8 +1043,20 @@ class TestToolInputModels:
 
     def test_add_participant_input_defaults(self):
         """AddParticipantInput should have default role."""
-        model = AddParticipantInput(name="User")
+        model = AddParticipantInput(identifier="User")
         assert model.role == "member"
+
+    def test_add_participant_input_accepts_legacy_name_field(self):
+        """AddParticipantInput should accept 'name' as alias for backward compat."""
+        model = AddParticipantInput.model_validate({"name": "Agent Two"})
+        assert model.identifier == "Agent Two"
+
+    def test_remove_participant_input_accepts_legacy_name_field(self):
+        """RemoveParticipantInput should accept 'name' as alias for backward compat."""
+        from thenvoi.runtime.tools import RemoveParticipantInput
+
+        model = RemoveParticipantInput.model_validate({"name": "User One"})
+        assert model.identifier == "User One"
 
     def test_lookup_peers_input_defaults(self):
         """LookupPeersInput should have defaults."""

@@ -25,13 +25,35 @@ class FakeAgentTools:
             assert tools.messages_sent[0]["content"] == "Expected response"
     """
 
-    def __init__(self):
+    def __init__(
+        self,
+        *,
+        participants: list[dict[str, Any]] | None = None,
+        peers: list[dict[str, Any]] | None = None,
+        contacts: list[dict[str, Any]] | None = None,
+        room_id: str = "room-fake",
+        hub_room_id: str | None = None,
+    ):
+        self.room_id = room_id
+        self._hub_room_id = hub_room_id
         self.messages_sent: list[dict[str, Any]] = []
         self.events_sent: list[dict[str, Any]] = []
-        self._participants: list[dict[str, Any]] = []
+        self._participants: list[dict[str, Any]] = participants or []
+        self._peers: list[dict[str, Any]] = peers or []
+        self._contacts: list[dict[str, Any]] = contacts or []
         self.participants_added: list[dict[str, Any]] = []
         self.participants_removed: list[dict[str, Any]] = []
         self.tool_calls: list[dict[str, Any]] = []
+
+    @property
+    def is_hub_room(self) -> bool:
+        """True when this fake is bound to the hub-room execution path.
+
+        Mirrors ``AgentTools.is_hub_room`` so tests that exercise the
+        HUB_ROOM auto-enable path (where contact tools are force-exposed)
+        can opt in via ``FakeAgentTools(hub_room_id=..., room_id=...)``.
+        """
+        return self._hub_room_id is not None and self.room_id == self._hub_room_id
 
     async def send_message(
         self, content: str, mentions: list[str] | list[dict[str, str]] | None = None
@@ -59,13 +81,15 @@ class FakeAgentTools:
         self.events_sent.append(event)
         return event
 
-    async def add_participant(self, name: str, role: str = "member") -> dict[str, Any]:
-        participant = {"id": f"p-{name}", "name": name, "role": role}
+    async def add_participant(
+        self, identifier: str, role: str = "member"
+    ) -> dict[str, Any]:
+        participant = {"id": f"p-{identifier}", "name": identifier, "role": role}
         self.participants_added.append(participant)
         return participant
 
-    async def remove_participant(self, name: str) -> dict[str, Any]:
-        participant = {"id": f"p-{name}", "name": name}
+    async def remove_participant(self, identifier: str) -> dict[str, Any]:
+        participant = {"id": f"p-{identifier}", "name": identifier}
         self.participants_removed.append(participant)
         return participant
 
@@ -78,8 +102,12 @@ class FakeAgentTools:
 
     async def lookup_peers(self, page: int = 1, page_size: int = 50) -> dict[str, Any]:
         return {
-            "peers": [],
-            "metadata": {"page": page, "page_size": page_size, "total": 0},
+            "peers": list(self._peers),
+            "metadata": {
+                "page": page,
+                "page_size": page_size,
+                "total": len(self._peers),
+            },
         }
 
     async def create_chatroom(self, task_id: str | None = None) -> str:
@@ -87,12 +115,14 @@ class FakeAgentTools:
 
     async def list_contacts(self, page: int = 1, page_size: int = 50) -> dict[str, Any]:
         return {
-            "contacts": [],
+            "contacts": list(self._contacts),
             "metadata": {
                 "page": page,
                 "page_size": page_size,
-                "total_count": 0,
-                "total_pages": 0,
+                "total_count": len(self._contacts),
+                "total_pages": max(
+                    1, (len(self._contacts) + page_size - 1) // page_size
+                ),
             },
         }
 
@@ -198,6 +228,7 @@ class FakeAgentTools:
         format: str,
         *,
         include_memory: bool = False,
+        include_contacts: bool = True,
         include_tools: list[str] | None = None,
         exclude_tools: list[str] | None = None,
         include_categories: list[str] | None = None,
@@ -208,6 +239,7 @@ class FakeAgentTools:
         self,
         *,
         include_memory: bool = False,
+        include_contacts: bool = True,
         include_tools: list[str] | None = None,
         exclude_tools: list[str] | None = None,
         include_categories: list[str] | None = None,
@@ -218,6 +250,7 @@ class FakeAgentTools:
         self,
         *,
         include_memory: bool = False,
+        include_contacts: bool = True,
         include_tools: list[str] | None = None,
         exclude_tools: list[str] | None = None,
         include_categories: list[str] | None = None,
@@ -228,3 +261,56 @@ class FakeAgentTools:
         call = {"tool_name": tool_name, "arguments": arguments}
         self.tool_calls.append(call)
         return {"status": "ok"}
+
+    # --- Assertion helpers ---
+
+    def assert_message_sent(
+        self,
+        *,
+        content: str | None = None,
+        mentions: list[str] | None = None,
+        count: int | None = None,
+    ) -> None:
+        """Assert that a message was sent, optionally matching content/mentions/count."""
+        if count is not None:
+            assert len(self.messages_sent) == count, (
+                f"Expected {count} messages, got {len(self.messages_sent)}"
+            )
+        if content is not None:
+            matching = [m for m in self.messages_sent if m["content"] == content]
+            assert matching, (
+                f"No message with content {content!r} found. "
+                f"Sent: {[m['content'] for m in self.messages_sent]}"
+            )
+        if mentions is not None:
+            matching = [m for m in self.messages_sent if m["mentions"] == mentions]
+            assert matching, (
+                f"No message with mentions {mentions!r} found. "
+                f"Sent: {[m['mentions'] for m in self.messages_sent]}"
+            )
+
+    def assert_event_sent(
+        self,
+        *,
+        message_type: str | None = None,
+        count: int | None = None,
+    ) -> None:
+        """Assert that an event was sent, optionally matching type/count."""
+        if count is not None:
+            assert len(self.events_sent) == count, (
+                f"Expected {count} events, got {len(self.events_sent)}"
+            )
+        if message_type is not None:
+            matching = [
+                e for e in self.events_sent if e["message_type"] == message_type
+            ]
+            assert matching, (
+                f"No event with type {message_type!r} found. "
+                f"Sent types: {[e['message_type'] for e in self.events_sent]}"
+            )
+
+    def assert_no_messages_sent(self) -> None:
+        """Assert that no messages were sent."""
+        assert not self.messages_sent, (
+            f"Expected no messages, but {len(self.messages_sent)} were sent"
+        )

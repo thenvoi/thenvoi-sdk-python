@@ -91,6 +91,14 @@ class RoomRemovedPayload(BaseModel):
     removed_at: str | None = None
 
 
+class RoomDeletedPayload(BaseModel):
+    """Payload for room_deleted events on room_participants channels."""
+
+    model_config = ConfigDict(extra="allow")
+
+    id: str
+
+
 class ParticipantAddedPayload(BaseModel):
     """Payload for participant_added events."""
 
@@ -160,6 +168,7 @@ _PAYLOAD_MODELS: dict[str, type[BaseModel]] = {
     "message_created": MessageCreatedPayload,
     "room_added": RoomAddedPayload,
     "room_removed": RoomRemovedPayload,
+    "room_deleted": RoomDeletedPayload,
     "participant_added": ParticipantAddedPayload,
     "participant_removed": ParticipantRemovedPayload,
     "contact_request_received": ContactRequestReceivedPayload,
@@ -170,10 +179,19 @@ _PAYLOAD_MODELS: dict[str, type[BaseModel]] = {
 
 
 class WebSocketClient:
-    def __init__(self, ws_url: str, api_key: str, agent_id: str | None = None):
+    def __init__(
+        self,
+        ws_url: str,
+        api_key: str,
+        agent_id: str | None = None,
+        on_reconnect: Callable[[], Awaitable[None]] | None = None,
+        on_disconnect: Callable[[Exception | None], Awaitable[None]] | None = None,
+    ):
         self.ws_url = ws_url
         self.api_key = api_key
         self.agent_id = agent_id
+        self._on_reconnect = on_reconnect
+        self._on_disconnect = on_disconnect
         self._validation_error_count: int = 0
 
     @property
@@ -196,6 +214,8 @@ class WebSocketClient:
             self.ws_url,
             self.api_key,
             protocol_version=PhoenixChannelsProtocolVersion.V2,
+            on_reconnect=self._on_reconnect,
+            on_disconnect=self._on_disconnect,
         )
         if self.agent_id:
             self.client.channel_socket_url += f"&agent_id={self.agent_id}"
@@ -312,6 +332,7 @@ class WebSocketClient:
         chat_room_id: str,
         on_participant_added: Callable[[ParticipantAddedPayload], Awaitable[None]],
         on_participant_removed: Callable[[ParticipantRemovedPayload], Awaitable[None]],
+        on_room_deleted: Callable[[RoomDeletedPayload], Awaitable[None]],
     ):
         """Subscribe to room participants topic with async callbacks"""
         topic = f"room_participants:{chat_room_id}"
@@ -323,6 +344,7 @@ class WebSocketClient:
                 {
                     "participant_added": on_participant_added,
                     "participant_removed": on_participant_removed,
+                    "room_deleted": on_room_deleted,
                 },
             )
 

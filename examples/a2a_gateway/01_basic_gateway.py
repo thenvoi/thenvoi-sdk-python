@@ -30,8 +30,9 @@ Features:
     - Session rehydration on restart
 
 Prerequisites:
-    1. Set environment variables:
-       - THENVOI_API_KEY: Your Thenvoi API key
+    1. Configure gateway credentials:
+       - preferred: gateway_agent in agent_config.yaml
+       - fallback: THENVOI_API_KEY and optional THENVOI_AGENT_ID
        - THENVOI_WS_URL: WebSocket URL (default: wss://app.thenvoi.com/api/v1/socket/websocket)
        - THENVOI_REST_URL: REST API URL (default: https://app.thenvoi.com)
 
@@ -42,8 +43,11 @@ Run with:
 
 Then external agents can connect:
     - Discovery: GET http://localhost:10000/agents/weather/.well-known/agent.json
-    - Message:   POST http://localhost:10000/agents/weather/v1/message:stream
+    - JSON-RPC:  POST http://localhost:10000/agents/weather
+    - Stream:    POST http://localhost:10000/agents/weather/v1/message:stream
 """
+
+from __future__ import annotations
 
 import asyncio
 import logging
@@ -60,26 +64,25 @@ setup_logging()
 logger = logging.getLogger(__name__)
 
 
-async def main():
+async def main() -> None:
     load_dotenv()
 
     ws_url = os.getenv(
         "THENVOI_WS_URL", "wss://app.thenvoi.com/api/v1/socket/websocket"
     )
     rest_url = os.getenv("THENVOI_REST_URL", "https://app.thenvoi.com")
-    api_key = os.getenv("THENVOI_API_KEY")
-
-    if not api_key:
-        # Try loading from agent_config.yaml
-        try:
-            agent_id, api_key = load_agent_config("gateway_agent")
-        except Exception:
+    try:
+        agent_id, api_key = load_agent_config("gateway_agent")
+        logger.info("Loaded gateway credentials from agent_config.yaml")
+    except Exception:
+        api_key = os.getenv("THENVOI_API_KEY")
+        if not api_key:
             raise ValueError(
-                "THENVOI_API_KEY environment variable is required, "
-                "or configure 'gateway_agent' in agent_config.yaml"
+                "Configure 'gateway_agent' in agent_config.yaml, or set "
+                "THENVOI_API_KEY and THENVOI_AGENT_ID environment variables"
             )
-    else:
         agent_id = os.getenv("THENVOI_AGENT_ID", "a2a-gateway")
+        logger.info("Loaded gateway credentials from environment variables")
 
     # Gateway configuration
     gateway_port = int(os.getenv("GATEWAY_PORT", "10000"))

@@ -108,13 +108,13 @@ class TestLocalMcpServer:
                     execute=execute,
                 )
             ],
-            port_min=55050,
-            port_max=55059,
+            port_min=0,
+            port_max=0,
         )
 
         await server.start()
         try:
-            assert server.url.startswith(f"http://{LOCAL_MCP_HOST}:55")
+            assert server.url.startswith(f"http://{LOCAL_MCP_HOST}:")
 
             async with sse_client(server.url) as (read_stream, write_stream):
                 async with ClientSession(read_stream, write_stream) as session:
@@ -144,13 +144,13 @@ class TestLocalMcpServer:
                     execute=execute,
                 )
             ],
-            port_min=55060,
-            port_max=55069,
+            port_min=0,
+            port_max=0,
         )
 
         await server.start()
         try:
-            assert server.http_url.startswith(f"http://{LOCAL_MCP_HOST}:55")
+            assert server.http_url.startswith(f"http://{LOCAL_MCP_HOST}:")
 
             async with streamablehttp_client(server.http_url) as (
                 read_stream,

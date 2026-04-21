@@ -4,13 +4,15 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import TYPE_CHECKING, Any, Callable, List
+import warnings
+from typing import ClassVar, TYPE_CHECKING, Any, Callable, List
 
 from langgraph.pregel import Pregel
 
+from thenvoi.core.exceptions import ThenvoiConfigError
 from thenvoi.core.protocols import AgentToolsProtocol
 from thenvoi.core.simple_adapter import SimpleAdapter
-from thenvoi.core.types import PlatformMessage
+from thenvoi.core.types import AdapterFeatures, Capability, Emit, PlatformMessage
 from thenvoi.converters.langchain import LangChainHistoryConverter, LangChainMessages
 from thenvoi.runtime.prompts import render_system_prompt
 
@@ -68,6 +70,11 @@ class LangGraphAdapter(SimpleAdapter[LangChainMessages]):
         await agent.run()
     """
 
+    SUPPORTED_EMIT: ClassVar[frozenset[Emit]] = frozenset()
+    SUPPORTED_CAPABILITIES: ClassVar[frozenset[Capability]] = frozenset(
+        {Capability.MEMORY, Capability.CONTACTS}
+    )
+
     def __init__(
         self,
         # Simple pattern: just provide llm and checkpointer
@@ -83,13 +90,31 @@ class LangGraphAdapter(SimpleAdapter[LangChainMessages]):
         enable_memory_tools: bool = False,
         history_converter: LangChainHistoryConverter | None = None,
         recursion_limit: int = 50,
+        features: AdapterFeatures | None = None,
         include_tools: list[str] | None = None,
         exclude_tools: list[str] | None = None,
         include_categories: list[str] | None = None,
     ):
+        # --- Deprecation shim: boolean → features migration ---
+        if enable_memory_tools and features is not None:
+            raise ThenvoiConfigError(
+                "Cannot pass both 'enable_memory_tools' and 'features'. "
+                "Use features=AdapterFeatures(capabilities={Capability.MEMORY}) instead."
+            )
+
+        if enable_memory_tools:
+            warnings.warn(
+                "enable_memory_tools is deprecated. "
+                "Use features=AdapterFeatures(capabilities={Capability.MEMORY}) instead.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            features = AdapterFeatures(capabilities=frozenset({Capability.MEMORY}))
+
         # Use default LangChain converter if not provided
         super().__init__(
-            history_converter=history_converter or LangChainHistoryConverter()
+            history_converter=history_converter or LangChainHistoryConverter(),
+            features=features,
         )
 
         # Simple pattern: create graph_factory from llm + checkpointer
@@ -137,7 +162,6 @@ class LangGraphAdapter(SimpleAdapter[LangChainMessages]):
         self.prompt_template = prompt_template
         self.custom_section = custom_section
         self.additional_tools = additional_tools or []
-        self.enable_memory_tools = enable_memory_tools
         self.recursion_limit = recursion_limit
         self.include_tools = include_tools
         self.exclude_tools = exclude_tools
@@ -166,6 +190,7 @@ class LangGraphAdapter(SimpleAdapter[LangChainMessages]):
             agent_name=agent_name,
             agent_description=agent_description,
             custom_section=self.custom_section,
+            features=self.features,
         )
         logger.info("LangGraph adapter started for agent: %s", agent_name)
 
@@ -191,7 +216,8 @@ class LangGraphAdapter(SimpleAdapter[LangChainMessages]):
         langchain_tools = (
             agent_tools_to_langchain(
                 tools,
-                include_memory_tools=self.enable_memory_tools,
+                include_memory_tools=Capability.MEMORY in self.features.capabilities,
+                include_contacts=Capability.CONTACTS in self.features.capabilities,
                 include_tools=self.include_tools,
                 exclude_tools=self.exclude_tools,
                 include_categories=self.include_categories,

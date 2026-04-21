@@ -21,7 +21,10 @@ from a2a.types import (
 from a2a.utils import new_agent_text_message, new_task
 from a2a.utils.errors import ServerError
 
-from agent import OrchestratorAgent
+try:
+    from .agent import OrchestratorAgent
+except ImportError:
+    from agent import OrchestratorAgent
 
 logger = logging.getLogger(__name__)
 

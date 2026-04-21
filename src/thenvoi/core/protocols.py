@@ -52,7 +52,7 @@ class AgentToolsProtocol(Protocol):
 
     async def send_message(
         self, content: str, mentions: list[str] | list[dict[str, str]] | None = None
-    ) -> dict[str, Any]:
+    ) -> Any:
         """Send a message to the chat room."""
         ...
 
@@ -61,28 +61,28 @@ class AgentToolsProtocol(Protocol):
         content: str,
         message_type: str,
         metadata: dict[str, Any] | None = None,
-    ) -> dict[str, Any]:
+    ) -> Any:
         """Send an event (tool_call, tool_result, thought, error, task)."""
         ...
 
-    async def add_participant(self, name: str, role: str = "member") -> dict[str, Any]:
-        """Add a participant to the current room by name."""
+    async def add_participant(self, identifier: str, role: str = "member") -> Any:
+        """Add a participant to the current room by handle, name, or ID."""
         ...
 
-    async def remove_participant(self, name: str) -> dict[str, Any]:
-        """Remove a participant from the current room by name."""
+    async def remove_participant(self, identifier: str) -> Any:
+        """Remove a participant from the current room by handle, name, or ID."""
         ...
 
     @property
-    def participants(self) -> list[dict[str, Any]]:
+    def participants(self) -> list[Any]:
         """Read-only snapshot of cached room participants."""
         ...
 
-    async def get_participants(self) -> list[dict[str, Any]]:
+    async def get_participants(self) -> Any:
         """Get participants in the current room."""
         ...
 
-    async def lookup_peers(self, page: int = 1, page_size: int = 50) -> dict[str, Any]:
+    async def lookup_peers(self, page: int = 1, page_size: int = 50) -> Any:
         """Find available peers (agents and users) on the platform."""
         ...
 
@@ -95,6 +95,7 @@ class AgentToolsProtocol(Protocol):
         format: str,
         *,
         include_memory: bool = False,
+        include_contacts: bool = True,
         include_tools: list[str] | None = None,
         exclude_tools: list[str] | None = None,
         include_categories: list[str] | None = None,
@@ -106,6 +107,7 @@ class AgentToolsProtocol(Protocol):
         self,
         *,
         include_memory: bool = False,
+        include_contacts: bool = True,
         include_tools: list[str] | None = None,
         exclude_tools: list[str] | None = None,
         include_categories: list[str] | None = None,
@@ -117,6 +119,7 @@ class AgentToolsProtocol(Protocol):
         self,
         *,
         include_memory: bool = False,
+        include_contacts: bool = True,
         include_tools: list[str] | None = None,
         exclude_tools: list[str] | None = None,
         include_categories: list[str] | None = None,
@@ -129,19 +132,17 @@ class AgentToolsProtocol(Protocol):
         ...
 
     # Contact management tools
-    async def list_contacts(self, page: int = 1, page_size: int = 50) -> dict[str, Any]:
+    async def list_contacts(self, page: int = 1, page_size: int = 50) -> Any:
         """List agent's contacts with pagination."""
         ...
 
-    async def add_contact(
-        self, handle: str, message: str | None = None
-    ) -> dict[str, Any]:
+    async def add_contact(self, handle: str, message: str | None = None) -> Any:
         """Send a contact request to add someone as a contact."""
         ...
 
     async def remove_contact(
         self, handle: str | None = None, contact_id: str | None = None
-    ) -> dict[str, Any]:
+    ) -> Any:
         """Remove an existing contact by handle or ID."""
         ...
 
@@ -150,7 +151,7 @@ class AgentToolsProtocol(Protocol):
         page: int = 1,
         page_size: int = 50,
         sent_status: str = "pending",
-    ) -> dict[str, Any]:
+    ) -> Any:
         """List received and sent contact requests."""
         ...
 
@@ -159,7 +160,7 @@ class AgentToolsProtocol(Protocol):
         action: str,
         handle: str | None = None,
         request_id: str | None = None,
-    ) -> dict[str, Any]:
+    ) -> Any:
         """Respond to a contact request (approve, reject, or cancel)."""
         ...
 
@@ -174,7 +175,7 @@ class AgentToolsProtocol(Protocol):
         content_query: str | None = None,
         page_size: int = 50,
         status: str | None = None,
-    ) -> dict[str, Any]:
+    ) -> Any:
         """List memories accessible to the agent."""
         ...
 
@@ -188,19 +189,19 @@ class AgentToolsProtocol(Protocol):
         scope: str = "subject",
         subject_id: str | None = None,
         metadata: dict[str, Any] | None = None,
-    ) -> dict[str, Any]:
+    ) -> Any:
         """Store a new memory entry."""
         ...
 
-    async def get_memory(self, memory_id: str) -> dict[str, Any]:
+    async def get_memory(self, memory_id: str) -> Any:
         """Retrieve a specific memory by ID."""
         ...
 
-    async def supersede_memory(self, memory_id: str) -> dict[str, Any]:
+    async def supersede_memory(self, memory_id: str) -> Any:
         """Mark a memory as superseded (soft delete)."""
         ...
 
-    async def archive_memory(self, memory_id: str) -> dict[str, Any]:
+    async def archive_memory(self, memory_id: str) -> Any:
         """Archive a memory (hide but preserve)."""
         ...
 
