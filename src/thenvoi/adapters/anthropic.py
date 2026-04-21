@@ -71,6 +71,9 @@ class AnthropicAdapter(SimpleAdapter[AnthropicMessages]):
         additional_tools: list[CustomToolDef] | None = None,
         features: AdapterFeatures | None = None,
         include_base_instructions: bool = True,
+        include_tools: list[str] | None = None,
+        exclude_tools: list[str] | None = None,
+        include_categories: list[str] | None = None,
         # --- Deprecated (one release, then remove) ---
         anthropic_api_key: str | None = None,
         custom_section: str | None = None,
@@ -132,6 +135,9 @@ class AnthropicAdapter(SimpleAdapter[AnthropicMessages]):
         self._prompt = prompt
         self._include_base_instructions = include_base_instructions
         self.max_tokens = max_tokens
+        self.include_tools = include_tools
+        self.exclude_tools = exclude_tools
+        self.include_categories = include_categories
 
         # Anthropic client (uses ANTHROPIC_API_KEY env var if not provided)
         self.client = AsyncAnthropic(api_key=api_key)
@@ -250,6 +256,9 @@ class AnthropicAdapter(SimpleAdapter[AnthropicMessages]):
         tool_schemas = tools.get_anthropic_tool_schemas(
             include_memory=include_memory,
             include_contacts=include_contacts,
+            include_tools=self.include_tools,
+            exclude_tools=self.exclude_tools,
+            include_categories=self.include_categories,
         )
         # Merge custom tool schemas
         if self._custom_tools:

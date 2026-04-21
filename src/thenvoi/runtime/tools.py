@@ -458,6 +458,14 @@ BASE_TOOL_NAMES: frozenset[str] = ALL_TOOL_NAMES - MEMORY_TOOL_NAMES
 CHAT_TOOL_NAMES: frozenset[str] = BASE_TOOL_NAMES - CONTACT_TOOL_NAMES
 MCP_TOOL_PREFIX: str = "mcp__thenvoi__"
 
+# Category-based tool groupings for filtering.
+# Keys are human-readable category names; values are the frozensets above.
+TOOL_CATEGORIES: dict[str, frozenset[str]] = {
+    "chat": CHAT_TOOL_NAMES,
+    "contact": CONTACT_TOOL_NAMES,
+    "memory": MEMORY_TOOL_NAMES,
+}
+
 
 def mcp_tool_names(names: frozenset[str]) -> list[str]:
     """Convert base tool names to MCP-prefixed names for Claude SDK.
@@ -502,9 +510,21 @@ def get_tool_description(name: str) -> str:
 
 
 def iter_tool_definitions(
-    *, include_memory: bool = False, include_contacts: bool = True
+    *,
+    include_memory: bool = False,
+    include_contacts: bool = True,
+    include_tools: list[str] | None = None,
+    exclude_tools: list[str] | None = None,
+    include_categories: list[str] | None = None,
 ) -> list[ToolDefinition]:
-    """Return built-in tool definitions with optional category filtering.
+    """Return built-in tool definitions with optional filtering.
+
+    Filtering is applied in order:
+      1. Start with all tools, optionally including memory tools.
+      2. Drop contact tools if *include_contacts* is False (capability gate).
+      3. If *include_categories* is set, keep only tools in those categories.
+      4. If *include_tools* is set, keep only those specific tools.
+      5. If *exclude_tools* is set, remove those tools.
 
     Args:
         include_memory: Include memory tools (enterprise). Default False.
@@ -513,16 +533,98 @@ def iter_tool_definitions(
             ``Capability.CONTACTS``. The hub-room execution path always
             forces this to True regardless of adapter preference (see
             ``AgentTools.get_tool_schemas`` HUB_ROOM auto-enable rule).
+
+    Raises:
+        ValueError: If any tool name or category is unknown.
     """
-    definitions = list(TOOL_DEFINITIONS.values())
-    excluded: set[str] = set()
-    if not include_memory:
-        excluded |= MEMORY_TOOL_NAMES
+    validate_tool_filter(
+        include_tools=include_tools,
+        exclude_tools=exclude_tools,
+        include_categories=include_categories,
+    )
+
+    # Start with the memory-gate baseline
+    baseline = ALL_TOOL_NAMES if include_memory else BASE_TOOL_NAMES
+
+    # Apply capability-based contact gating before user-facing filters
     if not include_contacts:
-        excluded |= CONTACT_TOOL_NAMES
-    if not excluded:
-        return definitions
-    return [definition for definition in definitions if definition.name not in excluded]
+        baseline = baseline - CONTACT_TOOL_NAMES
+
+    allowed_names = filter_tool_names(
+        baseline,
+        include_tools=include_tools,
+        exclude_tools=exclude_tools,
+        include_categories=include_categories,
+    )
+
+    return [d for d in TOOL_DEFINITIONS.values() if d.name in allowed_names]
+
+
+def validate_tool_filter(
+    *,
+    include_tools: list[str] | None = None,
+    exclude_tools: list[str] | None = None,
+    include_categories: list[str] | None = None,
+) -> None:
+    """Fail fast if any filter references unknown tool names or categories."""
+    if include_tools is not None:
+        unknown = set(include_tools) - ALL_TOOL_NAMES
+        if unknown:
+            raise ValueError(
+                f"Unknown tool names in include_tools: {sorted(unknown)}. "
+                f"Valid tools: {sorted(ALL_TOOL_NAMES)}"
+            )
+
+    if exclude_tools is not None:
+        unknown = set(exclude_tools) - ALL_TOOL_NAMES
+        if unknown:
+            raise ValueError(
+                f"Unknown tool names in exclude_tools: {sorted(unknown)}. "
+                f"Valid tools: {sorted(ALL_TOOL_NAMES)}"
+            )
+
+    if include_categories is not None:
+        valid_categories = set(TOOL_CATEGORIES.keys())
+        unknown = set(include_categories) - valid_categories
+        if unknown:
+            raise ValueError(
+                f"Unknown categories in include_categories: {sorted(unknown)}. "
+                f"Valid categories: {sorted(valid_categories)}"
+            )
+
+
+def filter_tool_names(
+    all_names: frozenset[str],
+    *,
+    include_tools: list[str] | None = None,
+    exclude_tools: list[str] | None = None,
+    include_categories: list[str] | None = None,
+) -> frozenset[str]:
+    """Apply category / allowlist / denylist filtering to a set of tool names.
+
+    Filtering order:
+      1. If *include_categories* is set, keep only tools in those categories.
+      2. If *include_tools* is set, keep only those specific tools.
+      3. If *exclude_tools* is set, remove those tools.
+
+    Callers should run ``validate_tool_filter()`` once at init time;
+    this function assumes the inputs are already validated.
+    """
+    names = set(all_names)
+
+    if include_categories is not None:
+        allowed: set[str] = set()
+        for cat in include_categories:
+            allowed |= TOOL_CATEGORIES[cat]
+        names &= allowed
+
+    if include_tools is not None:
+        names &= set(include_tools)
+
+    if exclude_tools is not None:
+        names -= set(exclude_tools)
+
+    return frozenset(names)
 
 
 def format_tool_validation_error(tool_name: str, error: ValidationError) -> str:
@@ -1371,6 +1473,9 @@ class AgentTools(AgentToolsProtocol):
         *,
         include_memory: bool = False,
         include_contacts: bool = True,
+        include_tools: list[str] | None = None,
+        exclude_tools: list[str] | None = None,
+        include_categories: list[str] | None = None,
     ) -> list[dict[str, Any]] | list["ToolParam"]:
         """
         Get tool schemas in provider-specific format.
@@ -1384,12 +1489,17 @@ class AgentTools(AgentToolsProtocol):
                 When this AgentTools is bound to the hub room
                 (``self.is_hub_room``), this argument is ignored and contact
                 tools are always included.
+            include_tools: If set, only include these specific tools (allowlist)
+            exclude_tools: If set, exclude these specific tools (denylist)
+            include_categories: If set, only include tools in these categories
+                ("chat", "contact", "memory")
 
         Returns:
             List of tool definitions in the requested format
 
         Raises:
-            ValueError: If format is not "openai" or "anthropic"
+            ValueError: If format is not "openai" or "anthropic", or if
+                unknown tool names / categories are passed.
         """
         if format not in ("openai", "anthropic"):
             raise ValueError(
@@ -1406,6 +1516,9 @@ class AgentTools(AgentToolsProtocol):
         for definition in iter_tool_definitions(
             include_memory=include_memory,
             include_contacts=effective_include_contacts,
+            include_tools=include_tools,
+            exclude_tools=exclude_tools,
+            include_categories=include_categories,
         ):
             schema = definition.input_model.model_json_schema()
             # Remove Pydantic-specific keys
@@ -1437,6 +1550,9 @@ class AgentTools(AgentToolsProtocol):
         *,
         include_memory: bool = False,
         include_contacts: bool = True,
+        include_tools: list[str] | None = None,
+        exclude_tools: list[str] | None = None,
+        include_categories: list[str] | None = None,
     ) -> list["ToolParam"]:
         """Get tool schemas in Anthropic format (strongly typed)."""
         return cast(
@@ -1445,6 +1561,9 @@ class AgentTools(AgentToolsProtocol):
                 "anthropic",
                 include_memory=include_memory,
                 include_contacts=include_contacts,
+                include_tools=include_tools,
+                exclude_tools=exclude_tools,
+                include_categories=include_categories,
             ),
         )
 
@@ -1453,6 +1572,9 @@ class AgentTools(AgentToolsProtocol):
         *,
         include_memory: bool = False,
         include_contacts: bool = True,
+        include_tools: list[str] | None = None,
+        exclude_tools: list[str] | None = None,
+        include_categories: list[str] | None = None,
     ) -> list[dict[str, Any]]:
         """Get tool schemas in OpenAI format (strongly typed)."""
         return cast(
@@ -1461,6 +1583,9 @@ class AgentTools(AgentToolsProtocol):
                 "openai",
                 include_memory=include_memory,
                 include_contacts=include_contacts,
+                include_tools=include_tools,
+                exclude_tools=exclude_tools,
+                include_categories=include_categories,
             ),
         )
 

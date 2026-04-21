@@ -178,6 +178,10 @@ class CodexAdapterConfig:
     # Update when OpenAI rotates model IDs.
     fallback_models: tuple[str, ...] = ("gpt-5.2", "gpt-5.3-codex")
     max_pending_approvals_per_room: int = 50
+    enable_memory_tools: bool = False
+    include_tools: list[str] | None = None
+    exclude_tools: list[str] | None = None
+    include_categories: list[str] | None = None
 
 
 class CodexAdapter(SimpleAdapter[CodexSessionState]):
@@ -211,13 +215,15 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
         # Only trigger for non-default booleans (enable_task_events defaults
         # to True, so it doesn't count as "legacy usage").
         _has_legacy_booleans = (
-            self._config.enable_execution_reporting or self._config.emit_thought_events
+            self._config.enable_execution_reporting
+            or self._config.emit_thought_events
+            or self._config.enable_memory_tools
         )
         if _has_legacy_booleans and features is not None:
             raise ThenvoiConfigError(
                 "Cannot pass both legacy boolean flags in CodexAdapterConfig "
-                "(enable_execution_reporting / emit_thought_events) "
-                "and 'features'. "
+                "(enable_execution_reporting / emit_thought_events / "
+                "enable_memory_tools) and 'features'. "
                 "Use features=AdapterFeatures(...) instead."
             )
 
@@ -225,10 +231,10 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
         if features is None:
             if _has_legacy_booleans:
                 warnings.warn(
-                    "enable_execution_reporting and emit_thought_events in "
-                    "CodexAdapterConfig are deprecated. "
+                    "enable_execution_reporting, emit_thought_events, and "
+                    "enable_memory_tools in CodexAdapterConfig are deprecated. "
                     "Use features=AdapterFeatures(emit={Emit.EXECUTION, "
-                    "Emit.THOUGHTS}) instead.",
+                    "Emit.THOUGHTS}, capabilities={Capability.MEMORY}) instead.",
                     DeprecationWarning,
                     stacklevel=2,
                 )
@@ -239,7 +245,10 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
                 emit = emit | frozenset({Emit.THOUGHTS})
             if self._config.enable_task_events:
                 emit = emit | frozenset({Emit.TASK_EVENTS})
-            features = AdapterFeatures(capabilities=frozenset(), emit=emit)
+            capabilities: frozenset[Capability] = frozenset()
+            if self._config.enable_memory_tools:
+                capabilities = capabilities | frozenset({Capability.MEMORY})
+            features = AdapterFeatures(capabilities=capabilities, emit=emit)
 
         super().__init__(
             history_converter=history_converter or CodexHistoryConverter(),
@@ -760,6 +769,9 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
         for schema in tools.get_openai_tool_schemas(
             include_memory=Capability.MEMORY in self.features.capabilities,
             include_contacts=Capability.CONTACTS in self.features.capabilities,
+            include_tools=self.config.include_tools,
+            exclude_tools=self.config.exclude_tools,
+            include_categories=self.config.include_categories,
         ):
             if not isinstance(schema, dict):
                 continue

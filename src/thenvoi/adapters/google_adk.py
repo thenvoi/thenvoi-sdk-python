@@ -301,6 +301,9 @@ class GoogleADKAdapter(SimpleAdapter[GoogleADKMessages]):
         max_history_messages: int = _DEFAULT_MAX_HISTORY_MESSAGES,
         max_transcript_chars: int = _DEFAULT_MAX_TRANSCRIPT_CHARS,
         features: AdapterFeatures | None = None,
+        include_tools: list[str] | None = None,
+        exclude_tools: list[str] | None = None,
+        include_categories: list[str] | None = None,
     ):
         # Validate google-adk is installed early (cached, so cheap on repeat).
         _require_adk()
@@ -340,6 +343,9 @@ class GoogleADKAdapter(SimpleAdapter[GoogleADKMessages]):
         self._system_prompt_override = system_prompt
         self.custom_section = custom_section
         self.max_history_messages = max_history_messages
+        self.include_tools = include_tools
+        self.exclude_tools = exclude_tools
+        self.include_categories = include_categories
         self.max_transcript_chars = max_transcript_chars
 
         # Custom tools (user-provided)
@@ -386,6 +392,9 @@ class GoogleADKAdapter(SimpleAdapter[GoogleADKMessages]):
         openai_schemas = tools.get_openai_tool_schemas(
             include_memory=Capability.MEMORY in self.features.capabilities,
             include_contacts=Capability.CONTACTS in self.features.capabilities,
+            include_tools=self.include_tools,
+            exclude_tools=self.exclude_tools,
+            include_categories=self.include_categories,
         )
 
         adk_tools: list[Any] = []

@@ -189,6 +189,9 @@ class ClaudeSDKAdapter(SimpleAdapter[ClaudeSDKSessionState]):
         max_pending_approvals_per_room: int = 50,
         approval_authorized_senders: set[str] | None = None,
         features: AdapterFeatures | None = None,
+        include_tools: list[str] | None = None,
+        exclude_tools: list[str] | None = None,
+        include_categories: list[str] | None = None,
     ):
         """
         Initialize the Claude SDK adapter.
@@ -284,6 +287,9 @@ class ClaudeSDKAdapter(SimpleAdapter[ClaudeSDKSessionState]):
         self.custom_section = custom_section
         self.max_thinking_tokens = max_thinking_tokens
         self.permission_mode: ClaudeSDKAdapter.PermissionMode = permission_mode
+        self.include_tools = include_tools
+        self.exclude_tools = exclude_tools
+        self.include_categories = include_categories
         if cwd and not Path(cwd).is_dir():
             raise ValueError(f"cwd does not exist or is not a directory: {cwd}")
         self.cwd = cwd
@@ -391,6 +397,9 @@ class ClaudeSDKAdapter(SimpleAdapter[ClaudeSDKSessionState]):
             iter_tool_definitions(
                 include_memory=include_memory,
                 include_contacts=include_contacts,
+                include_tools=self.include_tools,
+                exclude_tools=self.exclude_tools,
+                include_categories=self.include_categories,
             )
         )
         backend = await create_thenvoi_mcp_backend(

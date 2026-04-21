@@ -32,7 +32,14 @@ from thenvoi.converters.pydantic_ai import (
     PydanticAIMessages,
 )
 from thenvoi.runtime.prompts import render_system_prompt
-from thenvoi.runtime.tools import get_tool_description
+from thenvoi.runtime.tools import (
+    ALL_TOOL_NAMES,
+    CONTACT_TOOL_NAMES,
+    MEMORY_TOOL_NAMES,
+    filter_tool_names,
+    get_tool_description,
+    validate_tool_filter,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -68,6 +75,9 @@ class PydanticAIAdapter(SimpleAdapter[PydanticAIMessages]):
         history_converter: PydanticAIHistoryConverter | None = None,
         additional_tools: list[Callable[..., Any]] | None = None,
         features: AdapterFeatures | None = None,
+        include_tools: list[str] | None = None,
+        exclude_tools: list[str] | None = None,
+        include_categories: list[str] | None = None,
     ):
         """
         Initialize the Pydantic AI adapter.
@@ -119,7 +129,17 @@ class PydanticAIAdapter(SimpleAdapter[PydanticAIMessages]):
         self.model = model
         self.system_prompt = system_prompt
         self.custom_section = custom_section
+        self.include_tools = include_tools
+        self.exclude_tools = exclude_tools
+        self.include_categories = include_categories
         self._system_prompt: str | None = None
+
+        # Validate filter params once at init — they are immutable.
+        validate_tool_filter(
+            include_tools=self.include_tools,
+            exclude_tools=self.exclude_tools,
+            include_categories=self.include_categories,
+        )
 
         self._agent: Agent[AgentToolsProtocol, None] | None = None
         # Conversation history per room (Pydantic AI is stateless, we maintain state)
@@ -156,6 +176,29 @@ class PydanticAIAdapter(SimpleAdapter[PydanticAIMessages]):
         # Register platform tools dynamically from centralized definitions
         # All tools catch exceptions and return error strings so LLM can see failures
 
+        # Compute which platform tools are allowed based on capabilities and
+        # filtering params (already validated at __init__ time).
+        include_memory = Capability.MEMORY in self.features.capabilities
+        include_contacts = Capability.CONTACTS in self.features.capabilities
+        baseline = (
+            ALL_TOOL_NAMES if include_memory else ALL_TOOL_NAMES - MEMORY_TOOL_NAMES
+        )
+        if not include_contacts:
+            baseline = baseline - CONTACT_TOOL_NAMES
+        allowed_names = filter_tool_names(
+            baseline,
+            include_tools=self.include_tools,
+            exclude_tools=self.exclude_tools,
+            include_categories=self.include_categories,
+        )
+
+        def _should_register(name: str) -> bool:
+            return name in allowed_names
+
+        def _register(fn: Callable[..., Any]) -> None:
+            if _should_register(fn.__name__):
+                agent.tool(fn)
+
         async def thenvoi_send_message(
             ctx: RunContext[AgentToolsProtocol],
             content: str,
@@ -167,7 +210,7 @@ class PydanticAIAdapter(SimpleAdapter[PydanticAIMessages]):
                 return f"Error sending message: {e}"
 
         thenvoi_send_message.__doc__ = get_tool_description("thenvoi_send_message")
-        agent.tool(thenvoi_send_message)
+        _register(thenvoi_send_message)
 
         async def thenvoi_send_event(
             ctx: RunContext[AgentToolsProtocol],
@@ -181,7 +224,7 @@ class PydanticAIAdapter(SimpleAdapter[PydanticAIMessages]):
                 return f"Error sending event: {e}"
 
         thenvoi_send_event.__doc__ = get_tool_description("thenvoi_send_event")
-        agent.tool(thenvoi_send_event)
+        _register(thenvoi_send_event)
 
         async def thenvoi_add_participant(
             ctx: RunContext[AgentToolsProtocol],
@@ -196,7 +239,7 @@ class PydanticAIAdapter(SimpleAdapter[PydanticAIMessages]):
         thenvoi_add_participant.__doc__ = get_tool_description(
             "thenvoi_add_participant"
         )
-        agent.tool(thenvoi_add_participant)
+        _register(thenvoi_add_participant)
 
         async def thenvoi_remove_participant(
             ctx: RunContext[AgentToolsProtocol],
@@ -210,7 +253,7 @@ class PydanticAIAdapter(SimpleAdapter[PydanticAIMessages]):
         thenvoi_remove_participant.__doc__ = get_tool_description(
             "thenvoi_remove_participant"
         )
-        agent.tool(thenvoi_remove_participant)
+        _register(thenvoi_remove_participant)
 
         async def thenvoi_lookup_peers(
             ctx: RunContext[AgentToolsProtocol],
@@ -223,7 +266,7 @@ class PydanticAIAdapter(SimpleAdapter[PydanticAIMessages]):
                 return f"Error looking up peers: {e}"
 
         thenvoi_lookup_peers.__doc__ = get_tool_description("thenvoi_lookup_peers")
-        agent.tool(thenvoi_lookup_peers)
+        _register(thenvoi_lookup_peers)
 
         async def thenvoi_get_participants(
             ctx: RunContext[AgentToolsProtocol],
@@ -236,7 +279,7 @@ class PydanticAIAdapter(SimpleAdapter[PydanticAIMessages]):
         thenvoi_get_participants.__doc__ = get_tool_description(
             "thenvoi_get_participants"
         )
-        agent.tool(thenvoi_get_participants)
+        _register(thenvoi_get_participants)
 
         async def thenvoi_create_chatroom(
             ctx: RunContext[AgentToolsProtocol],
@@ -250,7 +293,7 @@ class PydanticAIAdapter(SimpleAdapter[PydanticAIMessages]):
         thenvoi_create_chatroom.__doc__ = get_tool_description(
             "thenvoi_create_chatroom"
         )
-        agent.tool(thenvoi_create_chatroom)
+        _register(thenvoi_create_chatroom)
 
         # Contact management tools (opt-in via Capability.CONTACTS)
         if Capability.CONTACTS in self.features.capabilities:
@@ -268,7 +311,7 @@ class PydanticAIAdapter(SimpleAdapter[PydanticAIMessages]):
             thenvoi_list_contacts.__doc__ = get_tool_description(
                 "thenvoi_list_contacts"
             )
-            agent.tool(thenvoi_list_contacts)
+            _register(thenvoi_list_contacts)
 
             async def thenvoi_add_contact(
                 ctx: RunContext[AgentToolsProtocol],
@@ -281,7 +324,7 @@ class PydanticAIAdapter(SimpleAdapter[PydanticAIMessages]):
                     return f"Error adding contact '{handle}': {e}"
 
             thenvoi_add_contact.__doc__ = get_tool_description("thenvoi_add_contact")
-            agent.tool(thenvoi_add_contact)
+            _register(thenvoi_add_contact)
 
             async def thenvoi_remove_contact(
                 ctx: RunContext[AgentToolsProtocol],
@@ -296,7 +339,7 @@ class PydanticAIAdapter(SimpleAdapter[PydanticAIMessages]):
             thenvoi_remove_contact.__doc__ = get_tool_description(
                 "thenvoi_remove_contact"
             )
-            agent.tool(thenvoi_remove_contact)
+            _register(thenvoi_remove_contact)
 
             async def thenvoi_list_contact_requests(
                 ctx: RunContext[AgentToolsProtocol],
@@ -314,7 +357,7 @@ class PydanticAIAdapter(SimpleAdapter[PydanticAIMessages]):
             thenvoi_list_contact_requests.__doc__ = get_tool_description(
                 "thenvoi_list_contact_requests"
             )
-            agent.tool(thenvoi_list_contact_requests)
+            _register(thenvoi_list_contact_requests)
 
             async def thenvoi_respond_contact_request(
                 ctx: RunContext[AgentToolsProtocol],
@@ -347,7 +390,7 @@ class PydanticAIAdapter(SimpleAdapter[PydanticAIMessages]):
             thenvoi_respond_contact_request.__doc__ = get_tool_description(
                 "thenvoi_respond_contact_request"
             )
-            agent.tool(thenvoi_respond_contact_request)
+            _register(thenvoi_respond_contact_request)
 
         # Memory management tools (enterprise only - opt-in)
         if Capability.MEMORY in self.features.capabilities:
@@ -380,7 +423,7 @@ class PydanticAIAdapter(SimpleAdapter[PydanticAIMessages]):
             thenvoi_list_memories.__doc__ = get_tool_description(
                 "thenvoi_list_memories"
             )
-            agent.tool(thenvoi_list_memories)
+            _register(thenvoi_list_memories)
 
             async def thenvoi_store_memory(
                 ctx: RunContext[AgentToolsProtocol],
@@ -408,7 +451,7 @@ class PydanticAIAdapter(SimpleAdapter[PydanticAIMessages]):
                     return f"Error storing memory: {e}"
 
             thenvoi_store_memory.__doc__ = get_tool_description("thenvoi_store_memory")
-            agent.tool(thenvoi_store_memory)
+            _register(thenvoi_store_memory)
 
             async def thenvoi_get_memory(
                 ctx: RunContext[AgentToolsProtocol],
@@ -420,7 +463,7 @@ class PydanticAIAdapter(SimpleAdapter[PydanticAIMessages]):
                     return f"Error getting memory: {e}"
 
             thenvoi_get_memory.__doc__ = get_tool_description("thenvoi_get_memory")
-            agent.tool(thenvoi_get_memory)
+            _register(thenvoi_get_memory)
 
             async def thenvoi_supersede_memory(
                 ctx: RunContext[AgentToolsProtocol],
@@ -434,7 +477,7 @@ class PydanticAIAdapter(SimpleAdapter[PydanticAIMessages]):
             thenvoi_supersede_memory.__doc__ = get_tool_description(
                 "thenvoi_supersede_memory"
             )
-            agent.tool(thenvoi_supersede_memory)
+            _register(thenvoi_supersede_memory)
 
             async def thenvoi_archive_memory(
                 ctx: RunContext[AgentToolsProtocol],
@@ -448,7 +491,7 @@ class PydanticAIAdapter(SimpleAdapter[PydanticAIMessages]):
             thenvoi_archive_memory.__doc__ = get_tool_description(
                 "thenvoi_archive_memory"
             )
-            agent.tool(thenvoi_archive_memory)
+            _register(thenvoi_archive_memory)
 
         # Register custom tools (user-provided PydanticAI-compatible functions)
         for custom_tool in self._custom_tools:

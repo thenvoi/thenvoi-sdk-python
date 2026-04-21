@@ -38,7 +38,11 @@ from thenvoi.core.types import AdapterFeatures, Capability, Emit, PlatformMessag
 from thenvoi.converters.crewai import CrewAIHistoryConverter, CrewAIMessages
 from thenvoi.runtime.custom_tools import CustomToolDef, get_custom_tool_name
 from thenvoi.runtime.prompts import render_system_prompt
-from thenvoi.runtime.tools import get_tool_description
+from thenvoi.runtime.tools import (
+    filter_tool_names,
+    get_tool_description,
+    validate_tool_filter,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -159,6 +163,9 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
         additional_tools: list[CustomToolDef] | None = None,
         system_prompt: str | None = None,  # Deprecated
         features: AdapterFeatures | None = None,
+        include_tools: list[str] | None = None,
+        exclude_tools: list[str] | None = None,
+        include_categories: list[str] | None = None,
     ):
         """Initialize the CrewAI adapter.
 
@@ -236,6 +243,16 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
         self.max_iter = max_iter
         self.max_rpm = max_rpm
         self.allow_delegation = allow_delegation
+        self.include_tools = include_tools
+        self.exclude_tools = exclude_tools
+        self.include_categories = include_categories
+
+        # Validate filter params once at init — they are immutable.
+        validate_tool_filter(
+            include_tools=self.include_tools,
+            exclude_tools=self.exclude_tools,
+            include_categories=self.include_categories,
+        )
 
         self._crewai_agent: CrewAIAgent | None = None
         self._message_history: dict[str, list[dict[str, Any]]] = {}
@@ -1157,6 +1174,15 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
                 len(custom_tools),
                 [t.name for t in custom_tools],
             )
+
+        # Apply tool filters (already validated at __init__ time)
+        allowed_names = filter_tool_names(
+            frozenset(t.name for t in platform_tools),
+            include_tools=self.include_tools,
+            exclude_tools=self.exclude_tools,
+            include_categories=self.include_categories,
+        )
+        platform_tools = [t for t in platform_tools if t.name in allowed_names]
 
         return platform_tools + custom_tools
 

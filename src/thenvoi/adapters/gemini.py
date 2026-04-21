@@ -83,6 +83,9 @@ class GeminiAdapter(SimpleAdapter[GeminiMessages]):
         additional_tools: list[CustomToolDef] | None = None,
         features: AdapterFeatures | None = None,
         include_base_instructions: bool = True,
+        include_tools: list[str] | None = None,
+        exclude_tools: list[str] | None = None,
+        include_categories: list[str] | None = None,
         # --- Deprecated (one release, then remove) ---
         gemini_api_key: str | None = None,
         custom_section: str | None = None,
@@ -144,6 +147,9 @@ class GeminiAdapter(SimpleAdapter[GeminiMessages]):
         self.max_output_tokens = max_output_tokens
         self.temperature = temperature
         self.max_tool_rounds = max_tool_rounds
+        self.include_tools = include_tools
+        self.exclude_tools = exclude_tools
+        self.include_categories = include_categories
         self.max_retries = max_retries
         self.retry_base_delay_s = retry_base_delay_s
         self.max_history_messages = max_history_messages
@@ -393,6 +399,9 @@ class GeminiAdapter(SimpleAdapter[GeminiMessages]):
         openai_schemas = tools.get_openai_tool_schemas(
             include_memory=Capability.MEMORY in self.features.capabilities,
             include_contacts=Capability.CONTACTS in self.features.capabilities,
+            include_tools=self.include_tools,
+            exclude_tools=self.exclude_tools,
+            include_categories=self.include_categories,
         )
         for schema in openai_schemas:
             function = schema.get("function", {})

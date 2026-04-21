@@ -10,7 +10,10 @@ from typing import Any, Literal
 from langchain_core.tools import StructuredTool
 
 from thenvoi.core.protocols import AgentToolsProtocol
-from thenvoi.runtime.tools import get_tool_description
+from thenvoi.runtime.tools import (
+    filter_tool_names,
+    get_tool_description,
+)
 
 
 def agent_tools_to_langchain(
@@ -18,6 +21,9 @@ def agent_tools_to_langchain(
     *,
     include_memory_tools: bool = False,
     include_contacts: bool = True,
+    include_tools: list[str] | None = None,
+    exclude_tools: list[str] | None = None,
+    include_categories: list[str] | None = None,
 ) -> list[Any]:
     """
     Convert AgentTools to LangChain StructuredTool instances.
@@ -25,6 +31,10 @@ def agent_tools_to_langchain(
     Args:
         tools: AgentTools instance bound to a room
         include_memory_tools: If True, include memory tools (enterprise only)
+        include_contacts: If True, include contact management tools
+        include_tools: If set, only include these specific tools (allowlist)
+        exclude_tools: If set, exclude these specific tools (denylist)
+        include_categories: If set, only include tools in these categories
 
     Returns:
         List of LangChain StructuredTool instances
@@ -318,5 +328,14 @@ def agent_tools_to_langchain(
                 ),
             ]
         )
+
+    # Apply tool filters (validation done at adapter __init__ time)
+    allowed_names = filter_tool_names(
+        frozenset(t.name for t in platform_tools),
+        include_tools=include_tools,
+        exclude_tools=exclude_tools,
+        include_categories=include_categories,
+    )
+    platform_tools = [t for t in platform_tools if t.name in allowed_names]
 
     return platform_tools

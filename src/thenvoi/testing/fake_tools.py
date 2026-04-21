@@ -229,6 +229,9 @@ class FakeAgentTools:
         *,
         include_memory: bool = False,
         include_contacts: bool = True,
+        include_tools: list[str] | None = None,
+        exclude_tools: list[str] | None = None,
+        include_categories: list[str] | None = None,
     ) -> list[dict[str, Any]]:
         return []
 
@@ -237,6 +240,9 @@ class FakeAgentTools:
         *,
         include_memory: bool = False,
         include_contacts: bool = True,
+        include_tools: list[str] | None = None,
+        exclude_tools: list[str] | None = None,
+        include_categories: list[str] | None = None,
     ) -> list[dict[str, Any]]:
         return []
 
@@ -245,6 +251,9 @@ class FakeAgentTools:
         *,
         include_memory: bool = False,
         include_contacts: bool = True,
+        include_tools: list[str] | None = None,
+        exclude_tools: list[str] | None = None,
+        include_categories: list[str] | None = None,
     ) -> list[dict[str, Any]]:
         return []
 
