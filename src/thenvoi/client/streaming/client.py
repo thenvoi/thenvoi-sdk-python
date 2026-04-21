@@ -107,6 +107,8 @@ class ParticipantAddedPayload(BaseModel):
     id: str
     name: str
     type: str
+    is_remote: bool | None = None
+    is_external: bool | None = None
 
 
 class ParticipantRemovedPayload(BaseModel):
@@ -152,6 +154,7 @@ class ContactAddedPayload(BaseModel):
     name: str
     type: str
     description: str | None = None
+    is_remote: bool | None = None
     is_external: bool | None = None
     inserted_at: str
 
