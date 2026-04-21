@@ -7896,7 +7896,7 @@ wheels = [
 
 [[package]]
 name = "thenvoi-client-rest"
-version = "0.0.4"
+version = "0.0.7"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "httpx" },
@@ -7904,14 +7904,14 @@ dependencies = [
     { name = "pydantic-core" },
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/c8/42/0a540ad5b000192f84e1b135008da22e026cf6ebd392c9e6d41efd6be1a7/thenvoi_client_rest-0.0.4.tar.gz", hash = "sha256:d5d8c3ec46c67375ed077d539c74ccb53c8e3eb446372166a00f8d5a3fd2b6b5", size = 94798, upload-time = "2026-02-15T16:06:50.793Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/54/b8/077727592881e2bce52d9cd4198ddff4d2109eb30a456fe29bdd84eacba0/thenvoi_client_rest-0.0.7.tar.gz", hash = "sha256:1f793a96449556c304bbecce79db0ae2d8044e32b6c137e50c608d09cd97ddb3", size = 95101, upload-time = "2026-04-12T13:22:44.949Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/34/a2/e00b4ce8b93d4d1b9a79368935a3c5e61dacd4de63e5e7da5347271b5978/thenvoi_client_rest-0.0.4-py3-none-any.whl", hash = "sha256:64fc2e427f0a347df566741df149a21b677146ef0f59cc268fb9116655ea6cd3", size = 233537, upload-time = "2026-02-15T16:06:48.733Z" },
+    { url = "https://files.pythonhosted.org/packages/41/f4/61b5a86a1f3bbaeb09f46a01d019a2c0df0f6bf57494745ee670eee9e68b/thenvoi_client_rest-0.0.7-py3-none-any.whl", hash = "sha256:60b572ed3b64d2acaf447e50f36ea064506c14ca6c7d6ca9b3b197ccbc68c70f", size = 233953, upload-time = "2026-04-12T13:22:43.351Z" },
 ]
 
 [[package]]
 name = "thenvoi-sdk"
-version = "0.2.6"
+version = "0.2.7"
 source = { editable = "." }
 dependencies = [
     { name = "cryptography" },
@@ -8156,7 +8156,7 @@ requires-dist = [
     { name = "starlette", marker = "extra == 'a2a-gateway-demo'", specifier = ">=0.40.0" },
     { name = "starlette", marker = "extra == 'acp'", specifier = ">=0.40.0" },
     { name = "starlette", marker = "extra == 'dev'", specifier = ">=0.40.0" },
-    { name = "thenvoi-client-rest", specifier = "==0.0.4" },
+    { name = "thenvoi-client-rest", specifier = "==0.0.7" },
     { name = "thenvoi-testing-python", marker = "extra == 'dev'", specifier = ">=0.1.2" },
     { name = "thenvoi-testing-python", marker = "extra == 'dev-parlant'", specifier = ">=0.1.2" },
     { name = "uvicorn", marker = "extra == 'a2a-gateway'", specifier = ">=0.32.0" },
