@@ -233,9 +233,10 @@ class TestGracefulShutdownHandler:
         with pytest.raises(asyncio.CancelledError):
             await shutdown._shutdown()
 
-        # Only one call — asyncio.shield keeps the original agent.stop running
-        # in the background on real cancellation; starting a concurrent second
-        # stop would race on AgentRuntime's per-room executions teardown.
+        # Only one call — the except CancelledError branch must not kick off a
+        # second concurrent agent.stop. (Here agent.stop raises directly, so
+        # no background task exists; the shield's keep-running-in-background
+        # behavior is covered by test_shutdown_shields_agent_stop_from_cancellation.)
         assert stop_calls == [5.0]
 
 
