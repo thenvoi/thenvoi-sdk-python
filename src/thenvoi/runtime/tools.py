@@ -948,7 +948,22 @@ class AgentTools(AgentToolsProtocol):
             request_options=DEFAULT_REQUEST_OPTIONS,
         )
         if not response.data:
+            self._participants = []
             return []
+
+        # Refresh the internal cache so _resolve_mentions() sees participants
+        # the LLM just discovered in this turn, even if they joined after
+        # AgentTools was constructed. Without this, the LLM can call
+        # get_participants, see a new participant, then fail to @mention them.
+        self._participants = [
+            {
+                "id": p.id,
+                "name": p.name,
+                "type": p.type,
+                "handle": getattr(p, "handle", None),
+            }
+            for p in response.data
+        ]
 
         return response.data
 

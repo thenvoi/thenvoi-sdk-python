@@ -627,6 +627,51 @@ class TestAgentToolsGetParticipants:
 
         assert result == []
 
+    async def test_get_participants_updates_cache(self, mock_rest_client):
+        """get_participants() should refresh self._participants for mention resolution."""
+        tools = AgentTools("room-123", mock_rest_client)
+        assert tools._participants == []
+
+        await tools.get_participants()
+
+        assert tools._participants == [
+            {
+                "id": "user-1",
+                "name": "User One",
+                "type": "User",
+                "handle": "user-one",
+            }
+        ]
+
+    async def test_get_participants_clears_cache_when_empty(self, mock_rest_client):
+        """get_participants() should clear cache when API returns no participants."""
+        mock_rest_client.agent_api_participants.list_agent_chat_participants.return_value = MagicMock(
+            data=None
+        )
+        stale = [{"id": "ghost", "name": "Ghost", "type": "User", "handle": "ghost"}]
+        tools = AgentTools("room-123", mock_rest_client, participants=stale)
+
+        await tools.get_participants()
+
+        assert tools._participants == []
+
+    async def test_send_message_mentions_newly_discovered_participant(
+        self, mock_rest_client
+    ):
+        """Mentioning a participant first seen via get_participants() should not raise."""
+        tools = AgentTools("room-123", mock_rest_client)
+
+        await tools.get_participants()
+        await tools.send_message("Hi @user-one!", mentions=["user-one"])
+
+        call_args = (
+            mock_rest_client.agent_api_messages.create_agent_chat_message.call_args
+        )
+        message = call_args.kwargs["message"]
+        assert len(message.mentions) == 1
+        assert message.mentions[0].id == "user-1"
+        assert message.mentions[0].handle == "user-one"
+
 
 class TestAgentToolsCreateChatroom:
     """Test create_chatroom tool."""
