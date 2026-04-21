@@ -233,10 +233,13 @@ class GracefulShutdown:
         logger.info("Shutting down agent (timeout: %ss)...", self.timeout)
 
         try:
-            # Shield agent.stop() so event-loop teardown cancelling pending tasks
-            # doesn't interrupt cleanup mid-flight (WebSocket unsubscribe, state
-            # persistence, etc.). _shutdown_task itself is not awaited, so
-            # asyncio.run() will cancel it on exit without the shield.
+            # Shield agent.stop() so a cancellation propagating through the
+            # outer task (e.g. a parent run() being cancelled) doesn't interrupt
+            # cleanup mid-flight (WebSocket unsubscribe, state persistence, etc.).
+            # Caveat: asyncio.run() teardown calls _cancel_all_tasks(), which
+            # cancels the inner shielded task too — shield protects from the
+            # outer awaiter, not full loop teardown. Use the context-manager or
+            # await-stop patterns for guaranteed completion on process exit.
             graceful = await asyncio.shield(self.agent.stop(timeout=self.timeout))
             if graceful:
                 logger.info("Agent shut down gracefully")
@@ -250,7 +253,9 @@ class GracefulShutdown:
             # iterates executions.keys() with no in-flight guard, and two
             # concurrent stops would race on per-room teardown.
             logger.warning(
-                "Shutdown was cancelled; shielded agent.stop continues in background"
+                "Shutdown was cancelled (timeout=%ss); shielded agent.stop "
+                "continues in background",
+                self.timeout,
             )
             raise
         except Exception as e:

@@ -211,15 +211,13 @@ class TestGracefulShutdownHandler:
         with pytest.raises(asyncio.CancelledError):
             await task
 
-        # Give shielded stop a moment to finish after the outer task was cancelled.
-        for _ in range(50):
-            if stop_finished.is_set():
-                break
-            await asyncio.sleep(0.01)
-
-        assert stop_finished.is_set(), (
-            "agent.stop was cancelled mid-flight; asyncio.shield is missing"
-        )
+        # Shielded stop should complete shortly after the outer task was cancelled.
+        try:
+            await asyncio.wait_for(stop_finished.wait(), timeout=1.0)
+        except asyncio.TimeoutError:
+            pytest.fail(
+                "agent.stop was cancelled mid-flight; asyncio.shield is missing"
+            )
 
     async def test_shutdown_reraises_cancelled_error(self, mock_agent):
         """_shutdown should log and re-raise CancelledError without a second stop."""
