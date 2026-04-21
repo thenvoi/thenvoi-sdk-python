@@ -13,13 +13,18 @@ from acp import (
 )
 from acp.schema import (
     AgentCapabilities,
+    AudioContentBlock,
     AuthenticateResponse,
-    AuthMethod,
+    AuthMethodAgent,
+    CloseSessionResponse,
+    EmbeddedResourceContentBlock,
     ForkSessionResponse,
+    ImageContentBlock,
     Implementation,
     ListSessionsResponse,
     LoadSessionResponse,
     PromptCapabilities,
+    ResourceContentBlock,
     ResumeSessionResponse,
     SessionCapabilities,
     SessionForkCapabilities,
@@ -29,6 +34,7 @@ from acp.schema import (
     SetSessionConfigOptionResponse,
     SetSessionModeResponse,
     SetSessionModelResponse,
+    TextContentBlock,
 )
 
 from thenvoi import __version__
@@ -126,7 +132,7 @@ class ACPServer(Agent):
                 version=__version__,
             ),
             auth_methods=[
-                AuthMethod(
+                AuthMethodAgent(
                     id="api_key",
                     name="API Key",
                     description="Authenticate with THENVOI_API_KEY.",
@@ -268,7 +274,7 @@ class ACPServer(Agent):
         self,
         config_id: str,
         session_id: str,
-        value: str,
+        value: str | bool,
         **kwargs: Any,
     ) -> SetSessionConfigOptionResponse | None:
         """Handle ACP set_config_option request.
@@ -450,8 +456,15 @@ class ACPServer(Agent):
 
     async def prompt(
         self,
-        prompt: list[Any],
+        prompt: list[
+            TextContentBlock
+            | ImageContentBlock
+            | AudioContentBlock
+            | ResourceContentBlock
+            | EmbeddedResourceContentBlock
+        ],
         session_id: str,
+        message_id: str | None = None,
         **kwargs: Any,
     ) -> PromptResponse:
         """Handle ACP prompt request.
@@ -462,6 +475,7 @@ class ACPServer(Agent):
         Args:
             prompt: List of ACP content blocks (TextContentBlock, etc.).
             session_id: The ACP session identifier.
+            message_id: Optional message identifier from the client.
             **kwargs: Additional keyword arguments.
 
         Returns:
@@ -483,6 +497,28 @@ class ACPServer(Agent):
         """
         logger.info("ACP cancel for session %s", session_id)
         await self._adapter.cancel_prompt(session_id)
+
+    async def close_session(
+        self, session_id: str, **kwargs: Any
+    ) -> CloseSessionResponse | None:
+        """Handle ACP close_session request.
+
+        Cleans up all state for the session via the adapter.
+
+        Args:
+            session_id: The ACP session identifier.
+            **kwargs: Additional keyword arguments.
+
+        Returns:
+            CloseSessionResponse acknowledgement, or None if session not found.
+        """
+        room_id = self._adapter.get_room_for_session(session_id)
+        if room_id is None:
+            logger.debug("close_session: session %s not found", session_id)
+            return None
+        logger.info("Closing ACP session %s (room %s)", session_id, room_id)
+        await self._adapter.on_cleanup(room_id)
+        return CloseSessionResponse()
 
     @staticmethod
     def _extract_text(prompt: list[Any]) -> str:

@@ -603,6 +603,7 @@ class AgentTools(AgentToolsProtocol):
         self.rest = rest
         self._participants = participants or []
         self._hub_room_id = hub_room_id
+        self._ctx: ExecutionContext | None = None
 
     @property
     def participants(self) -> list[dict[str, Any]]:
@@ -622,12 +623,14 @@ class AgentTools(AgentToolsProtocol):
         Returns:
             AgentTools instance bound to the context's room
         """
-        return cls(
+        tools = cls(
             ctx.room_id,
             ctx.link.rest,
             ctx.participants,
             hub_room_id=getattr(ctx, "hub_room_id", None),
         )
+        tools._ctx = ctx
+        return tools
 
     # --- Tool methods ---
 
@@ -824,6 +827,9 @@ class AgentTools(AgentToolsProtocol):
             "handle": getattr(participant, "handle", None),
         }
         self._participants.append(new_participant)
+        # Sync back to ExecutionContext so future turns see the update
+        if self._ctx is not None:
+            self._ctx.add_participant(new_participant)
         logger.debug(
             "Updated participant cache: added %s, total=%s",
             participant_name,
@@ -888,6 +894,9 @@ class AgentTools(AgentToolsProtocol):
         self._participants = [
             p for p in self._participants if p.get("id") != participant_id
         ]
+        # Sync back to ExecutionContext so future turns see the update
+        if self._ctx is not None:
+            self._ctx.remove_participant(participant_id)
         logger.debug(
             "Updated participant cache: removed %s, total=%s",
             participant_name,
