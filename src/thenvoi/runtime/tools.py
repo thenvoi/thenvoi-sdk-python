@@ -778,15 +778,11 @@ class AgentTools(AgentToolsProtocol):
         )
 
         # First check if participant is already in the room. Always prefer a
-        # fresh server snapshot to avoid stale-cache decisions after room updates.
-        fresh = await self.get_participants()
-        snapshot = [p.model_dump() if hasattr(p, "model_dump") else p for p in fresh]
-        if snapshot:
-            self._participants = snapshot
-        else:
-            snapshot = list(self._participants)
+        # fresh server snapshot to avoid stale-cache decisions after room
+        # updates — get_participants() refreshes self._participants for us.
+        await self.get_participants()
 
-        for cached in snapshot:
+        for cached in self._participants:
             if _matches_identifier(cached, identifier):
                 cached_id = cached.get("id")
                 if not cached_id:
@@ -858,17 +854,13 @@ class AgentTools(AgentToolsProtocol):
         """
         logger.debug("Removing participant '%s' from room %s", identifier, self.room_id)
 
-        # Look up participant by identifier. Always prefer a fresh server snapshot
-        # to avoid stale-cache decisions after room updates.
-        fresh = await self.get_participants()
-        snapshot = [p.model_dump() if hasattr(p, "model_dump") else p for p in fresh]
-        if snapshot:
-            self._participants = snapshot
-        else:
-            snapshot = list(self._participants)
+        # Look up participant by identifier. Always prefer a fresh server
+        # snapshot to avoid stale-cache decisions after room updates —
+        # get_participants() refreshes self._participants for us.
+        await self.get_participants()
 
         participant: dict[str, Any] | None = None
-        for cached in snapshot:
+        for cached in self._participants:
             if _matches_identifier(cached, identifier):
                 participant = cached
                 break
@@ -947,9 +939,45 @@ class AgentTools(AgentToolsProtocol):
             chat_id=self.room_id,
             request_options=DEFAULT_REQUEST_OPTIONS,
         )
-        if not response.data:
+
+        # Treat ``data is None`` as a transient/unexpected response and preserve
+        # the existing cache — every room the agent is in should at minimum
+        # contain the agent itself, so ``None`` is not a legitimate "empty room".
+        if response.data is None:
+            logger.warning(
+                "list_agent_chat_participants returned None for room %s; "
+                "preserving cached participants",
+                self.room_id,
+            )
             return []
 
+        # Refresh the internal cache so _resolve_mentions() sees participants
+        # the LLM just discovered in this turn, even if they joined after
+        # AgentTools was constructed. Without this, the LLM can call
+        # get_participants, see a new participant, then fail to @mention them.
+        refreshed = [
+            {
+                "id": p.id,
+                "name": p.name,
+                "type": p.type,
+                "handle": getattr(p, "handle", None),
+            }
+            for p in response.data
+        ]
+
+        # Sync diff back to ExecutionContext so the refresh survives turn
+        # boundaries. Without this, a new AgentTools built via from_context()
+        # on the next turn would revert to the old participant snapshot.
+        if self._ctx is not None:
+            old_ids = {p.get("id") for p in self._participants if p.get("id")}
+            new_ids = {p["id"] for p in refreshed if p["id"]}
+            for participant_id in old_ids - new_ids:
+                self._ctx.remove_participant(participant_id)
+            for participant in refreshed:
+                if participant["id"] and participant["id"] not in old_ids:
+                    self._ctx.add_participant(participant)
+
+        self._participants = refreshed
         return response.data
 
     # --- Contact management tools ---
