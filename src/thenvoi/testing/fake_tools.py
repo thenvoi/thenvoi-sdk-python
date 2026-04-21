@@ -31,7 +31,11 @@ class FakeAgentTools:
         participants: list[dict[str, Any]] | None = None,
         peers: list[dict[str, Any]] | None = None,
         contacts: list[dict[str, Any]] | None = None,
+        room_id: str = "room-fake",
+        hub_room_id: str | None = None,
     ):
+        self.room_id = room_id
+        self._hub_room_id = hub_room_id
         self.messages_sent: list[dict[str, Any]] = []
         self.events_sent: list[dict[str, Any]] = []
         self._participants: list[dict[str, Any]] = participants or []
@@ -40,6 +44,16 @@ class FakeAgentTools:
         self.participants_added: list[dict[str, Any]] = []
         self.participants_removed: list[dict[str, Any]] = []
         self.tool_calls: list[dict[str, Any]] = []
+
+    @property
+    def is_hub_room(self) -> bool:
+        """True when this fake is bound to the hub-room execution path.
+
+        Mirrors ``AgentTools.is_hub_room`` so tests that exercise the
+        HUB_ROOM auto-enable path (where contact tools are force-exposed)
+        can opt in via ``FakeAgentTools(hub_room_id=..., room_id=...)``.
+        """
+        return self._hub_room_id is not None and self.room_id == self._hub_room_id
 
     async def send_message(
         self, content: str, mentions: list[str] | list[dict[str, str]] | None = None
@@ -67,13 +81,15 @@ class FakeAgentTools:
         self.events_sent.append(event)
         return event
 
-    async def add_participant(self, name: str, role: str = "member") -> dict[str, Any]:
-        participant = {"id": f"p-{name}", "name": name, "role": role}
+    async def add_participant(
+        self, identifier: str, role: str = "member"
+    ) -> dict[str, Any]:
+        participant = {"id": f"p-{identifier}", "name": identifier, "role": role}
         self.participants_added.append(participant)
         return participant
 
-    async def remove_participant(self, name: str) -> dict[str, Any]:
-        participant = {"id": f"p-{name}", "name": name}
+    async def remove_participant(self, identifier: str) -> dict[str, Any]:
+        participant = {"id": f"p-{identifier}", "name": identifier}
         self.participants_removed.append(participant)
         return participant
 
@@ -208,17 +224,27 @@ class FakeAgentTools:
         return {"id": memory_id, "status": "archived"}
 
     def get_tool_schemas(
-        self, format: str, *, include_memory: bool = False
+        self,
+        format: str,
+        *,
+        include_memory: bool = False,
+        include_contacts: bool = True,
     ) -> list[dict[str, Any]]:
         return []
 
     def get_anthropic_tool_schemas(
-        self, *, include_memory: bool = False
+        self,
+        *,
+        include_memory: bool = False,
+        include_contacts: bool = True,
     ) -> list[dict[str, Any]]:
         return []
 
     def get_openai_tool_schemas(
-        self, *, include_memory: bool = False
+        self,
+        *,
+        include_memory: bool = False,
+        include_contacts: bool = True,
     ) -> list[dict[str, Any]]:
         return []
 

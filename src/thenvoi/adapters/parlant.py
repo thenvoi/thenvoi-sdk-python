@@ -119,6 +119,7 @@ class ParlantAdapter(SimpleAdapter[ParlantMessages]):
             agent_name=agent_name,
             agent_description=agent_description,
             custom_section=self.custom_section or "",
+            features=self.features,
         )
 
         # Get Application from Parlant container

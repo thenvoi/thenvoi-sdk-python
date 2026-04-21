@@ -65,12 +65,12 @@ class AgentToolsProtocol(Protocol):
         """Send an event (tool_call, tool_result, thought, error, task)."""
         ...
 
-    async def add_participant(self, name: str, role: str = "member") -> Any:
-        """Add a participant to the current room by name."""
+    async def add_participant(self, identifier: str, role: str = "member") -> Any:
+        """Add a participant to the current room by handle, name, or ID."""
         ...
 
-    async def remove_participant(self, name: str) -> Any:
-        """Remove a participant from the current room by name."""
+    async def remove_participant(self, identifier: str) -> Any:
+        """Remove a participant from the current room by handle, name, or ID."""
         ...
 
     @property
@@ -91,19 +91,23 @@ class AgentToolsProtocol(Protocol):
         ...
 
     def get_tool_schemas(
-        self, format: str, *, include_memory: bool = False
+        self,
+        format: str,
+        *,
+        include_memory: bool = False,
+        include_contacts: bool = True,
     ) -> list[dict[str, Any]] | list["ToolParam"]:
         """Get tool schemas in provider-specific format (openai/anthropic)."""
         ...
 
     def get_anthropic_tool_schemas(
-        self, *, include_memory: bool = False
+        self, *, include_memory: bool = False, include_contacts: bool = True
     ) -> list["ToolParam"]:
         """Get tool schemas in Anthropic format (strongly typed)."""
         ...
 
     def get_openai_tool_schemas(
-        self, *, include_memory: bool = False
+        self, *, include_memory: bool = False, include_contacts: bool = True
     ) -> list[dict[str, Any]]:
         """Get tool schemas in OpenAI format (strongly typed)."""
         ...

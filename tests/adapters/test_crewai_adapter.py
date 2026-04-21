@@ -12,13 +12,13 @@ from __future__ import annotations
 import asyncio
 import json
 from datetime import datetime, timezone
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from pydantic import BaseModel, Field
 
-from thenvoi.core.types import PlatformMessage
+from thenvoi.core.types import AdapterFeatures, Capability, PlatformMessage
 
 if TYPE_CHECKING:
     from thenvoi.adapters.crewai import CrewAIAdapter as CrewAIAdapterType
@@ -288,7 +288,7 @@ class TestOnStarted:
         call_kwargs = crewai_mocks.Agent.call_args[1]
         backstory = call_kwargs["backstory"]
 
-        assert "Multi-participant chat on Thenvoi platform" in backstory
+        assert "Multi-participant chat" in backstory
         assert "thenvoi_send_message" in backstory
         assert "thenvoi_lookup_peers" in backstory
 
@@ -546,12 +546,32 @@ class TestContactsUpdate:
 
 class TestContactAndMemoryToolRegistration:
     @pytest.mark.asyncio
-    async def test_contact_tools_are_included_by_default(
+    async def test_contact_tools_are_excluded_by_default(
         self, CrewAIAdapter, crewai_mocks
     ):
         crewai_mocks.Agent.reset_mock()
 
         adapter = CrewAIAdapter()
+        await adapter.on_started("TestBot", "Test bot")
+
+        tools = crewai_mocks.Agent.call_args[1]["tools"]
+        tool_names = {tool.name for tool in tools}
+
+        assert "thenvoi_list_contacts" not in tool_names
+        assert "thenvoi_add_contact" not in tool_names
+        assert "thenvoi_remove_contact" not in tool_names
+        assert "thenvoi_list_contact_requests" not in tool_names
+        assert "thenvoi_respond_contact_request" not in tool_names
+
+    @pytest.mark.asyncio
+    async def test_contact_tools_are_included_when_enabled(
+        self, CrewAIAdapter, crewai_mocks
+    ):
+        crewai_mocks.Agent.reset_mock()
+
+        adapter = CrewAIAdapter(
+            features=AdapterFeatures(capabilities={Capability.CONTACTS}),
+        )
         await adapter.on_started("TestBot", "Test bot")
 
         tools = crewai_mocks.Agent.call_args[1]["tools"]
@@ -600,13 +620,77 @@ class TestContactAndMemoryToolRegistration:
         assert "thenvoi_archive_memory" in tool_names
 
 
+class TestCacheDisabling:
+    """Regression tests for CrewAI CacheHandler bypass.
+
+    CrewAI's CacheHandler caches by (tool_name, input_string) globally — not
+    per-room.  Since room_id lives in a ContextVar, the same tool+input across
+    two rooms would return stale cached results.  The fix sets
+    ``cache_function = lambda *a, **kw: False`` on every tool so the handler
+    never caches.
+    """
+
+    @pytest.mark.asyncio
+    async def test_all_crewai_platform_tools_disable_cache(
+        self, CrewAIAdapter, crewai_mocks
+    ):
+        """Every thenvoi_* platform tool must have cache_function returning False."""
+        crewai_mocks.Agent.reset_mock()
+
+        adapter = CrewAIAdapter(
+            features=AdapterFeatures(
+                capabilities={Capability.CONTACTS, Capability.MEMORY}
+            ),
+        )
+        await adapter.on_started("TestBot", "Test bot")
+
+        tools = crewai_mocks.Agent.call_args[1]["tools"]
+        platform_tools = [t for t in tools if t.name.startswith("thenvoi_")]
+
+        assert len(platform_tools) > 0, "Expected at least one thenvoi_* tool"
+
+        for tool in platform_tools:
+            assert callable(tool.cache_function), (
+                f"Tool {tool.name}: cache_function is not callable"
+            )
+            assert tool.cache_function({"arg": "val"}, "result") is False, (
+                f"Tool {tool.name}: cache_function should return False"
+            )
+
+    @pytest.mark.asyncio
+    async def test_custom_crewai_tools_disable_cache(self, CrewAIAdapter, crewai_mocks):
+        """Custom tools passed via additional_tools must also disable cache."""
+        crewai_mocks.Agent.reset_mock()
+
+        adapter = CrewAIAdapter(
+            additional_tools=[(EchoInput, echo_message)],
+        )
+        await adapter.on_started("TestBot", "Test bot")
+
+        tools = crewai_mocks.Agent.call_args[1]["tools"]
+        echo_tool = next((t for t in tools if t.name == "echo"), None)
+        assert echo_tool is not None, "Expected 'echo' tool in tool list"
+
+        assert callable(echo_tool.cache_function), (
+            "Custom tool cache_function is not callable"
+        )
+        assert echo_tool.cache_function({"message": "hi"}, "Echo: hi") is False, (
+            "Custom tool cache_function should return False"
+        )
+
+
 class TestContactToolExecution:
+    def _make_adapter(self, CrewAIAdapter: type) -> Any:
+        return CrewAIAdapter(
+            features=AdapterFeatures(capabilities={Capability.CONTACTS}),
+        )
+
     def test_list_contacts_tool_executes(
         self, CrewAIAdapter, crewai_mocks, mock_tools, room_context
     ):
         import asyncio
 
-        adapter = CrewAIAdapter()
+        adapter = self._make_adapter(CrewAIAdapter)
         asyncio.run(adapter.on_started("TestBot", "Test bot"))
 
         tools = crewai_mocks.Agent.call_args[1]["tools"]
@@ -625,7 +709,7 @@ class TestContactToolExecution:
     ):
         import asyncio
 
-        adapter = CrewAIAdapter()
+        adapter = self._make_adapter(CrewAIAdapter)
         asyncio.run(adapter.on_started("TestBot", "Test bot"))
 
         tools = crewai_mocks.Agent.call_args[1]["tools"]
@@ -645,7 +729,7 @@ class TestContactToolExecution:
     ):
         import asyncio
 
-        adapter = CrewAIAdapter()
+        adapter = self._make_adapter(CrewAIAdapter)
         asyncio.run(adapter.on_started("TestBot", "Test bot"))
 
         tools = crewai_mocks.Agent.call_args[1]["tools"]
@@ -666,7 +750,7 @@ class TestContactToolExecution:
     ):
         import asyncio
 
-        adapter = CrewAIAdapter()
+        adapter = self._make_adapter(CrewAIAdapter)
         asyncio.run(adapter.on_started("TestBot", "Test bot"))
 
         tools = crewai_mocks.Agent.call_args[1]["tools"]
@@ -689,7 +773,7 @@ class TestContactToolExecution:
     ):
         import asyncio
 
-        adapter = CrewAIAdapter()
+        adapter = self._make_adapter(CrewAIAdapter)
         asyncio.run(adapter.on_started("TestBot", "Test bot"))
 
         tools = crewai_mocks.Agent.call_args[1]["tools"]
@@ -893,11 +977,11 @@ class TestToolExecution:
         assert "content" in schema_fields
         assert "mentions" in schema_fields
 
-        # thenvoi_add_participant should have participant_name and role, but NOT room_id
+        # thenvoi_add_participant should have identifier and role, but NOT room_id
         add_participant = next(t for t in tools if t.name == "thenvoi_add_participant")
         schema_fields = add_participant.args_schema.model_fields
         assert "room_id" not in schema_fields
-        assert "participant_name" in schema_fields
+        assert "identifier" in schema_fields
         assert "role" in schema_fields
 
         # thenvoi_lookup_peers should have no user-facing parameters (pagination is hardcoded)
@@ -1229,27 +1313,19 @@ class TestMentionsValidator:
         assert instance.mentions == "[]"
 
 
-class TestPlatformInstructionsConstant:
-    def test_platform_instructions_is_constant(self, CrewAIAdapter):
-        import importlib
+class TestPromptRendering:
+    def test_backstory_uses_render_system_prompt(self, CrewAIAdapter):
+        """CrewAI backstory is now built via render_system_prompt."""
+        from thenvoi.runtime.prompts import render_system_prompt
 
-        module = importlib.import_module("thenvoi.adapters.crewai")
-
-        assert hasattr(module, "PLATFORM_INSTRUCTIONS")
-        assert isinstance(module.PLATFORM_INSTRUCTIONS, str)
-        assert len(module.PLATFORM_INSTRUCTIONS) > 100
-
-    def test_platform_instructions_contains_key_info(self, CrewAIAdapter):
-        import importlib
-
-        module = importlib.import_module("thenvoi.adapters.crewai")
-
-        instructions = module.PLATFORM_INSTRUCTIONS
-
-        assert "Environment" in instructions
-        assert "thenvoi_send_message" in instructions
-        assert "thenvoi_lookup_peers" in instructions
-        assert "thenvoi_add_participant" in instructions
+        prompt = render_system_prompt(
+            agent_name="TestAgent",
+            agent_description="A test agent",
+        )
+        # Verify the rendered prompt contains key sections
+        assert "Environment" in prompt
+        assert "thenvoi_send_message" in prompt
+        assert "thenvoi_lookup_peers" in prompt
 
 
 # Custom tool input models for testing
