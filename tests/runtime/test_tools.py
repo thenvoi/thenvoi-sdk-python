@@ -643,10 +643,29 @@ class TestAgentToolsGetParticipants:
             }
         ]
 
-    async def test_get_participants_clears_cache_when_empty(self, mock_rest_client):
-        """get_participants() should clear cache when API returns no participants."""
+    async def test_get_participants_preserves_cache_when_data_none(
+        self, mock_rest_client
+    ):
+        """``data is None`` indicates a transient/unexpected response — the
+        cache should be preserved rather than wiped (an agent should always
+        be a participant in its own room)."""
         mock_rest_client.agent_api_participants.list_agent_chat_participants.return_value = MagicMock(
             data=None
+        )
+        cached = [
+            {"id": "user-1", "name": "User One", "type": "User", "handle": "user-one"}
+        ]
+        tools = AgentTools("room-123", mock_rest_client, participants=cached)
+
+        result = await tools.get_participants()
+
+        assert result == []
+        assert tools._participants == cached
+
+    async def test_get_participants_clears_cache_on_empty_list(self, mock_rest_client):
+        """An explicit empty list from the server is authoritative — cache should clear."""
+        mock_rest_client.agent_api_participants.list_agent_chat_participants.return_value = MagicMock(
+            data=[]
         )
         stale = [{"id": "ghost", "name": "Ghost", "type": "User", "handle": "ghost"}]
         tools = AgentTools("room-123", mock_rest_client, participants=stale)
@@ -654,6 +673,39 @@ class TestAgentToolsGetParticipants:
         await tools.get_participants()
 
         assert tools._participants == []
+
+    async def test_get_participants_syncs_diff_to_ctx(self, mock_rest_client):
+        """get_participants() should sync additions/removals to ExecutionContext
+        so the refreshed cache survives turn boundaries."""
+        old = {"id": "user-1", "name": "User One", "type": "User", "handle": "user-one"}
+
+        mock_ctx = MagicMock()
+        mock_ctx.room_id = "room-123"
+        mock_ctx.link = MagicMock()
+        mock_ctx.link.rest = mock_rest_client
+        mock_ctx.participants = [old]
+        mock_ctx.hub_room_id = None
+        mock_ctx.add_participant = MagicMock()
+        mock_ctx.remove_participant = MagicMock()
+
+        # Server returns only a *new* participant — user-1 is gone, user-2 is new.
+        new_p = MagicMock()
+        new_p.id = "user-2"
+        new_p.name = "User Two"
+        new_p.type = "User"
+        new_p.handle = "user-two"
+        mock_rest_client.agent_api_participants.list_agent_chat_participants = (
+            AsyncMock(return_value=MagicMock(data=[new_p]))
+        )
+
+        tools = AgentTools.from_context(mock_ctx)
+        await tools.get_participants()
+
+        mock_ctx.remove_participant.assert_called_once_with("user-1")
+        mock_ctx.add_participant.assert_called_once()
+        added = mock_ctx.add_participant.call_args.args[0]
+        assert added["id"] == "user-2"
+        assert added["handle"] == "user-two"
 
     async def test_send_message_mentions_newly_discovered_participant(
         self, mock_rest_client
