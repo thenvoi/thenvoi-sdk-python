@@ -34,6 +34,7 @@ from thenvoi.platform.event import (
     ParticipantAddedEvent,
     ParticipantRemovedEvent,
     PlatformEvent,
+    ReconnectedEvent,
 )
 
 from .types import (
@@ -346,11 +347,20 @@ class ExecutionContext:
 
     async def on_event(self, event: PlatformEvent) -> None:
         """
-        Handle a platform event - add to queue.
+        Handle a platform event.
 
         Called by RoomPresence/AgentRuntime when an event arrives.
         Tracks first WebSocket message ID for crash recovery sync.
+        Reconnect events trigger a fresh /next synchronization immediately.
         """
+        if isinstance(event, ReconnectedEvent):
+            logger.info(
+                "ExecutionContext %s: Reconnected, re-running synchronization",
+                self.room_id,
+            )
+            await self._synchronize_with_next()
+            return
+
         # Track first WebSocket message ID for sync point
         if isinstance(event, MessageEvent) and self._first_ws_msg_id is None:
             msg_id = event.payload.id if event.payload else None

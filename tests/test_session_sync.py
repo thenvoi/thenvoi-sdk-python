@@ -13,6 +13,7 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock
 from datetime import datetime, timezone
 
+from thenvoi.platform.event import ReconnectedEvent
 from thenvoi.runtime.execution import ExecutionContext
 from thenvoi.runtime.types import PlatformMessage, SessionConfig
 
@@ -304,6 +305,33 @@ class TestSynchronizeWithNext:
 
         # Handler should NOT be called
         ctx._handler_mock.assert_not_called()
+
+
+class TestReconnectSync:
+    """Tests for reconnect-triggered resynchronization."""
+
+    @pytest.fixture
+    def ctx(self, mock_link):
+        """Create ExecutionContext with mocked dependencies."""
+        handler = AsyncMock()
+        ctx = ExecutionContext(
+            room_id="room-123",
+            link=mock_link,
+            on_execute=handler,
+            config=SessionConfig(enable_context_hydration=False),
+        )
+        ctx._handler_mock = handler
+        return ctx
+
+    @pytest.mark.asyncio
+    async def test_reconnected_event_reruns_sync_without_queueing(self, ctx):
+        """Reconnect events should trigger sync immediately and not enter the queue."""
+        ctx._synchronize_with_next = AsyncMock()
+
+        await ctx.on_event(ReconnectedEvent())
+
+        ctx._synchronize_with_next.assert_awaited_once_with()
+        assert ctx.queue.empty()
 
 
 class TestCrashRecovery:
