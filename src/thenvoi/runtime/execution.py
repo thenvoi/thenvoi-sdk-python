@@ -941,6 +941,13 @@ class ExecutionContext:
                 await self._process_backlog_message(next_msg)
                 caught_up += 1
 
+                if caught_up % 100 == 0:
+                    logger.info(
+                        "ExecutionContext %s: Still catching up, %d messages processed so far",
+                        self.room_id,
+                        caught_up,
+                    )
+
                 if self._retry_tracker.is_permanently_failed(next_msg.id):
                     break
 

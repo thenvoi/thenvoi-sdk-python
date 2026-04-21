@@ -169,7 +169,7 @@ class TestIdleTimeout:
 
     async def test_idle_timeout_triggers_resync(self, mock_link, mock_handler):
         """Phase 2 should call /next after idle_resync_seconds with no WS events."""
-        config = SessionConfig(idle_resync_seconds=0)  # 0 = immediate timeout
+        config = SessionConfig(idle_resync_seconds=0.01)  # fast timeout for test
         ctx = ExecutionContext("room-1", mock_link, mock_handler, config=config)
         await ctx.start()
 
@@ -468,8 +468,8 @@ class TestPresenceReconnectOnReconnectedCallback:
 
         assert len(reconnected_calls) == 1
 
-    async def test_cancelled_error_suppressed_in_finally(self, mock_presence_link):
-        """CancelledError raised in on_reconnected should not propagate."""
+    async def test_cancelled_error_propagates_from_callback(self, mock_presence_link):
+        """CancelledError raised in on_reconnected must propagate (structured concurrency)."""
 
         async def on_reconnected_that_raises():
             raise asyncio.CancelledError
@@ -477,5 +477,5 @@ class TestPresenceReconnectOnReconnectedCallback:
         presence = RoomPresence(mock_presence_link, auto_subscribe_existing=False)
         presence.on_reconnected = on_reconnected_that_raises
 
-        # Should not propagate CancelledError
-        await presence._handle_reconnect()
+        with pytest.raises(asyncio.CancelledError):
+            await presence._handle_reconnect()

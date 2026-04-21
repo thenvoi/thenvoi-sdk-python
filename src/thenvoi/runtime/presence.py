@@ -350,7 +350,8 @@ class RoomPresence:
                 try:
                     await self.on_reconnected()
                 except asyncio.CancelledError:
-                    pass  # Don't resync if we're being cancelled/shutdown
+                    # Preserve structured concurrency: never swallow cancellation.
+                    raise
                 except Exception as e:
                     logger.warning("on_reconnected callback error: %s", e)
 

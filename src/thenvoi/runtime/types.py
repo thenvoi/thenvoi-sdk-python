@@ -87,7 +87,15 @@ class SessionConfig:
     # Lower values recover faster from missed WS pushes but generate more REST traffic.
     # With N rooms, each resync fires N parallel /next polls. Default 60s balances
     # recovery speed against REST load for typical single-agent deployments.
-    idle_resync_seconds: int = 60
+    # Uses float so tests can exercise sub-second values without forcing prod to
+    # round. Must be > 0; zero or negative turns Phase 2 into a REST hot loop.
+    idle_resync_seconds: float = 60.0
+
+    def __post_init__(self) -> None:
+        if self.idle_resync_seconds <= 0:
+            raise ValueError(
+                "idle_resync_seconds must be > 0 (got %s)" % self.idle_resync_seconds
+            )
 
 
 @dataclass
