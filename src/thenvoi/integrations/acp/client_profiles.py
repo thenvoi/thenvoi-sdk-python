@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import MutableMapping
 from typing import Protocol
 
 from thenvoi.integrations.acp.types import CollectedChunk
@@ -24,8 +23,7 @@ class ACPClientProfile(Protocol):
         self,
         method: str,
         params: dict[str, object],
-        session_chunks: MutableMapping[str, list[CollectedChunk]],
-    ) -> None: ...
+    ) -> list[CollectedChunk]: ...
 
 
 class NoopACPClientProfile:
@@ -43,9 +41,9 @@ class NoopACPClientProfile:
         self,
         method: str,
         params: dict[str, object],
-        session_chunks: MutableMapping[str, list[CollectedChunk]],
-    ) -> None:
-        del method, params, session_chunks
+    ) -> list[CollectedChunk]:
+        del method, params
+        return []
 
 
 class CursorACPClientProfile:
@@ -79,13 +77,8 @@ class CursorACPClientProfile:
         self,
         method: str,
         params: dict[str, object],
-        session_chunks: MutableMapping[str, list[CollectedChunk]],
-    ) -> None:
+    ) -> list[CollectedChunk]:
         logger.debug("Cursor ACP ext_notification: %s, params=%s", method, params)
-
-        session_id = str(params.get("sessionId") or params.get("session_id") or "")
-        if not session_id:
-            return
 
         if method == "cursor/update_todos":
             todos = params.get("todos", [])
@@ -97,17 +90,21 @@ class CursorACPClientProfile:
                         text = todo.get("content", "")
                         lines.append(f"- [{'x' if done else ' '}] {text}")
                 if lines:
-                    chunk = CollectedChunk(
-                        chunk_type="plan",
-                        content="\n".join(lines),
-                    )
-                    session_chunks.setdefault(session_id, []).append(chunk)
+                    return [
+                        CollectedChunk(
+                            chunk_type="plan",
+                            content="\n".join(lines),
+                        )
+                    ]
 
-        elif method == "cursor/task":
+        if method == "cursor/task":
             result = str(params.get("result", ""))
             if result:
-                chunk = CollectedChunk(
-                    chunk_type="text",
-                    content=f"[Task completed] {result}",
-                )
-                session_chunks.setdefault(session_id, []).append(chunk)
+                return [
+                    CollectedChunk(
+                        chunk_type="text",
+                        content=f"[Task completed] {result}",
+                    )
+                ]
+
+        return []

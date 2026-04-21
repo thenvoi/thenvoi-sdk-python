@@ -481,10 +481,31 @@ class ACPServer(Agent):
         Returns:
             PromptResponse with stop reason.
         """
+        del message_id
         text = self._extract_text(prompt)
         logger.debug("ACP prompt for session %s: %s", session_id, text[:100])
         await self._adapter.handle_prompt(session_id, text)
         return PromptResponse(stop_reason="end_turn")  # type: ignore[call-arg]  # Pydantic alias: stopReason
+
+    async def close_session(
+        self,
+        session_id: str,
+        **kwargs: Any,
+    ) -> CloseSessionResponse | None:
+        """Handle ACP close_session request."""
+        del kwargs
+        if not self._adapter.has_session(session_id):
+            logger.debug("close_session: session %s not found", session_id)
+            return None
+
+        room_id = self._adapter._session_to_room.get(session_id)
+        if room_id is None:
+            logger.debug("close_session: session %s missing room mapping", session_id)
+            return None
+
+        await self._adapter.on_cleanup(room_id)
+        logger.info("Closed ACP session %s", session_id)
+        return CloseSessionResponse()
 
     async def cancel(self, session_id: str, **kwargs: Any) -> None:
         """Handle ACP cancel request.

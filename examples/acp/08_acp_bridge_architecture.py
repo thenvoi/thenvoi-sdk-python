@@ -58,6 +58,7 @@ from setup_logging import setup_logging
 from thenvoi import Agent
 from thenvoi.adapters import ACPClientAdapter
 from thenvoi.config import load_agent_config
+from thenvoi.integrations.acp.client_profiles import CursorACPClientProfile
 
 setup_logging()
 logger = logging.getLogger(__name__)
@@ -85,6 +86,8 @@ async def main() -> None:
         "false",
         "no",
     }
+    profile_name = os.getenv("ACP_CLIENT_PROFILE", "").strip().lower()
+    profile = CursorACPClientProfile() if profile_name == "cursor" else None
 
     adapter = ACPClientAdapter(
         command=command,
@@ -92,6 +95,7 @@ async def main() -> None:
         rest_url=rest_url,
         inject_thenvoi_tools=inject_thenvoi_tools,
         auth_method=auth_method,
+        profile=profile,
     )
 
     agent = Agent.create(
@@ -105,6 +109,10 @@ async def main() -> None:
     logger.info("Starting ACP bridge architecture example...")
     logger.info("ACP command: %s", " ".join(command))
     logger.info("Thenvoi tool injection enabled: %s", inject_thenvoi_tools)
+    logger.info(
+        "ACP client profile: %s",
+        type(profile).__name__ if profile else "None",
+    )
 
     await agent.run()
 

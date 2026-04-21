@@ -61,6 +61,7 @@ from setup_logging import setup_logging
 from thenvoi import Agent
 from thenvoi.adapters import ACPClientAdapter
 from thenvoi.config import load_agent_config
+from thenvoi.integrations.acp.client_profiles import CursorACPClientProfile
 
 setup_logging()
 logger = logging.getLogger(__name__)
@@ -99,6 +100,7 @@ async def main() -> None:
         rest_url=rest_url,
         inject_thenvoi_tools=True,
         auth_method="cursor_login",
+        profile=CursorACPClientProfile(),
     )
 
     # Create and start agent
