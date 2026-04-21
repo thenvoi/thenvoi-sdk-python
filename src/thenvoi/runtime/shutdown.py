@@ -190,6 +190,17 @@ class GracefulShutdown:
             signum: The signal number received.
         """
         sig_name = signal.Signals(signum).name
+
+        # Guard FIRST — before any side effects. The documented contract is
+        # "subsequent signals are ignored", and user-provided on_signal callbacks
+        # (e.g. paging/alerting) may not be idempotent.
+        if self._shutting_down or self._shutdown_task is not None:
+            logger.debug(
+                "Received %s but shutdown already in progress, ignoring", sig_name
+            )
+            return
+        self._shutting_down = True
+
         logger.info("Received %s, initiating graceful shutdown...", sig_name)
 
         # Call user callback if provided
@@ -202,13 +213,6 @@ class GracefulShutdown:
         # Set shutdown event to unblock any waiters
         if self._shutdown_event:
             self._shutdown_event.set()
-
-        # Guard against multiple signals triggering multiple shutdown tasks
-        # Use flag to prevent race between check and task creation
-        if self._shutting_down or self._shutdown_task is not None:
-            logger.debug("Shutdown already in progress, ignoring signal")
-            return
-        self._shutting_down = True
 
         # Schedule the shutdown coroutine.
         # Note: We store the reference to prevent garbage collection, but this task
@@ -227,11 +231,33 @@ class GracefulShutdown:
         logger.info("Shutting down agent (timeout: %ss)...", self.timeout)
 
         try:
-            graceful = await self.agent.stop(timeout=self.timeout)
+            # Shield agent.stop() so event-loop teardown cancelling pending tasks
+            # doesn't interrupt cleanup mid-flight (WebSocket unsubscribe, state
+            # persistence, etc.). _shutdown_task itself is not awaited, so
+            # asyncio.run() will cancel it on exit without the shield.
+            graceful = await asyncio.shield(self.agent.stop(timeout=self.timeout))
             if graceful:
                 logger.info("Agent shut down gracefully")
             else:
                 logger.warning("Agent shut down with processing interrupted")
+        except asyncio.CancelledError:
+            # CancelledError inherits from BaseException (Py3.8+) so the generic
+            # Exception handler below doesn't catch it. Without this branch, a
+            # cancelled shutdown surfaces only as a task-exception warning and
+            # leaves partial cleanup state. Try a best-effort quick stop so
+            # resources are released even when the loop is tearing down.
+            logger.warning(
+                "Shutdown was cancelled; attempting best-effort quick cleanup"
+            )
+            try:
+                await self.agent.stop(timeout=0.0)
+            except Exception as cleanup_err:
+                logger.error(
+                    "Quick-cleanup after cancellation failed: %s",
+                    cleanup_err,
+                    exc_info=True,
+                )
+            raise
         except Exception as e:
             logger.error("Error during shutdown: %s", e, exc_info=True)
 
