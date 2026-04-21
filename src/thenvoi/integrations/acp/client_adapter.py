@@ -5,8 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
-from contextlib import AbstractAsyncContextManager
-from typing import ClassVar, Any
+from typing import Any, ClassVar
 
 from acp import spawn_agent_process
 from acp.schema import HttpMcpServer, SseMcpServer
@@ -15,11 +14,10 @@ from thenvoi.converters.acp_client import ACPClientHistoryConverter
 from thenvoi.core.protocols import AgentToolsProtocol
 from thenvoi.core.simple_adapter import SimpleAdapter
 from thenvoi.core.types import AdapterFeatures, Capability, Emit, PlatformMessage
+from thenvoi.integrations.acp.client_profiles import ACPClientProfile
 from thenvoi.integrations.acp.client_runtime import (
-    ACPCollectingClient,
     ACPConnectionProtocol,
     ACPRuntime,
-    MCPTransportKind,
     PermissionHandler,
 )
 from thenvoi.integrations.acp.client_types import (
@@ -61,6 +59,7 @@ class ACPClientAdapter(SimpleAdapter[ACPClientSessionState]):
         rest_url: str | None = None,
         inject_thenvoi_tools: bool = True,
         auth_method: str | None = None,
+        profile: ACPClientProfile | None = None,
         features: AdapterFeatures | None = None,
     ) -> None:
         super().__init__(
@@ -76,12 +75,13 @@ class ACPClientAdapter(SimpleAdapter[ACPClientSessionState]):
         self._validate_rest_url(self._rest_url)
         self._inject_thenvoi_tools = inject_thenvoi_tools
         self._auth_method = auth_method
+        self._profile = profile
 
         self._runtime = ACPRuntime(
             command=self._command,
             env=self._env,
             auth_method=self._auth_method,
-            client_factory=ThenvoiACPClient,
+            client_factory=lambda: ThenvoiACPClient(profile=self._profile),
             spawn_process=lambda client, *args, **kwargs: spawn_agent_process(
                 client,
                 *args,
@@ -96,58 +96,12 @@ class ACPClientAdapter(SimpleAdapter[ACPClientSessionState]):
         self._bootstrapped_sessions: set[str] = set()
         self._session_lock = asyncio.Lock()
 
-        # Transitional compatibility shims for existing adapter tests and
-        # internal callers.
-        #
-        # Architecture note (INT-284): this adapter is the Thenvoi bridge layer
-        # (room/session mapping, system-context bootstrapping, Thenvoi MCP policy,
-        # and platform event emission). ACP subprocess/session lifecycle lives in
-        # ACPRuntime. These properties exist only to preserve test surface during
-        # migration and can be removed once tests stop reaching into internals.
-
-    @property
-    def _conn(self) -> ACPConnectionProtocol | None:
-        return self._runtime._conn
-
-    @_conn.setter
-    def _conn(self, value: ACPConnectionProtocol | None) -> None:
-        self._runtime._conn = value
-
-    @property
-    def _client(self) -> ACPCollectingClient | None:
-        return self._runtime._client
-
-    @_client.setter
-    def _client(self, value: ACPCollectingClient | None) -> None:
-        self._runtime._client = value
-
-    @property
-    def _ctx(
-        self,
-    ) -> AbstractAsyncContextManager[tuple[ACPConnectionProtocol, object]] | None:
-        return self._runtime._ctx
-
-    @_ctx.setter
-    def _ctx(
-        self,
-        value: AbstractAsyncContextManager[tuple[ACPConnectionProtocol, object]] | None,
-    ) -> None:
-        self._runtime._ctx = value
-
-    @property
-    def _agent_mcp_transport(self) -> MCPTransportKind:
-        return self._runtime._agent_mcp_transport
-
-    @_agent_mcp_transport.setter
-    def _agent_mcp_transport(self, value: MCPTransportKind) -> None:
-        self._runtime._agent_mcp_transport = value
-
     async def on_started(self, agent_name: str, agent_description: str) -> None:
         await super().on_started(agent_name, agent_description)
         await self._spawn_process()
 
     async def _spawn_process(self) -> None:
-        await self._runtime.start()
+        await self._runtime.start(respawn=False)
 
     async def on_message(
         self,
@@ -320,7 +274,7 @@ class ACPClientAdapter(SimpleAdapter[ACPClientSessionState]):
         self,
         local_server: LocalMCPServer,
     ) -> LocalMcpServerConfig:
-        if self._agent_mcp_transport == "sse":
+        if self._runtime._agent_mcp_transport == "sse":
             return SseMcpServer(
                 type="sse",
                 name="thenvoi",
@@ -339,7 +293,7 @@ class ACPClientAdapter(SimpleAdapter[ACPClientSessionState]):
         backend = self._thenvoi_mcp_backend
         if backend is None:
             backend = await create_thenvoi_mcp_backend(
-                kind=self._agent_mcp_transport,
+                kind=self._runtime._agent_mcp_transport,
                 tool_definitions=list(iter_tool_definitions(include_memory=False)),
                 get_tools=self._room_tools.get,
                 additional_tools=self._custom_tools,
@@ -420,8 +374,6 @@ class ACPClientAdapter(SimpleAdapter[ACPClientSessionState]):
         )
 
     async def _ensure_connection(self) -> ACPConnectionProtocol:
-        if self._conn is None and self._ctx is None and self.agent_name:
-            logger.info("Respawning ACP agent subprocess for new room")
         return await self._runtime.ensure_connection(
             can_respawn=bool(self.agent_name),
         )

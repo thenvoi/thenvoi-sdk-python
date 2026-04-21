@@ -173,7 +173,13 @@ class ACPCollectingClient(Client):  # type: ignore[misc]  # ACP Client has optio
         return await self._profile.ext_method(method, params)
 
     async def ext_notification(self, method: str, params: dict[str, object]) -> None:
-        await self._profile.ext_notification(method, params, self._session_chunks)
+        session_id = str(params.get("sessionId") or params.get("session_id") or "")
+        if not session_id:
+            return
+
+        chunks = await self._profile.ext_notification(method, params)
+        if chunks:
+            self._session_chunks.setdefault(session_id, []).extend(chunks)
 
     @staticmethod
     def _extract_text_from_content(update: object) -> str:
@@ -212,8 +218,13 @@ class ACPRuntime:
         self._stop_lock = asyncio.Lock()
         self._agent_mcp_transport: MCPTransportKind = "http"
 
-    async def start(self) -> None:
+    async def start(self, *, respawn: bool = False) -> None:
         """Spawn or respawn the ACP agent subprocess."""
+        logger.info(
+            "%s ACP agent subprocess",
+            "Respawning" if respawn else "Spawning",
+        )
+
         self._client = self._client_factory()  # type: ignore[abstract]  # ACP client protocol defines optional hooks as abstract
         ctx = cast(
             AbstractAsyncContextManager[tuple[ACPConnectionProtocol, object]],
@@ -245,7 +256,7 @@ class ACPRuntime:
         async with self._stop_lock:
             if self._conn is None:
                 if self._ctx is None and can_respawn:
-                    await self.start()
+                    await self.start(respawn=True)
                 else:
                     raise RuntimeError(
                         "ACP client not initialized. Call on_started first."

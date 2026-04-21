@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from thenvoi.integrations.acp.client_profiles import CursorACPClientProfile
+from thenvoi.integrations.acp.client_profiles import ACPClientProfile
 from thenvoi.integrations.acp.client_runtime import ACPCollectingClient
 
 
@@ -16,11 +16,12 @@ class ACPClientSessionState:
 
 
 class ThenvoiACPClient(ACPCollectingClient):
-    """Transitional compatibility wrapper with Cursor extensions enabled.
+    """Compatibility wrapper around ``ACPCollectingClient``.
 
     Existing tests and e2e helpers still construct ``ThenvoiACPClient``
-    directly. Keep this alias stable while the runtime split lands.
+    directly. Keep this alias stable while bridge adapters choose the
+    runtime-specific profile explicitly.
     """
 
-    def __init__(self) -> None:
-        super().__init__(profile=CursorACPClientProfile())
+    def __init__(self, profile: ACPClientProfile | None = None) -> None:
+        super().__init__(profile=profile)
