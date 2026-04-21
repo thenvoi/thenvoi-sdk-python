@@ -87,10 +87,13 @@ _LOCAL_COMMANDS: frozenset[str] = frozenset(
     }
 )
 
-# How many tokens from the start of the message to scan for a slash command.
-# Allows leading @mentions (which the platform prepends) but stops well short
-# of the message body where a slash word is just prose.
-_COMMAND_TOKEN_SEARCH_LIMIT = 5
+# How many tokens from the start of the message to scan for a ``/command``.
+# The platform prepends mentions as ``@handle DisplayName`` pairs (two tokens
+# per participant).  20 tokens comfortably covers up to ~10 concurrent
+# mentions, which is the realistic upper bound for a room, while stopping
+# well short of the message body so a slash word used as prose
+# (e.g. "use /tmp as …") remains prose.
+_COMMAND_TOKEN_SEARCH_LIMIT = 20
 
 # Upper bound on cached task titles (room-lifecycle map used to preserve the
 # title between task_started and task_complete events).  500 covers bursty
@@ -686,8 +689,15 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
 
         Must only be entered while ``_rpc_lock`` is held.  The context
         manager guarantees cleanup even on exceptions, preventing stale
-        context from routing server requests to the wrong room.
+        context from routing server requests to the wrong room.  The
+        single-slot ``_sdk_request_context`` assumes serialized turns;
+        the assertion below catches any regression that introduces
+        concurrent entry (e.g. a future per-room lock).
         """
+        if self._sdk_request_context is not None:
+            raise RuntimeError(
+                "_sdk_request_scope re-entered; _rpc_lock must serialize turns"
+            )
         self._sdk_request_context = (tools, msg, room_id)
         try:
             yield
@@ -935,9 +945,15 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
                     # Clear per-room state that references the dead session so
                     # the next turn does a fresh thread/start instead of reusing
                     # a cached thread_id the new subprocess doesn't know about.
+                    # Also drop token-usage entries keyed by the dead thread
+                    # ids; otherwise they leak until the last-room teardown
+                    # because on_cleanup can no longer resolve their keys.
                     stale_rooms = list(self._room_threads.keys())
+                    stale_threads = list(self._room_threads.values())
                     self._room_threads.clear()
                     self._raw_history_by_room.clear()
+                    for stale_thread in stale_threads:
+                        self._token_usage.pop(stale_thread, None)
                     for stale_room in stale_rooms:
                         self._clear_pending_approvals_for_room(stale_room)
                     break
@@ -3241,12 +3257,17 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
 
     @staticmethod
     def _extract_local_command(content: str) -> tuple[str, str] | None:
+        """Return ``(command, args)`` when ``content`` opens with a slash command.
+
+        Scans only the first ``_COMMAND_TOKEN_SEARCH_LIMIT`` tokens so the
+        platform's leading mention block (``@handle DisplayName`` per
+        participant, plus the occasional bare display name) can't bury a
+        legitimate ``/command``, while a slash word used as prose in the
+        body of a longer message still reads as prose.
+        """
         tokens = content.strip().split()
         if not tokens:
             return None
-        # Only look for a /command in the first few tokens (to allow for
-        # leading @mentions which the platform prepends) but not deep in
-        # the message body where a slash word is just prose.
         search_limit = min(len(tokens), _COMMAND_TOKEN_SEARCH_LIMIT)
         for idx in range(search_limit):
             token = tokens[idx]

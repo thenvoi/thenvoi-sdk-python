@@ -86,7 +86,10 @@ class CodexSdkClient:
         # because even a patch release could drop this private attribute.
         # Checking at ``__init__`` (before ``connect()``) means a stale wheel
         # from a mismatched lockfile state fails at adapter construction
-        # rather than during the first turn.
+        # rather than during the first turn.  The long-term fix is tracked in
+        # INT-226 follow-ups: file an upstream request for a public
+        # ``request(method, params)`` API and migrate once available, so we
+        # can drop the private-attribute dependency and the exact-version pin.
         if not hasattr(AppServerClient, "_request_raw"):
             raise RuntimeError(
                 "codex-app-server-sdk is missing the private '_request_raw' "
@@ -202,11 +205,12 @@ class CodexSdkClient:
 
                     # NOTE: _request_raw is a private SDK API.  We pin
                     # codex-app-server-sdk ==0.2.0 exactly and verify the
-                    # attribute exists in connect() (see runtime guard there)
-                    # so an incompatible release fails loudly at startup
-                    # rather than at request time.  Tracked in INT-226
-                    # follow-up: file an upstream request for a public
-                    # ``request(method, params)`` and migrate once available.
+                    # attribute exists in __init__() (see runtime guard
+                    # there) so an incompatible release fails loudly at
+                    # adapter construction rather than at request time.
+                    # Tracked in INT-226 follow-up: file an upstream request
+                    # for a public ``request(method, params)`` and migrate
+                    # once available to drop the private-attribute coupling.
                     return _retry(  # type: ignore[return-value]
                         lambda: self._sync_client._request_raw(method, params),  # noqa: SLF001
                     )
@@ -348,8 +352,16 @@ class CodexSdkClient:
                 if entry is not None and not entry[0].done():
                     entry[0].set_result(_safe_default_response(method))
 
-        handler_future = asyncio.run_coroutine_threadsafe(_run_handler(), self._loop)
+        # Schedule + register the handler future under the same lock so a
+        # concurrent close() either sees the future (and cancels it) or
+        # runs entirely before we schedule (bridge returns via auto-handle).
+        # Without this, a close() racing between run_coroutine_threadsafe
+        # and handler_futures.add() would fail to cancel the scheduled
+        # handler coroutine.
         with self._pending_lock:
+            handler_future = asyncio.run_coroutine_threadsafe(
+                _run_handler(), self._loop
+            )
             self._handler_futures.add(handler_future)
         handler_future.add_done_callback(self._discard_handler_future)
 

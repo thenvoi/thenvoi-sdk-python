@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+import json
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
 
@@ -141,11 +142,15 @@ def build_structured_error_metadata(
 
 
 def _cap_error_detail(value: Any) -> Any:
-    """Cap free-form error detail strings to ``_MAX_ERROR_DETAIL_CHARS``.
+    """Cap free-form error detail payloads to ``_MAX_ERROR_DETAIL_CHARS``.
 
-    Strings longer than the cap are truncated with a marker; other JSON-like
-    scalar types are returned as-is.  Returns ``None`` to signal "drop this
-    field" for falsy values so callers can ``is not None`` through.
+    Strings longer than the cap are truncated with a marker.  Non-string
+    JSON-like payloads (dict, list, scalars) are serialized once with
+    ``json.dumps`` to measure their footprint; small payloads pass through
+    unchanged, oversized payloads are replaced with a string marker so a
+    hostile upstream dict can't inflate WebSocket frames past the budget.
+    Returns ``None`` to signal "drop this field" for empty/unserializable
+    values so callers can ``is not None`` through.
     """
     if isinstance(value, str):
         if not value:
@@ -156,6 +161,15 @@ def _cap_error_detail(value: Any) -> Any:
                 + f"... [truncated, {len(value) - _MAX_ERROR_DETAIL_CHARS} more chars]"
             )
         return value
+    try:
+        serialized = json.dumps(value, default=str)
+    except (TypeError, ValueError):
+        return None
+    if len(serialized) > _MAX_ERROR_DETAIL_CHARS:
+        return (
+            f"[truncated, {len(serialized)} serialized chars exceeded "
+            f"{_MAX_ERROR_DETAIL_CHARS}-char cap]"
+        )
     return value
 
 
@@ -204,27 +218,24 @@ class CodexTokenUsage:
     """Cumulative token usage for a Codex thread.
 
     Each ``thread/tokenUsage/updated`` event carries cumulative totals,
-    so :meth:`update` performs a full replacement (not additive accumulation).
-    Per-turn deltas are computed by subtracting the previous cumulative
-    snapshot captured inside :meth:`update` itself.
+    so :meth:`update` performs a full replacement (not additive
+    accumulation).  Per-turn deltas are measured against an *anchor*
+    snapshot of the cumulative counters captured at turn start via
+    :meth:`reset_turn_deltas`, so the deltas reflect the rise over the
+    whole turn — not just the rise since the previous event.
 
     Lifecycle:
 
     1. The adapter creates a ``CodexTokenUsage`` the first time a thread
        emits a token-usage event.
     2. At the start of every turn the adapter calls
-       :meth:`reset_turn_deltas` so that display code can render "0 tokens
-       this turn so far" rather than stale numbers from the previous turn.
-    3. Each incoming ``thread/tokenUsage/updated`` during the turn calls
-       :meth:`update`, which snapshots the previous cumulative counters,
-       replaces them with the new cumulative values, and recomputes the
-       per-turn deltas from ``new - previous``.
-
-    :meth:`reset_turn_deltas` and :meth:`update` do not interfere: the
-    delta computation in ``update`` reads the current cumulative fields
-    (``input_tokens`` etc.), not the ``turn_*`` fields, so resetting the
-    turn fields is safe mid-turn and still produces correct deltas on the
-    next update.
+       :meth:`reset_turn_deltas`, which captures the current cumulatives
+       as the turn anchor and zeroes the ``turn_*`` display fields.
+    3. Each ``thread/tokenUsage/updated`` during the turn calls
+       :meth:`update`, which replaces the cumulative totals with the
+       monotonic max of old and new and recomputes ``turn_*`` as
+       ``cumulative - anchor``.  Multiple events in a single turn
+       therefore report the growing turn total, not per-event deltas.
     """
 
     input_tokens: int = 0
@@ -232,18 +243,27 @@ class CodexTokenUsage:
     reasoning_tokens: int = 0
     total_tokens: int = 0
 
-    # Per-turn deltas (computed on each update)
+    # Per-turn deltas (cumulative - anchor, refreshed on each update).
     turn_input_tokens: int = 0
     turn_output_tokens: int = 0
     turn_reasoning_tokens: int = 0
     turn_total_tokens: int = 0
+
+    # Anchor snapshot of cumulative counters, captured at the most recent
+    # ``reset_turn_deltas()`` call.  Private: this is the turn-start frame
+    # used to derive ``turn_*``, not a user-facing metric.
+    _turn_anchor_input: int = field(default=0, repr=False)
+    _turn_anchor_output: int = field(default=0, repr=False)
+    _turn_anchor_reasoning: int = field(default=0, repr=False)
+    _turn_anchor_total: int = field(default=0, repr=False)
 
     def update(self, params: dict[str, Any]) -> None:
         """Replace counters from a ``thread/tokenUsage/updated`` payload.
 
         Codex emits **cumulative** totals per thread — each event supersedes
         the previous one — so a full replacement is correct here.
-        Per-turn deltas are computed from the difference.
+        Per-turn deltas are recomputed as ``cumulative - anchor`` so that
+        multi-event turns accumulate correctly.
         """
         usage = params.get("usage") or params
         if not isinstance(usage, dict):
@@ -310,18 +330,28 @@ class CodexTokenUsage:
         self.reasoning_tokens = max(prev_reasoning, new_reasoning)
         self.total_tokens = max(prev_total, new_total)
 
-        # Per-turn deltas are the rise from the cumulative at turn start
-        # (``prev_*`` at the first update of the turn, carried forward
-        # through subsequent updates because ``reset_turn_deltas`` zeroes
-        # only the ``turn_*`` fields).  Clamp to 0 so a rewound event never
-        # produces a negative delta.
-        self.turn_input_tokens = max(0, self.input_tokens - prev_input)
-        self.turn_output_tokens = max(0, self.output_tokens - prev_output)
-        self.turn_reasoning_tokens = max(0, self.reasoning_tokens - prev_reasoning)
-        self.turn_total_tokens = max(0, self.total_tokens - prev_total)
+        # Per-turn deltas are the rise from the turn-start anchor, not just
+        # the rise since the previous event.  Clamp to 0 so a late rewound
+        # event (anchor > cumulative) never produces a negative delta.
+        self.turn_input_tokens = max(0, self.input_tokens - self._turn_anchor_input)
+        self.turn_output_tokens = max(0, self.output_tokens - self._turn_anchor_output)
+        self.turn_reasoning_tokens = max(
+            0, self.reasoning_tokens - self._turn_anchor_reasoning
+        )
+        self.turn_total_tokens = max(0, self.total_tokens - self._turn_anchor_total)
 
     def reset_turn_deltas(self) -> None:
-        """Reset per-turn deltas (call at the start of a new turn)."""
+        """Anchor per-turn deltas to the current cumulatives.
+
+        Call at the start of a new turn.  Captures the current cumulative
+        counters as the anchor so subsequent :meth:`update` calls report
+        ``cumulative - anchor`` as the turn delta, and zeroes the display
+        ``turn_*`` fields.
+        """
+        self._turn_anchor_input = self.input_tokens
+        self._turn_anchor_output = self.output_tokens
+        self._turn_anchor_reasoning = self.reasoning_tokens
+        self._turn_anchor_total = self.total_tokens
         self.turn_input_tokens = 0
         self.turn_output_tokens = 0
         self.turn_reasoning_tokens = 0
