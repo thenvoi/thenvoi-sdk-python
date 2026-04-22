@@ -359,6 +359,12 @@ class ExecutionContext:
                 "ExecutionContext %s: Reconnected, scheduling synchronization",
                 self.room_id,
             )
+            if self._reconnect_sync_requested:
+                logger.debug(
+                    "ExecutionContext %s: Reconnect sync already pending",
+                    self.room_id,
+                )
+                return
             self._reconnect_sync_requested = True
             self.queue.put_nowait(event)
             logger.debug("Event %s enqueued for room %s", event.type, self.room_id)
