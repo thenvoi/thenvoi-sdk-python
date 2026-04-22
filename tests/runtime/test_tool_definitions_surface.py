@@ -19,6 +19,7 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
+import pytest
 from pydantic import BaseModel
 
 from thenvoi.runtime.mcp_server import (
@@ -115,6 +116,20 @@ class TestIterToolDefinitionsSurfaceFilter:
         """``surface="agent"`` with defaults returns exactly the pre-Phase-1 set."""
         names = {d.name for d in iter_tool_definitions(surface="agent")}
         assert names == PRE_PHASE1_AGENT_TOOLS
+
+    def test_default_surface_is_agent(self) -> None:
+        """No-arg ``iter_tool_definitions()`` returns only agent tools.
+
+        Regression guard for C1: existing callers (``claude_sdk``,
+        ``opencode``, ``acp`` client adapter) pipe the result straight
+        into ``create_thenvoi_mcp_backend`` without re-filtering, so the
+        default must not leak human tools into agent-shaped backends.
+        """
+        defs = iter_tool_definitions()
+        names = {d.name for d in defs}
+        assert names == PRE_PHASE1_AGENT_TOOLS
+        for definition in defs:
+            assert definition.surface == "agent"
 
     def test_surface_human_returns_only_human_tools(self) -> None:
         """``surface="human"`` with defaults returns only human tools."""
@@ -307,3 +322,68 @@ class TestLocalMCPServerAgentOnlySnapshot:
         )
         names = {registration.name for registration in registrations}
         assert names == PRE_PHASE1_AGENT_TOOLS
+
+    def test_build_registrations_filters_non_agent_definitions(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Defense-in-depth: if a caller passes a mixed ``tool_definitions``
+        list, ``build_thenvoi_mcp_tool_registrations`` drops non-agent
+        entries (they'd ``AttributeError`` on ``AgentTools`` at call time)
+        and logs a warning per dropped entry.
+        """
+        import logging
+
+        agent_tools = MagicMock(spec=AgentTools)
+        mixed = [
+            TOOL_DEFINITIONS["thenvoi_send_message"],
+            TOOL_DEFINITIONS["thenvoi_send_my_chat_message"],
+            TOOL_DEFINITIONS["thenvoi_get_my_profile"],
+        ]
+
+        with caplog.at_level(logging.WARNING, logger="thenvoi.runtime.mcp_server"):
+            registrations = build_thenvoi_mcp_tool_registrations(
+                agent_tools, tool_definitions=mixed
+            )
+
+        names = {r.name for r in registrations}
+        assert names == {"thenvoi_send_message"}
+        # One warning per dropped human entry.
+        warnings = [
+            record for record in caplog.records if record.levelno == logging.WARNING
+        ]
+        dropped_names = {
+            "thenvoi_send_my_chat_message",
+            "thenvoi_get_my_profile",
+        }
+        assert len(warnings) == len(dropped_names)
+        for record in warnings:
+            assert "non-agent tool definition" in record.getMessage()
+
+    def test_build_resolved_registrations_filters_non_agent_definitions(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Resolved variant applies the same defense-in-depth filter. This
+        is the path the opencode/claude_sdk/acp adapters exercise."""
+        import logging
+
+        def _resolver(_room_id: str):
+            return None
+
+        mixed = [
+            TOOL_DEFINITIONS["thenvoi_send_message"],
+            TOOL_DEFINITIONS["thenvoi_add_participant"],
+            TOOL_DEFINITIONS["thenvoi_send_my_chat_message"],
+        ]
+
+        with caplog.at_level(logging.WARNING, logger="thenvoi.runtime.mcp_server"):
+            registrations = build_resolved_thenvoi_mcp_tool_registrations(
+                get_tools=_resolver, tool_definitions=mixed
+            )
+
+        names = {r.name for r in registrations}
+        assert names == {"thenvoi_send_message", "thenvoi_add_participant"}
+        warnings = [
+            record for record in caplog.records if record.levelno == logging.WARNING
+        ]
+        assert len(warnings) == 1
+        assert "thenvoi_send_my_chat_message" in warnings[0].getMessage()

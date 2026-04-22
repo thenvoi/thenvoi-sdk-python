@@ -9,6 +9,7 @@ from __future__ import annotations
 import logging
 import warnings
 from dataclasses import dataclass
+from datetime import datetime
 from typing import TYPE_CHECKING, Any, Literal, cast
 
 from pydantic import AliasChoices, BaseModel, Field, ValidationError
@@ -1045,7 +1046,7 @@ def get_tool_description(name: str) -> str:
 
 def iter_tool_definitions(
     *,
-    surface: Literal["agent", "human"] | None = None,
+    surface: Literal["agent", "human"] | None = "agent",
     include_memory: bool = False,
     include_contacts: bool = True,
 ) -> list[ToolDefinition]:
@@ -1054,9 +1055,12 @@ def iter_tool_definitions(
     The three filters compose as independent predicates:
 
     - ``surface``: when not ``None``, restrict to definitions whose
-      ``ToolDefinition.surface`` equals the given value. ``"agent"`` yields
-      only agent tools, ``"human"`` yields only human tools. ``None`` yields
-      both surfaces.
+      ``ToolDefinition.surface`` equals the given value. ``"agent"``
+      (default) yields only agent tools, ``"human"`` yields only human
+      tools, and ``None`` yields both surfaces. The default is pinned to
+      ``"agent"`` so existing callers (``claude_sdk``, ``opencode``,
+      ``acp``) that pipe the result straight into ``AgentTools``-shaped
+      backends don't silently gain ``HumanTools``-bound entries.
     - ``include_memory``: if ``False`` (default), drop memory tools. This
       applies to both the agent ``MEMORY_TOOL_NAMES`` set and the human
       memory tools (``thenvoi_list_user_memories``, etc.).
@@ -1066,7 +1070,8 @@ def iter_tool_definitions(
 
     Args:
         surface: Optional surface filter (``"agent"`` or ``"human"``).
-            Default ``None`` yields both surfaces.
+            Default ``"agent"``. Pass ``None`` explicitly to opt in to a
+            union view across both surfaces.
         include_memory: Include memory tools (enterprise). Default False.
         include_contacts: Include contact-management tools. Default True for
             backward compatibility. Pass False to gate contact tools behind
@@ -2315,8 +2320,6 @@ class HumanTools:
         ``datetime`` before calling the Fern client. This mirrors today's
         MCP handler behavior.
         """
-        from datetime import datetime
-
         logger.debug(
             "Listing chat messages: chat_id=%s, page=%s, page_size=%s",
             chat_id,
