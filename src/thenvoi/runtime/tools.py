@@ -2148,7 +2148,10 @@ class HumanTools:
 
         logger.debug("Registering my agent: name=%s", name)
         agent_request = AgentRegisterRequest(name=name, description=description)
-        return await self.rest.human_api_agents.register_my_agent(agent=agent_request)
+        return await self.rest.human_api_agents.register_my_agent(
+            agent=agent_request,
+            request_options=DEFAULT_REQUEST_OPTIONS,
+        )
 
     # --- human_chats.py ---
 
@@ -2173,7 +2176,10 @@ class HumanTools:
             if task_id
             else CreateMyChatRoomRequestChat()
         )
-        return await self.rest.human_api_chats.create_my_chat_room(chat=chat_request)
+        return await self.rest.human_api_chats.create_my_chat_room(
+            chat=chat_request,
+            request_options=DEFAULT_REQUEST_OPTIONS,
+        )
 
     async def get_my_chat_room(self, chat_id: str) -> Any:
         """Get a specific chat room by ID."""
@@ -2206,6 +2212,7 @@ class HumanTools:
         contact_request = CreateContactRequestRequestContactRequest(**kwargs)
         return await self.rest.human_api_contacts.create_contact_request(
             contact_request=contact_request,
+            request_options=DEFAULT_REQUEST_OPTIONS,
         )
 
     async def list_received_contact_requests(
@@ -2241,17 +2248,26 @@ class HumanTools:
     async def approve_contact_request(self, request_id: str) -> Any:
         """Approve a received contact request."""
         logger.debug("Approving contact request: %s", request_id)
-        return await self.rest.human_api_contacts.approve_contact_request(id=request_id)
+        return await self.rest.human_api_contacts.approve_contact_request(
+            id=request_id,
+            request_options=DEFAULT_REQUEST_OPTIONS,
+        )
 
     async def reject_contact_request(self, request_id: str) -> Any:
         """Reject a received contact request."""
         logger.debug("Rejecting contact request: %s", request_id)
-        return await self.rest.human_api_contacts.reject_contact_request(id=request_id)
+        return await self.rest.human_api_contacts.reject_contact_request(
+            id=request_id,
+            request_options=DEFAULT_REQUEST_OPTIONS,
+        )
 
     async def cancel_contact_request(self, request_id: str) -> Any:
         """Cancel a sent contact request."""
         logger.debug("Cancelling contact request: %s", request_id)
-        return await self.rest.human_api_contacts.cancel_contact_request(id=request_id)
+        return await self.rest.human_api_contacts.cancel_contact_request(
+            id=request_id,
+            request_options=DEFAULT_REQUEST_OPTIONS,
+        )
 
     async def resolve_handle(self, handle: str) -> Any:
         """Look up an entity by handle."""
@@ -2265,11 +2281,12 @@ class HumanTools:
     ) -> Any:
         """Remove an existing contact by contact_id or handle.
 
-        Raises:
-            ValueError: If neither contact_id nor handle is provided.
+        Returns an ``"Error: ..."`` string (matching today's MCP handler
+        output verbatim) when neither ``contact_id`` nor ``handle`` is
+        provided, so the observable tool-surface error shape is preserved.
         """
         if not contact_id and not handle:
-            raise ValueError("Either contact_id or handle must be provided")
+            return "Error: Either contact_id or handle must be provided"
 
         logger.debug("Removing contact: contact_id=%s, handle=%s", contact_id, handle)
         # The Fern client uses OMIT for optional params; passing None sends
@@ -2279,7 +2296,10 @@ class HumanTools:
             kwargs["contact_id"] = contact_id
         if handle is not None:
             kwargs["handle"] = handle
-        return await self.rest.human_api_contacts.remove_my_contact(**kwargs)
+        return await self.rest.human_api_contacts.remove_my_contact(
+            **kwargs,
+            request_options=DEFAULT_REQUEST_OPTIONS,
+        )
 
     # --- human_messages.py ---
 
@@ -2323,9 +2343,10 @@ class HumanTools:
         """Send a message in a chat room.
 
         ``recipients`` is a comma-separated list of participant names; the
-        SDK resolves them against the chat participants and rejects empty
-        or unknown names with a ``ValueError``. This mirrors today's MCP
-        handler behavior.
+        SDK resolves them against the chat participants. Empty input and
+        unknown names return an ``"Error: ..."`` string matching today's
+        MCP handler output verbatim (no exception raised) so the
+        observable tool-surface error shape is preserved.
         """
         from thenvoi_rest import ChatMessageRequest, ChatMessageRequestMentionsItem
 
@@ -2333,7 +2354,7 @@ class HumanTools:
             name.strip().lower() for name in recipients.split(",") if name.strip()
         ]
         if not recipient_names:
-            raise ValueError("recipients cannot be empty")
+            return "Error: recipients cannot be empty"
 
         logger.debug(
             "Sending chat message: chat_id=%s, recipients=%s", chat_id, recipient_names
@@ -2371,13 +2392,16 @@ class HumanTools:
 
         if not_found:
             available = list(name_to_participant.keys())
-            raise ValueError(
-                f"Not found: {', '.join(not_found)}. Available: {', '.join(available)}"
+            return (
+                f"Error: Not found: {', '.join(not_found)}. "
+                f"Available: {', '.join(available)}"
             )
 
         message_request = ChatMessageRequest(content=content, mentions=mentions_list)
         return await self.rest.human_api_messages.send_my_chat_message(
-            chat_id=chat_id, message=message_request
+            chat_id=chat_id,
+            message=message_request,
+            request_options=DEFAULT_REQUEST_OPTIONS,
         )
 
     # --- human_participants.py ---
@@ -2402,8 +2426,12 @@ class HumanTools:
         chat_id: str,
         participant_id: str,
         role: str | None = None,
-    ) -> Any:
-        """Add a participant to a chat room."""
+    ) -> str:
+        """Add a participant to a chat room.
+
+        Returns ``f"Added participant: {participant_id}"`` (discards the
+        Fern response body) to match today's MCP handler output verbatim.
+        """
         from thenvoi_rest import ParticipantRequest
 
         logger.debug(
@@ -2415,24 +2443,34 @@ class HumanTools:
         participant = ParticipantRequest(
             participant_id=participant_id, role=role or "member"
         )
-        return await self.rest.human_api_participants.add_my_chat_participant(
-            chat_id=chat_id, participant=participant
+        await self.rest.human_api_participants.add_my_chat_participant(
+            chat_id=chat_id,
+            participant=participant,
+            request_options=DEFAULT_REQUEST_OPTIONS,
         )
+        return f"Added participant: {participant_id}"
 
     async def remove_my_chat_participant(
         self,
         chat_id: str,
         participant_id: str,
-    ) -> Any:
-        """Remove a participant from a chat room."""
+    ) -> str:
+        """Remove a participant from a chat room.
+
+        Returns ``f"Removed participant: {participant_id}"`` (discards the
+        Fern response body) to match today's MCP handler output verbatim.
+        """
         logger.debug(
             "Removing my chat participant: chat_id=%s, participant_id=%s",
             chat_id,
             participant_id,
         )
-        return await self.rest.human_api_participants.remove_my_chat_participant(
-            chat_id=chat_id, id=participant_id
+        await self.rest.human_api_participants.remove_my_chat_participant(
+            chat_id=chat_id,
+            id=participant_id,
+            request_options=DEFAULT_REQUEST_OPTIONS,
         )
+        return f"Removed participant: {participant_id}"
 
     # --- human_memories.py ---
 
@@ -2473,17 +2511,26 @@ class HumanTools:
     async def supersede_user_memory(self, memory_id: str) -> Any:
         """Mark a user memory as superseded."""
         logger.debug("Superseding user memory: memory_id=%s", memory_id)
-        return await self.rest.human_api_memories.supersede_user_memory(memory_id)
+        return await self.rest.human_api_memories.supersede_user_memory(
+            memory_id,
+            request_options=DEFAULT_REQUEST_OPTIONS,
+        )
 
     async def archive_user_memory(self, memory_id: str) -> Any:
         """Archive a user memory."""
         logger.debug("Archiving user memory: memory_id=%s", memory_id)
-        return await self.rest.human_api_memories.archive_user_memory(memory_id)
+        return await self.rest.human_api_memories.archive_user_memory(
+            memory_id,
+            request_options=DEFAULT_REQUEST_OPTIONS,
+        )
 
     async def restore_user_memory(self, memory_id: str) -> Any:
         """Restore an archived user memory."""
         logger.debug("Restoring user memory: memory_id=%s", memory_id)
-        return await self.rest.human_api_memories.restore_user_memory(memory_id)
+        return await self.rest.human_api_memories.restore_user_memory(
+            memory_id,
+            request_options=DEFAULT_REQUEST_OPTIONS,
+        )
 
     async def delete_user_memory(self, memory_id: str) -> dict[str, Any]:
         """Delete a user memory permanently.
@@ -2493,7 +2540,10 @@ class HumanTools:
         return shape matches today's MCP handler.
         """
         logger.debug("Deleting user memory: memory_id=%s", memory_id)
-        await self.rest.human_api_memories.delete_user_memory(memory_id)
+        await self.rest.human_api_memories.delete_user_memory(
+            memory_id,
+            request_options=DEFAULT_REQUEST_OPTIONS,
+        )
         return {"deleted": True, "id": memory_id}
 
     # --- human_profile.py / human_peers ---
@@ -2510,8 +2560,9 @@ class HumanTools:
     ) -> Any:
         """Update the current user's profile.
 
-        Raises:
-            ValueError: If neither first_name nor last_name is provided.
+        Returns an ``"Error: ..."`` string (matching today's MCP handler
+        output verbatim) when neither field is provided, so the observable
+        tool-surface error shape is preserved.
         """
         user_data: dict[str, Any] = {}
         if first_name is not None:
@@ -2519,13 +2570,14 @@ class HumanTools:
         if last_name is not None:
             user_data["last_name"] = last_name
         if not user_data:
-            raise ValueError(
-                "At least one field (first_name or last_name) must be provided"
+            return (
+                "Error: At least one field (first_name or last_name) must be provided"
             )
 
         logger.debug("Updating my profile: fields=%s", list(user_data.keys()))
         return await self.rest.human_api_profile.update_my_profile(
-            user=cast(Any, user_data)
+            user=cast(Any, user_data),
+            request_options=DEFAULT_REQUEST_OPTIONS,
         )
 
     async def list_my_peers(

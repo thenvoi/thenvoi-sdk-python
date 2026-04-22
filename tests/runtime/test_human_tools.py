@@ -28,6 +28,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from thenvoi.client.rest import DEFAULT_REQUEST_OPTIONS
 from thenvoi.runtime.tools import HumanTools
 
 
@@ -224,7 +225,9 @@ async def test_approve_contact_request_calls_by_id() -> None:
     )
 
     await HumanTools(rest).approve_contact_request(request_id="r-1")
-    rest.human_api_contacts.approve_contact_request.assert_awaited_once_with(id="r-1")
+    rest.human_api_contacts.approve_contact_request.assert_awaited_once_with(
+        id="r-1", request_options=DEFAULT_REQUEST_OPTIONS
+    )
 
 
 @pytest.mark.asyncio
@@ -233,7 +236,9 @@ async def test_reject_contact_request_calls_by_id() -> None:
     rest.human_api_contacts.reject_contact_request = AsyncMock(return_value=MagicMock())
 
     await HumanTools(rest).reject_contact_request(request_id="r-2")
-    rest.human_api_contacts.reject_contact_request.assert_awaited_once_with(id="r-2")
+    rest.human_api_contacts.reject_contact_request.assert_awaited_once_with(
+        id="r-2", request_options=DEFAULT_REQUEST_OPTIONS
+    )
 
 
 @pytest.mark.asyncio
@@ -242,7 +247,9 @@ async def test_cancel_contact_request_calls_by_id() -> None:
     rest.human_api_contacts.cancel_contact_request = AsyncMock(return_value=MagicMock())
 
     await HumanTools(rest).cancel_contact_request(request_id="r-3")
-    rest.human_api_contacts.cancel_contact_request.assert_awaited_once_with(id="r-3")
+    rest.human_api_contacts.cancel_contact_request.assert_awaited_once_with(
+        id="r-3", request_options=DEFAULT_REQUEST_OPTIONS
+    )
 
 
 @pytest.mark.asyncio
@@ -256,11 +263,14 @@ async def test_resolve_handle_passes_handle() -> None:
 
 @pytest.mark.asyncio
 async def test_remove_my_contact_requires_one_identifier() -> None:
+    """Matches today's MCP handler: returns the error string verbatim
+    instead of raising. See ``thenvoi-mcp`` human_contacts.remove_my_contact.
+    """
     rest = _make_rest_fake()
     rest.human_api_contacts.remove_my_contact = AsyncMock(return_value=MagicMock())
 
-    with pytest.raises(ValueError, match="contact_id or handle"):
-        await HumanTools(rest).remove_my_contact()
+    result = await HumanTools(rest).remove_my_contact()
+    assert result == "Error: Either contact_id or handle must be provided"
     rest.human_api_contacts.remove_my_contact.assert_not_awaited()
 
 
@@ -270,7 +280,9 @@ async def test_remove_my_contact_with_contact_id_only() -> None:
     rest.human_api_contacts.remove_my_contact = AsyncMock(return_value=MagicMock())
 
     await HumanTools(rest).remove_my_contact(contact_id="c-1")
-    rest.human_api_contacts.remove_my_contact.assert_awaited_once_with(contact_id="c-1")
+    rest.human_api_contacts.remove_my_contact.assert_awaited_once_with(
+        contact_id="c-1", request_options=DEFAULT_REQUEST_OPTIONS
+    )
 
 
 @pytest.mark.asyncio
@@ -279,7 +291,9 @@ async def test_remove_my_contact_with_handle_only() -> None:
     rest.human_api_contacts.remove_my_contact = AsyncMock(return_value=MagicMock())
 
     await HumanTools(rest).remove_my_contact(handle="@bob")
-    rest.human_api_contacts.remove_my_contact.assert_awaited_once_with(handle="@bob")
+    rest.human_api_contacts.remove_my_contact.assert_awaited_once_with(
+        handle="@bob", request_options=DEFAULT_REQUEST_OPTIONS
+    )
 
 
 @pytest.mark.asyncio
@@ -289,7 +303,7 @@ async def test_remove_my_contact_with_both_sends_both() -> None:
 
     await HumanTools(rest).remove_my_contact(contact_id="c-1", handle="@bob")
     rest.human_api_contacts.remove_my_contact.assert_awaited_once_with(
-        contact_id="c-1", handle="@bob"
+        contact_id="c-1", handle="@bob", request_options=DEFAULT_REQUEST_OPTIONS
     )
 
 
@@ -363,24 +377,27 @@ async def test_send_my_chat_message_resolves_recipients_by_name() -> None:
     assert isinstance(message, ChatMessageRequest)
     assert message.content == "hello"
     assert {m.id for m in message.mentions} == {"u-1", "u-2"}
+    assert send_call.kwargs["request_options"] is DEFAULT_REQUEST_OPTIONS
 
 
 @pytest.mark.asyncio
 async def test_send_my_chat_message_rejects_empty_recipients() -> None:
+    """Matches today's MCP handler: returns the error string verbatim."""
     rest = _make_rest_fake()
     rest.human_api_participants.list_my_chat_participants = AsyncMock()
     rest.human_api_messages.send_my_chat_message = AsyncMock()
 
-    with pytest.raises(ValueError, match="empty"):
-        await HumanTools(rest).send_my_chat_message(
-            chat_id="c-1", content="hi", recipients="  "
-        )
+    result = await HumanTools(rest).send_my_chat_message(
+        chat_id="c-1", content="hi", recipients="  "
+    )
+    assert result == "Error: recipients cannot be empty"
     rest.human_api_participants.list_my_chat_participants.assert_not_awaited()
     rest.human_api_messages.send_my_chat_message.assert_not_awaited()
 
 
 @pytest.mark.asyncio
 async def test_send_my_chat_message_reports_unknown_recipients() -> None:
+    """Matches today's MCP handler: returns the error string verbatim."""
     rest = _make_rest_fake()
     alice = _mk_participant(id="u-1", name="Alice")
     rest.human_api_participants.list_my_chat_participants = AsyncMock(
@@ -388,10 +405,12 @@ async def test_send_my_chat_message_reports_unknown_recipients() -> None:
     )
     rest.human_api_messages.send_my_chat_message = AsyncMock()
 
-    with pytest.raises(ValueError, match="Not found"):
-        await HumanTools(rest).send_my_chat_message(
-            chat_id="c-1", content="hi", recipients="Alice,Zeke"
-        )
+    result = await HumanTools(rest).send_my_chat_message(
+        chat_id="c-1", content="hi", recipients="Alice,Zeke"
+    )
+    assert isinstance(result, str)
+    assert result.startswith("Error: Not found: zeke")
+    assert "Available: alice" in result
     rest.human_api_messages.send_my_chat_message.assert_not_awaited()
 
 
@@ -422,13 +441,17 @@ async def test_add_my_chat_participant_builds_request_with_default_role() -> Non
         return_value=MagicMock()
     )
 
-    await HumanTools(rest).add_my_chat_participant(chat_id="c-1", participant_id="p-1")
+    result = await HumanTools(rest).add_my_chat_participant(
+        chat_id="c-1", participant_id="p-1"
+    )
     call_kwargs = rest.human_api_participants.add_my_chat_participant.call_args.kwargs
     assert call_kwargs["chat_id"] == "c-1"
     participant = call_kwargs["participant"]
     assert isinstance(participant, ParticipantRequest)
     assert participant.participant_id == "p-1"
     assert participant.role == "member"
+    # Matches today's MCP handler: returns the summary string verbatim.
+    assert result == "Added participant: p-1"
 
 
 @pytest.mark.asyncio
@@ -438,13 +461,14 @@ async def test_add_my_chat_participant_passes_role() -> None:
         return_value=MagicMock()
     )
 
-    await HumanTools(rest).add_my_chat_participant(
+    result = await HumanTools(rest).add_my_chat_participant(
         chat_id="c-1", participant_id="p-1", role="admin"
     )
     participant = rest.human_api_participants.add_my_chat_participant.call_args.kwargs[
         "participant"
     ]
     assert participant.role == "admin"
+    assert result == "Added participant: p-1"
 
 
 @pytest.mark.asyncio
@@ -454,12 +478,16 @@ async def test_remove_my_chat_participant_passes_ids() -> None:
         return_value=MagicMock()
     )
 
-    await HumanTools(rest).remove_my_chat_participant(
+    result = await HumanTools(rest).remove_my_chat_participant(
         chat_id="c-1", participant_id="p-2"
     )
-    rest.human_api_participants.remove_my_chat_participant.assert_awaited_once_with(
-        chat_id="c-1", id="p-2"
+    call_kwargs = (
+        rest.human_api_participants.remove_my_chat_participant.call_args.kwargs
     )
+    assert call_kwargs["chat_id"] == "c-1"
+    assert call_kwargs["id"] == "p-2"
+    # Matches today's MCP handler: returns the summary string verbatim.
+    assert result == "Removed participant: p-2"
 
 
 # ---------- human_memories ----------
@@ -507,7 +535,9 @@ async def test_supersede_user_memory_passes_positional_id() -> None:
     rest.human_api_memories.supersede_user_memory = AsyncMock(return_value=MagicMock())
 
     await HumanTools(rest).supersede_user_memory(memory_id="m-1")
-    rest.human_api_memories.supersede_user_memory.assert_awaited_once_with("m-1")
+    rest.human_api_memories.supersede_user_memory.assert_awaited_once_with(
+        "m-1", request_options=DEFAULT_REQUEST_OPTIONS
+    )
 
 
 @pytest.mark.asyncio
@@ -516,7 +546,9 @@ async def test_archive_user_memory_passes_positional_id() -> None:
     rest.human_api_memories.archive_user_memory = AsyncMock(return_value=MagicMock())
 
     await HumanTools(rest).archive_user_memory(memory_id="m-1")
-    rest.human_api_memories.archive_user_memory.assert_awaited_once_with("m-1")
+    rest.human_api_memories.archive_user_memory.assert_awaited_once_with(
+        "m-1", request_options=DEFAULT_REQUEST_OPTIONS
+    )
 
 
 @pytest.mark.asyncio
@@ -525,7 +557,9 @@ async def test_restore_user_memory_passes_positional_id() -> None:
     rest.human_api_memories.restore_user_memory = AsyncMock(return_value=MagicMock())
 
     await HumanTools(rest).restore_user_memory(memory_id="m-1")
-    rest.human_api_memories.restore_user_memory.assert_awaited_once_with("m-1")
+    rest.human_api_memories.restore_user_memory.assert_awaited_once_with(
+        "m-1", request_options=DEFAULT_REQUEST_OPTIONS
+    )
 
 
 @pytest.mark.asyncio
@@ -536,7 +570,9 @@ async def test_delete_user_memory_returns_mcp_shape_payload() -> None:
     rest.human_api_memories.delete_user_memory = AsyncMock(return_value=None)
 
     result = await HumanTools(rest).delete_user_memory(memory_id="m-1")
-    rest.human_api_memories.delete_user_memory.assert_awaited_once_with("m-1")
+    rest.human_api_memories.delete_user_memory.assert_awaited_once_with(
+        "m-1", request_options=DEFAULT_REQUEST_OPTIONS
+    )
     assert result == {"deleted": True, "id": "m-1"}
     assert set(result.keys()) == {"deleted", "id"}
     assert isinstance(result["deleted"], bool)
@@ -557,11 +593,14 @@ async def test_get_my_profile_takes_no_args() -> None:
 
 @pytest.mark.asyncio
 async def test_update_my_profile_requires_at_least_one_field() -> None:
+    """Matches today's MCP handler: returns the error string verbatim."""
     rest = _make_rest_fake()
     rest.human_api_profile.update_my_profile = AsyncMock(return_value=MagicMock())
 
-    with pytest.raises(ValueError, match="first_name or last_name"):
-        await HumanTools(rest).update_my_profile()
+    result = await HumanTools(rest).update_my_profile()
+    assert (
+        result == "Error: At least one field (first_name or last_name) must be provided"
+    )
     rest.human_api_profile.update_my_profile.assert_not_awaited()
 
 
@@ -572,19 +611,20 @@ async def test_update_my_profile_builds_partial_user_payload() -> None:
 
     await HumanTools(rest).update_my_profile(first_name="Alice")
     rest.human_api_profile.update_my_profile.assert_awaited_once_with(
-        user={"first_name": "Alice"}
+        user={"first_name": "Alice"}, request_options=DEFAULT_REQUEST_OPTIONS
     )
 
     rest.human_api_profile.update_my_profile.reset_mock()
     await HumanTools(rest).update_my_profile(last_name="Doe")
     rest.human_api_profile.update_my_profile.assert_awaited_once_with(
-        user={"last_name": "Doe"}
+        user={"last_name": "Doe"}, request_options=DEFAULT_REQUEST_OPTIONS
     )
 
     rest.human_api_profile.update_my_profile.reset_mock()
     await HumanTools(rest).update_my_profile(first_name="Alice", last_name="Doe")
     rest.human_api_profile.update_my_profile.assert_awaited_once_with(
-        user={"first_name": "Alice", "last_name": "Doe"}
+        user={"first_name": "Alice", "last_name": "Doe"},
+        request_options=DEFAULT_REQUEST_OPTIONS,
     )
 
 
