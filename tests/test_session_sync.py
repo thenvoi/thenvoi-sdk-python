@@ -153,43 +153,37 @@ class TestLruDedupeCache:
     @pytest.mark.asyncio
     async def test_lru_cache_evicts_oldest(self, ctx):
         """LRU cache should evict oldest entries when full."""
-        # _max_processed_ids is 5
+        limit = ctx._max_processed_ids
 
-        # Process 5 events
-        for i in range(5):
+        for i in range(limit):
             event = make_message_event(msg_id=f"msg-{i:03d}")
             await ctx._process_event(event)
 
-        assert len(ctx._processed_ids) == 5
+        assert len(ctx._processed_ids) == limit
         assert "msg-000" in ctx._processed_ids
 
-        # Process 6th event - should evict msg-000
-        event6 = make_message_event(msg_id="msg-005")
-        await ctx._process_event(event6)
+        event_overflow = make_message_event(msg_id=f"msg-{limit:03d}")
+        await ctx._process_event(event_overflow)
 
-        assert len(ctx._processed_ids) == 5
+        assert len(ctx._processed_ids) == limit
         assert "msg-000" not in ctx._processed_ids
-        assert "msg-005" in ctx._processed_ids
+        assert f"msg-{limit:03d}" in ctx._processed_ids
 
     @pytest.mark.asyncio
     async def test_duplicate_refreshes_lru_position(self, ctx):
         """Accessing duplicate should refresh its LRU position."""
-        # Process 3 events
-        for i in range(3):
+        limit = ctx._max_processed_ids
+
+        for i in range(limit):
             event = make_message_event(msg_id=f"msg-{i:03d}")
             await ctx._process_event(event)
 
-        # Access msg-000 again (duplicate) - should move to end
         event0_dup = make_message_event(msg_id="msg-000")
         await ctx._process_event(event0_dup)
 
-        # Process 3 more to fill and overflow
-        for i in range(3, 6):
-            event = make_message_event(msg_id=f"msg-{i:03d}")
-            await ctx._process_event(event)
+        event_overflow = make_message_event(msg_id=f"msg-{limit:03d}")
+        await ctx._process_event(event_overflow)
 
-        # msg-000 should still be there (was refreshed)
-        # msg-001 should be evicted (oldest after refresh)
         assert "msg-000" in ctx._processed_ids
         assert "msg-001" not in ctx._processed_ids
 

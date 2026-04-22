@@ -200,7 +200,7 @@ class ExecutionContext:
 
         # Dedupe cache (LRU for detecting duplicates during sync)
         self._processed_ids: OrderedDict[str, bool] = OrderedDict()
-        self._max_processed_ids: int = 5
+        self._max_processed_ids: int = 500
 
         # Crash recovery: sync point marker and retry tracking
         self._first_ws_msg_id: str | None = None  # First WS message = sync point
