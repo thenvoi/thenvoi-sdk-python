@@ -76,12 +76,17 @@ def build_thenvoi_mcp_tool_registrations(
     tool_definitions: Sequence[ToolDefinition] | None = None,
 ) -> list[MCPToolRegistration]:
     """Build MCP tool registrations for Thenvoi tools and custom tools."""
+    # LocalMCPServer stays agent-only in Phase 1 of INT-338. Pin surface
+    # so a human tool added to the registry never leaks into an adapter
+    # expecting only agent tools. Widening is deferred to a future ticket.
     definitions = (
         list(tool_definitions)
         if tool_definitions is not None
         else [
             definition
-            for definition in iter_tool_definitions(include_memory=include_memory)
+            for definition in iter_tool_definitions(
+                surface="agent", include_memory=include_memory
+            )
         ]
     )
     registrations = [
@@ -103,12 +108,15 @@ def build_resolved_thenvoi_mcp_tool_registrations(
     tool_definitions: Sequence[ToolDefinition] | None = None,
 ) -> list[MCPToolRegistration]:
     """Build MCP registrations that resolve room-scoped tools at call time."""
+    # LocalMCPServer stays agent-only — see build_thenvoi_mcp_tool_registrations.
     definitions = (
         list(tool_definitions)
         if tool_definitions is not None
         else [
             definition
-            for definition in iter_tool_definitions(include_memory=include_memory)
+            for definition in iter_tool_definitions(
+                surface="agent", include_memory=include_memory
+            )
         ]
     )
     registrations = [
