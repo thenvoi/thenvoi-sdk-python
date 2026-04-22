@@ -87,19 +87,6 @@ async def test_register_my_agent_builds_request_object() -> None:
     assert result is response
 
 
-@pytest.mark.asyncio
-async def test_delete_my_agent_omits_force_when_none() -> None:
-    rest = _make_rest_fake()
-    rest.human_api_agents.delete_my_agent = AsyncMock(return_value=MagicMock())
-
-    await HumanTools(rest).delete_my_agent(agent_id="abc")
-    rest.human_api_agents.delete_my_agent.assert_awaited_once_with("abc")
-
-    rest.human_api_agents.delete_my_agent.reset_mock()
-    await HumanTools(rest).delete_my_agent(agent_id="abc", force=True)
-    rest.human_api_agents.delete_my_agent.assert_awaited_once_with("abc", force=True)
-
-
 # ---------- human_chats ----------
 
 

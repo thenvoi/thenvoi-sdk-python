@@ -59,7 +59,6 @@ PHASE1_HUMAN_TOOLS: frozenset[str] = frozenset(
     {
         "thenvoi_list_my_agents",
         "thenvoi_register_my_agent",
-        "thenvoi_delete_my_agent",
         "thenvoi_list_my_chats",
         "thenvoi_create_my_chat_room",
         "thenvoi_get_my_chat_room",

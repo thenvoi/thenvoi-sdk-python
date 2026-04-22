@@ -354,15 +354,6 @@ class RegisterMyAgentInput(BaseModel):
     description: str = Field(..., description="Agent description (required).")
 
 
-class DeleteMyAgentInput(BaseModel):
-    """Delete an agent owned by the user."""
-
-    agent_id: str = Field(..., description="ID of the agent to delete (required).")
-    force: bool | None = Field(
-        None, description="If true, force deletion even when the agent is active."
-    )
-
-
 # human_chats.py
 
 
@@ -746,12 +737,6 @@ TOOL_DEFINITIONS: dict[str, ToolDefinition] = {
         name="thenvoi_register_my_agent",
         input_model=RegisterMyAgentInput,
         method_name="register_my_agent",
-        surface="human",
-    ),
-    "thenvoi_delete_my_agent": ToolDefinition(
-        name="thenvoi_delete_my_agent",
-        input_model=DeleteMyAgentInput,
-        method_name="delete_my_agent",
         surface="human",
     ),
     "thenvoi_list_my_chats": ToolDefinition(
@@ -2164,14 +2149,6 @@ class HumanTools:
         logger.debug("Registering my agent: name=%s", name)
         agent_request = AgentRegisterRequest(name=name, description=description)
         return await self.rest.human_api_agents.register_my_agent(agent=agent_request)
-
-    async def delete_my_agent(self, agent_id: str, force: bool | None = None) -> Any:
-        """Delete an agent owned by the user."""
-        logger.debug("Deleting my agent: agent_id=%s, force=%s", agent_id, force)
-        kwargs: dict[str, Any] = {}
-        if force is not None:
-            kwargs["force"] = force
-        return await self.rest.human_api_agents.delete_my_agent(agent_id, **kwargs)
 
     # --- human_chats.py ---
 
