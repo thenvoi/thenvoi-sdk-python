@@ -1,3 +1,7 @@
+# /// script
+# requires-python = ">=3.11"
+# dependencies = ["mcp", "anthropic>=0.75.0"]
+# ///
 """MCP tool server for AgentCore — wraps Claude as a chat tool.
 
 Deploy this as a Bedrock AgentCore runtime to expose an LLM-powered
@@ -5,8 +9,7 @@ agent via MCP protocol. The bridge's AgentCoreHandler sends
 ``tools/call`` requests which this server handles.
 
 Local testing:
-    pip install mcp anthropic
-    ANTHROPIC_API_KEY=sk-... python agentcore_llm_server.py
+    ANTHROPIC_API_KEY=sk-... uv run examples/agentcore/agentcore_llm_server.py
 
 Deploy to AgentCore:
     Package this as a container image and register it via

@@ -68,8 +68,7 @@ def main(host: str, port: int, gateway_url: str, peers: str, model: str) -> None
     """Start the Demo Orchestrator A2A server."""
     # Check for OpenAI API key
     if not os.getenv("OPENAI_API_KEY"):
-        logger.error("OPENAI_API_KEY environment variable is required")
-        sys.exit(1)
+        raise ValueError("OPENAI_API_KEY environment variable is required")
 
     # Parse available peers from CLI arg
     available_peers = [p.strip() for p in peers.split(",") if p.strip()]
@@ -160,9 +159,9 @@ def main(host: str, port: int, gateway_url: str, peers: str, model: str) -> None
         # Run server
         uvicorn.run(server.build(), host=host, port=port)
 
-    except Exception as e:
-        logger.error("Error starting server: %s", e)
-        sys.exit(1)
+    except Exception:
+        logger.exception("Error starting server")
+        raise
 
 
 if __name__ == "__main__":

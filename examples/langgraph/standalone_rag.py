@@ -1,3 +1,10 @@
+# /// script
+# requires-python = ">=3.11"
+# dependencies = ["thenvoi-sdk[langgraph]"]
+#
+# [tool.uv.sources]
+# thenvoi-sdk = { git = "https://github.com/thenvoi/thenvoi-sdk-python.git" }
+# ///
 """
 Standalone Agentic RAG graph - completely independent of Thenvoi.
 
@@ -12,6 +19,9 @@ This graph implements an intelligent RAG system that:
 5. Generates answers based on context
 
 It can be imported and used as a tool in any agent, or used standalone.
+
+Run with:
+    uv run examples/langgraph/standalone_rag.py
 """
 
 from typing import Literal, cast

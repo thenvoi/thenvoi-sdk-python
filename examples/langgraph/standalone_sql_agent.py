@@ -1,3 +1,10 @@
+# /// script
+# requires-python = ">=3.11"
+# dependencies = ["thenvoi-sdk[langgraph]"]
+#
+# [tool.uv.sources]
+# thenvoi-sdk = { git = "https://github.com/thenvoi/thenvoi-sdk-python.git" }
+# ///
 """
 Standalone SQL Agent - A real working example that queries databases.
 
@@ -16,6 +23,9 @@ This is a complete, functional example with:
 - Multiple database interaction tools
 - ReAct-style agent that reasons about database structure
 - Query validation before execution
+
+Run with:
+    uv run examples/langgraph/standalone_sql_agent.py
 """
 
 from typing import Annotated, Literal
