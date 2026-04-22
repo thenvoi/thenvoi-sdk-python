@@ -216,6 +216,7 @@ class ExecutionContext:
 
         # Pending system messages to inject (e.g., contact broadcasts)
         self._pending_system_messages: list[str] = []
+        self._reconnect_sync_requested = False
 
     @property
     def thread_id(self) -> str:
@@ -355,10 +356,12 @@ class ExecutionContext:
         """
         if isinstance(event, ReconnectedEvent):
             logger.info(
-                "ExecutionContext %s: Reconnected, re-running synchronization",
+                "ExecutionContext %s: Reconnected, scheduling synchronization",
                 self.room_id,
             )
-            await self._synchronize_with_next()
+            self._reconnect_sync_requested = True
+            self.queue.put_nowait(event)
+            logger.debug("Event %s enqueued for room %s", event.type, self.room_id)
             return
 
         # Track first WebSocket message ID for sync point
@@ -1019,6 +1022,18 @@ class ExecutionContext:
         4. Execute handler
         5. Mark as processed (success) or failed (exception)
         """
+        if isinstance(event, ReconnectedEvent):
+            self._set_state("processing")
+            logger.debug("Processing %s in room %s", event.type, self.room_id)
+            try:
+                if self._reconnect_sync_requested:
+                    self._reconnect_sync_requested = False
+                    await self._synchronize_with_next()
+                logger.debug("Event %s processed successfully", event.type)
+            finally:
+                self._set_state("idle")
+            return
+
         payload = event.payload if isinstance(event, MessageEvent) else None
         msg_id = payload.id if payload else None
 

@@ -324,14 +324,26 @@ class TestReconnectSync:
         return ctx
 
     @pytest.mark.asyncio
-    async def test_reconnected_event_reruns_sync_without_queueing(self, ctx):
-        """Reconnect events should trigger sync immediately and not enter the queue."""
+    async def test_reconnected_event_is_enqueued_for_serialized_sync(self, ctx):
+        """Reconnect events should be serialized through the room queue."""
         ctx._synchronize_with_next = AsyncMock()
 
         await ctx.on_event(ReconnectedEvent())
 
+        assert ctx._reconnect_sync_requested is True
+        queued = ctx.queue.get_nowait()
+        assert isinstance(queued, ReconnectedEvent)
+
+    @pytest.mark.asyncio
+    async def test_reconnected_event_runs_sync_when_processed(self, ctx):
+        """Queued reconnect events should run sync inside the execution loop."""
+        ctx._synchronize_with_next = AsyncMock()
+        ctx._reconnect_sync_requested = True
+
+        await ctx._process_event(ReconnectedEvent())
+
         ctx._synchronize_with_next.assert_awaited_once_with()
-        assert ctx.queue.empty()
+        assert ctx._reconnect_sync_requested is False
 
 
 class TestCrashRecovery:
