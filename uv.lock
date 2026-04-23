@@ -79,15 +79,6 @@ wheels = [
 ]
 
 [[package]]
-name = "absolufy-imports"
-version = "0.3.1"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/74/0f/9da9dc9a12ebf4622ec96d9338d221e0172699e7574929f65ec8fdb30f9c/absolufy_imports-0.3.1.tar.gz", hash = "sha256:c90638a6c0b66826d1fb4880ddc20ef7701af34192c94faf40b95d32b59f9793", size = 4724, upload-time = "2022-01-20T14:48:53.434Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/a3/a4/b65c9fbc2c0c09c0ea3008f62d2010fd261e62a4881502f03a6301079182/absolufy_imports-0.3.1-py2.py3-none-any.whl", hash = "sha256:49bf7c753a9282006d553ba99217f48f947e3eef09e18a700f8a82f75dc7fc5c", size = 5937, upload-time = "2022-01-20T14:48:51.718Z" },
-]
-
-[[package]]
 name = "agent-client-protocol"
 version = "0.9.0"
 source = { registry = "https://pypi.org/simple" }
@@ -359,9 +350,9 @@ name = "alembic"
 version = "1.18.4"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "mako" },
-    { name = "sqlalchemy" },
-    { name = "typing-extensions" },
+    { name = "mako", marker = "(extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev')" },
+    { name = "sqlalchemy", marker = "(extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev')" },
+    { name = "typing-extensions", marker = "(extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev')" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/94/13/8b084e0f2efb0275a1d534838844926f798bd766566b1375174e2448cd31/alembic-1.18.4.tar.gz", hash = "sha256:cb6e1fd84b6174ab8dbb2329f86d631ba9559dd78df550b57804d607672cedbc", size = 2056725, upload-time = "2026-02-10T16:00:47.195Z" }
 wheels = [
@@ -885,7 +876,7 @@ dependencies = [
     { name = "pypika" },
     { name = "pyyaml" },
     { name = "rich", version = "14.3.4", source = { registry = "https://pypi.org/simple" } },
-    { name = "tenacity", version = "8.5.0", source = { registry = "https://pypi.org/simple" } },
+    { name = "tenacity" },
     { name = "tokenizers" },
     { name = "tqdm" },
     { name = "typer", version = "0.23.1", source = { registry = "https://pypi.org/simple" } },
@@ -1743,7 +1734,7 @@ wheels = [
 
 [[package]]
 name = "google-adk"
-version = "1.14.1"
+version = "1.1.1"
 source = { registry = "https://pypi.org/simple" }
 resolution-markers = [
     "python_full_version >= '3.14'",
@@ -1751,16 +1742,12 @@ resolution-markers = [
     "python_full_version < '3.13'",
 ]
 dependencies = [
-    { name = "absolufy-imports", marker = "extra == 'extra-11-thenvoi-sdk-crewai' or extra == 'extra-11-thenvoi-sdk-dev'" },
-    { name = "anyio", marker = "extra == 'extra-11-thenvoi-sdk-crewai' or extra == 'extra-11-thenvoi-sdk-dev'" },
     { name = "authlib", marker = "extra == 'extra-11-thenvoi-sdk-crewai' or extra == 'extra-11-thenvoi-sdk-dev'" },
     { name = "click", version = "8.1.8", source = { registry = "https://pypi.org/simple" }, marker = "extra == 'extra-11-thenvoi-sdk-crewai' or extra == 'extra-11-thenvoi-sdk-dev'" },
     { name = "fastapi", marker = "extra == 'extra-11-thenvoi-sdk-crewai' or extra == 'extra-11-thenvoi-sdk-dev'" },
     { name = "google-api-python-client", marker = "extra == 'extra-11-thenvoi-sdk-crewai' or extra == 'extra-11-thenvoi-sdk-dev'" },
-    { name = "google-cloud-aiplatform", version = "1.126.1", source = { registry = "https://pypi.org/simple" }, extra = ["agent-engines"], marker = "extra == 'extra-11-thenvoi-sdk-crewai' or extra == 'extra-11-thenvoi-sdk-dev'" },
-    { name = "google-cloud-bigtable", marker = "extra == 'extra-11-thenvoi-sdk-crewai' or extra == 'extra-11-thenvoi-sdk-dev'" },
+    { name = "google-cloud-aiplatform", marker = "extra == 'extra-11-thenvoi-sdk-crewai' or extra == 'extra-11-thenvoi-sdk-dev'" },
     { name = "google-cloud-secret-manager", marker = "extra == 'extra-11-thenvoi-sdk-crewai' or extra == 'extra-11-thenvoi-sdk-dev'" },
-    { name = "google-cloud-spanner", marker = "extra == 'extra-11-thenvoi-sdk-crewai' or extra == 'extra-11-thenvoi-sdk-dev'" },
     { name = "google-cloud-speech", marker = "extra == 'extra-11-thenvoi-sdk-crewai' or extra == 'extra-11-thenvoi-sdk-dev'" },
     { name = "google-cloud-storage", version = "2.19.0", source = { registry = "https://pypi.org/simple" }, marker = "extra == 'extra-11-thenvoi-sdk-crewai' or extra == 'extra-11-thenvoi-sdk-dev'" },
     { name = "google-genai", marker = "extra == 'extra-11-thenvoi-sdk-crewai' or extra == 'extra-11-thenvoi-sdk-dev'" },
@@ -1770,23 +1757,15 @@ dependencies = [
     { name = "opentelemetry-exporter-gcp-trace", marker = "extra == 'extra-11-thenvoi-sdk-crewai' or extra == 'extra-11-thenvoi-sdk-dev'" },
     { name = "opentelemetry-sdk", version = "1.34.1", source = { registry = "https://pypi.org/simple" }, marker = "extra == 'extra-11-thenvoi-sdk-crewai' or extra == 'extra-11-thenvoi-sdk-dev'" },
     { name = "pydantic", marker = "extra == 'extra-11-thenvoi-sdk-crewai' or extra == 'extra-11-thenvoi-sdk-dev'" },
-    { name = "python-dateutil", marker = "extra == 'extra-11-thenvoi-sdk-crewai' or extra == 'extra-11-thenvoi-sdk-dev'" },
     { name = "python-dotenv", version = "1.1.1", source = { registry = "https://pypi.org/simple" }, marker = "extra == 'extra-11-thenvoi-sdk-crewai' or extra == 'extra-11-thenvoi-sdk-dev'" },
     { name = "pyyaml", marker = "extra == 'extra-11-thenvoi-sdk-crewai' or extra == 'extra-11-thenvoi-sdk-dev'" },
-    { name = "requests", marker = "extra == 'extra-11-thenvoi-sdk-crewai' or extra == 'extra-11-thenvoi-sdk-dev'" },
     { name = "sqlalchemy", marker = "extra == 'extra-11-thenvoi-sdk-crewai' or extra == 'extra-11-thenvoi-sdk-dev'" },
-    { name = "sqlalchemy-spanner", marker = "extra == 'extra-11-thenvoi-sdk-crewai' or extra == 'extra-11-thenvoi-sdk-dev'" },
-    { name = "starlette", marker = "extra == 'extra-11-thenvoi-sdk-crewai' or extra == 'extra-11-thenvoi-sdk-dev'" },
-    { name = "tenacity", version = "8.5.0", source = { registry = "https://pypi.org/simple" }, marker = "extra == 'extra-11-thenvoi-sdk-crewai' or extra == 'extra-11-thenvoi-sdk-dev'" },
-    { name = "typing-extensions", marker = "extra == 'extra-11-thenvoi-sdk-crewai' or extra == 'extra-11-thenvoi-sdk-dev'" },
     { name = "tzlocal", marker = "extra == 'extra-11-thenvoi-sdk-crewai' or extra == 'extra-11-thenvoi-sdk-dev'" },
     { name = "uvicorn", marker = "extra == 'extra-11-thenvoi-sdk-crewai' or extra == 'extra-11-thenvoi-sdk-dev'" },
-    { name = "watchdog", marker = "extra == 'extra-11-thenvoi-sdk-crewai' or extra == 'extra-11-thenvoi-sdk-dev'" },
-    { name = "websockets", marker = "extra == 'extra-11-thenvoi-sdk-crewai' or extra == 'extra-11-thenvoi-sdk-dev'" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/35/fe/0efba60d22bfcd7ab18f48d23771f0701664fd93be247eddc42592b9b68f/google_adk-1.14.1.tar.gz", hash = "sha256:06caab4599286123eceb9348e4accb6c3c1476b8d9b2b13f078a975c8ace966f", size = 1681879, upload-time = "2025-09-15T00:06:48.823Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/0f/38/a67f59a3ecf9630d93007848ec3f41beec4415014e3fd1fa8f159c7e85fc/google_adk-1.1.1.tar.gz", hash = "sha256:9418675574d2e9fd8a3c8e423186b86fe4ad3f211dd5da400cf24f1ef39fe2d7", size = 1094600, upload-time = "2025-05-29T00:13:31.572Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/31/74/0b68fab470f13e80fd135bcf890c13bb1154804c1eaaff60dd1f5995027c/google_adk-1.14.1-py3-none-any.whl", hash = "sha256:acb31ed41d3b05b0d3a65cce76f6ef1289385f49a72164a07dae56190b648d50", size = 1922802, upload-time = "2025-09-15T00:06:47.011Z" },
+    { url = "https://files.pythonhosted.org/packages/53/1d/cefb793fed19159e8a1975cb1767288b848b9c14020f70c1f0c8048a706c/google_adk-1.1.1-py3-none-any.whl", hash = "sha256:c6cdca1b9cab7126efa4984abaff2d7b26da7945da9e6b0e2e6ea1727fb3f966", size = 1235870, upload-time = "2025-05-29T00:13:29.563Z" },
 ]
 
 [[package]]
@@ -1833,7 +1812,7 @@ dependencies = [
     { name = "fastapi", marker = "(extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev')" },
     { name = "google-api-python-client", marker = "(extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev')" },
     { name = "google-auth", extra = ["pyopenssl"], marker = "(extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev')" },
-    { name = "google-cloud-aiplatform", version = "1.148.1", source = { registry = "https://pypi.org/simple" }, extra = ["agent-engines"], marker = "(extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev')" },
+    { name = "google-cloud-aiplatform", extra = ["agent-engines"], marker = "(extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev')" },
     { name = "google-cloud-bigquery", marker = "(extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev')" },
     { name = "google-cloud-bigquery-storage", marker = "(extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev')" },
     { name = "google-cloud-bigtable", marker = "(extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev')" },
@@ -1849,7 +1828,7 @@ dependencies = [
     { name = "jsonschema", marker = "(extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev')" },
     { name = "mcp", version = "1.27.0", source = { registry = "https://pypi.org/simple" }, marker = "(extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev')" },
     { name = "opentelemetry-api", version = "1.38.0", source = { registry = "https://pypi.org/simple" }, marker = "(extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev')" },
-    { name = "opentelemetry-exporter-gcp-logging", version = "1.11.0a0", source = { registry = "https://pypi.org/simple" }, marker = "(extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev')" },
+    { name = "opentelemetry-exporter-gcp-logging", marker = "(extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev')" },
     { name = "opentelemetry-exporter-gcp-monitoring", marker = "(extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev')" },
     { name = "opentelemetry-exporter-gcp-trace", marker = "(extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev')" },
     { name = "opentelemetry-exporter-otlp-proto-http", version = "1.38.0", source = { registry = "https://pypi.org/simple" }, marker = "(extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev')" },
@@ -1864,7 +1843,7 @@ dependencies = [
     { name = "sqlalchemy", marker = "(extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev')" },
     { name = "sqlalchemy-spanner", marker = "(extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev')" },
     { name = "starlette", marker = "(extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev')" },
-    { name = "tenacity", version = "9.1.4", source = { registry = "https://pypi.org/simple" }, marker = "(extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev')" },
+    { name = "tenacity", marker = "(extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev')" },
     { name = "typing-extensions", marker = "(extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev')" },
     { name = "tzlocal", marker = "(extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev')" },
     { name = "uvicorn", marker = "(extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev')" },
@@ -2016,111 +1995,36 @@ wheels = [
 
 [[package]]
 name = "google-cloud-aiplatform"
-version = "1.126.1"
+version = "1.133.0"
 source = { registry = "https://pypi.org/simple" }
-resolution-markers = [
-    "python_full_version >= '3.14'",
-    "python_full_version == '3.13.*'",
-    "python_full_version < '3.13'",
-]
 dependencies = [
-    { name = "docstring-parser", marker = "extra == 'extra-11-thenvoi-sdk-crewai' or extra == 'extra-11-thenvoi-sdk-dev'" },
+    { name = "docstring-parser" },
     { name = "google-api-core", version = "2.25.2", source = { registry = "https://pypi.org/simple" }, extra = ["grpc"], marker = "(python_full_version >= '3.14' and extra == 'extra-11-thenvoi-sdk-crewai') or (python_full_version >= '3.14' and extra == 'extra-11-thenvoi-sdk-dev') or (extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-parlant')" },
-    { name = "google-api-core", version = "2.30.3", source = { registry = "https://pypi.org/simple" }, extra = ["grpc"], marker = "(python_full_version < '3.14' and extra == 'extra-11-thenvoi-sdk-crewai') or (python_full_version < '3.14' and extra == 'extra-11-thenvoi-sdk-dev') or (extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-parlant')" },
-    { name = "google-auth", marker = "extra == 'extra-11-thenvoi-sdk-crewai' or extra == 'extra-11-thenvoi-sdk-dev'" },
-    { name = "google-cloud-bigquery", marker = "extra == 'extra-11-thenvoi-sdk-crewai' or extra == 'extra-11-thenvoi-sdk-dev'" },
-    { name = "google-cloud-resource-manager", marker = "extra == 'extra-11-thenvoi-sdk-crewai' or extra == 'extra-11-thenvoi-sdk-dev'" },
+    { name = "google-api-core", version = "2.30.3", source = { registry = "https://pypi.org/simple" }, extra = ["grpc"], marker = "python_full_version < '3.14' or (extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev')" },
+    { name = "google-auth" },
+    { name = "google-cloud-bigquery" },
+    { name = "google-cloud-resource-manager" },
     { name = "google-cloud-storage", version = "2.19.0", source = { registry = "https://pypi.org/simple" }, marker = "extra == 'extra-11-thenvoi-sdk-crewai' or extra == 'extra-11-thenvoi-sdk-dev'" },
-    { name = "google-genai", marker = "extra == 'extra-11-thenvoi-sdk-crewai' or extra == 'extra-11-thenvoi-sdk-dev'" },
-    { name = "packaging", marker = "extra == 'extra-11-thenvoi-sdk-crewai' or extra == 'extra-11-thenvoi-sdk-dev'" },
-    { name = "proto-plus", marker = "extra == 'extra-11-thenvoi-sdk-crewai' or extra == 'extra-11-thenvoi-sdk-dev'" },
-    { name = "protobuf", version = "5.29.6", source = { registry = "https://pypi.org/simple" }, marker = "extra == 'extra-11-thenvoi-sdk-crewai' or extra == 'extra-11-thenvoi-sdk-dev'" },
-    { name = "pydantic", marker = "extra == 'extra-11-thenvoi-sdk-crewai' or extra == 'extra-11-thenvoi-sdk-dev'" },
-    { name = "shapely", marker = "extra == 'extra-11-thenvoi-sdk-crewai' or extra == 'extra-11-thenvoi-sdk-dev'" },
-    { name = "typing-extensions", marker = "extra == 'extra-11-thenvoi-sdk-crewai' or extra == 'extra-11-thenvoi-sdk-dev'" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/0c/36/f8e41679e6cb7ea6b50c0bfeaea0b9daf1475cafa152ad30456f6ec5471f/google_cloud_aiplatform-1.126.1.tar.gz", hash = "sha256:956706c587b817e36d5a16af5ab7f48c73dde76c71d660ecd4284f0339dc37d4", size = 9777644, upload-time = "2025-11-06T22:00:52.894Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/b2/c6/3dc21f6182703d170624ed9f87894d35e1d51d1facbb471aa62cc255f233/google_cloud_aiplatform-1.126.1-py2.py3-none-any.whl", hash = "sha256:66d4daea95356d772ff026f13448ea80aa763dfd8daedc21d9ca36d0a1ee8a65", size = 8123682, upload-time = "2025-11-06T22:00:49.874Z" },
-]
-
-[package.optional-dependencies]
-agent-engines = [
-    { name = "cloudpickle", marker = "extra == 'extra-11-thenvoi-sdk-crewai' or extra == 'extra-11-thenvoi-sdk-dev'" },
-    { name = "google-cloud-logging", marker = "extra == 'extra-11-thenvoi-sdk-crewai' or extra == 'extra-11-thenvoi-sdk-dev'" },
-    { name = "google-cloud-trace", marker = "extra == 'extra-11-thenvoi-sdk-crewai' or extra == 'extra-11-thenvoi-sdk-dev'" },
-    { name = "opentelemetry-exporter-gcp-logging", version = "1.9.0a0", source = { registry = "https://pypi.org/simple" }, marker = "extra == 'extra-11-thenvoi-sdk-crewai' or extra == 'extra-11-thenvoi-sdk-dev'" },
-    { name = "opentelemetry-exporter-gcp-trace", marker = "extra == 'extra-11-thenvoi-sdk-crewai' or extra == 'extra-11-thenvoi-sdk-dev'" },
-    { name = "opentelemetry-exporter-otlp-proto-http", version = "1.34.1", source = { registry = "https://pypi.org/simple" }, marker = "extra == 'extra-11-thenvoi-sdk-crewai' or extra == 'extra-11-thenvoi-sdk-dev'" },
-    { name = "opentelemetry-sdk", version = "1.34.1", source = { registry = "https://pypi.org/simple" }, marker = "extra == 'extra-11-thenvoi-sdk-crewai' or extra == 'extra-11-thenvoi-sdk-dev'" },
-    { name = "packaging", marker = "extra == 'extra-11-thenvoi-sdk-crewai' or extra == 'extra-11-thenvoi-sdk-dev'" },
-    { name = "pydantic", marker = "extra == 'extra-11-thenvoi-sdk-crewai' or extra == 'extra-11-thenvoi-sdk-dev'" },
-    { name = "typing-extensions", marker = "extra == 'extra-11-thenvoi-sdk-crewai' or extra == 'extra-11-thenvoi-sdk-dev'" },
-]
-
-[[package]]
-name = "google-cloud-aiplatform"
-version = "1.148.1"
-source = { registry = "https://pypi.org/simple" }
-resolution-markers = [
-    "python_full_version >= '3.14' and sys_platform == 'win32' and extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant' and extra == 'extra-11-thenvoi-sdk-parlant'",
-    "python_full_version >= '3.14' and sys_platform == 'emscripten' and extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant' and extra == 'extra-11-thenvoi-sdk-parlant'",
-    "python_full_version >= '3.14' and sys_platform != 'emscripten' and sys_platform != 'win32' and extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant' and extra == 'extra-11-thenvoi-sdk-parlant'",
-    "python_full_version == '3.13.*' and sys_platform == 'win32' and extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant' and extra == 'extra-11-thenvoi-sdk-parlant'",
-    "python_full_version == '3.13.*' and sys_platform == 'emscripten' and extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant' and extra == 'extra-11-thenvoi-sdk-parlant'",
-    "python_full_version == '3.13.*' and sys_platform != 'emscripten' and sys_platform != 'win32' and extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant' and extra == 'extra-11-thenvoi-sdk-parlant'",
-    "python_full_version < '3.13' and sys_platform == 'win32' and extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant' and extra == 'extra-11-thenvoi-sdk-parlant'",
-    "python_full_version < '3.13' and sys_platform == 'emscripten' and extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant' and extra == 'extra-11-thenvoi-sdk-parlant'",
-    "python_full_version < '3.13' and sys_platform != 'emscripten' and sys_platform != 'win32' and extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant' and extra == 'extra-11-thenvoi-sdk-parlant'",
-    "python_full_version >= '3.14' and sys_platform == 'win32' and extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev' and extra != 'extra-11-thenvoi-sdk-dev-parlant' and extra == 'extra-11-thenvoi-sdk-parlant'",
-    "python_full_version >= '3.14' and sys_platform == 'emscripten' and extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev' and extra != 'extra-11-thenvoi-sdk-dev-parlant' and extra == 'extra-11-thenvoi-sdk-parlant'",
-    "python_full_version >= '3.14' and sys_platform != 'emscripten' and sys_platform != 'win32' and extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev' and extra != 'extra-11-thenvoi-sdk-dev-parlant' and extra == 'extra-11-thenvoi-sdk-parlant'",
-    "python_full_version == '3.13.*' and sys_platform == 'win32' and extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev' and extra != 'extra-11-thenvoi-sdk-dev-parlant' and extra == 'extra-11-thenvoi-sdk-parlant'",
-    "python_full_version == '3.13.*' and sys_platform == 'emscripten' and extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev' and extra != 'extra-11-thenvoi-sdk-dev-parlant' and extra == 'extra-11-thenvoi-sdk-parlant'",
-    "python_full_version == '3.13.*' and sys_platform != 'emscripten' and sys_platform != 'win32' and extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev' and extra != 'extra-11-thenvoi-sdk-dev-parlant' and extra == 'extra-11-thenvoi-sdk-parlant'",
-    "python_full_version < '3.13' and sys_platform == 'win32' and extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev' and extra != 'extra-11-thenvoi-sdk-dev-parlant' and extra == 'extra-11-thenvoi-sdk-parlant'",
-    "python_full_version < '3.13' and sys_platform == 'emscripten' and extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev' and extra != 'extra-11-thenvoi-sdk-dev-parlant' and extra == 'extra-11-thenvoi-sdk-parlant'",
-    "python_full_version < '3.13' and sys_platform != 'emscripten' and sys_platform != 'win32' and extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev' and extra != 'extra-11-thenvoi-sdk-dev-parlant' and extra == 'extra-11-thenvoi-sdk-parlant'",
-    "python_full_version >= '3.14' and sys_platform == 'win32' and extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant' and extra != 'extra-11-thenvoi-sdk-parlant'",
-    "python_full_version >= '3.14' and sys_platform == 'emscripten' and extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant' and extra != 'extra-11-thenvoi-sdk-parlant'",
-    "python_full_version >= '3.14' and sys_platform != 'emscripten' and sys_platform != 'win32' and extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant' and extra != 'extra-11-thenvoi-sdk-parlant'",
-    "python_full_version == '3.13.*' and sys_platform == 'win32' and extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant' and extra != 'extra-11-thenvoi-sdk-parlant'",
-    "python_full_version == '3.13.*' and sys_platform == 'emscripten' and extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant' and extra != 'extra-11-thenvoi-sdk-parlant'",
-    "python_full_version == '3.13.*' and sys_platform != 'emscripten' and sys_platform != 'win32' and extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant' and extra != 'extra-11-thenvoi-sdk-parlant'",
-    "python_full_version < '3.13' and sys_platform == 'win32' and extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant' and extra != 'extra-11-thenvoi-sdk-parlant'",
-    "python_full_version < '3.13' and sys_platform == 'emscripten' and extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant' and extra != 'extra-11-thenvoi-sdk-parlant'",
-    "python_full_version < '3.13' and sys_platform != 'emscripten' and sys_platform != 'win32' and extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant' and extra != 'extra-11-thenvoi-sdk-parlant'",
-    "python_full_version >= '3.14' and extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev' and extra != 'extra-11-thenvoi-sdk-dev-parlant' and extra != 'extra-11-thenvoi-sdk-parlant'",
-    "python_full_version == '3.13.*' and extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev' and extra != 'extra-11-thenvoi-sdk-dev-parlant' and extra != 'extra-11-thenvoi-sdk-parlant'",
-    "python_full_version < '3.13' and extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev' and extra != 'extra-11-thenvoi-sdk-dev-parlant' and extra != 'extra-11-thenvoi-sdk-parlant'",
-]
-dependencies = [
-    { name = "docstring-parser", marker = "(extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev')" },
-    { name = "google-api-core", version = "2.30.3", source = { registry = "https://pypi.org/simple" }, extra = ["grpc"], marker = "(extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev')" },
-    { name = "google-auth", marker = "(extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev')" },
-    { name = "google-cloud-bigquery", marker = "(extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev')" },
-    { name = "google-cloud-resource-manager", marker = "(extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev')" },
     { name = "google-cloud-storage", version = "3.10.1", source = { registry = "https://pypi.org/simple" }, marker = "(extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev')" },
-    { name = "google-genai", marker = "(extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev')" },
-    { name = "packaging", marker = "(extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev')" },
-    { name = "proto-plus", marker = "(extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev')" },
+    { name = "google-genai" },
+    { name = "packaging" },
+    { name = "proto-plus" },
+    { name = "protobuf", version = "5.29.6", source = { registry = "https://pypi.org/simple" }, marker = "extra == 'extra-11-thenvoi-sdk-crewai' or extra == 'extra-11-thenvoi-sdk-dev'" },
     { name = "protobuf", version = "6.33.6", source = { registry = "https://pypi.org/simple" }, marker = "(extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev')" },
-    { name = "pydantic", marker = "(extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev')" },
-    { name = "typing-extensions", marker = "(extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev')" },
+    { name = "pydantic" },
+    { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/c9/f3/b2a9417014c93858a2e3266134f931eefd972c2d410b25d7b8782fc6f143/google_cloud_aiplatform-1.148.1.tar.gz", hash = "sha256:75d605fba34e68714bd08e1e482755d0a6e3ae972805f809d088e686c30879e7", size = 10278758, upload-time = "2026-04-17T23:45:26.738Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/d4/be/31ce7fd658ddebafbe5583977ddee536b2bacc491ad10b5a067388aec66f/google_cloud_aiplatform-1.133.0.tar.gz", hash = "sha256:3a6540711956dd178daaab3c2c05db476e46d94ac25912b8cf4f59b00b058ae0", size = 9921309, upload-time = "2026-01-08T22:11:25.079Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/56/5b/e3515d7bbba602c2b0f6a0da5431785e897252443682e4735d0e6873dc8f/google_cloud_aiplatform-1.148.1-py2.py3-none-any.whl", hash = "sha256:035101e2d8e65c6a706cc3930b2452de7ddcbde50dd130320fcea0d8b03b0c5a", size = 8434481, upload-time = "2026-04-17T23:45:22.919Z" },
+    { url = "https://files.pythonhosted.org/packages/01/5b/ef74ff65aebb74eaba51078e33ddd897247ba0d1197fd5a7953126205519/google_cloud_aiplatform-1.133.0-py2.py3-none-any.whl", hash = "sha256:dfc81228e987ca10d1c32c7204e2131b3c8d6b7c8e0b4e23bf7c56816bc4c566", size = 8184595, upload-time = "2026-01-08T22:11:22.067Z" },
 ]
 
 [package.optional-dependencies]
 agent-engines = [
-    { name = "aiohttp", marker = "(extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev')" },
     { name = "cloudpickle", marker = "(extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev')" },
-    { name = "google-cloud-iam", marker = "(extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev')" },
     { name = "google-cloud-logging", marker = "(extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev')" },
     { name = "google-cloud-trace", marker = "(extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev')" },
-    { name = "opentelemetry-exporter-gcp-logging", version = "1.11.0a0", source = { registry = "https://pypi.org/simple" }, marker = "(extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev')" },
+    { name = "opentelemetry-exporter-gcp-logging", marker = "(extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev')" },
     { name = "opentelemetry-exporter-gcp-trace", marker = "(extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev')" },
     { name = "opentelemetry-exporter-otlp-proto-http", version = "1.38.0", source = { registry = "https://pypi.org/simple" }, marker = "(extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev')" },
     { name = "opentelemetry-sdk", version = "1.38.0", source = { registry = "https://pypi.org/simple" }, marker = "(extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev')" },
@@ -2134,12 +2038,10 @@ name = "google-cloud-appengine-logging"
 version = "1.9.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "google-api-core", version = "2.25.2", source = { registry = "https://pypi.org/simple" }, extra = ["grpc"], marker = "(python_full_version >= '3.14' and extra == 'extra-11-thenvoi-sdk-crewai') or (python_full_version >= '3.14' and extra == 'extra-11-thenvoi-sdk-dev') or (extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-parlant')" },
-    { name = "google-api-core", version = "2.30.3", source = { registry = "https://pypi.org/simple" }, extra = ["grpc"], marker = "python_full_version < '3.14' or (extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev')" },
-    { name = "google-auth" },
-    { name = "grpcio" },
-    { name = "proto-plus" },
-    { name = "protobuf", version = "5.29.6", source = { registry = "https://pypi.org/simple" }, marker = "extra == 'extra-11-thenvoi-sdk-crewai' or extra == 'extra-11-thenvoi-sdk-dev'" },
+    { name = "google-api-core", version = "2.30.3", source = { registry = "https://pypi.org/simple" }, extra = ["grpc"], marker = "(extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev')" },
+    { name = "google-auth", marker = "(extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev')" },
+    { name = "grpcio", marker = "(extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev')" },
+    { name = "proto-plus", marker = "(extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev')" },
     { name = "protobuf", version = "6.33.6", source = { registry = "https://pypi.org/simple" }, marker = "(extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev')" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/bc/02/800897064ca6f1a26835cdf23939c4b93e38a30f3fb5c7cec7c01ae2edc2/google_cloud_appengine_logging-1.9.0.tar.gz", hash = "sha256:ff397f0bbc1485f979ab45767c38e0f676c9598c97c384f7412216e6ea22f805", size = 17963, upload-time = "2026-03-30T22:51:33.556Z" }
@@ -2152,8 +2054,7 @@ name = "google-cloud-audit-log"
 version = "0.5.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "googleapis-common-protos" },
-    { name = "protobuf", version = "5.29.6", source = { registry = "https://pypi.org/simple" }, marker = "extra == 'extra-11-thenvoi-sdk-crewai' or extra == 'extra-11-thenvoi-sdk-dev'" },
+    { name = "googleapis-common-protos", marker = "(extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev')" },
     { name = "protobuf", version = "6.33.6", source = { registry = "https://pypi.org/simple" }, marker = "(extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev')" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/be/9f/3aedb3ce1d58c58ec7dd06b3964836eabfd17a16a95b60c8f609c0afff7f/google_cloud_audit_log-0.5.0.tar.gz", hash = "sha256:3b32d5e77db634c46fbd6c5e01f5bda836f420dfbb21d730501c75e9fab4e4a4", size = 44670, upload-time = "2026-03-30T22:50:42.295Z" }
@@ -2201,14 +2102,12 @@ name = "google-cloud-bigtable"
 version = "2.36.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "google-api-core", version = "2.25.2", source = { registry = "https://pypi.org/simple" }, extra = ["grpc"], marker = "(python_full_version >= '3.14' and extra == 'extra-11-thenvoi-sdk-crewai') or (python_full_version >= '3.14' and extra == 'extra-11-thenvoi-sdk-dev') or (extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-parlant')" },
-    { name = "google-api-core", version = "2.30.3", source = { registry = "https://pypi.org/simple" }, extra = ["grpc"], marker = "python_full_version < '3.14' or (extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev')" },
-    { name = "google-auth" },
-    { name = "google-cloud-core" },
-    { name = "google-crc32c" },
-    { name = "grpc-google-iam-v1" },
-    { name = "proto-plus" },
-    { name = "protobuf", version = "5.29.6", source = { registry = "https://pypi.org/simple" }, marker = "extra == 'extra-11-thenvoi-sdk-crewai' or extra == 'extra-11-thenvoi-sdk-dev'" },
+    { name = "google-api-core", version = "2.30.3", source = { registry = "https://pypi.org/simple" }, extra = ["grpc"], marker = "(extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev')" },
+    { name = "google-auth", marker = "(extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev')" },
+    { name = "google-cloud-core", marker = "(extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev')" },
+    { name = "google-crc32c", marker = "(extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev')" },
+    { name = "grpc-google-iam-v1", marker = "(extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev')" },
+    { name = "proto-plus", marker = "(extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev')" },
     { name = "protobuf", version = "6.33.6", source = { registry = "https://pypi.org/simple" }, marker = "(extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev')" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/52/f5/ad2a48306a7e8d5e47b5203703ce9c343389e60f025b5ea3f0c62ba92129/google_cloud_bigtable-2.36.0.tar.gz", hash = "sha256:d5987733c2f60c739f93f259d2037858411cc994ac37cdfbccb6bb159f3ca43e", size = 796035, upload-time = "2026-04-02T21:23:33.248Z" }
@@ -2246,39 +2145,19 @@ wheels = [
 ]
 
 [[package]]
-name = "google-cloud-iam"
-version = "2.22.0"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "google-api-core", version = "2.30.3", source = { registry = "https://pypi.org/simple" }, extra = ["grpc"], marker = "(extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev')" },
-    { name = "google-auth", marker = "(extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev')" },
-    { name = "grpc-google-iam-v1", marker = "(extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev')" },
-    { name = "grpcio", marker = "(extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev')" },
-    { name = "proto-plus", marker = "(extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev')" },
-    { name = "protobuf", version = "6.33.6", source = { registry = "https://pypi.org/simple" }, marker = "(extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev')" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/62/e5/07d4f1daf85a2a0bd9f78ad865ea678d7b4e1227ed76f671c7167aae147f/google_cloud_iam-2.22.0.tar.gz", hash = "sha256:203ddfece17e014ee4fbc5c3244daa14a88b7ee57c8e3a7622d0f2a1a3b8d7f3", size = 502498, upload-time = "2026-03-30T22:51:28.878Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/aa/a8/d721ea11d0eb93803d14cb2e90d0442bb3b269a82f7cb5faff2b98022039/google_cloud_iam-2.22.0-py3-none-any.whl", hash = "sha256:c443b34b5a6a9e51d32cee397879bb781b900af68937c67a275def23bbc025f3", size = 463425, upload-time = "2026-03-30T20:02:42.967Z" },
-]
-
-[[package]]
 name = "google-cloud-logging"
 version = "3.15.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "google-api-core", version = "2.25.2", source = { registry = "https://pypi.org/simple" }, extra = ["grpc"], marker = "(python_full_version >= '3.14' and extra == 'extra-11-thenvoi-sdk-crewai') or (python_full_version >= '3.14' and extra == 'extra-11-thenvoi-sdk-dev') or (extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-parlant')" },
-    { name = "google-api-core", version = "2.30.3", source = { registry = "https://pypi.org/simple" }, extra = ["grpc"], marker = "python_full_version < '3.14' or (extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev')" },
-    { name = "google-auth" },
-    { name = "google-cloud-appengine-logging" },
-    { name = "google-cloud-audit-log" },
-    { name = "google-cloud-core" },
-    { name = "grpc-google-iam-v1" },
-    { name = "grpcio" },
-    { name = "opentelemetry-api", version = "1.34.1", source = { registry = "https://pypi.org/simple" }, marker = "extra == 'extra-11-thenvoi-sdk-crewai' or extra == 'extra-11-thenvoi-sdk-dev'" },
+    { name = "google-api-core", version = "2.30.3", source = { registry = "https://pypi.org/simple" }, extra = ["grpc"], marker = "(extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev')" },
+    { name = "google-auth", marker = "(extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev')" },
+    { name = "google-cloud-appengine-logging", marker = "(extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev')" },
+    { name = "google-cloud-audit-log", marker = "(extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev')" },
+    { name = "google-cloud-core", marker = "(extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev')" },
+    { name = "grpc-google-iam-v1", marker = "(extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev')" },
+    { name = "grpcio", marker = "(extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev')" },
     { name = "opentelemetry-api", version = "1.38.0", source = { registry = "https://pypi.org/simple" }, marker = "(extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev')" },
-    { name = "proto-plus" },
-    { name = "protobuf", version = "5.29.6", source = { registry = "https://pypi.org/simple" }, marker = "extra == 'extra-11-thenvoi-sdk-crewai' or extra == 'extra-11-thenvoi-sdk-dev'" },
+    { name = "proto-plus", marker = "(extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev')" },
     { name = "protobuf", version = "6.33.6", source = { registry = "https://pypi.org/simple" }, marker = "(extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev')" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/99/06/253e9795a5877f35183a7175977ca47a17255fe0c8487155f48b86c83f3e/google_cloud_logging-3.15.0.tar.gz", hash = "sha256:72168a1e98bbfc27c75f0b8f630a7f5d786065f3f1f7e9e53d2d787a03693a4a", size = 294881, upload-time = "2026-03-26T22:18:36.947Z" }
@@ -2291,12 +2170,10 @@ name = "google-cloud-monitoring"
 version = "2.30.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "google-api-core", version = "2.25.2", source = { registry = "https://pypi.org/simple" }, extra = ["grpc"], marker = "(python_full_version >= '3.14' and extra == 'extra-11-thenvoi-sdk-crewai') or (python_full_version >= '3.14' and extra == 'extra-11-thenvoi-sdk-dev') or (extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-parlant')" },
-    { name = "google-api-core", version = "2.30.3", source = { registry = "https://pypi.org/simple" }, extra = ["grpc"], marker = "python_full_version < '3.14' or (extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev')" },
-    { name = "google-auth" },
-    { name = "grpcio" },
-    { name = "proto-plus" },
-    { name = "protobuf", version = "5.29.6", source = { registry = "https://pypi.org/simple" }, marker = "extra == 'extra-11-thenvoi-sdk-crewai' or extra == 'extra-11-thenvoi-sdk-dev'" },
+    { name = "google-api-core", version = "2.30.3", source = { registry = "https://pypi.org/simple" }, extra = ["grpc"], marker = "(extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev')" },
+    { name = "google-auth", marker = "(extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev')" },
+    { name = "grpcio", marker = "(extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev')" },
+    { name = "proto-plus", marker = "(extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev')" },
     { name = "protobuf", version = "6.33.6", source = { registry = "https://pypi.org/simple" }, marker = "(extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev')" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/eb/3f/7bc306ebb006114f58fb9143aec91e1b014a11577350d8bbd6bbc38389f9/google_cloud_monitoring-2.30.0.tar.gz", hash = "sha256:a9530aa9aa246c490810dfa7be32d67e8340d19108acc99cbc02d1ed494fba76", size = 407108, upload-time = "2026-03-26T22:17:10.365Z" }
@@ -2367,24 +2244,19 @@ name = "google-cloud-spanner"
 version = "3.65.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "google-api-core", version = "2.25.2", source = { registry = "https://pypi.org/simple" }, extra = ["grpc"], marker = "(python_full_version >= '3.14' and extra == 'extra-11-thenvoi-sdk-crewai') or (python_full_version >= '3.14' and extra == 'extra-11-thenvoi-sdk-dev') or (extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-parlant')" },
-    { name = "google-api-core", version = "2.30.3", source = { registry = "https://pypi.org/simple" }, extra = ["grpc"], marker = "python_full_version < '3.14' or (extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev')" },
-    { name = "google-cloud-core" },
-    { name = "google-cloud-monitoring" },
-    { name = "grpc-google-iam-v1" },
-    { name = "grpc-interceptor" },
-    { name = "mmh3" },
-    { name = "opentelemetry-api", version = "1.34.1", source = { registry = "https://pypi.org/simple" }, marker = "extra == 'extra-11-thenvoi-sdk-crewai' or extra == 'extra-11-thenvoi-sdk-dev'" },
+    { name = "google-api-core", version = "2.30.3", source = { registry = "https://pypi.org/simple" }, extra = ["grpc"], marker = "(extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev')" },
+    { name = "google-cloud-core", marker = "(extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev')" },
+    { name = "google-cloud-monitoring", marker = "(extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev')" },
+    { name = "grpc-google-iam-v1", marker = "(extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev')" },
+    { name = "grpc-interceptor", marker = "(extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev')" },
+    { name = "mmh3", marker = "(extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev')" },
     { name = "opentelemetry-api", version = "1.38.0", source = { registry = "https://pypi.org/simple" }, marker = "(extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev')" },
-    { name = "opentelemetry-resourcedetector-gcp" },
-    { name = "opentelemetry-sdk", version = "1.34.1", source = { registry = "https://pypi.org/simple" }, marker = "extra == 'extra-11-thenvoi-sdk-crewai' or extra == 'extra-11-thenvoi-sdk-dev'" },
+    { name = "opentelemetry-resourcedetector-gcp", marker = "(extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev')" },
     { name = "opentelemetry-sdk", version = "1.38.0", source = { registry = "https://pypi.org/simple" }, marker = "(extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev')" },
-    { name = "opentelemetry-semantic-conventions", version = "0.55b1", source = { registry = "https://pypi.org/simple" }, marker = "extra == 'extra-11-thenvoi-sdk-crewai' or extra == 'extra-11-thenvoi-sdk-dev'" },
     { name = "opentelemetry-semantic-conventions", version = "0.59b0", source = { registry = "https://pypi.org/simple" }, marker = "(extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev')" },
-    { name = "proto-plus" },
-    { name = "protobuf", version = "5.29.6", source = { registry = "https://pypi.org/simple" }, marker = "extra == 'extra-11-thenvoi-sdk-crewai' or extra == 'extra-11-thenvoi-sdk-dev'" },
+    { name = "proto-plus", marker = "(extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev')" },
     { name = "protobuf", version = "6.33.6", source = { registry = "https://pypi.org/simple" }, marker = "(extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev')" },
-    { name = "sqlparse" },
+    { name = "sqlparse", marker = "(extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev')" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/0d/90/b3e3c9c7b1a5ebc76d780fcda58e3a27208d5a10c6c5b78fab64dc5ea5f9/google_cloud_spanner-3.65.0.tar.gz", hash = "sha256:434139bd1439528398cd2a96e390a57182420747c214a33f317bbac64afd9c5c", size = 889154, upload-time = "2026-04-13T22:14:34.416Z" }
 wheels = [
@@ -2541,8 +2413,7 @@ dependencies = [
     { name = "pydantic" },
     { name = "requests" },
     { name = "sniffio" },
-    { name = "tenacity", version = "8.5.0", source = { registry = "https://pypi.org/simple" }, marker = "extra == 'extra-11-thenvoi-sdk-crewai' or extra == 'extra-11-thenvoi-sdk-dev'" },
-    { name = "tenacity", version = "9.1.4", source = { registry = "https://pypi.org/simple" }, marker = "(extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev')" },
+    { name = "tenacity" },
     { name = "typing-extensions" },
     { name = "websockets" },
 ]
@@ -2688,7 +2559,7 @@ name = "grpc-interceptor"
 version = "0.15.4"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "grpcio" },
+    { name = "grpcio", marker = "(extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev')" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/9f/28/57449d5567adf4c1d3e216aaca545913fbc21a915f2da6790d6734aac76e/grpc-interceptor-0.15.4.tar.gz", hash = "sha256:1f45c0bcb58b6f332f37c637632247c9b02bc6af0fdceb7ba7ce8d2ebbfb0926", size = 19322, upload-time = "2023-11-16T02:05:42.459Z" }
 wheels = [
@@ -3064,7 +2935,7 @@ dependencies = [
     { name = "pydantic-core" },
     { name = "requests" },
     { name = "rich", version = "14.3.4", source = { registry = "https://pypi.org/simple" } },
-    { name = "tenacity", version = "8.5.0", source = { registry = "https://pypi.org/simple" } },
+    { name = "tenacity" },
     { name = "typer", version = "0.23.1", source = { registry = "https://pypi.org/simple" } },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/dc/a4/832cfb15420360e26d2d85bd9d5fe1e4b839d52587574d389bc31284bf6f/instructor-1.15.1.tar.gz", hash = "sha256:c72406469d9025b742e83cf0c13e914b317db2089d08d889944e74fcd659ef94", size = 69948370, upload-time = "2026-04-03T01:51:30.107Z" }
@@ -3737,8 +3608,7 @@ dependencies = [
     { name = "pyyaml" },
     { name = "requests" },
     { name = "sqlalchemy" },
-    { name = "tenacity", version = "8.5.0", source = { registry = "https://pypi.org/simple" }, marker = "extra == 'extra-11-thenvoi-sdk-crewai' or extra == 'extra-11-thenvoi-sdk-dev'" },
-    { name = "tenacity", version = "9.1.4", source = { registry = "https://pypi.org/simple" }, marker = "(extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev')" },
+    { name = "tenacity" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/53/97/a03585d42b9bdb6fbd935282d6e3348b10322a24e6ce12d0c99eb461d9af/langchain_community-0.4.1.tar.gz", hash = "sha256:f3b211832728ee89f169ddce8579b80a085222ddb4f4ed445a46e977d17b1e85", size = 33241144, upload-time = "2025-10-27T15:20:32.504Z" }
 wheels = [
@@ -3755,8 +3625,7 @@ dependencies = [
     { name = "packaging" },
     { name = "pydantic" },
     { name = "pyyaml" },
-    { name = "tenacity", version = "8.5.0", source = { registry = "https://pypi.org/simple" }, marker = "extra == 'extra-11-thenvoi-sdk-crewai' or extra == 'extra-11-thenvoi-sdk-dev'" },
-    { name = "tenacity", version = "9.1.4", source = { registry = "https://pypi.org/simple" }, marker = "(extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev')" },
+    { name = "tenacity" },
     { name = "typing-extensions" },
     { name = "uuid-utils" },
 ]
@@ -4036,7 +3905,7 @@ name = "mako"
 version = "1.3.11"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "markupsafe" },
+    { name = "markupsafe", marker = "(extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev')" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/59/8a/805404d0c0b9f3d7a326475ca008db57aea9c5c9f2e1e39ed0faa335571c/mako-1.3.11.tar.gz", hash = "sha256:071eb4ab4c5010443152255d77db7faa6ce5916f35226eb02dc34479b6858069", size = 399811, upload-time = "2026-04-14T20:19:51.493Z" }
 wheels = [
@@ -4948,59 +4817,8 @@ wheels = [
 
 [[package]]
 name = "opentelemetry-exporter-gcp-logging"
-version = "1.9.0a0"
-source = { registry = "https://pypi.org/simple" }
-resolution-markers = [
-    "python_full_version >= '3.14'",
-    "python_full_version == '3.13.*'",
-    "python_full_version < '3.13'",
-]
-dependencies = [
-    { name = "google-cloud-logging", marker = "extra == 'extra-11-thenvoi-sdk-crewai' or extra == 'extra-11-thenvoi-sdk-dev'" },
-    { name = "opentelemetry-resourcedetector-gcp", marker = "extra == 'extra-11-thenvoi-sdk-crewai' or extra == 'extra-11-thenvoi-sdk-dev'" },
-    { name = "opentelemetry-sdk", version = "1.34.1", source = { registry = "https://pypi.org/simple" }, marker = "extra == 'extra-11-thenvoi-sdk-crewai' or extra == 'extra-11-thenvoi-sdk-dev'" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/30/0a/c379400c35196df247acd5ab9f0b0313c86c2b39b75c7f57667d5b9272d1/opentelemetry_exporter_gcp_logging-1.9.0a0.tar.gz", hash = "sha256:33db5fa2f642174bc371be12942276cea9abf4d1db0f7421aac58532a4d14445", size = 15292, upload-time = "2025-02-04T19:45:05.15Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/91/04/218292d10e00b701ef2ab5a3d20b7bd9401cdcba0ee52022e83e06e92622/opentelemetry_exporter_gcp_logging-1.9.0a0-py3-none-any.whl", hash = "sha256:5455b899adc11e5b82b2ffe82552969f2228c4a66e51258967b39b37d4b6e1e6", size = 11666, upload-time = "2025-02-04T19:44:55.568Z" },
-]
-
-[[package]]
-name = "opentelemetry-exporter-gcp-logging"
 version = "1.11.0a0"
 source = { registry = "https://pypi.org/simple" }
-resolution-markers = [
-    "python_full_version >= '3.14' and sys_platform == 'win32' and extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant' and extra == 'extra-11-thenvoi-sdk-parlant'",
-    "python_full_version >= '3.14' and sys_platform == 'emscripten' and extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant' and extra == 'extra-11-thenvoi-sdk-parlant'",
-    "python_full_version >= '3.14' and sys_platform != 'emscripten' and sys_platform != 'win32' and extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant' and extra == 'extra-11-thenvoi-sdk-parlant'",
-    "python_full_version == '3.13.*' and sys_platform == 'win32' and extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant' and extra == 'extra-11-thenvoi-sdk-parlant'",
-    "python_full_version == '3.13.*' and sys_platform == 'emscripten' and extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant' and extra == 'extra-11-thenvoi-sdk-parlant'",
-    "python_full_version == '3.13.*' and sys_platform != 'emscripten' and sys_platform != 'win32' and extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant' and extra == 'extra-11-thenvoi-sdk-parlant'",
-    "python_full_version < '3.13' and sys_platform == 'win32' and extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant' and extra == 'extra-11-thenvoi-sdk-parlant'",
-    "python_full_version < '3.13' and sys_platform == 'emscripten' and extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant' and extra == 'extra-11-thenvoi-sdk-parlant'",
-    "python_full_version < '3.13' and sys_platform != 'emscripten' and sys_platform != 'win32' and extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant' and extra == 'extra-11-thenvoi-sdk-parlant'",
-    "python_full_version >= '3.14' and sys_platform == 'win32' and extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev' and extra != 'extra-11-thenvoi-sdk-dev-parlant' and extra == 'extra-11-thenvoi-sdk-parlant'",
-    "python_full_version >= '3.14' and sys_platform == 'emscripten' and extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev' and extra != 'extra-11-thenvoi-sdk-dev-parlant' and extra == 'extra-11-thenvoi-sdk-parlant'",
-    "python_full_version >= '3.14' and sys_platform != 'emscripten' and sys_platform != 'win32' and extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev' and extra != 'extra-11-thenvoi-sdk-dev-parlant' and extra == 'extra-11-thenvoi-sdk-parlant'",
-    "python_full_version == '3.13.*' and sys_platform == 'win32' and extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev' and extra != 'extra-11-thenvoi-sdk-dev-parlant' and extra == 'extra-11-thenvoi-sdk-parlant'",
-    "python_full_version == '3.13.*' and sys_platform == 'emscripten' and extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev' and extra != 'extra-11-thenvoi-sdk-dev-parlant' and extra == 'extra-11-thenvoi-sdk-parlant'",
-    "python_full_version == '3.13.*' and sys_platform != 'emscripten' and sys_platform != 'win32' and extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev' and extra != 'extra-11-thenvoi-sdk-dev-parlant' and extra == 'extra-11-thenvoi-sdk-parlant'",
-    "python_full_version < '3.13' and sys_platform == 'win32' and extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev' and extra != 'extra-11-thenvoi-sdk-dev-parlant' and extra == 'extra-11-thenvoi-sdk-parlant'",
-    "python_full_version < '3.13' and sys_platform == 'emscripten' and extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev' and extra != 'extra-11-thenvoi-sdk-dev-parlant' and extra == 'extra-11-thenvoi-sdk-parlant'",
-    "python_full_version < '3.13' and sys_platform != 'emscripten' and sys_platform != 'win32' and extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev' and extra != 'extra-11-thenvoi-sdk-dev-parlant' and extra == 'extra-11-thenvoi-sdk-parlant'",
-    "python_full_version >= '3.14' and sys_platform == 'win32' and extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant' and extra != 'extra-11-thenvoi-sdk-parlant'",
-    "python_full_version >= '3.14' and sys_platform == 'emscripten' and extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant' and extra != 'extra-11-thenvoi-sdk-parlant'",
-    "python_full_version >= '3.14' and sys_platform != 'emscripten' and sys_platform != 'win32' and extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant' and extra != 'extra-11-thenvoi-sdk-parlant'",
-    "python_full_version == '3.13.*' and sys_platform == 'win32' and extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant' and extra != 'extra-11-thenvoi-sdk-parlant'",
-    "python_full_version == '3.13.*' and sys_platform == 'emscripten' and extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant' and extra != 'extra-11-thenvoi-sdk-parlant'",
-    "python_full_version == '3.13.*' and sys_platform != 'emscripten' and sys_platform != 'win32' and extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant' and extra != 'extra-11-thenvoi-sdk-parlant'",
-    "python_full_version < '3.13' and sys_platform == 'win32' and extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant' and extra != 'extra-11-thenvoi-sdk-parlant'",
-    "python_full_version < '3.13' and sys_platform == 'emscripten' and extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant' and extra != 'extra-11-thenvoi-sdk-parlant'",
-    "python_full_version < '3.13' and sys_platform != 'emscripten' and sys_platform != 'win32' and extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant' and extra != 'extra-11-thenvoi-sdk-parlant'",
-    "python_full_version >= '3.14' and extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev' and extra != 'extra-11-thenvoi-sdk-dev-parlant' and extra != 'extra-11-thenvoi-sdk-parlant'",
-    "python_full_version == '3.13.*' and extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev' and extra != 'extra-11-thenvoi-sdk-dev-parlant' and extra != 'extra-11-thenvoi-sdk-parlant'",
-    "python_full_version < '3.13' and extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev' and extra != 'extra-11-thenvoi-sdk-dev-parlant' and extra != 'extra-11-thenvoi-sdk-parlant'",
-]
 dependencies = [
     { name = "google-cloud-logging", marker = "(extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev')" },
     { name = "opentelemetry-api", version = "1.38.0", source = { registry = "https://pypi.org/simple" }, marker = "(extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev')" },
@@ -5067,7 +4885,7 @@ resolution-markers = [
     "python_full_version < '3.13'",
 ]
 dependencies = [
-    { name = "opentelemetry-proto", version = "1.34.1", source = { registry = "https://pypi.org/simple" }, marker = "extra == 'extra-11-thenvoi-sdk-crewai' or extra == 'extra-11-thenvoi-sdk-dev'" },
+    { name = "opentelemetry-proto", version = "1.34.1", source = { registry = "https://pypi.org/simple" } },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/86/f0/ff235936ee40db93360233b62da932d4fd9e8d103cd090c6bcb9afaf5f01/opentelemetry_exporter_otlp_proto_common-1.34.1.tar.gz", hash = "sha256:b59a20a927facd5eac06edaf87a07e49f9e4a13db487b7d8a52b37cb87710f8b", size = 20817, upload-time = "2025-06-10T08:55:22.55Z" }
 wheels = [
@@ -5180,13 +4998,13 @@ resolution-markers = [
     "python_full_version < '3.13'",
 ]
 dependencies = [
-    { name = "googleapis-common-protos", marker = "extra == 'extra-11-thenvoi-sdk-crewai' or extra == 'extra-11-thenvoi-sdk-dev'" },
-    { name = "opentelemetry-api", version = "1.34.1", source = { registry = "https://pypi.org/simple" }, marker = "extra == 'extra-11-thenvoi-sdk-crewai' or extra == 'extra-11-thenvoi-sdk-dev'" },
-    { name = "opentelemetry-exporter-otlp-proto-common", version = "1.34.1", source = { registry = "https://pypi.org/simple" }, marker = "extra == 'extra-11-thenvoi-sdk-crewai' or extra == 'extra-11-thenvoi-sdk-dev'" },
-    { name = "opentelemetry-proto", version = "1.34.1", source = { registry = "https://pypi.org/simple" }, marker = "extra == 'extra-11-thenvoi-sdk-crewai' or extra == 'extra-11-thenvoi-sdk-dev'" },
-    { name = "opentelemetry-sdk", version = "1.34.1", source = { registry = "https://pypi.org/simple" }, marker = "extra == 'extra-11-thenvoi-sdk-crewai' or extra == 'extra-11-thenvoi-sdk-dev'" },
-    { name = "requests", marker = "extra == 'extra-11-thenvoi-sdk-crewai' or extra == 'extra-11-thenvoi-sdk-dev'" },
-    { name = "typing-extensions", marker = "extra == 'extra-11-thenvoi-sdk-crewai' or extra == 'extra-11-thenvoi-sdk-dev'" },
+    { name = "googleapis-common-protos" },
+    { name = "opentelemetry-api", version = "1.34.1", source = { registry = "https://pypi.org/simple" } },
+    { name = "opentelemetry-exporter-otlp-proto-common", version = "1.34.1", source = { registry = "https://pypi.org/simple" } },
+    { name = "opentelemetry-proto", version = "1.34.1", source = { registry = "https://pypi.org/simple" } },
+    { name = "opentelemetry-sdk", version = "1.34.1", source = { registry = "https://pypi.org/simple" } },
+    { name = "requests" },
+    { name = "typing-extensions" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/19/8f/954bc725961cbe425a749d55c0ba1df46832a5999eae764d1a7349ac1c29/opentelemetry_exporter_otlp_proto_http-1.34.1.tar.gz", hash = "sha256:aaac36fdce46a8191e604dcf632e1f9380c7d5b356b27b3e0edb5610d9be28ad", size = 15351, upload-time = "2025-06-10T08:55:24.657Z" }
 wheels = [
@@ -5268,7 +5086,7 @@ resolution-markers = [
     "python_full_version < '3.13'",
 ]
 dependencies = [
-    { name = "protobuf", version = "5.29.6", source = { registry = "https://pypi.org/simple" }, marker = "extra == 'extra-11-thenvoi-sdk-crewai' or extra == 'extra-11-thenvoi-sdk-dev'" },
+    { name = "protobuf", version = "5.29.6", source = { registry = "https://pypi.org/simple" } },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/66/b3/c3158dd012463bb7c0eb7304a85a6f63baeeb5b4c93a53845cf89f848c7e/opentelemetry_proto-1.34.1.tar.gz", hash = "sha256:16286214e405c211fc774187f3e4bbb1351290b8dfb88e8948af209ce85b719e", size = 34344, upload-time = "2025-06-10T08:55:32.25Z" }
 wheels = [
@@ -7587,65 +7405,6 @@ wheels = [
 ]
 
 [[package]]
-name = "shapely"
-version = "2.1.2"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "numpy", marker = "extra == 'extra-11-thenvoi-sdk-crewai' or extra == 'extra-11-thenvoi-sdk-dev'" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/4d/bc/0989043118a27cccb4e906a46b7565ce36ca7b57f5a18b78f4f1b0f72d9d/shapely-2.1.2.tar.gz", hash = "sha256:2ed4ecb28320a433db18a5bf029986aa8afcfd740745e78847e330d5d94922a9", size = 315489, upload-time = "2025-09-24T13:51:41.432Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/8f/8d/1ff672dea9ec6a7b5d422eb6d095ed886e2e523733329f75fdcb14ee1149/shapely-2.1.2-cp311-cp311-macosx_10_9_x86_64.whl", hash = "sha256:91121757b0a36c9aac3427a651a7e6567110a4a67c97edf04f8d55d4765f6618", size = 1820038, upload-time = "2025-09-24T13:50:15.628Z" },
-    { url = "https://files.pythonhosted.org/packages/4f/ce/28fab8c772ce5db23a0d86bf0adaee0c4c79d5ad1db766055fa3dab442e2/shapely-2.1.2-cp311-cp311-macosx_11_0_arm64.whl", hash = "sha256:16a9c722ba774cf50b5d4541242b4cce05aafd44a015290c82ba8a16931ff63d", size = 1626039, upload-time = "2025-09-24T13:50:16.881Z" },
-    { url = "https://files.pythonhosted.org/packages/70/8b/868b7e3f4982f5006e9395c1e12343c66a8155c0374fdc07c0e6a1ab547d/shapely-2.1.2-cp311-cp311-manylinux2014_aarch64.manylinux_2_17_aarch64.whl", hash = "sha256:cc4f7397459b12c0b196c9efe1f9d7e92463cbba142632b4cc6d8bbbbd3e2b09", size = 3001519, upload-time = "2025-09-24T13:50:18.606Z" },
-    { url = "https://files.pythonhosted.org/packages/13/02/58b0b8d9c17c93ab6340edd8b7308c0c5a5b81f94ce65705819b7416dba5/shapely-2.1.2-cp311-cp311-manylinux2014_x86_64.manylinux_2_17_x86_64.whl", hash = "sha256:136ab87b17e733e22f0961504d05e77e7be8c9b5a8184f685b4a91a84efe3c26", size = 3110842, upload-time = "2025-09-24T13:50:21.77Z" },
-    { url = "https://files.pythonhosted.org/packages/af/61/8e389c97994d5f331dcffb25e2fa761aeedfb52b3ad9bcdd7b8671f4810a/shapely-2.1.2-cp311-cp311-musllinux_1_2_aarch64.whl", hash = "sha256:16c5d0fc45d3aa0a69074979f4f1928ca2734fb2e0dde8af9611e134e46774e7", size = 4021316, upload-time = "2025-09-24T13:50:23.626Z" },
-    { url = "https://files.pythonhosted.org/packages/d3/d4/9b2a9fe6039f9e42ccf2cb3e84f219fd8364b0c3b8e7bbc857b5fbe9c14c/shapely-2.1.2-cp311-cp311-musllinux_1_2_x86_64.whl", hash = "sha256:6ddc759f72b5b2b0f54a7e7cde44acef680a55019eb52ac63a7af2cf17cb9cd2", size = 4178586, upload-time = "2025-09-24T13:50:25.443Z" },
-    { url = "https://files.pythonhosted.org/packages/16/f6/9840f6963ed4decf76b08fd6d7fed14f8779fb7a62cb45c5617fa8ac6eab/shapely-2.1.2-cp311-cp311-win32.whl", hash = "sha256:2fa78b49485391224755a856ed3b3bd91c8455f6121fee0db0e71cefb07d0ef6", size = 1543961, upload-time = "2025-09-24T13:50:26.968Z" },
-    { url = "https://files.pythonhosted.org/packages/38/1e/3f8ea46353c2a33c1669eb7327f9665103aa3a8dfe7f2e4ef714c210b2c2/shapely-2.1.2-cp311-cp311-win_amd64.whl", hash = "sha256:c64d5c97b2f47e3cd9b712eaced3b061f2b71234b3fc263e0fcf7d889c6559dc", size = 1722856, upload-time = "2025-09-24T13:50:28.497Z" },
-    { url = "https://files.pythonhosted.org/packages/24/c0/f3b6453cf2dfa99adc0ba6675f9aaff9e526d2224cbd7ff9c1a879238693/shapely-2.1.2-cp312-cp312-macosx_10_13_x86_64.whl", hash = "sha256:fe2533caae6a91a543dec62e8360fe86ffcdc42a7c55f9dfd0128a977a896b94", size = 1833550, upload-time = "2025-09-24T13:50:30.019Z" },
-    { url = "https://files.pythonhosted.org/packages/86/07/59dee0bc4b913b7ab59ab1086225baca5b8f19865e6101db9ebb7243e132/shapely-2.1.2-cp312-cp312-macosx_11_0_arm64.whl", hash = "sha256:ba4d1333cc0bc94381d6d4308d2e4e008e0bd128bdcff5573199742ee3634359", size = 1643556, upload-time = "2025-09-24T13:50:32.291Z" },
-    { url = "https://files.pythonhosted.org/packages/26/29/a5397e75b435b9895cd53e165083faed5d12fd9626eadec15a83a2411f0f/shapely-2.1.2-cp312-cp312-manylinux2014_aarch64.manylinux_2_17_aarch64.whl", hash = "sha256:0bd308103340030feef6c111d3eb98d50dc13feea33affc8a6f9fa549e9458a3", size = 2988308, upload-time = "2025-09-24T13:50:33.862Z" },
-    { url = "https://files.pythonhosted.org/packages/b9/37/e781683abac55dde9771e086b790e554811a71ed0b2b8a1e789b7430dd44/shapely-2.1.2-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.whl", hash = "sha256:1e7d4d7ad262a48bb44277ca12c7c78cb1b0f56b32c10734ec9a1d30c0b0c54b", size = 3099844, upload-time = "2025-09-24T13:50:35.459Z" },
-    { url = "https://files.pythonhosted.org/packages/d8/f3/9876b64d4a5a321b9dc482c92bb6f061f2fa42131cba643c699f39317cb9/shapely-2.1.2-cp312-cp312-musllinux_1_2_aarch64.whl", hash = "sha256:e9eddfe513096a71896441a7c37db72da0687b34752c4e193577a145c71736fc", size = 3988842, upload-time = "2025-09-24T13:50:37.478Z" },
-    { url = "https://files.pythonhosted.org/packages/d1/a0/704c7292f7014c7e74ec84eddb7b109e1fbae74a16deae9c1504b1d15565/shapely-2.1.2-cp312-cp312-musllinux_1_2_x86_64.whl", hash = "sha256:980c777c612514c0cf99bc8a9de6d286f5e186dcaf9091252fcd444e5638193d", size = 4152714, upload-time = "2025-09-24T13:50:39.9Z" },
-    { url = "https://files.pythonhosted.org/packages/53/46/319c9dc788884ad0785242543cdffac0e6530e4d0deb6c4862bc4143dcf3/shapely-2.1.2-cp312-cp312-win32.whl", hash = "sha256:9111274b88e4d7b54a95218e243282709b330ef52b7b86bc6aaf4f805306f454", size = 1542745, upload-time = "2025-09-24T13:50:41.414Z" },
-    { url = "https://files.pythonhosted.org/packages/ec/bf/cb6c1c505cb31e818e900b9312d514f381fbfa5c4363edfce0fcc4f8c1a4/shapely-2.1.2-cp312-cp312-win_amd64.whl", hash = "sha256:743044b4cfb34f9a67205cee9279feaf60ba7d02e69febc2afc609047cb49179", size = 1722861, upload-time = "2025-09-24T13:50:43.35Z" },
-    { url = "https://files.pythonhosted.org/packages/c3/90/98ef257c23c46425dc4d1d31005ad7c8d649fe423a38b917db02c30f1f5a/shapely-2.1.2-cp313-cp313-macosx_10_13_x86_64.whl", hash = "sha256:b510dda1a3672d6879beb319bc7c5fd302c6c354584690973c838f46ec3e0fa8", size = 1832644, upload-time = "2025-09-24T13:50:44.886Z" },
-    { url = "https://files.pythonhosted.org/packages/6d/ab/0bee5a830d209adcd3a01f2d4b70e587cdd9fd7380d5198c064091005af8/shapely-2.1.2-cp313-cp313-macosx_11_0_arm64.whl", hash = "sha256:8cff473e81017594d20ec55d86b54bc635544897e13a7cfc12e36909c5309a2a", size = 1642887, upload-time = "2025-09-24T13:50:46.735Z" },
-    { url = "https://files.pythonhosted.org/packages/2d/5e/7d7f54ba960c13302584c73704d8c4d15404a51024631adb60b126a4ae88/shapely-2.1.2-cp313-cp313-manylinux2014_aarch64.manylinux_2_17_aarch64.whl", hash = "sha256:fe7b77dc63d707c09726b7908f575fc04ff1d1ad0f3fb92aec212396bc6cfe5e", size = 2970931, upload-time = "2025-09-24T13:50:48.374Z" },
-    { url = "https://files.pythonhosted.org/packages/f2/a2/83fc37e2a58090e3d2ff79175a95493c664bcd0b653dd75cb9134645a4e5/shapely-2.1.2-cp313-cp313-manylinux2014_x86_64.manylinux_2_17_x86_64.whl", hash = "sha256:7ed1a5bbfb386ee8332713bf7508bc24e32d24b74fc9a7b9f8529a55db9f4ee6", size = 3082855, upload-time = "2025-09-24T13:50:50.037Z" },
-    { url = "https://files.pythonhosted.org/packages/44/2b/578faf235a5b09f16b5f02833c53822294d7f21b242f8e2d0cf03fb64321/shapely-2.1.2-cp313-cp313-musllinux_1_2_aarch64.whl", hash = "sha256:a84e0582858d841d54355246ddfcbd1fce3179f185da7470f41ce39d001ee1af", size = 3979960, upload-time = "2025-09-24T13:50:51.74Z" },
-    { url = "https://files.pythonhosted.org/packages/4d/04/167f096386120f692cc4ca02f75a17b961858997a95e67a3cb6a7bbd6b53/shapely-2.1.2-cp313-cp313-musllinux_1_2_x86_64.whl", hash = "sha256:dc3487447a43d42adcdf52d7ac73804f2312cbfa5d433a7d2c506dcab0033dfd", size = 4142851, upload-time = "2025-09-24T13:50:53.49Z" },
-    { url = "https://files.pythonhosted.org/packages/48/74/fb402c5a6235d1c65a97348b48cdedb75fb19eca2b1d66d04969fc1c6091/shapely-2.1.2-cp313-cp313-win32.whl", hash = "sha256:9c3a3c648aedc9f99c09263b39f2d8252f199cb3ac154fadc173283d7d111350", size = 1541890, upload-time = "2025-09-24T13:50:55.337Z" },
-    { url = "https://files.pythonhosted.org/packages/41/47/3647fe7ad990af60ad98b889657a976042c9988c2807cf322a9d6685f462/shapely-2.1.2-cp313-cp313-win_amd64.whl", hash = "sha256:ca2591bff6645c216695bdf1614fca9c82ea1144d4a7591a466fef64f28f0715", size = 1722151, upload-time = "2025-09-24T13:50:57.153Z" },
-    { url = "https://files.pythonhosted.org/packages/3c/49/63953754faa51ffe7d8189bfbe9ca34def29f8c0e34c67cbe2a2795f269d/shapely-2.1.2-cp313-cp313t-macosx_10_13_x86_64.whl", hash = "sha256:2d93d23bdd2ed9dc157b46bc2f19b7da143ca8714464249bef6771c679d5ff40", size = 1834130, upload-time = "2025-09-24T13:50:58.49Z" },
-    { url = "https://files.pythonhosted.org/packages/7f/ee/dce001c1984052970ff60eb4727164892fb2d08052c575042a47f5a9e88f/shapely-2.1.2-cp313-cp313t-macosx_11_0_arm64.whl", hash = "sha256:01d0d304b25634d60bd7cf291828119ab55a3bab87dc4af1e44b07fb225f188b", size = 1642802, upload-time = "2025-09-24T13:50:59.871Z" },
-    { url = "https://files.pythonhosted.org/packages/da/e7/fc4e9a19929522877fa602f705706b96e78376afb7fad09cad5b9af1553c/shapely-2.1.2-cp313-cp313t-manylinux2014_aarch64.manylinux_2_17_aarch64.whl", hash = "sha256:8d8382dd120d64b03698b7298b89611a6ea6f55ada9d39942838b79c9bc89801", size = 3018460, upload-time = "2025-09-24T13:51:02.08Z" },
-    { url = "https://files.pythonhosted.org/packages/a1/18/7519a25db21847b525696883ddc8e6a0ecaa36159ea88e0fef11466384d0/shapely-2.1.2-cp313-cp313t-manylinux2014_x86_64.manylinux_2_17_x86_64.whl", hash = "sha256:19efa3611eef966e776183e338b2d7ea43569ae99ab34f8d17c2c054d3205cc0", size = 3095223, upload-time = "2025-09-24T13:51:04.472Z" },
-    { url = "https://files.pythonhosted.org/packages/48/de/b59a620b1f3a129c3fecc2737104a0a7e04e79335bd3b0a1f1609744cf17/shapely-2.1.2-cp313-cp313t-musllinux_1_2_aarch64.whl", hash = "sha256:346ec0c1a0fcd32f57f00e4134d1200e14bf3f5ae12af87ba83ca275c502498c", size = 4030760, upload-time = "2025-09-24T13:51:06.455Z" },
-    { url = "https://files.pythonhosted.org/packages/96/b3/c6655ee7232b417562bae192ae0d3ceaadb1cc0ffc2088a2ddf415456cc2/shapely-2.1.2-cp313-cp313t-musllinux_1_2_x86_64.whl", hash = "sha256:6305993a35989391bd3476ee538a5c9a845861462327efe00dd11a5c8c709a99", size = 4170078, upload-time = "2025-09-24T13:51:08.584Z" },
-    { url = "https://files.pythonhosted.org/packages/a0/8e/605c76808d73503c9333af8f6cbe7e1354d2d238bda5f88eea36bfe0f42a/shapely-2.1.2-cp313-cp313t-win32.whl", hash = "sha256:c8876673449f3401f278c86eb33224c5764582f72b653a415d0e6672fde887bf", size = 1559178, upload-time = "2025-09-24T13:51:10.73Z" },
-    { url = "https://files.pythonhosted.org/packages/36/f7/d317eb232352a1f1444d11002d477e54514a4a6045536d49d0c59783c0da/shapely-2.1.2-cp313-cp313t-win_amd64.whl", hash = "sha256:4a44bc62a10d84c11a7a3d7c1c4fe857f7477c3506e24c9062da0db0ae0c449c", size = 1739756, upload-time = "2025-09-24T13:51:12.105Z" },
-    { url = "https://files.pythonhosted.org/packages/fc/c4/3ce4c2d9b6aabd27d26ec988f08cb877ba9e6e96086eff81bfea93e688c7/shapely-2.1.2-cp314-cp314-macosx_10_13_x86_64.whl", hash = "sha256:9a522f460d28e2bf4e12396240a5fc1518788b2fcd73535166d748399ef0c223", size = 1831290, upload-time = "2025-09-24T13:51:13.56Z" },
-    { url = "https://files.pythonhosted.org/packages/17/b9/f6ab8918fc15429f79cb04afa9f9913546212d7fb5e5196132a2af46676b/shapely-2.1.2-cp314-cp314-macosx_11_0_arm64.whl", hash = "sha256:1ff629e00818033b8d71139565527ced7d776c269a49bd78c9df84e8f852190c", size = 1641463, upload-time = "2025-09-24T13:51:14.972Z" },
-    { url = "https://files.pythonhosted.org/packages/a5/57/91d59ae525ca641e7ac5551c04c9503aee6f29b92b392f31790fcb1a4358/shapely-2.1.2-cp314-cp314-manylinux2014_aarch64.manylinux_2_17_aarch64.whl", hash = "sha256:f67b34271dedc3c653eba4e3d7111aa421d5be9b4c4c7d38d30907f796cb30df", size = 2970145, upload-time = "2025-09-24T13:51:16.961Z" },
-    { url = "https://files.pythonhosted.org/packages/8a/cb/4948be52ee1da6927831ab59e10d4c29baa2a714f599f1f0d1bc747f5777/shapely-2.1.2-cp314-cp314-manylinux2014_x86_64.manylinux_2_17_x86_64.whl", hash = "sha256:21952dc00df38a2c28375659b07a3979d22641aeb104751e769c3ee825aadecf", size = 3073806, upload-time = "2025-09-24T13:51:18.712Z" },
-    { url = "https://files.pythonhosted.org/packages/03/83/f768a54af775eb41ef2e7bec8a0a0dbe7d2431c3e78c0a8bdba7ab17e446/shapely-2.1.2-cp314-cp314-musllinux_1_2_aarch64.whl", hash = "sha256:1f2f33f486777456586948e333a56ae21f35ae273be99255a191f5c1fa302eb4", size = 3980803, upload-time = "2025-09-24T13:51:20.37Z" },
-    { url = "https://files.pythonhosted.org/packages/9f/cb/559c7c195807c91c79d38a1f6901384a2878a76fbdf3f1048893a9b7534d/shapely-2.1.2-cp314-cp314-musllinux_1_2_x86_64.whl", hash = "sha256:cf831a13e0d5a7eb519e96f58ec26e049b1fad411fc6fc23b162a7ce04d9cffc", size = 4133301, upload-time = "2025-09-24T13:51:21.887Z" },
-    { url = "https://files.pythonhosted.org/packages/80/cd/60d5ae203241c53ef3abd2ef27c6800e21afd6c94e39db5315ea0cbafb4a/shapely-2.1.2-cp314-cp314-win32.whl", hash = "sha256:61edcd8d0d17dd99075d320a1dd39c0cb9616f7572f10ef91b4b5b00c4aeb566", size = 1583247, upload-time = "2025-09-24T13:51:23.401Z" },
-    { url = "https://files.pythonhosted.org/packages/74/d4/135684f342e909330e50d31d441ace06bf83c7dc0777e11043f99167b123/shapely-2.1.2-cp314-cp314-win_amd64.whl", hash = "sha256:a444e7afccdb0999e203b976adb37ea633725333e5b119ad40b1ca291ecf311c", size = 1773019, upload-time = "2025-09-24T13:51:24.873Z" },
-    { url = "https://files.pythonhosted.org/packages/a3/05/a44f3f9f695fa3ada22786dc9da33c933da1cbc4bfe876fe3a100bafe263/shapely-2.1.2-cp314-cp314t-macosx_10_13_x86_64.whl", hash = "sha256:5ebe3f84c6112ad3d4632b1fd2290665aa75d4cef5f6c5d77c4c95b324527c6a", size = 1834137, upload-time = "2025-09-24T13:51:26.665Z" },
-    { url = "https://files.pythonhosted.org/packages/52/7e/4d57db45bf314573427b0a70dfca15d912d108e6023f623947fa69f39b72/shapely-2.1.2-cp314-cp314t-macosx_11_0_arm64.whl", hash = "sha256:5860eb9f00a1d49ebb14e881f5caf6c2cf472c7fd38bd7f253bbd34f934eb076", size = 1642884, upload-time = "2025-09-24T13:51:28.029Z" },
-    { url = "https://files.pythonhosted.org/packages/5a/27/4e29c0a55d6d14ad7422bf86995d7ff3f54af0eba59617eb95caf84b9680/shapely-2.1.2-cp314-cp314t-manylinux2014_aarch64.manylinux_2_17_aarch64.whl", hash = "sha256:b705c99c76695702656327b819c9660768ec33f5ce01fa32b2af62b56ba400a1", size = 3018320, upload-time = "2025-09-24T13:51:29.903Z" },
-    { url = "https://files.pythonhosted.org/packages/9f/bb/992e6a3c463f4d29d4cd6ab8963b75b1b1040199edbd72beada4af46bde5/shapely-2.1.2-cp314-cp314t-manylinux2014_x86_64.manylinux_2_17_x86_64.whl", hash = "sha256:a1fd0ea855b2cf7c9cddaf25543e914dd75af9de08785f20ca3085f2c9ca60b0", size = 3094931, upload-time = "2025-09-24T13:51:32.699Z" },
-    { url = "https://files.pythonhosted.org/packages/9c/16/82e65e21070e473f0ed6451224ed9fa0be85033d17e0c6e7213a12f59d12/shapely-2.1.2-cp314-cp314t-musllinux_1_2_aarch64.whl", hash = "sha256:df90e2db118c3671a0754f38e36802db75fe0920d211a27481daf50a711fdf26", size = 4030406, upload-time = "2025-09-24T13:51:34.189Z" },
-    { url = "https://files.pythonhosted.org/packages/7c/75/c24ed871c576d7e2b64b04b1fe3d075157f6eb54e59670d3f5ffb36e25c7/shapely-2.1.2-cp314-cp314t-musllinux_1_2_x86_64.whl", hash = "sha256:361b6d45030b4ac64ddd0a26046906c8202eb60d0f9f53085f5179f1d23021a0", size = 4169511, upload-time = "2025-09-24T13:51:36.297Z" },
-    { url = "https://files.pythonhosted.org/packages/b1/f7/b3d1d6d18ebf55236eec1c681ce5e665742aab3c0b7b232720a7d43df7b6/shapely-2.1.2-cp314-cp314t-win32.whl", hash = "sha256:b54df60f1fbdecc8ebc2c5b11870461a6417b3d617f555e5033f1505d36e5735", size = 1602607, upload-time = "2025-09-24T13:51:37.757Z" },
-    { url = "https://files.pythonhosted.org/packages/9a/f6/f09272a71976dfc138129b8faf435d064a811ae2f708cb147dccdf7aacdb/shapely-2.1.2-cp314-cp314t-win_amd64.whl", hash = "sha256:0036ac886e0923417932c2e6369b6c52e38e0ff5d9120b90eef5cd9a5fc5cae9", size = 1796682, upload-time = "2025-09-24T13:51:39.233Z" },
-]
-
-[[package]]
 name = "shellingham"
 version = "1.5.4"
 source = { registry = "https://pypi.org/simple" }
@@ -7739,9 +7498,9 @@ name = "sqlalchemy-spanner"
 version = "1.17.3"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "alembic" },
-    { name = "google-cloud-spanner" },
-    { name = "sqlalchemy" },
+    { name = "alembic", marker = "(extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev')" },
+    { name = "google-cloud-spanner", marker = "(extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev')" },
+    { name = "sqlalchemy", marker = "(extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev')" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/6b/1c/c7d28d88e8dd9a67be006a40135f05cbdf5a0f5f79bc51bb692f54432cf1/sqlalchemy_spanner-1.17.3.tar.gz", hash = "sha256:ea829d8223c404f19f854c4c2dbf6bf2ee48fb1347caa258f03e88071f3afa22", size = 82842, upload-time = "2026-03-23T22:44:01.25Z" }
 wheels = [
@@ -7815,54 +7574,8 @@ wheels = [
 
 [[package]]
 name = "tenacity"
-version = "8.5.0"
-source = { registry = "https://pypi.org/simple" }
-resolution-markers = [
-    "python_full_version >= '3.14'",
-    "python_full_version == '3.13.*'",
-    "python_full_version < '3.13'",
-]
-sdist = { url = "https://files.pythonhosted.org/packages/a3/4d/6a19536c50b849338fcbe9290d562b52cbdcf30d8963d3588a68a4107df1/tenacity-8.5.0.tar.gz", hash = "sha256:8bc6c0c8a09b31e6cad13c47afbed1a567518250a9a171418582ed8d9c20ca78", size = 47309, upload-time = "2024-07-05T07:25:31.836Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/d2/3f/8ba87d9e287b9d385a02a7114ddcef61b26f86411e121c9003eb509a1773/tenacity-8.5.0-py3-none-any.whl", hash = "sha256:b594c2a5945830c267ce6b79a166228323ed52718f30302c1359836112346687", size = 28165, upload-time = "2024-07-05T07:25:29.591Z" },
-]
-
-[[package]]
-name = "tenacity"
 version = "9.1.4"
 source = { registry = "https://pypi.org/simple" }
-resolution-markers = [
-    "python_full_version >= '3.14' and sys_platform == 'win32' and extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant' and extra == 'extra-11-thenvoi-sdk-parlant'",
-    "python_full_version >= '3.14' and sys_platform == 'emscripten' and extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant' and extra == 'extra-11-thenvoi-sdk-parlant'",
-    "python_full_version >= '3.14' and sys_platform != 'emscripten' and sys_platform != 'win32' and extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant' and extra == 'extra-11-thenvoi-sdk-parlant'",
-    "python_full_version == '3.13.*' and sys_platform == 'win32' and extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant' and extra == 'extra-11-thenvoi-sdk-parlant'",
-    "python_full_version == '3.13.*' and sys_platform == 'emscripten' and extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant' and extra == 'extra-11-thenvoi-sdk-parlant'",
-    "python_full_version == '3.13.*' and sys_platform != 'emscripten' and sys_platform != 'win32' and extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant' and extra == 'extra-11-thenvoi-sdk-parlant'",
-    "python_full_version < '3.13' and sys_platform == 'win32' and extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant' and extra == 'extra-11-thenvoi-sdk-parlant'",
-    "python_full_version < '3.13' and sys_platform == 'emscripten' and extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant' and extra == 'extra-11-thenvoi-sdk-parlant'",
-    "python_full_version < '3.13' and sys_platform != 'emscripten' and sys_platform != 'win32' and extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant' and extra == 'extra-11-thenvoi-sdk-parlant'",
-    "python_full_version >= '3.14' and sys_platform == 'win32' and extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev' and extra != 'extra-11-thenvoi-sdk-dev-parlant' and extra == 'extra-11-thenvoi-sdk-parlant'",
-    "python_full_version >= '3.14' and sys_platform == 'emscripten' and extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev' and extra != 'extra-11-thenvoi-sdk-dev-parlant' and extra == 'extra-11-thenvoi-sdk-parlant'",
-    "python_full_version >= '3.14' and sys_platform != 'emscripten' and sys_platform != 'win32' and extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev' and extra != 'extra-11-thenvoi-sdk-dev-parlant' and extra == 'extra-11-thenvoi-sdk-parlant'",
-    "python_full_version == '3.13.*' and sys_platform == 'win32' and extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev' and extra != 'extra-11-thenvoi-sdk-dev-parlant' and extra == 'extra-11-thenvoi-sdk-parlant'",
-    "python_full_version == '3.13.*' and sys_platform == 'emscripten' and extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev' and extra != 'extra-11-thenvoi-sdk-dev-parlant' and extra == 'extra-11-thenvoi-sdk-parlant'",
-    "python_full_version == '3.13.*' and sys_platform != 'emscripten' and sys_platform != 'win32' and extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev' and extra != 'extra-11-thenvoi-sdk-dev-parlant' and extra == 'extra-11-thenvoi-sdk-parlant'",
-    "python_full_version < '3.13' and sys_platform == 'win32' and extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev' and extra != 'extra-11-thenvoi-sdk-dev-parlant' and extra == 'extra-11-thenvoi-sdk-parlant'",
-    "python_full_version < '3.13' and sys_platform == 'emscripten' and extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev' and extra != 'extra-11-thenvoi-sdk-dev-parlant' and extra == 'extra-11-thenvoi-sdk-parlant'",
-    "python_full_version < '3.13' and sys_platform != 'emscripten' and sys_platform != 'win32' and extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev' and extra != 'extra-11-thenvoi-sdk-dev-parlant' and extra == 'extra-11-thenvoi-sdk-parlant'",
-    "python_full_version >= '3.14' and sys_platform == 'win32' and extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant' and extra != 'extra-11-thenvoi-sdk-parlant'",
-    "python_full_version >= '3.14' and sys_platform == 'emscripten' and extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant' and extra != 'extra-11-thenvoi-sdk-parlant'",
-    "python_full_version >= '3.14' and sys_platform != 'emscripten' and sys_platform != 'win32' and extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant' and extra != 'extra-11-thenvoi-sdk-parlant'",
-    "python_full_version == '3.13.*' and sys_platform == 'win32' and extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant' and extra != 'extra-11-thenvoi-sdk-parlant'",
-    "python_full_version == '3.13.*' and sys_platform == 'emscripten' and extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant' and extra != 'extra-11-thenvoi-sdk-parlant'",
-    "python_full_version == '3.13.*' and sys_platform != 'emscripten' and sys_platform != 'win32' and extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant' and extra != 'extra-11-thenvoi-sdk-parlant'",
-    "python_full_version < '3.13' and sys_platform == 'win32' and extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant' and extra != 'extra-11-thenvoi-sdk-parlant'",
-    "python_full_version < '3.13' and sys_platform == 'emscripten' and extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant' and extra != 'extra-11-thenvoi-sdk-parlant'",
-    "python_full_version < '3.13' and sys_platform != 'emscripten' and sys_platform != 'win32' and extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant' and extra != 'extra-11-thenvoi-sdk-parlant'",
-    "python_full_version >= '3.14' and extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev' and extra != 'extra-11-thenvoi-sdk-dev-parlant' and extra != 'extra-11-thenvoi-sdk-parlant'",
-    "python_full_version == '3.13.*' and extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev' and extra != 'extra-11-thenvoi-sdk-dev-parlant' and extra != 'extra-11-thenvoi-sdk-parlant'",
-    "python_full_version < '3.13' and extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev' and extra != 'extra-11-thenvoi-sdk-dev-parlant' and extra != 'extra-11-thenvoi-sdk-parlant'",
-]
 sdist = { url = "https://files.pythonhosted.org/packages/47/c6/ee486fd809e357697ee8a44d3d69222b344920433d3b6666ccd9b374630c/tenacity-9.1.4.tar.gz", hash = "sha256:adb31d4c263f2bd041081ab33b498309a57c77f9acf2db65aadf0898179cf93a", size = 49413, upload-time = "2026-02-07T10:45:33.841Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/d7/c1/eb8f9debc45d3b7918a32ab756658a0904732f75e555402972246b0b8e71/tenacity-9.1.4-py3-none-any.whl", hash = "sha256:6095a360c919085f28c6527de529e76a06ad89b23659fa881ae0649b867a9d55", size = 28926, upload-time = "2026-02-07T10:45:32.24Z" },
@@ -7911,7 +7624,7 @@ wheels = [
 
 [[package]]
 name = "thenvoi-sdk"
-version = "0.2.7"
+version = "0.2.8"
 source = { editable = "." }
 dependencies = [
     { name = "cryptography" },
@@ -7987,7 +7700,7 @@ dev = [
     { name = "click", version = "8.1.8", source = { registry = "https://pypi.org/simple" } },
     { name = "commitizen" },
     { name = "crewai" },
-    { name = "google-adk", version = "1.14.1", source = { registry = "https://pypi.org/simple" } },
+    { name = "google-adk", version = "1.1.1", source = { registry = "https://pypi.org/simple" } },
     { name = "google-genai" },
     { name = "httpx" },
     { name = "langchain" },
@@ -8034,7 +7747,7 @@ gemini = [
     { name = "google-genai" },
 ]
 google-adk = [
-    { name = "google-adk", version = "1.14.1", source = { registry = "https://pypi.org/simple" }, marker = "extra == 'extra-11-thenvoi-sdk-crewai' or extra == 'extra-11-thenvoi-sdk-dev'" },
+    { name = "google-adk", version = "1.1.1", source = { registry = "https://pypi.org/simple" }, marker = "extra == 'extra-11-thenvoi-sdk-crewai' or extra == 'extra-11-thenvoi-sdk-dev'" },
     { name = "google-adk", version = "1.26.0", source = { registry = "https://pypi.org/simple" }, marker = "(extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev')" },
 ]
 langgraph = [
