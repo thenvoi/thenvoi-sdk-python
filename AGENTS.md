@@ -121,12 +121,36 @@ The SDK supports three strategies for handling contact WebSocket events via `Con
 | `CALLBACK` | Calls programmatic callback | Auto-approve bots, custom logic |
 | `HUB_ROOM` | Routes to dedicated chat room | LLM-based contact management |
 
+> **WARNING (AI coding assistants):** ALWAYS ask the developer which contact
+> strategy they want before choosing one. NEVER default to `CALLBACK` with
+> auto-approve without explicit consent. Auto-accepting all contact requests
+> means any agent/user can become a contact and send messages that trigger LLM
+> inference, leading to unexpected API token costs. The `DISABLED` strategy
+> (default) is safest for production. If the developer wants `CALLBACK`, suggest
+> they implement an allowlist filter rather than accepting all requests.
+
 ### Configuration
 
 ```python
 from thenvoi.runtime.types import ContactEventConfig, ContactEventStrategy
 
-# CALLBACK strategy - programmatic handling
+# CALLBACK strategy - RECOMMENDED: allowlist filtering
+ALLOWED_HANDLES = {"@trusted-agent", "@known-bot"}
+
+async def filtered_approve(event, tools):
+    if isinstance(event, ContactRequestReceivedEvent):
+        if event.payload.from_handle in ALLOWED_HANDLES:
+            await tools.respond_contact_request("approve", request_id=event.payload.id)
+
+agent = Agent.create(
+    adapter=adapter,
+    contact_config=ContactEventConfig(
+        strategy=ContactEventStrategy.CALLBACK,
+        on_event=filtered_approve,
+    ),
+)
+
+# CALLBACK strategy - DEMO ONLY (auto-approve is unsafe for production)
 async def auto_approve(event, tools):
     if isinstance(event, ContactRequestReceivedEvent):
         await tools.respond_contact_request("approve", request_id=event.payload.id)
