@@ -36,12 +36,11 @@ setup_logging()
 logger = logging.getLogger(__name__)
 
 
-# WARNING: This auto-approve pattern is for DEMO/DEVELOPMENT purposes only.
-# In production, auto-approving all contact requests means any agent/user can
-# become a contact and send messages that trigger LLM inference, leading to
-# unexpected API token costs. Use an allowlist or other filtering logic instead.
+# NOTE: This example auto-approves ALL contact requests. That's fine if intended,
+# but be aware that each accepted contact can send messages that trigger LLM
+# inference. For tighter control, consider allowlist filtering in the callback.
 async def auto_approve_contacts(event: ContactEvent, tools: ContactTools) -> None:
-    """Auto-approve all incoming contact requests. DEMO ONLY -- see WARNING above."""
+    """Auto-approve all incoming contact requests."""
     if isinstance(event, ContactRequestReceivedEvent):
         logger.info("Auto-approving contact request from %s", event.payload.from_handle)
         await tools.respond_contact_request("approve", request_id=event.payload.id)
