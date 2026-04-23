@@ -27,7 +27,7 @@ from mcp.server.fastmcp import FastMCP
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-mcp = FastMCP("thenvoi-llm-agent")
+mcp = FastMCP("thenvoi-llm-agent", host="0.0.0.0", port=8000)
 
 _client: anthropic.Anthropic | None = None
 _model = os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-4-5-20250929")
@@ -75,4 +75,4 @@ def chat(message: str) -> str:
 
 
 if __name__ == "__main__":
-    mcp.run(transport="streamable-http", host="0.0.0.0", port=8000)
+    mcp.run(transport="streamable-http")

@@ -15,7 +15,10 @@ Run with:
     uv run examples/langgraph/standalone_calculator.py
 """
 
+from __future__ import annotations
+
 from typing import TypedDict, Literal
+
 from langgraph.graph import StateGraph, START, END
 from langgraph.checkpoint.memory import InMemorySaver
 

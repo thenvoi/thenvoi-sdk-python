@@ -75,11 +75,9 @@ from dotenv import load_dotenv
 
 from setup_logging import setup_logging
 from thenvoi import Agent
+from thenvoi.adapters import ACPServer, ThenvoiACPServerAdapter
 from thenvoi.config import load_agent_config
-from thenvoi.integrations.acp.push_handler import ACPPushHandler
-from thenvoi.integrations.acp.router import AgentRouter
-from thenvoi.integrations.acp.server import ACPServer
-from thenvoi.integrations.acp.server_adapter import ThenvoiACPServerAdapter
+from thenvoi.integrations.acp import ACPPushHandler, AgentRouter
 
 setup_logging()
 logger = logging.getLogger(__name__)
@@ -99,11 +97,11 @@ async def main() -> None:
     if not api_key:
         try:
             agent_id, api_key = load_agent_config("jetbrains_acp_agent")
-        except Exception:
+        except Exception as e:
             raise ValueError(
                 "THENVOI_API_KEY environment variable is required, "
                 "or configure 'jetbrains_acp_agent' in agent_config.yaml"
-            )
+            ) from e
     else:
         agent_id = os.getenv("THENVOI_AGENT_ID")
         if not agent_id:

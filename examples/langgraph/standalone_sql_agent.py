@@ -28,8 +28,12 @@ Run with:
     uv run examples/langgraph/standalone_sql_agent.py
 """
 
+from __future__ import annotations
+
 from typing import Annotated, Literal
+
 from typing_extensions import TypedDict
+
 from langchain_core.messages import HumanMessage, AIMessage
 from langchain_openai import ChatOpenAI
 from langchain_community.utilities import SQLDatabase
