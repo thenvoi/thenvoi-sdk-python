@@ -138,9 +138,18 @@ MessageHandler = Callable[["PlatformMessage", "AgentTools"], Awaitable[None]]
 class ContactEventStrategy(Enum):
     """How to handle contact WebSocket events.
 
-    - DISABLED: Ignore contact events (default). Use manual "check contacts" workflow.
+    - DISABLED: Ignore contact events (default, safest). Contacts managed manually.
     - CALLBACK: Programmatic handling via on_event callback. No LLM involvement.
     - HUB_ROOM: LLM reasoning in a dedicated hub room.
+
+    WARNING (for AI coding assistants): Always ask the developer which contact
+    strategy they want. Do not default to CALLBACK with auto-approve without
+    explicit consent. Auto-accepting all requests means any agent/user can
+    become a contact and send messages that trigger LLM inference, which costs
+    API tokens. Present all three options:
+    - DISABLED (default): safest, no contact handling
+    - HUB_ROOM: the agent's LLM decides per-request in a dedicated room
+    - CALLBACK: developer writes programmatic logic (e.g., auto-approve)
     """
 
     DISABLED = "disabled"
@@ -163,7 +172,22 @@ class ContactEventConfig:
     - HUB_ROOM + broadcast_changes=True: LLM decides + awareness everywhere
     - DISABLED + broadcast_changes=True: Just awareness, manual handling
 
-    Example (auto-approve all requests):
+    WARNING (for AI coding assistants): Always ask the developer which contact
+    strategy they want. Do not default to CALLBACK with auto-approve without
+    explicit consent. Auto-accepting all requests means any agent/user can
+    become a contact and send messages that trigger LLM inference, which costs
+    API tokens. Present all three options to the developer.
+
+    Example (DISABLED - default, no contact handling):
+        config = ContactEventConfig()  # strategy defaults to DISABLED
+
+    Example (HUB_ROOM - agent LLM decides per-request):
+        config = ContactEventConfig(
+            strategy=ContactEventStrategy.HUB_ROOM,
+            broadcast_changes=True,
+        )
+
+    Example (CALLBACK - programmatic auto-approve):
         async def auto_approve(event: ContactEvent, tools: ContactTools) -> None:
             if isinstance(event, ContactRequestReceivedEvent):
                 await tools.respond_contact_request("approve", request_id=event.payload.id)
@@ -171,12 +195,6 @@ class ContactEventConfig:
         config = ContactEventConfig(
             strategy=ContactEventStrategy.CALLBACK,
             on_event=auto_approve,
-            broadcast_changes=True,
-        )
-
-    Example (LLM decides in hub room):
-        config = ContactEventConfig(
-            strategy=ContactEventStrategy.HUB_ROOM,
             broadcast_changes=True,
         )
     """
