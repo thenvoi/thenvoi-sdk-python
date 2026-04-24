@@ -557,7 +557,8 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
                 if turn_id:
                     try:
                         await self._client.request(
-                            "turn/interrupt", {"turnId": turn_id}
+                            "turn/interrupt",
+                            {"threadId": thread_id, "turnId": turn_id},
                         )
                     except Exception:
                         logger.warning(
