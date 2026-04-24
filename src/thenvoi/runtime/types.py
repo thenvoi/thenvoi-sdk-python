@@ -83,6 +83,19 @@ class SessionConfig:
     max_context_messages: int = 100
     max_message_retries: int = 1  # Max attempts per message before permanently failing
     enable_context_hydration: bool = True  # Whether to fetch history from platform API
+    # Phase 2 idle timeout (seconds) before re-polling /next as a safety net.
+    # Lower values recover faster from missed WS pushes but generate more REST traffic.
+    # With N rooms, each resync fires N parallel /next polls. Default 60s balances
+    # recovery speed against REST load for typical single-agent deployments.
+    # Uses float so tests can exercise sub-second values without forcing prod to
+    # round. Must be > 0; zero or negative turns Phase 2 into a REST hot loop.
+    idle_resync_seconds: float = 60.0
+
+    def __post_init__(self) -> None:
+        if self.idle_resync_seconds <= 0:
+            raise ValueError(
+                "idle_resync_seconds must be > 0 (got %s)" % self.idle_resync_seconds
+            )
 
 
 @dataclass
