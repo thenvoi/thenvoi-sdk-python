@@ -71,6 +71,8 @@ async with p.Server() as server:
 | `01_basic_agent.py` | **Minimal setup** - Simple agent with Parlant SDK. |
 | `02_with_guidelines.py` | **Behavioral guidelines** - Agent with condition/action rules. |
 | `03_support_agent.py` | **Customer support** - Realistic support agent with specialized guidelines. |
+| `04_tom_agent.py` | **Tom (cat)** - Half of a Tom & Jerry pair; pairs with `05_jerry_agent.py`. |
+| `05_jerry_agent.py` | **Jerry (mouse)** - The other half of the pair. |
 
 ---
 

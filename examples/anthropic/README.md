@@ -11,7 +11,8 @@ with full control over conversation history and tool loop management.
 
 1. **Anthropic API Key** - Set `ANTHROPIC_API_KEY` environment variable
 2. **Thenvoi Platform** - Create an external agent and get credentials
-3. **Dependencies** - Install with `uv sync --extra anthropic`
+3. **Platform URLs** - Set `THENVOI_WS_URL` (e.g. `wss://app.thenvoi.com/api/v1/socket/websocket`) and `THENVOI_REST_URL` (e.g. `https://app.thenvoi.com`); the example raises `ValueError` if either is missing.
+4. **Dependencies** - Install with `uv sync --extra anthropic`
 
 ---
 
@@ -23,13 +24,15 @@ from thenvoi.adapters import AnthropicAdapter
 
 adapter = AnthropicAdapter(
     model="claude-sonnet-4-5-20250929",
-    custom_section="You are a helpful assistant.",
+    prompt="You are a helpful assistant.",
 )
 
 agent = Agent.create(
     adapter=adapter,
     agent_id="your-agent-id",
     api_key="your-api-key",
+    ws_url="wss://app.thenvoi.com/api/v1/socket/websocket",
+    rest_url="https://app.thenvoi.com",
 )
 await agent.run()
 ```
@@ -42,6 +45,9 @@ await agent.run()
 |------|-------------|
 | `01_basic_agent.py` | **Minimal setup** - Simple agent using Claude Sonnet with default settings. |
 | `02_custom_instructions.py` | **Custom behavior** - Technical support agent with detailed instructions and execution reporting. |
+| `03_tom_agent.py` | **Tom (cat)** - Half of a Tom & Jerry pair; pairs with `04_jerry_agent.py`. |
+| `04_jerry_agent.py` | **Jerry (mouse)** - The other half of the pair. |
+| `05_contact_management.py` | **Contact management** - Auto-approve / hub-room contact-event strategies. |
 
 ---
 
@@ -90,7 +96,7 @@ support_agent:
 ```python
 adapter = AnthropicAdapter(
     model="claude-sonnet-4-5-20250929",
-    custom_section="You are a technical support agent. Be concise and helpful.",
+    prompt="You are a technical support agent. Be concise and helpful.",
 )
 ```
 
