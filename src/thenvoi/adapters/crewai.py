@@ -497,19 +497,36 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
 
         class SendMessageInput(BaseModel):
             content: str = Field(..., description="The message content to send")
-            mentions: str = Field(
-                default="[]",
-                description='JSON array of participant handles to @mention (e.g., \'["@john", "@john/weather-agent"]\')',
+            mentions: list[str] = Field(
+                default_factory=list,
+                description='Array of participant handles to @mention (e.g., ["@john", "@john/weather-agent"])',
             )
 
             @field_validator("mentions", mode="before")
             @classmethod
-            def normalize_mentions(cls, v: Any) -> str:
-                if v is None:
-                    return "[]"
+            def normalize_mentions(cls, v: Any) -> list[str]:
+                if v is None or v == "":
+                    return []
                 if isinstance(v, list):
-                    return json.dumps(v)
-                return v
+                    return [str(x) for x in v]
+                if isinstance(v, str):
+                    # Some LLMs serialize the array as a JSON string or a
+                    # bracketed list of bare handles. Accept both shapes.
+                    try:
+                        decoded = json.loads(v)
+                        if isinstance(decoded, list):
+                            return [str(x) for x in decoded]
+                    except json.JSONDecodeError:
+                        pass
+                    stripped = v.strip().strip("[]")
+                    if not stripped:
+                        return []
+                    return [
+                        token.strip().strip("'\"")
+                        for token in stripped.split(",")
+                        if token.strip()
+                    ]
+                return [str(v)]
 
         class SendEventInput(BaseModel):
             content: str = Field(..., description="Human-readable event content")
@@ -657,12 +674,8 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
             # *_args is required by BaseTool's _run signature even though we don't use it
             def _run(self, *_args: Any, **kwargs: Any) -> Any:
                 content: str = kwargs.get("content", "")
-                mentions: str = kwargs.get("mentions", "[]")
-
-                try:
-                    mention_list = json.loads(mentions) if mentions else []
-                except json.JSONDecodeError:
-                    mention_list = []
+                raw_mentions: Any = kwargs.get("mentions", [])
+                mention_list = SendMessageInput.normalize_mentions(raw_mentions)
 
                 async def execute(tools: AgentToolsProtocol) -> str:
                     await adapter._report_tool_call(
