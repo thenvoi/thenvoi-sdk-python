@@ -1231,7 +1231,7 @@ toml = [
 
 [[package]]
 name = "crewai"
-version = "1.14.2"
+version = "1.14.3"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "aiofiles", version = "24.1.0", source = { registry = "https://pypi.org/simple" } },
@@ -1256,7 +1256,7 @@ dependencies = [
     { name = "pydantic" },
     { name = "pydantic-settings", version = "2.10.1", source = { registry = "https://pypi.org/simple" } },
     { name = "pyjwt" },
-    { name = "python-dotenv", version = "1.1.1", source = { registry = "https://pypi.org/simple" } },
+    { name = "python-dotenv" },
     { name = "pyyaml" },
     { name = "regex", version = "2026.1.15", source = { registry = "https://pypi.org/simple" } },
     { name = "textual" },
@@ -1265,9 +1265,9 @@ dependencies = [
     { name = "tomli-w" },
     { name = "uv" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/e6/22/7d7d2ddafcd9083f0aadb3ae2c3d70f14b9ecc8f04491a51c87197d99411/crewai-1.14.2.tar.gz", hash = "sha256:dd7a55d170d152549fbc56d19e5d3a175120a8ae04997b01c1782fac7e258357", size = 7825690, upload-time = "2026-04-17T14:09:32.839Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/c0/8c/cab4ecb440cd0cb07167aae18a066a7592d8d2d21d0607ed06a6fe224c03/crewai-1.14.3.tar.gz", hash = "sha256:8a7c403ac4ba48e24d5194255f8b638849cc395e7d5534ccef7d158ea45e963a", size = 7843453, upload-time = "2026-04-24T16:14:30.433Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/cc/ea/d870be20a7113744b3313fa633986975452c6a02adc3227871b28a0b54d4/crewai-1.14.2-py3-none-any.whl", hash = "sha256:fa273ba1e638e619210e1f90ab45e1a18b5f07c6e6f2e472a4bcd717dc6b770c", size = 1067069, upload-time = "2026-04-17T14:09:30.017Z" },
+    { url = "https://files.pythonhosted.org/packages/e7/64/05399271dcfb3f94e3439719f19160e62e9dad72dc0489d012c0dab69aa3/crewai-1.14.3-py3-none-any.whl", hash = "sha256:76b17a06428a3db6247552547c1438823a43665f0ba1cf51fc1eec447cd3221a", size = 1075827, upload-time = "2026-04-24T16:14:28.441Z" },
 ]
 
 [[package]]
@@ -1535,7 +1535,7 @@ dependencies = [
     { name = "py-key-value-aio", extra = ["filetree", "keyring", "memory"], marker = "extra == 'extra-11-thenvoi-sdk-dev-parlant' or extra == 'extra-11-thenvoi-sdk-parlant'" },
     { name = "pydantic", extra = ["email"], marker = "extra == 'extra-11-thenvoi-sdk-dev-parlant' or extra == 'extra-11-thenvoi-sdk-parlant'" },
     { name = "pyperclip" },
-    { name = "python-dotenv", version = "1.2.2", source = { registry = "https://pypi.org/simple" } },
+    { name = "python-dotenv" },
     { name = "pyyaml" },
     { name = "rich", version = "15.0.0", source = { registry = "https://pypi.org/simple" } },
     { name = "uncalled-for" },
@@ -1771,7 +1771,7 @@ dependencies = [
     { name = "opentelemetry-sdk", version = "1.34.1", source = { registry = "https://pypi.org/simple" }, marker = "extra == 'extra-11-thenvoi-sdk-crewai' or extra == 'extra-11-thenvoi-sdk-dev'" },
     { name = "pydantic", marker = "extra == 'extra-11-thenvoi-sdk-crewai' or extra == 'extra-11-thenvoi-sdk-dev'" },
     { name = "python-dateutil", marker = "extra == 'extra-11-thenvoi-sdk-crewai' or extra == 'extra-11-thenvoi-sdk-dev'" },
-    { name = "python-dotenv", version = "1.1.1", source = { registry = "https://pypi.org/simple" }, marker = "extra == 'extra-11-thenvoi-sdk-crewai' or extra == 'extra-11-thenvoi-sdk-dev'" },
+    { name = "python-dotenv", marker = "extra == 'extra-11-thenvoi-sdk-crewai' or extra == 'extra-11-thenvoi-sdk-dev'" },
     { name = "pyyaml", marker = "extra == 'extra-11-thenvoi-sdk-crewai' or extra == 'extra-11-thenvoi-sdk-dev'" },
     { name = "requests", marker = "extra == 'extra-11-thenvoi-sdk-crewai' or extra == 'extra-11-thenvoi-sdk-dev'" },
     { name = "sqlalchemy", marker = "extra == 'extra-11-thenvoi-sdk-crewai' or extra == 'extra-11-thenvoi-sdk-dev'" },
@@ -1858,7 +1858,7 @@ dependencies = [
     { name = "pyarrow", marker = "(extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev')" },
     { name = "pydantic", marker = "(extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev')" },
     { name = "python-dateutil", marker = "(extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev')" },
-    { name = "python-dotenv", version = "1.2.2", source = { registry = "https://pypi.org/simple" }, marker = "(extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev')" },
+    { name = "python-dotenv", marker = "(extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev')" },
     { name = "pyyaml", marker = "(extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev')" },
     { name = "requests", marker = "(extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev')" },
     { name = "sqlalchemy", marker = "(extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev')" },
@@ -5696,7 +5696,7 @@ dependencies = [
     { name = "opentelemetry-sdk", version = "1.38.0", source = { registry = "https://pypi.org/simple" } },
     { name = "parlant-client" },
     { name = "python-dateutil" },
-    { name = "python-dotenv", version = "1.2.2", source = { registry = "https://pypi.org/simple" } },
+    { name = "python-dotenv" },
     { name = "requests" },
     { name = "rich", version = "15.0.0", source = { registry = "https://pypi.org/simple" } },
     { name = "semver" },
@@ -6528,7 +6528,7 @@ resolution-markers = [
 ]
 dependencies = [
     { name = "pydantic", marker = "extra == 'extra-11-thenvoi-sdk-crewai' or extra == 'extra-11-thenvoi-sdk-dev'" },
-    { name = "python-dotenv", version = "1.1.1", source = { registry = "https://pypi.org/simple" }, marker = "extra == 'extra-11-thenvoi-sdk-crewai' or extra == 'extra-11-thenvoi-sdk-dev'" },
+    { name = "python-dotenv", marker = "extra == 'extra-11-thenvoi-sdk-crewai' or extra == 'extra-11-thenvoi-sdk-dev'" },
     { name = "typing-inspection", marker = "extra == 'extra-11-thenvoi-sdk-crewai' or extra == 'extra-11-thenvoi-sdk-dev'" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/68/85/1ea668bbab3c50071ca613c6ab30047fb36ab0da1b92fa8f17bbc38fd36c/pydantic_settings-2.10.1.tar.gz", hash = "sha256:06f0062169818d0f5524420a360d632d5857b83cffd4d42fe29597807a1614ee", size = 172583, upload-time = "2025-06-24T13:26:46.841Z" }
@@ -6574,7 +6574,7 @@ resolution-markers = [
 ]
 dependencies = [
     { name = "pydantic", marker = "(extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev')" },
-    { name = "python-dotenv", version = "1.2.2", source = { registry = "https://pypi.org/simple" }, marker = "(extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev')" },
+    { name = "python-dotenv", marker = "(extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev')" },
     { name = "typing-inspection", marker = "(extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev')" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/52/6d/fffca34caecc4a3f97bda81b2098da5e8ab7efc9a66e819074a11955d87e/pydantic_settings-2.13.1.tar.gz", hash = "sha256:b4c11847b15237fb0171e1462bf540e294affb9b86db4d9aa5c01730bdbe4025", size = 223826, upload-time = "2026-02-19T13:45:08.055Z" }
@@ -6816,54 +6816,8 @@ wheels = [
 
 [[package]]
 name = "python-dotenv"
-version = "1.1.1"
-source = { registry = "https://pypi.org/simple" }
-resolution-markers = [
-    "python_full_version >= '3.14'",
-    "python_full_version == '3.13.*'",
-    "python_full_version < '3.13'",
-]
-sdist = { url = "https://files.pythonhosted.org/packages/f6/b0/4bc07ccd3572a2f9df7e6782f52b0c6c90dcbb803ac4a167702d7d0dfe1e/python_dotenv-1.1.1.tar.gz", hash = "sha256:a8a6399716257f45be6a007360200409fce5cda2661e3dec71d23dc15f6189ab", size = 41978, upload-time = "2025-06-24T04:21:07.341Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/5f/ed/539768cf28c661b5b068d66d96a2f155c4971a5d55684a514c1a0e0dec2f/python_dotenv-1.1.1-py3-none-any.whl", hash = "sha256:31f23644fe2602f88ff55e1f5c79ba497e01224ee7737937930c448e4d0e24dc", size = 20556, upload-time = "2025-06-24T04:21:06.073Z" },
-]
-
-[[package]]
-name = "python-dotenv"
 version = "1.2.2"
 source = { registry = "https://pypi.org/simple" }
-resolution-markers = [
-    "python_full_version >= '3.14' and sys_platform == 'win32' and extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant' and extra == 'extra-11-thenvoi-sdk-parlant'",
-    "python_full_version >= '3.14' and sys_platform == 'emscripten' and extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant' and extra == 'extra-11-thenvoi-sdk-parlant'",
-    "python_full_version >= '3.14' and sys_platform != 'emscripten' and sys_platform != 'win32' and extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant' and extra == 'extra-11-thenvoi-sdk-parlant'",
-    "python_full_version == '3.13.*' and sys_platform == 'win32' and extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant' and extra == 'extra-11-thenvoi-sdk-parlant'",
-    "python_full_version == '3.13.*' and sys_platform == 'emscripten' and extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant' and extra == 'extra-11-thenvoi-sdk-parlant'",
-    "python_full_version == '3.13.*' and sys_platform != 'emscripten' and sys_platform != 'win32' and extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant' and extra == 'extra-11-thenvoi-sdk-parlant'",
-    "python_full_version < '3.13' and sys_platform == 'win32' and extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant' and extra == 'extra-11-thenvoi-sdk-parlant'",
-    "python_full_version < '3.13' and sys_platform == 'emscripten' and extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant' and extra == 'extra-11-thenvoi-sdk-parlant'",
-    "python_full_version < '3.13' and sys_platform != 'emscripten' and sys_platform != 'win32' and extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant' and extra == 'extra-11-thenvoi-sdk-parlant'",
-    "python_full_version >= '3.14' and sys_platform == 'win32' and extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev' and extra != 'extra-11-thenvoi-sdk-dev-parlant' and extra == 'extra-11-thenvoi-sdk-parlant'",
-    "python_full_version >= '3.14' and sys_platform == 'emscripten' and extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev' and extra != 'extra-11-thenvoi-sdk-dev-parlant' and extra == 'extra-11-thenvoi-sdk-parlant'",
-    "python_full_version >= '3.14' and sys_platform != 'emscripten' and sys_platform != 'win32' and extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev' and extra != 'extra-11-thenvoi-sdk-dev-parlant' and extra == 'extra-11-thenvoi-sdk-parlant'",
-    "python_full_version == '3.13.*' and sys_platform == 'win32' and extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev' and extra != 'extra-11-thenvoi-sdk-dev-parlant' and extra == 'extra-11-thenvoi-sdk-parlant'",
-    "python_full_version == '3.13.*' and sys_platform == 'emscripten' and extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev' and extra != 'extra-11-thenvoi-sdk-dev-parlant' and extra == 'extra-11-thenvoi-sdk-parlant'",
-    "python_full_version == '3.13.*' and sys_platform != 'emscripten' and sys_platform != 'win32' and extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev' and extra != 'extra-11-thenvoi-sdk-dev-parlant' and extra == 'extra-11-thenvoi-sdk-parlant'",
-    "python_full_version < '3.13' and sys_platform == 'win32' and extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev' and extra != 'extra-11-thenvoi-sdk-dev-parlant' and extra == 'extra-11-thenvoi-sdk-parlant'",
-    "python_full_version < '3.13' and sys_platform == 'emscripten' and extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev' and extra != 'extra-11-thenvoi-sdk-dev-parlant' and extra == 'extra-11-thenvoi-sdk-parlant'",
-    "python_full_version < '3.13' and sys_platform != 'emscripten' and sys_platform != 'win32' and extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev' and extra != 'extra-11-thenvoi-sdk-dev-parlant' and extra == 'extra-11-thenvoi-sdk-parlant'",
-    "python_full_version >= '3.14' and sys_platform == 'win32' and extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant' and extra != 'extra-11-thenvoi-sdk-parlant'",
-    "python_full_version >= '3.14' and sys_platform == 'emscripten' and extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant' and extra != 'extra-11-thenvoi-sdk-parlant'",
-    "python_full_version >= '3.14' and sys_platform != 'emscripten' and sys_platform != 'win32' and extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant' and extra != 'extra-11-thenvoi-sdk-parlant'",
-    "python_full_version == '3.13.*' and sys_platform == 'win32' and extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant' and extra != 'extra-11-thenvoi-sdk-parlant'",
-    "python_full_version == '3.13.*' and sys_platform == 'emscripten' and extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant' and extra != 'extra-11-thenvoi-sdk-parlant'",
-    "python_full_version == '3.13.*' and sys_platform != 'emscripten' and sys_platform != 'win32' and extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant' and extra != 'extra-11-thenvoi-sdk-parlant'",
-    "python_full_version < '3.13' and sys_platform == 'win32' and extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant' and extra != 'extra-11-thenvoi-sdk-parlant'",
-    "python_full_version < '3.13' and sys_platform == 'emscripten' and extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant' and extra != 'extra-11-thenvoi-sdk-parlant'",
-    "python_full_version < '3.13' and sys_platform != 'emscripten' and sys_platform != 'win32' and extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant' and extra != 'extra-11-thenvoi-sdk-parlant'",
-    "python_full_version >= '3.14' and extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev' and extra != 'extra-11-thenvoi-sdk-dev-parlant' and extra != 'extra-11-thenvoi-sdk-parlant'",
-    "python_full_version == '3.13.*' and extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev' and extra != 'extra-11-thenvoi-sdk-dev-parlant' and extra != 'extra-11-thenvoi-sdk-parlant'",
-    "python_full_version < '3.13' and extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev' and extra != 'extra-11-thenvoi-sdk-dev-parlant' and extra != 'extra-11-thenvoi-sdk-parlant'",
-]
 sdist = { url = "https://files.pythonhosted.org/packages/82/ed/0301aeeac3e5353ef3d94b6ec08bbcabd04a72018415dcb29e588514bba8/python_dotenv-1.2.2.tar.gz", hash = "sha256:2c371a91fbd7ba082c2c1dc1f8bf89ca22564a087c2c287cd9b662adde799cf3", size = 50135, upload-time = "2026-03-01T16:00:26.196Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/0b/d7/1959b9648791274998a9c3526f6d0ec8fd2233e4d4acce81bbae76b44b2a/python_dotenv-1.2.2-py3-none-any.whl", hash = "sha256:1d8214789a24de455a8b8bd8ae6fe3c6b69a5e3d64aa8a8e5d68e694bbcb285a", size = 22101, upload-time = "2026-03-01T16:00:25.09Z" },
@@ -7916,8 +7870,7 @@ source = { editable = "." }
 dependencies = [
     { name = "cryptography" },
     { name = "phoenix-channels-python-client" },
-    { name = "python-dotenv", version = "1.1.1", source = { registry = "https://pypi.org/simple" }, marker = "extra == 'extra-11-thenvoi-sdk-crewai' or extra == 'extra-11-thenvoi-sdk-dev'" },
-    { name = "python-dotenv", version = "1.2.2", source = { registry = "https://pypi.org/simple" }, marker = "(extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev')" },
+    { name = "python-dotenv" },
     { name = "pyyaml" },
     { name = "thenvoi-client-rest" },
 ]
@@ -7953,14 +7906,12 @@ anthropic = [
 ]
 bridge = [
     { name = "aiohttp" },
-    { name = "python-dotenv", version = "1.1.1", source = { registry = "https://pypi.org/simple" }, marker = "extra == 'extra-11-thenvoi-sdk-crewai' or extra == 'extra-11-thenvoi-sdk-dev'" },
-    { name = "python-dotenv", version = "1.2.2", source = { registry = "https://pypi.org/simple" }, marker = "(extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev')" },
+    { name = "python-dotenv" },
 ]
 bridge-agentcore = [
     { name = "aiohttp" },
     { name = "boto3" },
-    { name = "python-dotenv", version = "1.1.1", source = { registry = "https://pypi.org/simple" }, marker = "extra == 'extra-11-thenvoi-sdk-crewai' or extra == 'extra-11-thenvoi-sdk-dev'" },
-    { name = "python-dotenv", version = "1.2.2", source = { registry = "https://pypi.org/simple" }, marker = "(extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev')" },
+    { name = "python-dotenv" },
 ]
 bridge-langchain = [
     { name = "httpx" },
@@ -8009,7 +7960,7 @@ dev = [
     { name = "pytest-mock" },
     { name = "pytest-rerunfailures" },
     { name = "pytest-timeout" },
-    { name = "python-dotenv", version = "1.1.1", source = { registry = "https://pypi.org/simple" } },
+    { name = "python-dotenv" },
     { name = "ruff" },
     { name = "starlette" },
     { name = "thenvoi-testing-python" },
@@ -8085,8 +8036,8 @@ requires-dist = [
     { name = "click", marker = "extra == 'a2a-gateway-demo'", specifier = ">=8.0.0" },
     { name = "click", marker = "extra == 'dev'", specifier = ">=8.0.0" },
     { name = "commitizen", marker = "extra == 'dev'", specifier = ">=3.13.0" },
-    { name = "crewai", marker = "extra == 'crewai'", specifier = "==1.14.2" },
-    { name = "crewai", marker = "extra == 'dev'", specifier = "==1.14.2" },
+    { name = "crewai", marker = "extra == 'crewai'", specifier = "==1.14.3" },
+    { name = "crewai", marker = "extra == 'dev'", specifier = "==1.14.3" },
     { name = "cryptography", specifier = ">=46.0.5" },
     { name = "google-adk", marker = "extra == 'dev'", specifier = ">=1.0.0,<2" },
     { name = "google-adk", marker = "extra == 'google-adk'", specifier = ">=1.0.0,<2" },
@@ -8144,10 +8095,10 @@ requires-dist = [
     { name = "pytest-rerunfailures", marker = "extra == 'dev-parlant'", specifier = ">=14.0.0" },
     { name = "pytest-timeout", marker = "extra == 'dev'", specifier = ">=2.4.0" },
     { name = "pytest-timeout", marker = "extra == 'dev-parlant'", specifier = ">=2.4.0" },
-    { name = "python-dotenv", specifier = ">=1.1.1" },
-    { name = "python-dotenv", marker = "extra == 'bridge'", specifier = ">=1.0" },
-    { name = "python-dotenv", marker = "extra == 'bridge-agentcore'", specifier = ">=1.0" },
-    { name = "python-dotenv", marker = "extra == 'dev'", specifier = ">=1.0" },
+    { name = "python-dotenv", specifier = ">=1.2.2" },
+    { name = "python-dotenv", marker = "extra == 'bridge'", specifier = ">=1.2.2" },
+    { name = "python-dotenv", marker = "extra == 'bridge-agentcore'", specifier = ">=1.2.2" },
+    { name = "python-dotenv", marker = "extra == 'dev'", specifier = ">=1.2.2" },
     { name = "python-multipart", marker = "extra == 'a2a-gateway'", specifier = ">=0.0.22" },
     { name = "pyyaml", specifier = ">=6.0" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.8.0" },
@@ -8627,7 +8578,7 @@ wheels = [
 standard = [
     { name = "colorama", marker = "sys_platform == 'win32'" },
     { name = "httptools" },
-    { name = "python-dotenv", version = "1.1.1", source = { registry = "https://pypi.org/simple" } },
+    { name = "python-dotenv" },
     { name = "pyyaml" },
     { name = "uvloop", marker = "platform_python_implementation != 'PyPy' and sys_platform != 'cygwin' and sys_platform != 'win32'" },
     { name = "watchfiles" },
