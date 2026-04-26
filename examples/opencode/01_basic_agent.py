@@ -61,8 +61,8 @@ async def main() -> None:
             agent=os.getenv("OPENCODE_AGENT") or None,
             custom_section="You are a helpful assistant. Keep replies concise.",
             approval_mode=os.getenv("OPENCODE_APPROVAL_MODE", "manual"),  # type: ignore[arg-type]  # env var is str; invalid values fall through to manual mode
-            features=AdapterFeatures(emit={Emit.EXECUTION}),
-        )
+        ),
+        features=AdapterFeatures(emit=frozenset({Emit.EXECUTION})),
     )
 
     agent = Agent.create(
