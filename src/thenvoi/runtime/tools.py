@@ -1309,6 +1309,47 @@ class AgentTools(AgentToolsProtocol):
         )
         return response.data.id
 
+    async def fetch_room_context(
+        self,
+        *,
+        room_id: str,
+        page: int = 1,
+        page_size: int = 50,
+    ) -> dict[str, Any]:
+        """Fetch agent-relevant room messages, paginated.
+
+        Returns messages this agent sent or was mentioned in, ordered oldest
+        first. Used by state-reconstruction adapters (e.g. CrewAI Flow) to
+        rebuild durable run state from task events.
+        """
+        from thenvoi.runtime._context_serialization import context_item_to_dict
+
+        response = await self.rest.agent_api_context.get_agent_chat_context(
+            chat_id=room_id,
+            page=page,
+            page_size=page_size,
+            request_options=DEFAULT_REQUEST_OPTIONS,
+        )
+        data = [context_item_to_dict(item) for item in (response.data or [])]
+        meta = getattr(response, "meta", None)
+        if meta is None:
+            meta_dict: dict[str, Any] = {
+                "page": page,
+                "page_size": page_size,
+                "total_count": len(data),
+                "total_pages": 1 if data else 0,
+            }
+        elif hasattr(meta, "model_dump"):
+            meta_dict = meta.model_dump()
+        else:
+            meta_dict = {
+                "page": getattr(meta, "page", page),
+                "page_size": getattr(meta, "page_size", page_size),
+                "total_count": getattr(meta, "total_count", len(data)),
+                "total_pages": getattr(meta, "total_pages", 1 if data else 0),
+            }
+        return {"data": data, "meta": meta_dict}
+
     async def add_participant(
         self, identifier: str, role: str = "member"
     ) -> dict[str, Any]:
