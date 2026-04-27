@@ -1763,15 +1763,22 @@ class AgentTools(AgentToolsProtocol):
             scope,
             system,
         )
+        kwargs: dict[str, Any] = {"page_size": page_size}
+        optional_filters = {
+            "subject_id": subject_id,
+            "scope": scope,
+            "system": system,
+            "type": type,
+            "segment": segment,
+            "content_query": content_query,
+            "status": status,
+        }
+        kwargs.update(
+            {key: value for key, value in optional_filters.items() if value is not None}
+        )
         response = await self.rest.agent_api_memories.list_agent_memories(
-            subject_id=subject_id,
-            scope=scope,
-            system=system,
-            type=type,
-            segment=segment,
-            content_query=content_query,
-            page_size=page_size,
-            status=status,
+            **kwargs,
+            request_options=DEFAULT_REQUEST_OPTIONS,
         )
 
         return response
@@ -1813,17 +1820,21 @@ class AgentTools(AgentToolsProtocol):
             segment,
             scope,
         )
+        memory_kwargs: dict[str, Any] = {
+            "content": content,
+            "system": system,
+            "type": type,
+            "segment": segment,
+            "thought": thought,
+            "scope": scope,
+        }
+        if subject_id is not None:
+            memory_kwargs["subject_id"] = subject_id
+        if metadata is not None:
+            memory_kwargs["metadata"] = metadata
         response = await self.rest.agent_api_memories.create_agent_memory(
-            memory=MemoryCreateRequest(
-                content=content,
-                system=system,
-                type=type,
-                segment=segment,
-                thought=thought,
-                scope=scope,
-                subject_id=subject_id,
-                metadata=metadata,
-            )
+            memory=MemoryCreateRequest(**memory_kwargs),
+            request_options=DEFAULT_REQUEST_OPTIONS,
         )
         if not response.data:
             raise RuntimeError("Failed to store memory - no response data")
@@ -1841,7 +1852,10 @@ class AgentTools(AgentToolsProtocol):
             execute_tool_call() at the adapter boundary.
         """
         logger.debug("Getting memory: id=%s", memory_id)
-        response = await self.rest.agent_api_memories.get_agent_memory(id=memory_id)
+        response = await self.rest.agent_api_memories.get_agent_memory(
+            id=memory_id,
+            request_options=DEFAULT_REQUEST_OPTIONS,
+        )
         if not response.data:
             raise RuntimeError("Failed to get memory - no response data")
         return response.data
@@ -1859,7 +1873,8 @@ class AgentTools(AgentToolsProtocol):
         """
         logger.debug("Superseding memory: id=%s", memory_id)
         response = await self.rest.agent_api_memories.supersede_agent_memory(
-            id=memory_id
+            id=memory_id,
+            request_options=DEFAULT_REQUEST_OPTIONS,
         )
         if not response.data:
             raise RuntimeError("Failed to supersede memory - no response data")
@@ -1877,7 +1892,10 @@ class AgentTools(AgentToolsProtocol):
             execute_tool_call() at the adapter boundary.
         """
         logger.debug("Archiving memory: id=%s", memory_id)
-        response = await self.rest.agent_api_memories.archive_agent_memory(id=memory_id)
+        response = await self.rest.agent_api_memories.archive_agent_memory(
+            id=memory_id,
+            request_options=DEFAULT_REQUEST_OPTIONS,
+        )
         if not response.data:
             raise RuntimeError("Failed to archive memory - no response data")
         return response.data

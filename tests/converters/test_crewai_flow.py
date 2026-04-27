@@ -1,4 +1,4 @@
-"""Unit tests for CrewAI Flow state converter (Phase 1)."""
+"""Unit tests for CrewAI Flow state converter."""
 
 from __future__ import annotations
 
@@ -16,6 +16,7 @@ from thenvoi.converters.crewai_flow import (
     CrewAIFlowParticipantSnapshot,
     CrewAIFlowRunStatus,
     CrewAIFlowSequentialChainState,
+    CrewAIFlowSideEffectState,
     CrewAIFlowStage,
     CrewAIFlowStateConverter,
     normalize_participant_key,
@@ -371,6 +372,75 @@ class TestBufferedAndChains:
         run = state.runs["msg-1"]
         assert [b.source_message_id for b in run.buffered_syntheses] == ["m1", "m2"]
 
+    def test_side_effects_merge_by_key(self) -> None:
+        t1 = datetime(2026, 1, 1, tzinfo=timezone.utc)
+        t2 = t1 + timedelta(seconds=1)
+        events = [
+            _ev(
+                id="e1",
+                inserted_at=t1,
+                payload={
+                    **_base_payload(
+                        status=CrewAIFlowRunStatus.SIDE_EFFECT_RESERVED,
+                        stage=CrewAIFlowStage.DELEGATED,
+                    ),
+                    "side_effects": [{"side_effect_key": "msg-1:subcrew:1"}],
+                },
+            ),
+            _ev(
+                id="e2",
+                inserted_at=t2,
+                payload={
+                    **_base_payload(
+                        status=CrewAIFlowRunStatus.WAITING,
+                        stage=CrewAIFlowStage.WAITING_FOR_REPLIES,
+                    ),
+                    "side_effects": [
+                        {
+                            "side_effect_key": "msg-1:subcrew:1",
+                            "message_id": "msg-subcrew",
+                        }
+                    ],
+                },
+            ),
+        ]
+        state = CrewAIFlowStateConverter().convert(events)
+        assert state.runs["msg-1"].side_effects[0].message_id == "msg-subcrew"
+
+    def test_side_effects_merge_preserves_confirmed_fields_on_ties(self) -> None:
+        t = datetime(2026, 1, 1, tzinfo=timezone.utc)
+        events = [
+            _ev(
+                id="e2",
+                inserted_at=t,
+                payload={
+                    **_base_payload(
+                        status=CrewAIFlowRunStatus.WAITING,
+                        stage=CrewAIFlowStage.WAITING_FOR_REPLIES,
+                    ),
+                    "side_effects": [
+                        {
+                            "side_effect_key": "msg-1:subcrew:1",
+                            "message_id": "msg-subcrew",
+                        }
+                    ],
+                },
+            ),
+            _ev(
+                id="e1",
+                inserted_at=t,
+                payload={
+                    **_base_payload(
+                        status=CrewAIFlowRunStatus.SIDE_EFFECT_RESERVED,
+                        stage=CrewAIFlowStage.DELEGATED,
+                    ),
+                    "side_effects": [{"side_effect_key": "msg-1:subcrew:1"}],
+                },
+            ),
+        ]
+        state = CrewAIFlowStateConverter().convert(events)
+        assert state.runs["msg-1"].side_effects[0].message_id == "msg-subcrew"
+
 
 # ---------------------------------------------------------------------------
 # max_run_age proactive close
@@ -507,6 +577,7 @@ def test_models_exportable() -> None:
     assert CrewAIFlowMetadata
     assert CrewAIFlowDelegationState
     assert CrewAIFlowSequentialChainState
+    assert CrewAIFlowSideEffectState
     assert CrewAIFlowBufferedSynthesis
     assert CrewAIFlowParticipantSnapshot
     assert CrewAIFlowJoinPolicy

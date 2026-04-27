@@ -6,9 +6,8 @@ methods. The nest_asyncio.apply() call is IRREVERSIBLE and affects the entire
 Python process — all event loops will allow nesting after this is applied.
 The patch is applied lazily on first tool execution, not at import time.
 
-Extracted from src/thenvoi/adapters/crewai.py during Phase 0 of the
-CrewAIFlowAdapter spec so that both CrewAIAdapter and CrewAIFlowAdapter
-share one bridge implementation.
+Extracted from src/thenvoi/adapters/crewai.py so CrewAIAdapter and
+CrewAIFlowAdapter share one bridge implementation.
 """
 
 from __future__ import annotations
@@ -85,7 +84,7 @@ def run_async(
                 "Running coroutine on fallback event loop via thread-safe submit"
             )
             future = asyncio.run_coroutine_threadsafe(coro, fallback_loop)
-            return future.result(timeout=60)
+            return future.result()
 
         # No running event loop and no active fallback loop — use asyncio.run
         logger.debug("Running coroutine in new event loop via asyncio.run")

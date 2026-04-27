@@ -1,4 +1,4 @@
-"""Phase 0 soak test: 100 sequential on_message calls across 3 mocked rooms.
+"""Soak test: 100 sequential on_message calls across 3 mocked rooms.
 
 Asserts:
 - No exceptions across the run
@@ -75,7 +75,7 @@ def _make_msg(idx: int, room_id: str) -> PlatformMessage:
 
 @pytest.mark.slow
 @pytest.mark.asyncio
-async def test_phase_0_soak_100_turns_3_rooms(crewai_mocks):
+async def test_soak_100_turns_3_rooms(crewai_mocks):
     """Drive 100 on_message calls across 3 rooms; assert no leaks."""
     import importlib
 
@@ -83,7 +83,6 @@ async def test_phase_0_soak_100_turns_3_rooms(crewai_mocks):
     CrewAIAdapter = module.CrewAIAdapter
 
     adapter = CrewAIAdapter(model="gpt-4o-mini")
-    # Bypass on_started's CrewAI agent construction by stubbing _crewai_agent.
     fake_agent = MagicMock()
     fake_agent.kickoff_async = AsyncMock(return_value=MagicMock(raw="ok"))
     adapter._crewai_agent = fake_agent

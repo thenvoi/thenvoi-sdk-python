@@ -1,7 +1,8 @@
-"""Phase 3 tests for CrewAIFlowAdapter message processing."""
+"""Tests for CrewAIFlowAdapter message processing."""
 
 from __future__ import annotations
 
+import asyncio
 import sys
 from datetime import datetime, timezone
 from typing import Any
@@ -35,6 +36,7 @@ def _mock_crewai(monkeypatch: pytest.MonkeyPatch):
 from thenvoi.adapters.crewai_flow import (  # noqa: E402
     CrewAIFlowAdapter,
     HistoryCrewAIFlowStateSource,
+    RestCrewAIFlowStateSource,
     get_current_flow_runtime,
 )
 from thenvoi.converters.crewai_flow import CrewAIFlowStateConverter  # noqa: E402
@@ -107,6 +109,7 @@ class TestDirectResponse:
 
         assert len(tools.messages_sent) == 1
         assert tools.messages_sent[0]["content"] == "hello"
+        assert tools.messages_sent[0]["mentions"] == ["@example/peer"]
         # At least: reservation event + finalized event.
         statuses = [
             e["metadata"].get(adapter.metadata_namespace, {}).get("status")
@@ -336,10 +339,25 @@ class TestNestAsyncioNotInvoked:
             flow_factory=lambda: flow,
             state_source=HistoryCrewAIFlowStateSource(acknowledge_test_only=True),
         )
-        tools = FakeAgentTools(participants=[{"id": "p1", "handle": "@example/peer"}])
+        tools = FakeAgentTools(participants=[{"id": "user-1", "handle": "@pat"}])
         await _run_one_turn(adapter, tools, _msg())
 
         apply_mock.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_direct_response_without_mentions_targets_sender(self) -> None:
+        flow = _make_flow_returning(
+            {"decision": "direct_response", "content": "hi", "mentions": []}
+        )
+        adapter = CrewAIFlowAdapter(
+            flow_factory=lambda: flow,
+            state_source=HistoryCrewAIFlowStateSource(acknowledge_test_only=True),
+        )
+        tools = FakeAgentTools(participants=[{"id": "user-1", "handle": "@pat"}])
+
+        await _run_one_turn(adapter, tools, _msg())
+
+        assert tools.messages_sent[0]["mentions"] == ["@pat"]
 
 
 # ---------------------------------------------------------------------------
@@ -577,6 +595,129 @@ class TestRuntimeTools:
             if e["message_type"] == "task"
         ]
         assert statuses == ["side_effect_reserved", "indeterminate"]
+
+    @pytest.mark.asyncio
+    async def test_subcrew_send_is_not_repeated_after_confirmation(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        mock_tools_module = MagicMock()
+        mock_tools_module.BaseTool = type("BaseTool", (), {})
+        monkeypatch.setitem(sys.modules, "crewai.tools", mock_tools_module)
+        for mod in (
+            "thenvoi.integrations.crewai",
+            "thenvoi.integrations.crewai.runtime",
+            "thenvoi.integrations.crewai.tools",
+        ):
+            sys.modules.pop(mod, None)
+
+        ns = "crewai_flow:agent-1"
+        prior_payload = {
+            "schema_version": 1,
+            "room_id": "room-1",
+            "run_id": "msg-1",
+            "parent_message_id": "msg-1",
+            "status": "waiting",
+            "stage": "waiting_for_replies",
+            "final_side_effect_key": "msg-1:subcrew:1",
+            "final_message_id": "msg-existing",
+            "side_effects": [
+                {
+                    "side_effect_key": "msg-1:subcrew:1",
+                    "message_id": "msg-existing",
+                }
+            ],
+        }
+
+        def factory():
+            class _Flow:
+                async def kickoff_async(self, inputs: dict | None = None) -> Any:
+                    rt = get_current_flow_runtime()
+                    assert rt is not None
+                    send_tool = next(
+                        t
+                        for t in rt.create_crewai_tools()
+                        if t.name == "thenvoi_send_message"
+                    )
+                    result = send_tool._run(content="subcrew visible", mentions="[]")
+                    assert '"status": "success"' in result
+                    return {"decision": "waiting", "reason": "done"}
+
+            return _Flow()
+
+        adapter = CrewAIFlowAdapter(
+            flow_factory=factory,
+            state_source=RestCrewAIFlowStateSource(),
+        )
+        await adapter.on_started("agent-1", "")
+        tools = FakeAgentTools(
+            room_context=[
+                {
+                    "id": "evt-prior",
+                    "message_type": "task",
+                    "inserted_at": datetime.now(timezone.utc).isoformat(),
+                    "metadata": {ns: prior_payload},
+                }
+            ]
+        )
+
+        await adapter.on_message(
+            msg=_msg(),
+            tools=tools,  # type: ignore[arg-type]
+            history=None,  # type: ignore[arg-type]
+            participants_msg=None,
+            contacts_msg=None,
+            is_session_bootstrap=False,
+            room_id="room-1",
+        )
+
+        assert tools.messages_sent == []
+
+    @pytest.mark.asyncio
+    async def test_subcrew_tools_run_on_adapter_loop_from_worker_thread(self) -> None:
+        expected_loop = asyncio.get_running_loop()
+
+        class LoopCheckingTools(FakeAgentTools):
+            async def send_message(
+                self,
+                content: str,
+                mentions: list[str] | list[dict[str, str]] | None = None,
+            ) -> dict[str, Any]:
+                assert asyncio.get_running_loop() is expected_loop
+                return await super().send_message(content, mentions)
+
+        def factory():
+            class _Flow:
+                async def kickoff_async(self, inputs: dict | None = None) -> Any:
+                    rt = get_current_flow_runtime()
+                    assert rt is not None
+                    send_tool = next(
+                        t
+                        for t in rt.create_crewai_tools()
+                        if t.name == "thenvoi_send_message"
+                    )
+                    result = await asyncio.to_thread(
+                        send_tool._run,
+                        content="subcrew visible",
+                        mentions='["@example/peer"]',
+                    )
+                    assert '"status": "success"' in result
+                    return {"decision": "waiting", "reason": "done"}
+
+            return _Flow()
+
+        adapter = CrewAIFlowAdapter(
+            flow_factory=factory,
+            state_source=HistoryCrewAIFlowStateSource(acknowledge_test_only=True),
+        )
+        tools = LoopCheckingTools(
+            participants=[{"id": "p-a", "handle": "@example/peer"}]
+        )
+
+        await _run_one_turn(adapter, tools, _msg())
+
+        assert tools.messages_sent == [
+            {"id": "msg-0", "content": "subcrew visible", "mentions": ["@example/peer"]}
+        ]
 
 
 # ---------------------------------------------------------------------------

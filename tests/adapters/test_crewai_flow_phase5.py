@@ -1,4 +1,4 @@
-"""Phase 5 tests: tagged-peer, sequential-chain, and buffered synthesis."""
+"""Tests for tagged-peer, sequential-chain, and buffered synthesis behavior."""
 
 from __future__ import annotations
 
@@ -195,6 +195,81 @@ class TestSequentialChains:
             for e in tools.events_sent
             if e["message_type"] == "task"
         ]
+        assert "finalized" not in statuses
+
+    @pytest.mark.asyncio
+    async def test_chain_keys_accept_handle_form(self) -> None:
+        ns = "crewai_flow:router"
+        payload = {
+            "schema_version": 1,
+            "room_id": "room-1",
+            "run_id": "msg-parent",
+            "parent_message_id": "msg-parent",
+            "status": "reply_recorded",
+            "stage": "waiting_for_replies",
+            "join_policy": "first",
+            "delegations": [
+                {
+                    "delegation_id": "d-A",
+                    "target": {
+                        "participant_id": "p-a",
+                        "handle": "@example/peer-a",
+                        "normalized_key": "peer-a",
+                    },
+                    "status": "replied",
+                    "side_effect_key": "msg-parent:delegate:d-A",
+                    "delegation_message_id": "msg-deleg-A",
+                    "reply_message_id": "msg-reply-A",
+                }
+            ],
+        }
+        flow = _flow(
+            [
+                {
+                    "decision": "synthesize",
+                    "content": "answer",
+                    "mentions": [],
+                }
+            ]
+        )
+        adapter = CrewAIFlowAdapter(
+            flow_factory=lambda: flow,
+            state_source=RestCrewAIFlowStateSource(),
+            join_policy="first",
+            sequential_chains={"@example/peer-a": "@example/peer-b"},
+        )
+        tools = FakeAgentTools(
+            participants=[
+                {"id": "p-a", "handle": "@example/peer-a"},
+                {"id": "p-b", "handle": "@example/peer-b"},
+            ],
+            room_context=[
+                {
+                    "id": "evt-prior",
+                    "message_type": "task",
+                    "inserted_at": datetime.now(timezone.utc).isoformat(),
+                    "metadata": {ns: payload},
+                }
+            ],
+        )
+        await adapter.on_started("router", "")
+        await adapter.on_message(
+            msg=_msg(id="msg-parent", content="orig"),
+            tools=tools,  # type: ignore[arg-type]
+            history=None,  # type: ignore[arg-type]
+            participants_msg=None,
+            contacts_msg=None,
+            is_session_bootstrap=False,
+            room_id="room-1",
+        )
+
+        assert tools.messages_sent == []
+        statuses = [
+            e["metadata"].get(adapter.metadata_namespace, {}).get("status")
+            for e in tools.events_sent
+            if e["message_type"] == "task"
+        ]
+        assert "waiting" in statuses
         assert "finalized" not in statuses
 
 
@@ -472,6 +547,7 @@ class TestE2ETrace:
             ],
         }
         assert actual == expected
+        assert tools.messages_sent[-1]["mentions"] == ["@example/peer-b"]
 
 
 # ---------------------------------------------------------------------------

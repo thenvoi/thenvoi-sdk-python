@@ -23,7 +23,7 @@ from contextvars import ContextVar
 from datetime import datetime, timedelta, timezone
 from typing import Any, Callable, Literal, Protocol, Union, runtime_checkable
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
 from thenvoi.converters.crewai_flow import (
     CrewAIFlowAmbiguousIdentityError,
@@ -35,6 +35,7 @@ from thenvoi.converters.crewai_flow import (
     CrewAIFlowParticipantSnapshot,
     CrewAIFlowRunStatus,
     CrewAIFlowSessionState,
+    CrewAIFlowSideEffectState,
     CrewAIFlowStage,
     CrewAIFlowStateConverter,
     CrewAIFlowTextOnlyBehavior,
@@ -95,12 +96,12 @@ class CrewAIFlowStateSource(Protocol):
 
 
 class _RoomCacheEntry:
-    __slots__ = ("events", "latest_inserted_at", "latest_event_id")
+    __slots__ = ("events", "latest_inserted_at", "seen_event_ids")
 
     def __init__(self) -> None:
         self.events: list[dict[str, Any]] = []
         self.latest_inserted_at: datetime | None = None
-        self.latest_event_id: str = ""
+        self.seen_event_ids: set[str] = set()
 
 
 class RestCrewAIFlowStateSource:
@@ -250,7 +251,7 @@ class RestCrewAIFlowStateSource:
         if collected:
             last = collected[-1]
             entry.latest_inserted_at = self._coerce_inserted_at(last.get("inserted_at"))
-            entry.latest_event_id = str(last.get("id") or "")
+        entry.seen_event_ids = {self._event_cache_key(e) for e in collected}
         return list(collected)
 
     async def _incremental_fetch(
@@ -270,14 +271,11 @@ class RestCrewAIFlowStateSource:
                 break
             for item in data:
                 inserted = self._coerce_inserted_at(item.get("inserted_at"))
-                event_id = str(item.get("id") or item.get("message_id") or "")
+                event_key = self._event_cache_key(item)
+                if event_key in entry.seen_event_ids:
+                    continue
                 if entry.latest_inserted_at is not None and inserted is not None:
                     if inserted < entry.latest_inserted_at:
-                        continue
-                    if (
-                        inserted == entry.latest_inserted_at
-                        and event_id <= entry.latest_event_id
-                    ):
                         continue
                 if self._is_task_event(item, metadata_namespace):
                     new_events.append(item)
@@ -286,18 +284,39 @@ class RestCrewAIFlowStateSource:
             page += 1
 
         if new_events:
-            new_events.sort(
+            entry.events.extend(new_events)
+            entry.events.sort(
                 key=lambda e: (
                     self._coerce_inserted_at(e.get("inserted_at"))
                     or datetime.fromtimestamp(0, tz=timezone.utc),
-                    str(e.get("id") or ""),
+                    str(e.get("id") or e.get("message_id") or ""),
                 )
             )
-            entry.events.extend(new_events)
-            last = new_events[-1]
+            last = entry.events[-1]
             entry.latest_inserted_at = self._coerce_inserted_at(last.get("inserted_at"))
-            entry.latest_event_id = str(last.get("id") or "")
+            entry.seen_event_ids.update(self._event_cache_key(e) for e in new_events)
         return list(entry.events)
+
+    def clear_room(self, room_id: str, metadata_namespace: str | None = None) -> None:
+        if metadata_namespace is None:
+            keys = [key for key in self._cache if key[0] == room_id]
+            for key in keys:
+                self._cache.pop(key, None)
+            return
+        self._cache.pop((room_id, metadata_namespace), None)
+
+    def _event_cache_key(self, event: dict[str, Any]) -> str:
+        event_id = event.get("id") or event.get("message_id")
+        if event_id:
+            return f"id:{event_id}"
+        inserted = self._coerce_inserted_at(event.get("inserted_at"))
+        return (
+            "anon:"
+            f"{inserted.isoformat() if inserted else ''}:"
+            f"{event.get('message_type') or ''}:"
+            f"{event.get('content') or ''}:"
+            f"{event.get('metadata')!r}"
+        )
 
     def _evict_if_needed(self) -> None:
         while len(self._cache) > self._cache_size:
@@ -312,10 +331,10 @@ class RestCrewAIFlowStateSource:
 class HistoryCrewAIFlowStateSource:
     """Reads task events from ``AgentInput.history`` directly.
 
-    This source fails closed on every non-bootstrap turn because the default
-    preprocessor only hydrates history when ``is_session_bootstrap=True``.
-    It is intentionally opt-in for tests and the rare deployment that runs
-    only on the bootstrap turn.
+    The default preprocessor only hydrates history on bootstrap turns, so this
+    source is intentionally opt-in for tests and deployments that never need
+    post-bootstrap reconstruction. Use ``RestCrewAIFlowStateSource`` for normal
+    room lifecycles.
     """
 
     def __init__(self, *, acknowledge_test_only: bool = False) -> None:
@@ -383,12 +402,7 @@ class HistoryCrewAIFlowStateSource:
 
 
 # ---------------------------------------------------------------------------
-# Adapter stub (filled in by Phase 2+)
-# ---------------------------------------------------------------------------
-
-
-# ---------------------------------------------------------------------------
-# Decision Pydantic models (Flow output discriminator)
+# Decision Pydantic models
 # ---------------------------------------------------------------------------
 
 
@@ -417,6 +431,19 @@ class DelegateDecision(BaseModel):
 
     decision: Literal["delegate"]
     delegations: list[DelegateItem] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def validate_unique_delegation_ids(self) -> "DelegateDecision":
+        seen: set[str] = set()
+        duplicates: set[str] = set()
+        for item in self.delegations:
+            if item.delegation_id in seen:
+                duplicates.add(item.delegation_id)
+            seen.add(item.delegation_id)
+        if duplicates:
+            duplicate_list = ", ".join(sorted(duplicates))
+            raise ValueError(f"duplicate delegation_id values: {duplicate_list}")
+        return self
 
 
 class WaitingDecision(BaseModel):
@@ -484,6 +511,15 @@ def get_current_flow_runtime() -> "CrewAIFlowRuntimeTools | None":
     return _current_flow_runtime.get()
 
 
+class _RoomLockEntry:
+    __slots__ = ("active", "cleanup_requested", "lock")
+
+    def __init__(self) -> None:
+        self.lock = asyncio.Lock()
+        self.active = 0
+        self.cleanup_requested = False
+
+
 class CrewAIFlowRuntimeTools:
     """Read-only Flow runtime surface.
 
@@ -504,7 +540,9 @@ class CrewAIFlowRuntimeTools:
         tools: AgentToolsProtocol,
         executor: "SideEffectExecutor",
         run_id: str,
+        state: CrewAIFlowSessionState,
         features: AdapterFeatures,
+        fallback_loop: asyncio.AbstractEventLoop | None,
     ) -> None:
         self._room_id = room_id
         self._agent_name = agent_name
@@ -513,7 +551,9 @@ class CrewAIFlowRuntimeTools:
         self._tools = tools
         self._executor = executor
         self._run_id = run_id
+        self._state = state
         self._features = features
+        self._fallback_loop = fallback_loop
 
     @property
     def room_id(self) -> str:
@@ -568,7 +608,9 @@ class CrewAIFlowRuntimeTools:
         )
         ctx = CrewAIToolContext(room_id=self._room_id, tools=self._tools)
         reporter = CrewAIFlowSubCrewReporter(
-            executor=self._executor, run_id=self._run_id
+            executor=self._executor,
+            run_id=self._run_id,
+            state=self._state,
         )
 
         def _get_context() -> CrewAIToolContext:
@@ -579,6 +621,7 @@ class CrewAIFlowRuntimeTools:
             reporter=reporter,
             features=features,
             custom_tools=custom_tools,
+            fallback_loop=self._fallback_loop,
         )
 
 
@@ -840,7 +883,7 @@ class SideEffectExecutor:
             )
 
     # ------------------------------------------------------------------
-    # Delegation (phase 4)
+    # Delegation
     # ------------------------------------------------------------------
 
     async def execute_delegations(
@@ -1033,7 +1076,7 @@ class SideEffectExecutor:
                 return
 
     # ------------------------------------------------------------------
-    # Reply matching (phase 4)
+    # Reply matching
     # ------------------------------------------------------------------
 
     async def record_reply(
@@ -1123,9 +1166,16 @@ class SideEffectExecutor:
 class CrewAIFlowSubCrewReporter:
     """``CrewAIToolReporter`` that routes sub-Crew visible sends via executor."""
 
-    def __init__(self, *, executor: SideEffectExecutor, run_id: str) -> None:
+    def __init__(
+        self,
+        *,
+        executor: SideEffectExecutor,
+        run_id: str,
+        state: CrewAIFlowSessionState,
+    ) -> None:
         self._executor = executor
         self._run_id = run_id
+        self._state = state
 
     async def execute_send_message(
         self,
@@ -1134,6 +1184,16 @@ class CrewAIFlowSubCrewReporter:
         mentions: list[str],
     ) -> None:
         key = self._executor.next_subcrew_key()
+        existing = self._existing_side_effect(key)
+        if existing is not None:
+            if existing.message_id is not None:
+                logger.debug("Skipping duplicate sub-Crew side effect %s", key)
+                return
+            await self._executor._record_indeterminate(side_effect_key=key)
+            raise ThenvoiToolError(
+                f"sub-Crew side effect {key} was reserved but not confirmed"
+            )
+
         reservation = await self._executor._send_event(
             content=f"reserve:{key}",
             message_type="task",
@@ -1156,7 +1216,9 @@ class CrewAIFlowSubCrewReporter:
                 exc_info=True,
             )
             await self._executor._record_indeterminate(side_effect_key=key)
-            return
+            raise ThenvoiToolError(
+                f"send_message failed for sub-Crew side effect {key}"
+            )
         message_id = (
             getattr(message_response, "id", None)
             if message_response is not None
@@ -1177,9 +1239,12 @@ class CrewAIFlowSubCrewReporter:
                 ),
                 retry_attempts=self._executor._confirm_retry_attempts,
             )
-        except ThenvoiToolError:
+        except ThenvoiToolError as exc:
             logger.warning("Confirmation event for sub-Crew side effect %s failed", key)
             await self._executor._record_indeterminate(side_effect_key=key)
+            raise ThenvoiToolError(
+                f"confirmation failed for sub-Crew side effect {key}"
+            ) from exc
 
     def _subcrew_envelope(
         self,
@@ -1193,11 +1258,36 @@ class CrewAIFlowSubCrewReporter:
         envelope = self._executor._envelope(status=status, stage=stage)
         payload = envelope[self._executor.metadata_namespace]
         payload["final_side_effect_key"] = side_effect_key
+        payload["side_effects"] = [
+            CrewAIFlowSideEffectState(
+                side_effect_key=side_effect_key,
+                reserved_event_id=reserved_event_id,
+                message_id=message_id,
+            ).model_dump(mode="json", exclude_none=True)
+        ]
         if message_id is not None:
             payload["final_message_id"] = message_id
         if reserved_event_id is not None:
             payload["final_reserved_event_id"] = reserved_event_id
         return envelope
+
+    def _existing_side_effect(
+        self, side_effect_key: str
+    ) -> CrewAIFlowSideEffectState | None:
+        run = self._state.runs.get(self._run_id)
+        if run is None:
+            return None
+        for side_effect in run.side_effects:
+            if side_effect.side_effect_key == side_effect_key:
+                return side_effect
+        if run.final_side_effect_key == side_effect_key:
+            return CrewAIFlowSideEffectState(
+                side_effect_key=side_effect_key,
+                reserved_event_id=run.final_reserved_event_id,
+                message_id=run.final_message_id,
+                sent_event_id=run.final_sent_event_id,
+            )
+        return None
 
     async def report_call(
         self,
@@ -1243,9 +1333,9 @@ class _AmbiguousReply:
 class CrewAIFlowAdapter(SimpleAdapter[CrewAIFlowSessionState]):
     """Message-scoped CrewAI Flow adapter.
 
-    Phase 2 lands the constructor, validation, and lifecycle hooks. The
-    Flow execution pipeline (``on_message``) is added in Phase 3 — calling
-    ``on_message`` before that phase raises ``NotImplementedError``.
+    Each inbound room message runs one local CrewAI Flow execution. Durable
+    orchestration state is reconstructed from task events on every turn, while
+    visible writes use reserve-send-confirm task events for idempotency.
     """
 
     SUPPORTED_EMIT = frozenset({Emit.EXECUTION})
@@ -1271,8 +1361,7 @@ class CrewAIFlowAdapter(SimpleAdapter[CrewAIFlowSessionState]):
         # ---- flow_factory -------------------------------------------------
         if not callable(flow_factory):
             raise ThenvoiConfigError("flow_factory must be callable")
-        # Constructor never calls flow_factory(). Runtime checks the returned
-        # object's type when the first turn fires (Phase 3).
+        # Constructor never calls flow_factory(); the first turn validates it.
 
         # ---- state_source -------------------------------------------------
         if state_source is None:
@@ -1376,8 +1465,11 @@ class CrewAIFlowAdapter(SimpleAdapter[CrewAIFlowSessionState]):
         self._tagged_peer_policy = tagged_peer_policy
         self._sequential_chains: dict[str, str] = dict(sequential_chains or {})
 
+        self._tool_loop: asyncio.AbstractEventLoop | None = None
+
         # Per-room async locks and transient caches. Cleared on on_cleanup.
-        self._room_locks: dict[str, asyncio.Lock] = {}
+        self._room_locks: dict[str, _RoomLockEntry] = {}
+        self._room_locks_guard = asyncio.Lock()
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -1385,6 +1477,7 @@ class CrewAIFlowAdapter(SimpleAdapter[CrewAIFlowSessionState]):
 
     async def on_started(self, agent_name: str, agent_description: str) -> None:
         await super().on_started(agent_name, agent_description)
+        self._tool_loop = asyncio.get_running_loop()
         if self._configured_metadata_namespace is None:
             agent_id = getattr(self, "_thenvoi_agent_id", None) or agent_name
             self.metadata_namespace = f"crewai_flow:{agent_id}"
@@ -1395,21 +1488,51 @@ class CrewAIFlowAdapter(SimpleAdapter[CrewAIFlowSessionState]):
             self.history_converter.metadata_namespace = self.metadata_namespace
 
     async def on_cleanup(self, room_id: str) -> None:
-        self._room_locks.pop(room_id, None)
+        entry = await self._acquire_room_lock_entry(room_id, cleanup_requested=True)
+        try:
+            async with entry.lock:
+                clear_room = getattr(self._state_source, "clear_room", None)
+                if callable(clear_room):
+                    clear_room(room_id, self.metadata_namespace)
+        finally:
+            await self._release_room_lock_entry(room_id, entry)
 
     # ------------------------------------------------------------------
     # Internal accessors
     # ------------------------------------------------------------------
 
-    def _get_room_lock(self, room_id: str) -> asyncio.Lock:
-        lock = self._room_locks.get(room_id)
-        if lock is None:
-            lock = asyncio.Lock()
-            self._room_locks[room_id] = lock
-        return lock
+    async def _acquire_room_lock_entry(
+        self,
+        room_id: str,
+        *,
+        cleanup_requested: bool = False,
+    ) -> _RoomLockEntry:
+        async with self._room_locks_guard:
+            entry = self._room_locks.get(room_id)
+            if entry is None:
+                entry = _RoomLockEntry()
+                self._room_locks[room_id] = entry
+            entry.active += 1
+            entry.cleanup_requested = entry.cleanup_requested or cleanup_requested
+            return entry
+
+    async def _release_room_lock_entry(
+        self,
+        room_id: str,
+        entry: _RoomLockEntry,
+    ) -> None:
+        async with self._room_locks_guard:
+            if entry.active > 0:
+                entry.active -= 1
+            if (
+                entry.active == 0
+                and entry.cleanup_requested
+                and self._room_locks.get(room_id) is entry
+            ):
+                del self._room_locks[room_id]
 
     # ------------------------------------------------------------------
-    # on_message — filled in Phase 3
+    # Message handling
     # ------------------------------------------------------------------
 
     async def on_message(
@@ -1430,16 +1553,19 @@ class CrewAIFlowAdapter(SimpleAdapter[CrewAIFlowSessionState]):
                 "metadata_namespace is unresolved."
             )
 
-        lock = self._get_room_lock(room_id)
-        async with lock:
-            await self._process_one_turn(
-                msg=msg,
-                tools=tools,
-                history=history,
-                participants_msg=participants_msg,
-                contacts_msg=contacts_msg,
-                room_id=room_id,
-            )
+        entry = await self._acquire_room_lock_entry(room_id)
+        try:
+            async with entry.lock:
+                await self._process_one_turn(
+                    msg=msg,
+                    tools=tools,
+                    history=history,
+                    participants_msg=participants_msg,
+                    contacts_msg=contacts_msg,
+                    room_id=room_id,
+                )
+        finally:
+            await self._release_room_lock_entry(room_id, entry)
 
     async def _process_one_turn(
         self,
@@ -1650,7 +1776,9 @@ class CrewAIFlowAdapter(SimpleAdapter[CrewAIFlowSessionState]):
             tools=tools,
             executor=executor,
             run_id=run_id,
+            state=state,
             features=self.features,
+            fallback_loop=self._tool_loop,
         )
         token = _current_flow_runtime.set(runtime)
         try:
@@ -1677,6 +1805,7 @@ class CrewAIFlowAdapter(SimpleAdapter[CrewAIFlowSessionState]):
             executor=executor,
             state=state,
             msg=msg,
+            participants=participants,
         )
 
     async def _handle_result(
@@ -1686,6 +1815,7 @@ class CrewAIFlowAdapter(SimpleAdapter[CrewAIFlowSessionState]):
         executor: SideEffectExecutor,
         state: CrewAIFlowSessionState,
         msg: PlatformMessage,
+        participants: list[CrewAIFlowParticipantSnapshot],
     ) -> None:
         # Reject FlowStreamingOutput (string class match avoids the import).
         if type(result).__name__ == "FlowStreamingOutput":
@@ -1707,13 +1837,15 @@ class CrewAIFlowAdapter(SimpleAdapter[CrewAIFlowSessionState]):
                 state=state,
                 raw=result,
                 error=str(exc)[:500],
+                msg=msg,
+                participants=participants,
             )
             return
 
         if isinstance(decision, DirectResponseDecision):
             await executor.execute_direct_response(
                 content=decision.content,
-                mentions=decision.mentions,
+                mentions=self._final_mentions(decision.mentions, msg, participants),
                 state=state,
             )
         elif isinstance(decision, WaitingDecision):
@@ -1738,7 +1870,7 @@ class CrewAIFlowAdapter(SimpleAdapter[CrewAIFlowSessionState]):
             await executor.execute_delegations(
                 items=decision.delegations,
                 state=state,
-                participants=self._snapshot_participants(executor._tools),
+                participants=participants,
             )
         elif isinstance(decision, SynthesizeDecision):
             await self._handle_synthesize(
@@ -1746,6 +1878,7 @@ class CrewAIFlowAdapter(SimpleAdapter[CrewAIFlowSessionState]):
                 state=state,
                 decision=decision,
                 msg=msg,
+                participants=participants,
             )
 
     async def _handle_synthesize(
@@ -1755,6 +1888,7 @@ class CrewAIFlowAdapter(SimpleAdapter[CrewAIFlowSessionState]):
         state: CrewAIFlowSessionState,
         decision: "SynthesizeDecision",
         msg: PlatformMessage,
+        participants: list[CrewAIFlowParticipantSnapshot],
     ) -> None:
         """Apply join policy + safety gates.
 
@@ -1809,7 +1943,19 @@ class CrewAIFlowAdapter(SimpleAdapter[CrewAIFlowSessionState]):
                 if d.status == CrewAIFlowDelegationStatus.REPLIED
             }
             delegated_keys = {d.target.normalized_key for d in run.delegations}
-            for upstream_key, downstream_key in self._sequential_chains.items():
+            participant_dicts = [
+                {"id": p.participant_id, "handle": p.handle, "name": p.handle}
+                for p in participants
+            ]
+            for upstream_raw, downstream_raw in self._sequential_chains.items():
+                upstream_key = normalize_participant_key(
+                    upstream_raw,
+                    participants=participant_dicts,
+                )
+                downstream_key = normalize_participant_key(
+                    downstream_raw,
+                    participants=participant_dicts,
+                )
                 if (
                     upstream_key in replied_keys
                     and downstream_key not in delegated_keys
@@ -1835,9 +1981,22 @@ class CrewAIFlowAdapter(SimpleAdapter[CrewAIFlowSessionState]):
         )
         await executor.execute_direct_response(
             content=final_content,
-            mentions=decision.mentions,
+            mentions=self._final_mentions(decision.mentions, msg, participants),
             state=state,
         )
+
+    @staticmethod
+    def _final_mentions(
+        mentions: list[str],
+        msg: PlatformMessage,
+        participants: list[CrewAIFlowParticipantSnapshot],
+    ) -> list[str]:
+        if mentions:
+            return mentions
+        for participant in participants:
+            if participant.participant_id == msg.sender_id:
+                return [participant.handle or participant.participant_id]
+        return [msg.sender_id]
 
     @staticmethod
     def _extract_tagged_peer_keys(
@@ -1871,6 +2030,8 @@ class CrewAIFlowAdapter(SimpleAdapter[CrewAIFlowSessionState]):
         state: CrewAIFlowSessionState,
         raw: Any,
         error: str,
+        msg: PlatformMessage,
+        participants: list[CrewAIFlowParticipantSnapshot],
     ) -> None:
         if (
             self._text_only_behavior == CrewAIFlowTextOnlyBehavior.FALLBACK_SEND
@@ -1888,7 +2049,7 @@ class CrewAIFlowAdapter(SimpleAdapter[CrewAIFlowSessionState]):
             if not has_pending:
                 await executor.execute_direct_response(
                     content=raw,
-                    mentions=[],
+                    mentions=self._final_mentions([], msg, participants),
                     state=state,
                 )
                 return
@@ -2049,20 +2210,7 @@ class CrewAIFlowAdapter(SimpleAdapter[CrewAIFlowSessionState]):
         room_id: str,
         run_id: str,
     ) -> None:
-        """Re-load state for the run and finalize if join policy is satisfied.
-
-        Phase 4 finalization is deferred to the next router turn for join
-        policy ``all`` (the run waits until the Flow is invoked again with
-        a fresh inbound that triggers a synthesize decision). This method
-        only handles ``join_policy="first"`` where the first reply alone
-        satisfies the policy — but even then the spec requires the Flow to
-        produce the final synthesis content. So this method is a no-op for
-        v1 and exists as the seam for future ``automatic finalization``.
-        """
-        # The reply is recorded; the next time the Flow runs (next turn or
-        # explicit synthesize decision) it will see the replied state and
-        # produce the synthesize. Phase 5 adds optional automatic
-        # synthesize-after-join-satisfied behaviour.
+        """Keep reply handling explicit; synthesis only runs from Flow output."""
         return None
 
     def _snapshot_participants(

@@ -1,4 +1,4 @@
-"""Phase 4 tests: delegation, reply matching, and join handling."""
+"""Tests for delegation, reply matching, and join handling."""
 
 from __future__ import annotations
 
@@ -94,6 +94,51 @@ async def _turn(
 
 
 class TestDelegation:
+    @pytest.mark.asyncio
+    async def test_duplicate_delegation_ids_fail_before_sending(self) -> None:
+        flow = _flow(
+            {
+                "decision": "delegate",
+                "delegations": [
+                    {
+                        "delegation_id": "dup",
+                        "target": "peer-a",
+                        "content": "do A",
+                        "mentions": ["@example/peer-a"],
+                    },
+                    {
+                        "delegation_id": "dup",
+                        "target": "peer-b",
+                        "content": "do B",
+                        "mentions": ["@example/peer-b"],
+                    },
+                ],
+            }
+        )
+        adapter = CrewAIFlowAdapter(
+            flow_factory=lambda: flow,
+            state_source=HistoryCrewAIFlowStateSource(acknowledge_test_only=True),
+        )
+        await _start(adapter)
+        tools = FakeAgentTools(
+            participants=[
+                {"id": "p-a", "handle": "@example/peer-a"},
+                {"id": "p-b", "handle": "@example/peer-b"},
+            ]
+        )
+
+        await _turn(adapter, tools, _msg())
+
+        assert tools.messages_sent == []
+        payloads = [
+            e["metadata"].get(adapter.metadata_namespace, {})
+            for e in tools.events_sent
+            if e["message_type"] == "task"
+        ]
+        assert payloads[-1]["status"] == "failed"
+        assert payloads[-1]["error"]["code"] == "malformed_flow_output"
+        assert "duplicate delegation_id" in payloads[-1]["error"]["message"]
+
     @pytest.mark.asyncio
     async def test_two_delegations_send_two_visible_messages(self) -> None:
         flow = _flow(
@@ -294,7 +339,9 @@ class TestReplyMatching:
             is_session_bootstrap=False,
         )
 
-        assert [m["content"] for m in tools.messages_sent] == ["final answer"]
+        assert tools.messages_sent == [
+            {"id": "msg-0", "content": "final answer", "mentions": ["@example/peer-b"]}
+        ]
         statuses = [
             e["metadata"].get(ns, {}).get("status")
             for e in tools.events_sent
@@ -360,7 +407,9 @@ class TestReplyMatching:
             is_session_bootstrap=False,
         )
 
-        assert [m["content"] for m in tools.messages_sent] == ["first answer"]
+        assert tools.messages_sent == [
+            {"id": "msg-0", "content": "first answer", "mentions": ["@example/peer-a"]}
+        ]
         statuses = [
             e["metadata"].get(ns, {}).get("status")
             for e in tools.events_sent

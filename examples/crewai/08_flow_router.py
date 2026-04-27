@@ -60,7 +60,7 @@ class ToyRouterFlow:
             return {
                 "decision": "direct_response",
                 "content": "This one does not need peer routing.",
-                "mentions": [],
+                "mentions": [str(message.get("sender_id") or "")],
             }
 
         run = self._current_run(inputs.get("state") or {})

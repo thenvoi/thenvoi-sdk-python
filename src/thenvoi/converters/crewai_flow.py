@@ -6,8 +6,8 @@ single source of truth for the v1 wire schema; any change to the merge
 semantics or field set requires bumping ``schema_version`` and adding a
 loader for the older version.
 
-This module is purely additive in Phase 1. The adapter that produces these
-events lives in ``src/thenvoi/adapters/crewai_flow.py``.
+The adapter that produces these events lives in
+``src/thenvoi/adapters/crewai_flow.py``.
 """
 
 from __future__ import annotations
@@ -146,6 +146,15 @@ class CrewAIFlowBufferedSynthesis(BaseModel):
     content: str
 
 
+class CrewAIFlowSideEffectState(BaseModel):
+    model_config = _FORBID
+
+    side_effect_key: str
+    reserved_event_id: str | None = None
+    message_id: str | None = None
+    sent_event_id: str | None = None
+
+
 class CrewAIFlowError(BaseModel):
     model_config = _FORBID
 
@@ -173,6 +182,7 @@ class CrewAIFlowMetadata(BaseModel):
         default_factory=list
     )
     buffered_syntheses: list[CrewAIFlowBufferedSynthesis] = Field(default_factory=list)
+    side_effects: list[CrewAIFlowSideEffectState] = Field(default_factory=list)
     tagged_peer_keys: list[str] = Field(default_factory=list)
     delegation_rounds: int = 0
     final_side_effect_key: str | None = None
@@ -507,6 +517,21 @@ class CrewAIFlowStateConverter:
                 merged_buffered.append(b)
                 seen_sources.add(b.source_message_id)
 
+        side_effects = {s.side_effect_key: s for s in existing.side_effects}
+        for s in incoming.side_effects:
+            current = side_effects.get(s.side_effect_key)
+            if current is None:
+                side_effects[s.side_effect_key] = s
+                continue
+            side_effects[s.side_effect_key] = current.model_copy(
+                update={
+                    "reserved_event_id": s.reserved_event_id
+                    or current.reserved_event_id,
+                    "message_id": s.message_id or current.message_id,
+                    "sent_event_id": s.sent_event_id or current.sent_event_id,
+                }
+            )
+
         return existing.model_copy(
             update={
                 "status": incoming.status,
@@ -516,6 +541,7 @@ class CrewAIFlowStateConverter:
                 "delegations": list(delegations.values()),
                 "sequential_chains": list(chains.values()),
                 "buffered_syntheses": merged_buffered,
+                "side_effects": list(side_effects.values()),
                 "tagged_peer_keys": incoming.tagged_peer_keys
                 or existing.tagged_peer_keys,
                 "delegation_rounds": max(
@@ -551,6 +577,7 @@ __all__ = [
     "CrewAIFlowRunStatus",
     "CrewAIFlowSequentialChainState",
     "CrewAIFlowSessionState",
+    "CrewAIFlowSideEffectState",
     "CrewAIFlowStage",
     "CrewAIFlowStateConverter",
     "CrewAIFlowTextOnlyBehavior",

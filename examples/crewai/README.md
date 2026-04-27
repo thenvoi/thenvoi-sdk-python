@@ -47,6 +47,9 @@ requirement; the flow adapter writes two task events per visible side
 effect (reservation + confirmation) and reads the room's task-event log
 on every turn.
 
+For the full decision contract, state model, side-effect behavior, and common
+failure modes, see [`README_flow_adapter.md`](README_flow_adapter.md).
+
 ## What was validated during `INT-245`
 
 Confirmed live:

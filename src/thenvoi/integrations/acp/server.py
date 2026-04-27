@@ -299,7 +299,8 @@ class ACPServer(Agent):
         Validates API key by calling the Thenvoi identity endpoint.
 
         Args:
-            method_id: The authentication method (only "api_key" supported).
+            method_id: The authentication method. Supports "api_key" and the
+                Cursor compatibility alias "cursor_login".
             **kwargs: Additional keyword arguments.
 
         Returns:

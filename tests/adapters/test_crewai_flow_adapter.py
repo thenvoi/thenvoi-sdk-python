@@ -1,9 +1,10 @@
-"""Phase 2 tests for ``CrewAIFlowAdapter`` constructor and lifecycle."""
+"""Tests for ``CrewAIFlowAdapter`` constructor and lifecycle."""
 
 from __future__ import annotations
 
+import asyncio
 import sys
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 from unittest.mock import MagicMock
 
 import pytest
@@ -36,10 +37,26 @@ from thenvoi.adapters.crewai_flow import (  # noqa: E402
     RestCrewAIFlowStateSource,
 )
 from thenvoi.core.exceptions import ThenvoiConfigError  # noqa: E402
+from thenvoi.core.types import PlatformMessage  # noqa: E402
+from thenvoi.testing.fake_tools import FakeAgentTools  # noqa: E402
 
 
 def _factory():
     return MagicMock()
+
+
+def _msg(*, id: str = "msg-1") -> PlatformMessage:
+    return PlatformMessage(
+        id=id,
+        room_id="room-1",
+        content="hi",
+        sender_id="user-1",
+        sender_type="User",
+        sender_name="Pat",
+        message_type="text",
+        metadata={},
+        created_at=datetime.now(timezone.utc),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -199,17 +216,180 @@ class TestOnStartedAndNamespace:
 
 class TestOnCleanup:
     @pytest.mark.asyncio
+    async def test_cleanup_clears_state_source_room_cache(self) -> None:
+        cleared = []
+
+        class CacheAwareSource(HistoryCrewAIFlowStateSource):
+            def clear_room(self, room_id: str, metadata_namespace: str) -> None:
+                cleared.append((room_id, metadata_namespace))
+
+        adapter = CrewAIFlowAdapter(
+            flow_factory=_factory,
+            state_source=CacheAwareSource(acknowledge_test_only=True),
+            metadata_namespace="crewai_flow:test-agent",
+        )
+        await adapter.on_cleanup("room-A")
+
+        assert cleared == [("room-A", "crewai_flow:test-agent")]
+
+    @pytest.mark.asyncio
     async def test_cleanup_removes_only_target_room(self) -> None:
         adapter = CrewAIFlowAdapter(flow_factory=_factory)
         # Prime locks for two rooms.
-        adapter._get_room_lock("room-A")
-        adapter._get_room_lock("room-B")
+        room_a = await adapter._acquire_room_lock_entry("room-A")
+        await adapter._release_room_lock_entry("room-A", room_a)
+        room_b = await adapter._acquire_room_lock_entry("room-B")
+        await adapter._release_room_lock_entry("room-B", room_b)
         assert "room-A" in adapter._room_locks
         assert "room-B" in adapter._room_locks
 
         await adapter.on_cleanup("room-A")
         assert "room-A" not in adapter._room_locks
         assert "room-B" in adapter._room_locks
+
+    @pytest.mark.asyncio
+    async def test_cleanup_waits_for_in_flight_room_turn(self) -> None:
+        entered = asyncio.Event()
+        release = asyncio.Event()
+        finished = asyncio.Event()
+        calls: list[str] = []
+
+        class BlockingFlow:
+            async def kickoff_async(self, inputs: dict | None = None) -> dict:
+                calls.append((inputs or {}).get("message", {}).get("id", ""))
+                entered.set()
+                if len(calls) == 1:
+                    await release.wait()
+                finished.set()
+                return {"decision": "waiting", "reason": "done"}
+
+        adapter = CrewAIFlowAdapter(
+            flow_factory=BlockingFlow,
+            state_source=HistoryCrewAIFlowStateSource(acknowledge_test_only=True),
+        )
+        await adapter.on_started("router", "")
+        tools = FakeAgentTools()
+
+        first = asyncio.create_task(
+            adapter.on_message(
+                msg=_msg(id="msg-1"),
+                tools=tools,  # type: ignore[arg-type]
+                history=None,  # type: ignore[arg-type]
+                participants_msg=None,
+                contacts_msg=None,
+                is_session_bootstrap=True,
+                room_id="room-1",
+            )
+        )
+        await entered.wait()
+        cleanup = asyncio.create_task(adapter.on_cleanup("room-1"))
+        second = asyncio.create_task(
+            adapter.on_message(
+                msg=_msg(id="msg-2"),
+                tools=tools,  # type: ignore[arg-type]
+                history=None,  # type: ignore[arg-type]
+                participants_msg=None,
+                contacts_msg=None,
+                is_session_bootstrap=True,
+                room_id="room-1",
+            )
+        )
+
+        await asyncio.sleep(0)
+        assert calls == ["msg-1"]
+        release.set()
+        await first
+        await cleanup
+        await second
+
+        assert calls == ["msg-1", "msg-2"]
+        assert finished.is_set()
+        assert "room-1" not in adapter._room_locks
+
+    @pytest.mark.asyncio
+    async def test_cleanup_does_not_split_lock_for_queued_turns(self) -> None:
+        release_first = asyncio.Event()
+        release_second = asyncio.Event()
+        second_entered = asyncio.Event()
+        calls: list[str] = []
+        active = 0
+        overlap = False
+
+        class BlockingFlow:
+            async def kickoff_async(self, inputs: dict | None = None) -> dict:
+                nonlocal active, overlap
+                message_id = (inputs or {}).get("message", {}).get("id", "")
+                if active:
+                    overlap = True
+                active += 1
+                calls.append(message_id)
+                try:
+                    if message_id == "msg-1":
+                        await release_first.wait()
+                    elif message_id == "msg-2":
+                        second_entered.set()
+                        await release_second.wait()
+                    return {"decision": "waiting", "reason": message_id}
+                finally:
+                    active -= 1
+
+        adapter = CrewAIFlowAdapter(
+            flow_factory=BlockingFlow,
+            state_source=HistoryCrewAIFlowStateSource(acknowledge_test_only=True),
+        )
+        await adapter.on_started("router", "")
+        tools = FakeAgentTools()
+
+        first = asyncio.create_task(
+            adapter.on_message(
+                msg=_msg(id="msg-1"),
+                tools=tools,  # type: ignore[arg-type]
+                history=None,  # type: ignore[arg-type]
+                participants_msg=None,
+                contacts_msg=None,
+                is_session_bootstrap=True,
+                room_id="room-1",
+            )
+        )
+        await asyncio.sleep(0)
+        cleanup = asyncio.create_task(adapter.on_cleanup("room-1"))
+        second = asyncio.create_task(
+            adapter.on_message(
+                msg=_msg(id="msg-2"),
+                tools=tools,  # type: ignore[arg-type]
+                history=None,  # type: ignore[arg-type]
+                participants_msg=None,
+                contacts_msg=None,
+                is_session_bootstrap=True,
+                room_id="room-1",
+            )
+        )
+
+        release_first.set()
+        await first
+        await cleanup
+        await second_entered.wait()
+        third = asyncio.create_task(
+            adapter.on_message(
+                msg=_msg(id="msg-3"),
+                tools=tools,  # type: ignore[arg-type]
+                history=None,  # type: ignore[arg-type]
+                participants_msg=None,
+                contacts_msg=None,
+                is_session_bootstrap=True,
+                room_id="room-1",
+            )
+        )
+        await asyncio.sleep(0)
+        assert calls == ["msg-1", "msg-2"]
+
+        release_second.set()
+        await second
+        await third
+
+        assert calls == ["msg-1", "msg-2", "msg-3"]
+        assert not overlap
+        assert "room-1" not in adapter._room_locks
 
 
 # ---------------------------------------------------------------------------

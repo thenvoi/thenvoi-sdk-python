@@ -1,4 +1,4 @@
-"""Unit tests for CrewAI Flow state sources (Phase 1)."""
+"""Unit tests for CrewAI Flow state sources."""
 
 from __future__ import annotations
 
@@ -153,6 +153,106 @@ class TestRestStateSourceCache:
 
         assert [e["id"] for e in second][-2:] == ["e99", "e100"]
         assert len(tools.context_calls) - first_calls == 3
+
+    @pytest.mark.asyncio
+    async def test_cache_refresh_keeps_same_timestamp_lower_id_event(self) -> None:
+        inserted_at = datetime(2026, 1, 1, tzinfo=timezone.utc)
+        tools = FakeAgentTools(
+            room_context=[_task_event(id="z-reserve", inserted_at=inserted_at)]
+        )
+        source = RestCrewAIFlowStateSource(page_size=10)
+        first = await source.load_task_events(
+            room_id="room-1",
+            metadata_namespace=NS,
+            tools=tools,
+            history=None,
+        )
+        assert [e["id"] for e in first] == ["z-reserve"]
+
+        tools.append_room_context(
+            _task_event(id="a-finalized", inserted_at=inserted_at)
+        )
+        second = await source.load_task_events(
+            room_id="room-1",
+            metadata_namespace=NS,
+            tools=tools,
+            history=None,
+        )
+
+        assert [e["id"] for e in second] == ["a-finalized", "z-reserve"]
+
+    @pytest.mark.asyncio
+    async def test_cache_refresh_keeps_distinct_events_without_ids(self) -> None:
+        inserted_at = datetime(2026, 1, 1, tzinfo=timezone.utc)
+        tools = FakeAgentTools(
+            room_context=[
+                {
+                    "message_type": "task",
+                    "inserted_at": inserted_at.isoformat(),
+                    "metadata": {NS: {"run_id": "run-1"}},
+                }
+            ]
+        )
+        source = RestCrewAIFlowStateSource(page_size=10)
+        first = await source.load_task_events(
+            room_id="room-1",
+            metadata_namespace=NS,
+            tools=tools,
+            history=None,
+        )
+        assert [e["metadata"][NS]["run_id"] for e in first] == ["run-1"]
+
+        tools.append_room_context(
+            {
+                "message_type": "task",
+                "inserted_at": inserted_at.isoformat(),
+                "metadata": {NS: {"run_id": "run-2"}},
+            }
+        )
+        second = await source.load_task_events(
+            room_id="room-1",
+            metadata_namespace=NS,
+            tools=tools,
+            history=None,
+        )
+        assert [e["metadata"][NS]["run_id"] for e in second] == ["run-1", "run-2"]
+
+        third = await source.load_task_events(
+            room_id="room-1",
+            metadata_namespace=NS,
+            tools=tools,
+            history=None,
+        )
+        assert [e["metadata"][NS]["run_id"] for e in third] == ["run-1", "run-2"]
+
+    @pytest.mark.asyncio
+    async def test_clear_room_invalidates_cached_high_water_mark(self) -> None:
+        t1 = datetime(2026, 1, 1, tzinfo=timezone.utc)
+        t2 = t1 + timedelta(seconds=1)
+        tools = FakeAgentTools(room_context=[_task_event(id="e2", inserted_at=t2)])
+        source = RestCrewAIFlowStateSource(page_size=10)
+        first = await source.load_task_events(
+            room_id="room-1",
+            metadata_namespace=NS,
+            tools=tools,
+            history=None,
+        )
+        assert [e["id"] for e in first] == ["e2"]
+
+        tools.set_room_context(
+            [
+                _task_event(id="e1", inserted_at=t1),
+                _task_event(id="e2", inserted_at=t2),
+            ]
+        )
+        source.clear_room("room-1", NS)
+        second = await source.load_task_events(
+            room_id="room-1",
+            metadata_namespace=NS,
+            tools=tools,
+            history=None,
+        )
+        assert [e["id"] for e in second] == ["e1", "e2"]
 
 
 class TestRestStateSourceFailure:

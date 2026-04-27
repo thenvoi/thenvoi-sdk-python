@@ -177,6 +177,119 @@ class TestToolSetComposition:
         assert "thenvoi_remove_contact" not in names
         assert "thenvoi_archive_memory" not in names
 
+    def test_adapter_feature_filters_only_apply_to_platform_tools(self, builder_mod):
+        from pydantic import BaseModel
+
+        from thenvoi.core.types import AdapterFeatures
+
+        class MyInput(BaseModel):
+            value: str
+
+        class OtherInput(BaseModel):
+            value: str
+
+        async def handler(_: BaseModel) -> str:
+            return "ok"
+
+        tools = builder_mod.build_thenvoi_crewai_tools(
+            get_context=lambda: None,
+            reporter=builder_mod.NoopReporter(),
+            features=AdapterFeatures(
+                include_tools=("thenvoi_send_message", "myinput"),
+                exclude_tools=("myinput",),
+            ),
+            custom_tools=[(MyInput, handler), (OtherInput, handler)],
+        )
+
+        names = {t.name for t in tools}
+        assert names == {"thenvoi_send_message", "my", "other"}
+
+    @pytest.mark.parametrize(
+        ("tool_name", "payload"),
+        [
+            ("thenvoi_send_event", {"content": "thinking", "message_type": "debug"}),
+            ("thenvoi_add_participant", {"identifier": "peer", "role": "viewer"}),
+            ("thenvoi_lookup_peers", {"page_size": 101}),
+            ("thenvoi_list_contacts", {"page": 0}),
+            ("thenvoi_list_contact_requests", {"sent_status": "done"}),
+            ("thenvoi_respond_contact_request", {"action": "maybe"}),
+            ("thenvoi_list_memories", {"memory_type": "fact"}),
+            (
+                "thenvoi_store_memory",
+                {
+                    "content": "remember this",
+                    "system": "working",
+                    "memory_type": "fact",
+                    "segment": "user",
+                    "thought": "useful later",
+                },
+            ),
+        ],
+    )
+    def test_platform_tool_schemas_reject_invalid_values(
+        self, builder_mod, tool_name, payload
+    ):
+        from pydantic import ValidationError
+
+        from thenvoi.core.types import Capability
+
+        tools = builder_mod.build_thenvoi_crewai_tools(
+            get_context=lambda: None,
+            reporter=builder_mod.NoopReporter(),
+            capabilities=frozenset({Capability.CONTACTS, Capability.MEMORY}),
+        )
+        tool = next(t for t in tools if t.name == tool_name)
+
+        with pytest.raises(ValidationError):
+            tool.args_schema.model_validate(payload)
+
+    def test_platform_tool_schemas_accept_metadata_fields(self, builder_mod):
+        from thenvoi.core.types import Capability
+
+        tools = builder_mod.build_thenvoi_crewai_tools(
+            get_context=lambda: None,
+            reporter=builder_mod.NoopReporter(),
+            capabilities=frozenset({Capability.MEMORY}),
+        )
+        send_event = next(t for t in tools if t.name == "thenvoi_send_event")
+        store_memory = next(t for t in tools if t.name == "thenvoi_store_memory")
+
+        assert send_event.args_schema.model_validate(
+            {
+                "content": "state update",
+                "message_type": "task",
+                "metadata": {"run_id": "run-1"},
+            }
+        ).metadata == {"run_id": "run-1"}
+        assert store_memory.args_schema.model_validate(
+            {
+                "content": "remember this",
+                "system": "working",
+                "memory_type": "semantic",
+                "segment": "user",
+                "thought": "useful later",
+                "metadata": {"source": "crewai"},
+            }
+        ).metadata == {"source": "crewai"}
+
+    def test_lookup_peers_forwards_pagination(self, builder_mod):
+        tools_obj = MagicMock()
+        tools_obj.lookup_peers = AsyncMock(
+            return_value={"peers": [], "metadata": {"page": 2, "page_size": 25}}
+        )
+        context = builder_mod.CrewAIToolContext(room_id="room-1", tools=tools_obj)
+        tools = builder_mod.build_thenvoi_crewai_tools(
+            get_context=lambda: context,
+            reporter=builder_mod.NoopReporter(),
+            capabilities=frozenset(),
+        )
+        lookup_peers = next(t for t in tools if t.name == "thenvoi_lookup_peers")
+
+        result = json.loads(lookup_peers._run(page=2, page_size=25))
+
+        assert result["status"] == "success"
+        tools_obj.lookup_peers.assert_awaited_once_with(2, 25)
+
 
 # --- Reporter behavior ---
 

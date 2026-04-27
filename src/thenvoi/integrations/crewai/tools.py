@@ -11,8 +11,8 @@ The builder takes three injectables:
   EmitExecutionReporter (gates by Emit.EXECUTION) and NoopReporter.
 - capabilities: frozenset[Capability] — controls which tool subset is exposed.
 
-Extracted from src/thenvoi/adapters/crewai.py during Phase 0 of the
-CrewAIFlowAdapter spec.
+Extracted from src/thenvoi/adapters/crewai.py so both CrewAI adapters share
+one platform tool surface.
 """
 
 from __future__ import annotations
@@ -22,7 +22,16 @@ import inspect
 import json
 import logging
 from dataclasses import dataclass
-from typing import Any, Awaitable, Callable, Protocol, Type, cast, runtime_checkable
+from typing import (
+    Any,
+    Awaitable,
+    Callable,
+    Literal,
+    Protocol,
+    Type,
+    cast,
+    runtime_checkable,
+)
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -251,9 +260,12 @@ class _SendMessageInput(BaseModel):
 
 class _SendEventInput(BaseModel):
     content: str = Field(..., description="Human-readable event content")
-    message_type: str = Field(
+    message_type: Literal["thought", "error", "task"] = Field(
         default="thought",
         description="Type of event: 'thought', 'error', or 'task'",
+    )
+    metadata: dict[str, Any] | None = Field(
+        default=None, description="Optional structured metadata"
     )
 
 
@@ -266,7 +278,7 @@ class _AddParticipantInput(BaseModel):
             "returned by thenvoi_lookup_peers; handles are mainly for mentions."
         ),
     )
-    role: str = Field(
+    role: Literal["owner", "admin", "member"] = Field(
         default="member", description="Role: 'owner', 'admin', or 'member'"
     )
 
@@ -285,7 +297,10 @@ class _GetParticipantsInput(BaseModel):
 
 
 class _LookupPeersInput(BaseModel):
-    pass
+    page: int = Field(default=1, description="Page number", ge=1)
+    page_size: int = Field(
+        default=50, description="Items per page (max 100)", ge=1, le=100
+    )
 
 
 class _CreateChatroomInput(BaseModel):
@@ -295,8 +310,10 @@ class _CreateChatroomInput(BaseModel):
 
 
 class _ListContactsInput(BaseModel):
-    page: int = Field(default=1, description="Page number")
-    page_size: int = Field(default=50, description="Items per page (max 100)")
+    page: int = Field(default=1, description="Page number", ge=1)
+    page_size: int = Field(
+        default=50, description="Items per page (max 100)", ge=1, le=100
+    )
 
 
 class _AddContactInput(BaseModel):
@@ -317,15 +334,17 @@ class _RemoveContactInput(BaseModel):
 
 
 class _ListContactRequestsInput(BaseModel):
-    page: int = Field(default=1, description="Page number")
-    page_size: int = Field(default=50, description="Items per page (max 100)")
-    sent_status: str = Field(
+    page: int = Field(default=1, description="Page number", ge=1)
+    page_size: int = Field(
+        default=50, description="Items per page (max 100)", ge=1, le=100
+    )
+    sent_status: Literal["pending", "approved", "rejected", "cancelled", "all"] = Field(
         default="pending", description="Filter sent requests by status"
     )
 
 
 class _RespondContactRequestInput(BaseModel):
-    action: str = Field(
+    action: Literal["approve", "reject", "cancel"] = Field(
         ..., description="Action to take ('approve', 'reject', 'cancel')"
     )
     handle: str | None = Field(default=None, description="Other party's handle")
@@ -334,22 +353,27 @@ class _RespondContactRequestInput(BaseModel):
 
 class _ListMemoriesInput(BaseModel):
     subject_id: str | None = Field(default=None, description="Filter by subject UUID")
-    scope: str | None = Field(
+    scope: Literal["subject", "organization", "all"] | None = Field(
         default=None, description="Filter by scope (subject, organization, all)"
     )
-    system: str | None = Field(
+    system: Literal["sensory", "working", "long_term"] | None = Field(
         default=None,
         description="Filter by memory system (sensory, working, long_term)",
     )
-    memory_type: str | None = Field(default=None, description="Filter by memory type")
-    segment: str | None = Field(
+    memory_type: (
+        Literal["iconic", "echoic", "haptic", "episodic", "semantic", "procedural"]
+        | None
+    ) = Field(default=None, description="Filter by memory type")
+    segment: Literal["user", "agent", "tool", "guideline"] | None = Field(
         default=None, description="Filter by segment (user, agent, tool, guideline)"
     )
     content_query: str | None = Field(
         default=None, description="Full-text search query"
     )
-    page_size: int = Field(default=50, description="Number of results per page")
-    status: str | None = Field(
+    page_size: int = Field(
+        default=50, description="Number of results per page", ge=1, le=50
+    )
+    status: Literal["active", "superseded", "archived", "all"] | None = Field(
         default=None,
         description="Filter by status (active, superseded, archived, all)",
     )
@@ -357,13 +381,24 @@ class _ListMemoriesInput(BaseModel):
 
 class _StoreMemoryInput(BaseModel):
     content: str = Field(..., description="The memory content")
-    system: str = Field(..., description="Memory system tier")
-    memory_type: str = Field(..., description="Memory type")
-    segment: str = Field(..., description="Logical segment")
+    system: Literal["sensory", "working", "long_term"] = Field(
+        ..., description="Memory system tier"
+    )
+    memory_type: Literal[
+        "iconic", "echoic", "haptic", "episodic", "semantic", "procedural"
+    ] = Field(..., description="Memory type")
+    segment: Literal["user", "agent", "tool", "guideline"] = Field(
+        ..., description="Logical segment"
+    )
     thought: str = Field(..., description="Agent's reasoning for storing this memory")
-    scope: str = Field(default="subject", description="Visibility scope")
+    scope: Literal["subject", "organization"] = Field(
+        default="subject", description="Visibility scope"
+    )
     subject_id: str | None = Field(
         default=None, description="UUID of the subject (required for subject scope)"
+    )
+    metadata: dict[str, Any] | None = Field(
+        default=None, description="Additional metadata"
     )
 
 
@@ -450,10 +485,11 @@ def _make_platform_tools(
         def _run(self, *_args: Any, **kwargs: Any) -> Any:
             content: str = kwargs.get("content", "")
             message_type: str = kwargs.get("message_type", "thought")
+            metadata: dict[str, Any] | None = kwargs.get("metadata")
 
             async def execute(tools: AgentToolsProtocol) -> str:
                 # No execution reporting for send_event to avoid meta-events.
-                await tools.send_event(content, message_type)
+                await tools.send_event(content, message_type, metadata=metadata)
                 return json.dumps({"status": "success", "message": "Event sent"})
 
             return _exec("thenvoi_send_event", execute)
@@ -535,8 +571,9 @@ def _make_platform_tools(
         args_schema: Type[BaseModel] = _LookupPeersInput
         cache_function: Any = _no_cache
 
-        def _run(self, *_args: Any, **_kwargs: Any) -> Any:
-            page, page_size = 1, 50
+        def _run(self, *_args: Any, **kwargs: Any) -> Any:
+            page: int = kwargs.get("page", 1)
+            page_size: int = kwargs.get("page_size", 50)
 
             async def execute(tools: AgentToolsProtocol) -> str:
                 await reporter.report_call(
@@ -725,16 +762,24 @@ def _make_platform_tools(
                         "status": status,
                     },
                 )
-                result = await tools.list_memories(
-                    subject_id=subject_id,
-                    scope=scope,
-                    system=system,
-                    type=memory_type,
-                    segment=segment,
-                    content_query=content_query,
-                    page_size=page_size,
-                    status=status,
+                list_kwargs = {"page_size": page_size}
+                optional_filters = {
+                    "subject_id": subject_id,
+                    "scope": scope,
+                    "system": system,
+                    "type": memory_type,
+                    "segment": segment,
+                    "content_query": content_query,
+                    "status": status,
+                }
+                list_kwargs.update(
+                    {
+                        key: value
+                        for key, value in optional_filters.items()
+                        if value is not None
+                    }
                 )
+                result = await tools.list_memories(**list_kwargs)
                 await reporter.report_result(tools, "thenvoi_list_memories", result)
                 return serialize_success_result(result)
 
@@ -754,6 +799,7 @@ def _make_platform_tools(
             thought = kwargs.get("thought", "")
             scope = kwargs.get("scope", "subject")
             subject_id = kwargs.get("subject_id")
+            metadata = kwargs.get("metadata")
 
             async def execute(tools: AgentToolsProtocol) -> str:
                 await reporter.report_call(
@@ -767,17 +813,22 @@ def _make_platform_tools(
                         "thought": thought,
                         "scope": scope,
                         "subject_id": subject_id,
+                        "metadata": metadata,
                     },
                 )
-                result = await tools.store_memory(
-                    content=content,
-                    system=system,
-                    type=memory_type,
-                    segment=segment,
-                    thought=thought,
-                    scope=scope,
-                    subject_id=subject_id,
-                )
+                store_kwargs = {
+                    "content": content,
+                    "system": system,
+                    "type": memory_type,
+                    "segment": segment,
+                    "thought": thought,
+                    "scope": scope,
+                }
+                if subject_id is not None:
+                    store_kwargs["subject_id"] = subject_id
+                if metadata is not None:
+                    store_kwargs["metadata"] = metadata
+                result = await tools.store_memory(**store_kwargs)
                 await reporter.report_result(tools, "thenvoi_store_memory", result)
                 return serialize_success_result(result)
 
