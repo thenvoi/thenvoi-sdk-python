@@ -198,3 +198,22 @@ class TestOnCleanup:
         await adapter.on_cleanup("room-A")
         assert "room-A" not in adapter._room_locks
         assert "room-B" in adapter._room_locks
+
+
+# ---------------------------------------------------------------------------
+# Public import path matches the example
+# ---------------------------------------------------------------------------
+
+
+class TestPublicImportPath:
+    def test_lazy_import_from_thenvoi_adapters(self) -> None:
+        # The example imports `from thenvoi.adapters import CrewAIFlowAdapter`.
+        from thenvoi.adapters import CrewAIFlowAdapter as Imported
+
+        assert Imported is CrewAIFlowAdapter
+
+    @pytest.mark.asyncio
+    async def test_default_namespace_matches_documented_format(self) -> None:
+        adapter = CrewAIFlowAdapter(flow_factory=_factory)
+        await adapter.on_started("crewai_flow_router", "")
+        assert adapter.metadata_namespace == "crewai_flow:crewai_flow_router"
