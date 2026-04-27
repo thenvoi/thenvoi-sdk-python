@@ -90,6 +90,17 @@ class TestValidation:
                 state_source=object(),  # type: ignore[arg-type]
             )
 
+    def test_state_source_load_task_events_must_be_awaitable(self) -> None:
+        class SyncSource:
+            def load_task_events(self, *, room_id, metadata_namespace, tools, history):
+                return []
+
+        with pytest.raises(ThenvoiConfigError):
+            CrewAIFlowAdapter(
+                flow_factory=_factory,
+                state_source=SyncSource(),  # type: ignore[arg-type]
+            )
+
     def test_join_policy_validation(self) -> None:
         with pytest.raises(ThenvoiConfigError):
             CrewAIFlowAdapter(
@@ -111,9 +122,7 @@ class TestValidation:
         with pytest.raises(ThenvoiConfigError):
             CrewAIFlowAdapter(flow_factory=_factory, max_run_age=timedelta(0))
         with pytest.raises(ThenvoiConfigError):
-            CrewAIFlowAdapter(
-                flow_factory=_factory, max_run_age=timedelta(seconds=-1)
-            )
+            CrewAIFlowAdapter(flow_factory=_factory, max_run_age=timedelta(seconds=-1))
         with pytest.raises(ThenvoiConfigError):
             CrewAIFlowAdapter(flow_factory=_factory, max_run_age=86400)  # type: ignore[arg-type]
 
@@ -148,15 +157,18 @@ class TestOnStartedAndNamespace:
     @pytest.mark.asyncio
     async def test_default_namespace_resolves_with_agent_id(self) -> None:
         adapter = CrewAIFlowAdapter(flow_factory=_factory)
-        await adapter.on_started("agent-A", "desc")
-        assert adapter.metadata_namespace == "crewai_flow:agent-A"
+        adapter._thenvoi_agent_id = "agent-id-A"
+        await adapter.on_started("Router", "desc")
+        assert adapter.metadata_namespace == "crewai_flow:agent-id-A"
 
     @pytest.mark.asyncio
     async def test_two_adapters_get_distinct_namespaces(self) -> None:
         a = CrewAIFlowAdapter(flow_factory=_factory)
         b = CrewAIFlowAdapter(flow_factory=_factory)
-        await a.on_started("agent-X", "")
-        await b.on_started("agent-Y", "")
+        a._thenvoi_agent_id = "agent-id-X"
+        b._thenvoi_agent_id = "agent-id-Y"
+        await a.on_started("Router", "")
+        await b.on_started("Router", "")
         assert a.metadata_namespace != b.metadata_namespace
 
     @pytest.mark.asyncio
@@ -215,5 +227,6 @@ class TestPublicImportPath:
     @pytest.mark.asyncio
     async def test_default_namespace_matches_documented_format(self) -> None:
         adapter = CrewAIFlowAdapter(flow_factory=_factory)
+        adapter._thenvoi_agent_id = "crewai-flow-router-id"
         await adapter.on_started("crewai_flow_router", "")
-        assert adapter.metadata_namespace == "crewai_flow:crewai_flow_router"
+        assert adapter.metadata_namespace == "crewai_flow:crewai-flow-router-id"

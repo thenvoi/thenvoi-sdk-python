@@ -15,8 +15,7 @@ from acp.schema import (
     AgentCapabilities,
     AudioContentBlock,
     AuthenticateResponse,
-    AuthMethodAgent,
-    CloseSessionResponse,
+    AuthMethod,
     EmbeddedResourceContentBlock,
     ForkSessionResponse,
     ImageContentBlock,
@@ -132,7 +131,7 @@ class ACPServer(Agent):
                 version=__version__,
             ),
             auth_methods=[
-                AuthMethodAgent(
+                AuthMethod(
                     id="api_key",
                     name="API Key",
                     description="Authenticate with THENVOI_API_KEY.",
@@ -498,9 +497,7 @@ class ACPServer(Agent):
         logger.info("ACP cancel for session %s", session_id)
         await self._adapter.cancel_prompt(session_id)
 
-    async def close_session(
-        self, session_id: str, **kwargs: Any
-    ) -> CloseSessionResponse | None:
+    async def close_session(self, session_id: str, **kwargs: Any) -> None:
         """Handle ACP close_session request.
 
         Cleans up all state for the session via the adapter.
@@ -510,7 +507,7 @@ class ACPServer(Agent):
             **kwargs: Additional keyword arguments.
 
         Returns:
-            CloseSessionResponse acknowledgement, or None if session not found.
+            None.
         """
         room_id = self._adapter.get_room_for_session(session_id)
         if room_id is None:
@@ -518,7 +515,7 @@ class ACPServer(Agent):
             return None
         logger.info("Closing ACP session %s (room %s)", session_id, room_id)
         await self._adapter.on_cleanup(room_id)
-        return CloseSessionResponse()
+        return None
 
     @staticmethod
     def _extract_text(prompt: list[Any]) -> str:

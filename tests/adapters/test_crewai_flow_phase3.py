@@ -37,6 +37,7 @@ from thenvoi.adapters.crewai_flow import (  # noqa: E402
     HistoryCrewAIFlowStateSource,
     get_current_flow_runtime,
 )
+from thenvoi.converters.crewai_flow import CrewAIFlowStateConverter  # noqa: E402
 from thenvoi.core.types import PlatformMessage  # noqa: E402
 from thenvoi.testing.fake_tools import FakeAgentTools  # noqa: E402
 
@@ -192,6 +193,64 @@ class TestFailedAndMalformed:
         assert tools.messages_sent == []
 
     @pytest.mark.asyncio
+    async def test_text_only_fallback_fails_when_delegation_pending(self) -> None:
+        payload = {
+            "schema_version": 1,
+            "room_id": "room-1",
+            "run_id": "msg-1",
+            "parent_message_id": "msg-1",
+            "status": "delegated_pending",
+            "stage": "delegated",
+            "delegations": [
+                {
+                    "delegation_id": "d-A",
+                    "target": {
+                        "participant_id": "p-a",
+                        "handle": "@example/peer-a",
+                        "normalized_key": "peer-a",
+                    },
+                    "status": "pending",
+                    "side_effect_key": "msg-1:delegate:d-A",
+                    "delegation_message_id": "msg-deleg-A",
+                }
+            ],
+        }
+        converted_history = CrewAIFlowStateConverter().convert(
+            [
+                {
+                    "id": "evt-prior",
+                    "message_type": "task",
+                    "inserted_at": "2026-01-01T00:00:00+00:00",
+                    "metadata": {"crewai_flow": payload},
+                }
+            ]
+        )
+        adapter = CrewAIFlowAdapter(
+            flow_factory=lambda: _make_flow_returning("partial answer"),
+            state_source=HistoryCrewAIFlowStateSource(acknowledge_test_only=True),
+            text_only_behavior="fallback_send",
+        )
+        await adapter.on_started("agent-1", "")
+        tools = FakeAgentTools()
+        await adapter.on_message(
+            msg=_msg(),
+            tools=tools,  # type: ignore[arg-type]
+            history=converted_history,
+            participants_msg=None,
+            contacts_msg=None,
+            is_session_bootstrap=True,
+            room_id="room-1",
+        )
+
+        assert tools.messages_sent == []
+        statuses = [
+            e["metadata"].get(adapter.metadata_namespace, {}).get("status")
+            for e in tools.events_sent
+            if e["message_type"] == "task"
+        ]
+        assert "failed" in statuses
+
+    @pytest.mark.asyncio
     async def test_streaming_output_rejected(self) -> None:
         # Simulate the FlowStreamingOutput class by name-match.
         class FlowStreamingOutput:
@@ -328,6 +387,49 @@ class TestIdempotentFinalization:
             msg=_msg(),
             tools=tools,  # type: ignore[arg-type]
             history=None,  # type: ignore[arg-type]
+            participants_msg=None,
+            contacts_msg=None,
+            is_session_bootstrap=True,
+            room_id="room-1",
+        )
+        assert tools.messages_sent == []
+
+    @pytest.mark.asyncio
+    async def test_history_state_source_accepts_converted_history(self) -> None:
+        finalized_payload = {
+            "schema_version": 1,
+            "room_id": "room-1",
+            "run_id": "msg-1",
+            "parent_message_id": "msg-1",
+            "status": "finalized",
+            "stage": "done",
+        }
+        converted_history = CrewAIFlowStateConverter().convert(
+            [
+                {
+                    "id": "evt-prior",
+                    "message_type": "task",
+                    "inserted_at": "2026-01-01T00:00:00+00:00",
+                    "metadata": {"crewai_flow": finalized_payload},
+                }
+            ]
+        )
+        adapter = CrewAIFlowAdapter(
+            flow_factory=lambda: _make_flow_returning(
+                {
+                    "decision": "direct_response",
+                    "content": "should NOT send",
+                    "mentions": [],
+                }
+            ),
+            state_source=HistoryCrewAIFlowStateSource(acknowledge_test_only=True),
+        )
+        await adapter.on_started("agent-1", "")
+        tools = FakeAgentTools()
+        await adapter.on_message(
+            msg=_msg(),
+            tools=tools,  # type: ignore[arg-type]
+            history=converted_history,
             participants_msg=None,
             contacts_msg=None,
             is_session_bootstrap=True,

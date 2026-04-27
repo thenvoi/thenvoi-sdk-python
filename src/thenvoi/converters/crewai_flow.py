@@ -173,6 +173,8 @@ class CrewAIFlowMetadata(BaseModel):
         default_factory=list
     )
     buffered_syntheses: list[CrewAIFlowBufferedSynthesis] = Field(default_factory=list)
+    tagged_peer_keys: list[str] = Field(default_factory=list)
+    delegation_rounds: int = 0
     final_side_effect_key: str | None = None
     final_reserved_event_id: str | None = None
     final_message_id: str | None = None
@@ -504,6 +506,12 @@ class CrewAIFlowStateConverter:
                 "delegations": list(delegations.values()),
                 "sequential_chains": list(chains.values()),
                 "buffered_syntheses": merged_buffered,
+                "tagged_peer_keys": incoming.tagged_peer_keys
+                or existing.tagged_peer_keys,
+                "delegation_rounds": max(
+                    existing.delegation_rounds,
+                    incoming.delegation_rounds,
+                ),
                 "final_side_effect_key": (
                     incoming.final_side_effect_key or existing.final_side_effect_key
                 ),

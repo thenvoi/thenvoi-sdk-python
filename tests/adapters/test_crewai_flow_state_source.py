@@ -122,6 +122,38 @@ class TestRestStateSourceCache:
         # Incremental fetch should hit only one page (page_size > total).
         assert len(tools.context_calls) - first_calls == 1
 
+    @pytest.mark.asyncio
+    async def test_cache_refresh_scans_past_first_full_page(self) -> None:
+        base = datetime(2026, 1, 1, tzinfo=timezone.utc)
+        tools = FakeAgentTools(
+            room_context=[
+                _task_event(id=f"e{i}", inserted_at=base + timedelta(seconds=i))
+                for i in range(100)
+            ]
+        )
+        source = RestCrewAIFlowStateSource(page_size=50)
+        first = await source.load_task_events(
+            room_id="room-1",
+            metadata_namespace=NS,
+            tools=tools,
+            history=None,
+        )
+        first_calls = len(tools.context_calls)
+        assert len(first) == 100
+
+        tools.append_room_context(
+            _task_event(id="e100", inserted_at=base + timedelta(seconds=100))
+        )
+        second = await source.load_task_events(
+            room_id="room-1",
+            metadata_namespace=NS,
+            tools=tools,
+            history=None,
+        )
+
+        assert [e["id"] for e in second][-2:] == ["e99", "e100"]
+        assert len(tools.context_calls) - first_calls == 3
+
 
 class TestRestStateSourceFailure:
     @pytest.mark.asyncio

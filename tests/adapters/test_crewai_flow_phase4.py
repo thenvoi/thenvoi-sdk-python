@@ -197,7 +197,7 @@ class TestReplyMatching:
                 }
             ],
         )
-        # Flow should not even fire — reply matching short-circuits.
+        # Flow can run after the reply is recorded, but this decision still waits.
         adapter = CrewAIFlowAdapter(
             flow_factory=lambda: _flow({"decision": "waiting", "reason": "no"}),
             state_source=RestCrewAIFlowStateSource(),
@@ -222,6 +222,357 @@ class TestReplyMatching:
         ]
         assert "reply_recorded" in statuses
         assert "finalized" not in statuses
+
+    @pytest.mark.asyncio
+    async def test_second_reply_under_join_all_finalizes(self) -> None:
+        ns = "crewai_flow:router"
+        delegation_payload = {
+            "schema_version": 1,
+            "room_id": "room-1",
+            "run_id": "msg-parent",
+            "parent_message_id": "msg-parent",
+            "status": "reply_recorded",
+            "stage": "waiting_for_replies",
+            "join_policy": "all",
+            "delegations": [
+                {
+                    "delegation_id": "d-A",
+                    "target": {
+                        "participant_id": "p-a",
+                        "handle": "@example/peer-a",
+                        "normalized_key": "peer-a",
+                    },
+                    "status": "replied",
+                    "side_effect_key": "msg-parent:delegate:d-A",
+                    "delegation_message_id": "msg-deleg-A",
+                    "reply_message_id": "msg-reply-A",
+                },
+                {
+                    "delegation_id": "d-B",
+                    "target": {
+                        "participant_id": "p-b",
+                        "handle": "@example/peer-b",
+                        "normalized_key": "peer-b",
+                    },
+                    "status": "pending",
+                    "side_effect_key": "msg-parent:delegate:d-B",
+                    "delegation_message_id": "msg-deleg-B",
+                },
+            ],
+        }
+        tools = FakeAgentTools(
+            participants=[
+                {"id": "p-a", "handle": "@example/peer-a", "name": "Peer A"},
+                {"id": "p-b", "handle": "@example/peer-b", "name": "Peer B"},
+            ],
+            room_context=[
+                {
+                    "id": "evt-prior",
+                    "message_type": "task",
+                    "inserted_at": datetime.now(timezone.utc).isoformat(),
+                    "metadata": {ns: delegation_payload},
+                }
+            ],
+        )
+        adapter = CrewAIFlowAdapter(
+            flow_factory=lambda: _flow(
+                {"decision": "synthesize", "content": "final answer", "mentions": []}
+            ),
+            state_source=RestCrewAIFlowStateSource(),
+        )
+        await _start(adapter, "router")
+        await _turn(
+            adapter,
+            tools,
+            _msg(
+                id="msg-reply-B",
+                content="here is B's answer",
+                sender_id="@example/peer-b",
+                sender_type="Agent",
+                sender_name="Peer B",
+            ),
+            is_session_bootstrap=False,
+        )
+
+        assert [m["content"] for m in tools.messages_sent] == ["final answer"]
+        statuses = [
+            e["metadata"].get(ns, {}).get("status")
+            for e in tools.events_sent
+            if e["message_type"] == "task"
+        ]
+        assert "reply_recorded" in statuses
+        assert "finalized" in statuses
+
+    @pytest.mark.asyncio
+    async def test_first_reply_under_join_first_finalizes(self) -> None:
+        ns = "crewai_flow:router"
+        delegation_payload = {
+            "schema_version": 1,
+            "room_id": "room-1",
+            "run_id": "msg-parent",
+            "parent_message_id": "msg-parent",
+            "status": "delegated_pending",
+            "stage": "delegated",
+            "join_policy": "first",
+            "delegations": [
+                {
+                    "delegation_id": "d-A",
+                    "target": {
+                        "participant_id": "p-a",
+                        "handle": "@example/peer-a",
+                        "normalized_key": "peer-a",
+                    },
+                    "status": "pending",
+                    "side_effect_key": "msg-parent:delegate:d-A",
+                    "delegation_message_id": "msg-deleg-A",
+                }
+            ],
+        }
+        tools = FakeAgentTools(
+            participants=[{"id": "p-a", "handle": "@example/peer-a", "name": "Peer A"}],
+            room_context=[
+                {
+                    "id": "evt-prior",
+                    "message_type": "task",
+                    "inserted_at": datetime.now(timezone.utc).isoformat(),
+                    "metadata": {ns: delegation_payload},
+                }
+            ],
+        )
+        adapter = CrewAIFlowAdapter(
+            flow_factory=lambda: _flow(
+                {"decision": "synthesize", "content": "first answer", "mentions": []}
+            ),
+            state_source=RestCrewAIFlowStateSource(),
+            join_policy="first",
+        )
+        await _start(adapter, "router")
+        await _turn(
+            adapter,
+            tools,
+            _msg(
+                id="msg-reply-A",
+                content="here is A's answer",
+                sender_id="@example/peer-a",
+                sender_type="Agent",
+                sender_name="Peer A",
+            ),
+            is_session_bootstrap=False,
+        )
+
+        assert [m["content"] for m in tools.messages_sent] == ["first answer"]
+        statuses = [
+            e["metadata"].get(ns, {}).get("status")
+            for e in tools.events_sent
+            if e["message_type"] == "task"
+        ]
+        assert "reply_recorded" in statuses
+        assert "finalized" in statuses
+
+    @pytest.mark.asyncio
+    async def test_ambiguous_agent_reply_records_reply_ambiguous(self) -> None:
+        ns = "crewai_flow:router"
+        event_time = datetime.now(timezone.utc).isoformat()
+        run_payloads = []
+        for run_id in ("msg-parent-1", "msg-parent-2"):
+            run_payloads.append(
+                {
+                    "schema_version": 1,
+                    "room_id": "room-1",
+                    "run_id": run_id,
+                    "parent_message_id": run_id,
+                    "status": "delegated_pending",
+                    "stage": "delegated",
+                    "join_policy": "all",
+                    "delegations": [
+                        {
+                            "delegation_id": f"{run_id}:d-A",
+                            "target": {
+                                "participant_id": "p-a",
+                                "handle": "@example/peer-a",
+                                "normalized_key": "peer-a",
+                            },
+                            "status": "pending",
+                            "side_effect_key": f"{run_id}:delegate:d-A",
+                            "delegation_message_id": f"msg-deleg-{run_id}",
+                        }
+                    ],
+                }
+            )
+        tools = FakeAgentTools(
+            participants=[{"id": "p-a", "handle": "@example/peer-a", "name": "Peer A"}],
+            room_context=[
+                {
+                    "id": f"evt-{idx}",
+                    "message_type": "task",
+                    "inserted_at": event_time,
+                    "metadata": {ns: payload},
+                }
+                for idx, payload in enumerate(run_payloads)
+            ],
+        )
+        adapter = CrewAIFlowAdapter(
+            flow_factory=lambda: _flow(
+                {
+                    "decision": "direct_response",
+                    "content": "should not run",
+                    "mentions": [],
+                }
+            ),
+            state_source=RestCrewAIFlowStateSource(),
+        )
+        await _start(adapter, "router")
+        await _turn(
+            adapter,
+            tools,
+            _msg(
+                id="msg-reply-A",
+                content="ambiguous answer",
+                sender_id="@example/peer-a",
+                sender_type="Agent",
+                sender_name="Peer A",
+            ),
+            is_session_bootstrap=False,
+        )
+
+        assert tools.messages_sent == []
+        statuses = [
+            e["metadata"].get(ns, {}).get("status")
+            for e in tools.events_sent
+            if e["message_type"] == "task"
+        ]
+        assert statuses == ["reply_ambiguous"]
+
+    @pytest.mark.asyncio
+    async def test_reserved_delegation_can_match_reply(self) -> None:
+        ns = "crewai_flow:router"
+        delegation_payload = {
+            "schema_version": 1,
+            "room_id": "room-1",
+            "run_id": "msg-parent",
+            "parent_message_id": "msg-parent",
+            "status": "side_effect_reserved",
+            "stage": "delegated",
+            "join_policy": "first",
+            "delegations": [
+                {
+                    "delegation_id": "d-A",
+                    "target": {
+                        "participant_id": "p-a",
+                        "handle": "@example/peer-a",
+                        "normalized_key": "peer-a",
+                    },
+                    "status": "reserved",
+                    "side_effect_key": "msg-parent:delegate:d-A",
+                }
+            ],
+        }
+        tools = FakeAgentTools(
+            participants=[{"id": "p-a", "handle": "@example/peer-a", "name": "Peer A"}],
+            room_context=[
+                {
+                    "id": "evt-prior",
+                    "message_type": "task",
+                    "inserted_at": datetime.now(timezone.utc).isoformat(),
+                    "metadata": {ns: delegation_payload},
+                }
+            ],
+        )
+        adapter = CrewAIFlowAdapter(
+            flow_factory=lambda: _flow(
+                {"decision": "synthesize", "content": "reserved reply", "mentions": []}
+            ),
+            state_source=RestCrewAIFlowStateSource(),
+            join_policy="first",
+        )
+        await _start(adapter, "router")
+        await _turn(
+            adapter,
+            tools,
+            _msg(
+                id="msg-reply-A",
+                content="reply to reserved delegation",
+                sender_id="@example/peer-a",
+                sender_type="Agent",
+                sender_name="Peer A",
+            ),
+            is_session_bootstrap=False,
+        )
+
+        statuses = [
+            e["metadata"].get(ns, {}).get("status")
+            for e in tools.events_sent
+            if e["message_type"] == "task"
+        ]
+        assert "reply_recorded" in statuses
+        assert "finalized" in statuses
+
+    @pytest.mark.asyncio
+    async def test_duplicate_normalized_key_records_reply_ambiguous(self) -> None:
+        ns = "crewai_flow:router"
+        delegation_payload = {
+            "schema_version": 1,
+            "room_id": "room-1",
+            "run_id": "msg-parent",
+            "parent_message_id": "msg-parent",
+            "status": "delegated_pending",
+            "stage": "delegated",
+            "join_policy": "all",
+            "delegations": [
+                {
+                    "delegation_id": "d-A",
+                    "target": {
+                        "participant_id": "p-a",
+                        "handle": "@example/peer-a",
+                        "normalized_key": "peer-a",
+                    },
+                    "status": "pending",
+                    "side_effect_key": "msg-parent:delegate:d-A",
+                    "delegation_message_id": "msg-deleg-A",
+                }
+            ],
+        }
+        tools = FakeAgentTools(
+            participants=[
+                {"id": "p-a", "handle": "@example/peer-a", "name": "Peer A"},
+                {"id": "p-a2", "handle": "@other/peer-a", "name": "Peer A2"},
+            ],
+            room_context=[
+                {
+                    "id": "evt-prior",
+                    "message_type": "task",
+                    "inserted_at": datetime.now(timezone.utc).isoformat(),
+                    "metadata": {ns: delegation_payload},
+                }
+            ],
+        )
+        adapter = CrewAIFlowAdapter(
+            flow_factory=lambda: _flow(
+                {"decision": "synthesize", "content": "should not send", "mentions": []}
+            ),
+            state_source=RestCrewAIFlowStateSource(),
+        )
+        await _start(adapter, "router")
+        await _turn(
+            adapter,
+            tools,
+            _msg(
+                id="msg-reply-A",
+                content="ambiguous identity",
+                sender_id="@example/peer-a",
+                sender_type="Agent",
+                sender_name="Peer A",
+            ),
+            is_session_bootstrap=False,
+        )
+
+        assert tools.messages_sent == []
+        statuses = [
+            e["metadata"].get(ns, {}).get("status")
+            for e in tools.events_sent
+            if e["message_type"] == "task"
+        ]
+        assert statuses == ["reply_ambiguous"]
 
     @pytest.mark.asyncio
     async def test_user_typed_unmatched_starts_new_run(self) -> None:

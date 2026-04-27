@@ -13,9 +13,9 @@ with parallel join and sequential composition. Use ``CrewAIAdapter`` (see
 is for room routers that need to delegate to multiple peers and wait for
 all replies before synthesizing.
 
-The example uses a toy Flow factory whose terminal decision rotates
-between direct_response, parallel delegate, and synthesize so you can see
-each shape land as task events without paying for an LLM.
+The example uses a toy Flow factory that reads the adapter-provided state
+snapshot and returns direct_response, delegate, waiting, or synthesize decisions
+without paying for an LLM.
 
 Run with:
     uv run examples/crewai/08_flow_router.py
@@ -47,17 +47,24 @@ class ToyRouterFlow:
     """Minimal stand-in for a real ``crewai.flow.flow.Flow``.
 
     A real Flow defines ``@start`` / ``@listen`` / ``@router`` methods and
-    exposes ``kickoff_async``. Here we just return a hard-coded decision
-    dict so the example is runnable without an LLM.
+    exposes ``kickoff_async``. Here we read the state snapshot that
+    ``CrewAIFlowAdapter`` reconstructs from task events.
     """
 
-    def __init__(self) -> None:
-        self._turn = 0
+    async def kickoff_async(
+        self, inputs: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
+        inputs = inputs or {}
+        message = inputs.get("message") or {}
+        if "quick" in str(message.get("content") or "").lower():
+            return {
+                "decision": "direct_response",
+                "content": "This one does not need peer routing.",
+                "mentions": [],
+            }
 
-    async def kickoff_async(self, inputs: dict[str, Any] | None = None) -> dict[str, Any]:
-        self._turn += 1
-        if self._turn == 1:
-            # Parent request → fan out to two peers in parallel.
+        run = self._current_run(inputs.get("state") or {})
+        if run is None:
             return {
                 "decision": "delegate",
                 "delegations": [
@@ -73,12 +80,23 @@ class ToyRouterFlow:
                         "content": "list any open tickets",
                         "mentions": ["@example/ticket-bot"],
                     },
+                    {
+                        "delegation_id": "task-bot",
+                        "target": "task-bot",
+                        "content": "list any pending tasks",
+                        "mentions": ["@example/task-bot"],
+                    },
                 ],
             }
-        if self._turn == 2:
-            # Both peers replied → synthesize. Sequential chain
-            # (data-fetcher -> presenter) blocks finalization until the
-            # presenter has been delegated to.
+
+        delegations = run.get("delegations") or []
+        delegated = {d.get("target", {}).get("normalized_key") for d in delegations}
+        replied = {
+            d.get("target", {}).get("normalized_key")
+            for d in delegations
+            if d.get("status") == "replied"
+        }
+        if "data-fetcher" in replied and "presenter" not in delegated:
             return {
                 "decision": "delegate",
                 "delegations": [
@@ -90,12 +108,21 @@ class ToyRouterFlow:
                     },
                 ],
             }
-        # Final turn: presenter replied; produce the final synthesis.
+        if not {"ticket-bot", "task-bot", "presenter"}.issubset(replied):
+            return {"decision": "waiting", "reason": "waiting for routed peers"}
         return {
             "decision": "synthesize",
             "content": "Here is the combined report.",
             "mentions": ["@example/user"],
         }
+
+    @staticmethod
+    def _current_run(state: dict[str, Any]) -> dict[str, Any] | None:
+        runs = state.get("runs") or {}
+        for run in runs.values():
+            if run.get("status") not in {"finalized", "failed", "indeterminate"}:
+                return run
+        return None
 
 
 def flow_factory() -> ToyRouterFlow:

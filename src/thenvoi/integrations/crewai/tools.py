@@ -21,7 +21,7 @@ import asyncio
 import json
 import logging
 from dataclasses import dataclass
-from typing import Any, Callable, Protocol, Type, runtime_checkable
+from typing import Any, Awaitable, Callable, Protocol, Type, cast, runtime_checkable
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -399,6 +399,15 @@ def _make_platform_tools(
                 mention_list = []
 
             async def execute(tools: AgentToolsProtocol) -> str:
+                execute_send_message = getattr(reporter, "execute_send_message", None)
+                if callable(execute_send_message):
+                    typed_execute_send_message = cast(
+                        Callable[[AgentToolsProtocol, str, list[str]], Awaitable[None]],
+                        execute_send_message,
+                    )
+                    await typed_execute_send_message(tools, content, mention_list)
+                    return json.dumps({"status": "success", "message": "Message sent"})
+
                 await reporter.report_call(
                     tools,
                     "thenvoi_send_message",

@@ -15,6 +15,7 @@ and fails closed on ambiguous state.
 from __future__ import annotations
 
 import asyncio
+import inspect
 import logging
 from collections import OrderedDict
 from collections.abc import Mapping
@@ -106,9 +107,8 @@ class RestCrewAIFlowStateSource:
     Calls ``tools.fetch_room_context`` page by page, filters to task events
     that carry the configured metadata namespace, and orders by
     ``(inserted_at, message_id)`` ascending. Maintains an LRU cache keyed by
-    ``(room_id, metadata_namespace)``; on cache hit the source pages from
-    page 1 and stops as soon as it sees an event that is at or before the
-    cached high-water mark.
+    ``(room_id, metadata_namespace)``; on cache hit the source scans until the
+    tail because the platform endpoint is oldest-first and has no cursor.
 
     Args:
         page_size: page size for pagination (max 100 per platform contract).
@@ -157,7 +157,9 @@ class RestCrewAIFlowStateSource:
                 entry=entry,
             )
 
-        # Cache hit: refresh from the head and stop on the first known event.
+        # Cache hit: the platform endpoint is oldest-first and has no cursor, so
+        # scan pages until the short page and append only events past the cached
+        # high-water mark.
         self._cache.move_to_end(cache_key)
         return await self._incremental_fetch(
             room_id=room_id,
@@ -259,21 +261,22 @@ class RestCrewAIFlowStateSource:
     ) -> list[dict[str, Any]]:
         new_events: list[dict[str, Any]] = []
         page = 1
-        stop = False
-        while not stop:
+        while True:
             response = await self._fetch_page(room_id=room_id, page=page, tools=tools)
             data = response.get("data") or []
             if not data:
                 break
             for item in data:
                 inserted = self._coerce_inserted_at(item.get("inserted_at"))
-                if (
-                    entry.latest_inserted_at is not None
-                    and inserted is not None
-                    and inserted <= entry.latest_inserted_at
-                ):
-                    stop = True
-                    continue
+                event_id = str(item.get("id") or item.get("message_id") or "")
+                if entry.latest_inserted_at is not None and inserted is not None:
+                    if inserted < entry.latest_inserted_at:
+                        continue
+                    if (
+                        inserted == entry.latest_inserted_at
+                        and event_id <= entry.latest_event_id
+                    ):
+                        continue
                 if self._is_task_event(item, metadata_namespace):
                     new_events.append(item)
             if len(data) < self._page_size:
@@ -330,6 +333,21 @@ class HistoryCrewAIFlowStateSource:
         tools: AgentToolsProtocol,
         history: Any,
     ) -> list[dict[str, Any]]:
+        if isinstance(history, CrewAIFlowSessionState):
+            return [
+                {
+                    "id": f"history:{run_id}",
+                    "message_type": "task",
+                    "inserted_at": datetime.now(timezone.utc).isoformat(),
+                    "metadata": {
+                        metadata_namespace: run.model_dump(
+                            mode="json", exclude_none=True
+                        )
+                    },
+                }
+                for run_id, run in history.runs.items()
+            ]
+
         events: list[dict[str, Any]] = []
         raw = self._extract_history(history)
         if not raw and not self._warned_empty:
@@ -434,6 +452,8 @@ def _validate_decision(raw: Any) -> FlowDecision:
     if not isinstance(raw, dict):
         raise ValueError("decision payload must be a dict")
     kind = raw.get("decision")
+    if not isinstance(kind, str):
+        raise ValueError(f"unknown decision kind: {kind!r}")
     model_map: dict[str, type[BaseModel]] = {
         "direct_response": DirectResponseDecision,
         "delegate": DelegateDecision,
@@ -578,7 +598,9 @@ class SideEffectExecutor:
         metadata_namespace: str,
         join_policy: CrewAIFlowJoinPolicy,
         text_only_behavior: CrewAIFlowTextOnlyBehavior,
-        confirm_retry_attempts: int = 3,
+        tagged_peer_keys: list[str] | None = None,
+        delegation_rounds: int = 0,
+        confirm_retry_attempts: int = 2,
     ) -> None:
         self._tools = tools
         self._room_id = room_id
@@ -587,6 +609,8 @@ class SideEffectExecutor:
         self._namespace = metadata_namespace
         self._join_policy = join_policy
         self._text_only_behavior = text_only_behavior
+        self._tagged_peer_keys = list(tagged_peer_keys or [])
+        self._delegation_rounds = delegation_rounds
         self._confirm_retry_attempts = confirm_retry_attempts
         self._subcrew_counter = 0
 
@@ -613,6 +637,7 @@ class SideEffectExecutor:
         final_reserved_event_id: str | None = None,
         final_sent_event_id: str | None = None,
         error: CrewAIFlowError | None = None,
+        delegation_rounds: int | None = None,
     ) -> dict[str, Any]:
         meta = CrewAIFlowMetadata(
             room_id=self._room_id,
@@ -623,6 +648,12 @@ class SideEffectExecutor:
             join_policy=self._join_policy,
             text_only_behavior=self._text_only_behavior,
             delegations=delegations or [],
+            tagged_peer_keys=list(self._tagged_peer_keys),
+            delegation_rounds=(
+                self._delegation_rounds
+                if delegation_rounds is None
+                else delegation_rounds
+            ),
             final_side_effect_key=final_side_effect_key,
             final_message_id=final_message_id,
             final_reserved_event_id=final_reserved_event_id,
@@ -745,18 +776,24 @@ class SideEffectExecutor:
 
         # Step 6: confirm with bounded retry (3 attempts total per spec).
         try:
-            await self._send_event(
+            confirmation_metadata = self._envelope(
+                status=CrewAIFlowRunStatus.FINALIZED,
+                stage=CrewAIFlowStage.DONE,
+                final_side_effect_key=side_effect_key,
+                final_message_id=str(message_id) if message_id else None,
+                final_reserved_event_id=str(getattr(reservation, "id", "")) or None,
+            )
+            sent_event = await self._send_event(
                 content=f"finalized:{side_effect_key}",
                 message_type="task",
-                metadata=self._envelope(
-                    status=CrewAIFlowRunStatus.FINALIZED,
-                    stage=CrewAIFlowStage.DONE,
-                    final_side_effect_key=side_effect_key,
-                    final_message_id=str(message_id) if message_id else None,
-                    final_reserved_event_id=str(getattr(reservation, "id", "")) or None,
-                ),
+                metadata=confirmation_metadata,
                 retry_attempts=self._confirm_retry_attempts,
             )
+            sent_event_id = str(getattr(sent_event, "id", "")) or None
+            if sent_event_id is not None:
+                confirmation_metadata[self._namespace]["final_sent_event_id"] = (
+                    sent_event_id
+                )
         except ThenvoiToolError:
             logger.warning(
                 "Confirmation event for %s failed after retries; recording indeterminate",
@@ -765,16 +802,23 @@ class SideEffectExecutor:
             await self._record_indeterminate(side_effect_key=side_effect_key)
 
     async def _record_indeterminate(self, *, side_effect_key: str) -> None:
-        await self._send_event(
-            content=f"indeterminate:{side_effect_key}",
-            message_type="task",
-            metadata=self._envelope(
-                status=CrewAIFlowRunStatus.INDETERMINATE,
-                stage=CrewAIFlowStage.INDETERMINATE,
-                final_side_effect_key=side_effect_key,
-            ),
-            retry_attempts=1,
-        )
+        try:
+            await self._send_event(
+                content=f"indeterminate:{side_effect_key}",
+                message_type="task",
+                metadata=self._envelope(
+                    status=CrewAIFlowRunStatus.INDETERMINATE,
+                    stage=CrewAIFlowStage.INDETERMINATE,
+                    final_side_effect_key=side_effect_key,
+                ),
+                retry_attempts=1,
+            )
+        except ThenvoiToolError:
+            logger.error(
+                "Could not persist indeterminate state for %s after retries",
+                side_effect_key,
+                exc_info=True,
+            )
 
     # ------------------------------------------------------------------
     # Delegation (phase 4)
@@ -840,21 +884,13 @@ class SideEffectExecutor:
                     handle = p.handle
                     break
             if not participant_id:
-                # Unknown participant: record failed delegation entry
-                # without a visible send.
-                accumulated.append(
-                    CrewAIFlowDelegationState(
-                        delegation_id=item.delegation_id,
-                        target=CrewAIFlowParticipantSnapshot(
-                            participant_id=normalized or item.target,
-                            handle=handle,
-                            normalized_key=normalized,
-                        ),
-                        status=CrewAIFlowDelegationStatus.FAILED,
-                        side_effect_key=f"{self._run_id}:delegate:{item.delegation_id}",
+                await self.record_failed(
+                    CrewAIFlowError(
+                        code="unknown_participant",
+                        message=f"Unknown delegation target: {item.target}",
                     )
                 )
-                continue
+                return
 
             side_effect_key = f"{self._run_id}:delegate:{item.delegation_id}"
 
@@ -990,7 +1026,7 @@ class SideEffectExecutor:
         delegation_id: str,
         reply_message_id: str,
         delegations: list[CrewAIFlowDelegationState],
-    ) -> None:
+    ) -> CrewAIFlowMetadata:
         # Build updated delegations list with this one set to replied.
         updated: list[CrewAIFlowDelegationState] = []
         for d in delegations:
@@ -1005,16 +1041,18 @@ class SideEffectExecutor:
                 )
             else:
                 updated.append(d)
+        metadata = self._envelope(
+            status=CrewAIFlowRunStatus.REPLY_RECORDED,
+            stage=CrewAIFlowStage.WAITING_FOR_REPLIES,
+            delegations=updated,
+        )
         await self._send_event(
             content=f"reply_recorded:{delegation_id}",
             message_type="task",
-            metadata=self._envelope(
-                status=CrewAIFlowRunStatus.REPLY_RECORDED,
-                stage=CrewAIFlowStage.WAITING_FOR_REPLIES,
-                delegations=updated,
-            ),
+            metadata=metadata,
             retry_attempts=2,
         )
+        return CrewAIFlowMetadata.model_validate(metadata[self._namespace])
 
     async def record_reply_ambiguous(
         self,
@@ -1066,20 +1104,70 @@ class SideEffectExecutor:
 
 # Imported lazily so module loads without crewai installed.
 class CrewAIFlowSubCrewReporter:
-    """``CrewAIToolReporter`` that bridges sub-Crew tool calls to the executor.
-
-    On every ``thenvoi_send_message`` invocation by a sub-Crew, the reporter
-    derives a ``{run_id}:subcrew:{counter}`` ``side_effect_key``, writes a
-    reservation event, lets the underlying tool perform the visible send,
-    and writes a confirmation event. ``thenvoi_send_event`` and other tools
-    pass through unchanged — only visible message sends go through the
-    reserve-send-confirm wrapper.
-    """
+    """``CrewAIToolReporter`` that routes sub-Crew visible sends via executor."""
 
     def __init__(self, *, executor: SideEffectExecutor, run_id: str) -> None:
         self._executor = executor
         self._run_id = run_id
-        self._pending_keys: dict[str, str] = {}
+
+    async def execute_send_message(
+        self,
+        tools: AgentToolsProtocol,
+        content: str,
+        mentions: list[str],
+    ) -> None:
+        key = self._executor.next_subcrew_key()
+        reservation = await self._executor._send_event(
+            content=f"reserve:{key}",
+            message_type="task",
+            metadata=self._subcrew_envelope(
+                status=CrewAIFlowRunStatus.SIDE_EFFECT_RESERVED,
+                stage=CrewAIFlowStage.DELEGATED,
+                side_effect_key=key,
+            ),
+            retry_attempts=2,
+        )
+        message_response = await self._executor._tools.send_message(
+            content=content,
+            mentions=mentions or None,
+        )
+        message_id = (
+            getattr(message_response, "id", None)
+            if message_response is not None
+            else None
+        )
+        if message_id is None and isinstance(message_response, dict):
+            message_id = message_response.get("id")
+        await self._executor._send_event(
+            content=f"subcrew_sent:{key}",
+            message_type="task",
+            metadata=self._subcrew_envelope(
+                status=CrewAIFlowRunStatus.WAITING,
+                stage=CrewAIFlowStage.WAITING_FOR_REPLIES,
+                side_effect_key=key,
+                message_id=str(message_id) if message_id else None,
+                reserved_event_id=str(getattr(reservation, "id", "")) or None,
+            ),
+            retry_attempts=2,
+        )
+
+    def _subcrew_envelope(
+        self,
+        *,
+        status: CrewAIFlowRunStatus,
+        stage: CrewAIFlowStage,
+        side_effect_key: str,
+        message_id: str | None = None,
+        reserved_event_id: str | None = None,
+    ) -> dict[str, Any]:
+        envelope = self._executor._envelope(status=status, stage=stage)
+        payload = envelope[self._executor.metadata_namespace]
+        payload["final_side_effect_key"] = side_effect_key
+        if message_id is not None:
+            payload["final_message_id"] = message_id
+        if reserved_event_id is not None:
+            payload["final_reserved_event_id"] = reserved_event_id
+        return envelope
 
     async def report_call(
         self,
@@ -1087,52 +1175,16 @@ class CrewAIFlowSubCrewReporter:
         tool_name: str,
         input_data: dict[str, Any],
     ) -> None:
-        if tool_name != "thenvoi_send_message":
-            return
-        key = self._executor.next_subcrew_key()
-        self._pending_keys[tool_name] = key
-        envelope = self._executor._envelope(
-            status=CrewAIFlowRunStatus.SIDE_EFFECT_RESERVED,
-            stage=CrewAIFlowStage.DELEGATED,
-        )
-        envelope[self._executor.metadata_namespace]["final_side_effect_key"] = key
-        try:
-            await tools.send_event(
-                content=f"reserve:{key}",
-                message_type="task",
-                metadata=envelope,
-            )
-        except Exception:  # noqa: BLE001
-            logger.warning("sub-Crew reservation event failed", exc_info=True)
+        return None
 
     async def report_result(
         self,
         tools: AgentToolsProtocol,
         tool_name: str,
         result: Any,
-        is_error: bool,
+        is_error: bool = False,
     ) -> None:
-        if tool_name != "thenvoi_send_message":
-            return
-        key = self._pending_keys.pop(tool_name, None)
-        if key is None:
-            return
-        status = (
-            CrewAIFlowRunStatus.FAILED if is_error else CrewAIFlowRunStatus.FINALIZED
-        )
-        envelope = self._executor._envelope(
-            status=status,
-            stage=CrewAIFlowStage.DONE,
-        )
-        envelope[self._executor.metadata_namespace]["final_side_effect_key"] = key
-        try:
-            await tools.send_event(
-                content=f"{'failed' if is_error else 'finalized'}:{key}",
-                message_type="task",
-                metadata=envelope,
-            )
-        except Exception:  # noqa: BLE001
-            logger.warning("sub-Crew confirmation event failed", exc_info=True)
+        return None
 
 
 # ---------------------------------------------------------------------------
@@ -1143,6 +1195,19 @@ class CrewAIFlowSubCrewReporter:
 _VALID_JOIN_POLICIES = {"all", "first"}
 _VALID_TEXT_ONLY = {"error_event", "fallback_send"}
 _VALID_TAGGED_PEER = {"require_delegation_before_final", "off"}
+
+
+class _AmbiguousReply:
+    def __init__(
+        self,
+        *,
+        run_id: str,
+        parent_message_id: str,
+        reason: str,
+    ) -> None:
+        self.run_id = run_id
+        self.parent_message_id = parent_message_id
+        self.reason = reason
 
 
 class CrewAIFlowAdapter(SimpleAdapter[CrewAIFlowSessionState]):
@@ -1182,12 +1247,30 @@ class CrewAIFlowAdapter(SimpleAdapter[CrewAIFlowSessionState]):
         # ---- state_source -------------------------------------------------
         if state_source is None:
             state_source = RestCrewAIFlowStateSource()
-        if not hasattr(state_source, "load_task_events") or not callable(
-            getattr(state_source, "load_task_events", None)
+        load_task_events = getattr(state_source, "load_task_events", None)
+        if not callable(load_task_events) or not inspect.iscoroutinefunction(
+            load_task_events
         ):
             raise ThenvoiConfigError(
                 "state_source must implement an awaitable "
                 "load_task_events(*, room_id, metadata_namespace, tools, history) method"
+            )
+        required_state_source_params = {
+            "room_id",
+            "metadata_namespace",
+            "tools",
+            "history",
+        }
+        try:
+            state_source_params = set(inspect.signature(load_task_events).parameters)
+        except (TypeError, ValueError) as exc:
+            raise ThenvoiConfigError(
+                "state_source must expose an inspectable load_task_events signature"
+            ) from exc
+        if not required_state_source_params.issubset(state_source_params):
+            raise ThenvoiConfigError(
+                "state_source.load_task_events must accept keyword arguments "
+                "room_id, metadata_namespace, tools, and history"
             )
 
         # ---- join_policy --------------------------------------------------
@@ -1273,7 +1356,8 @@ class CrewAIFlowAdapter(SimpleAdapter[CrewAIFlowSessionState]):
     async def on_started(self, agent_name: str, agent_description: str) -> None:
         await super().on_started(agent_name, agent_description)
         if self._configured_metadata_namespace is None:
-            self.metadata_namespace = f"crewai_flow:{agent_name}"
+            agent_id = getattr(self, "_thenvoi_agent_id", None) or agent_name
+            self.metadata_namespace = f"crewai_flow:{agent_id}"
         else:
             self.metadata_namespace = self._configured_metadata_namespace
         # Propagate namespace to the converter so it filters by it.
@@ -1321,6 +1405,7 @@ class CrewAIFlowAdapter(SimpleAdapter[CrewAIFlowSessionState]):
             await self._process_one_turn(
                 msg=msg,
                 tools=tools,
+                history=history,
                 participants_msg=participants_msg,
                 contacts_msg=contacts_msg,
                 room_id=room_id,
@@ -1331,6 +1416,7 @@ class CrewAIFlowAdapter(SimpleAdapter[CrewAIFlowSessionState]):
         *,
         msg: PlatformMessage,
         tools: AgentToolsProtocol,
+        history: CrewAIFlowSessionState,
         participants_msg: str | None,
         contacts_msg: str | None,
         room_id: str,
@@ -1352,7 +1438,7 @@ class CrewAIFlowAdapter(SimpleAdapter[CrewAIFlowSessionState]):
                 room_id=room_id,
                 metadata_namespace=self.metadata_namespace,
                 tools=tools,
-                history=None,
+                history=history,
             )
         except ThenvoiToolError as exc:
             logger.warning("State source unavailable: %s", exc)
@@ -1385,18 +1471,48 @@ class CrewAIFlowAdapter(SimpleAdapter[CrewAIFlowSessionState]):
 
         # Build the participant snapshot for input + runtime tools.
         participants = self._snapshot_participants(tools)
+        current_run = state.runs.get(run_id)
+        if current_run is not None:
+            executor._tagged_peer_keys = list(current_run.tagged_peer_keys)
+            executor._delegation_rounds = current_run.delegation_rounds
+        else:
+            executor._tagged_peer_keys = self._extract_tagged_peer_keys(
+                content=msg.content,
+                participants=participants,
+            )
 
         # ------------------------------------------------------------------
-        # Reply matching: if this inbound message matches a pending
-        # delegation in some other run, record the reply and short-circuit
-        # the Flow execution. The same lock guards both paths so a reply
-        # cannot interleave with a finalize for the same room.
+        # Reply matching: if this inbound message matches a pending delegation
+        # in another run, record the reply, update the in-memory snapshot, and
+        # continue into Flow execution for that run.
         # ------------------------------------------------------------------
         matched = self._match_reply_to_delegation(
             msg=msg,
             state=state,
             participants=participants,
         )
+        if isinstance(matched, _AmbiguousReply):
+            ambiguous_executor = SideEffectExecutor(
+                tools=tools,
+                room_id=room_id,
+                run_id=matched.run_id,
+                parent_message_id=matched.parent_message_id,
+                metadata_namespace=self.metadata_namespace,
+                join_policy=self._join_policy,
+                text_only_behavior=self._text_only_behavior,
+            )
+            ambiguous_run = state.runs.get(matched.run_id)
+            if ambiguous_run is not None:
+                ambiguous_executor._tagged_peer_keys = list(
+                    ambiguous_run.tagged_peer_keys
+                )
+                ambiguous_executor._delegation_rounds = ambiguous_run.delegation_rounds
+            await ambiguous_executor.record_reply_ambiguous(
+                run_id=matched.run_id,
+                reason=matched.reason,
+            )
+            return
+
         if matched is not None:
             other_run_id, delegation_id, run_meta = matched
             run_executor = SideEffectExecutor(
@@ -1407,25 +1523,37 @@ class CrewAIFlowAdapter(SimpleAdapter[CrewAIFlowSessionState]):
                 metadata_namespace=self.metadata_namespace,
                 join_policy=self._join_policy,
                 text_only_behavior=self._text_only_behavior,
+                tagged_peer_keys=run_meta.tagged_peer_keys,
+                delegation_rounds=run_meta.delegation_rounds,
             )
-            await run_executor.record_reply(
+            updated_run = await run_executor.record_reply(
                 run_id=other_run_id,
                 delegation_id=delegation_id,
                 reply_message_id=msg.id,
                 delegations=run_meta.delegations,
             )
-            # Re-load state and check whether the join is satisfied.
-            await self._maybe_finalize_after_reply(
-                tools=tools,
-                room_id=room_id,
-                run_id=other_run_id,
+            merged_run = run_meta.model_copy(
+                update={
+                    "status": updated_run.status,
+                    "stage": updated_run.stage,
+                    "delegations": updated_run.delegations,
+                }
             )
-            return
+            state = state.model_copy(
+                update={
+                    "runs": {
+                        **state.runs,
+                        other_run_id: merged_run,
+                    }
+                }
+            )
+            run_id = other_run_id
+            executor = run_executor
 
         # If no match, only User-typed senders start a new run; Agent-typed
         # senders are discarded with a debug log.
         sender_type = getattr(msg, "sender_type", "User")
-        if sender_type == "Agent":
+        if sender_type == "Agent" and matched is None:
             logger.debug(
                 "Agent-typed sender %s did not match a pending delegation; discarding",
                 msg.sender_id,
@@ -1527,6 +1655,7 @@ class CrewAIFlowAdapter(SimpleAdapter[CrewAIFlowSessionState]):
         except (ValueError, ValidationError) as exc:
             await self._handle_malformed(
                 executor=executor,
+                state=state,
                 raw=result,
                 error=str(exc)[:500],
             )
@@ -1543,6 +1672,20 @@ class CrewAIFlowAdapter(SimpleAdapter[CrewAIFlowSessionState]):
         elif isinstance(decision, FailedDecision):
             await executor.record_failed(decision.error)
         elif isinstance(decision, DelegateDecision):
+            run = state.runs.get(executor.run_id)
+            current_rounds = run.delegation_rounds if run is not None else 0
+            if current_rounds >= self._max_delegation_rounds:
+                await executor.record_failed(
+                    CrewAIFlowError(
+                        code="max_delegation_rounds_exceeded",
+                        message=(
+                            f"Run exceeded max_delegation_rounds="
+                            f"{self._max_delegation_rounds}"
+                        ),
+                    )
+                )
+                return
+            executor._delegation_rounds = current_rounds + 1
             await executor.execute_delegations(
                 items=decision.delegations,
                 state=state,
@@ -1596,9 +1739,8 @@ class CrewAIFlowAdapter(SimpleAdapter[CrewAIFlowSessionState]):
         # Tagged-peer gate.
         tagged_blocked: list[str] = []
         if self._tagged_peer_policy == "require_delegation_before_final":
-            tagged_keys = self._extract_tagged_peer_keys(
-                content=msg.content,
-                participants=self._snapshot_participants(executor._tools),
+            tagged_keys = (
+                run.tagged_peer_keys if run is not None else executor._tagged_peer_keys
             )
             delegated_keys = (
                 {d.target.normalized_key for d in run.delegations}
@@ -1676,6 +1818,7 @@ class CrewAIFlowAdapter(SimpleAdapter[CrewAIFlowSessionState]):
         self,
         *,
         executor: SideEffectExecutor,
+        state: CrewAIFlowSessionState,
         raw: Any,
         error: str,
     ) -> None:
@@ -1683,15 +1826,22 @@ class CrewAIFlowAdapter(SimpleAdapter[CrewAIFlowSessionState]):
             self._text_only_behavior == CrewAIFlowTextOnlyBehavior.FALLBACK_SEND
             and isinstance(raw, str)
         ):
-            # Fallback: send the string as a direct response only when no
-            # delegation is currently pending. Phase 3 ships only the
-            # no-pending path; the pending case lands in Phase 4.
-            await executor.execute_direct_response(
-                content=raw,
-                mentions=[],
-                state=CrewAIFlowSessionState(),
+            run = state.runs.get(executor.run_id)
+            has_pending = any(
+                d.status
+                in (
+                    CrewAIFlowDelegationStatus.PENDING,
+                    CrewAIFlowDelegationStatus.RESERVED,
+                )
+                for d in (run.delegations if run is not None else [])
             )
-            return
+            if not has_pending:
+                await executor.execute_direct_response(
+                    content=raw,
+                    mentions=[],
+                    state=state,
+                )
+                return
         await self._safe_record_failed(
             executor,
             CrewAIFlowError(
@@ -1718,7 +1868,7 @@ class CrewAIFlowAdapter(SimpleAdapter[CrewAIFlowSessionState]):
         msg: PlatformMessage,
         state: CrewAIFlowSessionState,
         participants: list[CrewAIFlowParticipantSnapshot],
-    ) -> tuple[str, str, "CrewAIFlowMetadata"] | None:
+    ) -> tuple[str, str, "CrewAIFlowMetadata"] | _AmbiguousReply | None:
         """Try to match an inbound message to a pending delegation.
 
         Returns ``(run_id, delegation_id, run_metadata)`` on a unique match.
@@ -1744,7 +1894,24 @@ class CrewAIFlowAdapter(SimpleAdapter[CrewAIFlowSessionState]):
             logger.warning(
                 "Ambiguous sender identity for %s; treating as ambiguous", msg.sender_id
             )
-            sender_key = ""
+            for run_id, run in state.runs.items():
+                if run.status in (
+                    CrewAIFlowRunStatus.FINALIZED,
+                    CrewAIFlowRunStatus.FAILED,
+                    CrewAIFlowRunStatus.INDETERMINATE,
+                ):
+                    continue
+                for d in run.delegations:
+                    if d.status in (
+                        CrewAIFlowDelegationStatus.PENDING,
+                        CrewAIFlowDelegationStatus.RESERVED,
+                    ):
+                        return _AmbiguousReply(
+                            run_id=run_id,
+                            parent_message_id=run.parent_message_id,
+                            reason="ambiguous_sender_identity",
+                        )
+            return None
 
         # Build candidate set: pending delegations across active runs.
         candidates: list[tuple[str, str, "CrewAIFlowMetadata"]] = []
@@ -1762,7 +1929,10 @@ class CrewAIFlowAdapter(SimpleAdapter[CrewAIFlowSessionState]):
                 # Rule 3: ignore already-processed replies.
                 if d.reply_message_id == msg.id:
                     return None
-                if d.status != CrewAIFlowDelegationStatus.PENDING:
+                if d.status not in (
+                    CrewAIFlowDelegationStatus.PENDING,
+                    CrewAIFlowDelegationStatus.RESERVED,
+                ):
                     continue
                 if d.target.normalized_key and d.target.normalized_key == sender_key:
                     candidates.append((run_id, d.delegation_id, run))
@@ -1775,8 +1945,12 @@ class CrewAIFlowAdapter(SimpleAdapter[CrewAIFlowSessionState]):
         if token_hits is not None:
             if len(token_hits) == 1:
                 return token_hits[0]
-            # Token mismatch / ambiguity → ambiguous, no mutation.
-            return None
+            run_id, _delegation_id, run = candidates[0]
+            return _AmbiguousReply(
+                run_id=run_id,
+                parent_message_id=run.parent_message_id,
+                reason="correlation_token_mismatch",
+            )
 
         if len(candidates) == 1:
             return candidates[0]
@@ -1787,7 +1961,12 @@ class CrewAIFlowAdapter(SimpleAdapter[CrewAIFlowSessionState]):
             msg.sender_id,
             len(candidates),
         )
-        return None
+        run_id, _delegation_id, run = candidates[0]
+        return _AmbiguousReply(
+            run_id=run_id,
+            parent_message_id=run.parent_message_id,
+            reason="multiple_pending_delegations",
+        )
 
     @staticmethod
     def _candidates_matching_token(

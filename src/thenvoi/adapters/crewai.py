@@ -202,7 +202,7 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
                 features=self.features,
             )
 
-        tools = self._create_crewai_tools()
+        tools = self.create_crewai_tools()
 
         self._crewai_agent = CrewAIAgent(
             role=role,
@@ -236,7 +236,7 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
         room_id, tools = ctx
         return CrewAIToolContext(room_id=room_id, tools=tools)
 
-    def _create_crewai_tools(self) -> list[BaseTool]:
+    def create_crewai_tools(self) -> list[BaseTool]:
         """Build the CrewAI BaseTool list via the shared integrations builder.
 
         The wrappers, the sync-to-async bridge, and the execution-event
