@@ -1,12 +1,20 @@
-"""CrewAI Flow adapter — Phase 1 surface (state source only).
+"""CrewAI Flow adapter — message-scoped orchestration for Thenvoi rooms.
 
-This module is built up across phases. Phase 1 lands the
-``CrewAIFlowStateSource`` protocol, ``RestCrewAIFlowStateSource`` (default),
-and ``HistoryCrewAIFlowStateSource`` (test/bootstrap-only). The full
-``CrewAIFlowAdapter`` is a stub here so test fixtures and downstream phases
-can import it without circular dependencies. Phases 2–5 fill in the
-adapter, runtime tools, side-effect executor, reply matching, and safety
-policies.
+Experimental in v1. Use ``CrewAIAdapter`` for normal CrewAI agent turns; this
+adapter exists for room routers that need parallel join, sequential
+composition, tagged-peer enforcement, and explicit waiting turns without
+relying on the model to track pending state from chat history.
+
+Every inbound message creates one local Flow execution. Orchestration state
+is stored in Thenvoi task events and reconstructed via
+``CrewAIFlowStateSource`` on every turn. The adapter is deterministic on a
+single worker through reserve-send-confirm side effects with bounded retry,
+and fails closed on ambiguous state.
+
+Phase 1 lands the state contract and state source. Phase 2 (this file)
+adds the adapter API skeleton: constructor validation, lifecycle hooks,
+and per-room async lock cache. Phases 3–5 add Flow execution, delegation,
+reply matching, and safety policies.
 """
 
 from __future__ import annotations
@@ -14,15 +22,30 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections import OrderedDict
-from datetime import datetime, timezone
-from typing import Any, Protocol, runtime_checkable
+from collections.abc import Mapping
+from datetime import datetime, timedelta, timezone
+from typing import Any, Callable, Literal, Protocol, runtime_checkable
 
-from thenvoi.core.exceptions import ThenvoiConfigError, ThenvoiToolError
-from thenvoi.core.protocols import AgentToolsProtocol
 from thenvoi.converters.crewai_flow import (
+    CrewAIFlowJoinPolicy,
     CrewAIFlowSessionState,
     CrewAIFlowStateConverter,
+    CrewAIFlowTextOnlyBehavior,
 )
+from thenvoi.core.exceptions import ThenvoiConfigError, ThenvoiToolError
+from thenvoi.core.protocols import AgentToolsProtocol
+from thenvoi.core.simple_adapter import SimpleAdapter
+from thenvoi.core.types import (
+    AdapterFeatures,
+    Capability,
+    Emit,
+    PlatformMessage,
+)
+
+try:  # pragma: no cover - optional dependency guard
+    from crewai.flow.flow import Flow  # type: ignore[import-not-found]
+except ImportError:  # pragma: no cover - exercised only when crewai missing
+    Flow = None  # type: ignore[assignment,misc]
 
 logger = logging.getLogger(__name__)
 
@@ -339,19 +362,186 @@ class HistoryCrewAIFlowStateSource:
 # ---------------------------------------------------------------------------
 
 
-class CrewAIFlowAdapter:
-    """Stub. The full adapter lands in Phase 2.
+# ---------------------------------------------------------------------------
+# CrewAIFlowAdapter — Phase 2 skeleton
+# ---------------------------------------------------------------------------
 
-    Phase 1 only needs the symbol importable so test fixtures can refer to
-    the expected public surface without circular imports. Constructing the
-    stub raises until Phase 2 lands.
+
+_VALID_JOIN_POLICIES = {"all", "first"}
+_VALID_TEXT_ONLY = {"error_event", "fallback_send"}
+_VALID_TAGGED_PEER = {"require_delegation_before_final", "off"}
+
+
+class CrewAIFlowAdapter(SimpleAdapter[CrewAIFlowSessionState]):
+    """Message-scoped CrewAI Flow adapter.
+
+    Phase 2 lands the constructor, validation, and lifecycle hooks. The
+    Flow execution pipeline (``on_message``) is added in Phase 3 — calling
+    ``on_message`` before that phase raises ``NotImplementedError``.
     """
 
-    def __init__(self, *args: Any, **kwargs: Any) -> None:
+    SUPPORTED_EMIT = frozenset({Emit.EXECUTION})
+    SUPPORTED_CAPABILITIES = frozenset({Capability.MEMORY, Capability.CONTACTS})
+
+    def __init__(
+        self,
+        *,
+        flow_factory: Callable[[], Any],
+        state_source: CrewAIFlowStateSource | None = None,
+        join_policy: Literal["all", "first"] = "all",
+        metadata_namespace: str | None = None,
+        max_delegation_rounds: int = 4,
+        max_run_age: timedelta = timedelta(days=7),
+        text_only_behavior: Literal["error_event", "fallback_send"] = "error_event",
+        tagged_peer_policy: Literal[
+            "require_delegation_before_final", "off"
+        ] = "require_delegation_before_final",
+        sequential_chains: Mapping[str, str] | None = None,
+        history_converter: CrewAIFlowStateConverter | None = None,
+        features: AdapterFeatures | None = None,
+    ) -> None:
+        # ---- flow_factory -------------------------------------------------
+        if not callable(flow_factory):
+            raise ThenvoiConfigError("flow_factory must be callable")
+        # Constructor never calls flow_factory(). Runtime checks the returned
+        # object's type when the first turn fires (Phase 3).
+
+        # ---- state_source -------------------------------------------------
+        if state_source is None:
+            state_source = RestCrewAIFlowStateSource()
+        if not hasattr(state_source, "load_task_events") or not callable(
+            getattr(state_source, "load_task_events", None)
+        ):
+            raise ThenvoiConfigError(
+                "state_source must implement an awaitable "
+                "load_task_events(*, room_id, metadata_namespace, tools, history) method"
+            )
+
+        # ---- join_policy --------------------------------------------------
+        if join_policy not in _VALID_JOIN_POLICIES:
+            raise ThenvoiConfigError(
+                f"join_policy must be one of {sorted(_VALID_JOIN_POLICIES)}"
+            )
+
+        # ---- metadata_namespace -------------------------------------------
+        if metadata_namespace is not None:
+            if not isinstance(metadata_namespace, str) or not metadata_namespace:
+                raise ThenvoiConfigError(
+                    "metadata_namespace must be a non-empty string or None"
+                )
+
+        # ---- max_delegation_rounds ----------------------------------------
+        if not isinstance(max_delegation_rounds, int) or isinstance(
+            max_delegation_rounds, bool
+        ):
+            raise ThenvoiConfigError("max_delegation_rounds must be an int")
+        if not (1 <= max_delegation_rounds <= 20):
+            raise ThenvoiConfigError(
+                "max_delegation_rounds must be in [1, 20]"
+            )
+
+        # ---- max_run_age --------------------------------------------------
+        if not isinstance(max_run_age, timedelta):
+            raise ThenvoiConfigError("max_run_age must be a timedelta")
+        if max_run_age <= timedelta(0):
+            raise ThenvoiConfigError("max_run_age must be positive")
+
+        # ---- text_only_behavior -------------------------------------------
+        if text_only_behavior not in _VALID_TEXT_ONLY:
+            raise ThenvoiConfigError(
+                f"text_only_behavior must be one of {sorted(_VALID_TEXT_ONLY)}"
+            )
+
+        # ---- tagged_peer_policy -------------------------------------------
+        if tagged_peer_policy not in _VALID_TAGGED_PEER:
+            raise ThenvoiConfigError(
+                f"tagged_peer_policy must be one of {sorted(_VALID_TAGGED_PEER)}"
+            )
+
+        # ---- sequential_chains --------------------------------------------
+        if sequential_chains is not None:
+            if not isinstance(sequential_chains, Mapping):
+                raise ThenvoiConfigError(
+                    "sequential_chains must be a Mapping[str, str]"
+                )
+            for k, v in sequential_chains.items():
+                if not isinstance(k, str) or not isinstance(v, str):
+                    raise ThenvoiConfigError(
+                        "sequential_chains keys and values must be strings"
+                    )
+
+        # ---- history_converter --------------------------------------------
+        # Default converter picks up max_run_age and the namespace once
+        # on_started resolves the namespace.
+        converter = history_converter or CrewAIFlowStateConverter(
+            max_run_age=max_run_age
+        )
+
+        super().__init__(history_converter=converter, features=features)
+
+        self._flow_factory = flow_factory
+        self._state_source = state_source
+        self._join_policy: CrewAIFlowJoinPolicy = CrewAIFlowJoinPolicy(join_policy)
+        self._configured_metadata_namespace = metadata_namespace
+        self.metadata_namespace: str = metadata_namespace or ""
+        self._max_delegation_rounds = max_delegation_rounds
+        self._max_run_age = max_run_age
+        self._text_only_behavior: CrewAIFlowTextOnlyBehavior = (
+            CrewAIFlowTextOnlyBehavior(text_only_behavior)
+        )
+        self._tagged_peer_policy = tagged_peer_policy
+        self._sequential_chains: dict[str, str] = dict(sequential_chains or {})
+
+        # Per-room async locks and transient caches. Cleared on on_cleanup.
+        self._room_locks: dict[str, asyncio.Lock] = {}
+
+    # ------------------------------------------------------------------
+    # Lifecycle
+    # ------------------------------------------------------------------
+
+    async def on_started(
+        self, agent_name: str, agent_description: str
+    ) -> None:
+        await super().on_started(agent_name, agent_description)
+        if self._configured_metadata_namespace is None:
+            self.metadata_namespace = f"crewai_flow:{agent_name}"
+        else:
+            self.metadata_namespace = self._configured_metadata_namespace
+        # Propagate namespace to the converter so it filters by it.
+        if isinstance(self.history_converter, CrewAIFlowStateConverter):
+            self.history_converter.metadata_namespace = self.metadata_namespace
+
+    async def on_cleanup(self, room_id: str) -> None:
+        self._room_locks.pop(room_id, None)
+
+    # ------------------------------------------------------------------
+    # Internal accessors
+    # ------------------------------------------------------------------
+
+    def _get_room_lock(self, room_id: str) -> asyncio.Lock:
+        lock = self._room_locks.get(room_id)
+        if lock is None:
+            lock = asyncio.Lock()
+            self._room_locks[room_id] = lock
+        return lock
+
+    # ------------------------------------------------------------------
+    # on_message — filled in Phase 3
+    # ------------------------------------------------------------------
+
+    async def on_message(
+        self,
+        msg: PlatformMessage,
+        tools: AgentToolsProtocol,
+        history: CrewAIFlowSessionState,
+        participants_msg: str | None,
+        contacts_msg: str | None,
+        *,
+        is_session_bootstrap: bool,
+        room_id: str,
+    ) -> None:
         raise NotImplementedError(
-            "CrewAIFlowAdapter is not implemented yet. The Phase 1 module "
-            "ships only the state contract and state source. Phase 2 adds "
-            "the adapter."
+            "CrewAIFlowAdapter.on_message is implemented in Phase 3."
         )
 
 
