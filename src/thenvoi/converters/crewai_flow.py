@@ -382,6 +382,16 @@ class CrewAIFlowStateConverter:
                 incoming = self._validate_payload(payload)
             except ValidationError as exc:
                 run_id = self._best_effort_run_id(payload, event)
+                existing = runs.get(run_id)
+                if existing is not None and existing.status in _TERMINAL_RUN_STATUSES:
+                    if run_id not in warned_terminal:
+                        logger.warning(
+                            "Ignoring malformed event for terminal run %s (status=%s)",
+                            run_id,
+                            existing.status,
+                        )
+                        warned_terminal.add(run_id)
+                    continue
                 self._record_malformed(runs, run_id, payload, event, exc)
                 continue
 

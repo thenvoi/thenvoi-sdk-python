@@ -248,7 +248,7 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
         return build_thenvoi_crewai_tools(
             get_context=self._get_context,
             reporter=EmitExecutionReporter(self.features),
-            capabilities=self.features.capabilities,
+            features=self.features,
             custom_tools=self._custom_tools,
             fallback_loop=self._tool_loop,
         )

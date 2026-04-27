@@ -18,6 +18,7 @@ CrewAIFlowAdapter spec.
 from __future__ import annotations
 
 import asyncio
+import inspect
 import json
 import logging
 from dataclasses import dataclass
@@ -35,12 +36,33 @@ except ImportError as e:  # pragma: no cover - same import guard as the adapter
     ) from e
 
 from thenvoi.core.protocols import AgentToolsProtocol
+from thenvoi.core.tool_filter import filter_tool_schemas
 from thenvoi.core.types import AdapterFeatures, Capability, Emit
 from thenvoi.integrations.crewai.runtime import run_async
 from thenvoi.runtime.custom_tools import CustomToolDef, get_custom_tool_name
 from thenvoi.runtime.tools import get_tool_description
 
 logger = logging.getLogger(__name__)
+
+_CREWAI_TOOL_CATEGORIES = {
+    "thenvoi_send_message": "chat",
+    "thenvoi_send_event": "chat",
+    "thenvoi_add_participant": "chat",
+    "thenvoi_remove_participant": "chat",
+    "thenvoi_get_participants": "chat",
+    "thenvoi_lookup_peers": "chat",
+    "thenvoi_create_chatroom": "chat",
+    "thenvoi_list_contacts": "contacts",
+    "thenvoi_add_contact": "contacts",
+    "thenvoi_remove_contact": "contacts",
+    "thenvoi_list_contact_requests": "contacts",
+    "thenvoi_respond_contact_request": "contacts",
+    "thenvoi_list_memories": "memory",
+    "thenvoi_store_memory": "memory",
+    "thenvoi_get_memory": "memory",
+    "thenvoi_supersede_memory": "memory",
+    "thenvoi_archive_memory": "memory",
+}
 
 
 # --- Shared context + reporter contracts ---
@@ -889,7 +911,7 @@ def _make_custom_tools(
                             validated = model.model_validate(kwargs)
                             await reporter.report_call(_tools, _tool_name, kwargs)
 
-                            if asyncio.iscoroutinefunction(handler):
+                            if inspect.iscoroutinefunction(handler):
                                 result = await handler(validated)
                             else:
                                 result = handler(validated)
@@ -926,6 +948,7 @@ def build_thenvoi_crewai_tools(
     get_context: Callable[[], CrewAIToolContext | None],
     reporter: CrewAIToolReporter,
     capabilities: frozenset[Capability] = frozenset(),
+    features: AdapterFeatures | None = None,
     custom_tools: list[CustomToolDef] | None = None,
     fallback_loop: asyncio.AbstractEventLoop | None = None,
 ) -> list[BaseTool]:
@@ -947,11 +970,19 @@ def build_thenvoi_crewai_tools(
         fallback_loop=fallback_loop,
     )
 
+    active_features = features or AdapterFeatures(capabilities=capabilities)
     selected: list[BaseTool] = list(base)
-    if Capability.CONTACTS in capabilities:
+    if Capability.CONTACTS in active_features.capabilities:
         selected.extend(contacts)
-    if Capability.MEMORY in capabilities:
+    if Capability.MEMORY in active_features.capabilities:
         selected.extend(memories)
+
+    selected = filter_tool_schemas(
+        selected,
+        active_features,
+        get_name=lambda tool: tool.name,
+        get_category=lambda tool: _CREWAI_TOOL_CATEGORIES.get(tool.name),
+    )
 
     if custom_tools:
         selected.extend(

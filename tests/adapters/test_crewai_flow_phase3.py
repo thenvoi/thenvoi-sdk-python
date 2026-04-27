@@ -38,7 +38,7 @@ from thenvoi.adapters.crewai_flow import (  # noqa: E402
     get_current_flow_runtime,
 )
 from thenvoi.converters.crewai_flow import CrewAIFlowStateConverter  # noqa: E402
-from thenvoi.core.types import PlatformMessage  # noqa: E402
+from thenvoi.core.types import AdapterFeatures, Capability, PlatformMessage  # noqa: E402
 from thenvoi.testing.fake_tools import FakeAgentTools  # noqa: E402
 
 
@@ -475,6 +475,108 @@ class TestRuntimeTools:
         ):
             assert forbidden not in public_attrs
         assert "create_crewai_tools" in public_attrs
+
+    @pytest.mark.asyncio
+    async def test_create_crewai_tools_applies_adapter_feature_filters(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        mock_tools_module = MagicMock()
+        mock_tools_module.BaseTool = type("BaseTool", (), {})
+        monkeypatch.setitem(sys.modules, "crewai.tools", mock_tools_module)
+        for mod in (
+            "thenvoi.integrations.crewai",
+            "thenvoi.integrations.crewai.runtime",
+            "thenvoi.integrations.crewai.tools",
+        ):
+            sys.modules.pop(mod, None)
+
+        captured = {}
+
+        def factory():
+            class _Flow:
+                async def kickoff_async(self, inputs: dict | None = None) -> Any:
+                    rt = get_current_flow_runtime()
+                    assert rt is not None
+                    captured["tool_names"] = {
+                        t.name
+                        for t in rt.create_crewai_tools(
+                            capabilities=frozenset({Capability.CONTACTS})
+                        )
+                    }
+                    return {"decision": "waiting", "reason": "checking tools"}
+
+            return _Flow()
+
+        adapter = CrewAIFlowAdapter(
+            flow_factory=factory,
+            state_source=HistoryCrewAIFlowStateSource(acknowledge_test_only=True),
+            features=AdapterFeatures(
+                include_categories=("contacts",),
+                exclude_tools=("thenvoi_remove_contact",),
+            ),
+        )
+        tools = FakeAgentTools()
+        await _run_one_turn(adapter, tools, _msg())
+
+        assert "thenvoi_list_contacts" in captured["tool_names"]
+        assert "thenvoi_send_message" not in captured["tool_names"]
+        assert "thenvoi_remove_contact" not in captured["tool_names"]
+
+    @pytest.mark.asyncio
+    async def test_subcrew_send_failure_aborts_parent_finalization(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        mock_tools_module = MagicMock()
+        mock_tools_module.BaseTool = type("BaseTool", (), {})
+        monkeypatch.setitem(sys.modules, "crewai.tools", mock_tools_module)
+        for mod in (
+            "thenvoi.integrations.crewai",
+            "thenvoi.integrations.crewai.runtime",
+            "thenvoi.integrations.crewai.tools",
+        ):
+            sys.modules.pop(mod, None)
+
+        class FailingSendTools(FakeAgentTools):
+            async def send_message(
+                self,
+                content: str,
+                mentions: list[str] | list[dict[str, str]] | None = None,
+            ) -> dict[str, Any]:
+                raise RuntimeError("send failed")
+
+        def factory():
+            class _Flow:
+                async def kickoff_async(self, inputs: dict | None = None) -> Any:
+                    rt = get_current_flow_runtime()
+                    assert rt is not None
+                    send_tool = next(
+                        t
+                        for t in rt.create_crewai_tools()
+                        if t.name == "thenvoi_send_message"
+                    )
+                    send_tool._run(content="subcrew visible", mentions="[]")
+                    return {
+                        "decision": "direct_response",
+                        "content": "should not finalize",
+                        "mentions": [],
+                    }
+
+            return _Flow()
+
+        adapter = CrewAIFlowAdapter(
+            flow_factory=factory,
+            state_source=HistoryCrewAIFlowStateSource(acknowledge_test_only=True),
+        )
+        tools = FailingSendTools()
+        await _run_one_turn(adapter, tools, _msg())
+
+        assert tools.messages_sent == []
+        statuses = [
+            e["metadata"].get(adapter.metadata_namespace, {}).get("status")
+            for e in tools.events_sent
+            if e["message_type"] == "task"
+        ]
+        assert statuses == ["side_effect_reserved", "indeterminate"]
 
 
 # ---------------------------------------------------------------------------

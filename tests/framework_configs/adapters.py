@@ -125,6 +125,9 @@ _crewai_import_lock = threading.Lock()
 
 _CREWAI_AFFECTED_MODULES = (
     "thenvoi.adapters.crewai",
+    "thenvoi.integrations.crewai",
+    "thenvoi.integrations.crewai.runtime",
+    "thenvoi.integrations.crewai.tools",
     "crewai",
     "crewai.tools",
     "nest_asyncio",

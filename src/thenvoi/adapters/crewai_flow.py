@@ -26,6 +26,7 @@ from typing import Any, Callable, Literal, Protocol, Union, runtime_checkable
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from thenvoi.converters.crewai_flow import (
+    CrewAIFlowAmbiguousIdentityError,
     CrewAIFlowDelegationState,
     CrewAIFlowDelegationStatus,
     CrewAIFlowError,
@@ -37,6 +38,7 @@ from thenvoi.converters.crewai_flow import (
     CrewAIFlowStage,
     CrewAIFlowStateConverter,
     CrewAIFlowTextOnlyBehavior,
+    normalize_participant_key,
 )
 from thenvoi.core.exceptions import ThenvoiConfigError, ThenvoiToolError
 from thenvoi.core.protocols import AgentToolsProtocol
@@ -557,6 +559,13 @@ class CrewAIFlowRuntimeTools:
         )
 
         caps = capabilities if capabilities is not None else self._features.capabilities
+        features = AdapterFeatures(
+            capabilities=caps,
+            emit=self._features.emit,
+            include_tools=self._features.include_tools,
+            exclude_tools=self._features.exclude_tools,
+            include_categories=self._features.include_categories,
+        )
         ctx = CrewAIToolContext(room_id=self._room_id, tools=self._tools)
         reporter = CrewAIFlowSubCrewReporter(
             executor=self._executor, run_id=self._run_id
@@ -568,7 +577,7 @@ class CrewAIFlowRuntimeTools:
         return build_thenvoi_crewai_tools(
             get_context=_get_context,
             reporter=reporter,
-            capabilities=caps,
+            features=features,
             custom_tools=custom_tools,
         )
 
@@ -613,6 +622,7 @@ class SideEffectExecutor:
         self._delegation_rounds = delegation_rounds
         self._confirm_retry_attempts = confirm_retry_attempts
         self._subcrew_counter = 0
+        self._side_effect_aborted = False
 
     @property
     def run_id(self) -> str:
@@ -621,6 +631,10 @@ class SideEffectExecutor:
     @property
     def metadata_namespace(self) -> str:
         return self._namespace
+
+    @property
+    def side_effect_aborted(self) -> bool:
+        return self._side_effect_aborted
 
     def next_subcrew_key(self) -> str:
         self._subcrew_counter += 1
@@ -762,10 +776,19 @@ class SideEffectExecutor:
         )
 
         # Step 5: visible send.
-        message_response = await self._tools.send_message(
-            content=content,
-            mentions=mentions or None,
-        )
+        try:
+            message_response = await self._tools.send_message(
+                content=content,
+                mentions=mentions or None,
+            )
+        except Exception:  # noqa: BLE001
+            logger.warning(
+                "send_message failed for final side effect %s",
+                side_effect_key,
+                exc_info=True,
+            )
+            await self._record_indeterminate(side_effect_key=side_effect_key)
+            return
         message_id = (
             getattr(message_response, "id", None)
             if message_response is not None
@@ -783,17 +806,12 @@ class SideEffectExecutor:
                 final_message_id=str(message_id) if message_id else None,
                 final_reserved_event_id=str(getattr(reservation, "id", "")) or None,
             )
-            sent_event = await self._send_event(
+            await self._send_event(
                 content=f"finalized:{side_effect_key}",
                 message_type="task",
                 metadata=confirmation_metadata,
                 retry_attempts=self._confirm_retry_attempts,
             )
-            sent_event_id = str(getattr(sent_event, "id", "")) or None
-            if sent_event_id is not None:
-                confirmation_metadata[self._namespace]["final_sent_event_id"] = (
-                    sent_event_id
-                )
         except ThenvoiToolError:
             logger.warning(
                 "Confirmation event for %s failed after retries; recording indeterminate",
@@ -802,6 +820,7 @@ class SideEffectExecutor:
             await self._record_indeterminate(side_effect_key=side_effect_key)
 
     async def _record_indeterminate(self, *, side_effect_key: str) -> None:
+        self._side_effect_aborted = True
         try:
             await self._send_event(
                 content=f"indeterminate:{side_effect_key}",
@@ -837,13 +856,16 @@ class SideEffectExecutor:
         pending state) prepends ``[ref:{token}]`` to the visible content
         per the v1 correlation token format.
         """
-        from thenvoi.converters.crewai_flow import normalize_participant_key
-
+        participant_dicts = [
+            {"id": p.participant_id, "handle": p.handle, "name": p.handle}
+            for p in participants
+        ]
         existing = state.runs.get(self._run_id)
         existing_delegations = existing.delegations if existing else []
 
         # Build target counts so duplicates get a correlation token.
         target_counts: dict[str, int] = {}
+        normalized_targets: dict[str, str] = {}
         for d in existing_delegations:
             target_counts[d.target.normalized_key] = (
                 target_counts.get(d.target.normalized_key, 0) + 1
@@ -852,29 +874,23 @@ class SideEffectExecutor:
             try:
                 key = normalize_participant_key(
                     item.target,
-                    participants=[
-                        {"id": p.participant_id, "handle": p.handle, "name": p.handle}
-                        for p in participants
-                    ],
+                    participants=participant_dicts,
                 )
-            except Exception:  # noqa: BLE001 — collision raises here
-                key = item.target.strip().lower()
+            except CrewAIFlowAmbiguousIdentityError as exc:
+                await self.record_failed(
+                    CrewAIFlowError(
+                        code="ambiguous_participant",
+                        message=str(exc),
+                    )
+                )
+                return
+            normalized_targets[item.delegation_id] = key
             target_counts[key] = target_counts.get(key, 0) + 1
 
         # Process items in order.
         accumulated: list[CrewAIFlowDelegationState] = list(existing_delegations)
         for item in items:
-            target_raw = item.target
-            try:
-                normalized = normalize_participant_key(
-                    target_raw,
-                    participants=[
-                        {"id": p.participant_id, "handle": p.handle, "name": p.handle}
-                        for p in participants
-                    ],
-                )
-            except Exception:  # noqa: BLE001
-                normalized = target_raw.strip().lower()
+            normalized = normalized_targets[item.delegation_id]
 
             participant_id = ""
             handle: str | None = None
@@ -912,7 +928,7 @@ class SideEffectExecutor:
                     continue
                 # Reservation without sent: indeterminate.
                 await self._record_indeterminate(side_effect_key=side_effect_key)
-                continue
+                return
 
             # Reservation event.
             reservation = await self._send_event(
@@ -959,7 +975,7 @@ class SideEffectExecutor:
                     exc_info=True,
                 )
                 await self._record_indeterminate(side_effect_key=side_effect_key)
-                continue
+                return
             message_id = getattr(response, "id", None) if response is not None else None
             if message_id is None and isinstance(response, dict):
                 message_id = response.get("id")
@@ -1014,6 +1030,7 @@ class SideEffectExecutor:
                     item.delegation_id,
                 )
                 await self._record_indeterminate(side_effect_key=side_effect_key)
+                return
 
     # ------------------------------------------------------------------
     # Reply matching (phase 4)
@@ -1127,10 +1144,19 @@ class CrewAIFlowSubCrewReporter:
             ),
             retry_attempts=2,
         )
-        message_response = await self._executor._tools.send_message(
-            content=content,
-            mentions=mentions or None,
-        )
+        try:
+            message_response = await self._executor._tools.send_message(
+                content=content,
+                mentions=mentions or None,
+            )
+        except Exception:  # noqa: BLE001
+            logger.warning(
+                "send_message failed for sub-Crew side effect %s",
+                key,
+                exc_info=True,
+            )
+            await self._executor._record_indeterminate(side_effect_key=key)
+            return
         message_id = (
             getattr(message_response, "id", None)
             if message_response is not None
@@ -1138,18 +1164,22 @@ class CrewAIFlowSubCrewReporter:
         )
         if message_id is None and isinstance(message_response, dict):
             message_id = message_response.get("id")
-        await self._executor._send_event(
-            content=f"subcrew_sent:{key}",
-            message_type="task",
-            metadata=self._subcrew_envelope(
-                status=CrewAIFlowRunStatus.WAITING,
-                stage=CrewAIFlowStage.WAITING_FOR_REPLIES,
-                side_effect_key=key,
-                message_id=str(message_id) if message_id else None,
-                reserved_event_id=str(getattr(reservation, "id", "")) or None,
-            ),
-            retry_attempts=2,
-        )
+        try:
+            await self._executor._send_event(
+                content=f"subcrew_sent:{key}",
+                message_type="task",
+                metadata=self._subcrew_envelope(
+                    status=CrewAIFlowRunStatus.WAITING,
+                    stage=CrewAIFlowStage.WAITING_FOR_REPLIES,
+                    side_effect_key=key,
+                    message_id=str(message_id) if message_id else None,
+                    reserved_event_id=str(getattr(reservation, "id", "")) or None,
+                ),
+                retry_attempts=self._executor._confirm_retry_attempts,
+            )
+        except ThenvoiToolError:
+            logger.warning("Confirmation event for sub-Crew side effect %s failed", key)
+            await self._executor._record_indeterminate(side_effect_key=key)
 
     def _subcrew_envelope(
         self,
@@ -1450,6 +1480,18 @@ class CrewAIFlowAdapter(SimpleAdapter[CrewAIFlowSessionState]):
                 ),
             )
             return
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("State source raised unexpectedly")
+            await self._safe_record_failed(
+                executor,
+                CrewAIFlowError(
+                    code="state_source_error",
+                    message=f"{type(exc).__name__}: {exc}"[:500],
+                ),
+            )
+            return
 
         converter = self.history_converter
         if not isinstance(converter, CrewAIFlowStateConverter):
@@ -1498,7 +1540,11 @@ class CrewAIFlowAdapter(SimpleAdapter[CrewAIFlowSessionState]):
                 run_id=matched.run_id,
                 parent_message_id=matched.parent_message_id,
                 metadata_namespace=self.metadata_namespace,
-                join_policy=self._join_policy,
+                join_policy=(
+                    state.runs[matched.run_id].join_policy
+                    if matched.run_id in state.runs
+                    else self._join_policy
+                ),
                 text_only_behavior=self._text_only_behavior,
             )
             ambiguous_run = state.runs.get(matched.run_id)
@@ -1521,7 +1567,7 @@ class CrewAIFlowAdapter(SimpleAdapter[CrewAIFlowSessionState]):
                 run_id=other_run_id,
                 parent_message_id=run_meta.parent_message_id,
                 metadata_namespace=self.metadata_namespace,
-                join_policy=self._join_policy,
+                join_policy=run_meta.join_policy,
                 text_only_behavior=self._text_only_behavior,
                 tagged_peer_keys=run_meta.tagged_peer_keys,
                 delegation_rounds=run_meta.delegation_rounds,
@@ -1622,6 +1668,9 @@ class CrewAIFlowAdapter(SimpleAdapter[CrewAIFlowSessionState]):
                 return
         finally:
             _current_flow_runtime.reset(token)
+
+        if executor.side_effect_aborted:
+            return
 
         await self._handle_result(
             result=result,
@@ -1730,10 +1779,11 @@ class CrewAIFlowAdapter(SimpleAdapter[CrewAIFlowSessionState]):
                 elif d.status == CrewAIFlowDelegationStatus.REPLIED:
                     replied_count += 1
 
+        join_policy = run.join_policy if run is not None else self._join_policy
         join_satisfied = (
             run is None
-            or (self._join_policy == CrewAIFlowJoinPolicy.FIRST and replied_count >= 1)
-            or (self._join_policy == CrewAIFlowJoinPolicy.ALL and pending_count == 0)
+            or (join_policy == CrewAIFlowJoinPolicy.FIRST and replied_count >= 1)
+            or (join_policy == CrewAIFlowJoinPolicy.ALL and pending_count == 0)
         )
 
         # Tagged-peer gate.

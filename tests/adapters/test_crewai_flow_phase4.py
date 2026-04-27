@@ -662,3 +662,212 @@ class TestIndeterminate:
             if e["message_type"] == "task"
         ]
         assert "indeterminate" in statuses
+
+    @pytest.mark.asyncio
+    async def test_direct_response_send_failure_after_reservation_records_indeterminate(
+        self,
+    ) -> None:
+        class FailingSendTools(FakeAgentTools):
+            async def send_message(
+                self,
+                content: str,
+                mentions: list[str] | list[dict[str, str]] | None = None,
+            ) -> dict[str, Any]:
+                raise RuntimeError("send failed")
+
+        flow = _flow(
+            {"decision": "direct_response", "content": "final", "mentions": []}
+        )
+        adapter = CrewAIFlowAdapter(
+            flow_factory=lambda: flow,
+            state_source=HistoryCrewAIFlowStateSource(acknowledge_test_only=True),
+        )
+        tools = FailingSendTools()
+        await _start(adapter, "router")
+        await _turn(adapter, tools, _msg(id="msg-1"), is_session_bootstrap=True)
+
+        assert tools.messages_sent == []
+        statuses = [
+            e["metadata"].get(adapter.metadata_namespace, {}).get("status")
+            for e in tools.events_sent
+            if e["message_type"] == "task"
+        ]
+        assert statuses == ["side_effect_reserved", "indeterminate"]
+
+
+class TestPersistedRunPolicy:
+    @pytest.mark.asyncio
+    async def test_existing_run_uses_persisted_join_policy_after_config_change(
+        self,
+    ) -> None:
+        ns = "crewai_flow:router"
+        delegation_payload = {
+            "schema_version": 1,
+            "room_id": "room-1",
+            "run_id": "msg-parent",
+            "parent_message_id": "msg-parent",
+            "status": "delegated_pending",
+            "stage": "delegated",
+            "join_policy": "first",
+            "delegations": [
+                {
+                    "delegation_id": "d-A",
+                    "target": {
+                        "participant_id": "p-a",
+                        "handle": "@example/peer-a",
+                        "normalized_key": "peer-a",
+                    },
+                    "status": "pending",
+                    "side_effect_key": "msg-parent:delegate:d-A",
+                    "delegation_message_id": "msg-deleg-A",
+                },
+                {
+                    "delegation_id": "d-B",
+                    "target": {
+                        "participant_id": "p-b",
+                        "handle": "@example/peer-b",
+                        "normalized_key": "peer-b",
+                    },
+                    "status": "pending",
+                    "side_effect_key": "msg-parent:delegate:d-B",
+                    "delegation_message_id": "msg-deleg-B",
+                },
+            ],
+        }
+        tools = FakeAgentTools(
+            participants=[
+                {"id": "p-a", "handle": "@example/peer-a", "name": "Peer A"},
+                {"id": "p-b", "handle": "@example/peer-b", "name": "Peer B"},
+            ],
+            room_context=[
+                {
+                    "id": "evt-prior",
+                    "message_type": "task",
+                    "inserted_at": datetime.now(timezone.utc).isoformat(),
+                    "metadata": {ns: delegation_payload},
+                }
+            ],
+        )
+        adapter = CrewAIFlowAdapter(
+            flow_factory=lambda: _flow(
+                {"decision": "synthesize", "content": "first answer", "mentions": []}
+            ),
+            state_source=RestCrewAIFlowStateSource(),
+            join_policy="all",
+        )
+        await _start(adapter, "router")
+        await _turn(
+            adapter,
+            tools,
+            _msg(
+                id="msg-reply-A",
+                content="here is A's answer",
+                sender_id="@example/peer-a",
+                sender_type="Agent",
+                sender_name="Peer A",
+            ),
+            is_session_bootstrap=False,
+        )
+
+        assert [m["content"] for m in tools.messages_sent] == ["first answer"]
+        statuses = [
+            e["metadata"].get(ns, {}).get("status")
+            for e in tools.events_sent
+            if e["message_type"] == "task"
+        ]
+        assert "finalized" in statuses
+
+
+class TestDelegationAmbiguity:
+    @pytest.mark.asyncio
+    async def test_ambiguous_delegation_target_records_failed_without_sending(
+        self,
+    ) -> None:
+        flow = _flow(
+            {
+                "decision": "delegate",
+                "delegations": [
+                    {
+                        "delegation_id": "d-A",
+                        "target": "peer-a",
+                        "content": "do A",
+                        "mentions": ["@example/peer-a"],
+                    }
+                ],
+            }
+        )
+        adapter = CrewAIFlowAdapter(
+            flow_factory=lambda: flow,
+            state_source=HistoryCrewAIFlowStateSource(acknowledge_test_only=True),
+        )
+        tools = FakeAgentTools(
+            participants=[
+                {"id": "p-a", "handle": "@example/peer-a", "name": "Peer A"},
+                {"id": "p-a2", "handle": "@other/peer-a", "name": "Peer A2"},
+            ]
+        )
+        await _start(adapter, "router")
+        await _turn(adapter, tools, _msg(id="msg-1"), is_session_bootstrap=True)
+
+        assert tools.messages_sent == []
+        payloads = [
+            e["metadata"].get(adapter.metadata_namespace, {})
+            for e in tools.events_sent
+            if e["message_type"] == "task"
+        ]
+        assert payloads[-1]["status"] == "failed"
+        assert payloads[-1]["error"]["code"] == "ambiguous_participant"
+
+    @pytest.mark.asyncio
+    async def test_delegation_send_failure_stops_later_delegations(
+        self,
+    ) -> None:
+        class FirstSendFailsTools(FakeAgentTools):
+            async def send_message(
+                self,
+                content: str,
+                mentions: list[str] | list[dict[str, str]] | None = None,
+            ) -> dict[str, Any]:
+                if not self.messages_sent:
+                    raise RuntimeError("send failed")
+                return await super().send_message(content, mentions)
+
+        flow = _flow(
+            {
+                "decision": "delegate",
+                "delegations": [
+                    {
+                        "delegation_id": "d-A",
+                        "target": "peer-a",
+                        "content": "do A",
+                        "mentions": ["@example/peer-a"],
+                    },
+                    {
+                        "delegation_id": "d-B",
+                        "target": "peer-b",
+                        "content": "do B",
+                        "mentions": ["@example/peer-b"],
+                    },
+                ],
+            }
+        )
+        adapter = CrewAIFlowAdapter(
+            flow_factory=lambda: flow,
+            state_source=HistoryCrewAIFlowStateSource(acknowledge_test_only=True),
+        )
+        tools = FirstSendFailsTools(
+            participants=[
+                {"id": "p-a", "handle": "@example/peer-a", "name": "Peer A"},
+                {"id": "p-b", "handle": "@example/peer-b", "name": "Peer B"},
+            ]
+        )
+        await _start(adapter, "router")
+        await _turn(adapter, tools, _msg(id="msg-1"), is_session_bootstrap=True)
+
+        assert tools.messages_sent == []
+        statuses = [
+            e["metadata"].get(adapter.metadata_namespace, {}).get("status")
+            for e in tools.events_sent
+            if e["message_type"] == "task"
+        ]
+        assert statuses == ["side_effect_reserved", "indeterminate"]

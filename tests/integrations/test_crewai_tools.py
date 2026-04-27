@@ -157,6 +157,26 @@ class TestToolSetComposition:
         # Custom tool name comes from the InputModel class name (lowercased)
         assert len(tools) == 8
 
+    def test_adapter_feature_filters_apply_to_platform_tools(self, builder_mod):
+        from thenvoi.core.types import AdapterFeatures, Capability
+
+        tools = builder_mod.build_thenvoi_crewai_tools(
+            get_context=lambda: None,
+            reporter=builder_mod.NoopReporter(),
+            features=AdapterFeatures(
+                capabilities=frozenset({Capability.CONTACTS, Capability.MEMORY}),
+                include_categories=("contacts", "memory"),
+                exclude_tools=("thenvoi_remove_contact", "thenvoi_archive_memory"),
+            ),
+        )
+
+        names = {t.name for t in tools}
+        assert "thenvoi_send_message" not in names
+        assert "thenvoi_list_contacts" in names
+        assert "thenvoi_list_memories" in names
+        assert "thenvoi_remove_contact" not in names
+        assert "thenvoi_archive_memory" not in names
+
 
 # --- Reporter behavior ---
 

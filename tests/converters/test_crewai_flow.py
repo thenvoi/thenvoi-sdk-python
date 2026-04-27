@@ -295,6 +295,40 @@ class TestMalformedMetadata:
         assert run.error is not None
         assert run.error.code == "malformed_metadata"
 
+    def test_malformed_payload_after_terminal_run_is_ignored(self) -> None:
+        t1 = datetime(2026, 1, 1, tzinfo=timezone.utc)
+        t2 = t1 + timedelta(seconds=1)
+        events = [
+            _ev(
+                id="e1",
+                inserted_at=t1,
+                payload=_base_payload(
+                    status=CrewAIFlowRunStatus.FINALIZED,
+                    stage=CrewAIFlowStage.DONE,
+                    final_message_id="msg-final",
+                ),
+            ),
+            {
+                "id": "e2",
+                "message_type": "task",
+                "inserted_at": t2.isoformat(),
+                "metadata": {
+                    NS: {
+                        "schema_version": 1,
+                        "room_id": "room-1",
+                        "run_id": "msg-1",
+                        "parent_message_id": "msg-1",
+                        "status": "not_a_status",
+                        "stage": CrewAIFlowStage.INITIAL.value,
+                    }
+                },
+            },
+        ]
+        state = CrewAIFlowStateConverter().convert(events)
+        run = state.runs["msg-1"]
+        assert run.status == CrewAIFlowRunStatus.FINALIZED
+        assert run.final_message_id == "msg-final"
+
 
 # ---------------------------------------------------------------------------
 # Buffered syntheses + sequential chains

@@ -152,12 +152,16 @@ jerry_agent:
   api_key: "your-jerry-agent-api-key"
 ```
 
-Contact and memory example:
+Contact, memory, and flow-router examples:
 
 ```yaml
 crewai_contact_memory_agent:
   agent_id: "your-crewai-contact-memory-agent-id"
   api_key: "your-crewai-contact-memory-agent-api-key"
+
+crewai_flow_router:
+  agent_id: "your-crewai-flow-router-agent-id"
+  api_key: "your-crewai-flow-router-agent-api-key"
 ```
 
 ## Important runtime note
