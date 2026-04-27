@@ -1,0 +1,5 @@
+{"round":1,"phase":"initial","candidate":"keep current CrewAIAdapter as default; add experimental CrewAIFlowAdapter for deterministic per-room orchestration; risks: source-of-truth, semantic mismatch, duplicate synthesis, late replies, two mental models"}
+{"round":1,"phase":"critique","finding":"candidate needed stronger answers for re-entrancy, persistence, correlation keys, adapter contract changes, ContextVar brittleness, and converter reuse"}
+{"round":1,"phase":"judge","winner":"Y","votes":{"Y":3,"X":2,"Z":0},"rationale":"concise synthesis made the right product decision but lacked some implementation specificity"}
+{"round":2,"phase":"grounding","evidence":["SimpleAdapter.on_event awaits on_message","FrameworkAdapter processes messages only","send_message has no metadata","send_event supports metadata","A2A and Letta use task-event metadata for external session reconstruction"]}
+{"round":2,"phase":"final","winner":"B","votes":{"B":5,"A":0},"rationale":"Flow v1 should run per inbound message, use task events as durable orchestration state, and re-enter through normal on_message for later peer replies"}

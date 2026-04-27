@@ -1,0 +1,89 @@
+{
+  "version": "1.0",
+  "tool": "predict",
+  "generated_at": "2026-04-27T09:46:00-07:00",
+  "commit_hash": "06b20f78045481f11ca8a150719c7201f856db21",
+  "scope": [
+    "reason/260427-0859-crewai-flow-adapter/*.md",
+    "src/thenvoi/adapters/crewai.py",
+    "src/thenvoi/core/simple_adapter.py",
+    "src/thenvoi/preprocessing/default.py",
+    "src/thenvoi/runtime/tools.py",
+    "src/thenvoi/converters/crewai.py",
+    "src/thenvoi/core/types.py",
+    "src/thenvoi/testing/fake_tools.py",
+    "tests/adapters/test_crewai_adapter.py",
+    "tests/framework_configs/*.py",
+    "tests/framework_conformance/*.py",
+    "examples/crewai/*"
+  ],
+  "summary": {
+    "personas": 5,
+    "rounds": 2,
+    "findings_confirmed": 7,
+    "findings_probable": 3,
+    "findings_minority": 0,
+    "anti_herd_passed": true,
+    "top_blockers": [
+      "Non-bootstrap peer replies will not see prior task events",
+      "Visible sends are not idempotent or atomic with state events",
+      "Raw runtime tools can bypass adapter safety policies",
+      "Ambiguous reply matching should fail closed"
+    ]
+  },
+  "findings": [
+    {
+      "id": "H-01",
+      "severity": "CRITICAL",
+      "confidence": "HIGH",
+      "location": "src/thenvoi/preprocessing/default.py:78",
+      "title": "Non-bootstrap peer replies will not see prior task events",
+      "recommendation": "Add an explicit state hydration contract for every Flow turn before claiming durable reply matching.",
+      "personas_agreed": 5,
+      "personas_total": 5
+    },
+    {
+      "id": "H-02",
+      "severity": "CRITICAL",
+      "confidence": "HIGH",
+      "location": "src/thenvoi/runtime/tools.py:1194",
+      "title": "Visible sends are not idempotent or atomic with state events",
+      "recommendation": "Use reserve-send-confirm transitions or platform idempotency keys before visible side effects.",
+      "personas_agreed": 5,
+      "personas_total": 5
+    },
+    {
+      "id": "H-03",
+      "severity": "CRITICAL",
+      "confidence": "MEDIUM",
+      "location": "reason/260427-0859-crewai-flow-adapter/technical-spec.md:388",
+      "title": "Raw runtime tools can bypass adapter safety policies",
+      "recommendation": "Expose a restricted runtime facade; visible writes must go through adapter decisions.",
+      "personas_agreed": 4,
+      "personas_total": 5
+    }
+  ],
+  "hypotheses": [
+    {
+      "rank": 1,
+      "id": "H-01",
+      "hypothesis": "On non-bootstrap peer replies, CrewAIFlowStateConverter will not see prior task events unless a new hydration path is added.",
+      "confidence": "HIGH",
+      "location": "src/thenvoi/preprocessing/default.py:78"
+    },
+    {
+      "rank": 2,
+      "id": "H-02",
+      "hypothesis": "A crash after send_message but before task-event recording can duplicate delegation or final synthesis on retry.",
+      "confidence": "HIGH",
+      "location": "src/thenvoi/runtime/tools.py:1194"
+    },
+    {
+      "rank": 3,
+      "id": "H-03",
+      "hypothesis": "If Flow methods can access raw AgentTools, they can bypass join/finalization safety checks by sending visible messages directly.",
+      "confidence": "MEDIUM",
+      "location": "reason/260427-0859-crewai-flow-adapter/technical-spec.md:388"
+    }
+  ]
+}

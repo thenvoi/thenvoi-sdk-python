@@ -1,0 +1,32 @@
+{
+  "task": "Evaluate whether to build a new Thenvoi CrewAI adapter around CrewAI Flows for deterministic routing/delegation/join/synthesis.",
+  "domain": "software architecture",
+  "mode": "convergent",
+  "judges": 5,
+  "convergence_achieved": true,
+  "rounds": 2,
+  "final_recommendation": "Build an experimental CrewAIFlowAdapter, but keep the existing CrewAIAdapter as the stable default. Scope v1 so CrewAI Flow runs as the local execution plan for one inbound Thenvoi message. Persist orchestration state in Thenvoi task events. Later peer replies should re-enter via normal on_message handling and reconstruct pending state from task events.",
+  "implementation_plan_seed": {
+    "adapter_class": "CrewAIFlowAdapter",
+    "keep_existing_adapter": true,
+    "source_of_truth": "Thenvoi task events with metadata",
+    "flow_scope": "one inbound message / one local execution turn",
+    "non_goals_v1": [
+      "paused Flow execution across external events",
+      "cross-room joins",
+      "distributed locking",
+      "indefinite waits inside on_message",
+      "metadata attached directly to chat messages"
+    ],
+    "must_have_ids": ["room_id", "run_id", "delegation_id", "target_mention_or_participant_id", "parent_message_id"],
+    "tests": [
+      "direct route sends one final response",
+      "single delegation records task-event metadata",
+      "multi-delegation join synthesizes once policy is satisfied",
+      "duplicate inbound retry does not duplicate delegation or final synthesis",
+      "restart reconstructs pending state from task events",
+      "later peer reply resumes through normal on_message",
+      "unsupported long wait behavior is explicit"
+    ]
+  }
+}
