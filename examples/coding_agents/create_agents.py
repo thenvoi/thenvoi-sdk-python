@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Create test agents for E2E testing.
+"""Create coding team agents on the Band platform.
 
-Registers planner and reviewer agents via User API
+Registers planner and reviewer agents via the User API (Enterprise plan required)
 and writes their credentials to YAML config files.
 
 Usage:
@@ -49,7 +49,7 @@ async def main() -> None:
         response = await client.human_api_agents.register_my_agent(
             agent=AgentRegisterRequest(
                 name=agent_def["name"],
-                description=f"E2E test agent - {agent_def['role']} role",
+                description=f"Coding team agent - {agent_def['role']} role",
             )
         )
 
