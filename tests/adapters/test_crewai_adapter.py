@@ -1250,7 +1250,7 @@ class TestRunAsync:
 
 class TestMentionsValidator:
     @pytest.mark.asyncio
-    async def test_mentions_list_converted_to_json(self, CrewAIAdapter, crewai_mocks):
+    async def test_mentions_list_kept_as_list(self, CrewAIAdapter, crewai_mocks):
         crewai_mocks.Agent.reset_mock()
 
         adapter = CrewAIAdapter()
@@ -1267,10 +1267,12 @@ class TestMentionsValidator:
             mentions=["Alice", "Bob"],
         )
 
-        assert instance.mentions == '["Alice", "Bob"]'
+        assert instance.mentions == ["Alice", "Bob"]
 
     @pytest.mark.asyncio
-    async def test_mentions_string_kept_as_is(self, CrewAIAdapter, crewai_mocks):
+    async def test_mentions_json_string_decoded_to_list(
+        self, CrewAIAdapter, crewai_mocks
+    ):
         crewai_mocks.Agent.reset_mock()
 
         adapter = CrewAIAdapter()
@@ -1287,13 +1289,35 @@ class TestMentionsValidator:
             mentions='["Alice"]',
         )
 
-        assert instance.mentions == '["Alice"]'
+        assert instance.mentions == ["Alice"]
 
     @pytest.mark.asyncio
-    async def test_mentions_none_converted_to_empty_array(
+    async def test_mentions_bracketed_handles_decoded_to_list(
         self, CrewAIAdapter, crewai_mocks
     ):
-        """None mentions should be normalized to empty JSON array string."""
+        """LLMs sometimes emit '[@handle, @other]' (not valid JSON) — accept it."""
+        crewai_mocks.Agent.reset_mock()
+
+        adapter = CrewAIAdapter()
+        await adapter.on_started("TestBot", "Test bot")
+
+        call_kwargs = crewai_mocks.Agent.call_args[1]
+        tools = call_kwargs["tools"]
+        send_message_tool = next(t for t in tools if t.name == "thenvoi_send_message")
+
+        input_model = send_message_tool.args_schema
+
+        instance = input_model(
+            content="Hello!",
+            mentions="[@yael.avioz/test2]",
+        )
+
+        assert instance.mentions == ["@yael.avioz/test2"]
+
+    @pytest.mark.asyncio
+    async def test_mentions_none_converted_to_empty_list(
+        self, CrewAIAdapter, crewai_mocks
+    ):
         crewai_mocks.Agent.reset_mock()
 
         adapter = CrewAIAdapter()
@@ -1310,7 +1334,7 @@ class TestMentionsValidator:
             mentions=None,
         )
 
-        assert instance.mentions == "[]"
+        assert instance.mentions == []
 
 
 class TestPromptRendering:

@@ -169,3 +169,6 @@ uv.toml
 # Scripts config (contains local paths)
 scripts/config.yaml
 .a5c/
+examples/mixed/agents.yaml
+examples/claude_sdk_docker/.env
+examples/coding_agents/.env

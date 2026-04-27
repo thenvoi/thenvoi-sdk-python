@@ -1,3 +1,10 @@
+# /// script
+# requires-python = ">=3.11"
+# dependencies = ["thenvoi-sdk[langgraph]"]
+#
+# [tool.uv.sources]
+# thenvoi-sdk = { git = "https://github.com/thenvoi/thenvoi-sdk-python.git" }
+# ///
 """
 Standalone Agentic RAG graph - completely independent of Thenvoi.
 
@@ -12,9 +19,15 @@ This graph implements an intelligent RAG system that:
 5. Generates answers based on context
 
 It can be imported and used as a tool in any agent, or used standalone.
+
+Run with:
+    uv run examples/langgraph/standalone_rag.py
 """
 
+from __future__ import annotations
+
 from typing import Literal, cast
+
 from pydantic import BaseModel, Field
 
 from langgraph.graph import StateGraph, START, END, MessagesState
@@ -242,3 +255,31 @@ Answer:"""
     workflow.add_edge("generate_answer", END)
 
     return workflow.compile(checkpointer=InMemorySaver())
+
+
+if __name__ == "__main__":
+    import asyncio
+    import logging
+
+    from langchain_core.messages import HumanMessage
+
+    logging.basicConfig(level=logging.INFO)
+    logger = logging.getLogger(__name__)
+
+    async def test() -> None:
+        """Test the RAG graph standalone with a sample question."""
+        logger.info("Building RAG graph (fetching and indexing blog posts)...")
+        graph = create_rag_graph()
+
+        question = "What is reward hacking in AI?"
+        logger.info("Question: %s", question)
+
+        result = await graph.ainvoke(
+            {"messages": [HumanMessage(content=question)]},
+            {"configurable": {"thread_id": "test-session"}},
+        )
+
+        final_message = result["messages"][-1]
+        logger.info("Answer: %s", final_message.content)
+
+    asyncio.run(test())

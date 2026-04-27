@@ -4,7 +4,12 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from thenvoi.integrations.parlant.tools import (
+# Parlant cannot coexist with crewai in the same env (see CLAUDE.md), so the
+# default `dev` extra excludes it. Skip this module entirely when parlant is
+# not installed; CI runs it in a separate `dev-parlant` job.
+pytest.importorskip("parlant")
+
+from thenvoi.integrations.parlant.tools import (  # noqa: E402
     _session_message_sent,
     _session_tools,
     create_parlant_tools,

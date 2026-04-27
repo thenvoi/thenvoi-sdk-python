@@ -15,6 +15,7 @@ return SDK-native types for pattern matching compatibility.
 
 from __future__ import annotations
 
+import os
 from datetime import datetime, timezone
 from unittest.mock import AsyncMock
 
@@ -53,9 +54,44 @@ from thenvoi.runtime.types import PlatformMessage
 from thenvoi_testing.markers import pytest_ignore_collect_in_ci as _ignore_collect_in_ci
 
 
+_INVOCATION_ARGS: list[str] = []
+
+
+def pytest_configure(config: pytest.Config) -> None:
+    """Record the cli args so ``pytest_ignore_collect`` knows whether the user
+    explicitly requested ``tests/integration/`` or ``tests/e2e/``.
+    """
+    _INVOCATION_ARGS[:] = list(config.args or [])
+
+
+def _path_explicitly_requested(suffix: str) -> bool:
+    return any(suffix in arg for arg in _INVOCATION_ARGS)
+
+
 def pytest_ignore_collect(collection_path):
-    """Skip integration tests in CI environment."""
-    return _ignore_collect_in_ci(str(collection_path), "integration")
+    """Skip integration / e2e suites by default for unit-test runs.
+
+    Pytest 9.0.x stopped honoring ``--ignore=`` for packages with
+    ``__init__.py``, and the unit-test command in CLAUDE.md relies on these
+    suites being excluded by default. Opt back in by setting
+    ``PYTEST_INCLUDE_INTEGRATION=1`` / ``PYTEST_INCLUDE_E2E=1`` (or by
+    invoking the path explicitly, e.g. ``pytest tests/integration/``).
+    """
+    path_str = str(collection_path)
+    if (
+        not os.environ.get("PYTEST_INCLUDE_INTEGRATION")
+        and "/tests/integration" in path_str
+        and not _path_explicitly_requested("tests/integration")
+    ):
+        return True
+    if (
+        not os.environ.get("PYTEST_INCLUDE_E2E")
+        and "/tests/e2e" in path_str
+        and not _path_explicitly_requested("tests/e2e")
+    ):
+        return True
+    # Defer to the shared CI-only helper for any other paths it knows about.
+    return _ignore_collect_in_ci(path_str, "integration")
 
 
 # =============================================================================

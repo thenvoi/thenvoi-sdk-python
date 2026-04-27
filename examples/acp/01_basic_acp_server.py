@@ -24,8 +24,8 @@ Architecture:
 Prerequisites:
     1. Set environment variables:
        - THENVOI_API_KEY: Your Thenvoi API key
-       - THENVOI_WS_URL: WebSocket URL (default: wss://app.thenvoi.com/api/v1/socket/websocket)
-       - THENVOI_REST_URL: REST API URL (default: https://app.thenvoi.com)
+       - THENVOI_WS_URL: WebSocket URL (default: wss://app.band.ai/api/v1/socket/websocket)
+       - THENVOI_REST_URL: REST API URL (default: https://app.band.ai)
 
     2. Have peers configured on the Thenvoi platform
 
@@ -64,24 +64,25 @@ logger = logging.getLogger(__name__)
 async def main() -> None:
     load_dotenv()
 
-    ws_url = os.getenv(
-        "THENVOI_WS_URL", "wss://app.thenvoi.com/api/v1/socket/websocket"
-    )
-    rest_url = os.getenv("THENVOI_REST_URL", "https://app.thenvoi.com")
+    ws_url = os.getenv("THENVOI_WS_URL", "wss://app.band.ai/api/v1/socket/websocket")
+    rest_url = os.getenv("THENVOI_REST_URL", "https://app.band.ai")
     # ACP server examples check env vars first because editors (Zed, Cursor)
     # typically inject credentials via environment when spawning the subprocess.
+    # Both THENVOI_API_KEY and THENVOI_AGENT_ID must be set together — a key
+    # without an agent_id silently falls back to a placeholder id, causing
+    # 401 "API key not linked to a valid user" errors at runtime.
     api_key = os.getenv("THENVOI_API_KEY")
+    agent_id = os.getenv("THENVOI_AGENT_ID")
 
-    if not api_key:
+    if not (api_key and agent_id):
         try:
             agent_id, api_key = load_agent_config("acp_server_agent")
-        except Exception:
+        except Exception as e:
             raise ValueError(
-                "THENVOI_API_KEY environment variable is required, "
-                "or configure 'acp_server_agent' in agent_config.yaml"
-            )
-    else:
-        agent_id = os.getenv("THENVOI_AGENT_ID", "acp-server")
+                "THENVOI_API_KEY and THENVOI_AGENT_ID environment variables are "
+                "required together, or configure 'acp_server_agent' in "
+                "agent_config.yaml"
+            ) from e
 
     # Create ACP server adapter with direct REST client
     adapter = ThenvoiACPServerAdapter(

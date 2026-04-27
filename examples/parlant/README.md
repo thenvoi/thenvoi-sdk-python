@@ -71,6 +71,8 @@ async with p.Server() as server:
 | `01_basic_agent.py` | **Minimal setup** - Simple agent with Parlant SDK. |
 | `02_with_guidelines.py` | **Behavioral guidelines** - Agent with condition/action rules. |
 | `03_support_agent.py` | **Customer support** - Realistic support agent with specialized guidelines. |
+| `04_tom_agent.py` | **Tom (cat)** - Half of a Tom & Jerry pair; pairs with `05_jerry_agent.py`. |
+| `05_jerry_agent.py` | **Jerry (mouse)** - The other half of the pair. |
 
 ---
 
@@ -107,8 +109,8 @@ cp agent_config.yaml.example agent_config.yaml
 
 ```bash
 # Thenvoi platform URLs (required)
-THENVOI_WS_URL=wss://app.thenvoi.com/api/v1/socket/websocket
-THENVOI_REST_URL=https://app.thenvoi.com
+THENVOI_WS_URL=wss://app.band.ai/api/v1/socket/websocket
+THENVOI_REST_URL=https://app.band.ai
 
 # OpenAI API key (used by Parlant for LLM)
 OPENAI_API_KEY=your-openai-key
@@ -116,7 +118,7 @@ OPENAI_API_KEY=your-openai-key
 
 ### 3. Add agent credentials to `agent_config.yaml`
 
-1. Create an external agent on the [Thenvoi Platform](https://app.thenvoi.com)
+1. Create an external agent on the [Thenvoi Platform](https://app.band.ai)
 2. Generate an API key for the agent
 3. Edit `agent_config.yaml` and fill in the Parlant agent section:
 

@@ -128,21 +128,20 @@ async def main() -> None:
 
     # Determine which crew member to run
     if len(sys.argv) < 2:
-        logger.error("Usage: uv run examples/crewai/04_research_crew.py <role>")
-        logger.info("Available roles: researcher, writer, editor")
-        logger.info("To run the full crew, start each in a separate terminal:")
-        logger.info(
-            "  Terminal 1: uv run examples/crewai/04_research_crew.py researcher"
+        raise ValueError(
+            "Usage: uv run examples/crewai/04_research_crew.py <role>\n"
+            f"Available roles: {', '.join(CREW_MEMBERS.keys())}\n"
+            "To run the full crew, start each in a separate terminal:\n"
+            "  Terminal 1: uv run examples/crewai/04_research_crew.py researcher\n"
+            "  Terminal 2: uv run examples/crewai/04_research_crew.py writer\n"
+            "  Terminal 3: uv run examples/crewai/04_research_crew.py editor"
         )
-        logger.info("  Terminal 2: uv run examples/crewai/04_research_crew.py writer")
-        logger.info("  Terminal 3: uv run examples/crewai/04_research_crew.py editor")
-        sys.exit(1)
 
     role = sys.argv[1].lower()
     if role not in CREW_MEMBERS:
-        logger.error("Unknown role: %s", role)
-        logger.info("Available roles: %s", ", ".join(CREW_MEMBERS.keys()))
-        sys.exit(1)
+        raise ValueError(
+            f"Unknown role: {role}. Available roles: {', '.join(CREW_MEMBERS.keys())}"
+        )
 
     member = CREW_MEMBERS[role]
 

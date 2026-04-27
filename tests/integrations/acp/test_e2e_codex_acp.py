@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import shutil
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
@@ -32,8 +33,14 @@ from thenvoi.runtime.tools import AgentTools
 
 logger = logging.getLogger(__name__)
 
-# Skip entire module if npx is not available
+# This module spawns `npx @zed-industries/codex-acp` and waits up to ~2 min
+# for a real protocol round-trip — that's an opt-in E2E test, not a unit
+# test. Skip unless E2E_TESTS_ENABLED is set (matching tests/e2e/conftest.py).
 pytestmark = [
+    pytest.mark.skipif(
+        os.environ.get("E2E_TESTS_ENABLED", "").lower() != "true",
+        reason="E2E_TESTS_ENABLED is not set to true",
+    ),
     pytest.mark.skipif(
         shutil.which("npx") is None,
         reason="npx not available",

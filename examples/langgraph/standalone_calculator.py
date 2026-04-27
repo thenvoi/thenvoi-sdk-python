@@ -1,11 +1,24 @@
+# /// script
+# requires-python = ">=3.11"
+# dependencies = ["thenvoi-sdk[langgraph]"]
+#
+# [tool.uv.sources]
+# thenvoi-sdk = { git = "https://github.com/thenvoi/thenvoi-sdk-python.git" }
+# ///
 """
 Standalone calculator graph - completely independent of Thenvoi.
 
 This is a simple LangGraph that performs mathematical calculations.
 It can be imported and used as a tool in any agent.
+
+Run with:
+    uv run examples/langgraph/standalone_calculator.py
 """
 
+from __future__ import annotations
+
 from typing import TypedDict, Literal
+
 from langgraph.graph import StateGraph, START, END
 from langgraph.checkpoint.memory import InMemorySaver
 

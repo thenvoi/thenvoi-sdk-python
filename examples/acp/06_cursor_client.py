@@ -69,10 +69,8 @@ logger = logging.getLogger(__name__)
 async def main() -> None:
     load_dotenv()
 
-    ws_url = os.getenv(
-        "THENVOI_WS_URL", "wss://app.thenvoi.com/api/v1/socket/websocket"
-    )
-    rest_url = os.getenv("THENVOI_REST_URL", "https://app.thenvoi.com")
+    ws_url = os.getenv("THENVOI_WS_URL", "wss://app.band.ai/api/v1/socket/websocket")
+    rest_url = os.getenv("THENVOI_REST_URL", "https://app.band.ai")
 
     # Load agent credentials from agent_config.yaml
     agent_id, api_key = load_agent_config("cursor_agent")
@@ -92,8 +90,12 @@ async def main() -> None:
     # Create adapter that spawns Cursor's ACP agent.
     # - auth_method="cursor_login" authenticates using your Cursor login
     # - Thenvoi tools are injected through a local localhost-only MCP server
+    cursor_command = os.getenv(
+        "CURSOR_AGENT_COMMAND",
+        os.path.expanduser("~/.local/bin/cursor-agent"),
+    )
     adapter = ACPClientAdapter(
-        command=[os.path.expanduser("~/.local/bin/agent"), "acp"],
+        command=[cursor_command, "acp"],
         cwd=cwd,
         env=cursor_env or None,
         rest_url=rest_url,

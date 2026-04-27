@@ -8004,6 +8004,8 @@ letta = [
 ]
 opencode = [
     { name = "httpx" },
+    { name = "mcp", version = "1.26.0", source = { registry = "https://pypi.org/simple" }, marker = "extra == 'extra-11-thenvoi-sdk-crewai' or extra == 'extra-11-thenvoi-sdk-dev'" },
+    { name = "mcp", version = "1.27.0", source = { registry = "https://pypi.org/simple" }, marker = "(extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev')" },
 ]
 parlant = [
     { name = "openai" },
@@ -8011,16 +8013,17 @@ parlant = [
     { name = "werkzeug" },
 ]
 pydantic-ai = [
+    { name = "anthropic" },
     { name = "openai" },
     { name = "pydantic-ai-slim" },
 ]
 
 [package.metadata]
 requires-dist = [
-    { name = "a2a-sdk", marker = "extra == 'a2a'", specifier = ">=0.3.22" },
-    { name = "a2a-sdk", marker = "extra == 'a2a-gateway'", specifier = ">=0.3.22" },
-    { name = "a2a-sdk", marker = "extra == 'a2a-gateway-demo'", specifier = ">=0.3.22" },
-    { name = "a2a-sdk", marker = "extra == 'dev'", specifier = ">=0.3.22" },
+    { name = "a2a-sdk", marker = "extra == 'a2a'", specifier = ">=0.3.22,<1.0" },
+    { name = "a2a-sdk", marker = "extra == 'a2a-gateway'", specifier = ">=0.3.22,<1.0" },
+    { name = "a2a-sdk", marker = "extra == 'a2a-gateway-demo'", specifier = ">=0.3.22,<1.0" },
+    { name = "a2a-sdk", marker = "extra == 'dev'", specifier = ">=0.3.22,<1.0" },
     { name = "agent-client-protocol", marker = "extra == 'acp'", specifier = ">=0.9.0" },
     { name = "agent-client-protocol", marker = "extra == 'dev'", specifier = ">=0.9.0" },
     { name = "aiohttp", marker = "extra == 'bridge'", specifier = ">=3.9,<4" },
@@ -8028,6 +8031,7 @@ requires-dist = [
     { name = "aiohttp", marker = "extra == 'dev'", specifier = ">=3.9,<4" },
     { name = "anthropic", marker = "extra == 'anthropic'", specifier = ">=0.75.0" },
     { name = "anthropic", marker = "extra == 'dev'", specifier = ">=0.75.0" },
+    { name = "anthropic", marker = "extra == 'pydantic-ai'", specifier = ">=0.75.0" },
     { name = "beautifulsoup4", marker = "extra == 'dev'", specifier = ">=4.12.0" },
     { name = "beautifulsoup4", marker = "extra == 'langgraph'", specifier = ">=4.12.0" },
     { name = "boto3", marker = "extra == 'bridge-agentcore'", specifier = ">=1.35.0" },
@@ -8066,6 +8070,7 @@ requires-dist = [
     { name = "letta-client", marker = "extra == 'letta'", specifier = ">=0.1.0" },
     { name = "mcp", marker = "extra == 'acp'", specifier = ">=1.25.0" },
     { name = "mcp", marker = "extra == 'dev'", specifier = ">=1.25.0" },
+    { name = "mcp", marker = "extra == 'opencode'", specifier = ">=1.25.0" },
     { name = "nest-asyncio", marker = "extra == 'crewai'", specifier = ">=1.6.0" },
     { name = "nest-asyncio", marker = "extra == 'dev'", specifier = ">=1.6.0" },
     { name = "openai", marker = "extra == 'crewai'", specifier = ">=2.0.0" },

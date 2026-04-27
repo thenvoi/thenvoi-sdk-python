@@ -75,11 +75,9 @@ from dotenv import load_dotenv
 
 from setup_logging import setup_logging
 from thenvoi import Agent
+from thenvoi.adapters import ACPServer, ThenvoiACPServerAdapter
 from thenvoi.config import load_agent_config
-from thenvoi.integrations.acp.push_handler import ACPPushHandler
-from thenvoi.integrations.acp.router import AgentRouter
-from thenvoi.integrations.acp.server import ACPServer
-from thenvoi.integrations.acp.server_adapter import ThenvoiACPServerAdapter
+from thenvoi.integrations.acp import ACPPushHandler, AgentRouter
 
 setup_logging()
 logger = logging.getLogger(__name__)
@@ -88,10 +86,8 @@ logger = logging.getLogger(__name__)
 async def main() -> None:
     load_dotenv()
 
-    ws_url = os.getenv(
-        "THENVOI_WS_URL", "wss://app.thenvoi.com/api/v1/socket/websocket"
-    )
-    rest_url = os.getenv("THENVOI_REST_URL", "https://app.thenvoi.com")
+    ws_url = os.getenv("THENVOI_WS_URL", "wss://app.band.ai/api/v1/socket/websocket")
+    rest_url = os.getenv("THENVOI_REST_URL", "https://app.band.ai")
     # JetBrains IDEs inject credentials via ~/.jetbrains/acp.json env config.
     # Fall back to agent_config.yaml for standalone testing.
     api_key = os.getenv("THENVOI_API_KEY")
@@ -99,11 +95,11 @@ async def main() -> None:
     if not api_key:
         try:
             agent_id, api_key = load_agent_config("jetbrains_acp_agent")
-        except Exception:
+        except Exception as e:
             raise ValueError(
                 "THENVOI_API_KEY environment variable is required, "
                 "or configure 'jetbrains_acp_agent' in agent_config.yaml"
-            )
+            ) from e
     else:
         agent_id = os.getenv("THENVOI_AGENT_ID")
         if not agent_id:

@@ -24,13 +24,24 @@ logger = logging.getLogger(__name__)
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../.."))
 
 SCRIPT_DIR = Path(__file__).parent
+CONFIG_PATH = SCRIPT_DIR / "agent_config.yaml"
 
 
-def load_agent_config(filename: str) -> dict:
-    """Load agent config from YAML file."""
-    path = SCRIPT_DIR / filename
-    with open(path) as f:
-        return yaml.safe_load(f)
+def load_agent_configs() -> tuple[dict, dict]:
+    """Load planner + reviewer entries from the keyed agent_config.yaml.
+
+    `coding_agents/` uses a single keyed YAML for all agents (matching
+    docker-compose's `AGENT_KEY: planner` / `AGENT_KEY: reviewer` selectors)
+    rather than the older per-role files.
+    """
+    with open(CONFIG_PATH) as f:
+        config = yaml.safe_load(f) or {}
+    if "planner" not in config or "reviewer" not in config:
+        raise ValueError(
+            f"agent_config.yaml at {CONFIG_PATH} must define both "
+            "`planner` and `reviewer` keys (copy from agent_config.yaml.example)."
+        )
+    return config["planner"], config["reviewer"]
 
 
 async def main() -> None:
@@ -42,11 +53,10 @@ async def main() -> None:
         ParticipantRequest,
     )
 
-    # Load agent configs
-    planner = load_agent_config("planner.yaml")
-    reviewer = load_agent_config("reviewer.yaml")
+    # Load agent configs from the shared keyed yaml.
+    planner, reviewer = load_agent_configs()
 
-    base_url = os.environ.get("THENVOI_REST_URL", "https://app.thenvoi.com")
+    base_url = os.environ.get("THENVOI_REST_URL", "https://app.band.ai")
 
     # Use planner as the "orchestrator" to create the room
     client = AsyncRestClient(api_key=planner["api_key"], base_url=base_url)
