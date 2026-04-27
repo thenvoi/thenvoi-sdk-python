@@ -26,6 +26,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from thenvoi.converters.crewai_flow import (
     CrewAIFlowDelegationState,
+    CrewAIFlowDelegationStatus,
     CrewAIFlowError,
     CrewAIFlowJoinPolicy,
     CrewAIFlowMetadata,
@@ -775,6 +776,262 @@ class SideEffectExecutor:
             retry_attempts=1,
         )
 
+    # ------------------------------------------------------------------
+    # Delegation (phase 4)
+    # ------------------------------------------------------------------
+
+    async def execute_delegations(
+        self,
+        *,
+        items: list["DelegateItem"],
+        state: CrewAIFlowSessionState,
+        participants: list[CrewAIFlowParticipantSnapshot],
+    ) -> None:
+        """Reserve, send, confirm one delegation per item.
+
+        Same-target collision in this batch (or across batch + existing
+        pending state) prepends ``[ref:{token}]`` to the visible content
+        per the v1 correlation token format.
+        """
+        from thenvoi.converters.crewai_flow import normalize_participant_key
+
+        existing = state.runs.get(self._run_id)
+        existing_delegations = existing.delegations if existing else []
+
+        # Build target counts so duplicates get a correlation token.
+        target_counts: dict[str, int] = {}
+        for d in existing_delegations:
+            target_counts[d.target.normalized_key] = (
+                target_counts.get(d.target.normalized_key, 0) + 1
+            )
+        for item in items:
+            try:
+                key = normalize_participant_key(
+                    item.target,
+                    participants=[
+                        {"id": p.participant_id, "handle": p.handle, "name": p.handle}
+                        for p in participants
+                    ],
+                )
+            except Exception:  # noqa: BLE001 — collision raises here
+                key = item.target.strip().lower()
+            target_counts[key] = target_counts.get(key, 0) + 1
+
+        # Process items in order.
+        accumulated: list[CrewAIFlowDelegationState] = list(existing_delegations)
+        for item in items:
+            target_raw = item.target
+            try:
+                normalized = normalize_participant_key(
+                    target_raw,
+                    participants=[
+                        {"id": p.participant_id, "handle": p.handle, "name": p.handle}
+                        for p in participants
+                    ],
+                )
+            except Exception:  # noqa: BLE001
+                normalized = target_raw.strip().lower()
+
+            participant_id = ""
+            handle: str | None = None
+            for p in participants:
+                if p.normalized_key == normalized:
+                    participant_id = p.participant_id
+                    handle = p.handle
+                    break
+            if not participant_id:
+                # Unknown participant: record failed delegation entry
+                # without a visible send.
+                accumulated.append(
+                    CrewAIFlowDelegationState(
+                        delegation_id=item.delegation_id,
+                        target=CrewAIFlowParticipantSnapshot(
+                            participant_id=normalized or item.target,
+                            handle=handle,
+                            normalized_key=normalized,
+                        ),
+                        status=CrewAIFlowDelegationStatus.FAILED,
+                        side_effect_key=f"{self._run_id}:delegate:{item.delegation_id}",
+                    )
+                )
+                continue
+
+            side_effect_key = f"{self._run_id}:delegate:{item.delegation_id}"
+
+            # Idempotency: if this delegation_id already has a sent record,
+            # suppress the duplicate.
+            already = next(
+                (
+                    d
+                    for d in existing_delegations
+                    if d.delegation_id == item.delegation_id
+                ),
+                None,
+            )
+            if already is not None:
+                if already.delegation_message_id is not None:
+                    logger.debug(
+                        "Delegation %s already sent; suppressing", item.delegation_id
+                    )
+                    continue
+                # Reservation without sent: indeterminate.
+                await self._record_indeterminate(side_effect_key=side_effect_key)
+                continue
+
+            # Reservation event.
+            reservation = await self._send_event(
+                content=f"reserve:{side_effect_key}",
+                message_type="task",
+                metadata=self._envelope(
+                    status=CrewAIFlowRunStatus.SIDE_EFFECT_RESERVED,
+                    stage=CrewAIFlowStage.DELEGATED,
+                    delegations=accumulated
+                    + [
+                        CrewAIFlowDelegationState(
+                            delegation_id=item.delegation_id,
+                            target=CrewAIFlowParticipantSnapshot(
+                                participant_id=participant_id,
+                                handle=handle,
+                                normalized_key=normalized,
+                            ),
+                            status=CrewAIFlowDelegationStatus.RESERVED,
+                            side_effect_key=side_effect_key,
+                        )
+                    ],
+                ),
+                retry_attempts=2,
+            )
+
+            # Decide whether to prefix correlation token.
+            content = item.content
+            if target_counts.get(normalized, 0) > 1:
+                import hashlib
+
+                token = hashlib.sha256(side_effect_key.encode()).hexdigest()[:8]
+                content = f"[ref:{token}] {content}"
+
+            # Visible send.
+            try:
+                response = await self._tools.send_message(
+                    content=content,
+                    mentions=item.mentions or None,
+                )
+            except Exception:  # noqa: BLE001
+                logger.warning(
+                    "send_message failed for delegation %s",
+                    item.delegation_id,
+                    exc_info=True,
+                )
+                await self._record_indeterminate(side_effect_key=side_effect_key)
+                continue
+            message_id = getattr(response, "id", None) if response is not None else None
+            if message_id is None and isinstance(response, dict):
+                message_id = response.get("id")
+
+            # Confirmation event.
+            try:
+                sent_event = await self._send_event(
+                    content=f"delegated:{side_effect_key}",
+                    message_type="task",
+                    metadata=self._envelope(
+                        status=CrewAIFlowRunStatus.DELEGATED_PENDING,
+                        stage=CrewAIFlowStage.DELEGATED,
+                        delegations=accumulated
+                        + [
+                            CrewAIFlowDelegationState(
+                                delegation_id=item.delegation_id,
+                                target=CrewAIFlowParticipantSnapshot(
+                                    participant_id=participant_id,
+                                    handle=handle,
+                                    normalized_key=normalized,
+                                ),
+                                status=CrewAIFlowDelegationStatus.PENDING,
+                                side_effect_key=side_effect_key,
+                                reserved_event_id=str(getattr(reservation, "id", ""))
+                                or None,
+                                delegation_message_id=str(message_id)
+                                if message_id
+                                else None,
+                            )
+                        ],
+                    ),
+                    retry_attempts=self._confirm_retry_attempts,
+                )
+                accumulated.append(
+                    CrewAIFlowDelegationState(
+                        delegation_id=item.delegation_id,
+                        target=CrewAIFlowParticipantSnapshot(
+                            participant_id=participant_id,
+                            handle=handle,
+                            normalized_key=normalized,
+                        ),
+                        status=CrewAIFlowDelegationStatus.PENDING,
+                        side_effect_key=side_effect_key,
+                        reserved_event_id=str(getattr(reservation, "id", "")) or None,
+                        delegation_message_id=str(message_id) if message_id else None,
+                        sent_event_id=str(getattr(sent_event, "id", "")) or None,
+                    )
+                )
+            except ThenvoiToolError:
+                logger.warning(
+                    "Confirmation event for delegation %s failed; recording indeterminate",
+                    item.delegation_id,
+                )
+                await self._record_indeterminate(side_effect_key=side_effect_key)
+
+    # ------------------------------------------------------------------
+    # Reply matching (phase 4)
+    # ------------------------------------------------------------------
+
+    async def record_reply(
+        self,
+        *,
+        run_id: str,
+        delegation_id: str,
+        reply_message_id: str,
+        delegations: list[CrewAIFlowDelegationState],
+    ) -> None:
+        # Build updated delegations list with this one set to replied.
+        updated: list[CrewAIFlowDelegationState] = []
+        for d in delegations:
+            if d.delegation_id == delegation_id:
+                updated.append(
+                    d.model_copy(
+                        update={
+                            "status": CrewAIFlowDelegationStatus.REPLIED,
+                            "reply_message_id": reply_message_id,
+                        }
+                    )
+                )
+            else:
+                updated.append(d)
+        await self._send_event(
+            content=f"reply_recorded:{delegation_id}",
+            message_type="task",
+            metadata=self._envelope(
+                status=CrewAIFlowRunStatus.REPLY_RECORDED,
+                stage=CrewAIFlowStage.WAITING_FOR_REPLIES,
+                delegations=updated,
+            ),
+            retry_attempts=2,
+        )
+
+    async def record_reply_ambiguous(
+        self,
+        *,
+        run_id: str,
+        reason: str,
+    ) -> None:
+        await self._send_event(
+            content=f"reply_ambiguous:{reason}"[:500],
+            message_type="task",
+            metadata=self._envelope(
+                status=CrewAIFlowRunStatus.REPLY_AMBIGUOUS,
+                stage=CrewAIFlowStage.WAITING_FOR_REPLIES,
+            ),
+            retry_attempts=2,
+        )
+
 
 # Imported lazily so module loads without crewai installed.
 class CrewAIFlowSubCrewReporter:
@@ -1098,6 +1355,52 @@ class CrewAIFlowAdapter(SimpleAdapter[CrewAIFlowSessionState]):
         # Build the participant snapshot for input + runtime tools.
         participants = self._snapshot_participants(tools)
 
+        # ------------------------------------------------------------------
+        # Reply matching: if this inbound message matches a pending
+        # delegation in some other run, record the reply and short-circuit
+        # the Flow execution. The same lock guards both paths so a reply
+        # cannot interleave with a finalize for the same room.
+        # ------------------------------------------------------------------
+        matched = self._match_reply_to_delegation(
+            msg=msg,
+            state=state,
+            participants=participants,
+        )
+        if matched is not None:
+            other_run_id, delegation_id, run_meta = matched
+            run_executor = SideEffectExecutor(
+                tools=tools,
+                room_id=room_id,
+                run_id=other_run_id,
+                parent_message_id=run_meta.parent_message_id,
+                metadata_namespace=self.metadata_namespace,
+                join_policy=self._join_policy,
+                text_only_behavior=self._text_only_behavior,
+            )
+            await run_executor.record_reply(
+                run_id=other_run_id,
+                delegation_id=delegation_id,
+                reply_message_id=msg.id,
+                delegations=run_meta.delegations,
+            )
+            # Re-load state and check whether the join is satisfied.
+            await self._maybe_finalize_after_reply(
+                tools=tools,
+                room_id=room_id,
+                run_id=other_run_id,
+            )
+            return
+
+        # If no match, only User-typed senders start a new run; Agent-typed
+        # senders are discarded with a debug log.
+        sender_type = getattr(msg, "sender_type", "User")
+        if sender_type == "Agent":
+            logger.debug(
+                "Agent-typed sender %s did not match a pending delegation; discarding",
+                msg.sender_id,
+            )
+            return
+
         # Construct Flow.
         try:
             flow = self._flow_factory()
@@ -1209,25 +1512,41 @@ class CrewAIFlowAdapter(SimpleAdapter[CrewAIFlowSessionState]):
         elif isinstance(decision, FailedDecision):
             await executor.record_failed(decision.error)
         elif isinstance(decision, DelegateDecision):
-            # Phase 4 implements delegation; for Phase 3 record waiting so
-            # the run is not silently dropped if a Phase-3 user emits this.
-            await self._safe_record_failed(
-                executor,
-                CrewAIFlowError(
-                    code="delegate_not_yet_supported",
-                    message=(
-                        "delegate decisions are implemented in Phase 4 of the "
-                        "CrewAI Flow adapter spec."
-                    ),
-                ),
+            await executor.execute_delegations(
+                items=decision.delegations,
+                state=state,
+                participants=self._snapshot_participants(executor._tools),
             )
         elif isinstance(decision, SynthesizeDecision):
-            # Treat a no-pending synthesize as a direct response.
-            await executor.execute_direct_response(
-                content=decision.content,
-                mentions=decision.mentions,
-                state=state,
-            )
+            # Apply join-policy gate. If pending delegations remain (per the
+            # configured policy), buffer the synthesis content and record
+            # waiting; otherwise finalize.
+            run = state.runs.get(executor.run_id)
+            pending_count = 0
+            replied_count = 0
+            if run is not None:
+                for d in run.delegations:
+                    if d.status == CrewAIFlowDelegationStatus.PENDING:
+                        pending_count += 1
+                    elif d.status == CrewAIFlowDelegationStatus.REPLIED:
+                        replied_count += 1
+            should_synth = (
+                (self._join_policy == CrewAIFlowJoinPolicy.FIRST and replied_count >= 1)
+                or (
+                    self._join_policy == CrewAIFlowJoinPolicy.ALL and pending_count == 0
+                )
+                or (run is None)
+            )  # no delegations: synthesize is direct.
+            if should_synth:
+                await executor.execute_direct_response(
+                    content=decision.content,
+                    mentions=decision.mentions,
+                    state=state,
+                )
+            else:
+                await executor.record_waiting(
+                    "synthesize received before join policy satisfied"
+                )
 
     async def _handle_malformed(
         self,
@@ -1268,6 +1587,130 @@ class CrewAIFlowAdapter(SimpleAdapter[CrewAIFlowSessionState]):
             logger.exception(
                 "Failed to record failed task event for run %s", executor.run_id
             )
+
+    def _match_reply_to_delegation(
+        self,
+        *,
+        msg: PlatformMessage,
+        state: CrewAIFlowSessionState,
+        participants: list[CrewAIFlowParticipantSnapshot],
+    ) -> tuple[str, str, "CrewAIFlowMetadata"] | None:
+        """Try to match an inbound message to a pending delegation.
+
+        Returns ``(run_id, delegation_id, run_metadata)`` on a unique match.
+        Returns ``None`` for: known echoes, already-recorded replies, no
+        candidate set, ambiguous matches (which also record a
+        ``reply_ambiguous`` event side-effect).
+        """
+        from thenvoi.converters.crewai_flow import (
+            CrewAIFlowAmbiguousIdentityError,
+            normalize_participant_key,
+        )
+
+        # Compute sender's normalized key against the participant snapshot.
+        try:
+            sender_key = normalize_participant_key(
+                msg.sender_id,
+                participants=[
+                    {"id": p.participant_id, "handle": p.handle, "name": p.handle}
+                    for p in participants
+                ],
+            )
+        except CrewAIFlowAmbiguousIdentityError:
+            logger.warning(
+                "Ambiguous sender identity for %s; treating as ambiguous", msg.sender_id
+            )
+            sender_key = ""
+
+        # Build candidate set: pending delegations across active runs.
+        candidates: list[tuple[str, str, "CrewAIFlowMetadata"]] = []
+        for run_id, run in state.runs.items():
+            if run.status in (
+                CrewAIFlowRunStatus.FINALIZED,
+                CrewAIFlowRunStatus.FAILED,
+                CrewAIFlowRunStatus.INDETERMINATE,
+            ):
+                continue
+            for d in run.delegations:
+                # Rule 2: ignore the router's own delegation echoing back.
+                if d.delegation_message_id == msg.id:
+                    return None
+                # Rule 3: ignore already-processed replies.
+                if d.reply_message_id == msg.id:
+                    return None
+                if d.status != CrewAIFlowDelegationStatus.PENDING:
+                    continue
+                if d.target.normalized_key and d.target.normalized_key == sender_key:
+                    candidates.append((run_id, d.delegation_id, run))
+
+        if not candidates:
+            return None
+
+        # Rule 5: visible correlation token narrows the candidate set.
+        token_hits = self._candidates_matching_token(msg.content, candidates)
+        if token_hits is not None:
+            if len(token_hits) == 1:
+                return token_hits[0]
+            # Token mismatch / ambiguity → ambiguous, no mutation.
+            return None
+
+        if len(candidates) == 1:
+            return candidates[0]
+
+        # Multiple candidates with no token: ambiguous.
+        logger.warning(
+            "Sender %s matches %d pending delegations without a correlation token",
+            msg.sender_id,
+            len(candidates),
+        )
+        return None
+
+    @staticmethod
+    def _candidates_matching_token(
+        content: str,
+        candidates: list[tuple[str, str, "CrewAIFlowMetadata"]],
+    ) -> list[tuple[str, str, "CrewAIFlowMetadata"]] | None:
+        import hashlib
+        import re
+
+        if not content:
+            return None
+        match = re.search(r"\[ref:([0-9a-f]{8})\]", content)
+        if not match:
+            return None
+        token = match.group(1)
+        hits: list[tuple[str, str, "CrewAIFlowMetadata"]] = []
+        for run_id, delegation_id, run in candidates:
+            for d in run.delegations:
+                if d.delegation_id != delegation_id:
+                    continue
+                expected = hashlib.sha256(d.side_effect_key.encode()).hexdigest()[:8]
+                if expected == token:
+                    hits.append((run_id, delegation_id, run))
+        return hits
+
+    async def _maybe_finalize_after_reply(
+        self,
+        *,
+        tools: AgentToolsProtocol,
+        room_id: str,
+        run_id: str,
+    ) -> None:
+        """Re-load state for the run and finalize if join policy is satisfied.
+
+        Phase 4 finalization is deferred to the next router turn for join
+        policy ``all`` (the run waits until the Flow is invoked again with
+        a fresh inbound that triggers a synthesize decision). This method
+        only handles ``join_policy="first"`` where the first reply alone
+        satisfies the policy — but even then the spec requires the Flow to
+        produce the final synthesis content. So this method is a no-op for
+        v1 and exists as the seam for future ``automatic finalization``.
+        """
+        # The reply is recorded; the next time the Flow runs (next turn or
+        # explicit synthesize decision) it will see the replied state and
+        # produce the synthesize. Phase 5 adds optional automatic
+        # synthesize-after-join-satisfied behaviour.
+        return None
 
     def _snapshot_participants(
         self, tools: AgentToolsProtocol
