@@ -1,7 +1,7 @@
 ---
 id: TASK-006
 phase: 5
-status: pending
+status: completed
 depends-on: [TASK-005]
 ---
 

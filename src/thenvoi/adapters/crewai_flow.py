@@ -1032,6 +1032,37 @@ class SideEffectExecutor:
             retry_attempts=2,
         )
 
+    async def record_buffered(
+        self,
+        *,
+        source_message_id: str,
+        content: str,
+    ) -> None:
+        """Record a buffered synthesis snippet under the run.
+
+        Stored as a task event with status=waiting and a single
+        ``buffered_syntheses`` entry. The converter merges entries by
+        ``source_message_id``, so multiple turns accumulate into one list.
+        """
+        from thenvoi.converters.crewai_flow import CrewAIFlowBufferedSynthesis
+
+        envelope = self._envelope(
+            status=CrewAIFlowRunStatus.WAITING,
+            stage=CrewAIFlowStage.WAITING_FOR_REPLIES,
+        )
+        envelope[self._namespace]["buffered_syntheses"] = [
+            CrewAIFlowBufferedSynthesis(
+                source_message_id=source_message_id,
+                content=content,
+            ).model_dump(mode="json")
+        ]
+        await self._send_event(
+            content=f"buffered:{source_message_id}",
+            message_type="task",
+            metadata=envelope,
+            retry_attempts=2,
+        )
+
 
 # Imported lazily so module loads without crewai installed.
 class CrewAIFlowSubCrewReporter:
@@ -1518,35 +1549,128 @@ class CrewAIFlowAdapter(SimpleAdapter[CrewAIFlowSessionState]):
                 participants=self._snapshot_participants(executor._tools),
             )
         elif isinstance(decision, SynthesizeDecision):
-            # Apply join-policy gate. If pending delegations remain (per the
-            # configured policy), buffer the synthesis content and record
-            # waiting; otherwise finalize.
-            run = state.runs.get(executor.run_id)
-            pending_count = 0
-            replied_count = 0
-            if run is not None:
-                for d in run.delegations:
-                    if d.status == CrewAIFlowDelegationStatus.PENDING:
-                        pending_count += 1
-                    elif d.status == CrewAIFlowDelegationStatus.REPLIED:
-                        replied_count += 1
-            should_synth = (
-                (self._join_policy == CrewAIFlowJoinPolicy.FIRST and replied_count >= 1)
-                or (
-                    self._join_policy == CrewAIFlowJoinPolicy.ALL and pending_count == 0
-                )
-                or (run is None)
-            )  # no delegations: synthesize is direct.
-            if should_synth:
-                await executor.execute_direct_response(
-                    content=decision.content,
-                    mentions=decision.mentions,
-                    state=state,
-                )
-            else:
-                await executor.record_waiting(
-                    "synthesize received before join policy satisfied"
-                )
+            await self._handle_synthesize(
+                executor=executor,
+                state=state,
+                decision=decision,
+                msg=msg,
+            )
+
+    async def _handle_synthesize(
+        self,
+        *,
+        executor: SideEffectExecutor,
+        state: CrewAIFlowSessionState,
+        decision: "SynthesizeDecision",
+        msg: PlatformMessage,
+    ) -> None:
+        """Apply join policy + safety gates.
+
+        - Join policy: ``all`` blocks until every delegation is replied;
+          ``first`` requires at least one reply.
+        - Tagged peer policy: any ``@handle`` token in the *original parent*
+          message that resolves to a participant must have a recorded
+          delegation before finalization.
+        - Sequential chains: an upstream reply blocks finalization until the
+          mapped downstream key has a delegation.
+        - Buffered syntheses: when the policy is not satisfied, store the
+          partial synthesis content keyed by ``msg.id`` so a future
+          finalization can concatenate it.
+        """
+        run = state.runs.get(executor.run_id)
+        pending_count = 0
+        replied_count = 0
+        if run is not None:
+            for d in run.delegations:
+                if d.status == CrewAIFlowDelegationStatus.PENDING:
+                    pending_count += 1
+                elif d.status == CrewAIFlowDelegationStatus.REPLIED:
+                    replied_count += 1
+
+        join_satisfied = (
+            run is None
+            or (self._join_policy == CrewAIFlowJoinPolicy.FIRST and replied_count >= 1)
+            or (self._join_policy == CrewAIFlowJoinPolicy.ALL and pending_count == 0)
+        )
+
+        # Tagged-peer gate.
+        tagged_blocked: list[str] = []
+        if self._tagged_peer_policy == "require_delegation_before_final":
+            tagged_keys = self._extract_tagged_peer_keys(
+                content=msg.content,
+                participants=self._snapshot_participants(executor._tools),
+            )
+            delegated_keys = (
+                {d.target.normalized_key for d in run.delegations}
+                if run is not None
+                else set()
+            )
+            tagged_blocked = [k for k in tagged_keys if k not in delegated_keys]
+
+        # Sequential-chain gate: if any upstream key has a reply but the
+        # mapped downstream key has no delegation, block.
+        sequential_blocked: list[str] = []
+        if run is not None and self._sequential_chains:
+            replied_keys = {
+                d.target.normalized_key
+                for d in run.delegations
+                if d.status == CrewAIFlowDelegationStatus.REPLIED
+            }
+            delegated_keys = {d.target.normalized_key for d in run.delegations}
+            for upstream_key, downstream_key in self._sequential_chains.items():
+                if (
+                    upstream_key in replied_keys
+                    and downstream_key not in delegated_keys
+                ):
+                    sequential_blocked.append(downstream_key)
+
+        if not join_satisfied or tagged_blocked or sequential_blocked:
+            # Buffer the partial synthesis for later concatenation.
+            await executor.record_buffered(
+                source_message_id=msg.id,
+                content=decision.content,
+            )
+            return
+
+        # All gates clear. Concatenate buffered + current and finalize.
+        buffered = "\n\n".join(
+            b.content for b in (run.buffered_syntheses if run is not None else [])
+        )
+        final_content = (
+            f"{buffered}\n\n{decision.content}".strip()
+            if buffered
+            else decision.content
+        )
+        await executor.execute_direct_response(
+            content=final_content,
+            mentions=decision.mentions,
+            state=state,
+        )
+
+    @staticmethod
+    def _extract_tagged_peer_keys(
+        content: str,
+        participants: list[CrewAIFlowParticipantSnapshot],
+    ) -> list[str]:
+        """Return normalized keys of room participants tagged via @handle."""
+        import re
+
+        if not content:
+            return []
+        tokens = re.findall(r"@([A-Za-z0-9_./-]+)", content)
+        out: list[str] = []
+        seen: set[str] = set()
+        for raw in tokens:
+            normalized = raw.strip().lower()
+            if "/" in normalized:
+                normalized = normalized.rsplit("/", 1)[-1]
+            for p in participants:
+                if p.normalized_key == normalized:
+                    if normalized not in seen:
+                        out.append(normalized)
+                        seen.add(normalized)
+                    break
+        return out
 
     async def _handle_malformed(
         self,
