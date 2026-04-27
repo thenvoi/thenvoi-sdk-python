@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any
 
+import acp.schema as acp_schema
 from acp import (
     Agent,
     InitializeResponse,
@@ -15,7 +16,6 @@ from acp.schema import (
     AgentCapabilities,
     AudioContentBlock,
     AuthenticateResponse,
-    AuthMethod,
     EmbeddedResourceContentBlock,
     ForkSessionResponse,
     ImageContentBlock,
@@ -78,6 +78,12 @@ class ACPServer(Agent):
         self._conn = conn
         self._adapter.set_acp_client(conn)
 
+    def _auth_method(self, **kwargs: Any) -> Any:
+        auth_method = getattr(acp_schema, "AuthMethod", None) or getattr(
+            acp_schema, "AuthMethodAgent"
+        )
+        return auth_method(**kwargs)
+
     async def initialize(
         self,
         protocol_version: int,
@@ -131,7 +137,7 @@ class ACPServer(Agent):
                 version=__version__,
             ),
             auth_methods=[
-                AuthMethod(
+                self._auth_method(
                     id="api_key",
                     name="API Key",
                     description="Authenticate with THENVOI_API_KEY.",

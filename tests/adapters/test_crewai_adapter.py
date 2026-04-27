@@ -1000,12 +1000,12 @@ class TestToolExecution:
         assert "identifier" in schema_fields
         assert "role" in schema_fields
 
-        # thenvoi_lookup_peers should have no user-facing parameters (pagination is hardcoded)
+        # thenvoi_lookup_peers should expose pagination, but NOT room_id
         lookup_peers = next(t for t in tools if t.name == "thenvoi_lookup_peers")
         schema_fields = lookup_peers.args_schema.model_fields
         assert "room_id" not in schema_fields
-        assert "page" not in schema_fields
-        assert "page_size" not in schema_fields
+        assert "page" in schema_fields
+        assert "page_size" in schema_fields
 
     @pytest.mark.asyncio
     async def test_send_event_message_type_validation(
