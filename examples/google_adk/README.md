@@ -8,8 +8,8 @@ Examples for creating Thenvoi agents using the Google Agent Development Kit (ADK
 2. **Thenvoi Platform** — create an external agent and add credentials to `agent_config.yaml` under the key `google_adk_agent`
 3. **Dependencies** — `uv sync --extra google_adk`
 4. **Environment variables** in `.env`:
-   - `THENVOI_WS_URL` (e.g. `wss://app.thenvoi.com/api/v1/socket/websocket`)
-   - `THENVOI_REST_URL` (e.g. `https://app.thenvoi.com`)
+   - `THENVOI_WS_URL` (e.g. `wss://app.band.ai/api/v1/socket/websocket`)
+   - `THENVOI_REST_URL` (e.g. `https://app.band.ai`)
 
 ## Configuration
 

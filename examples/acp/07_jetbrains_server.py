@@ -86,10 +86,8 @@ logger = logging.getLogger(__name__)
 async def main() -> None:
     load_dotenv()
 
-    ws_url = os.getenv(
-        "THENVOI_WS_URL", "wss://app.thenvoi.com/api/v1/socket/websocket"
-    )
-    rest_url = os.getenv("THENVOI_REST_URL", "https://app.thenvoi.com")
+    ws_url = os.getenv("THENVOI_WS_URL", "wss://app.band.ai/api/v1/socket/websocket")
+    rest_url = os.getenv("THENVOI_REST_URL", "https://app.band.ai")
     # JetBrains IDEs inject credentials via ~/.jetbrains/acp.json env config.
     # Fall back to agent_config.yaml for standalone testing.
     api_key = os.getenv("THENVOI_API_KEY")

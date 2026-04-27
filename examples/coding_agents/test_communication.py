@@ -56,7 +56,7 @@ async def main() -> None:
     # Load agent configs from the shared keyed yaml.
     planner, reviewer = load_agent_configs()
 
-    base_url = os.environ.get("THENVOI_REST_URL", "https://app.thenvoi.com")
+    base_url = os.environ.get("THENVOI_REST_URL", "https://app.band.ai")
 
     # Use planner as the "orchestrator" to create the room
     client = AsyncRestClient(api_key=planner["api_key"], base_url=base_url)

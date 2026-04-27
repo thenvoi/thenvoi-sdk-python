@@ -14,8 +14,8 @@ Bidirectional integration between Thenvoi and editors that speak ACP (Zed, Curso
 1. Install: `uv sync --extra acp` (or `pip install thenvoi-sdk[acp]`)
 2. Create an agent on the Thenvoi platform and add credentials to `agent_config.yaml`
 3. Set environment variables in `.env`:
-   - `THENVOI_WS_URL` (e.g. `wss://app.thenvoi.com/api/v1/socket/websocket`)
-   - `THENVOI_REST_URL` (e.g. `https://app.thenvoi.com`)
+   - `THENVOI_WS_URL` (e.g. `wss://app.band.ai/api/v1/socket/websocket`)
+   - `THENVOI_REST_URL` (e.g. `https://app.band.ai`)
    - `THENVOI_API_KEY` and `THENVOI_AGENT_ID` — only for the JetBrains/CLI path that injects creds via env
 
 For client examples, also install the external ACP agent binary (e.g. `@openai/codex`, `@anthropic-ai/claude-code`).

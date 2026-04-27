@@ -11,7 +11,7 @@ with full control over conversation history and tool loop management.
 
 1. **Anthropic API Key** - Set `ANTHROPIC_API_KEY` environment variable
 2. **Thenvoi Platform** - Create an external agent and get credentials
-3. **Platform URLs** - Set `THENVOI_WS_URL` (e.g. `wss://app.thenvoi.com/api/v1/socket/websocket`) and `THENVOI_REST_URL` (e.g. `https://app.thenvoi.com`); the example raises `ValueError` if either is missing.
+3. **Platform URLs** - Set `THENVOI_WS_URL` (e.g. `wss://app.band.ai/api/v1/socket/websocket`) and `THENVOI_REST_URL` (e.g. `https://app.band.ai`); the example raises `ValueError` if either is missing.
 4. **Dependencies** - Install with `uv sync --extra anthropic`
 
 ---
@@ -31,8 +31,8 @@ agent = Agent.create(
     adapter=adapter,
     agent_id="your-agent-id",
     api_key="your-api-key",
-    ws_url="wss://app.thenvoi.com/api/v1/socket/websocket",
-    rest_url="https://app.thenvoi.com",
+    ws_url="wss://app.band.ai/api/v1/socket/websocket",
+    rest_url="https://app.band.ai",
 )
 await agent.run()
 ```
