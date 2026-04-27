@@ -8053,6 +8053,8 @@ letta = [
 ]
 opencode = [
     { name = "httpx" },
+    { name = "mcp", version = "1.26.0", source = { registry = "https://pypi.org/simple" }, marker = "extra == 'extra-11-thenvoi-sdk-crewai' or extra == 'extra-11-thenvoi-sdk-dev'" },
+    { name = "mcp", version = "1.27.0", source = { registry = "https://pypi.org/simple" }, marker = "(extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-crewai' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-dev-parlant') or (extra == 'extra-11-thenvoi-sdk-dev' and extra == 'extra-11-thenvoi-sdk-parlant') or (extra != 'extra-11-thenvoi-sdk-crewai' and extra != 'extra-11-thenvoi-sdk-dev')" },
 ]
 parlant = [
     { name = "openai" },
@@ -8115,6 +8117,7 @@ requires-dist = [
     { name = "letta-client", marker = "extra == 'letta'", specifier = ">=0.1.0" },
     { name = "mcp", marker = "extra == 'acp'", specifier = ">=1.25.0" },
     { name = "mcp", marker = "extra == 'dev'", specifier = ">=1.25.0" },
+    { name = "mcp", marker = "extra == 'opencode'", specifier = ">=1.25.0" },
     { name = "nest-asyncio", marker = "extra == 'crewai'", specifier = ">=1.6.0" },
     { name = "nest-asyncio", marker = "extra == 'dev'", specifier = ">=1.6.0" },
     { name = "openai", marker = "extra == 'crewai'", specifier = ">=2.0.0" },
