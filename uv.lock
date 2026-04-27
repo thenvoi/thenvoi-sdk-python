@@ -8068,10 +8068,10 @@ pydantic-ai = [
 
 [package.metadata]
 requires-dist = [
-    { name = "a2a-sdk", marker = "extra == 'a2a'", specifier = ">=0.3.22" },
-    { name = "a2a-sdk", marker = "extra == 'a2a-gateway'", specifier = ">=0.3.22" },
-    { name = "a2a-sdk", marker = "extra == 'a2a-gateway-demo'", specifier = ">=0.3.22" },
-    { name = "a2a-sdk", marker = "extra == 'dev'", specifier = ">=0.3.22" },
+    { name = "a2a-sdk", marker = "extra == 'a2a'", specifier = ">=0.3.22,<1.0" },
+    { name = "a2a-sdk", marker = "extra == 'a2a-gateway'", specifier = ">=0.3.22,<1.0" },
+    { name = "a2a-sdk", marker = "extra == 'a2a-gateway-demo'", specifier = ">=0.3.22,<1.0" },
+    { name = "a2a-sdk", marker = "extra == 'dev'", specifier = ">=0.3.22,<1.0" },
     { name = "agent-client-protocol", marker = "extra == 'acp'", specifier = ">=0.9.0" },
     { name = "agent-client-protocol", marker = "extra == 'dev'", specifier = ">=0.9.0" },
     { name = "aiohttp", marker = "extra == 'bridge'", specifier = ">=3.9,<4" },
