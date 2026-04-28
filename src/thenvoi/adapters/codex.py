@@ -988,7 +988,10 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
             )
             if turn_id:
                 try:
-                    await self._client.request("turn/interrupt", {"turnId": turn_id})
+                    await self._client.request(
+                        "turn/interrupt",
+                        {"threadId": thread_id, "turnId": turn_id},
+                    )
                 except Exception:
                     logger.warning(
                         "Failed to send turn/interrupt after timeout",
