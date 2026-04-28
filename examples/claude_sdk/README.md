@@ -77,7 +77,7 @@ python examples/claude_sdk/01_basic_agent.py
 ```
 
 Features:
-- Standard Claude Sonnet model
+- npm `claude` binary's default model (no override)
 - Platform tool integration
 - Execution reporting
 
