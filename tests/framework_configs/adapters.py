@@ -384,6 +384,7 @@ def _build_claude_sdk_config() -> AdapterConfig | None:
         adapter_factory=_claude_sdk_factory,
         expected_initial_values={
             "model": _default_from_init(ClaudeSDKAdapter, "model"),
+            "fallback_model": _default_from_init(ClaudeSDKAdapter, "fallback_model"),
             "custom_section": _default_from_init(ClaudeSDKAdapter, "custom_section"),
             "max_thinking_tokens": _default_from_init(
                 ClaudeSDKAdapter, "max_thinking_tokens"
@@ -392,12 +393,14 @@ def _build_claude_sdk_config() -> AdapterConfig | None:
         },
         custom_kwargs={
             "model": "claude-opus-4-20250514",
+            "fallback_model": "sonnet",
             "custom_section": "Be helpful.",
             "max_thinking_tokens": 10000,
             "permission_mode": "bypassPermissions",
         },
         custom_expected={
             "model": "claude-opus-4-20250514",
+            "fallback_model": "sonnet",
             "custom_section": "Be helpful.",
             "max_thinking_tokens": 10000,
             "permission_mode": "bypassPermissions",

@@ -221,7 +221,10 @@ from thenvoi import Agent
 from thenvoi.adapters import ClaudeSDKAdapter
 
 adapter = ClaudeSDKAdapter(
-    model="claude-sonnet-4-5-20250929",
+    # Omit `model` to use the npm `claude` binary's default, or pass a
+    # family alias (`"sonnet"` / `"opus"` / `"haiku"`) for latest-of-family.
+    model="opus",
+    fallback_model="sonnet",
     max_thinking_tokens=10000,  # Enable extended thinking
     enable_execution_reporting=True,
 )
