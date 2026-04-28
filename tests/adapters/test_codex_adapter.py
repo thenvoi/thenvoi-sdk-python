@@ -1571,11 +1571,13 @@ class TestCodexAdapter:
             room_id="room-1",
         )
 
-        # Adapter should have sent turn/interrupt.
+        # Adapter should have sent turn/interrupt with both identifiers.
         interrupt_requests = [
             (m, p) for m, p in fake_client.requests if m == "turn/interrupt"
         ]
-        assert len(interrupt_requests) == 1
+        assert interrupt_requests == [
+            ("turn/interrupt", {"threadId": "thr-1", "turnId": "turn-1"})
+        ]
 
         # Adapter should send a user-facing message about stopping.
         assert any("stopped" in msg["content"].lower() for msg in tools.messages_sent)

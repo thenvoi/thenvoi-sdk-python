@@ -481,6 +481,7 @@ class ACPServer(Agent):
         Returns:
             PromptResponse with stop reason.
         """
+        del message_id
         text = self._extract_text(prompt)
         logger.debug("ACP prompt for session %s: %s", session_id, text[:100])
         await self._adapter.handle_prompt(session_id, text)
