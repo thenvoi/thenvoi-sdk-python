@@ -26,6 +26,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Callable, Literal, Protocol, Union, runtime_checkable
 from uuid import UUID
 
+from band_sdk_core import AgentFailure
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 from typing_extensions import Unpack
 
@@ -937,15 +938,10 @@ class SideEffectExecutor:
         )
 
     async def record_failed(self, error: CrewAIFlowError) -> None:
-        # Best-effort error event for visibility, then the task event.
-        try:
-            await self._tools.send_event(
-                content=f"flow error: {error.code}: {error.message}"[:500],
-                message_type="error",
-                metadata={"error": error.model_dump()},
-            )
-        except Exception:  # noqa: BLE001
-            logger.warning("Failed to emit error event", exc_info=True)
+        # Best-effort failure event for visibility, then the task event.
+        await self._tools.send_failure(
+            AgentFailure("crewai_flow", error.message, error.code)
+        )
         await self._send_event(
             content=f"failed:{error.code}",
             message_type="task",
