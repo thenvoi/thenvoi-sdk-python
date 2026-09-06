@@ -90,12 +90,8 @@ def _tool_turn(mcp_tool_name: str) -> list:
 
 
 def _error_events(mock_tools: MagicMock) -> list[str]:
-    """Contents of the error events posted through send_event."""
-    return [
-        call.kwargs["content"]
-        for call in mock_tools.send_event.call_args_list
-        if call.kwargs.get("message_type") == "error"
-    ]
+    """Room-visible message of each failure reported through send_failure."""
+    return [call.args[0].message for call in mock_tools.send_failure.call_args_list]
 
 
 def _narrated_message_types(mock_tools: MagicMock) -> list[str]:
@@ -190,6 +186,7 @@ def mock_tools():
     tools = MagicMock()
     tools.send_message = AsyncMock(return_value={"status": "sent"})
     tools.send_event = AsyncMock(return_value={"status": "sent"})
+    tools.send_failure = AsyncMock(return_value={"status": "sent"})
     tools.add_participant = AsyncMock(return_value={"id": "user-1"})
     tools.remove_participant = AsyncMock(return_value={"status": "removed"})
     tools.lookup_peers = AsyncMock(return_value={"peers": []})
@@ -457,7 +454,7 @@ class TestErrorHandling:
 
     @pytest.mark.asyncio
     async def test_reports_error_on_query_failure(self, sample_message, mock_tools):
-        """When client.query raises, adapter reports error via send_event and re-raises."""
+        """When client.query raises, adapter reports error via send_failure and re-raises."""
         adapter = ClaudeSDKAdapter()
         mock_client = MagicMock()
         mock_client.query = AsyncMock(side_effect=Exception("API Error"))
@@ -483,10 +480,10 @@ class TestErrorHandling:
                     room_id="room-123",
                 )
 
-            mock_tools.send_event.assert_called()
-            call_kwargs = mock_tools.send_event.call_args[1]
-            assert call_kwargs.get("message_type") == "error"
-            assert "API Error" in call_kwargs.get("content", "")
+            mock_tools.send_failure.assert_called_once()
+            failure = mock_tools.send_failure.call_args.args[0]
+            assert failure.provider == "claude_sdk"
+            assert "API Error" in failure.message
 
 
 class TestCLIConnectionError:
@@ -564,10 +561,10 @@ class TestCLIConnectionError:
                 )
 
             # Error should be surfaced to the user
-            mock_tools.send_event.assert_called()
-            call_kwargs = mock_tools.send_event.call_args[1]
-            assert call_kwargs.get("message_type") == "error"
-            assert "Process dead" in call_kwargs.get("content", "")
+            mock_tools.send_failure.assert_called_once()
+            failure = mock_tools.send_failure.call_args.args[0]
+            assert failure.provider == "claude_sdk"
+            assert "Process dead" in failure.message
 
     @pytest.mark.asyncio
     async def test_clears_session_id_on_cli_connection_error(
@@ -1107,6 +1104,80 @@ class TestSessionPersistence:
             # Second call should be without resume
             second_call = mock_manager.get_or_create_session.call_args_list[1]
             assert second_call == (("room-123",), {"resume_session_id": None})
+            # A self-healed retry is not a reportable failure.
+            mock_tools.send_failure.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_reports_error_when_no_stored_session_to_retry(
+        self, sample_message, mock_tools
+    ):
+        """Previously a bare `raise` with zero report: no stored session id
+        means there is nothing to fall back to, so the failure must surface."""
+        adapter = ClaudeSDKAdapter()
+        mock_manager = AsyncMock()
+        mock_manager.get_or_create_session = AsyncMock(
+            side_effect=Exception("Session setup failed")
+        )
+
+        with patch(
+            "band.adapters.claude_sdk.ClaudeSessionManager",
+            return_value=mock_manager,
+        ):
+            await adapter.on_started(
+                agent_name="TestBot", agent_description="A test bot"
+            )
+
+            with pytest.raises(Exception, match="Session setup failed"):
+                await adapter.on_message(
+                    msg=sample_message,
+                    tools=mock_tools,
+                    history=ClaudeSDKSessionState(text=""),
+                    participants_msg=None,
+                    contacts_msg=None,
+                    is_session_bootstrap=True,
+                    room_id="room-123",
+                )
+
+        mock_tools.send_failure.assert_called_once()
+        failure = mock_tools.send_failure.call_args.args[0]
+        assert failure.provider == "claude_sdk"
+        assert "Session setup failed" in failure.message
+
+    @pytest.mark.asyncio
+    async def test_reports_error_when_fallback_session_also_fails(
+        self, sample_message, mock_tools
+    ):
+        """The fallback session-creation attempt was previously uncaught by
+        this scope entirely -- a failure there escaped with zero report."""
+        adapter = ClaudeSDKAdapter()
+        mock_manager = AsyncMock()
+        mock_manager.get_or_create_session = AsyncMock(
+            side_effect=[Exception("Resume failed"), Exception("Fresh session failed")]
+        )
+
+        with patch(
+            "band.adapters.claude_sdk.ClaudeSessionManager",
+            return_value=mock_manager,
+        ):
+            await adapter.on_started(
+                agent_name="TestBot", agent_description="A test bot"
+            )
+
+            with pytest.raises(Exception, match="Fresh session failed"):
+                await adapter.on_message(
+                    msg=sample_message,
+                    tools=mock_tools,
+                    history=ClaudeSDKSessionState(text="", session_id="sess-broken"),
+                    participants_msg=None,
+                    contacts_msg=None,
+                    is_session_bootstrap=True,
+                    room_id="room-123",
+                )
+
+        mock_tools.send_failure.assert_called_once()
+        failure = mock_tools.send_failure.call_args.args[0]
+        assert failure.provider == "claude_sdk"
+        assert "Fresh session failed" in failure.message
 
     @pytest.mark.asyncio
     async def test_task_event_failure_does_not_break_flow(self, mock_tools):
@@ -1177,6 +1248,11 @@ class TestTurnFailureSurfacing:
         errors = _error_events(mock_tools)
         assert len(errors) == 1
         assert "Not logged in · Please run /login" in errors[0]
+        failure = mock_tools.send_failure.call_args.args[0]
+        assert failure.provider == "claude_sdk"
+        # No structured api_error_status on this failure -- code stays unset
+        # rather than inventing one.
+        assert failure.code is None
 
     @pytest.mark.asyncio
     async def test_error_detail_includes_api_error_status(self, mock_tools):
@@ -1186,6 +1262,7 @@ class TestTurnFailureSurfacing:
             is_error=True,
             result="Failed to authenticate. API Error: 401",
             api_error_status=401,
+            errors=["authentication_error: invalid API key"],
         )
         mock_client = self._client_yielding(result_msg)
 
@@ -1194,6 +1271,9 @@ class TestTurnFailureSurfacing:
         errors = _error_events(mock_tools)
         assert len(errors) == 1
         assert "401" in errors[0]
+        failure = mock_tools.send_failure.call_args.args[0]
+        assert failure.code == "401"
+        assert failure.detail == ["authentication_error: invalid API key"]
 
     @pytest.mark.asyncio
     async def test_reports_missing_reply_when_no_terminal_tool_ran(self, mock_tools):

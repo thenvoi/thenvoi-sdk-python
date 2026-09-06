@@ -49,6 +49,7 @@ try:
 except ImportError:
     _CLAUDE_SDK_AVAILABLE = False
 
+from band_sdk_core import AgentFailure
 from typing_extensions import Unpack
 
 from band.core.protocols import AgentToolsProtocol
@@ -611,10 +612,15 @@ class ClaudeSDKAdapter(SimpleAdapter[ClaudeSDKSessionState]):
                     stored_session_id,
                     resume_exc,
                 )
-                client = await self._session_manager.get_or_create_session(
-                    room_id, resume_session_id=None
-                )
+                try:
+                    client = await self._session_manager.get_or_create_session(
+                        room_id, resume_session_id=None
+                    )
+                except Exception as fresh_exc:
+                    await tools.send_failure(AgentFailure("claude_sdk", str(fresh_exc)))
+                    raise
             else:
+                await tools.send_failure(AgentFailure("claude_sdk", str(resume_exc)))
                 raise
 
         # Add chat_id context (Claude needs this for tool calls) -- the label
@@ -695,12 +701,12 @@ class ClaudeSDKAdapter(SimpleAdapter[ClaudeSDKSessionState]):
             )
             await self._invalidate_session(room_id)
 
-            await self._report_error(tools, str(e))
+            await tools.send_failure(AgentFailure("claude_sdk", str(e)))
             raise
 
         except Exception as e:
             logger.exception("Error processing message: %s", e)
-            await self._report_error(tools, str(e))
+            await tools.send_failure(AgentFailure("claude_sdk", str(e)))
             raise
 
         logger.debug("Message %s processed successfully", msg.id)
@@ -933,11 +939,25 @@ class ClaudeSDKAdapter(SimpleAdapter[ClaudeSDKSessionState]):
         # outright) doesn't linger and grow this room's entry unbounded.
         notified = self._notified_declines.pop(room_id, None)
         if sdk_message.is_error:
-            await self._report_error(tools, self._result_error_detail(sdk_message))
+            code = (
+                str(sdk_message.api_error_status)
+                if sdk_message.api_error_status is not None
+                else None
+            )
+            await tools.send_failure(
+                AgentFailure(
+                    "claude_sdk",
+                    self._result_error_detail(sdk_message),
+                    code,
+                    sdk_message.errors,
+                )
+            )
         elif not replied_this_turn and not self._declined_the_reply(
             sdk_message.permission_denials, notified
         ):
-            await self._report_error(tools, missing_reply_error("Claude SDK"))
+            await tools.send_failure(
+                AgentFailure("claude_sdk", missing_reply_error("Claude SDK"))
+            )
 
     def _declined_the_reply(
         self, permission_denials: list[Any] | None, notified: set[str] | None
@@ -1126,14 +1146,6 @@ class ClaudeSDKAdapter(SimpleAdapter[ClaudeSDKSessionState]):
         self._notified_declines.pop(room_id, None)
         self._pending_tool_names.pop(room_id, None)
         logger.debug("Room %s: Cleaned up Claude SDK session", room_id)
-
-    # --- Copied from BaseFrameworkAgent._report_error ---
-    async def _report_error(self, tools: AgentToolsProtocol, error: str) -> None:
-        """Send error event (best effort)."""
-        try:
-            await tools.send_event(content=f"Error: {error}", message_type="error")
-        except Exception:
-            logger.debug("Failed to send error event", exc_info=True)
 
     async def cleanup_all(self) -> None:
         """Cleanup all sessions (call on stop)."""

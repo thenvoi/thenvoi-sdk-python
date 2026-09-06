@@ -47,6 +47,7 @@ async def test_tool_call_event_uses_bare_name() -> None:
     )
     tools = MagicMock()
     tools.send_event = AsyncMock(return_value={"status": "sent"})
+    tools.send_failure = AsyncMock(return_value={"status": "sent"})
 
     assistant = AssistantMessage(
         content=[
