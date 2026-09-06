@@ -793,8 +793,43 @@ class TestErrorHandling:
                     room_id="room-123",
                 )
 
-        # Should have tried to report error
-        mock_tools.send_event.assert_called()
+        # Should have tried to report the failure
+        mock_tools.send_failure.assert_awaited_once()
+        failure = mock_tools.send_failure.call_args.args[0]
+        assert failure.provider == "parlant"
+        assert failure.message == "API error"
+
+    @pytest.mark.asyncio
+    async def test_reports_error_on_session_init_failure(
+        self, mock_parlant_server, mock_parlant_agent, sample_message, mock_tools
+    ):
+        """A session-creation failure reports and returns without raising."""
+        adapter = ParlantAdapter(
+            server=mock_parlant_server,
+            parlant_agent=mock_parlant_agent,
+        )
+        adapter.agent_name = "TestBot"
+
+        mock_app = MagicMock()
+        mock_app.sessions = AsyncMock()
+        mock_app.sessions.create = AsyncMock(side_effect=Exception("db unreachable"))
+        adapter._app = mock_app
+
+        # Must not raise: session init failures are reported, not propagated.
+        await adapter.on_message(
+            msg=sample_message,
+            tools=mock_tools,
+            history=[],
+            participants_msg=None,
+            contacts_msg=None,
+            is_session_bootstrap=True,
+            room_id="room-123",
+        )
+
+        mock_tools.send_failure.assert_awaited_once()
+        failure = mock_tools.send_failure.call_args.args[0]
+        assert failure.provider == "parlant"
+        assert "Session initialization failed" in failure.message
 
     @pytest.mark.asyncio
     async def test_clears_tools_on_error(
@@ -848,14 +883,13 @@ class TestErrorHandling:
     async def test_handles_uninitialized_app(
         self, mock_parlant_server, mock_parlant_agent, sample_message, mock_tools
     ):
-        """Should handle case when app is not initialized."""
+        """An uninitialized app returns early, but must still report the failure."""
         adapter = ParlantAdapter(
             server=mock_parlant_server,
             parlant_agent=mock_parlant_agent,
         )
         # Don't set _app
 
-        # Should return early without error
         await adapter.on_message(
             msg=sample_message,
             tools=mock_tools,
@@ -866,8 +900,12 @@ class TestErrorHandling:
             room_id="room-123",
         )
 
-        # No calls should be made
+        # No reply attempt, but the failure is reported.
         mock_tools.send_message.assert_not_called()
+        mock_tools.send_failure.assert_awaited_once()
+        failure = mock_tools.send_failure.call_args.args[0]
+        assert failure.provider == "parlant"
+        assert "not initialized" in failure.message
 
 
 class TestResponseWaitBudget:

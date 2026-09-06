@@ -14,6 +14,7 @@ from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass, field
 from typing import ClassVar, TYPE_CHECKING, Any
 
+from band_sdk_core import AgentFailure
 from typing_extensions import Unpack
 
 from band.core.protocols import AgentToolsProtocol
@@ -377,6 +378,9 @@ class ParlantAdapter(SimpleAdapter[ParlantMessages]):
 
         if not self._app:
             logger.error("Parlant Application not initialized")
+            await tools.send_failure(
+                AgentFailure("parlant", "Parlant Application not initialized")
+            )
             return
 
         app = self._app
@@ -387,7 +391,9 @@ class ParlantAdapter(SimpleAdapter[ParlantMessages]):
             session_id = await self._get_or_create_session(room_id, sender_name)
         except Exception as e:
             logger.error("Failed to get/create session for room %s: %s", room_id, e)
-            await self._report_error(tools, f"Session initialization failed: {e}")
+            await tools.send_failure(
+                AgentFailure("parlant", f"Session initialization failed: {e}")
+            )
             return
         session_id_str = str(session_id)
 
@@ -445,7 +451,7 @@ class ParlantAdapter(SimpleAdapter[ParlantMessages]):
 
         except Exception as e:
             logger.error("Error processing message: %s", e, exc_info=True)
-            await self._report_error(tools, str(e))
+            await tools.send_failure(AgentFailure("parlant", str(e)))
             raise
         finally:
             # Clear tools after message processing
@@ -853,13 +859,6 @@ class ParlantAdapter(SimpleAdapter[ParlantMessages]):
             del self._room_customers[room_id]
 
         logger.debug("Room %s: Cleaned up Parlant session", room_id)
-
-    async def _report_error(self, tools: AgentToolsProtocol, error: str) -> None:
-        """Send error event (best effort)."""
-        try:
-            await tools.send_event(content=f"Error: {error}", message_type="error")
-        except Exception:
-            logger.exception("Failed to send error event")
 
     async def cleanup_all(self) -> None:
         """Release all sessions and the owned Parlant server (call on stop)."""
