@@ -95,6 +95,7 @@ def mock_tools():
     tools.get_openai_tool_schemas = MagicMock(return_value=[])
     tools.send_message = AsyncMock(return_value={"status": "sent"})
     tools.send_event = AsyncMock(return_value={"status": "sent"})
+    tools.send_failure = AsyncMock(return_value={"status": "sent"})
     tools.execute_tool_call = AsyncMock(return_value={"status": "success"})
     tools.add_participant = AsyncMock(
         return_value={"id": "123", "name": "Test", "status": "added"}
