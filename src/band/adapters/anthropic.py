@@ -11,8 +11,9 @@ import logging
 import warnings
 from typing import Any, ClassVar, cast
 
-from anthropic import AsyncAnthropic
+from anthropic import APIStatusError, AsyncAnthropic
 from anthropic.types import Message, MessageParam, TextBlock, ToolParam, ToolUseBlock
+from band_sdk_core import AgentFailure
 from typing_extensions import Unpack
 
 from band.core.exceptions import BandConfigError
@@ -279,7 +280,13 @@ class AnthropicAdapter(SimpleAdapter[AnthropicMessages]):
                     )
                 except Exception as e:
                     logger.error("Error calling Anthropic: %s", e, exc_info=True)
-                    await self._report_error(tools, str(e))
+                    if isinstance(e, APIStatusError):
+                        failure = AgentFailure(
+                            "anthropic", str(e), str(e.status_code), e.body
+                        )
+                    else:
+                        failure = AgentFailure("anthropic", str(e))
+                    await tools.send_failure(failure)
                     raise  # Re-raise so message is marked as failed
 
                 turn_usage = turn_usage + self._usage_from_response(response)
@@ -512,11 +519,3 @@ class AnthropicAdapter(SimpleAdapter[AnthropicMessages]):
             )
 
         return tool_results
-
-    # --- Copied from BaseFrameworkAgent._report_error ---
-    async def _report_error(self, tools: AgentToolsProtocol, error: str) -> None:
-        """Send error event (best effort)."""
-        try:
-            await tools.send_event(content=f"Error: {error}", message_type="error")
-        except Exception as e:
-            logger.warning("Failed to send error event: %s", e)
