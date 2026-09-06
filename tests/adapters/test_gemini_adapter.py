@@ -39,6 +39,7 @@ def mock_tools() -> MagicMock:
     tools.get_openai_tool_schemas = MagicMock(return_value=[])
     tools.send_message = AsyncMock(return_value={"status": "sent"})
     tools.send_event = AsyncMock(return_value={"status": "sent"})
+    tools.send_failure = AsyncMock(return_value={"status": "sent"})
     tools.execute_tool_call = AsyncMock(return_value={"status": "success"})
     return tools
 
@@ -198,6 +199,63 @@ class TestOnMessage:
         assert function_call.id == "c1"
         assert function_call.name == "band_lookup_peers"
         assert function_call.args == {"page": "1"}
+
+
+class TestErrorReporting:
+    @pytest.mark.asyncio
+    async def test_reports_generic_failure(self, sample_message, mock_tools):
+        adapter = GeminiAdapter(provider_key="test-key")
+        await adapter.on_started("TestBot", "Test bot")
+
+        with patch.object(
+            adapter, "_call_gemini", AsyncMock(side_effect=Exception("boom"))
+        ):
+            with pytest.raises(Exception, match="boom"):
+                await adapter.on_message(
+                    msg=sample_message,
+                    tools=mock_tools,
+                    history=[],
+                    participants_msg=None,
+                    contacts_msg=None,
+                    is_session_bootstrap=True,
+                    room_id="room-123",
+                )
+
+        mock_tools.send_failure.assert_called_once()
+        failure = mock_tools.send_failure.call_args.args[0]
+        assert failure.provider == "gemini"
+        assert failure.message == "boom"
+        assert failure.code is None
+        assert failure.detail is None
+
+    @pytest.mark.asyncio
+    async def test_preserves_server_error_status_and_message(
+        self, sample_message, mock_tools
+    ):
+        """ServerError's status/message are real provider data -- preserve
+        them as code/detail rather than falling back to the generic shape."""
+        adapter = GeminiAdapter(provider_key="test-key")
+        await adapter.on_started("TestBot", "Test bot")
+        error = ServerError(
+            503, {"error": {"status": "UNAVAILABLE", "message": "overloaded"}}, None
+        )
+
+        with patch.object(adapter, "_call_gemini", AsyncMock(side_effect=error)):
+            with pytest.raises(ServerError):
+                await adapter.on_message(
+                    msg=sample_message,
+                    tools=mock_tools,
+                    history=[],
+                    participants_msg=None,
+                    contacts_msg=None,
+                    is_session_bootstrap=True,
+                    room_id="room-123",
+                )
+
+        failure = mock_tools.send_failure.call_args.args[0]
+        assert failure.provider == "gemini"
+        assert failure.code == "UNAVAILABLE"
+        assert failure.detail == "overloaded"
 
 
 class TestRetries:
@@ -581,6 +639,12 @@ class TestMaxToolRounds:
                     is_session_bootstrap=True,
                     room_id="room-123",
                 )
+
+        # Previously reported nothing at all -- this is the added report.
+        mock_tools.send_failure.assert_called_once()
+        failure = mock_tools.send_failure.call_args.args[0]
+        assert failure.provider == "gemini"
+        assert "Exceeded max tool rounds" in failure.message
 
 
 class TestHttpxRetries:

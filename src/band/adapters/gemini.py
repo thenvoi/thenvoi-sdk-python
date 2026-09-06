@@ -9,6 +9,7 @@ import warnings
 from typing import Any, ClassVar, cast
 
 import httpx
+from band_sdk_core import AgentFailure
 from pydantic import ValidationError
 from typing_extensions import Unpack
 
@@ -240,10 +241,14 @@ class GeminiAdapter(SimpleAdapter[GeminiMessages]):
         try:
             while True:
                 if tool_rounds >= self.max_tool_rounds:
-                    raise RuntimeError(
+                    max_rounds_error = RuntimeError(
                         f"Exceeded max tool rounds ({self.max_tool_rounds}) "
                         f"in room {room_id}"
                     )
+                    await tools.send_failure(
+                        AgentFailure("gemini", str(max_rounds_error))
+                    )
+                    raise max_rounds_error
 
                 try:
                     response = await self._call_gemini(
@@ -251,7 +256,11 @@ class GeminiAdapter(SimpleAdapter[GeminiMessages]):
                     )
                 except Exception as e:
                     logger.exception("Error calling Gemini: %s", e)
-                    await self._report_error(tools, str(e))
+                    if isinstance(e, ServerError):
+                        failure = AgentFailure("gemini", str(e), e.status, e.message)
+                    else:
+                        failure = AgentFailure("gemini", str(e))
+                    await tools.send_failure(failure)
                     raise
 
                 turn_usage = turn_usage + self._usage_from_response(response)
@@ -591,10 +600,3 @@ class GeminiAdapter(SimpleAdapter[GeminiMessages]):
             )
 
         return tool_response_parts
-
-    async def _report_error(self, tools: AgentToolsProtocol, error: str) -> None:
-        """Send error event (best effort)."""
-        try:
-            await tools.send_event(content=f"Error: {error}", message_type="error")
-        except Exception as e:
-            logger.warning("Failed to send error event: %s", e)
