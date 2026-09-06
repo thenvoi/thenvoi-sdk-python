@@ -212,6 +212,16 @@ def tools_protocol(tools: FakeAgentTools) -> AgentToolsProtocol:
     return cast(AgentToolsProtocol, tools)
 
 
+def events_of_type(tools: FakeAgentTools, message_type: str) -> list[dict[str, Any]]:
+    """Events of ``message_type`` captured on ``tools.events_sent``."""
+    return [e for e in tools.events_sent if e["message_type"] == message_type]
+
+
+def reported_failures(tools: FakeAgentTools) -> list[dict[str, Any]]:
+    """Every ``AgentFailure`` reported via ``send_failure``, as its wire dict."""
+    return [e["metadata"]["failure"] for e in events_of_type(tools, "error")]
+
+
 class RaisingSendTools(FakeAgentTools):
     """FakeAgentTools whose send_message always fails, to exercise the
     best-effort ``_notify_room`` path: a room post that raises must be

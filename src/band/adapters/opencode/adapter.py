@@ -13,6 +13,7 @@ from datetime import datetime, timezone
 from typing import ClassVar, Any
 
 import httpx
+from band_sdk_core import AgentFailure
 from typing_extensions import Unpack
 
 from band.adapters.opencode.approvals import ApprovalPorts, RoomApprovals
@@ -493,15 +494,19 @@ class OpencodeAdapter(SimpleAdapter[OpencodeSessionState]):
             raise
         except httpx.HTTPStatusError as exc:
             logger.exception("OpenCode request failed for room %s", room_id)
-            await tools.send_event(
-                self._format_http_error(exc),
-                "error",
+            await tools.send_failure(
+                AgentFailure(
+                    "opencode",
+                    self._format_http_error(exc),
+                    str(exc.response.status_code),
+                )
             )
         except Exception:
             logger.exception("Unexpected OpenCode adapter failure in room %s", room_id)
-            await tools.send_event(
-                "OpenCode failed while processing the message.",
-                "error",
+            await tools.send_failure(
+                AgentFailure(
+                    "opencode", "OpenCode failed while processing the message."
+                )
             )
 
     async def on_cleanup(self, room_id: str) -> None:
@@ -921,9 +926,12 @@ class OpencodeAdapter(SimpleAdapter[OpencodeSessionState]):
             )
             await self._abort_session(room_state, "timed-out")
             if room_state.tools:
-                await room_state.tools.send_event(
-                    "OpenCode timed out before completing the turn.",
-                    "error",
+                await room_state.tools.send_failure(
+                    AgentFailure(
+                        "opencode",
+                        "OpenCode timed out before completing the turn.",
+                        "timeout",
+                    )
                 )
             # Tokens spent before the timeout were still spent — emit them, same
             # as the success path (best-effort; no-op if none captured).
@@ -1117,8 +1125,8 @@ class OpencodeAdapter(SimpleAdapter[OpencodeSessionState]):
                     text, mentions=room_state.pending_mentions
                 )
             elif room_state.last_error_message:
-                await room_state.tools.send_event(
-                    room_state.last_error_message, "error"
+                await room_state.tools.send_failure(
+                    AgentFailure("opencode", room_state.last_error_message)
                 )
             elif not replied:
                 await room_state.tools.send_message(
