@@ -28,6 +28,7 @@ from tests.conftest import (
     make_participant_mock,
     make_participant_removed_event,
 )
+from tests.runtime.conftest import wait_for_condition
 
 
 @pytest.fixture
@@ -185,8 +186,7 @@ class TestExecutionContextEvents:
         event = make_message_event(room_id="room-123", msg_id="msg-1", content="Hello")
         await ctx.on_event(event)
 
-        # Wait for processing
-        await asyncio.sleep(0.1)
+        await wait_for_condition(lambda: mock_handler.call_count >= 1)
 
         mock_handler.assert_called()
         call_args = mock_handler.call_args[0]
@@ -205,9 +205,9 @@ class TestExecutionContextEvents:
 
         # Send same message twice
         await ctx.on_event(event)
-        await asyncio.sleep(0.1)
+        await wait_for_condition(lambda: mock_handler.call_count >= 1)
         await ctx.on_event(event)
-        await asyncio.sleep(0.1)
+        await wait_for_condition(lambda: ctx.queue.qsize() == 0)
 
         # Should only be called once
         assert mock_handler.call_count == 1
@@ -560,7 +560,7 @@ class TestExecutionContextParticipantEvents:
             type="User",
         )
         await ctx.on_event(event)
-        await asyncio.sleep(0.1)
+        await wait_for_condition(lambda: ctx.queue.qsize() == 0)
 
         assert any(p["id"] == "user-2" for p in ctx.participants)
 
@@ -580,7 +580,7 @@ class TestExecutionContextParticipantEvents:
             participant_id="user-1",
         )
         await ctx.on_event(event)
-        await asyncio.sleep(0.1)
+        await wait_for_condition(lambda: ctx.queue.qsize() == 0)
 
         assert not any(p["id"] == "user-1" for p in ctx.participants)
 
@@ -679,7 +679,7 @@ class TestCrashRecoverySync:
         ctx = ExecutionContext("room-123", mock_link_with_next, mock_handler)
 
         await ctx.start()
-        await asyncio.sleep(0.1)
+        await wait_for_condition(lambda: ctx._sync_complete)
 
         assert ctx._sync_complete is True
         mock_link_with_next.get_next_message.assert_called()
@@ -716,7 +716,7 @@ class TestCrashRecoverySync:
         )
 
         await ctx.start()
-        await asyncio.sleep(0.2)
+        await wait_for_condition(lambda: mock_handler.call_count >= 1)
 
         # Handler should be called for backlog message
         assert mock_handler.call_count >= 1
@@ -760,7 +760,7 @@ class TestCrashRecoverySync:
 
         # Start should sync and find sync point
         await ctx.start()
-        await asyncio.sleep(0.2)
+        await wait_for_condition(lambda: ctx._sync_complete)
 
         # Marker should be cleared
         assert ctx._first_ws_msg_id is None
@@ -813,7 +813,12 @@ class TestCrashRecoverySync:
 
         # Start triggers sync
         await ctx.start()
-        await asyncio.sleep(0.2)
+        # Two handler dispatches expected (sync message + participant event);
+        # queue must be fully drained so Phase 2's participant processing has
+        # also settled, not just the sync-point crash-recovery phase.
+        await wait_for_condition(
+            lambda: mock_handler.call_count >= 2 and ctx.queue.qsize() == 0
+        )
 
         # Sync point reached and duplicate removed from WS phase
         assert ctx._first_ws_msg_id is None
@@ -854,7 +859,7 @@ class TestCrashRecoverySync:
             config=SessionConfig(enable_context_hydration=False),
         )
         await ctx.start()
-        await asyncio.sleep(0.05)
+        await wait_for_condition(lambda: ctx._sync_complete)
 
         event = make_message_event(
             room_id="room-123",
@@ -865,7 +870,7 @@ class TestCrashRecoverySync:
             ),
         )
         await ctx.on_event(event)
-        await asyncio.sleep(0.1)
+        await wait_for_condition(lambda: ctx.queue.qsize() == 0)
 
         mock_handler.assert_not_called()
         mock_link_with_next.mark_processing.assert_not_called()
@@ -900,11 +905,11 @@ class TestCrashRecoverySync:
             config=SessionConfig(enable_context_hydration=True),
         )
         await ctx.start()
-        await asyncio.sleep(0.05)
+        await wait_for_condition(lambda: ctx._sync_complete)
 
         event = make_message_event(room_id="room-123", msg_id="msg-stale-replay")
         await ctx.on_event(event)
-        await asyncio.sleep(0.1)
+        await wait_for_condition(lambda: ctx.queue.qsize() == 0)
 
         mock_handler.assert_not_called()
         mock_link_with_next.mark_processing.assert_not_called()
@@ -956,7 +961,9 @@ class TestCrashRecoverySync:
         )
 
         await ctx.start()
-        await asyncio.sleep(0.2)
+        await wait_for_condition(
+            lambda: mock_link_with_next.mark_processed.call_count >= 1
+        )
 
         mock_link_with_next.mark_processing.assert_called_once_with(
             "room-123", "msg-pending-down"
@@ -1067,7 +1074,10 @@ class TestCrashRecoverySync:
         await ctx.on_event(make_message_event(room_id="room-123", msg_id="msg-first"))
 
         release_handler.set()
-        await asyncio.sleep(0.2)  # Let sync finish and Phase 2 drain the WS copy
+        # Let sync finish and Phase 2 drain the WS copy.
+        await wait_for_condition(
+            lambda: mock_link_with_next.mark_processed.await_count >= 1
+        )
 
         assert handled_message_ids == ["msg-first"]
         assert mock_link_with_next.mark_processing.await_count == 1
@@ -1386,10 +1396,12 @@ class TestCrashRecoverySync:
         )
 
         await ctx.start()
-        await asyncio.sleep(0.1)
+        await wait_for_condition(lambda: ctx._sync_complete)
         await ctx.on_event(make_message_event(room_id="room-123", msg_id="msg-old-ws"))
         await ctx.on_event(make_message_event(room_id="room-123", msg_id="msg-new-ws"))
-        await asyncio.sleep(0.3)
+        await wait_for_condition(
+            lambda: mock_link_with_next.mark_processed.await_count >= 3
+        )
 
         assert [call.args[1].payload.id for call in mock_handler.await_args_list] == [
             "msg-old-ws",
@@ -1476,7 +1488,9 @@ class TestCrashRecoverySync:
             make_message_event(room_id="room-123", msg_id="msg-sync-claim-fails")
         )
         await ctx.start()
-        await asyncio.sleep(0.2)
+        await wait_for_condition(
+            lambda: mock_link_with_next.mark_processing.await_count >= 1
+        )
 
         assert ctx._first_ws_msg_id == "msg-sync-claim-fails"
         mock_handler.assert_not_called()
@@ -1552,7 +1566,9 @@ class TestCrashRecoverySync:
             make_message_event(room_id="room-123", msg_id="msg-newer-ws")
         )
         await ctx.start()
-        await asyncio.sleep(0.2)
+        await wait_for_condition(
+            lambda: mock_link_with_next.mark_processing.await_count >= 1
+        )
 
         mock_link_with_next.mark_processing.assert_awaited_once_with(
             "room-123", "msg-older-claim-fails"
@@ -1627,12 +1643,14 @@ class TestCrashRecoverySync:
         )
 
         await ctx.start()
-        await asyncio.sleep(0.1)
+        await wait_for_condition(lambda: ctx._sync_complete)
         await ctx.request_resync()
         await ctx.on_event(
             make_message_event(room_id="room-123", msg_id="msg-resync-newer-ws")
         )
-        await asyncio.sleep(0.2)
+        await wait_for_condition(
+            lambda: mock_link_with_next.mark_processing.await_count >= 1
+        )
 
         mock_link_with_next.mark_processing.assert_awaited_once_with(
             "room-123", "msg-resync-older-claim-fails"
@@ -1672,7 +1690,7 @@ class TestCrashRecoverySync:
         ctx._retry_tracker.mark_permanently_failed("msg-failed-001")
 
         await ctx.start()
-        await asyncio.sleep(0.2)
+        await wait_for_condition(lambda: ctx._sync_complete)
 
         # Handler should NOT be called for failed message
         assert mock_handler.call_count == 0
@@ -1836,14 +1854,14 @@ class TestCancellationDuringProcessing:
         await ctx.start()
 
         # Wait for sync to complete
-        await asyncio.sleep(0.05)
+        await wait_for_condition(lambda: ctx._sync_complete)
 
         # Enqueue a message to trigger processing
         event = make_message_event(room_id="room-123", msg_id="msg-001", content="Test")
         await ctx.on_event(event)
 
-        # Give time to start processing
-        await asyncio.sleep(0.05)
+        # Wait for the slow handler to actually be in flight
+        await wait_for_condition(lambda: ctx.is_processing)
 
         # Stop should cancel processing
         start = asyncio.get_running_loop().time()
@@ -2069,11 +2087,11 @@ class TestContextCacheTTL:
         ctx._context_hydrated = True
 
         await ctx.start()
-        await asyncio.sleep(0.05)
+        await wait_for_condition(lambda: ctx._sync_complete)
 
         event = make_message_event(room_id="room-123", msg_id="msg-ttl")
         await ctx.on_event(event)
-        await asyncio.sleep(0.1)
+        await wait_for_condition(lambda: mock_handler.call_count >= 1)
 
         mock_handler.assert_called()
         assert mock_link.rest.agent_api_context.get_agent_chat_context.await_count == 1
@@ -2102,7 +2120,7 @@ class TestParticipantCallbacks:
             on_participant_added=on_participant_added,
         )
         await ctx.start()
-        await asyncio.sleep(0.05)
+        await wait_for_condition(lambda: ctx._sync_complete)
 
         event = make_participant_added_event(
             room_id="room-123",
@@ -2110,7 +2128,7 @@ class TestParticipantCallbacks:
             name="User Two",
         )
         await ctx.on_event(event)
-        await asyncio.sleep(0.1)
+        await wait_for_condition(lambda: mock_handler.await_count >= 1)
 
         on_participant_added.assert_awaited_once_with("room-123", event)
         mock_handler.assert_awaited_once()
@@ -2134,14 +2152,14 @@ class TestParticipantCallbacks:
             on_participant_removed=on_participant_removed,
         )
         await ctx.start()
-        await asyncio.sleep(0.05)
+        await wait_for_condition(lambda: ctx._sync_complete)
 
         event = make_participant_removed_event(
             room_id="room-123",
             participant_id="user-1",
         )
         await ctx.on_event(event)
-        await asyncio.sleep(0.1)
+        await wait_for_condition(lambda: mock_handler.await_count >= 1)
 
         on_participant_removed.assert_awaited_once_with("room-123", event)
         mock_handler.assert_awaited_once()
@@ -2161,7 +2179,7 @@ class TestParticipantCallbacks:
             on_participant_added=on_participant_added,
         )
         await ctx.start()
-        await asyncio.sleep(0.05)
+        await wait_for_condition(lambda: ctx._sync_complete)
 
         event = make_participant_added_event(
             room_id="room-123",
@@ -2169,7 +2187,7 @@ class TestParticipantCallbacks:
             name="User Two",
         )
         await ctx.on_event(event)
-        await asyncio.sleep(0.1)
+        await wait_for_condition(lambda: mock_handler.await_count >= 1)
 
         on_participant_added.assert_awaited_once()
         mock_handler.assert_awaited_once()
@@ -2248,14 +2266,14 @@ class TestGracefulStopWithTimeout:
             config=SessionConfig(enable_context_hydration=False),
         )
         await ctx.start()
-        await asyncio.sleep(0.05)
+        await wait_for_condition(lambda: ctx._sync_complete)
 
         # Enqueue a message
         event = make_message_event(room_id="room-123", msg_id="msg-001")
         await ctx.on_event(event)
 
-        # Give time to start processing
-        await asyncio.sleep(0.05)
+        # Wait for the handler to actually be in flight
+        await wait_for_condition(lambda: ctx.is_processing)
 
         # Stop with timeout - should wait for processing
         result = await ctx.stop(timeout=5.0)
@@ -2276,14 +2294,14 @@ class TestGracefulStopWithTimeout:
             config=SessionConfig(enable_context_hydration=False),
         )
         await ctx.start()
-        await asyncio.sleep(0.05)
+        await wait_for_condition(lambda: ctx._sync_complete)
 
         # Enqueue a message
         event = make_message_event(room_id="room-123", msg_id="msg-001")
         await ctx.on_event(event)
 
-        # Give time to start processing
-        await asyncio.sleep(0.05)
+        # Wait for the handler to actually be in flight
+        await wait_for_condition(lambda: ctx.is_processing)
 
         # Stop with short timeout
         start = asyncio.get_running_loop().time()
