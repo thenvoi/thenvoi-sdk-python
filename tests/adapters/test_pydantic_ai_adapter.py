@@ -980,6 +980,36 @@ class TestOnMessage:
 
             mock_create.assert_called_once()
 
+    @pytest.mark.asyncio
+    async def test_reports_failure_when_no_terminal_tool_ran(
+        self, sample_message, mock_tools, mock_pydantic_agent
+    ):
+        """A clean run that never called a reply/terminal tool is a silently
+        dropped turn — must still surface as a failure, even without an
+        exception."""
+        adapter = PydanticAIAdapter(model="openai:gpt-5.4")
+        with patch.object(adapter, "_create_agent", return_value=mock_pydantic_agent):
+            await adapter.on_started("TestBot", "Test bot")
+
+        adapter._agent.run_stream_events = MagicMock(
+            return_value=make_stream_events(result_messages=[])
+        )
+
+        await adapter.on_message(
+            msg=sample_message,
+            tools=mock_tools,
+            history=[],
+            participants_msg=None,
+            contacts_msg=None,
+            is_session_bootstrap=True,
+            room_id="room-123",
+        )
+
+        mock_tools.send_failure.assert_awaited_once()
+        failure = mock_tools.send_failure.call_args.args[0]
+        assert failure.provider == "pydantic_ai"
+        assert "band_send_message" in failure.message
+
 
 class TestOnCleanup:
     """Tests for on_cleanup() method."""
@@ -1430,9 +1460,10 @@ class TestExecutionReporting:
         with patch.object(adapter, "_create_agent", return_value=mock_pydantic_agent):
             await adapter.on_started("TestBot", "Test bot")
 
-        # Mock tools where send_event fails with a real transport error (the kind
-        # _report_error narrowly tolerates); a generic Exception would be a bug and
-        # is intentionally left to propagate.
+        # Mock tools where send_event fails with a real transport error — the
+        # tool_call event's own local guard swallows this and logs a warning;
+        # a generic Exception would be a bug and is intentionally left to
+        # propagate.
         failing_tools = AsyncMock()
         failing_tools.send_event = AsyncMock(
             side_effect=httpx.ConnectError("Network error")
@@ -1555,6 +1586,7 @@ class TestEmptyFinalAnswer:
             isinstance(part, UserPromptPart) and "Hello, agent!" in str(part.content)
             for part in preserved[-1].parts
         )
+        mock_tools.send_failure.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_empty_output_preserves_full_captured_turn(
@@ -1627,6 +1659,10 @@ class TestEmptyFinalAnswer:
                 is_session_bootstrap=True,
                 room_id="room-123",
             )
+
+        mock_tools.send_failure.assert_awaited_once()
+        failure = mock_tools.send_failure.call_args.args[0]
+        assert failure.provider == "pydantic_ai"
 
     @pytest.mark.asyncio
     async def test_failed_run_still_emits_captured_usage(
@@ -1710,6 +1746,43 @@ class TestEmptyFinalAnswer:
                 is_session_bootstrap=True,
                 room_id="room-123",
             )
+
+        mock_tools.send_failure.assert_awaited_once()
+        assert mock_tools.send_failure.call_args.args[0].provider == "pydantic_ai"
+
+    @pytest.mark.asyncio
+    async def test_generic_provider_error_reports_and_propagates(
+        self, sample_message, mock_tools, mock_pydantic_agent
+    ):
+        """A failure that isn't UnexpectedModelBehavior at all (a raw provider/API
+        error) must still surface as a failure and propagate — previously this
+        class of error had no except clause at all and vanished uncaught."""
+        adapter = PydanticAIAdapter(model="openai:gpt-5.4")
+        with patch.object(adapter, "_create_agent", return_value=mock_pydantic_agent):
+            await adapter.on_started("TestBot", "Test bot")
+
+        adapter._agent.run_stream_events = MagicMock(
+            return_value=make_raising_stream(
+                RuntimeError("provider connection reset"),
+                tool_result=False,
+            )
+        )
+
+        with pytest.raises(RuntimeError, match="provider connection reset"):
+            await adapter.on_message(
+                msg=sample_message,
+                tools=mock_tools,
+                history=[],
+                participants_msg=None,
+                contacts_msg=None,
+                is_session_bootstrap=True,
+                room_id="room-123",
+            )
+
+        mock_tools.send_failure.assert_awaited_once()
+        failure = mock_tools.send_failure.call_args.args[0]
+        assert failure.provider == "pydantic_ai"
+        assert failure.message == "provider connection reset"
 
     @pytest.mark.asyncio
     async def test_empty_output_after_read_only_tool_propagates(
