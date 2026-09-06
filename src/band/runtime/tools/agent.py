@@ -54,7 +54,7 @@ from band.core.task_types import (
     validate_include,
 )
 from band.core.tool_filter import sanitize_tool_schema
-from band.core.types import Capability
+from band.core.types import Capability, MessageType
 from band.core.validation import at_least_one_of
 from band.runtime.tools.registry import (
     TOOL_DEFINITIONS,
@@ -452,7 +452,7 @@ class AgentTools(AgentToolsProtocol):
         """
         content, metadata = to_failure_event(failure)
         try:
-            return await self.send_event(content, "error", metadata)
+            return await self.send_event(content, MessageType.ERROR, metadata)
         except Exception as exc:
             logger.exception("send_failure could not post the failure event")
             return {"ok": False, "error": str(exc)}

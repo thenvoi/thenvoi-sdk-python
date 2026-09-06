@@ -21,7 +21,7 @@ from band.integrations.acp.client_types import (
 )
 from band.integrations.acp.room_emitter import turn_replied_in_room
 from band.integrations.acp.types import ACPToolCall, ACPToolResult, CollectedChunk
-from band.testing import FakeAgentTools
+from band.testing import FakeAgentTools, reported_failures
 
 from tests.integrations.acp.conftest import make_platform_message
 
@@ -43,11 +43,6 @@ def event_types(events: list[dict[str, object]]) -> list[object]:
 def events_of_type(tools: FakeAgentTools, message_type: str) -> list[dict[str, object]]:
     """Events the handler sent, filtered to one message_type."""
     return [e for e in tools.events_sent if e.get("message_type") == message_type]
-
-
-def reported_failures(tools: FakeAgentTools) -> list[dict[str, object]]:
-    """Every ``AgentFailure`` reported via ``send_failure``, as its wire dict."""
-    return [e["metadata"]["failure"] for e in events_of_type(tools, "error")]
 
 
 def metadata_values(events: list[dict[str, object]], key: str) -> list[object]:

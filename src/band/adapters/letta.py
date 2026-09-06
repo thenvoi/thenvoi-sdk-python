@@ -14,7 +14,7 @@ from typing_extensions import Unpack
 
 from band.converters.letta import LettaHistoryConverter, LettaSessionState
 from band.core.delivery import DeliveryFailedError, deliver_reply
-from band.core.protocols import AgentToolsProtocol
+from band.core.protocols import FAILURE_CODE_TIMEOUT, AgentToolsProtocol
 from band.core.simple_adapter import SimpleAdapter
 from band.core.types import (
     AdapterFeatures,
@@ -442,7 +442,7 @@ class LettaAdapter(SimpleAdapter[LettaSessionState]):
                 AgentFailure(
                     "letta",
                     f"Letta agent response timed out after {self.config.turn_timeout_s}s",
-                    "timeout",
+                    FAILURE_CODE_TIMEOUT,
                 )
             )
         except Exception as e:

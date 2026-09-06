@@ -38,7 +38,7 @@ from band.core.content import has_visible_content
 from band.core.exceptions import BandToolError
 from band.core.protocols import to_failure_event
 from band.core.task_types import TaskAssignmentStatus, TaskLifecycleState, TaskListState
-from band.core.types import Capability
+from band.core.types import Capability, MessageType
 from band.runtime.tools import (
     DEFAULT_FILE_CAPTION,
     FILE_UNAVAILABLE_MESSAGE,
@@ -223,7 +223,7 @@ class FakeAgentTools:
         """Same best-effort delegation as ``AgentTools.send_failure``."""
         content, metadata = to_failure_event(failure)
         try:
-            return await self.send_event(content, "error", metadata)
+            return await self.send_event(content, MessageType.ERROR, metadata)
         except Exception as exc:
             return {"ok": False, "error": str(exc)}
 
@@ -729,3 +729,12 @@ class FakeAgentTools:
         assert not self.messages_sent, (
             f"Expected no messages, but {len(self.messages_sent)} were sent"
         )
+
+
+def reported_failures(tools: FakeAgentTools) -> list[dict[str, Any]]:
+    """Every ``AgentFailure`` reported via ``send_failure``, as its wire dict."""
+    return [
+        e["metadata"]["failure"]
+        for e in tools.events_sent
+        if e["message_type"] == MessageType.ERROR
+    ]

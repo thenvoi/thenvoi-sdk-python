@@ -6,6 +6,8 @@ from typing import TYPE_CHECKING, Any, Literal, Protocol, TypeVar, runtime_check
 
 from band_sdk_core import AgentFailure
 
+from band.core.content import has_visible_content
+
 if TYPE_CHECKING:
     from anthropic.types import ToolParam
 
@@ -29,6 +31,11 @@ if TYPE_CHECKING:
 
 T = TypeVar("T")
 
+# Shared ``AgentFailure.code`` value for a stalled/unresponsive provider turn,
+# so every adapter's timeout branch reports the same code instead of each
+# retyping the literal.
+FAILURE_CODE_TIMEOUT = "timeout"
+
 
 def to_failure_event(failure: AgentFailure) -> tuple[str, dict[str, Any]]:
     """Shared shape every ``send_failure`` implementation posts as an `error` event.
@@ -41,7 +48,8 @@ def to_failure_event(failure: AgentFailure) -> tuple[str, dict[str, Any]]:
     """
     content = (
         failure.message.strip()
-        or f"{failure.provider} failed without an error message."
+        if has_visible_content(failure.message)
+        else f"{failure.provider} failed without an error message."
     )
     return content, {"failure": failure.to_dict()}
 

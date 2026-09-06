@@ -632,25 +632,22 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
                     Emit.TASK_EVENTS in self.features.emit
                     and self.config.emit_turn_task_markers
                 ):
-                    try:
-                        await tools.send_event(
-                            content=self._build_task_event_content(
-                                task_id=turn_id or None,
-                                task="Codex turn",
-                                status="started",
-                                summary=f"Thread: {thread_id}",
-                            ),
-                            message_type="task",
-                            metadata={
-                                "codex_thread_id": thread_id,
-                                "codex_turn_id": turn_id or None,
-                                "codex_room_id": room_id,
-                            },
-                        )
-                    except Exception:
-                        logger.debug(
-                            "Failed to emit turn started task event", exc_info=True
-                        )
+                    await self._emit_event_safe(
+                        tools,
+                        content=self._build_task_event_content(
+                            task_id=turn_id or None,
+                            task="Codex turn",
+                            status="started",
+                            summary=f"Thread: {thread_id}",
+                        ),
+                        message_type="task",
+                        metadata={
+                            "codex_thread_id": thread_id,
+                            "codex_turn_id": turn_id or None,
+                            "codex_room_id": room_id,
+                        },
+                        log_label="turn started task event",
+                    )
 
                 # Phase 2: Turn STARTED lifecycle event with input summary
                 if (
@@ -658,29 +655,25 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
                     and Emit.TASK_EVENTS in self.features.emit
                 ):
                     input_summary = (msg.content or "")[:200]
-                    try:
-                        await tools.send_event(
-                            content=self._build_task_event_content(
-                                task_id=turn_id or None,
-                                task="Codex turn lifecycle",
-                                status="started",
-                                summary=f"Thread: {thread_id}",
-                            ),
-                            message_type="task",
-                            metadata={
-                                "codex_event_type": "turn_lifecycle",
-                                "codex_room_id": room_id,
-                                "codex_thread_id": thread_id,
-                                "codex_turn_id": turn_id or None,
-                                "codex_turn_status": "started",
-                                "codex_input_summary": input_summary,
-                            },
-                        )
-                    except Exception:
-                        logger.debug(
-                            "Failed to emit turn started lifecycle event",
-                            exc_info=True,
-                        )
+                    await self._emit_event_safe(
+                        tools,
+                        content=self._build_task_event_content(
+                            task_id=turn_id or None,
+                            task="Codex turn lifecycle",
+                            status="started",
+                            summary=f"Thread: {thread_id}",
+                        ),
+                        message_type="task",
+                        metadata={
+                            "codex_event_type": "turn_lifecycle",
+                            "codex_room_id": room_id,
+                            "codex_thread_id": thread_id,
+                            "codex_turn_id": turn_id or None,
+                            "codex_turn_status": "started",
+                            "codex_input_summary": input_summary,
+                        },
+                        log_label="turn started lifecycle event",
+                    )
 
                 # Reset per-turn token deltas for the new turn.
                 usage_obj = self._token_usage.get(thread_id)
@@ -1162,26 +1155,22 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
                     self._room_threads[room_id] = thread_id
                     self._raw_history_by_room.pop(room_id, None)
                     if Emit.TASK_EVENTS in self.features.emit:
-                        try:
-                            await tools.send_event(
-                                content=self._build_task_event_content(
-                                    task_id=thread_id,
-                                    task="Codex thread",
-                                    status="resumed",
-                                    summary=f"Room: {room_id}",
-                                ),
-                                message_type="task",
-                                metadata={
-                                    "codex_thread_id": thread_id,
-                                    "codex_room_id": room_id,
-                                    "codex_resumed": True,
-                                },
-                            )
-                        except Exception:
-                            logger.debug(
-                                "Failed to emit thread resumed task event",
-                                exc_info=True,
-                            )
+                        await self._emit_event_safe(
+                            tools,
+                            content=self._build_task_event_content(
+                                task_id=thread_id,
+                                task="Codex thread",
+                                status="resumed",
+                                summary=f"Room: {room_id}",
+                            ),
+                            message_type="task",
+                            metadata={
+                                "codex_thread_id": thread_id,
+                                "codex_room_id": room_id,
+                                "codex_resumed": True,
+                            },
+                            log_label="thread resumed task event",
+                        )
                     return thread_id
             except CodexJsonRpcError as exc:
                 logger.warning(
@@ -1215,24 +1204,23 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
         self._room_threads[room_id] = thread_id
 
         if Emit.TASK_EVENTS in self.features.emit:
-            try:
-                await tools.send_event(
-                    content=self._build_task_event_content(
-                        task_id=thread_id,
-                        task="Codex thread",
-                        status="mapped",
-                        summary=f"Transport: {self.config.transport}",
-                    ),
-                    message_type="task",
-                    metadata={
-                        "codex_thread_id": thread_id,
-                        "codex_room_id": room_id,
-                        "codex_created_at": datetime.now(timezone.utc).isoformat(),
-                        "codex_transport": self.config.transport,
-                    },
-                )
-            except Exception:
-                logger.debug("Failed to emit thread mapped task event", exc_info=True)
+            await self._emit_event_safe(
+                tools,
+                content=self._build_task_event_content(
+                    task_id=thread_id,
+                    task="Codex thread",
+                    status="mapped",
+                    summary=f"Transport: {self.config.transport}",
+                ),
+                message_type="task",
+                metadata={
+                    "codex_thread_id": thread_id,
+                    "codex_room_id": room_id,
+                    "codex_created_at": datetime.now(timezone.utc).isoformat(),
+                    "codex_transport": self.config.transport,
+                },
+                log_label="thread mapped task event",
+            )
 
         return thread_id
 
@@ -1696,19 +1684,18 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
                 metadata["codex_duration_s"] = round(duration_s, 2)
             if has_usage:
                 metadata.update(usage.to_metadata())
-            try:
-                await tools.send_event(
-                    content=self._build_task_event_content(
-                        task_id=turn_id,
-                        task="Codex turn",
-                        status=turn_status,
-                        summary=summary,
-                    ),
-                    message_type="task",
-                    metadata=metadata,
-                )
-            except Exception:
-                logger.debug("Failed to emit turn outcome task event", exc_info=True)
+            await self._emit_event_safe(
+                tools,
+                content=self._build_task_event_content(
+                    task_id=turn_id,
+                    task="Codex turn",
+                    status=turn_status,
+                    summary=summary,
+                ),
+                message_type="task",
+                metadata=metadata,
+                log_label="turn outcome task event",
+            )
 
         # Phase 2: Enriched turn lifecycle events
         if (
@@ -3272,6 +3259,23 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
         if summary and summary != task:
             lines.append(f"Summary: {summary}")
         return "\n".join(lines)
+
+    async def _emit_event_safe(
+        self,
+        tools: AgentToolsProtocol,
+        *,
+        content: str,
+        message_type: str,
+        metadata: dict[str, Any],
+        log_label: str,
+    ) -> None:
+        """Send a best-effort platform event, downgrading a failure to a debug log."""
+        try:
+            await tools.send_event(
+                content=content, message_type=message_type, metadata=metadata
+            )
+        except Exception:
+            logger.debug("Failed to emit %s", log_label, exc_info=True)
 
     @staticmethod
     def _extract_local_command(content: str) -> tuple[str, str] | None:

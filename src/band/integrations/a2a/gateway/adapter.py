@@ -29,7 +29,7 @@ from band.client.rest import (
 )
 from band.converters.a2a_gateway import GatewayHistoryConverter
 from band.core.content import BLANK_CONTENT_ERROR
-from band.core.protocols import AgentToolsProtocol
+from band.core.protocols import FAILURE_CODE_TIMEOUT, AgentToolsProtocol
 from band.core.simple_adapter import SimpleAdapter
 from band.core.types import Capability, Emit, FeatureKwargs, PlatformMessage
 from band.platform.posting import post_event, post_message
@@ -457,11 +457,11 @@ class A2AGatewayAdapter(SimpleAdapter[GatewaySessionState]):
                 self.config.response_timeout_s,
             )
             failure = AgentFailure(
-                "a2a-gateway", "Timed out waiting for a Band response", "timeout"
+                "a2a-gateway",
+                "Timed out waiting for a Band response",
+                FAILURE_CODE_TIMEOUT,
             )
-            await request.pending.fail(
-                "Timed out waiting for a Band response", failure=failure.to_dict()
-            )
+            await request.pending.fail(failure.message, failure=failure.to_dict())
             return False
         return True
 

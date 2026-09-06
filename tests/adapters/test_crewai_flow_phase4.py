@@ -29,7 +29,7 @@ from band.adapters.crewai_flow import (  # noqa: E402
     RestCrewAIFlowStateSource,
 )
 from band.core.types import PlatformMessage  # noqa: E402
-from band.testing.fake_tools import FakeAgentTools  # noqa: E402
+from band.testing.fake_tools import FakeAgentTools, reported_failures  # noqa: E402
 
 NS_PREFIX = "crewai_flow:"
 
@@ -922,11 +922,7 @@ class TestDelegationAmbiguity:
         await _start(adapter, "router")
         await _turn(adapter, tools, _msg(id="msg-1"), is_session_bootstrap=True)
 
-        failures = [
-            e["metadata"]["failure"]
-            for e in tools.events_sent
-            if e["message_type"] == "error"
-        ]
+        failures = reported_failures(tools)
         assert len(failures) == 1
         assert failures[0]["code"] == "ambiguous_participant"
         assert len(failures[0]["message"]) <= 500

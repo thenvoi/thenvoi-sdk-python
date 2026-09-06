@@ -35,7 +35,7 @@ from band.integrations.codex.types import (
 )
 from band.runtime.custom_tools import CustomToolDef
 from band.runtime.tools import ToolCallOutcome
-from band.testing import FakeAgentTools
+from band.testing import FakeAgentTools, reported_failures
 
 
 def make_platform_message(
@@ -57,11 +57,6 @@ def make_platform_message(
 def events_of_type(tools: FakeAgentTools, message_type: str) -> list[dict[str, Any]]:
     """Events of ``message_type`` captured on ``tools.events_sent``."""
     return [e for e in tools.events_sent if e["message_type"] == message_type]
-
-
-def reported_failures(tools: FakeAgentTools) -> list[dict[str, Any]]:
-    """Every ``AgentFailure`` reported via ``send_failure``, as its wire dict."""
-    return [e["metadata"]["failure"] for e in events_of_type(tools, "error")]
 
 
 class ToolSchemaFakeTools(FakeAgentTools):

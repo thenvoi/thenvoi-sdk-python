@@ -20,7 +20,7 @@ from band.adapters.opencode.approvals import ApprovalPorts, RoomApprovals
 from band.adapters.opencode.config import OpencodeAdapterConfig
 from band.converters.opencode import OpencodeHistoryConverter
 from band.core.exceptions import BandConnectionError
-from band.core.protocols import AgentToolsProtocol
+from band.core.protocols import FAILURE_CODE_TIMEOUT, AgentToolsProtocol
 from band.core.simple_adapter import SimpleAdapter
 from band.core.types import (
     AdapterFeatures,
@@ -930,7 +930,7 @@ class OpencodeAdapter(SimpleAdapter[OpencodeSessionState]):
                     AgentFailure(
                         "opencode",
                         "OpenCode timed out before completing the turn.",
-                        "timeout",
+                        FAILURE_CODE_TIMEOUT,
                     )
                 )
             # Tokens spent before the timeout were still spent — emit them, same

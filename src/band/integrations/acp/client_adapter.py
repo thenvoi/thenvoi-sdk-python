@@ -19,7 +19,7 @@ from typing_extensions import Unpack
 from band.converters.acp_client import ACPClientHistoryConverter
 from band.converters.helpers import build_replay_messages
 from band.core.delivery import DeliveryFailedError
-from band.core.protocols import AgentToolsProtocol
+from band.core.protocols import FAILURE_CODE_TIMEOUT, AgentToolsProtocol
 from band.core.simple_adapter import SimpleAdapter
 from band.core.types import (
     AdapterFeatures,
@@ -396,7 +396,7 @@ class ACPClientAdapter(SimpleAdapter[ACPClientSessionState]):
                 AgentFailure(
                     "acp",
                     f"ACP agent response timed out after {self._turn_timeout_s}s",
-                    "timeout",
+                    FAILURE_CODE_TIMEOUT,
                 )
             )
         except Exception as e:
