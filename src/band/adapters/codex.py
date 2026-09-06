@@ -20,7 +20,7 @@ from typing_extensions import Unpack
 from band.converters.codex import CodexHistoryConverter
 from band.converters.helpers import build_replay_messages
 from band.core.delivery import DeliveryFailedError, deliver_reply
-from band.core.protocols import AgentToolsProtocol
+from band.core.protocols import FAILURE_CODE_TIMEOUT, AgentToolsProtocol
 from band.core.simple_adapter import SimpleAdapter
 from band.core.types import (
     AgentInput,
@@ -570,13 +570,20 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
             "decline",
             "approvals",
         }:
-            handled = await self._handle_approval_command(
-                tools=tools,
-                msg=msg,
-                room_id=room_id,
-                command=command[0],
-                args=command[1],
-            )
+            try:
+                handled = await self._handle_approval_command(
+                    tools=tools,
+                    msg=msg,
+                    room_id=room_id,
+                    command=command[0],
+                    args=command[1],
+                )
+            except DeliveryFailedError as e:
+                # Same Band-delivery-vs-provider-failure split as the
+                # turn-processing path below: re-raise the cause so
+                # mark_failed/retry bookkeeping keys off the real exception.
+                logger.exception("Codex reply delivery failed: %s", e.cause)
+                raise e.cause from None
             if handled:
                 return
 
@@ -719,11 +726,10 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
                     duration_s=_turn_duration_s,
                 )
             except DeliveryFailedError as e:
-                # The turn did its work; posting it to the room is what failed.
-                # Band-side delivery, never a Codex provider failure -- but
-                # this call path had no try/except before deliver_reply
-                # existed, so any exception here must keep propagating
-                # exactly as it always did (durable mark_failed/retry).
+                # The turn did its work; posting it to the room is what
+                # failed -- Band-side delivery, never a Codex provider
+                # failure. Re-raise the cause (not this wrapper) so
+                # mark_failed/retry bookkeeping keys off the real exception.
                 logger.exception("Codex reply delivery failed: %s", e.cause)
                 raise e.cause from None
             except Exception as e:
@@ -745,6 +751,7 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
             raise RuntimeError("CodexAdapter client is None during turn event loop")
 
         result = TurnResult()
+        failure_reported = False
         try:
             while True:
                 _remaining = max(
@@ -781,13 +788,14 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
                     continue
 
                 if event.method == "error":
-                    await self._handle_error_event(
+                    reported = await self._handle_error_event(
                         tools=tools,
                         params=params,
                         room_id=room_id,
                         thread_id=thread_id,
                         turn_id=turn_id,
                     )
+                    failure_reported = failure_reported or reported
                     continue
 
                 # --- Phase 3: Real-time streaming ---
@@ -995,8 +1003,10 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
                         continue
                     result.turn_status = str(turn_payload.get("status") or "failed")
                     result.turn_error = self._extract_turn_error(turn_payload)
-                    # Phase 1: structured error for failed turns
-                    if result.turn_status == "failed":
+                    # Phase 1: structured error for failed turns. Skipped when
+                    # an earlier "error" notification in this same turn
+                    # already reported one, so one incident isn't posted twice.
+                    if result.turn_status == "failed" and not failure_reported:
                         await self._emit_structured_turn_error(
                             tools=tools,
                             turn_payload=turn_payload,
@@ -1023,6 +1033,13 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
                         "Failed to send turn/interrupt after timeout",
                         exc_info=True,
                     )
+            await tools.send_failure(
+                AgentFailure(
+                    "codex",
+                    f"Codex turn timed out after {self.config.turn_timeout_s}s",
+                    FAILURE_CODE_TIMEOUT,
+                )
+            )
             result.turn_status = "interrupted"
             result.turn_error = "Turn timed out"
         return result
@@ -2258,8 +2275,13 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
         room_id: str,
         thread_id: str,
         turn_id: str | None,
-    ) -> None:
-        """Handle an ``error`` notification from Codex."""
+    ) -> bool:
+        """Handle an ``error`` notification from Codex.
+
+        Returns whether a failure was actually reported, so the turn loop can
+        skip a redundant second report if ``turn/completed`` also arrives with
+        a failed status for the same incident.
+        """
         error_obj = params.get("error") or {}
         if isinstance(error_obj, dict):
             error_msg = error_obj.get("message", "")
@@ -2281,7 +2303,7 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
                 turn_id,
                 error_msg,
             )
-            return
+            return False
 
         logger.error("Codex error: %s", error_msg)
         await tools.send_failure(
@@ -2289,6 +2311,7 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
                 error_obj, thread_id=thread_id, turn_id=turn_id, room_id=room_id
             )
         )
+        return True
 
     async def _emit_structured_turn_error(
         self,
@@ -2304,7 +2327,10 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
         if error is None:
             return
         if not isinstance(error, dict):
-            error = {"message": str(error)}
+            # A falsy scalar (``""``, ``0``) has no useful message to carry;
+            # build_agent_failure's own fallback covers it uniformly instead
+            # of shipping a degenerate literal string like "False".
+            error = {"message": str(error)} if error else {}
         await tools.send_failure(
             build_agent_failure(
                 error, thread_id=thread_id, turn_id=turn_id, room_id=room_id

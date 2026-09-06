@@ -14,6 +14,7 @@ from band.exports import lazy_exports
 if TYPE_CHECKING:
     from band.testing.fake_tools import (
         FakeAgentTools as FakeAgentTools,
+        events_of_type as events_of_type,
         reported_failures as reported_failures,
     )
     from band.testing.features import feature_kwargs as feature_kwargs
@@ -38,7 +39,7 @@ if TYPE_CHECKING:
 
 __all__, __getattr__ = lazy_exports(
     __name__,
-    fake_tools=["FakeAgentTools", "reported_failures"],
+    fake_tools=["FakeAgentTools", "events_of_type", "reported_failures"],
     features=["feature_kwargs"],
     phoenix_server=["FakePhoenixServer", "JoinOutcome", "fake_phoenix_server"],
     platform=["platform_connection_stub"],

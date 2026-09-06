@@ -210,8 +210,19 @@ class A2AAdapter(SimpleAdapter[A2ASessionState]):
         finally:
             # A terminal task must be persisted and released even when Band
             # delivery fails, or the room keeps addressing a finished task.
+            # Best-effort: a failure here must never replace an exception
+            # already propagating from the try block above, or a Band
+            # delivery outage gets misreported as a fabricated provider
+            # failure once it reaches on_message's except clauses.
             if state in TERMINAL_TASK_STATES:
-                await self._emit_task_event(tools, task, state)
+                try:
+                    await self._emit_task_event(tools, task, state)
+                except Exception:
+                    logger.exception(
+                        "Failed to emit terminal task event (room=%s, task=%s)",
+                        room_id,
+                        task.id,
+                    )
                 self._finalize_task(room_id, task.id)
 
     async def _deliver_message(

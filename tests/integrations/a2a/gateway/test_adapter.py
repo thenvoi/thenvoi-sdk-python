@@ -24,7 +24,11 @@ from a2a.types import (
 from band.core.types import PlatformMessage
 from band.client.rest import DEFAULT_REQUEST_OPTIONS
 from band.integrations.a2a.gateway import A2AGatewayAdapter, A2AGatewayAdapterConfig
-from band.integrations.a2a.gateway.adapter import BandAgentExecutor, GatewayRequest
+from band.integrations.a2a.gateway.adapter import (
+    BandAgentExecutor,
+    GatewayRequest,
+    _redact_credentials,
+)
 from band.integrations.a2a.gateway.types import GatewaySessionState, PendingA2ATask
 from band.testing import FakeAgentTools
 from tests.integrations.a2a.gateway.helpers import make_peer, peers_page
@@ -356,6 +360,13 @@ class TestGatewayExecution:
         assert "Bearer [REDACTED]" in message
         assert "api_key=[REDACTED]" in message
 
+    def test_redact_credentials_full_value_scheme_prefixed(self) -> None:
+        """A scheme-prefixed credential value (a space between the key and
+        the secret) must be redacted in full, not just up to that space."""
+        redacted = _redact_credentials("Authorization: ApiKey sk-live-abcdef123456")
+        assert "sk-live-abcdef123456" not in redacted
+        assert redacted == "Authorization=[REDACTED]"
+
     @pytest.mark.asyncio
     async def test_establish_request_raises_when_peer_missing(self) -> None:
         adapter = A2AGatewayAdapter(rest_client=MagicMock())
@@ -611,6 +622,36 @@ class TestGatewayResponses:
         assert event.status.state == TaskState.TASK_STATE_FAILED
         assert event.metadata["failure"]["provider"] == "codex"
         assert event.metadata["failure"]["code"] == "ContextWindowExceeded"
+
+    @pytest.mark.asyncio
+    async def test_relayed_peer_failure_redacts_embedded_credentials(self) -> None:
+        """A peer's own AgentFailure can embed a raw provider exception
+        message -- redact it the same as this gateway's own exception path
+        before it reaches an external A2A client."""
+        adapter = A2AGatewayAdapter(rest_client=MagicMock())
+        queue = EventQueueLegacy()
+        pending = make_pending(queue)
+        secret_message = "upstream rejected token=sk-live-secret"
+        peer_failure = {
+            "provider": "codex",
+            "code": "Unauthorized",
+            "message": secret_message,
+            "detail": None,
+        }
+
+        await adapter._publish_band_response(
+            pending,
+            make_platform_message(
+                secret_message,
+                message_type="error",
+                metadata={"failure": peer_failure},
+            ),
+        )
+        event = await queue.dequeue_event()
+
+        assert event.status.state == TaskState.TASK_STATE_FAILED
+        assert "sk-live-secret" not in event.metadata["failure"]["message"]
+        assert "sk-live-secret" not in event.status.message.parts[0].text
 
     @pytest.mark.asyncio
     async def test_plain_error_message_without_failure_metadata_still_fails(

@@ -22,7 +22,7 @@ from band.adapters.letta import (
 )
 from band.converters.letta import LettaSessionState
 from band.core.types import Emit
-from band.testing import FakeAgentTools
+from band.testing import FakeAgentTools, reported_failures
 from tests.adapters.lettakit import (
     default_enforcement,
     make_assistant_message,
@@ -182,7 +182,7 @@ class TestLettaAdapterOnMessagePerRoom:
             room_id="room-1",
         )
 
-        assert not [e for e in tools.events_sent if e["message_type"] == "error"]
+        assert not reported_failures(tools)
 
     @pytest.mark.asyncio
     async def test_skip_auto_relay_when_send_message_used(
@@ -1312,7 +1312,7 @@ class TestAutoRelayDisabled:
         )
 
         assert len(tools.messages_sent) == 0
-        assert not [e for e in tools.events_sent if e["message_type"] == "error"]
+        assert not reported_failures(tools)
 
 
 # ──────────────────────────────────────────────────────────────────────

@@ -731,10 +731,20 @@ class FakeAgentTools:
         )
 
 
+def events_of_type(tools: FakeAgentTools, message_type: str) -> list[dict[str, Any]]:
+    """Events of ``message_type`` captured on ``tools.events_sent``."""
+    return [e for e in tools.events_sent if e["message_type"] == message_type]
+
+
 def reported_failures(tools: FakeAgentTools) -> list[dict[str, Any]]:
-    """Every ``AgentFailure`` reported via ``send_failure``, as its wire dict."""
+    """Every ``AgentFailure`` reported via ``send_failure``, as its wire dict.
+
+    Ignores an "error" event with no ``failure`` metadata -- a pre-existing,
+    not-yet-migrated ``send_event(..., "error")`` call site posts one without
+    the ``send_failure`` shape, and that isn't what this helper reports on.
+    """
     return [
         e["metadata"]["failure"]
-        for e in tools.events_sent
-        if e["message_type"] == MessageType.ERROR
+        for e in events_of_type(tools, MessageType.ERROR)
+        if "failure" in e["metadata"]
     ]

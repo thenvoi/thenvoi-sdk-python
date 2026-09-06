@@ -926,6 +926,10 @@ class TestDelegationAmbiguity:
         assert len(failures) == 1
         assert failures[0]["code"] == "ambiguous_participant"
         assert len(failures[0]["message"]) <= 500
+        # The full, untruncated list survives in detail for a structured
+        # consumer, even though the room-visible message is capped.
+        assert failures[0]["detail"].startswith(failures[0]["message"])
+        assert len(failures[0]["detail"]) > 500
 
     @pytest.mark.asyncio
     async def test_delegation_send_failure_stops_later_delegations(

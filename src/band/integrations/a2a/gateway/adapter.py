@@ -82,9 +82,18 @@ def slugify(name: str) -> str:
 
 _GATEWAY_ERROR_MAX_CHARS = 240
 _BEARER_TOKEN_RE = re.compile(r"Bearer\s+[^\s,;]+", re.IGNORECASE)
+# The value group excludes only "," and ";" (not whitespace) so a
+# scheme-prefixed credential (e.g. "Authorization: ApiKey sk-...") gets
+# redacted in full instead of leaking everything past the first space.
 _CREDENTIAL_KV_RE = re.compile(
-    r"(token|authorization|api[_-]?key)\s*[:=]\s*[^\s,;]+", re.IGNORECASE
+    r"(token|authorization|api[_-]?key)\s*[:=]\s*[^,;]+", re.IGNORECASE
 )
+
+
+def _redact_credentials(text: str) -> str:
+    """Redact bearer tokens/API keys a message may embed."""
+    redacted = _BEARER_TOKEN_RE.sub("Bearer [REDACTED]", text)
+    return _CREDENTIAL_KV_RE.sub(r"\1=[REDACTED]", redacted)
 
 
 def _sanitize_gateway_error_message(exc: BaseException) -> str:
@@ -96,8 +105,7 @@ def _sanitize_gateway_error_message(exc: BaseException) -> str:
     trimmed = str(exc).strip()
     if not trimmed:
         return "Unknown error"
-    redacted = _BEARER_TOKEN_RE.sub("Bearer [REDACTED]", trimmed)
-    redacted = _CREDENTIAL_KV_RE.sub(r"\1=[REDACTED]", redacted)
+    redacted = _redact_credentials(trimmed)
     if len(redacted) <= _GATEWAY_ERROR_MAX_CHARS:
         return redacted
     return f"{redacted[: _GATEWAY_ERROR_MAX_CHARS - 3]}..."
@@ -589,12 +597,19 @@ class A2AGatewayAdapter(SimpleAdapter[GatewaySessionState]):
         """Translate Band's message category into an A2A task intent."""
         if msg.message_type == "error":
             # The peer's own adapter already built this AgentFailure (see
-            # to_failure_event) -- relay it as-is rather than re-tagging its
-            # provider as "a2a-gateway".
+            # to_failure_event) -- relay it rather than re-tagging its
+            # provider as "a2a-gateway", but still redact credentials the
+            # peer's own message may embed before it reaches an external
+            # A2A client, same as this gateway's own exception path.
             failure = (
                 msg.metadata.get("failure") if isinstance(msg.metadata, dict) else None
             )
-            await pending.fail(msg.content, failure=failure)
+            if isinstance(failure, dict) and isinstance(failure.get("message"), str):
+                failure = {
+                    **failure,
+                    "message": _redact_credentials(failure["message"]),
+                }
+            await pending.fail(_redact_credentials(msg.content), failure=failure)
         elif msg.message_type in ("thought", "tool_call", "tool_result"):
             await pending.report_progress(msg.content)
         else:

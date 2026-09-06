@@ -313,6 +313,26 @@ class TestA2AAdapterMessageFlow:
         assert adapter._task_senders == {}
 
     @pytest.mark.asyncio
+    async def test_finally_block_failure_does_not_replace_try_blocks_exception(
+        self, adapter: A2AAdapter
+    ) -> None:
+        """The terminal task-event emission in ``finally`` must never clobber
+        a ``DeliveryFailedError`` already propagating from the try block --
+        Python's try/finally semantics otherwise let the finally's own
+        exception silently replace it."""
+        tools = FakeAgentTools()
+        tools.send_message = AsyncMock(side_effect=RuntimeError("Band unavailable"))
+        tools.send_event_error = RuntimeError("task event post also failed")
+        task = make_task(artifact_text="Final response")
+
+        with pytest.raises(DeliveryFailedError) as exc_info:
+            await adapter._handle_event(
+                task_event(task), tools, "room-123", "user-456", "Test User"
+            )
+        assert "Band unavailable" in str(exc_info.value.cause)
+        assert adapter._tasks == {}, "next turn must start a fresh task"
+
+    @pytest.mark.asyncio
     async def test_auth_required_task_is_posted_as_error_event(
         self, adapter: A2AAdapter
     ) -> None:

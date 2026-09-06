@@ -942,9 +942,12 @@ class SideEffectExecutor:
         # room-visible message is capped like every other room post in this
         # file (e.g. record_waiting) -- error.message can embed an unbounded
         # value (e.g. a full participant-id list from an ambiguous-identity
-        # error).
+        # error) -- so the untruncated text is preserved in detail for
+        # structured consumers reading the "error"-typed event.
+        message = error.message[:500]
+        detail = error.message if len(error.message) > 500 else None
         await self._tools.send_failure(
-            AgentFailure("crewai_flow", error.message[:500], error.code)
+            AgentFailure("crewai_flow", message, error.code, detail)
         )
         await self._send_event(
             content=f"failed:{error.code}",

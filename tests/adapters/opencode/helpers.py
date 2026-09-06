@@ -19,7 +19,7 @@ from band.core.types import (
     PlatformMessage,
 )
 from band.integrations.opencode.types import OpencodeSessionState
-from band.testing import FakeAgentTools
+from band.testing import FakeAgentTools, events_of_type as events_of_type
 
 RawOpencodeEvent: TypeAlias = dict[str, Any]
 
@@ -210,11 +210,6 @@ def event_session_error(session_id: str, message: str) -> RawOpencodeEvent:
 
 def tools_protocol(tools: FakeAgentTools) -> AgentToolsProtocol:
     return cast(AgentToolsProtocol, tools)
-
-
-def events_of_type(tools: FakeAgentTools, message_type: str) -> list[dict[str, Any]]:
-    """Events of ``message_type`` captured on ``tools.events_sent``."""
-    return [e for e in tools.events_sent if e["message_type"] == message_type]
 
 
 class RaisingSendTools(FakeAgentTools):

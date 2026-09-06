@@ -35,7 +35,7 @@ from band.integrations.codex.types import (
 )
 from band.runtime.custom_tools import CustomToolDef
 from band.runtime.tools import ToolCallOutcome
-from band.testing import FakeAgentTools, reported_failures
+from band.testing import FakeAgentTools, events_of_type, reported_failures
 
 
 def make_platform_message(
@@ -52,11 +52,6 @@ def make_platform_message(
         metadata={},
         created_at=datetime.now(),
     )
-
-
-def events_of_type(tools: FakeAgentTools, message_type: str) -> list[dict[str, Any]]:
-    """Events of ``message_type`` captured on ``tools.events_sent``."""
-    return [e for e in tools.events_sent if e["message_type"] == message_type]
 
 
 class ToolSchemaFakeTools(FakeAgentTools):
@@ -1559,6 +1554,13 @@ class TestCodexAdapter:
 
         # Adapter should send a user-facing message about stopping.
         assert any("stopped" in msg["content"].lower() for msg in tools.messages_sent)
+
+        # A timed-out turn is a reportable Codex failure, same as every
+        # sibling adapter's own turn-timeout handling.
+        failures = reported_failures(tools)
+        assert len(failures) == 1
+        assert failures[0]["provider"] == "codex"
+        assert failures[0]["code"] == "timeout"
 
     @pytest.mark.asyncio
     async def test_item_completed_text_overrides_accumulated_deltas(self) -> None:
@@ -6045,6 +6047,48 @@ class TestSlashCommandCoverage:
             "Codex reply delivery failed" in record.message for record in caplog.records
         )
 
+    @pytest.mark.asyncio
+    async def test_approval_command_reply_delivery_failure_is_not_reported(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Same delivery-vs-provider-failure split as slash commands, but for
+        the approval-command path, which runs outside on_message's main
+        try/except and needs its own DeliveryFailedError handling."""
+
+        class FailingSendMessageTools(ToolSchemaFakeTools):
+            async def send_message(
+                self, content: str, mentions: list[dict[str, str]] | None = None
+            ) -> Any:
+                raise RuntimeError("platform rejected the message")
+
+        fake_client = FakeCodexClient()
+        adapter = CodexAdapter(
+            config=CodexAdapterConfig(transport="ws"),
+            client_factory=lambda _config: fake_client,
+        )
+        tools = FailingSendMessageTools()
+
+        await adapter.on_started("Agent", "A coding agent")
+        with (
+            caplog.at_level(logging.ERROR, logger="band.adapters.codex"),
+            pytest.raises(RuntimeError, match="platform rejected the message"),
+        ):
+            await adapter.on_message(
+                make_platform_message(content="/approvals"),
+                tools,
+                CodexSessionState(),
+                participants_msg=None,
+                contacts_msg=None,
+                is_session_bootstrap=True,
+                room_id="room-1",
+            )
+
+        assert not tools.messages_sent
+        assert not reported_failures(tools)
+        assert any(
+            "Codex reply delivery failed" in record.message for record in caplog.records
+        )
+
 
 class TestMalformedPayloadTolerance:
     """Adapter must survive notifications that are missing or misshapen."""
@@ -6077,6 +6121,85 @@ class TestMalformedPayloadTolerance:
         failures = reported_failures(tools)
         assert len(failures) == 1
         assert failures[0]["message"] == "oops"
+
+    @pytest.mark.asyncio
+    async def test_failed_turn_after_error_notification_reports_once(self) -> None:
+        """An `error` notification followed by a `turn/completed` with
+        status=failed for the same incident must report only one failure."""
+        events = [
+            _event_notification("error", {"error": {"message": "boom"}}),
+            _event_notification(
+                "turn/completed",
+                {
+                    "turn": {
+                        "id": "turn-1",
+                        "status": "failed",
+                        "items": [],
+                        "error": {"message": "boom"},
+                    }
+                },
+            ),
+        ]
+        fake_client = FakeCodexClient(events=events)
+        adapter = CodexAdapter(
+            config=CodexAdapterConfig(transport="ws"),
+            client_factory=lambda _config: fake_client,
+        )
+        tools = ToolSchemaFakeTools()
+        await adapter.on_started("Agent", "A coding agent")
+
+        await adapter.on_message(
+            make_platform_message(),
+            tools,
+            CodexSessionState(),
+            participants_msg=None,
+            contacts_msg=None,
+            is_session_bootstrap=True,
+            room_id="room-1",
+        )
+
+        assert len(reported_failures(tools)) == 1
+
+    @pytest.mark.asyncio
+    async def test_failed_turn_with_falsy_scalar_error_uses_clean_fallback(
+        self,
+    ) -> None:
+        """A falsy, non-dict `error` (e.g. ``False``) must not become the
+        literal string "False" in the reported failure message."""
+        events = [
+            _event_notification(
+                "turn/completed",
+                {
+                    "turn": {
+                        "id": "turn-1",
+                        "status": "failed",
+                        "items": [],
+                        "error": False,
+                    }
+                },
+            ),
+        ]
+        fake_client = FakeCodexClient(events=events)
+        adapter = CodexAdapter(
+            config=CodexAdapterConfig(transport="ws"),
+            client_factory=lambda _config: fake_client,
+        )
+        tools = ToolSchemaFakeTools()
+        await adapter.on_started("Agent", "A coding agent")
+
+        await adapter.on_message(
+            make_platform_message(),
+            tools,
+            CodexSessionState(),
+            participants_msg=None,
+            contacts_msg=None,
+            is_session_bootstrap=True,
+            room_id="room-1",
+        )
+
+        failures = reported_failures(tools)
+        assert len(failures) == 1
+        assert failures[0]["message"] == "Codex error: unknown"
 
     @pytest.mark.asyncio
     async def test_turn_completed_without_items_key(self) -> None:

@@ -640,7 +640,7 @@ class TestMaxToolRounds:
                     room_id="room-123",
                 )
 
-        # Previously reported nothing at all -- this is the added report.
+        # Exceeding max tool rounds is a reportable provider failure.
         mock_tools.send_failure.assert_called_once()
         failure = mock_tools.send_failure.call_args.args[0]
         assert failure.provider == "gemini"
