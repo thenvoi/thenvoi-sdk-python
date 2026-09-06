@@ -635,6 +635,7 @@ class TestTurnFailure:
         assert usage[0]["metadata"][USAGE_METADATA_KEY]["input_tokens"] == (
             _INPUT_TOKENS_PER_CALL
         )
+        assert "provider down" in _errors(tools)[0]
 
 
 class TestUsageMapping:
