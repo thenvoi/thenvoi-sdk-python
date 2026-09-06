@@ -14,6 +14,7 @@ import warnings
 from contextvars import ContextVar
 from typing import ClassVar, TYPE_CHECKING, Any
 
+from band_sdk_core import AgentFailure
 from typing_extensions import Unpack
 
 from band.core.protocols import AgentToolsProtocol
@@ -281,9 +282,11 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
         logger.debug("Handling message %s in room %s", msg.id, room_id)
 
         if not self._crewai_agent:
-            raise RuntimeError(
+            error = RuntimeError(
                 "CrewAI agent not initialized - ensure on_started() was called"
             )
+            await tools.send_failure(AgentFailure("crewai", str(error)))
+            raise error
 
         # Set context variable for tool access (thread-safe room context).
         # Wrap in try/finally immediately to ensure cleanup even if code
@@ -406,15 +409,17 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
                 )
 
             if not (reply_tracker is not None and reply_tracker.replied):
-                await self._report_error(
-                    tools,
-                    missing_reply_error(
-                        "CrewAI",
-                        detail=(
-                            "Repeated tool failures may also have exhausted "
-                            f"max_iter={self.max_iter}."
+                await tools.send_failure(
+                    AgentFailure(
+                        "crewai",
+                        missing_reply_error(
+                            "CrewAI",
+                            detail=(
+                                "Repeated tool failures may also have exhausted "
+                                f"max_iter={self.max_iter}."
+                            ),
                         ),
-                    ),
+                    )
                 )
 
             logger.info(
@@ -448,7 +453,7 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
                 )
                 return
             logger.error("Error processing message: %s", e, exc_info=True)
-            await self._report_error(tools, str(e))
+            await tools.send_failure(AgentFailure("crewai", str(e)))
             raise
 
         logger.debug(
@@ -462,10 +467,3 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
         if room_id in self._message_history:
             del self._message_history[room_id]
             logger.debug("Room %s: Cleaned up CrewAI session", room_id)
-
-    async def _report_error(self, tools: AgentToolsProtocol, error: str) -> None:
-        """Send error event (best effort)."""
-        try:
-            await tools.send_event(content=f"Error: {error}", message_type="error")
-        except Exception as e:
-            logger.warning("Failed to send error event: %s", e)

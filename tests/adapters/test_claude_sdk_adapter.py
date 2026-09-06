@@ -67,9 +67,8 @@ if _CLAUDE_SDK_AVAILABLE:
 # The reply tool as the SDK namespaces it (MCP_TOOL_PREFIX + bare name).
 _SEND_MESSAGE_MCP_NAME = "mcp__band__band_send_message"
 _ANY_MODEL = "claude-sonnet-4-6"
-# What a turn that ended without a reply going out must say — the "Error: "
-# prefix is _report_error's own formatting, asserted by substring below
-# rather than re-derived here.
+# What a turn that ended without a reply going out must say, asserted by
+# substring below rather than re-derived here.
 _MISSING_REPLY_TEXT = missing_reply_error("Claude SDK")
 
 

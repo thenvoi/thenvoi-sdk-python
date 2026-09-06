@@ -460,7 +460,10 @@ class TestErrorHandling:
                 room_id="room-123",
             )
 
-        mock_tools.send_event.assert_called()
+        mock_tools.send_failure.assert_awaited_once()
+        failure = mock_tools.send_failure.call_args.args[0]
+        assert failure.provider == "crewai"
+        assert failure.message == "Agent Error"
 
     @pytest.mark.asyncio
     async def test_reports_error_when_crewai_completes_without_reply(
@@ -485,11 +488,11 @@ class TestErrorHandling:
             room_id="room-123",
         )
 
-        mock_tools.send_event.assert_awaited_once()
-        event_kwargs = mock_tools.send_event.await_args.kwargs
-        assert event_kwargs["message_type"] == "error"
-        assert "band_send_message" in event_kwargs["content"]
-        assert "max_iter=20" in event_kwargs["content"]
+        mock_tools.send_failure.assert_awaited_once()
+        failure = mock_tools.send_failure.call_args.args[0]
+        assert failure.provider == "crewai"
+        assert "band_send_message" in failure.message
+        assert "max_iter=20" in failure.message
 
     @pytest.mark.asyncio
     async def test_reports_error_when_crewai_returns_none_without_reply(
@@ -512,10 +515,10 @@ class TestErrorHandling:
             room_id="room-123",
         )
 
-        mock_tools.send_event.assert_awaited_once()
-        event_kwargs = mock_tools.send_event.await_args.kwargs
-        assert event_kwargs["message_type"] == "error"
-        assert "band_send_message" in event_kwargs["content"]
+        mock_tools.send_failure.assert_awaited_once()
+        failure = mock_tools.send_failure.call_args.args[0]
+        assert failure.provider == "crewai"
+        assert "band_send_message" in failure.message
 
     @pytest.mark.asyncio
     async def test_does_not_report_completion_error_after_reply(
@@ -550,7 +553,7 @@ class TestErrorHandling:
             room_id="room-123",
         )
 
-        mock_tools.send_event.assert_not_called()
+        mock_tools.send_failure.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_suppresses_empty_final_answer_after_reply(
@@ -591,8 +594,8 @@ class TestErrorHandling:
             room_id="room-123",
         )
 
-        # No error event posted to the room.
-        mock_tools.send_event.assert_not_called()
+        # No failure reported to the room.
+        mock_tools.send_failure.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_suppresses_empty_final_answer_after_tool_only_turn(
@@ -635,8 +638,8 @@ class TestErrorHandling:
             room_id="room-123",
         )
 
-        # No error event posted to the room.
-        mock_tools.send_event.assert_not_called()
+        # No failure reported to the room.
+        mock_tools.send_failure.assert_not_awaited()
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
@@ -685,8 +688,11 @@ class TestErrorHandling:
                 room_id="room-123",
             )
 
-        # And it must surface as an error event in the room.
-        mock_tools.send_event.assert_called()
+        # And it must surface as a reported failure.
+        mock_tools.send_failure.assert_awaited_once()
+        failure = mock_tools.send_failure.call_args.args[0]
+        assert failure.provider == "crewai"
+        assert failure.message == str(error)
 
     @pytest.mark.asyncio
     async def test_raises_error_when_agent_not_initialized(
@@ -706,6 +712,11 @@ class TestErrorHandling:
                 is_session_bootstrap=True,
                 room_id="room-123",
             )
+
+        mock_tools.send_failure.assert_awaited_once()
+        failure = mock_tools.send_failure.call_args.args[0]
+        assert failure.provider == "crewai"
+        assert "not initialized" in failure.message
 
 
 class TestVerboseMode:
