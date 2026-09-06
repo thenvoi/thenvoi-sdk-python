@@ -260,6 +260,8 @@ jobs:
             ClaimRegistry,
             ParticipantRoster,
             RetryTracker,
+            Session,
+            SessionPolicy,
             evaluate_adapter_result,
             evaluate_delivery_event,
             evaluate_drain_candidate,
@@ -275,6 +277,8 @@ jobs:
         assert tracker.max_retries == 1
         roster = ParticipantRoster()
         assert roster.list() == []
+        session = Session(SessionPolicy.default())
+        assert session.begin_attempt(0.0) == 0
         assert is_self_echo("agent-1", "Agent", "agent-1") is True
         assert evaluate_drain_candidate(None, [], "agent-1") == {"decision": "no_candidate"}
         assert evaluate_delivery_event("room_added", "room-1", {}, "agent-1") == {
