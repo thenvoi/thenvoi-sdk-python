@@ -22,6 +22,7 @@ from a2a.types import (
     TaskStatus,
 )
 
+from band.core.delivery import DeliveryFailedError
 from band.core.types import PlatformMessage
 from band.integrations.a2a import A2AAdapter, A2AAuth, A2ASessionState
 from band.integrations.a2a.adapter import _SSE_READ_TIMEOUT_S
@@ -298,10 +299,11 @@ class TestA2AAdapterMessageFlow:
         tools.send_message = AsyncMock(side_effect=RuntimeError("Band unavailable"))
         task = make_task(artifact_text="Final response")
 
-        with pytest.raises(RuntimeError, match="Band unavailable"):
+        with pytest.raises(DeliveryFailedError) as exc_info:
             await adapter._handle_event(
                 task_event(task), tools, "room-123", "user-456", "Test User"
             )
+        assert "Band unavailable" in str(exc_info.value.cause)
 
         assert tools.events_sent[-1]["metadata"]["a2a_task_state"] == (
             "TASK_STATE_COMPLETED"
@@ -334,7 +336,9 @@ class TestA2AAdapterMessageFlow:
         ]
         assert error_events, "an auth-required task must produce an error event"
         assert error_events[-1]["content"] == "Please authenticate"
-        assert error_events[-1]["metadata"]["a2a_state"] == "TASK_STATE_AUTH_REQUIRED"
+        failure = error_events[-1]["metadata"]["failure"]
+        assert failure["provider"] == "a2a"
+        assert failure["code"] == "TASK_STATE_AUTH_REQUIRED"
 
     @pytest.mark.asyncio
     async def test_input_required_is_forwarded_and_persisted(
@@ -403,7 +407,9 @@ class TestA2AAdapterMessageFlow:
         ]
         assert error_events, "a failed task must produce an error event"
         assert error_events[-1]["content"] == "boom"
-        assert error_events[-1]["metadata"]["a2a_state"] == "TASK_STATE_FAILED"
+        failure = error_events[-1]["metadata"]["failure"]
+        assert failure["provider"] == "a2a"
+        assert failure["code"] == "TASK_STATE_FAILED"
 
     @pytest.mark.asyncio
     async def test_working_status_text_is_narrated_as_thought(
