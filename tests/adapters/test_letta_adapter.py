@@ -149,6 +149,42 @@ class TestLettaAdapterOnMessagePerRoom:
         assert tools.messages_sent[0]["content"] == "I'll help you!"
 
     @pytest.mark.asyncio
+    async def test_send_message_failure_is_not_reported_as_provider_failure(
+        self, adapter_with_client: tuple[LettaAdapter, AsyncMock]
+    ) -> None:
+        """The Letta agent answered fine; the room POST is what failed. That
+        must not surface as a Letta AgentFailure -- deliver_reply's
+        DeliveryFailedError must be recognized and left unreported here."""
+        adapter, mock_client = adapter_with_client
+        adapter._rooms["room-1"] = RoomContext(agent_id="agent-1")
+
+        mock_client.agents.messages.create.return_value = make_letta_response(
+            make_assistant_message("I'll help you!")
+        )
+
+        tools = FakeAgentTools()
+
+        async def _raise(*args: Any, **kwargs: Any) -> None:
+            raise RuntimeError("platform rejected the message")
+
+        tools.send_message = _raise  # type: ignore[method-assign]
+
+        msg = make_platform_message()
+        history = LettaSessionState()
+
+        await adapter.on_message(
+            msg,
+            tools,
+            history,
+            None,
+            None,
+            is_session_bootstrap=False,
+            room_id="room-1",
+        )
+
+        assert not [e for e in tools.events_sent if e["message_type"] == "error"]
+
+    @pytest.mark.asyncio
     async def test_skip_auto_relay_when_send_message_used(
         self, adapter_with_client: tuple[LettaAdapter, AsyncMock]
     ) -> None:
@@ -211,6 +247,9 @@ class TestLettaAdapterOnMessagePerRoom:
         error_events = [e for e in tools.events_sent if e["message_type"] == "error"]
         assert len(error_events) == 1
         assert "timed out" in error_events[0]["content"]
+        failure = error_events[0]["metadata"]["failure"]
+        assert failure["provider"] == "letta"
+        assert failure["code"] == "timeout"
 
     @pytest.mark.asyncio
     async def test_participants_and_contacts_injected(
