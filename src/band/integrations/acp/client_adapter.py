@@ -172,6 +172,7 @@ class ACPClientAdapter(SimpleAdapter[ACPClientSessionState]):
         port: int | None = None,
         custom_section: str = "",
         spawn_process: SpawnProcess | None = None,
+        turn_timeout_s: float = 300.0,
         **features: Unpack[FeatureKwargs],
     ) -> None:
         super().__init__(
@@ -189,6 +190,7 @@ class ACPClientAdapter(SimpleAdapter[ACPClientSessionState]):
         self._auth_method = auth_method
         self._profile = profile
         self._custom_section = custom_section
+        self._turn_timeout_s = turn_timeout_s
         self._runtime = self._build_runtime(spawn_process)
 
         self._room_to_session: dict[str, str] = {}
@@ -367,15 +369,36 @@ class ACPClientAdapter(SimpleAdapter[ACPClientSessionState]):
                     session_id,
                     self._make_permission_handler(emitter, room_id),
                 )
-                await self._runtime.prompt(
-                    session_id=session_id,
-                    prompt_text=prompt_text,
-                    on_chunk=emitter.emit,
+                await asyncio.wait_for(
+                    self._runtime.prompt(
+                        session_id=session_id,
+                        prompt_text=prompt_text,
+                        on_chunk=emitter.emit,
+                    ),
+                    timeout=self._turn_timeout_s,
                 )
         except DeliveryFailedError as e:
             # The turn's reply is what failed to post -- Band-side delivery,
             # never an ACP provider failure, so the connection stays up.
             logger.exception("ACP reply delivery failed: %s", e.cause)
+        except asyncio.TimeoutError:
+            # A silent/stuck agent must become an observable failure instead
+            # of hanging the turn indefinitely -- the connection is presumed
+            # wedged, so it's torn down for the next turn to respawn.
+            logger.error(
+                "ACP turn timed out after %ss (room=%s, session=%s)",
+                self._turn_timeout_s,
+                room_id,
+                session_id,
+            )
+            await self.stop()
+            await tools.send_failure(
+                AgentFailure(
+                    "acp",
+                    f"ACP agent response timed out after {self._turn_timeout_s}s",
+                    "timeout",
+                )
+            )
         except Exception as e:
             logger.exception("ACP agent error: %s", e)
             await self.stop()

@@ -6011,7 +6011,10 @@ class TestSlashCommandCoverage:
     ) -> None:
         """/help's answer failing to post is Band-side delivery, not a Codex
         provider failure -- deliver_reply's DeliveryFailedError must be
-        recognized and left unreported here."""
+        recognized and left unreported here. codex.py's on_message had no
+        try/except at all before this PR, so the original cause must still
+        propagate (the message still fails/retries at the platform level),
+        just never misreported as a Codex AgentFailure."""
 
         class FailingSendMessageTools(ToolSchemaFakeTools):
             async def send_message(
@@ -6027,7 +6030,10 @@ class TestSlashCommandCoverage:
         tools = FailingSendMessageTools()
 
         await adapter.on_started("Agent", "A coding agent")
-        with caplog.at_level(logging.ERROR, logger="band.adapters.codex"):
+        with (
+            caplog.at_level(logging.ERROR, logger="band.adapters.codex"),
+            pytest.raises(RuntimeError, match="platform rejected the message"),
+        ):
             await adapter.on_message(
                 make_platform_message(content="/help"),
                 tools,

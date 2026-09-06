@@ -457,7 +457,7 @@ class A2AGatewayAdapter(SimpleAdapter[GatewaySessionState]):
                 self.config.response_timeout_s,
             )
             failure = AgentFailure(
-                "a2a-gateway", "Timed out waiting for a Band response", "Timeout"
+                "a2a-gateway", "Timed out waiting for a Band response", "timeout"
             )
             await request.pending.fail(
                 "Timed out waiting for a Band response", failure=failure.to_dict()

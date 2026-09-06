@@ -938,9 +938,13 @@ class SideEffectExecutor:
         )
 
     async def record_failed(self, error: CrewAIFlowError) -> None:
-        # Best-effort failure event for visibility, then the task event.
+        # Best-effort failure event for visibility, then the task event. The
+        # room-visible message is capped like every other room post in this
+        # file (e.g. record_waiting) -- error.message can embed an unbounded
+        # value (e.g. a full participant-id list from an ambiguous-identity
+        # error).
         await self._tools.send_failure(
-            AgentFailure("crewai_flow", error.message, error.code)
+            AgentFailure("crewai_flow", error.message[:500], error.code)
         )
         await self._send_event(
             content=f"failed:{error.code}",

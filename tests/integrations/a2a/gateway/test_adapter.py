@@ -298,7 +298,7 @@ class TestGatewayExecution:
         terminal = await queue.dequeue_event()
         assert terminal.status.state == TaskState.TASK_STATE_FAILED
         assert terminal.metadata["failure"]["provider"] == "a2a-gateway"
-        assert terminal.metadata["failure"]["code"] == "Timeout"
+        assert terminal.metadata["failure"]["code"] == "timeout"
         assert adapter._pending_tasks == {}
         assert not any(
             "A2A request completed" in record.message for record in caplog.records

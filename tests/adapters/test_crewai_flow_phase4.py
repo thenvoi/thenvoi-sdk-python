@@ -891,6 +891,47 @@ class TestDelegationAmbiguity:
         assert payloads[-1]["error"]["code"] == "ambiguous_participant"
 
     @pytest.mark.asyncio
+    async def test_ambiguous_delegation_failure_message_is_capped(self) -> None:
+        """The ambiguous-identity error embeds every colliding participant id
+        -- room-visible content stays capped like every other post in this
+        adapter (record_waiting, reply_ambiguous), even with a large room."""
+        colliding_ids = [f"participant-id-{i:040d}" for i in range(30)]
+        flow = _flow(
+            {
+                "decision": "delegate",
+                "delegations": [
+                    {
+                        "delegation_id": "d-A",
+                        "target": "peer-a",
+                        "content": "do A",
+                        "mentions": ["@example/peer-a"],
+                    }
+                ],
+            }
+        )
+        adapter = CrewAIFlowAdapter(
+            flow_factory=lambda: flow,
+            state_source=HistoryCrewAIFlowStateSource(acknowledge_test_only=True),
+        )
+        tools = FakeAgentTools(
+            participants=[
+                {"id": pid, "handle": "@example/peer-a", "name": "Peer A"}
+                for pid in colliding_ids
+            ]
+        )
+        await _start(adapter, "router")
+        await _turn(adapter, tools, _msg(id="msg-1"), is_session_bootstrap=True)
+
+        failures = [
+            e["metadata"]["failure"]
+            for e in tools.events_sent
+            if e["message_type"] == "error"
+        ]
+        assert len(failures) == 1
+        assert failures[0]["code"] == "ambiguous_participant"
+        assert len(failures[0]["message"]) <= 500
+
+    @pytest.mark.asyncio
     async def test_delegation_send_failure_stops_later_delegations(
         self,
     ) -> None:

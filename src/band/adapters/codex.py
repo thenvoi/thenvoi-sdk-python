@@ -727,8 +727,12 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
                 )
             except DeliveryFailedError as e:
                 # The turn did its work; posting it to the room is what failed.
-                # Band-side delivery, never a Codex provider failure.
+                # Band-side delivery, never a Codex provider failure -- but
+                # this call path had no try/except before deliver_reply
+                # existed, so any exception here must keep propagating
+                # exactly as it always did (durable mark_failed/retry).
                 logger.exception("Codex reply delivery failed: %s", e.cause)
+                raise e.cause from None
             except Exception as e:
                 await tools.send_failure(AgentFailure("codex", str(e)))
                 raise
@@ -2853,21 +2857,22 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
 
         if command == "approvals":
             if not pending:
-                await tools.send_message("No pending approvals.", mentions=mention)
+                await deliver_reply(tools, "No pending approvals.", mentions=mention)
                 return True
             lines = ["Pending approvals:"]
             now = datetime.now(timezone.utc)
             for token, item in list(pending.items()):
                 age_s = int((now - item.created_at).total_seconds())
                 lines.append(f"- {token}: {item.summary} ({age_s}s)")
-            await tools.send_message("\n".join(lines), mentions=mention)
+            await deliver_reply(tools, "\n".join(lines), mentions=mention)
             return True
 
         if command not in {"approve", "decline", "approve-session"}:
             return False
 
         if not pending:
-            await tools.send_message(
+            await deliver_reply(
+                tools,
                 "No pending approvals to resolve.",
                 mentions=mention,
             )
@@ -2878,7 +2883,8 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
             selected = pending.get(token)
             if selected is None:
                 available = ", ".join(sorted(pending.keys()))
-                await tools.send_message(
+                await deliver_reply(
+                    tools,
                     f"Unknown approval id `{token}`. Pending: {available}",
                     mentions=mention,
                 )
@@ -2887,7 +2893,8 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
             token, selected = next(iter(pending.items()))
         else:
             available = ", ".join(sorted(pending.keys()))
-            await tools.send_message(
+            await deliver_reply(
+                tools,
                 "Multiple approvals pending. "
                 f"Use `/{command} <id>`. Pending: {available}",
                 mentions=mention,
@@ -2903,7 +2910,8 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
         # an empty string in _session_approved or report a misleading
         # "Future `` requests will be auto-approved" message to the user.
         if is_session and not selected.session_key:
-            await tools.send_message(
+            await deliver_reply(
+                tools,
                 f"Approval `{token}` cannot be resolved as session-level: "
                 "this request has no command signature to match against. "
                 f"Use `/approve {token}` for a one-shot approval instead.",
@@ -2924,13 +2932,15 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
         # Session-level: register the session key for auto-approval
         if is_session:
             self._record_session_approval(room_id, selected.session_key)
-            await tools.send_message(
+            await deliver_reply(
+                tools,
                 f"Approval `{token}` resolved as `acceptForSession` (session-level). "
                 f"Future `{selected.session_key}` requests will be auto-approved.",
                 mentions=mention,
             )
         else:
-            await tools.send_message(
+            await deliver_reply(
+                tools,
                 f"Approval `{token}` resolved as `{decision_value}`.",
                 mentions=mention,
             )
