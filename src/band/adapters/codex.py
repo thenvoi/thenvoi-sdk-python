@@ -12,12 +12,14 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import ClassVar, Any, Callable, Literal, NamedTuple, Protocol
 
+from band_sdk_core import AgentFailure
 from pydantic import AliasChoices, BaseModel, Field, ValidationError, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from typing_extensions import Unpack
 
 from band.converters.codex import CodexHistoryConverter
 from band.converters.helpers import build_replay_messages
+from band.core.delivery import DeliveryFailedError, deliver_reply
 from band.core.protocols import AgentToolsProtocol
 from band.core.simple_adapter import SimpleAdapter
 from band.core.types import (
@@ -42,7 +44,7 @@ from band.integrations.codex.types import (
     CodexItemType,
     CodexSessionState,
     CodexTokenUsage,
-    build_structured_error_metadata,
+    build_agent_failure,
     parse_plan_steps,
 )
 from band.runtime.custom_tools import (
@@ -356,8 +358,6 @@ class CodexAdapterConfig(BaseSettings):
     # File-change approvals always key on the sorted set of paths being
     # modified, independent of this flag.
     session_approval_granularity: Literal["binary", "full_command"] = "full_command"
-    # --- Phase 1: Structured errors & enriched approvals ---
-    structured_errors: bool = True
     # --- Phase 2: Plan & task lifecycle ---
     stream_plan_events: bool = False
     emit_turn_lifecycle_events: bool = False
@@ -525,7 +525,7 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
             "execution_reporting=%s, self_config_tools=%s, "
             "task_events=%s, turn_markers=%s, thought_events=%s, "
             "stream_reasoning=%s, stream_plan=%s, stream_commentary=%s, "
-            "diffs=%s, token_usage=%s, structured_errors=%s",
+            "diffs=%s, token_usage=%s",
             agent_name,
             self.config.transport,
             self._selected_model or self.config.model or "auto",
@@ -541,7 +541,6 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
             self.config.stream_commentary_events,
             self.config.emit_diff_events,
             self.config.emit_token_usage_events,
-            self.config.structured_errors,
         )
 
     async def on_event(self, inp: AgentInput) -> None:
@@ -582,142 +581,157 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
                 return
 
         async with self._rpc_lock:
-            await self._ensure_client_ready()
-            if self._client is None:
-                raise RuntimeError(
-                    "Codex client not initialized after _ensure_client_ready"
-                )
+            try:
+                await self._ensure_client_ready()
+                if self._client is None:
+                    raise RuntimeError(
+                        "Codex client not initialized after _ensure_client_ready"
+                    )
 
-            if command is not None:
-                handled = await self._handle_local_command(
-                    tools=tools,
-                    msg=msg,
-                    history=history,
+                if command is not None:
+                    handled = await self._handle_local_command(
+                        tools=tools,
+                        msg=msg,
+                        history=history,
+                        room_id=room_id,
+                        command=command[0],
+                        args=command[1],
+                    )
+                    if handled:
+                        return
+
+                thread_id = await self._ensure_thread(
                     room_id=room_id,
-                    command=command[0],
-                    args=command[1],
-                )
-                if handled:
-                    return
-
-            thread_id = await self._ensure_thread(
-                room_id=room_id,
-                history=history,
-                tools=tools,
-                is_session_bootstrap=is_session_bootstrap,
-            )
-
-            turn_input, has_pending_prompt_injection = self._build_turn_input(
-                msg=msg,
-                participants_msg=participants_msg,
-                contacts_msg=contacts_msg,
-                room_id=room_id,
-            )
-
-            turn_params: dict[str, Any] = {
-                "threadId": thread_id,
-                "input": turn_input,
-            }
-            self._apply_turn_overrides(turn_params, room_id=room_id)
-
-            turn_started = await self._start_turn(turn_params)
-            if has_pending_prompt_injection:
-                self._prompt_injected_rooms.add(room_id)
-            turn = turn_started.get("turn") if isinstance(turn_started, dict) else {}
-            turn_id = str((turn or {}).get("id") or "")
-
-            if (
-                Emit.TASK_EVENTS in self.features.emit
-                and self.config.emit_turn_task_markers
-            ):
-                await tools.send_event(
-                    content=self._build_task_event_content(
-                        task_id=turn_id or None,
-                        task="Codex turn",
-                        status="started",
-                        summary=f"Thread: {thread_id}",
-                    ),
-                    message_type="task",
-                    metadata={
-                        "codex_thread_id": thread_id,
-                        "codex_turn_id": turn_id or None,
-                        "codex_room_id": room_id,
-                    },
+                    history=history,
+                    tools=tools,
+                    is_session_bootstrap=is_session_bootstrap,
                 )
 
-            # Phase 2: Turn STARTED lifecycle event with input summary
-            if (
-                self.config.emit_turn_lifecycle_events
-                and Emit.TASK_EVENTS in self.features.emit
-            ):
-                input_summary = (msg.content or "")[:200]
+                turn_input, has_pending_prompt_injection = self._build_turn_input(
+                    msg=msg,
+                    participants_msg=participants_msg,
+                    contacts_msg=contacts_msg,
+                    room_id=room_id,
+                )
+
+                turn_params: dict[str, Any] = {
+                    "threadId": thread_id,
+                    "input": turn_input,
+                }
+                self._apply_turn_overrides(turn_params, room_id=room_id)
+
+                turn_started = await self._start_turn(turn_params)
+                if has_pending_prompt_injection:
+                    self._prompt_injected_rooms.add(room_id)
+                turn = (
+                    turn_started.get("turn") if isinstance(turn_started, dict) else {}
+                )
+                turn_id = str((turn or {}).get("id") or "")
+
+                if (
+                    Emit.TASK_EVENTS in self.features.emit
+                    and self.config.emit_turn_task_markers
+                ):
+                    try:
+                        await tools.send_event(
+                            content=self._build_task_event_content(
+                                task_id=turn_id or None,
+                                task="Codex turn",
+                                status="started",
+                                summary=f"Thread: {thread_id}",
+                            ),
+                            message_type="task",
+                            metadata={
+                                "codex_thread_id": thread_id,
+                                "codex_turn_id": turn_id or None,
+                                "codex_room_id": room_id,
+                            },
+                        )
+                    except Exception:
+                        logger.debug(
+                            "Failed to emit turn started task event", exc_info=True
+                        )
+
+                # Phase 2: Turn STARTED lifecycle event with input summary
+                if (
+                    self.config.emit_turn_lifecycle_events
+                    and Emit.TASK_EVENTS in self.features.emit
+                ):
+                    input_summary = (msg.content or "")[:200]
+                    try:
+                        await tools.send_event(
+                            content=self._build_task_event_content(
+                                task_id=turn_id or None,
+                                task="Codex turn lifecycle",
+                                status="started",
+                                summary=f"Thread: {thread_id}",
+                            ),
+                            message_type="task",
+                            metadata={
+                                "codex_event_type": "turn_lifecycle",
+                                "codex_room_id": room_id,
+                                "codex_thread_id": thread_id,
+                                "codex_turn_id": turn_id or None,
+                                "codex_turn_status": "started",
+                                "codex_input_summary": input_summary,
+                            },
+                        )
+                    except Exception:
+                        logger.debug(
+                            "Failed to emit turn started lifecycle event",
+                            exc_info=True,
+                        )
+
+                # Reset per-turn token deltas for the new turn.
+                usage_obj = self._token_usage.get(thread_id)
+                if usage_obj is not None:
+                    usage_obj.reset_turn_deltas()
+
+                # perf_counter (not monotonic): highest-resolution clock, so a fast
+                # turn still measures a non-zero duration on Windows, where
+                # monotonic()'s coarse tick can round an instant turn to 0.0.
+                _turn_start = _time.perf_counter()
                 try:
-                    await tools.send_event(
-                        content=self._build_task_event_content(
-                            task_id=turn_id or None,
-                            task="Codex turn lifecycle",
-                            status="started",
-                            summary=f"Thread: {thread_id}",
-                        ),
-                        message_type="task",
-                        metadata={
-                            "codex_event_type": "turn_lifecycle",
-                            "codex_room_id": room_id,
-                            "codex_thread_id": thread_id,
-                            "codex_turn_id": turn_id or None,
-                            "codex_turn_status": "started",
-                            "codex_input_summary": input_summary,
-                        },
+                    result = await self._process_turn_events(
+                        tools=tools,
+                        msg=msg,
+                        room_id=room_id,
+                        thread_id=thread_id,
+                        turn_id=turn_id or None,
+                        turn_start=_turn_start,
                     )
                 except Exception:
-                    logger.debug(
-                        "Failed to emit turn started lifecycle event",
-                        exc_info=True,
+                    logger.exception(
+                        "Unexpected error during Codex turn event processing "
+                        "(thread=%s, turn=%s)",
+                        thread_id,
+                        turn_id,
+                    )
+                    result = TurnResult(
+                        turn_status="failed",
+                        turn_error="Internal error during turn processing",
                     )
 
-            # Reset per-turn token deltas for the new turn.
-            usage_obj = self._token_usage.get(thread_id)
-            if usage_obj is not None:
-                usage_obj.reset_turn_deltas()
-
-            # perf_counter (not monotonic): highest-resolution clock, so a fast
-            # turn still measures a non-zero duration on Windows, where
-            # monotonic()'s coarse tick can round an instant turn to 0.0.
-            _turn_start = _time.perf_counter()
-            try:
-                result = await self._process_turn_events(
+                _turn_duration_s = _time.perf_counter() - _turn_start
+                await self._emit_turn_outcome(
                     tools=tools,
                     msg=msg,
                     room_id=room_id,
                     thread_id=thread_id,
                     turn_id=turn_id or None,
-                    turn_start=_turn_start,
+                    turn_status=result.turn_status,
+                    turn_error=result.turn_error,
+                    final_text=result.final_text,
+                    saw_send_message_tool=result.saw_send_message_tool,
+                    duration_s=_turn_duration_s,
                 )
-            except Exception:
-                logger.exception(
-                    "Unexpected error during Codex turn event processing "
-                    "(thread=%s, turn=%s)",
-                    thread_id,
-                    turn_id,
-                )
-                result = TurnResult(
-                    turn_status="failed",
-                    turn_error="Internal error during turn processing",
-                )
-
-            _turn_duration_s = _time.perf_counter() - _turn_start
-            await self._emit_turn_outcome(
-                tools=tools,
-                msg=msg,
-                room_id=room_id,
-                thread_id=thread_id,
-                turn_id=turn_id or None,
-                turn_status=result.turn_status,
-                turn_error=result.turn_error,
-                final_text=result.final_text,
-                saw_send_message_tool=result.saw_send_message_tool,
-                duration_s=_turn_duration_s,
-            )
+            except DeliveryFailedError as e:
+                # The turn did its work; posting it to the room is what failed.
+                # Band-side delivery, never a Codex provider failure.
+                logger.exception("Codex reply delivery failed: %s", e.cause)
+            except Exception as e:
+                await tools.send_failure(AgentFailure("codex", str(e)))
+                raise
 
     async def _process_turn_events(
         self,
@@ -985,7 +999,7 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
                     result.turn_status = str(turn_payload.get("status") or "failed")
                     result.turn_error = self._extract_turn_error(turn_payload)
                     # Phase 1: structured error for failed turns
-                    if result.turn_status == "failed" and self.config.structured_errors:
+                    if result.turn_status == "failed":
                         await self._emit_structured_turn_error(
                             tools=tools,
                             turn_payload=turn_payload,
@@ -1144,20 +1158,26 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
                     self._room_threads[room_id] = thread_id
                     self._raw_history_by_room.pop(room_id, None)
                     if Emit.TASK_EVENTS in self.features.emit:
-                        await tools.send_event(
-                            content=self._build_task_event_content(
-                                task_id=thread_id,
-                                task="Codex thread",
-                                status="resumed",
-                                summary=f"Room: {room_id}",
-                            ),
-                            message_type="task",
-                            metadata={
-                                "codex_thread_id": thread_id,
-                                "codex_room_id": room_id,
-                                "codex_resumed": True,
-                            },
-                        )
+                        try:
+                            await tools.send_event(
+                                content=self._build_task_event_content(
+                                    task_id=thread_id,
+                                    task="Codex thread",
+                                    status="resumed",
+                                    summary=f"Room: {room_id}",
+                                ),
+                                message_type="task",
+                                metadata={
+                                    "codex_thread_id": thread_id,
+                                    "codex_room_id": room_id,
+                                    "codex_resumed": True,
+                                },
+                            )
+                        except Exception:
+                            logger.debug(
+                                "Failed to emit thread resumed task event",
+                                exc_info=True,
+                            )
                     return thread_id
             except CodexJsonRpcError as exc:
                 logger.warning(
@@ -1191,21 +1211,24 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
         self._room_threads[room_id] = thread_id
 
         if Emit.TASK_EVENTS in self.features.emit:
-            await tools.send_event(
-                content=self._build_task_event_content(
-                    task_id=thread_id,
-                    task="Codex thread",
-                    status="mapped",
-                    summary=f"Transport: {self.config.transport}",
-                ),
-                message_type="task",
-                metadata={
-                    "codex_thread_id": thread_id,
-                    "codex_room_id": room_id,
-                    "codex_created_at": datetime.now(timezone.utc).isoformat(),
-                    "codex_transport": self.config.transport,
-                },
-            )
+            try:
+                await tools.send_event(
+                    content=self._build_task_event_content(
+                        task_id=thread_id,
+                        task="Codex thread",
+                        status="mapped",
+                        summary=f"Transport: {self.config.transport}",
+                    ),
+                    message_type="task",
+                    metadata={
+                        "codex_thread_id": thread_id,
+                        "codex_room_id": room_id,
+                        "codex_created_at": datetime.now(timezone.utc).isoformat(),
+                        "codex_transport": self.config.transport,
+                    },
+                )
+            except Exception:
+                logger.debug("Failed to emit thread mapped task event", exc_info=True)
 
         return thread_id
 
@@ -1669,16 +1692,19 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
                 metadata["codex_duration_s"] = round(duration_s, 2)
             if has_usage:
                 metadata.update(usage.to_metadata())
-            await tools.send_event(
-                content=self._build_task_event_content(
-                    task_id=turn_id,
-                    task="Codex turn",
-                    status=turn_status,
-                    summary=summary,
-                ),
-                message_type="task",
-                metadata=metadata,
-            )
+            try:
+                await tools.send_event(
+                    content=self._build_task_event_content(
+                        task_id=turn_id,
+                        task="Codex turn",
+                        status=turn_status,
+                        summary=summary,
+                    ),
+                    message_type="task",
+                    metadata=metadata,
+                )
+            except Exception:
+                logger.debug("Failed to emit turn outcome task event", exc_info=True)
 
         # Phase 2: Enriched turn lifecycle events
         if (
@@ -1724,11 +1750,12 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
                 and final_text.strip()
                 and not saw_send_message_tool
             ):
-                await tools.send_message(final_text.strip(), mentions=mention)
+                await deliver_reply(tools, final_text.strip(), mentions=mention)
             return
 
         if turn_status == "interrupted":
-            await tools.send_message(
+            await deliver_reply(
+                tools,
                 "I stopped before completing this request.",
                 mentions=mention,
             )
@@ -1739,7 +1766,7 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
             if not turn_error
             else f"I couldn't complete this request ({turn_status}): {turn_error}"
         )
-        await tools.send_message(error_text, mentions=mention)
+        await deliver_reply(tools, error_text, mentions=mention)
 
     async def _emit_item_completed_events(
         self,
@@ -2266,26 +2293,11 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
             return
 
         logger.error("Codex error: %s", error_msg)
-        if self.config.structured_errors:
-            content, err_meta = build_structured_error_metadata(
-                error_obj, thread_id=thread_id, turn_id=turn_id
+        await tools.send_failure(
+            build_agent_failure(
+                error_obj, thread_id=thread_id, turn_id=turn_id, room_id=room_id
             )
-            err_meta["codex_room_id"] = room_id
-            await tools.send_event(
-                content=content or f"Codex error: {error_msg}",
-                message_type="error",
-                metadata=err_meta,
-            )
-        else:
-            await tools.send_event(
-                content=f"Codex error: {error_msg}",
-                message_type="error",
-                metadata={
-                    "codex_room_id": room_id,
-                    "codex_thread_id": thread_id,
-                    "codex_turn_id": turn_id,
-                },
-            )
+        )
 
     async def _emit_structured_turn_error(
         self,
@@ -2298,20 +2310,15 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
     ) -> None:
         """Emit a structured error event when turn/completed reports failure."""
         error = turn_payload.get("error")
-        if not isinstance(error, dict):
+        if error is None:
             return
-        content, err_meta = build_structured_error_metadata(
-            error, thread_id=thread_id, turn_id=turn_id
-        )
-        err_meta["codex_room_id"] = room_id
-        try:
-            await tools.send_event(
-                content=content,
-                message_type="error",
-                metadata=err_meta,
+        if not isinstance(error, dict):
+            error = {"message": str(error)}
+        await tools.send_failure(
+            build_agent_failure(
+                error, thread_id=thread_id, turn_id=turn_id, room_id=room_id
             )
-        except Exception:
-            logger.debug("Failed to emit structured turn error", exc_info=True)
+        )
 
     # ------------------------------------------------------------------
     # Phase 2: Plan step tracking
@@ -2550,7 +2557,8 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
         mention = [{"id": msg.sender_id, "name": msg.sender_name or msg.sender_type}]
 
         if command == "help":
-            await tools.send_message(
+            await deliver_reply(
+                tools,
                 "Codex commands: "
                 "`/status`, `/model`, `/models`, `/model list`, `/models list`, `/model <id>`, "
                 "`/reasoning [none|minimal|low|medium|high|xhigh]`, "
@@ -2587,13 +2595,14 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
                 f"- token_usage: {usage_line}\n"
                 f"- turn_task_markers: {self.config.emit_turn_task_markers}"
             )
-            await tools.send_message(status_text, mentions=mention)
+            await deliver_reply(tools, status_text, mentions=mention)
             return True
 
         if command in {"model", "models"}:
             model_arg = args.strip()
             if not model_arg:
-                await tools.send_message(
+                await deliver_reply(
+                    tools,
                     "Current model: "
                     f"`{self._selected_model or 'unknown'}` "
                     f"(configured: `{self.config.model or 'auto'}`). "
@@ -2611,12 +2620,14 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
                     preview = ", ".join(models[:10])
                     if len(models) > 10:
                         preview += ", ..."
-                    await tools.send_message(
+                    await deliver_reply(
+                        tools,
                         f"Available models ({len(models)}): {preview}",
                         mentions=mention,
                     )
                 else:
-                    await tools.send_message(
+                    await deliver_reply(
+                        tools,
                         "No visible models returned by Codex app-server.",
                         mentions=mention,
                     )
@@ -2624,7 +2635,8 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
 
             self.config.model = model_arg
             self._selected_model = model_arg
-            await tools.send_message(
+            await deliver_reply(
+                tools,
                 f"Model override set to `{model_arg}` for subsequent turns.",
                 mentions=mention,
             )
@@ -2633,7 +2645,8 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
         if command == "reasoning":
             effort_arg = args.strip().lower()
             if not effort_arg:
-                await tools.send_message(
+                await deliver_reply(
+                    tools,
                     f"Current reasoning effort: `{self.config.reasoning_effort or 'default'}`. "
                     f"Summary: `{self.config.reasoning_summary or 'default'}`. "
                     f"Use `/reasoning <{'|'.join(sorted(_REASONING_EFFORTS))}>` to override.",
@@ -2641,14 +2654,16 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
                 )
                 return True
             if effort_arg not in _REASONING_EFFORTS:
-                await tools.send_message(
+                await deliver_reply(
+                    tools,
                     f"Invalid reasoning effort `{effort_arg}`. "
                     f"Valid values: {', '.join(sorted(_REASONING_EFFORTS))}.",
                     mentions=mention,
                 )
                 return True
             self.config.reasoning_effort = effort_arg  # type: ignore[assignment]  # Literal narrowed by Pydantic validation
-            await tools.send_message(
+            await deliver_reply(
+                tools,
                 f"Reasoning effort set to `{effort_arg}` for subsequent turns.",
                 mentions=mention,
             )
@@ -2657,7 +2672,8 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
         # --- Phase 1: /sandbox and /permissions commands ---
         if command == "sandbox":
             if self.config.sandbox_policy is not None:
-                await tools.send_message(
+                await deliver_reply(
+                    tools,
                     "Cannot override sandbox: a `sandbox_policy` is configured. "
                     "Remove `sandbox_policy` from config to use per-room `/sandbox` overrides.",
                     mentions=mention,
@@ -2666,7 +2682,8 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
             mode_arg = args.strip()
             if not mode_arg:
                 effective = self._effective_sandbox(room_id) or "default"
-                await tools.send_message(
+                await deliver_reply(
+                    tools,
                     f"Current sandbox: `{effective}`. "
                     "Use `/sandbox <read-only|workspace-write|danger-full-access>` to change.",
                     mentions=mention,
@@ -2678,7 +2695,8 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
             confirm_flag = "--confirm" in tokens
             mode_tokens = [tok for tok in tokens if tok != "--confirm"]
             if len(mode_tokens) != 1:
-                await tools.send_message(
+                await deliver_reply(
+                    tools,
                     "Usage: `/sandbox <read-only|workspace-write|danger-full-access> "
                     "[--confirm]`.",
                     mentions=mention,
@@ -2687,14 +2705,16 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
             mode_token = mode_tokens[0]
             normalized = self._normalize_sandbox_mode(mode_token)
             if normalized is None:
-                await tools.send_message(
+                await deliver_reply(
+                    tools,
                     f"Invalid sandbox mode `{mode_token}`. "
                     "Valid: read-only, workspace-write, danger-full-access.",
                     mentions=mention,
                 )
                 return True
             if normalized == "danger-full-access" and not confirm_flag:
-                await tools.send_message(
+                await deliver_reply(
+                    tools,
                     "Escalating to `danger-full-access` removes all sandbox "
                     "restrictions. Re-run with `--confirm` to proceed:\n"
                     "`/sandbox danger-full-access --confirm`",
@@ -2709,7 +2729,8 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
                     msg.sender_name or msg.sender_type or "unknown",
                 )
             self._sandbox_overrides[room_id] = normalized
-            await tools.send_message(
+            await deliver_reply(
+                tools,
                 f"Sandbox mode set to `{normalized}` for subsequent turns in this room.",
                 mentions=mention,
             )
@@ -2733,7 +2754,7 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
                         f"  - [{entry.timestamp}] {entry.method}: "
                         f"{entry.decision} by {entry.decided_by}"
                     )
-            await tools.send_message("\n".join(lines), mentions=mention)
+            await deliver_reply(tools, "\n".join(lines), mentions=mention)
             return True
 
         # --- Phase 2: /threads, /thread info, /thread archive ---
@@ -2742,22 +2763,22 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
             if command == "threads" or not subcommand:
                 # List all room->thread mappings
                 if not self._room_threads:
-                    await tools.send_message(
-                        "No active thread mappings.", mentions=mention
+                    await deliver_reply(
+                        tools, "No active thread mappings.", mentions=mention
                     )
                     return True
                 lines = ["Active thread mappings:"]
                 for rid, tid in self._room_threads.items():
                     current = " (current)" if rid == room_id else ""
                     lines.append(f"- room `{rid}` → thread `{tid}`{current}")
-                await tools.send_message("\n".join(lines), mentions=mention)
+                await deliver_reply(tools, "\n".join(lines), mentions=mention)
                 return True
 
             if subcommand == "info":
                 mapped_thread = self._room_threads.get(room_id)
                 if not mapped_thread:
-                    await tools.send_message(
-                        "No thread mapped for this room.", mentions=mention
+                    await deliver_reply(
+                        tools, "No thread mapped for this room.", mentions=mention
                     )
                     return True
                 usage = self._token_usage.get(mapped_thread)
@@ -2772,7 +2793,7 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
                     f"- room_id: {room_id}\n"
                     f"- token_usage: {usage_line}"
                 )
-                await tools.send_message(info_text, mentions=mention)
+                await deliver_reply(tools, info_text, mentions=mention)
                 return True
 
             if subcommand == "archive":
@@ -2781,7 +2802,8 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
                 self._token_usage.pop(mapped_thread or "", None)
                 self._raw_history_by_room.pop(room_id, None)
                 self._needs_history_injection.discard(room_id)
-                await tools.send_message(
+                await deliver_reply(
+                    tools,
                     f"Thread `{mapped_thread or 'none'}` archived. "
                     "A new thread will be created on next message.",
                     mentions=mention,
@@ -2794,19 +2816,22 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
         if command == "usage":
             mapped_thread = self._room_threads.get(room_id)
             if not mapped_thread:
-                await tools.send_message(
+                await deliver_reply(
+                    tools,
                     "No thread mapped for this room — no usage data.",
                     mentions=mention,
                 )
                 return True
             usage = self._token_usage.get(mapped_thread)
             if not usage or usage.total_tokens == 0:
-                await tools.send_message(
+                await deliver_reply(
+                    tools,
                     "No token usage recorded for this thread.",
                     mentions=mention,
                 )
                 return True
-            await tools.send_message(
+            await deliver_reply(
+                tools,
                 f"Thread `{mapped_thread}` — {usage.format_summary()}",
                 mentions=mention,
             )

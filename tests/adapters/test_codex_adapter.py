@@ -30,7 +30,7 @@ from band.integrations.codex.types import (
     CodexItemType,
     CodexSessionState,
     CodexTokenUsage,
-    build_structured_error_metadata,
+    build_agent_failure,
     parse_plan_steps,
 )
 from band.runtime.custom_tools import CustomToolDef
@@ -57,6 +57,11 @@ def make_platform_message(
 def events_of_type(tools: FakeAgentTools, message_type: str) -> list[dict[str, Any]]:
     """Events of ``message_type`` captured on ``tools.events_sent``."""
     return [e for e in tools.events_sent if e["message_type"] == message_type]
+
+
+def reported_failures(tools: FakeAgentTools) -> list[dict[str, Any]]:
+    """Every ``AgentFailure`` reported via ``send_failure``, as its wire dict."""
+    return [e["metadata"]["failure"] for e in events_of_type(tools, "error")]
 
 
 class ToolSchemaFakeTools(FakeAgentTools):
@@ -3320,6 +3325,11 @@ class TestHistoryInjection:
         model_list_calls = [m for m, _ in fake_client.requests if m == "model/list"]
         assert len(model_list_calls) == 0
 
+        failures = reported_failures(tools)
+        assert len(failures) == 1
+        assert failures[0]["provider"] == "codex"
+        assert "not available" in failures[0]["message"]
+
     @pytest.mark.asyncio
     async def test_model_selection_uses_default_when_model_list_empty(self) -> None:
         """Auto-selection uses the adapter default when Codex returns no visible models."""
@@ -3581,7 +3591,7 @@ class TestStructuredErrors:
         ]
         fake_client = FakeCodexClient(events=events)
         adapter = CodexAdapter(
-            config=CodexAdapterConfig(transport="ws", structured_errors=True),
+            config=CodexAdapterConfig(transport="ws"),
             client_factory=lambda _config: fake_client,
         )
         tools = ToolSchemaFakeTools()
@@ -3597,13 +3607,12 @@ class TestStructuredErrors:
             room_id="room-1",
         )
 
-        error_events = events_of_type(tools, "error")
-        assert len(error_events) == 1
-        meta = error_events[0]["metadata"]
-        assert meta["codex_error_type"] == "ContextWindowExceeded"
-        assert meta["codex_suggested_action"] == "compact_context"
-        assert meta["codex_is_retryable"] is False
-        assert "context window" in error_events[0]["content"].lower()
+        failures = reported_failures(tools)
+        assert len(failures) == 1
+        assert failures[0]["provider"] == "codex"
+        assert failures[0]["code"] == "ContextWindowExceeded"
+        assert failures[0]["detail"]["codex_is_retryable"] is False
+        assert "context window" in failures[0]["message"].lower()
 
     @pytest.mark.asyncio
     async def test_structured_error_from_failed_turn(self) -> None:
@@ -3629,7 +3638,7 @@ class TestStructuredErrors:
         ]
         fake_client = FakeCodexClient(events=events)
         adapter = CodexAdapter(
-            config=CodexAdapterConfig(transport="ws", structured_errors=True),
+            config=CodexAdapterConfig(transport="ws"),
             client_factory=lambda _config: fake_client,
         )
         tools = ToolSchemaFakeTools()
@@ -3645,51 +3654,9 @@ class TestStructuredErrors:
             room_id="room-1",
         )
 
-        error_events = events_of_type(tools, "error")
-        assert len(error_events) == 1
-        assert error_events[0]["metadata"]["codex_error_type"] == "UsageLimitExceeded"
-        assert (
-            error_events[0]["metadata"]["codex_suggested_action"] == "wait_or_upgrade"
-        )
-
-    @pytest.mark.asyncio
-    async def test_structured_errors_disabled_falls_back_to_plain_text(self) -> None:
-        """When structured_errors=False, errors use plain text format."""
-        events = [
-            _event_notification(
-                "error",
-                {
-                    "error": {
-                        "message": "Something failed",
-                        "codexErrorInfo": {"type": "ContextWindowExceeded"},
-                    },
-                    "willRetry": False,
-                },
-            ),
-            _turn_completed(),
-        ]
-        fake_client = FakeCodexClient(events=events)
-        adapter = CodexAdapter(
-            config=CodexAdapterConfig(transport="ws", structured_errors=False),
-            client_factory=lambda _config: fake_client,
-        )
-        tools = ToolSchemaFakeTools()
-
-        await adapter.on_started("Agent", "A coding agent")
-        await adapter.on_message(
-            make_platform_message(),
-            tools,
-            CodexSessionState(),
-            participants_msg=None,
-            contacts_msg=None,
-            is_session_bootstrap=True,
-            room_id="room-1",
-        )
-
-        error_events = events_of_type(tools, "error")
-        assert len(error_events) == 1
-        assert error_events[0]["content"] == "Codex error: Something failed"
-        assert "codex_error_type" not in error_events[0]["metadata"]
+        failures = reported_failures(tools)
+        assert len(failures) == 1
+        assert failures[0]["code"] == "UsageLimitExceeded"
 
 
 # ===========================================================================
@@ -4649,7 +4616,7 @@ class TestDiffsAndTokenUsage:
 
 
 class TestCodexTypes:
-    def test_build_structured_error_metadata_known_type(self) -> None:
+    def test_build_agent_failure_known_type(self) -> None:
 
         error_obj = {
             "message": "Context overflow",
@@ -4659,25 +4626,22 @@ class TestCodexTypes:
                 "retryable": False,
             },
         }
-        content, meta = build_structured_error_metadata(
-            error_obj, thread_id="t1", turn_id="turn-1"
-        )
-        assert "context window" in content.lower()
-        assert meta["codex_error_type"] == "ContextWindowExceeded"
-        assert meta["codex_suggested_action"] == "compact_context"
-        assert meta["codex_thread_id"] == "t1"
-        assert meta["codex_turn_id"] == "turn-1"
+        failure = build_agent_failure(error_obj, thread_id="t1", turn_id="turn-1")
+        assert failure.provider == "codex"
+        assert "context overflow" in failure.message.lower()
+        assert failure.code == "ContextWindowExceeded"
+        assert failure.detail["codex_thread_id"] == "t1"
+        assert failure.detail["codex_turn_id"] == "turn-1"
 
-    def test_build_structured_error_metadata_unknown_type(self) -> None:
+    def test_build_agent_failure_unknown_type(self) -> None:
 
         error_obj = {
             "message": "Something weird happened",
             "codexErrorInfo": {"type": "UnknownError"},
         }
-        content, meta = build_structured_error_metadata(error_obj)
-        assert content == "Something weird happened"
-        assert meta["codex_error_type"] == "UnknownError"
-        assert meta["codex_suggested_action"] is None
+        failure = build_agent_failure(error_obj)
+        assert failure.message == "Something weird happened"
+        assert failure.code == "UnknownError"
 
     def test_parse_plan_steps(self) -> None:
 
@@ -4758,9 +4722,8 @@ class TestCodexTypes:
         assert usage.total_tokens == 14822
 
     def test_config_new_flags_default_false(self) -> None:
-        """All new config flags default to False (except structured_errors=True)."""
+        """All new config flags default to False."""
         config = CodexAdapterConfig()
-        assert config.structured_errors is True
         assert config.stream_reasoning_events is False
         assert config.stream_plan_events is False
         assert config.stream_commentary_events is False
@@ -5720,7 +5683,7 @@ class TestTokenUsageEmission:
 
 
 class TestStructuredErrorNormalization:
-    """build_structured_error_metadata handling of non-standard inputs."""
+    """build_agent_failure handling of non-standard inputs."""
 
     def test_structured_error_with_string_error_obj(self) -> None:
         """_handle_error_event normalizes string error_obj before structuring.
@@ -5731,12 +5694,12 @@ class TestStructuredErrorNormalization:
         """
 
         # Simulate the normalization the adapter performs: convert string to
-        # {"message": <str>} before passing to build_structured_error_metadata.
+        # {"message": <str>} before passing to build_agent_failure.
         error_obj: dict[str, Any] = {"message": "raw string error"}
-        content, meta = build_structured_error_metadata(error_obj)
-        assert "raw string error" in content
+        failure = build_agent_failure(error_obj)
+        assert "raw string error" in failure.message
         # No codexErrorInfo -> no known error type.
-        assert meta["codex_error_type"] is None
+        assert failure.code is None
 
 
 class TestSessionApprovalKeying:
@@ -5885,58 +5848,50 @@ class TestApprovalAuditRecording:
 
 
 class TestStructuredErrorMappings:
-    """Cover every entry in CODEX_ERROR_REMEDIATION plus the fallback path."""
+    """build_agent_failure passes codexErrorInfo through verbatim -- no
+    remediation/suggested-action policy; that belongs to a consumer, not
+    this shared shape."""
 
     @pytest.mark.parametrize(
-        ("error_type", "expected_action", "expected_phrase"),
+        "error_type",
         [
-            ("HttpConnectionFailed", "check_connectivity", "http connection"),
-            ("SandboxError", "review_sandbox_policy", "sandbox"),
-            ("Unauthorized", "re_authenticate", "unauthorized"),
-            ("BadRequest", "check_input_format", "bad request"),
-            (
-                "ResponseTooManyFailedAttempts",
-                "retry_different_approach",
-                "failed attempts",
-            ),
+            "HttpConnectionFailed",
+            "SandboxError",
+            "Unauthorized",
+            "BadRequest",
+            "ResponseTooManyFailedAttempts",
         ],
     )
-    def test_known_error_type_maps_to_remediation(
-        self, error_type: str, expected_action: str, expected_phrase: str
-    ) -> None:
-
-        content, meta = build_structured_error_metadata(
+    def test_error_type_becomes_the_failure_code(self, error_type: str) -> None:
+        failure = build_agent_failure(
             {"codexErrorInfo": {"type": error_type, "retryable": True}}
         )
-        assert meta["codex_error_type"] == error_type
-        assert meta["codex_suggested_action"] == expected_action
-        assert meta["codex_is_retryable"] is True
-        assert expected_phrase in content.lower()
+        assert failure.code == error_type
+        assert failure.detail["codex_is_retryable"] is True
 
     def test_non_dict_codex_error_info_is_tolerated(self) -> None:
 
-        content, meta = build_structured_error_metadata(
+        failure = build_agent_failure(
             {"message": "boom", "codexErrorInfo": "not-a-dict"}
         )
-        assert meta["codex_error_type"] is None
-        assert content == "boom"
+        assert failure.code is None
+        assert failure.message == "boom"
 
     def test_missing_codex_error_info_falls_back_to_message(self) -> None:
 
-        content, meta = build_structured_error_metadata({"message": "network down"})
-        assert meta["codex_error_type"] is None
-        assert meta["codex_suggested_action"] is None
-        assert content == "network down"
+        failure = build_agent_failure({"message": "network down"})
+        assert failure.code is None
+        assert failure.message == "network down"
 
-    def test_additional_details_preserved_in_metadata(self) -> None:
+    def test_additional_details_preserved_in_detail(self) -> None:
 
-        _, meta = build_structured_error_metadata(
+        failure = build_agent_failure(
             {
                 "codexErrorInfo": {"type": "Unauthorized"},
                 "additionalDetails": {"hint": "refresh token"},
             }
         )
-        assert meta["codex_additional_details"] == {"hint": "refresh token"}
+        assert failure.detail["codex_additional_details"] == {"hint": "refresh token"}
 
 
 class TestSlashCommandCoverage:
@@ -6050,6 +6005,45 @@ class TestSlashCommandCoverage:
         assert len(perm_msgs) == 1
         assert "read-only" in perm_msgs[0]["content"]
 
+    @pytest.mark.asyncio
+    async def test_local_command_reply_delivery_failure_is_not_reported(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """/help's answer failing to post is Band-side delivery, not a Codex
+        provider failure -- deliver_reply's DeliveryFailedError must be
+        recognized and left unreported here."""
+
+        class FailingSendMessageTools(ToolSchemaFakeTools):
+            async def send_message(
+                self, content: str, mentions: list[dict[str, str]] | None = None
+            ) -> Any:
+                raise RuntimeError("platform rejected the message")
+
+        fake_client = FakeCodexClient()
+        adapter = CodexAdapter(
+            config=CodexAdapterConfig(transport="ws"),
+            client_factory=lambda _config: fake_client,
+        )
+        tools = FailingSendMessageTools()
+
+        await adapter.on_started("Agent", "A coding agent")
+        with caplog.at_level(logging.ERROR, logger="band.adapters.codex"):
+            await adapter.on_message(
+                make_platform_message(content="/help"),
+                tools,
+                CodexSessionState(),
+                participants_msg=None,
+                contacts_msg=None,
+                is_session_bootstrap=True,
+                room_id="room-1",
+            )
+
+        assert not tools.messages_sent
+        assert not reported_failures(tools)
+        assert any(
+            "Codex reply delivery failed" in record.message for record in caplog.records
+        )
+
 
 class TestMalformedPayloadTolerance:
     """Adapter must survive notifications that are missing or misshapen."""
@@ -6063,7 +6057,7 @@ class TestMalformedPayloadTolerance:
         ]
         fake_client = FakeCodexClient(events=events)
         adapter = CodexAdapter(
-            config=CodexAdapterConfig(transport="ws", structured_errors=True),
+            config=CodexAdapterConfig(transport="ws"),
             client_factory=lambda _config: fake_client,
         )
         tools = ToolSchemaFakeTools()
@@ -6078,6 +6072,10 @@ class TestMalformedPayloadTolerance:
             is_session_bootstrap=True,
             room_id="room-1",
         )
+
+        failures = reported_failures(tools)
+        assert len(failures) == 1
+        assert failures[0]["message"] == "oops"
 
     @pytest.mark.asyncio
     async def test_turn_completed_without_items_key(self) -> None:
@@ -6256,13 +6254,13 @@ class TestStructuredErrorDetailCap:
     def test_long_additional_details_string_is_truncated(self) -> None:
 
         long_detail = "x" * (_MAX_ERROR_DETAIL_CHARS + 500)
-        _, meta = build_structured_error_metadata(
+        failure = build_agent_failure(
             {
                 "codexErrorInfo": {"type": "Unauthorized"},
                 "additionalDetails": long_detail,
             }
         )
-        detail = meta["codex_additional_details"]
+        detail = failure.detail["codex_additional_details"]
         assert isinstance(detail, str)
         assert len(detail) < len(long_detail)
         assert "truncated" in detail
@@ -6271,24 +6269,24 @@ class TestStructuredErrorDetailCap:
         """Only string details are capped; dict/list payloads pass through."""
 
         payload = {"hint": "refresh token", "code": 401}
-        _, meta = build_structured_error_metadata(
+        failure = build_agent_failure(
             {
                 "codexErrorInfo": {"type": "Unauthorized"},
                 "additionalDetails": payload,
             }
         )
-        assert meta["codex_additional_details"] == payload
+        assert failure.detail["codex_additional_details"] == payload
 
     def test_empty_additional_details_is_dropped(self) -> None:
-        """Empty strings are not echoed into metadata."""
+        """Empty strings are not echoed into detail."""
 
-        _, meta = build_structured_error_metadata(
+        failure = build_agent_failure(
             {
                 "codexErrorInfo": {"type": "Unauthorized"},
                 "additionalDetails": "",
             }
         )
-        assert "codex_additional_details" not in meta
+        assert failure.detail is None
 
     def test_oversized_dict_additional_details_is_replaced_with_marker(
         self,
@@ -6305,13 +6303,13 @@ class TestStructuredErrorDetailCap:
         oversized_value = "x" * (_MAX_ERROR_DETAIL_CHARS + 500)
         payload = {"nested": {"blob": oversized_value}}
 
-        _, meta = build_structured_error_metadata(
+        failure = build_agent_failure(
             {
                 "codexErrorInfo": {"type": "Unauthorized"},
                 "additionalDetails": payload,
             }
         )
-        detail = meta["codex_additional_details"]
+        detail = failure.detail["codex_additional_details"]
         assert isinstance(detail, str)
         assert "truncated" in detail
         assert len(detail) < len(oversized_value)
@@ -6325,13 +6323,13 @@ class TestStructuredErrorDetailCap:
         circular: dict[str, Any] = {}
         circular["self"] = circular
 
-        _, meta = build_structured_error_metadata(
+        failure = build_agent_failure(
             {
                 "codexErrorInfo": {"type": "Unauthorized"},
                 "additionalDetails": circular,
             }
         )
-        assert "codex_additional_details" not in meta
+        assert failure.detail is None
 
 
 class TestDiffByteCap:
