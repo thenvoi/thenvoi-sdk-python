@@ -212,7 +212,7 @@ class LettaAdapter(SimpleAdapter[LettaSessionState]):
         is already rejected at config construction — see LettaAdapterConfig).
         """
         try:
-            from letta_client import AsyncLetta  # type: ignore[import-not-found]  # optional dependency
+            from letta_client import AsyncLetta  # type: ignore[import-not-found]  # optional dependency  # noqa: PLC0415
         except ImportError:
             raise ImportError(
                 "letta-client is required for LettaAdapter. "

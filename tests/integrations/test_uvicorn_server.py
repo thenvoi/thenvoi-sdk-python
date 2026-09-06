@@ -14,6 +14,7 @@ import httpx
 import pytest
 from sse_starlette.sse import AppStatus
 
+import band.integrations.uvicorn_server as uvicorn_server_module
 from band.integrations.uvicorn_server import ManagedUvicornServer, wait_until_started
 
 from tests.lifecycle import backgrounded, running
@@ -127,7 +128,6 @@ async def test_start_cleans_up_when_the_startup_wait_fails(
 ) -> None:
     """A failed/timed-out startup wait must still tell uvicorn to exit and
     clear server state, not leave a listening socket and stray task behind."""
-    import band.integrations.uvicorn_server as uvicorn_server_module
 
     async def failing_wait_until_started(*args: object, **kwargs: object) -> None:
         raise TimeoutError("simulated startup failure")

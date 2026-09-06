@@ -21,17 +21,20 @@ from async_lru import alru_cache
 from pydantic import BaseModel
 
 from band.client.rest import (
+    AgentMemoryCreateRequest,
     ChatEventRequest,
     ChatMessageRequest,
     ChatMessageRequestMentionsItem,
     ChatRoomRequest,
     DEFAULT_REQUEST_OPTIONS,
     NotFoundError,
+    ParticipantRequest,
     UnprocessableEntityError,
 )
 from band.platform.posting import post_event, post_message
 from band.config.settings import RuntimeSettings
 from band.runtime.capabilities import with_hub_room_contacts
+from band.runtime.context_serialization import context_item_to_dict
 from band.runtime.participants import log_roster_call, participant_snapshot
 from band.core.content import has_visible_content
 from band.core.exceptions import BandToolError
@@ -469,8 +472,6 @@ class AgentTools(AgentToolsProtocol):
         first. Used by state-reconstruction adapters (e.g. CrewAI Flow) to
         rebuild durable run state from task events.
         """
-        from band.runtime.context_serialization import context_item_to_dict
-
         response = await self.rest.agent_api_context.get_agent_chat_context(
             chat_id=room_id,
             page=page,
@@ -516,8 +517,6 @@ class AgentTools(AgentToolsProtocol):
         Raises:
             ValueError: If participant not found
         """
-        from band.client.rest import ParticipantRequest
-
         logger.debug(
             "Adding participant '%s' with role '%s' to room %s",
             identifier,
@@ -974,8 +973,6 @@ class AgentTools(AgentToolsProtocol):
             Fern Memory model (Pydantic). Serialized to dict by
             execute_tool_call() at the adapter boundary.
         """
-        from band.client.rest import AgentMemoryCreateRequest
-
         band_sdk_core.validate_memory_type_for_system(system, type)
         validate_subject_scope(MemoryStoreScope(scope), subject_id)
 

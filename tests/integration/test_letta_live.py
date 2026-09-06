@@ -30,6 +30,8 @@ from uuid import uuid4
 
 import pytest
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from letta_client import AsyncLetta, NotFoundError
+from band.adapters.letta import LettaAdapter, LettaAdapterConfig, LettaMCPConfig
 
 from band.integrations.letta.orgscope import resolve_org_scoped_headers
 
@@ -71,8 +73,6 @@ async def _make_client() -> object:
     this helper must resolve org-scoped headers the same way the adapter's
     on_started does, not rely on the default org.
     """
-    from letta_client import AsyncLetta
-
     client_kwargs: dict[str, object] = {"base_url": LETTA_BASE_URL}
     if LETTA_API_KEY:
         client_kwargs["api_key"] = LETTA_API_KEY
@@ -127,7 +127,6 @@ async def test_adapter_self_hosted_mcp_registration() -> None:
     that URL reports the band platform tools (i.e. Letta could actually reach
     the server — discovery is a live MCP round-trip, not a config echo).
     """
-    from band.adapters.letta import LettaAdapter, LettaAdapterConfig, LettaMCPConfig
 
     loopback = LETTA_MCP_ADVERTISED_HOST in ("127.0.0.1", "localhost")
     adapter = LettaAdapter(
@@ -164,10 +163,6 @@ async def test_two_instances_stay_isolated_in_shared_org() -> None:
     band_send_message tool row to its own MCP server — the first instance's
     agent then routes tool calls into the wrong instance's identity.
     """
-    from letta_client import NotFoundError
-
-    from band.adapters.letta import LettaAdapter, LettaAdapterConfig, LettaMCPConfig
-
     loopback = LETTA_MCP_ADVERTISED_HOST in ("127.0.0.1", "localhost")
     # A unique suffix per run guarantees each adapter lands in a genuinely
     # fresh org (not an already-seeded one from a prior run), which is what
