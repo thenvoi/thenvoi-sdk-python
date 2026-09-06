@@ -15,6 +15,7 @@ from uuid import uuid4
 from a2a.server.agent_execution import AgentExecutor, RequestContext
 from a2a.server.events import EventQueue
 from a2a.types import Task, TaskState, TaskStatus
+from band_sdk_core import AgentFailure
 from typing_extensions import Unpack
 
 from band.client.rest import (
@@ -77,6 +78,29 @@ def slugify(name: str) -> str:
     slug = name.lower()
     slug = re.sub(r"[^a-z0-9]+", "-", slug)  # Replace non-alphanumeric with -
     return slug.strip("-")  # Remove leading/trailing dashes
+
+
+_GATEWAY_ERROR_MAX_CHARS = 240
+_BEARER_TOKEN_RE = re.compile(r"Bearer\s+[^\s,;]+", re.IGNORECASE)
+_CREDENTIAL_KV_RE = re.compile(
+    r"(token|authorization|api[_-]?key)\s*[:=]\s*[^\s,;]+", re.IGNORECASE
+)
+
+
+def _sanitize_gateway_error_message(exc: BaseException) -> str:
+    """Redact bearer tokens/API keys before an internal exception message
+    reaches an external A2A client, and cap its length.
+
+    Mirrors the TS SDK's ``sanitizeGatewayErrorMessage``.
+    """
+    trimmed = str(exc).strip()
+    if not trimmed:
+        return "Unknown error"
+    redacted = _BEARER_TOKEN_RE.sub("Bearer [REDACTED]", trimmed)
+    redacted = _CREDENTIAL_KV_RE.sub(r"\1=[REDACTED]", redacted)
+    if len(redacted) <= _GATEWAY_ERROR_MAX_CHARS:
+        return redacted
+    return f"{redacted[: _GATEWAY_ERROR_MAX_CHARS - 3]}..."
 
 
 class A2AGatewayAdapter(SimpleAdapter[GatewaySessionState]):
@@ -339,14 +363,19 @@ class A2AGatewayAdapter(SimpleAdapter[GatewaySessionState]):
                 request.pending.task.id,
             )
             raise
-        except Exception:
+        except Exception as exc:
             logger.exception(
                 "A2A request failed: room=%s context=%s task=%s",
                 request.room_id,
                 request.context_id,
                 request.pending.task.id,
             )
-            await request.pending.fail("A2A request failed")
+            failure = AgentFailure(
+                "a2a-gateway",
+                _sanitize_gateway_error_message(exc),
+                type(exc).__name__,
+            )
+            await request.pending.fail("A2A request failed", failure=failure.to_dict())
             raise
         else:
             if completed:
@@ -427,7 +456,12 @@ class A2AGatewayAdapter(SimpleAdapter[GatewaySessionState]):
                 request.pending.task.id,
                 self.config.response_timeout_s,
             )
-            await request.pending.fail("Timed out waiting for a Band response")
+            failure = AgentFailure(
+                "a2a-gateway", "Timed out waiting for a Band response", "Timeout"
+            )
+            await request.pending.fail(
+                "Timed out waiting for a Band response", failure=failure.to_dict()
+            )
             return False
         return True
 
@@ -554,7 +588,13 @@ class A2AGatewayAdapter(SimpleAdapter[GatewaySessionState]):
     ) -> None:
         """Translate Band's message category into an A2A task intent."""
         if msg.message_type == "error":
-            await pending.fail(msg.content)
+            # The peer's own adapter already built this AgentFailure (see
+            # to_failure_event) -- relay it as-is rather than re-tagging its
+            # provider as "a2a-gateway".
+            failure = (
+                msg.metadata.get("failure") if isinstance(msg.metadata, dict) else None
+            )
+            await pending.fail(msg.content, failure=failure)
         elif msg.message_type in ("thought", "tool_call", "tool_result"):
             await pending.report_progress(msg.content)
         else:
