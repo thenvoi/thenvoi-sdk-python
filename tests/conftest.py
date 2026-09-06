@@ -229,6 +229,32 @@ def isolated_adapter_config_env(request, monkeypatch):
     yield
 
 
+@pytest.fixture(autouse=True)
+def _reset_leaked_threading_instrumentation() -> None:
+    """Undo OpenTelemetry's ThreadingInstrumentor if a test left it patched.
+
+    Constructing a real Strands ``Tracer`` (tests/adapters/test_strands_adapter.py
+    and friends, which build a live strands.Agent) unconditionally calls
+    ``ThreadingInstrumentor().instrument()`` and never undoes it -- correct for a
+    long-lived process, but it globally monkeypatches ``threading.Thread.start``
+    for the rest of the pytest session. Left in place, an unrelated later test
+    that spawns a thread during interpreter/logging shutdown (e.g.
+    tests/example_agents/test_otel_setup.py flushing via ``LoggingHandler.flush()``)
+    can deadlock inside the wrapped ``start()``.
+    """
+    yield
+    try:
+        # Only present when an adapter that pulls it in (e.g. strands) is installed.
+        from opentelemetry.instrumentation.threading import (  # noqa: PLC0415
+            ThreadingInstrumentor,
+        )
+    except ImportError:
+        return
+    instrumentor = ThreadingInstrumentor()
+    if instrumentor.is_instrumented_by_opentelemetry:
+        instrumentor.uninstrument()
+
+
 @pytest.fixture
 def assert_no_leaked_adapter_config_env() -> None:
     """Fail loudly if a CODEX_/LETTA_/OPENCODE_ var reached this test.
