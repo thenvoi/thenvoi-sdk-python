@@ -158,7 +158,7 @@ async def test_adapter_self_hosted_mcp_registration() -> None:
 async def test_two_instances_stay_isolated_in_shared_org() -> None:
     """Two adapter instances on one shared self-hosted Letta stay isolated.
 
-    Regression test for the org+user scoping fix (INT-985): without it,
+    Regression test for the org+user scoping fix: without it,
     Letta dedupes MCP-discovered Tool rows by (name, organization_id), so a
     second instance's registration silently re-points the first instance's
     band_send_message tool row to its own MCP server — the first instance's

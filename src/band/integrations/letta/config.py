@@ -28,9 +28,16 @@ def is_letta_cloud_url(base_url: str) -> bool:
     Compares hostnames, not raw strings, so casing and a trailing slash never
     cause a Cloud URL to be misclassified as self-hosted; ``.strip()`` closes
     the same gap for incidental whitespace (e.g. an unquoted .env value).
+    ``urlsplit`` only parses a hostname out of a scheme-relative or absolute
+    URL, so a scheme-less value (e.g. a ``LETTA_BASE_URL`` config typo like
+    ``"api.letta.com"``) gets a synthetic ``//`` prefix first — otherwise its
+    hostname reads back ``None``, silently misclassifying Cloud as self-hosted.
     """
+    url = base_url.strip()
+    if "://" not in url:
+        url = f"//{url}"
     try:
-        return urlsplit(base_url.strip()).hostname == _LETTA_CLOUD_HOSTNAME
+        return urlsplit(url).hostname == _LETTA_CLOUD_HOSTNAME
     except ValueError:
         return False
 

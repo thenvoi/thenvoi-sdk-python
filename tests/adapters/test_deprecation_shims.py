@@ -172,6 +172,7 @@ class TestLettaOrgScopedConfig:
             "https://api.letta.com",
             "https://API.LETTA.COM/",
             "  https://api.letta.com  ",
+            "api.letta.com",
         ],
     )
     def test_letta_org_scoped_and_cloud_conflict(self, base_url: str) -> None:

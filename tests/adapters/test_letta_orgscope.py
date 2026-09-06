@@ -1,8 +1,8 @@
-"""Unit tests for Letta self-hosted org/user provisioning (INT-985).
+"""Unit tests for Letta self-hosted org/user provisioning.
 
 Interception is the maintained ``pytest-httpx`` ``httpx_mock`` fixture (the
 pattern in ``tests/platform/test_link_credentials.py``) — it patches httpx
-globally, so it observes ``LettaOrgScopeClient``'s real per-call
+globally, so it observes ``LettaOrgScopeClient``'s real
 ``httpx.AsyncClient`` with no injected seam.
 """
 

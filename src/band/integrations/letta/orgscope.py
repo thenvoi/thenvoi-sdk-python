@@ -15,7 +15,7 @@ exposed by the ``letta_client`` SDK, hence the raw ``httpx`` calls here.
 from __future__ import annotations
 
 import logging
-from typing import Callable
+from typing import Any, Callable
 
 import httpx
 
@@ -42,25 +42,23 @@ class LettaOrgScopeClient:
         bearer_token: str | None,
         timeout_s: float = _DEFAULT_TIMEOUT_S,
     ) -> None:
-        self._base_url = base_url.rstrip("/")
-        self._headers = (
-            {"Authorization": f"Bearer {bearer_token}"} if bearer_token else {}
+        headers = {"Authorization": f"Bearer {bearer_token}"} if bearer_token else {}
+        self._http = httpx.AsyncClient(
+            base_url=base_url.rstrip("/"), headers=headers, timeout=timeout_s
         )
-        self._timeout_s = timeout_s
+
+    async def aclose(self) -> None:
+        await self._http.aclose()
 
     async def find_or_create_organization(self, name: str) -> str:
         """The id of the organization named ``name``, creating it if absent."""
-        async with self._client() as client:
-            existing = await self._paginated_find(
-                client, f"{_ADMIN_PREFIX}/orgs/", match=lambda org: org["name"] == name
-            )
-            if existing is not None:
-                return existing["id"]
-            response = await client.post(f"{_ADMIN_PREFIX}/orgs/", json={"name": name})
-            response.raise_for_status()
-            org = response.json()
-            logger.info("Created Letta organization %r (id=%s)", name, org["id"])
-            return org["id"]
+        org = await self._find_or_create(
+            f"{_ADMIN_PREFIX}/orgs/",
+            match=lambda org: org["name"] == name,
+            payload={"name": name},
+            log_label=f"organization {name!r}",
+        )
+        return org["id"]
 
     async def find_or_create_user(self, name: str, *, organization_id: str) -> str:
         """The id of the user named ``name`` under ``organization_id``.
@@ -72,44 +70,36 @@ class LettaOrgScopeClient:
         real possibility, not a hypothetical one, and matching by name
         alone would adopt it (landing in the wrong org).
         """
-        async with self._client() as client:
-            existing = await self._paginated_find(
-                client,
-                f"{_ADMIN_PREFIX}/users/",
-                match=lambda user: (
-                    user["name"] == name and user["organization_id"] == organization_id
-                ),
-            )
-            if existing is not None:
-                return existing["id"]
-            response = await client.post(
-                f"{_ADMIN_PREFIX}/users/",
-                json={"name": name, "organization_id": organization_id},
-            )
-            response.raise_for_status()
-            user = response.json()
-            logger.info(
-                "Created Letta user %r (id=%s) in organization %s",
-                name,
-                user["id"],
-                organization_id,
-            )
-            return user["id"]
-
-    def _client(self) -> httpx.AsyncClient:
-        return httpx.AsyncClient(
-            base_url=self._base_url,
-            headers=self._headers,
-            timeout=self._timeout_s,
+        user = await self._find_or_create(
+            f"{_ADMIN_PREFIX}/users/",
+            match=lambda user: (
+                user["name"] == name and user["organization_id"] == organization_id
+            ),
+            payload={"name": name, "organization_id": organization_id},
+            log_label=f"user {name!r} in organization {organization_id}",
         )
+        return user["id"]
 
-    @staticmethod
-    async def _paginated_find(
-        client: httpx.AsyncClient,
+    async def _find_or_create(
+        self,
         path: str,
         *,
         match: _Match,
-    ) -> dict | None:
+        payload: dict[str, Any],
+        log_label: str,
+    ) -> dict:
+        """The first item on ``path`` matching ``match``, creating one from
+        ``payload`` if none does."""
+        existing = await self._paginated_find(path, match=match)
+        if existing is not None:
+            return existing
+        response = await self._http.post(path, json=payload)
+        response.raise_for_status()
+        created = response.json()
+        logger.info("Created Letta %s (id=%s)", log_label, created["id"])
+        return created
+
+    async def _paginated_find(self, path: str, *, match: _Match) -> dict | None:
         """The first item on ``path`` satisfying ``match``, paging via ``after``.
 
         Letta's own seeded default user has a null ``created_at``, and its
@@ -125,7 +115,7 @@ class LettaOrgScopeClient:
         """
         after: str | None = None
         for _ in range(_MAX_PAGINATION_PAGES):
-            response = await client.get(
+            response = await self._http.get(
                 path, params={"after": after} if after else None
             )
             response.raise_for_status()
@@ -155,8 +145,11 @@ async def resolve_org_scoped_headers(
         )
     scope_name = f"band-{agent_name}"
     scope_client = LettaOrgScopeClient(base_url=base_url, bearer_token=bearer_token)
-    organization_id = await scope_client.find_or_create_organization(scope_name)
-    user_id = await scope_client.find_or_create_user(
-        scope_name, organization_id=organization_id
-    )
+    try:
+        organization_id = await scope_client.find_or_create_organization(scope_name)
+        user_id = await scope_client.find_or_create_user(
+            scope_name, organization_id=organization_id
+        )
+    finally:
+        await scope_client.aclose()
     return {"user_id": user_id}

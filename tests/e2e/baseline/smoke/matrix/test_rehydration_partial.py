@@ -43,7 +43,7 @@ Letta stored MCP tools by name at organization scope and re-pointed the shared
 ``band_send_message`` row to whichever instance registered most recently. With two
 Letta agents live in one org, the rebooted agent *did* answer, but its send routed
 through the peer's MCP server and posted under the peer's identity, so the
-stayer-scoped reply was never observed. INT-985 fixed this by provisioning each
+stayer-scoped reply was never observed. This was fixed by provisioning each
 adapter instance its own Letta organization/user, so ``letta`` now runs this
 scenario like every other adapter.
 
