@@ -34,6 +34,7 @@ class TestTurnFailure:
         assert dead.disconnected
         error_events = [e for e in tools.events_sent if e["message_type"] == "error"]
         assert error_events
+        assert error_events[0]["metadata"]["failure"]["provider"] == "copilot_sdk"
 
         # ...so the next message starts clean, resuming by the stored id.
         await run_message(adapter, tools, is_session_bootstrap=False)
@@ -70,3 +71,18 @@ class TestTurnFailure:
             await run_message(adapter, tools)
 
         assert not tools.messages_sent
+
+    @pytest.mark.asyncio
+    async def test_session_creation_failure_is_reported(self):
+        """Previously fully uncaught: session setup ran outside on_message's
+        try entirely, so a create_session failure escaped with zero report."""
+        client = FakeCopilotClient(create_error=RuntimeError("Copilot CLI unreachable"))
+        adapter = await make_started_adapter(client)
+        tools = ToolSchemaFakeTools()
+
+        with pytest.raises(RuntimeError, match="Copilot CLI unreachable"):
+            await run_message(adapter, tools)
+
+        error_events = [e for e in tools.events_sent if e["message_type"] == "error"]
+        assert error_events
+        assert error_events[0]["metadata"]["failure"]["provider"] == "copilot_sdk"
