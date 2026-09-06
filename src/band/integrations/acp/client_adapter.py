@@ -11,11 +11,14 @@ from typing import Any, ClassVar
 from uuid import uuid4
 
 from acp import spawn_agent_process
+from acp.exceptions import RequestError
 from acp.schema import HttpMcpServer, SseMcpServer
+from band_sdk_core import AgentFailure
 from typing_extensions import Unpack
 
 from band.converters.acp_client import ACPClientHistoryConverter
 from band.converters.helpers import build_replay_messages
+from band.core.delivery import DeliveryFailedError
 from band.core.protocols import AgentToolsProtocol
 from band.core.simple_adapter import SimpleAdapter
 from band.core.types import (
@@ -123,6 +126,18 @@ def _resolve_launcher(command: list[str]) -> list[str]:
         return command
     resolved = shutil.which(command[0])
     return [resolved, *command[1:]] if resolved else list(command)
+
+
+def _to_agent_failure(exc: Exception) -> AgentFailure:
+    """Parse a turn-ending exception into the shared provider-failure shape.
+
+    ``RequestError`` is raised for a JSON-RPC error the remote agent
+    returned; its numeric ``code``/``data`` carry more than the generic
+    message alone.
+    """
+    if isinstance(exc, RequestError):
+        return AgentFailure("acp", str(exc), str(exc.code), exc.data)
+    return AgentFailure("acp", str(exc))
 
 
 class ACPClientAdapter(SimpleAdapter[ACPClientSessionState]):
@@ -357,14 +372,14 @@ class ACPClientAdapter(SimpleAdapter[ACPClientSessionState]):
                     prompt_text=prompt_text,
                     on_chunk=emitter.emit,
                 )
+        except DeliveryFailedError as e:
+            # The turn's reply is what failed to post -- Band-side delivery,
+            # never an ACP provider failure, so the connection stays up.
+            logger.exception("ACP reply delivery failed: %s", e.cause)
         except Exception as e:
             logger.exception("ACP agent error: %s", e)
             await self.stop()
-            await tools.send_event(
-                content=f"ACP agent error: {e}",
-                message_type="error",
-                metadata={"acp_error": str(e)},
-            )
+            await tools.send_failure(_to_agent_failure(e))
 
     def _make_permission_handler(
         self,
