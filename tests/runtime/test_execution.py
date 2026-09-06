@@ -851,7 +851,6 @@ class TestCrashRecoverySync:
         self, mock_link_with_next, mock_handler
     ):
         """Processed WebSocket replay should not call mark_processing or execute."""
-
         ctx = ExecutionContext(
             "room-123",
             mock_link_with_next,

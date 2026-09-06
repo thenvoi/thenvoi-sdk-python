@@ -56,6 +56,7 @@ from band.platform.event import (
     ContactRemovedEvent,
 )
 from band.platform.link import BandLink
+from band.runtime.single_instance import SingleInstanceGuard
 from band.runtime.types import PlatformMessage
 
 from tests.paths import ENV_TEST_FILE
@@ -186,8 +187,6 @@ def isolated_single_instance_lock(request, tmp_path_factory, monkeypatch):
         yield
         return
 
-    from band.runtime.single_instance import SingleInstanceGuard
-
     lock_dir: list = []
     created: list[SingleInstanceGuard] = []
 
@@ -228,6 +227,32 @@ def isolated_adapter_config_env(request, monkeypatch):
         if key.startswith(_ADAPTER_CONFIG_ENV_PREFIXES):
             monkeypatch.delenv(key, raising=False)
     yield
+
+
+@pytest.fixture(autouse=True)
+def _reset_leaked_threading_instrumentation() -> None:
+    """Undo OpenTelemetry's ThreadingInstrumentor if a test left it patched.
+
+    Constructing a real Strands ``Tracer`` (tests/adapters/test_strands_adapter.py
+    and friends, which build a live strands.Agent) unconditionally calls
+    ``ThreadingInstrumentor().instrument()`` and never undoes it -- correct for a
+    long-lived process, but it globally monkeypatches ``threading.Thread.start``
+    for the rest of the pytest session. Left in place, an unrelated later test
+    that spawns a thread during interpreter/logging shutdown (e.g.
+    tests/example_agents/test_otel_setup.py flushing via ``LoggingHandler.flush()``)
+    can deadlock inside the wrapped ``start()``.
+    """
+    yield
+    try:
+        # Only present when an adapter that pulls it in (e.g. strands) is installed.
+        from opentelemetry.instrumentation.threading import (  # noqa: PLC0415
+            ThreadingInstrumentor,
+        )
+    except ImportError:
+        return
+    instrumentor = ThreadingInstrumentor()
+    if instrumentor.is_instrumented_by_opentelemetry:
+        instrumentor.uninstrument()
 
 
 @pytest.fixture

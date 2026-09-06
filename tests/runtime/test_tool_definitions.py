@@ -9,7 +9,7 @@ Tests:
 """
 
 import pytest
-from pydantic import ValidationError
+from pydantic import BaseModel, Field, ValidationError, field_validator
 
 from band.runtime.tools import (
     TOOL_MODELS,
@@ -347,7 +347,6 @@ class TestGetToolDocstringWithArgs:
         an empty result, which would crash any adapter importing this tool's
         schema.
         """
-        from pydantic import BaseModel, Field
 
         class ProbeInput(BaseModel):
             """Probe tool for a whitespace-only field description."""
@@ -413,8 +412,6 @@ class TestPlatformArgsSchema:
         )
 
     def test_subclass_keeps_master_description_and_field_text(self):
-        from pydantic import field_validator
-
         schema = platform_args_schema(
             "band_send_message",
             validators={

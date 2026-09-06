@@ -43,6 +43,7 @@ from band.runtime.tools import (
     SendEventInput,
     StoreMemoryInput,
     AddParticipantInput,
+    RemoveParticipantInput,
     LookupPeersInput,
     GetParticipantsInput,
     CreateChatroomInput,
@@ -1277,7 +1278,6 @@ class TestAgentToolsContextSyncBack:
         Uses real ExecutionContext — its ``participants`` property returns a
         copy, so without the _ctx backref the mutation would be lost.
         """
-        from band.runtime.execution import ExecutionContext
 
         ctx = ExecutionContext(
             room_id="room-789",
@@ -1311,7 +1311,6 @@ class TestAgentToolsContextSyncBack:
         Uses real ExecutionContext — its ``participants`` property returns a
         copy, so without the _ctx backref the removal would be lost.
         """
-        from band.runtime.execution import ExecutionContext
 
         participant = {
             "id": "user-1",
@@ -1396,7 +1395,6 @@ class TestAgentToolsSendMessage:
     ):
         """The empty-mentions error lists other participants but not the agent
         itself — an agent can't @mention itself."""
-        from band.core.exceptions import BandToolError
 
         tools = AgentTools(
             "room-123", mock_rest_client, participants, agent_id="user-2"
@@ -1772,7 +1770,6 @@ class TestAgentToolsGetParticipants:
         """get_participants() must make the ctx roster follow the REST list —
         stale entries drop (even ctx-only ones this AgentTools never saw) and
         new ones appear — so the refresh survives turn boundaries."""
-        from band.runtime.execution import ExecutionContext
 
         ctx = ExecutionContext(
             room_id="room-123",
@@ -2076,7 +2073,6 @@ class TestEmptyMentionsValidation:
         self, mock_rest_client, participants
     ):
         """Should raise BandToolError listing available participants when mentions empty."""
-        from band.core.exceptions import BandToolError
 
         tools = AgentTools("room-123", mock_rest_client, participants)
 
@@ -2094,7 +2090,6 @@ class TestEmptyMentionsValidation:
         self, mock_rest_client, participants
     ):
         """Should raise BandToolError when mentions is None."""
-        from band.core.exceptions import BandToolError
 
         tools = AgentTools("room-123", mock_rest_client, participants)
 
@@ -2103,7 +2098,6 @@ class TestEmptyMentionsValidation:
 
     async def test_uses_handle_when_available(self, mock_rest_client):
         """Should prefer handle over name in error message."""
-        from band.core.exceptions import BandToolError
 
         participants = [
             {"id": "user-1", "name": "User One", "type": "User", "handle": "@user-one"},
@@ -2115,7 +2109,6 @@ class TestEmptyMentionsValidation:
 
     async def test_omits_participant_without_handle(self, mock_rest_client):
         """Should omit handle-less participants — they can't be @mentioned."""
-        from band.core.exceptions import BandToolError
 
         participants = [
             {"id": "user-1", "name": "User One", "type": "User"},
@@ -2149,7 +2142,6 @@ class TestEmptyMentionsValidation:
         self, mock_rest_client, participants
     ):
         """execute_tool_call lets BandToolError propagate for wrapper translation."""
-        from band.core.exceptions import BandToolError
 
         tools = AgentTools("room-123", mock_rest_client, participants)
 
@@ -2341,7 +2333,6 @@ class TestToolInputModels:
 
     def test_remove_participant_input_accepts_legacy_name_field(self):
         """RemoveParticipantInput should accept 'name' as alias for backward compat."""
-        from band.runtime.tools import RemoveParticipantInput
 
         model = RemoveParticipantInput.model_validate({"name": "User One"})
         assert model.identifier == "User One"
