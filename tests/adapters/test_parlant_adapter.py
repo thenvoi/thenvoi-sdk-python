@@ -803,7 +803,7 @@ class TestErrorHandling:
     async def test_reports_error_on_session_init_failure(
         self, mock_parlant_server, mock_parlant_agent, sample_message, mock_tools
     ):
-        """A session-creation failure reports and returns without raising."""
+        """A session-creation failure is reported, then fails the turn."""
         adapter = ParlantAdapter(
             server=mock_parlant_server,
             parlant_agent=mock_parlant_agent,
@@ -815,16 +815,16 @@ class TestErrorHandling:
         mock_app.sessions.create = AsyncMock(side_effect=Exception("db unreachable"))
         adapter._app = mock_app
 
-        # Must not raise: session init failures are reported, not propagated.
-        await adapter.on_message(
-            msg=sample_message,
-            tools=mock_tools,
-            history=[],
-            participants_msg=None,
-            contacts_msg=None,
-            is_session_bootstrap=True,
-            room_id="room-123",
-        )
+        with pytest.raises(Exception, match="db unreachable"):
+            await adapter.on_message(
+                msg=sample_message,
+                tools=mock_tools,
+                history=[],
+                participants_msg=None,
+                contacts_msg=None,
+                is_session_bootstrap=True,
+                room_id="room-123",
+            )
 
         mock_tools.send_failure.assert_awaited_once()
         failure = mock_tools.send_failure.call_args.args[0]
@@ -883,22 +883,23 @@ class TestErrorHandling:
     async def test_handles_uninitialized_app(
         self, mock_parlant_server, mock_parlant_agent, sample_message, mock_tools
     ):
-        """An uninitialized app returns early, but must still report the failure."""
+        """An uninitialized app reports the failure, then fails the turn."""
         adapter = ParlantAdapter(
             server=mock_parlant_server,
             parlant_agent=mock_parlant_agent,
         )
         # Don't set _app
 
-        await adapter.on_message(
-            msg=sample_message,
-            tools=mock_tools,
-            history=[],
-            participants_msg=None,
-            contacts_msg=None,
-            is_session_bootstrap=True,
-            room_id="room-123",
-        )
+        with pytest.raises(RuntimeError, match="not initialized"):
+            await adapter.on_message(
+                msg=sample_message,
+                tools=mock_tools,
+                history=[],
+                participants_msg=None,
+                contacts_msg=None,
+                is_session_bootstrap=True,
+                room_id="room-123",
+            )
 
         # No reply attempt, but the failure is reported.
         mock_tools.send_message.assert_not_called()

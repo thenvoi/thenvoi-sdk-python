@@ -101,6 +101,12 @@ from band.runtime.tools import (
 logger = logging.getLogger(__name__)
 
 
+class TurnResultAlreadyReported(Exception):
+    """A terminal `ResultMessage` failure `_on_turn_complete` already
+    reported via `send_failure`. `on_message`'s outer except re-raises this
+    without reporting the same failure a second time."""
+
+
 # Tool names as constants (MCP naming convention: mcp__{server}__{tool})
 # Derived from TOOL_MODELS — single source of truth
 BAND_BASE_TOOLS: list[str] = mcp_tool_names(BASE_TOOL_NAMES)
@@ -691,6 +697,11 @@ class ClaudeSDKAdapter(SimpleAdapter[ClaudeSDKSessionState]):
             # Process streaming response (MCP tools handle execution)
             await self._process_response(client, room_id, tools)
 
+        except TurnResultAlreadyReported:
+            # _on_turn_complete already reported this failure via
+            # send_failure; propagate without reporting it a second time.
+            raise
+
         except CLIConnectionError as e:
             # CLI process is dead — evict the cached session so the next
             # message creates a fresh one instead of reusing the corpse.
@@ -944,20 +955,17 @@ class ClaudeSDKAdapter(SimpleAdapter[ClaudeSDKSessionState]):
                 if sdk_message.api_error_status is not None
                 else None
             )
+            detail = self._result_error_detail(sdk_message)
             await tools.send_failure(
-                AgentFailure(
-                    "claude_sdk",
-                    self._result_error_detail(sdk_message),
-                    code,
-                    sdk_message.errors,
-                )
+                AgentFailure("claude_sdk", detail, code, sdk_message.errors)
             )
+            raise TurnResultAlreadyReported(detail)
         elif not replied_this_turn and not self._declined_the_reply(
             sdk_message.permission_denials, notified
         ):
-            await tools.send_failure(
-                AgentFailure("claude_sdk", missing_reply_error("Claude SDK"))
-            )
+            detail = missing_reply_error("Claude SDK")
+            await tools.send_failure(AgentFailure("claude_sdk", detail))
+            raise TurnResultAlreadyReported(detail)
 
     def _declined_the_reply(
         self, permission_denials: list[Any] | None, notified: set[str] | None

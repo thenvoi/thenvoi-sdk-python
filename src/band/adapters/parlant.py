@@ -378,10 +378,9 @@ class ParlantAdapter(SimpleAdapter[ParlantMessages]):
 
         if not self._app:
             logger.error("Parlant Application not initialized")
-            await tools.send_failure(
-                AgentFailure("parlant", "Parlant Application not initialized")
-            )
-            return
+            error = RuntimeError("Parlant Application not initialized")
+            await tools.send_failure(AgentFailure("parlant", str(error)))
+            raise error
 
         app = self._app
         sender_name = msg.sender_name or msg.sender_id or "User"
@@ -394,7 +393,7 @@ class ParlantAdapter(SimpleAdapter[ParlantMessages]):
             await tools.send_failure(
                 AgentFailure("parlant", f"Session initialization failed: {e}")
             )
-            return
+            raise
         session_id_str = str(session_id)
 
         # Set tools for this session (keyed by session_id for cross-task access)

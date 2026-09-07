@@ -176,11 +176,15 @@ class A2AAdapter(SimpleAdapter[A2ASessionState]):
 
         except DeliveryFailedError as e:
             # The A2A agent answered; posting its reply to the room is what
-            # failed. Band-side delivery, never an A2A provider failure.
+            # failed. Band-side delivery, never an A2A provider failure --
+            # re-raise the cause so mark_failed/retry bookkeeping keys off
+            # the real exception.
             logger.exception("A2A reply delivery failed: %s", e.cause)
+            raise e.cause from None
         except Exception as e:
             logger.exception("A2A agent error: %s", e)
             await tools.send_failure(AgentFailure("a2a", str(e)))
+            raise
 
     async def _handle_event(
         self,

@@ -172,15 +172,16 @@ class TestLettaAdapterOnMessagePerRoom:
         msg = make_platform_message()
         history = LettaSessionState()
 
-        await adapter.on_message(
-            msg,
-            tools,
-            history,
-            None,
-            None,
-            is_session_bootstrap=False,
-            room_id="room-1",
-        )
+        with pytest.raises(RuntimeError, match="platform rejected the message"):
+            await adapter.on_message(
+                msg,
+                tools,
+                history,
+                None,
+                None,
+                is_session_bootstrap=False,
+                room_id="room-1",
+            )
 
         assert not reported_failures(tools)
 
@@ -234,15 +235,16 @@ class TestLettaAdapterOnMessagePerRoom:
         msg = make_platform_message()
         history = LettaSessionState()
 
-        await adapter.on_message(
-            msg,
-            tools,
-            history,
-            None,
-            None,
-            is_session_bootstrap=False,
-            room_id="room-1",
-        )
+        with pytest.raises(TimeoutError):
+            await adapter.on_message(
+                msg,
+                tools,
+                history,
+                None,
+                None,
+                is_session_bootstrap=False,
+                room_id="room-1",
+            )
 
         error_events = [e for e in tools.events_sent if e["message_type"] == "error"]
         assert len(error_events) == 1
@@ -321,15 +323,16 @@ class TestLettaAdapterOnMessagePerRoom:
         msg = make_platform_message()
         history = LettaSessionState()
 
-        await adapter.on_message(
-            msg,
-            tools,
-            history,
-            None,
-            None,
-            is_session_bootstrap=True,
-            room_id="room-1",
-        )
+        with pytest.raises(RuntimeError, match="not initialized"):
+            await adapter.on_message(
+                msg,
+                tools,
+                history,
+                None,
+                None,
+                is_session_bootstrap=True,
+                room_id="room-1",
+            )
 
         error_events = [e for e in tools.events_sent if e["message_type"] == "error"]
         assert len(error_events) == 1
@@ -1378,15 +1381,16 @@ class TestColdBootSeeding:
             replay_messages=["[Alice]: The secret word is kumquat."]
         )
         tools = FakeAgentTools()
-        await adapter.on_message(
-            make_platform_message(content="what was the secret word?"),
-            tools,
-            history,
-            None,
-            None,
-            is_session_bootstrap=True,
-            room_id="room-1",
-        )
+        with pytest.raises(TimeoutError):
+            await adapter.on_message(
+                make_platform_message(content="what was the secret word?"),
+                tools,
+                history,
+                None,
+                None,
+                is_session_bootstrap=True,
+                room_id="room-1",
+            )
 
         assert adapter._rooms["room-1"].pending_seed == [
             "[Alice]: The secret word is kumquat."

@@ -388,25 +388,54 @@ class TestA2AAdapterMessageFlow:
     async def test_remote_error_is_posted_as_error_event(
         self, adapter: A2AAdapter
     ) -> None:
-        """A remote A2A outage must surface in the room, not crash the turn."""
+        """A remote A2A outage must surface in the room and fail the turn."""
         adapter._client = MagicMock()
         adapter._client.send_message = MagicMock(
             side_effect=RuntimeError("remote down")
         )
         tools = FakeAgentTools()
 
-        await adapter.on_message(
-            make_platform_message(),
-            tools,
-            A2ASessionState(),
-            None,
-            None,
-            is_session_bootstrap=False,
-            room_id="room-123",
-        )
+        with pytest.raises(RuntimeError, match="remote down"):
+            await adapter.on_message(
+                make_platform_message(),
+                tools,
+                A2ASessionState(),
+                None,
+                None,
+                is_session_bootstrap=False,
+                room_id="room-123",
+            )
 
         assert tools.events_sent[-1]["message_type"] == "error"
         assert "remote down" in tools.events_sent[-1]["content"]
+
+    @pytest.mark.asyncio
+    async def test_on_message_reraises_delivery_failure_without_reporting_it(
+        self, adapter: A2AAdapter
+    ) -> None:
+        """A Band-side post failure must fail the turn for retry, without
+        being reported as an A2A provider failure."""
+        adapter._client = MagicMock()
+
+        async def _events() -> AsyncIterator[StreamResponse]:
+            yield task_event(make_task(artifact_text="Final response"))
+
+        adapter._client.send_message = MagicMock(return_value=_events())
+        tools = FakeAgentTools()
+        tools.send_message = AsyncMock(side_effect=RuntimeError("Band unavailable"))
+
+        with pytest.raises(RuntimeError, match="Band unavailable"):
+            await adapter.on_message(
+                make_platform_message(),
+                tools,
+                A2ASessionState(),
+                None,
+                None,
+                is_session_bootstrap=False,
+                room_id="room-123",
+            )
+
+        assert not [e for e in tools.events_sent if e["message_type"] == "error"]
 
     @pytest.mark.asyncio
     async def test_failed_task_is_posted_as_error_event(

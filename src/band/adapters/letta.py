@@ -269,10 +269,9 @@ class LettaAdapter(SimpleAdapter[LettaSessionState]):
         """Handle incoming message via Letta API with MCP tools."""
         if not self._client:
             logger.error("Letta client not initialized, dropping message %s", msg.id)
-            await tools.send_failure(
-                AgentFailure("letta", "Letta adapter not initialized")
-            )
-            return
+            error = RuntimeError("Letta adapter not initialized")
+            await tools.send_failure(AgentFailure("letta", str(error)))
+            raise error
 
         # Lock only protects MCP/agent setup, not the full message path.
         # This allows concurrent rooms to process messages in parallel. Both
@@ -289,7 +288,7 @@ class LettaAdapter(SimpleAdapter[LettaSessionState]):
         except Exception as e:
             logger.exception("Room %s: Failed to prepare Letta session: %s", room_id, e)
             await tools.send_failure(AgentFailure("letta", str(e)))
-            return
+            raise
 
         await self._handle_message(
             msg=msg,
@@ -315,10 +314,9 @@ class LettaAdapter(SimpleAdapter[LettaSessionState]):
         """Run one Letta turn: resolve the room, compose the message, send."""
         if (room_ctx := await self._room_context(room_id, history, tools)) is None:
             logger.error("Room %s: No Letta agent context, dropping message", room_id)
-            await tools.send_failure(
-                AgentFailure("letta", "Letta agent context unavailable")
-            )
-            return
+            error = RuntimeError("Letta agent context unavailable")
+            await tools.send_failure(AgentFailure("letta", str(error)))
+            raise error
 
         # Point the MCP resolver at this room's current tools for the
         # server-side tool calls this turn will make.
@@ -426,12 +424,15 @@ class LettaAdapter(SimpleAdapter[LettaSessionState]):
             )
         except DeliveryFailedError as e:
             # The agent answered; posting the reply to the room is what
-            # failed. Band-side delivery, never a Letta provider failure.
+            # failed. Band-side delivery, never a Letta provider failure --
+            # re-raise the cause so mark_failed/retry bookkeeping keys off
+            # the real exception.
             logger.exception(
                 "Room %s: Failed to deliver Letta agent's reply: %s",
                 room_id,
                 e.cause,
             )
+            raise e.cause from None
         except asyncio.TimeoutError:
             logger.error(
                 "Room %s: Letta turn timed out after %ss",
@@ -445,9 +446,11 @@ class LettaAdapter(SimpleAdapter[LettaSessionState]):
                     FAILURE_CODE_TIMEOUT,
                 )
             )
+            raise
         except Exception as e:
             logger.exception("Room %s: Error during Letta turn: %s", room_id, e)
             await tools.send_failure(AgentFailure("letta", str(e)))
+            raise
         else:
             if room_ctx.pending_seed:
                 room_ctx.pending_seed = []

@@ -27,6 +27,7 @@ from band.adapters.claude_sdk import (
     _FORCED_DECLINE,
     PendingApproval,
     _pre_tool_use_continue_hook,
+    TurnResultAlreadyReported,
     BAND_ALL_TOOLS,
     BAND_BASE_TOOLS,
     BAND_MEMORY_TOOLS,
@@ -1242,7 +1243,8 @@ class TestTurnFailureSurfacing:
         )
         mock_client = self._client_yielding(result_msg)
 
-        await adapter._process_response(mock_client, "room-123", mock_tools)
+        with pytest.raises(TurnResultAlreadyReported):
+            await adapter._process_response(mock_client, "room-123", mock_tools)
 
         errors = _error_events(mock_tools)
         assert len(errors) == 1
@@ -1265,7 +1267,8 @@ class TestTurnFailureSurfacing:
         )
         mock_client = self._client_yielding(result_msg)
 
-        await adapter._process_response(mock_client, "room-123", mock_tools)
+        with pytest.raises(TurnResultAlreadyReported):
+            await adapter._process_response(mock_client, "room-123", mock_tools)
 
         errors = _error_events(mock_tools)
         assert len(errors) == 1
@@ -1281,7 +1284,8 @@ class TestTurnFailureSurfacing:
         result_msg = _result_message(is_error=False)
         mock_client = self._client_yielding(result_msg)
 
-        await adapter._process_response(mock_client, "room-123", mock_tools)
+        with pytest.raises(TurnResultAlreadyReported):
+            await adapter._process_response(mock_client, "room-123", mock_tools)
 
         errors = _error_events(mock_tools)
         assert len(errors) == 1
@@ -1350,7 +1354,8 @@ class TestTurnFailureSurfacing:
         )
         mock_client = self._client_yielding(assistant_msg, user_msg, _result_message())
 
-        await adapter._process_response(mock_client, "room-123", mock_tools)
+        with pytest.raises(TurnResultAlreadyReported):
+            await adapter._process_response(mock_client, "room-123", mock_tools)
 
         payload = _tool_result_payload(mock_tools)
         assert payload[ToolEventKey.NAME] == "band_send_message"
@@ -1364,7 +1369,8 @@ class TestTurnFailureSurfacing:
         result_msg = _result_message(is_error=False)
         mock_client = self._client_yielding(*turn, result_msg)
 
-        await adapter._process_response(mock_client, "room-123", mock_tools)
+        with pytest.raises(TurnResultAlreadyReported):
+            await adapter._process_response(mock_client, "room-123", mock_tools)
 
         errors = _error_events(mock_tools)
         assert len(errors) == 1
@@ -1489,7 +1495,8 @@ class TestTurnFailureSurfacing:
         )
         mock_client = self._client_yielding(assistant_msg, user_msg, result_msg)
 
-        await adapter._process_response(mock_client, "room-123", mock_tools)
+        with pytest.raises(TurnResultAlreadyReported):
+            await adapter._process_response(mock_client, "room-123", mock_tools)
 
         errors = _error_events(mock_tools)
         assert len(errors) == 1
@@ -1627,7 +1634,8 @@ class TestTurnFailureSurfacing:
             assistant_msg, failed_result, _result_message(is_error=False)
         )
 
-        await adapter._process_response(mock_client, "room-123", mock_tools)
+        with pytest.raises(TurnResultAlreadyReported):
+            await adapter._process_response(mock_client, "room-123", mock_tools)
 
         errors = _error_events(mock_tools)
         assert len(errors) == 1
@@ -1686,7 +1694,8 @@ class TestTurnFailureSurfacing:
         )
         mock_client = self._client_yielding(assistant_msg, user_msg, result_msg)
 
-        await adapter._process_response(mock_client, "room-123", mock_tools)
+        with pytest.raises(TurnResultAlreadyReported):
+            await adapter._process_response(mock_client, "room-123", mock_tools)
 
         errors = _error_events(mock_tools)
         assert len(errors) == 1
@@ -1714,7 +1723,8 @@ class TestTurnFailureSurfacing:
 
         # A fresh, unrelated turn: no tool activity, no permission_denials.
         next_turn_client = self._client_yielding(_result_message(is_error=False))
-        await adapter._process_response(next_turn_client, "room-123", mock_tools)
+        with pytest.raises(TurnResultAlreadyReported):
+            await adapter._process_response(next_turn_client, "room-123", mock_tools)
 
         errors = _error_events(mock_tools)
         assert len(errors) == 1
@@ -1740,7 +1750,8 @@ class TestTurnFailureSurfacing:
         result_msg = _result_message(is_error=False)
         mock_client = self._client_yielding(result_msg)
 
-        await adapter._process_response(mock_client, "room-123", mock_tools)
+        with pytest.raises(TurnResultAlreadyReported):
+            await adapter._process_response(mock_client, "room-123", mock_tools)
 
         errors = _error_events(mock_tools)
         assert len(errors) == 1
@@ -1773,7 +1784,8 @@ class TestTurnFailureSurfacing:
         result_msg = _result_message(is_error=False)
         mock_client = self._client_yielding(result_msg)
 
-        await adapter._process_response(mock_client, "room-123", mock_tools)
+        with pytest.raises(TurnResultAlreadyReported):
+            await adapter._process_response(mock_client, "room-123", mock_tools)
 
         errors = _error_events(mock_tools)
         assert len(errors) == 1
