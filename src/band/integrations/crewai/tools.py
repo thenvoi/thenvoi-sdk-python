@@ -132,8 +132,12 @@ def _mark_productive_work(
     CrewAI raises on an empty final answer; that is a genuine no-response
     failure only when nothing terminal ran. ``is_terminal_success`` is the
     shared rule for what counts (read-only Band tools and undeclared custom
-    tools do not).
+    tools do not) toward the missing-reply decision. ``any_tool_ran`` is
+    separate and coarser: it flips on this call alone, whether the tool
+    succeeded or not, so a turn that tried *something* is never mistaken for
+    one where the model's very first response came back empty.
     """
+    tracker.any_tool_ran = True
     try:
         if json.loads(result).get("status") != "success":
             return
