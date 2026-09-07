@@ -282,11 +282,9 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
         logger.debug("Handling message %s in room %s", msg.id, room_id)
 
         if not self._crewai_agent:
-            error = RuntimeError(
-                "CrewAI agent not initialized - ensure on_started() was called"
-            )
-            await tools.send_failure(AgentFailure("crewai", str(error)))
-            raise error
+            message = "CrewAI agent not initialized - ensure on_started() was called"
+            await tools.send_failure(AgentFailure("crewai", message))
+            raise RuntimeError(message)
 
         # Set context variable for tool access (thread-safe room context).
         # Wrap in try/finally immediately to ensure cleanup even if code

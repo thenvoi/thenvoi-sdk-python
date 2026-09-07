@@ -63,6 +63,17 @@ def _image_tool_result_content(result: dict[str, Any]) -> list[dict[str, Any]]:
     ]
 
 
+def _to_agent_failure(e: Exception) -> AgentFailure:
+    """Parse a turn-ending exception into the shared provider-failure shape.
+
+    ``APIStatusError`` carries an HTTP status and response body that a plain
+    exception's message alone does not.
+    """
+    if isinstance(e, APIStatusError):
+        return AgentFailure("anthropic", str(e), str(e.status_code), e.body)
+    return AgentFailure("anthropic", str(e))
+
+
 class AnthropicAdapter(SimpleAdapter[AnthropicMessages]):
     """
     Anthropic SDK adapter using SimpleAdapter pattern.
@@ -280,13 +291,7 @@ class AnthropicAdapter(SimpleAdapter[AnthropicMessages]):
                     )
                 except Exception as e:
                     logger.error("Error calling Anthropic: %s", e, exc_info=True)
-                    if isinstance(e, APIStatusError):
-                        failure = AgentFailure(
-                            "anthropic", str(e), str(e.status_code), e.body
-                        )
-                    else:
-                        failure = AgentFailure("anthropic", str(e))
-                    await tools.send_failure(failure)
+                    await tools.send_failure(_to_agent_failure(e))
                     raise  # Re-raise so message is marked as failed
 
                 turn_usage = turn_usage + self._usage_from_response(response)

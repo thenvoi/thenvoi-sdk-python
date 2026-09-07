@@ -10,7 +10,7 @@ import time as _time
 from collections import OrderedDict
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import ClassVar, Any, Callable, Literal, NamedTuple, Protocol
+from typing import ClassVar, Any, Callable, Literal, NamedTuple, NoReturn, Protocol
 
 from band_sdk_core import AgentFailure
 from pydantic import AliasChoices, BaseModel, Field, ValidationError, field_validator
@@ -79,6 +79,16 @@ def _image_content_items(result: dict[str, Any]) -> list[dict[str, Any]]:
         }
         for block in result["content"]
     ]
+
+
+def _reraise_delivery_cause(e: DeliveryFailedError) -> NoReturn:
+    """Band-side reply delivery failed, never a Codex provider failure.
+
+    Re-raises the cause (not this wrapper) so mark_failed/retry bookkeeping
+    keys off the real exception.
+    """
+    logger.exception("Codex reply delivery failed: %s", e.cause)
+    raise e.cause from None
 
 
 TransportKind = Literal["stdio", "ws"]
@@ -579,11 +589,7 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
                     args=command[1],
                 )
             except DeliveryFailedError as e:
-                # Same Band-delivery-vs-provider-failure split as the
-                # turn-processing path below: re-raise the cause so
-                # mark_failed/retry bookkeeping keys off the real exception.
-                logger.exception("Codex reply delivery failed: %s", e.cause)
-                raise e.cause from None
+                _reraise_delivery_cause(e)
             if handled:
                 return
 
@@ -726,12 +732,7 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
                     duration_s=_turn_duration_s,
                 )
             except DeliveryFailedError as e:
-                # The turn did its work; posting it to the room is what
-                # failed -- Band-side delivery, never a Codex provider
-                # failure. Re-raise the cause (not this wrapper) so
-                # mark_failed/retry bookkeeping keys off the real exception.
-                logger.exception("Codex reply delivery failed: %s", e.cause)
-                raise e.cause from None
+                _reraise_delivery_cause(e)
             except Exception as e:
                 await tools.send_failure(AgentFailure("codex", str(e)))
                 raise

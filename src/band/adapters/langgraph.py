@@ -13,7 +13,7 @@ from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.pregel import Pregel
 from typing_extensions import Unpack
 
-from band.core.protocols import AgentToolsProtocol
+from band.core.protocols import GENERIC_PROVIDER_FAILURE_MESSAGE, AgentToolsProtocol
 from band.core.simple_adapter import SimpleAdapter
 from band.core.types import (
     Capability,
@@ -387,10 +387,7 @@ class LangGraphAdapter(SimpleAdapter[LangChainMessages]):
             # surface in chat -- code/detail stay unset, never populated from
             # the caught exception.
             await tools.send_failure(
-                AgentFailure(
-                    "langgraph",
-                    "Internal error while processing message; see agent logs.",
-                )
+                AgentFailure("langgraph", GENERIC_PROVIDER_FAILURE_MESSAGE)
             )
             raise
         finally:

@@ -391,18 +391,19 @@ class ACPClientAdapter(SimpleAdapter[ACPClientSessionState]):
                 room_id,
                 session_id,
             )
-            await self.stop()
-            await tools.send_failure(
-                AgentFailure(
-                    "acp",
-                    f"ACP agent response timed out after {self._turn_timeout_s}s",
-                    FAILURE_CODE_TIMEOUT,
-                )
+            await asyncio.gather(
+                self.stop(),
+                tools.send_failure(
+                    AgentFailure(
+                        "acp",
+                        f"ACP agent response timed out after {self._turn_timeout_s}s",
+                        FAILURE_CODE_TIMEOUT,
+                    )
+                ),
             )
         except Exception as e:
             logger.exception("ACP agent error: %s", e)
-            await self.stop()
-            await tools.send_failure(_to_agent_failure(e))
+            await asyncio.gather(self.stop(), tools.send_failure(_to_agent_failure(e)))
 
     def _make_permission_handler(
         self,

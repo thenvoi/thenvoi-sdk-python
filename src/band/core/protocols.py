@@ -36,6 +36,13 @@ T = TypeVar("T")
 # retyping the literal.
 FAILURE_CODE_TIMEOUT = "timeout"
 
+# Shared generic message for a caught provider exception whose text must not
+# reach the room (it can embed DB strings, paths, or tokens) -- the full
+# detail goes to the agent log via logger.exception instead.
+GENERIC_PROVIDER_FAILURE_MESSAGE = (
+    "Internal error while processing message; see agent logs."
+)
+
 
 def to_failure_event(failure: AgentFailure) -> tuple[str, dict[str, Any]]:
     """Shared shape every ``send_failure`` implementation posts as an `error` event.

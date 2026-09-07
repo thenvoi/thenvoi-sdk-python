@@ -72,6 +72,17 @@ def _image_function_response_parts(
     return parts
 
 
+def _to_agent_failure(e: Exception) -> AgentFailure:
+    """Parse a turn-ending exception into the shared provider-failure shape.
+
+    ``ServerError`` carries an HTTP status and message that a plain
+    exception's text alone does not.
+    """
+    if isinstance(e, ServerError):
+        return AgentFailure("gemini", str(e), e.status, e.message)
+    return AgentFailure("gemini", str(e))
+
+
 class GeminiAdapter(SimpleAdapter[GeminiMessages]):
     """
     Gemini SDK adapter using SimpleAdapter pattern.
@@ -241,14 +252,12 @@ class GeminiAdapter(SimpleAdapter[GeminiMessages]):
         try:
             while True:
                 if tool_rounds >= self.max_tool_rounds:
-                    max_rounds_error = RuntimeError(
+                    message = (
                         f"Exceeded max tool rounds ({self.max_tool_rounds}) "
                         f"in room {room_id}"
                     )
-                    await tools.send_failure(
-                        AgentFailure("gemini", str(max_rounds_error))
-                    )
-                    raise max_rounds_error
+                    await tools.send_failure(AgentFailure("gemini", message))
+                    raise RuntimeError(message)
 
                 try:
                     response = await self._call_gemini(
@@ -256,11 +265,7 @@ class GeminiAdapter(SimpleAdapter[GeminiMessages]):
                     )
                 except Exception as e:
                     logger.exception("Error calling Gemini: %s", e)
-                    if isinstance(e, ServerError):
-                        failure = AgentFailure("gemini", str(e), e.status, e.message)
-                    else:
-                        failure = AgentFailure("gemini", str(e))
-                    await tools.send_failure(failure)
+                    await tools.send_failure(_to_agent_failure(e))
                     raise
 
                 turn_usage = turn_usage + self._usage_from_response(response)

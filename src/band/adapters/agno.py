@@ -15,7 +15,7 @@ from agno.tools.function import ToolResult
 from band_sdk_core import AgentFailure
 from typing_extensions import Unpack
 
-from band.core.protocols import AgentToolsProtocol
+from band.core.protocols import GENERIC_PROVIDER_FAILURE_MESSAGE, AgentToolsProtocol
 from band.core.simple_adapter import SimpleAdapter
 from band.core.tool_filter import filter_tool_schemas
 from band.core.types import (
@@ -334,18 +334,14 @@ class AgnoAdapter(SimpleAdapter[AgnoMessages]):
             is_session_bootstrap,
         )
 
-        try:
-            messages = self._build_run_input(
-                msg,
-                history,
-                participants_msg,
-                contacts_msg,
-                is_session_bootstrap=is_session_bootstrap,
-                room_id=room_id,
-            )
-        except Exception as e:
-            await tools.send_failure(AgentFailure("agno", str(e)))
-            raise
+        messages = self._build_run_input(
+            msg,
+            history,
+            participants_msg,
+            contacts_msg,
+            is_session_bootstrap=is_session_bootstrap,
+            room_id=room_id,
+        )
         response = await self._run_agent(
             messages, tools, room_id=room_id, msg_id=msg.id
         )
@@ -510,11 +506,7 @@ class AgnoAdapter(SimpleAdapter[AgnoMessages]):
             )
             code = RunStatus.error.value if isinstance(e, AgnoRunError) else None
             await tools.send_failure(
-                AgentFailure(
-                    "agno",
-                    "Internal error while processing message; see agent logs.",
-                    code,
-                )
+                AgentFailure("agno", GENERIC_PROVIDER_FAILURE_MESSAGE, code)
             )
             raise
 

@@ -21,7 +21,7 @@ from band.integrations.acp.client_types import (
 )
 from band.integrations.acp.room_emitter import turn_replied_in_room
 from band.integrations.acp.types import ACPToolCall, ACPToolResult, CollectedChunk
-from band.testing import FakeAgentTools, reported_failures
+from band.testing import FakeAgentTools, events_of_type, reported_failures
 
 from tests.integrations.acp.conftest import make_platform_message
 
@@ -38,11 +38,6 @@ def permission_events(tools: FakeAgentTools) -> list[dict[str, object]]:
 def event_types(events: list[dict[str, object]]) -> list[object]:
     """The ordered ``message_type`` of each event — for asserting a pair's shape."""
     return [event["message_type"] for event in events]
-
-
-def events_of_type(tools: FakeAgentTools, message_type: str) -> list[dict[str, object]]:
-    """Events the handler sent, filtered to one message_type."""
-    return [e for e in tools.events_sent if e.get("message_type") == message_type]
 
 
 def metadata_values(events: list[dict[str, object]], key: str) -> list[object]:

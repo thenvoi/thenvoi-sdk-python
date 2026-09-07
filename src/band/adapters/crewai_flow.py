@@ -945,7 +945,7 @@ class SideEffectExecutor:
         # error) -- so the untruncated text is preserved in detail for
         # structured consumers reading the "error"-typed event.
         message = error.message[:500]
-        detail = error.message if len(error.message) > 500 else None
+        detail = error.message if message != error.message else None
         await self._tools.send_failure(
             AgentFailure("crewai_flow", message, error.code, detail)
         )

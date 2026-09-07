@@ -269,9 +269,9 @@ class LettaAdapter(SimpleAdapter[LettaSessionState]):
         """Handle incoming message via Letta API with MCP tools."""
         if not self._client:
             logger.error("Letta client not initialized, dropping message %s", msg.id)
-            error = RuntimeError("Letta adapter not initialized")
-            await tools.send_failure(AgentFailure("letta", str(error)))
-            raise error
+            message = "Letta adapter not initialized"
+            await tools.send_failure(AgentFailure("letta", message))
+            raise RuntimeError(message)
 
         # Lock only protects MCP/agent setup, not the full message path.
         # This allows concurrent rooms to process messages in parallel. Both
@@ -314,9 +314,9 @@ class LettaAdapter(SimpleAdapter[LettaSessionState]):
         """Run one Letta turn: resolve the room, compose the message, send."""
         if (room_ctx := await self._room_context(room_id, history, tools)) is None:
             logger.error("Room %s: No Letta agent context, dropping message", room_id)
-            error = RuntimeError("Letta agent context unavailable")
-            await tools.send_failure(AgentFailure("letta", str(error)))
-            raise error
+            message = "Letta agent context unavailable"
+            await tools.send_failure(AgentFailure("letta", message))
+            raise RuntimeError(message)
 
         # Point the MCP resolver at this room's current tools for the
         # server-side tool calls this turn will make.

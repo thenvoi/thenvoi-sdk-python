@@ -377,10 +377,10 @@ class ParlantAdapter(SimpleAdapter[ParlantMessages]):
         logger.debug("Handling message %s in room %s", msg.id, room_id)
 
         if not self._app:
-            logger.error("Parlant Application not initialized")
-            error = RuntimeError("Parlant Application not initialized")
-            await tools.send_failure(AgentFailure("parlant", str(error)))
-            raise error
+            message = "Parlant Application not initialized"
+            logger.error(message)
+            await tools.send_failure(AgentFailure("parlant", message))
+            raise RuntimeError(message)
 
         app = self._app
         sender_name = msg.sender_name or msg.sender_id or "User"
