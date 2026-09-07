@@ -637,6 +637,45 @@ class TestErrorHandling:
         mock_tools.send_event.assert_not_called()
 
     @pytest.mark.asyncio
+    async def test_read_only_turn_with_empty_final_answer_completes(
+        self, CrewAIAdapter, sample_message, mock_tools, mock_crewai_agent
+    ):
+        """A turn whose only work was read-only must finish, not fail the delivery.
+
+        Told to run read tools and nothing else ("call band_list_tasks ... do not
+        call any other tool"), the agent does exactly that and stays silent, so
+        neither ``replied`` nor ``tool_executed`` flips — fetching state is not
+        terminal work. CrewAI then raises its empty-final-answer ValueError, as it
+        does on every turn here. That ends the turn normally: the room gets the
+        missing-reply error and the message stays processed. Re-raising would mark
+        the delivery failed for a turn that did precisely what it was asked.
+        """
+        mock_crewai_agent.kickoff_async = AsyncMock(
+            side_effect=ValueError("Invalid response from LLM call - None or empty.")
+        )
+
+        adapter = CrewAIAdapter()
+        await adapter.on_started("TestBot", "Test bot")
+        adapter._crewai_agent = mock_crewai_agent
+
+        # Must NOT raise — the delivery completes.
+        await adapter.on_message(
+            msg=sample_message,
+            tools=mock_tools,
+            history=[],
+            participants_msg=None,
+            contacts_msg=None,
+            is_session_bootstrap=True,
+            room_id="room-123",
+        )
+
+        event_kwargs = mock_tools.send_event.await_args.kwargs
+        assert event_kwargs["message_type"] == "error"
+        assert "band_send_message" in event_kwargs["content"]
+        # The room hears about the missing reply, not CrewAI's internal error.
+        assert "Invalid response from LLM call" not in event_kwargs["content"]
+
+    @pytest.mark.asyncio
     @pytest.mark.parametrize(
         "error",
         [
