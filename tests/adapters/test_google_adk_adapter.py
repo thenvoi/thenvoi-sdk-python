@@ -17,6 +17,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from pydantic import BaseModel, Field
+from band.core.protocols import GENERIC_PROVIDER_FAILURE_MESSAGE
 from band.core.types import ALL_CAPABILITIES, Capability, Emit, PlatformMessage
 from band.runtime.tools import AgentTools, BandTool
 
@@ -961,7 +962,7 @@ class TestErrorHandling:
             mock_tools.send_failure.assert_called_once()
             failure = mock_tools.send_failure.call_args.args[0]
             assert failure.provider == "google_adk"
-            assert failure.message == "Runner Error"
+            assert failure.message == GENERIC_PROVIDER_FAILURE_MESSAGE
             # Runner should be closed even on error (via finally)
             mock_runner.close.assert_called_once()
 
@@ -991,7 +992,7 @@ class TestErrorHandling:
         mock_tools.send_failure.assert_called_once()
         failure = mock_tools.send_failure.call_args.args[0]
         assert failure.provider == "google_adk"
-        assert failure.message == "bad tool schema"
+        assert failure.message == GENERIC_PROVIDER_FAILURE_MESSAGE
 
 
 class TestHistoryTranscript:

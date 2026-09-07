@@ -17,7 +17,11 @@ from typing import ClassVar, TYPE_CHECKING, Any
 from band_sdk_core import AgentFailure
 from typing_extensions import Unpack
 
-from band.core.protocols import AgentToolsProtocol
+from band.core.protocols import (
+    GENERIC_PROVIDER_FAILURE_MESSAGE,
+    AgentToolsProtocol,
+    TurnResultAlreadyReported,
+)
 from band.core.simple_adapter import SimpleAdapter
 from band.core.types import Capability, Emit, FeatureKwargs, PlatformMessage
 from band.converters.crewai import CrewAIHistoryConverter, CrewAIMessages
@@ -407,18 +411,15 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
                 )
 
             if not (reply_tracker is not None and reply_tracker.replied):
-                await tools.send_failure(
-                    AgentFailure(
-                        "crewai",
-                        missing_reply_error(
-                            "CrewAI",
-                            detail=(
-                                "Repeated tool failures may also have exhausted "
-                                f"max_iter={self.max_iter}."
-                            ),
-                        ),
-                    )
+                detail = missing_reply_error(
+                    "CrewAI",
+                    detail=(
+                        "Repeated tool failures may also have exhausted "
+                        f"max_iter={self.max_iter}."
+                    ),
                 )
+                await tools.send_failure(AgentFailure("crewai", detail))
+                raise TurnResultAlreadyReported(detail)
 
             logger.info(
                 "Room %s: CrewAI agent completed (output_length=%s)",
@@ -426,6 +427,8 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
                 len(result.raw) if result and result.raw else 0,
             )
 
+        except TurnResultAlreadyReported:
+            raise
         except Exception as e:
             # CrewAI raises ValueError("Invalid response from LLM call - None or
             # empty.") when its ReAct loop yields an empty final answer. In this
@@ -451,7 +454,9 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
                 )
                 return
             logger.error("Error processing message: %s", e, exc_info=True)
-            await tools.send_failure(AgentFailure("crewai", str(e)))
+            await tools.send_failure(
+                AgentFailure("crewai", GENERIC_PROVIDER_FAILURE_MESSAGE)
+            )
             raise
 
         logger.debug(

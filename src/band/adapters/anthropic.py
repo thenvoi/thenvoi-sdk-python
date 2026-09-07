@@ -17,7 +17,7 @@ from band_sdk_core import AgentFailure
 from typing_extensions import Unpack
 
 from band.core.exceptions import BandConfigError
-from band.core.protocols import AgentToolsProtocol
+from band.core.protocols import GENERIC_PROVIDER_FAILURE_MESSAGE, AgentToolsProtocol
 from band.core.simple_adapter import SimpleAdapter
 from band.core.types import (
     Capability,
@@ -71,7 +71,7 @@ def _to_agent_failure(e: Exception) -> AgentFailure:
     """
     if isinstance(e, APIStatusError):
         return AgentFailure("anthropic", str(e), str(e.status_code), e.body)
-    return AgentFailure("anthropic", str(e))
+    return AgentFailure("anthropic", GENERIC_PROVIDER_FAILURE_MESSAGE)
 
 
 class AnthropicAdapter(SimpleAdapter[AnthropicMessages]):

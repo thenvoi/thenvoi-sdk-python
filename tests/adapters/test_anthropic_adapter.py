@@ -21,6 +21,7 @@ from anthropic.types import TextBlock, ToolUseBlock
 from pydantic import BaseModel, Field
 
 from band.adapters.anthropic import AnthropicAdapter
+from band.core.protocols import GENERIC_PROVIDER_FAILURE_MESSAGE
 from band.core.types import (
     USAGE_EVENT_TYPE,
     USAGE_METADATA_KEY,
@@ -735,7 +736,7 @@ class TestErrorHandling:
             mock_tools.send_failure.assert_called_once()
             failure = mock_tools.send_failure.call_args.args[0]
             assert failure.provider == "anthropic"
-            assert failure.message == "API Error"
+            assert failure.message == GENERIC_PROVIDER_FAILURE_MESSAGE
             assert failure.code is None
             assert failure.detail is None
 

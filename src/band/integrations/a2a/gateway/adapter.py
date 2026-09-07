@@ -9,7 +9,7 @@ import logging
 import re
 from contextlib import asynccontextmanager
 from collections.abc import AsyncIterator
-from typing import ClassVar
+from typing import Any, ClassVar
 from uuid import uuid4
 
 from a2a.server.agent_execution import AgentExecutor, RequestContext
@@ -94,6 +94,23 @@ def _redact_credentials(text: str) -> str:
     """Redact bearer tokens/API keys a message may embed."""
     redacted = _BEARER_TOKEN_RE.sub("Bearer [REDACTED]", text)
     return _CREDENTIAL_KV_RE.sub(r"\1=[REDACTED]", redacted)
+
+
+def _redact_credentials_deep(value: Any) -> Any:
+    """Recursively redact credentials from a peer's ``AgentFailure.detail``.
+
+    ``detail`` is untrusted, adapter-defined structure (e.g. Codex's own
+    ``codex_additional_details`` echoes upstream error text) that can nest
+    a credential-bearing string at any depth before it reaches an external
+    A2A client.
+    """
+    if isinstance(value, str):
+        return _redact_credentials(value)
+    if isinstance(value, dict):
+        return {key: _redact_credentials_deep(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_redact_credentials_deep(item) for item in value]
+    return value
 
 
 def _sanitize_gateway_error_message(exc: BaseException) -> str:
@@ -604,11 +621,8 @@ class A2AGatewayAdapter(SimpleAdapter[GatewaySessionState]):
             failure = (
                 msg.metadata.get("failure") if isinstance(msg.metadata, dict) else None
             )
-            if isinstance(failure, dict) and isinstance(failure.get("message"), str):
-                failure = {
-                    **failure,
-                    "message": _redact_credentials(failure["message"]),
-                }
+            if isinstance(failure, dict):
+                failure = _redact_credentials_deep(failure)
             await pending.fail(_redact_credentials(msg.content), failure=failure)
         elif msg.message_type in ("thought", "tool_call", "tool_result"):
             await pending.report_progress(msg.content)

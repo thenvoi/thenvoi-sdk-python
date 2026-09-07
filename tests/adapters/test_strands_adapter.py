@@ -35,7 +35,11 @@ from band.adapters.strands import (  # noqa: E402
     _tool_result,
 )
 from band.converters.strands import StrandsHistoryConverter  # noqa: E402
-from band.core.protocols import AgentToolsProtocol  # noqa: E402
+from band.core.protocols import (  # noqa: E402
+    GENERIC_PROVIDER_FAILURE_MESSAGE,
+    AgentToolsProtocol,
+    TurnResultAlreadyReported,
+)
 from band.core.types import (  # noqa: E402
     USAGE_METADATA_KEY,
     AgentInput,
@@ -447,11 +451,16 @@ class TestOnMessage:
         A later turn that reseeded would replay the room's own transcript on top
         of the one the adapter is already holding.
         """
-        adapter = await scripted(SEND_TURN, SEND_TURN)
+        adapter = await scripted(SEND_TURN)
         await _run_message(adapter, tools, history=[])
         after_first = list(adapter._message_history[ROOM])
 
-        await _run_message(adapter, tools, history=[], is_session_bootstrap=False)
+        # The scripted model has no turn left for a second reply, so this
+        # turn ends without calling band_send_message -- irrelevant to what
+        # this test checks (the transcript isn't re-seeded), so only the
+        # failure is asserted here, not suppressed.
+        with pytest.raises(TurnResultAlreadyReported):
+            await _run_message(adapter, tools, history=[], is_session_bootstrap=False)
 
         assert adapter._message_history[ROOM][: len(after_first)] == after_first
 
@@ -526,7 +535,8 @@ class TestTurnProductivity:
         tools = FailingTools(room_id=ROOM)
         adapter = await scripted(SEND_TURN)
 
-        await _run_message(adapter, tools)
+        with pytest.raises(TurnResultAlreadyReported):
+            await _run_message(adapter, tools)
 
         assert tools.messages_sent == []
         assert len(_errors(tools)) == 1
@@ -548,7 +558,8 @@ class TestTurnProductivity:
         tools = FailingTools(room_id=ROOM)
         adapter = await scripted(SEND_TURN, emit=Emit.TOOL_CALLS)
 
-        await _run_message(adapter, tools)
+        with pytest.raises(TurnResultAlreadyReported):
+            await _run_message(adapter, tools)
 
         rehydrated = StrandsHistoryConverter(agent_name="Bot").convert(
             [
@@ -570,7 +581,8 @@ class TestTurnProductivity:
         """Looking peers up succeeds but posts nothing, so the reply is still missing."""
         adapter = await scripted(ToolTurn("band_lookup_peers", {}))
 
-        await _run_message(adapter, tools)
+        with pytest.raises(TurnResultAlreadyReported):
+            await _run_message(adapter, tools)
 
         assert _tool_results(adapter)  # the lookup did run and succeed
         assert tools.messages_sent == []
@@ -583,7 +595,8 @@ class TestTurnProductivity:
         """A malformed call is the model's mistake to correct, not a turn-ending crash."""
         adapter = await scripted(ToolTurn("band_send_message", {"mentions": ["@x"]}))
 
-        await _run_message(adapter, tools)
+        with pytest.raises(TurnResultAlreadyReported):
+            await _run_message(adapter, tools)
 
         assert tools.messages_sent == []
         assert _tool_results(adapter) == [
@@ -604,7 +617,8 @@ class TestTurnProductivity:
             ToolTurn("boom", {"note": "go"}), additional_tools=[(BoomInput, boom)]
         )
 
-        await _run_message(adapter, tools)
+        with pytest.raises(TurnResultAlreadyReported):
+            await _run_message(adapter, tools)
 
         assert _tool_results(adapter) == ["Error executing tool 'boom': no network"]
 
@@ -635,7 +649,7 @@ class TestTurnFailure:
         assert usage[0]["metadata"][USAGE_METADATA_KEY]["input_tokens"] == (
             _INPUT_TOKENS_PER_CALL
         )
-        assert "provider down" in _errors(tools)[0]
+        assert GENERIC_PROVIDER_FAILURE_MESSAGE in _errors(tools)[0]
 
 
 class TestUsageMapping:
@@ -780,7 +794,8 @@ class TestSendRoomFileArgsRedaction:
         )
         await adapter.on_started("Bot", "A bot")
 
-        await _run_message(adapter, tools)
+        with pytest.raises(TurnResultAlreadyReported):
+            await _run_message(adapter, tools)
 
         tool_calls = [
             json.loads(e["content"])

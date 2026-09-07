@@ -18,8 +18,12 @@ from typing_extensions import Unpack
 
 from band.converters.acp_client import ACPClientHistoryConverter
 from band.converters.helpers import build_replay_messages
-from band.core.delivery import DeliveryFailedError
-from band.core.protocols import FAILURE_CODE_TIMEOUT, AgentToolsProtocol
+from band.core.delivery import DeliveryFailedError, reraise_delivery_cause
+from band.core.protocols import (
+    FAILURE_CODE_TIMEOUT,
+    GENERIC_PROVIDER_FAILURE_MESSAGE,
+    AgentToolsProtocol,
+)
 from band.core.simple_adapter import SimpleAdapter
 from band.core.types import (
     AdapterFeatures,
@@ -137,7 +141,7 @@ def _to_agent_failure(exc: Exception) -> AgentFailure:
     """
     if isinstance(exc, RequestError):
         return AgentFailure("acp", str(exc), str(exc.code), exc.data)
-    return AgentFailure("acp", str(exc))
+    return AgentFailure("acp", GENERIC_PROVIDER_FAILURE_MESSAGE)
 
 
 class ACPClientAdapter(SimpleAdapter[ACPClientSessionState]):
@@ -380,7 +384,7 @@ class ACPClientAdapter(SimpleAdapter[ACPClientSessionState]):
         except DeliveryFailedError as e:
             # The turn's reply is what failed to post -- Band-side delivery,
             # never an ACP provider failure, so the connection stays up.
-            logger.exception("ACP reply delivery failed: %s", e.cause)
+            reraise_delivery_cause(e)
         except asyncio.TimeoutError:
             # A silent/stuck agent must become an observable failure instead
             # of hanging the turn indefinitely -- the connection is presumed
@@ -401,9 +405,11 @@ class ACPClientAdapter(SimpleAdapter[ACPClientSessionState]):
                     )
                 ),
             )
+            raise
         except Exception as e:
             logger.exception("ACP agent error: %s", e)
             await asyncio.gather(self.stop(), tools.send_failure(_to_agent_failure(e)))
+            raise
 
     def _make_permission_handler(
         self,

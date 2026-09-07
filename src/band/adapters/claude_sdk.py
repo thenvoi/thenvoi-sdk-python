@@ -52,7 +52,11 @@ except ImportError:
 from band_sdk_core import AgentFailure
 from typing_extensions import Unpack
 
-from band.core.protocols import AgentToolsProtocol
+from band.core.protocols import (
+    GENERIC_PROVIDER_FAILURE_MESSAGE,
+    AgentToolsProtocol,
+    TurnResultAlreadyReported,
+)
 from band.core.simple_adapter import SimpleAdapter
 from band.core.types import (
     Capability,
@@ -99,12 +103,6 @@ from band.runtime.tools import (
 )
 
 logger = logging.getLogger(__name__)
-
-
-class TurnResultAlreadyReported(Exception):
-    """A terminal `ResultMessage` failure `_on_turn_complete` already
-    reported via `send_failure`. `on_message`'s outer except re-raises this
-    without reporting the same failure a second time."""
 
 
 # Tool names as constants (MCP naming convention: mcp__{server}__{tool})
@@ -712,12 +710,16 @@ class ClaudeSDKAdapter(SimpleAdapter[ClaudeSDKSessionState]):
             )
             await self._invalidate_session(room_id)
 
-            await tools.send_failure(AgentFailure("claude_sdk", str(e)))
+            await tools.send_failure(
+                AgentFailure("claude_sdk", GENERIC_PROVIDER_FAILURE_MESSAGE)
+            )
             raise
 
         except Exception as e:
             logger.exception("Error processing message: %s", e)
-            await tools.send_failure(AgentFailure("claude_sdk", str(e)))
+            await tools.send_failure(
+                AgentFailure("claude_sdk", GENERIC_PROVIDER_FAILURE_MESSAGE)
+            )
             raise
 
         logger.debug("Message %s processed successfully", msg.id)

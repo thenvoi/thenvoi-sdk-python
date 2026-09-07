@@ -501,6 +501,7 @@ class OpencodeAdapter(SimpleAdapter[OpencodeSessionState]):
                     str(exc.response.status_code),
                 )
             )
+            raise
         except Exception:
             logger.exception("Unexpected OpenCode adapter failure in room %s", room_id)
             await tools.send_failure(
@@ -508,6 +509,7 @@ class OpencodeAdapter(SimpleAdapter[OpencodeSessionState]):
                     "opencode", "OpenCode failed while processing the message."
                 )
             )
+            raise
 
     async def on_cleanup(self, room_id: str) -> None:
         room_state: RoomState | None = None

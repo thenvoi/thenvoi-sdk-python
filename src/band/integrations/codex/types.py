@@ -103,7 +103,8 @@ def build_agent_failure(
     codex_info = error_obj.get("codexErrorInfo") or {}
     if not isinstance(codex_info, dict):
         codex_info = {}
-    error_type = codex_info.get("type") or None
+    raw_error_type = codex_info.get("type")
+    error_type = str(raw_error_type) if raw_error_type else None
     error_code = codex_info.get("code") or None
     http_status = codex_info.get("httpStatus")
     # A genuine passthrough of codexErrorInfo.retryable: absent means unknown,

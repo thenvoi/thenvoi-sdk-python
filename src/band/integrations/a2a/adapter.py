@@ -23,8 +23,16 @@ from band_sdk_core import AgentFailure
 from typing_extensions import Unpack
 
 from band.converters.a2a import A2AHistoryConverter
-from band.core.delivery import DeliveryFailedError, deliver_reply
-from band.core.protocols import AgentToolsProtocol
+from band.core.delivery import (
+    DeliveryFailedError,
+    deliver_reply,
+    reraise_delivery_cause,
+)
+from band.core.protocols import (
+    GENERIC_PROVIDER_FAILURE_MESSAGE,
+    AgentToolsProtocol,
+    TurnResultAlreadyReported,
+)
 from band.core.simple_adapter import SimpleAdapter
 from band.core.types import Capability, Emit, FeatureKwargs, PlatformMessage
 from band.integrations.a2a.protocol import (
@@ -175,15 +183,14 @@ class A2AAdapter(SimpleAdapter[A2ASessionState]):
                 )
 
         except DeliveryFailedError as e:
-            # The A2A agent answered; posting its reply to the room is what
-            # failed. Band-side delivery, never an A2A provider failure --
-            # re-raise the cause so mark_failed/retry bookkeeping keys off
-            # the real exception.
-            logger.exception("A2A reply delivery failed: %s", e.cause)
-            raise e.cause from None
+            reraise_delivery_cause(e)
+        except TurnResultAlreadyReported:
+            raise
         except Exception as e:
             logger.exception("A2A agent error: %s", e)
-            await tools.send_failure(AgentFailure("a2a", str(e)))
+            await tools.send_failure(
+                AgentFailure("a2a", GENERIC_PROVIDER_FAILURE_MESSAGE)
+            )
             raise
 
     async def _handle_event(
@@ -289,6 +296,7 @@ class A2AAdapter(SimpleAdapter[A2ASessionState]):
         if state in TERMINAL_TASK_STATES:
             error_text = self._get_status_text(task) or f"Task {state_name(state)}"
             await tools.send_failure(AgentFailure("a2a", error_text, state_name(state)))
+            raise TurnResultAlreadyReported(error_text)
 
     def _finalize_task(self, room_id: str, task_id: str) -> None:
         """Release a terminal task after its Band output and state are persisted."""

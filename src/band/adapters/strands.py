@@ -33,7 +33,11 @@ except ImportError as error:
 
 from typing_extensions import Unpack
 
-from band.core.protocols import AgentToolsProtocol
+from band.core.protocols import (
+    GENERIC_PROVIDER_FAILURE_MESSAGE,
+    AgentToolsProtocol,
+    TurnResultAlreadyReported,
+)
 from band.core.simple_adapter import SimpleAdapter
 from band.core.tool_filter import filter_tool_schemas
 from band.core.types import (
@@ -528,8 +532,10 @@ class StrandsAdapter(SimpleAdapter[StrandsMessages]):
         try:
             agent = self._build_agent(history, tools, hooks)
             await agent.invoke_async(message)
-        except Exception as e:
-            await tools.send_failure(AgentFailure("strands", str(e)))
+        except Exception:
+            await tools.send_failure(
+                AgentFailure("strands", GENERIC_PROVIDER_FAILURE_MESSAGE)
+            )
             raise
         finally:
             if agent is not None:
@@ -574,9 +580,9 @@ class StrandsAdapter(SimpleAdapter[StrandsMessages]):
             hooks=hooks,
         )
         if not hooks.terminal_fired:
-            await tools.send_failure(
-                AgentFailure("strands", missing_reply_error("Strands"))
-            )
+            detail = missing_reply_error("Strands")
+            await tools.send_failure(AgentFailure("strands", detail))
+            raise TurnResultAlreadyReported(detail)
         logger.debug(
             "Room %s: Strands agent completed (history now has %s messages)",
             room_id,

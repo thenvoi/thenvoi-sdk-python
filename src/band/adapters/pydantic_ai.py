@@ -37,7 +37,11 @@ from pydantic_ai.models import ModelRequestContext
 
 from typing_extensions import Unpack
 
-from band.core.protocols import AgentToolsProtocol
+from band.core.protocols import (
+    GENERIC_PROVIDER_FAILURE_MESSAGE,
+    AgentToolsProtocol,
+    TurnResultAlreadyReported,
+)
 from band.core.simple_adapter import SimpleAdapter
 from band.core.task_types import TaskAssignmentStatus, TaskLifecycleState, TaskListState
 from band.core.types import (
@@ -1058,7 +1062,9 @@ class PydanticAIAdapter(SimpleAdapter[PydanticAIMessages]):
                     ModelRequest(parts=[UserPromptPart(content=user_message)]),
                 ]
                 return
-            await tools.send_failure(AgentFailure("pydantic_ai", str(e)))
+            await tools.send_failure(
+                AgentFailure("pydantic_ai", GENERIC_PROVIDER_FAILURE_MESSAGE)
+            )
             raise
         finally:
             capture_cm.__exit__(None, None, None)
@@ -1078,9 +1084,9 @@ class PydanticAIAdapter(SimpleAdapter[PydanticAIMessages]):
         # either answered in plain text or said nothing at all. Surface it as an
         # error (mirrors the crewai adapter) instead of letting it vanish.
         if not tool_executed:
-            await tools.send_failure(
-                AgentFailure("pydantic_ai", missing_reply_error("Pydantic AI"))
-            )
+            detail = missing_reply_error("Pydantic AI")
+            await tools.send_failure(AgentFailure("pydantic_ai", detail))
+            raise TurnResultAlreadyReported(detail)
 
         logger.debug(
             "Room %s: Pydantic AI agent completed (history now has %s messages)",

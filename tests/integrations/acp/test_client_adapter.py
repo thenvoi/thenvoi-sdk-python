@@ -11,6 +11,7 @@ from acp.exceptions import RequestError
 from acp.helpers import update_agent_message_text
 
 from band.converters.parsing import parse_tool_call, parse_tool_result
+from band.core.protocols import GENERIC_PROVIDER_FAILURE_MESSAGE
 from band.core.types import Capability
 from band.integrations.acp.client_adapter import ACPClientAdapter, _resolve_launcher
 from band.integrations.acp.client_profiles import CursorACPClientProfile
@@ -749,20 +750,21 @@ class TestACPClientAdapterOnMessage:
         tools = FakeAgentTools()
         msg = make_platform_message("Hello", room_id="room-123")
 
-        await adapter_with_mocks.on_message(
-            msg,
-            tools,
-            ACPClientSessionState(),
-            None,
-            None,
-            is_session_bootstrap=False,
-            room_id="room-123",
-        )
+        with pytest.raises(RuntimeError, match="Agent crashed"):
+            await adapter_with_mocks.on_message(
+                msg,
+                tools,
+                ACPClientSessionState(),
+                None,
+                None,
+                is_session_bootstrap=False,
+                room_id="room-123",
+            )
 
         failures = reported_failures(tools)
         assert len(failures) == 1
         assert failures[0]["provider"] == "acp"
-        assert "Agent crashed" in failures[0]["message"]
+        assert failures[0]["message"] == GENERIC_PROVIDER_FAILURE_MESSAGE
 
     @pytest.mark.asyncio
     async def test_on_message_request_error_captures_code_and_data(
@@ -776,15 +778,16 @@ class TestACPClientAdapterOnMessage:
         tools = FakeAgentTools()
         msg = make_platform_message("Hello", room_id="room-123")
 
-        await adapter_with_mocks.on_message(
-            msg,
-            tools,
-            ACPClientSessionState(),
-            None,
-            None,
-            is_session_bootstrap=False,
-            room_id="room-123",
-        )
+        with pytest.raises(RequestError):
+            await adapter_with_mocks.on_message(
+                msg,
+                tools,
+                ACPClientSessionState(),
+                None,
+                None,
+                is_session_bootstrap=False,
+                room_id="room-123",
+            )
 
         failures = reported_failures(tools)
         assert len(failures) == 1
@@ -1336,15 +1339,16 @@ class TestACPClientAdapterDeadConnectionRecovery:
         tools = FakeAgentTools()
         msg = make_platform_message("Hello", room_id="room-1")
 
-        await adapter.on_message(
-            msg,
-            tools,
-            ACPClientSessionState(),
-            None,
-            None,
-            is_session_bootstrap=False,
-            room_id="room-1",
-        )
+        with pytest.raises(RuntimeError, match="Process died"):
+            await adapter.on_message(
+                msg,
+                tools,
+                ACPClientSessionState(),
+                None,
+                None,
+                is_session_bootstrap=False,
+                room_id="room-1",
+            )
 
         # Connection should be cleared after error
         assert adapter._runtime._conn is None
@@ -1386,15 +1390,16 @@ class TestACPClientAdapterDeadConnectionRecovery:
 
         msg = make_platform_message("Hello", room_id="room-1")
 
-        await adapter.on_message(
-            msg,
-            tools,
-            ACPClientSessionState(),
-            None,
-            None,
-            is_session_bootstrap=False,
-            room_id="room-1",
-        )
+        with pytest.raises(RuntimeError, match="platform rejected the message"):
+            await adapter.on_message(
+                msg,
+                tools,
+                ACPClientSessionState(),
+                None,
+                None,
+                is_session_bootstrap=False,
+                room_id="room-1",
+            )
 
         assert adapter._runtime._conn is not None
         assert adapter._runtime._ctx is not None
@@ -1426,15 +1431,16 @@ class TestACPClientAdapterDeadConnectionRecovery:
         tools = FakeAgentTools()
         msg = make_platform_message("Hello", room_id="room-1")
 
-        await adapter.on_message(
-            msg,
-            tools,
-            ACPClientSessionState(),
-            None,
-            None,
-            is_session_bootstrap=False,
-            room_id="room-1",
-        )
+        with pytest.raises(TimeoutError):
+            await adapter.on_message(
+                msg,
+                tools,
+                ACPClientSessionState(),
+                None,
+                None,
+                is_session_bootstrap=False,
+                room_id="room-1",
+            )
 
         assert adapter._runtime._conn is None
         assert adapter._runtime._ctx is None

@@ -55,7 +55,11 @@ from band.adapters.pydantic_ai import (
     _is_output_retries_exhausted,
     _is_replayable_history_message,
 )
-from band.core.protocols import AgentToolsProtocol
+from band.core.protocols import (
+    GENERIC_PROVIDER_FAILURE_MESSAGE,
+    AgentToolsProtocol,
+    TurnResultAlreadyReported,
+)
 from band.core.types import Capability, Emit, PlatformMessage, TurnUsage
 from band.runtime.custom_tools import get_custom_tool_name
 from tests.adapters.usage_events import sent_usage_payloads
@@ -864,7 +868,10 @@ class TestOnMessage:
 
         result_messages = [ModelRequest(parts=[UserPromptPart(content="test")])]
         adapter._agent.run_stream_events = MagicMock(
-            return_value=make_stream_events(result_messages=result_messages)
+            return_value=make_stream_events(
+                result_messages=result_messages,
+                tool_results=[("band_send_message", "Message sent", "call-1")],
+            )
         )
 
         await adapter.on_message(
@@ -898,7 +905,10 @@ class TestOnMessage:
             ModelRequest(parts=[UserPromptPart(content="new")])
         ]
         adapter._agent.run_stream_events = MagicMock(
-            return_value=make_stream_events(result_messages=result_messages)
+            return_value=make_stream_events(
+                result_messages=result_messages,
+                tool_results=[("band_send_message", "Message sent", "call-1")],
+            )
         )
 
         await adapter.on_message(
@@ -927,7 +937,10 @@ class TestOnMessage:
             await adapter.on_started("TestBot", "Test bot")
 
         adapter._agent.run_stream_events = MagicMock(
-            return_value=make_stream_events(result_messages=[])
+            return_value=make_stream_events(
+                result_messages=[],
+                tool_results=[("band_send_message", "Message sent", "call-1")],
+            )
         )
 
         await adapter.on_message(
@@ -964,7 +977,10 @@ class TestOnMessage:
         with patch.object(adapter, "_create_agent") as mock_create:
             mock_agent = MagicMock()
             mock_agent.run_stream_events = MagicMock(
-                return_value=make_stream_events(result_messages=[])
+                return_value=make_stream_events(
+                    result_messages=[],
+                    tool_results=[("band_send_message", "Message sent", "call-1")],
+                )
             )
             mock_create.return_value = mock_agent
 
@@ -995,15 +1011,16 @@ class TestOnMessage:
             return_value=make_stream_events(result_messages=[])
         )
 
-        await adapter.on_message(
-            msg=sample_message,
-            tools=mock_tools,
-            history=[],
-            participants_msg=None,
-            contacts_msg=None,
-            is_session_bootstrap=True,
-            room_id="room-123",
-        )
+        with pytest.raises(TurnResultAlreadyReported):
+            await adapter.on_message(
+                msg=sample_message,
+                tools=mock_tools,
+                history=[],
+                participants_msg=None,
+                contacts_msg=None,
+                is_session_bootstrap=True,
+                room_id="room-123",
+            )
 
         mock_tools.send_failure.assert_awaited_once()
         failure = mock_tools.send_failure.call_args.args[0]
@@ -1049,7 +1066,10 @@ class TestHistoryManagement:
         ]
 
         adapter._agent.run_stream_events = MagicMock(
-            return_value=make_stream_events(result_messages=new_messages)
+            return_value=make_stream_events(
+                result_messages=new_messages,
+                tool_results=[("band_send_message", "Message sent", "call-1")],
+            )
         )
 
         await adapter.on_message(
@@ -1103,7 +1123,10 @@ class TestHistoryManagement:
             text_response,
         ]
         adapter._agent.run_stream_events = MagicMock(
-            return_value=make_stream_events(result_messages=result_messages)
+            return_value=make_stream_events(
+                result_messages=result_messages,
+                tool_results=[("band_send_message", {"id": "msg_1"}, "call_1")],
+            )
         )
 
         await adapter.on_message(
@@ -1195,7 +1218,10 @@ class TestHistoryManagement:
             await adapter.on_started("TestBot", "Test bot")
 
         adapter._agent.run_stream_events = MagicMock(
-            return_value=make_stream_events(result_messages=[])
+            return_value=make_stream_events(
+                result_messages=[],
+                tool_results=[("band_send_message", "Message sent", "call-1")],
+            )
         )
 
         await adapter.on_message(
@@ -1232,6 +1258,7 @@ class TestExecutionReporting:
             return_value=make_stream_events(
                 result_messages=[],
                 tool_calls=[("band_send_message", {"content": "Hello"}, "call-123")],
+                tool_results=[("band_send_message", "Message sent", "call-123")],
             )
         )
 
@@ -1276,6 +1303,7 @@ class TestExecutionReporting:
                         "call-123",
                     )
                 ],
+                tool_results=[("band_send_message", "Message sent", "call-2")],
             )
         )
 
@@ -1353,7 +1381,10 @@ class TestExecutionReporting:
         adapter._agent.run_stream_events = MagicMock(
             return_value=make_stream_events(
                 result_messages=[],
-                tool_results=[("band_read_room_file", [image], "call-1")],
+                tool_results=[
+                    ("band_read_room_file", [image], "call-1"),
+                    ("band_send_message", "Message sent", "call-2"),
+                ],
             )
         )
 
@@ -1473,6 +1504,7 @@ class TestExecutionReporting:
             return_value=make_stream_events(
                 result_messages=[ModelRequest(parts=[UserPromptPart(content="test")])],
                 tool_calls=[("band_send_message", {"content": "Hello"}, "call-123")],
+                tool_results=[("band_send_message", "Message sent", "call-123")],
             )
         )
 
@@ -1782,7 +1814,7 @@ class TestEmptyFinalAnswer:
         mock_tools.send_failure.assert_awaited_once()
         failure = mock_tools.send_failure.call_args.args[0]
         assert failure.provider == "pydantic_ai"
-        assert failure.message == "provider connection reset"
+        assert failure.message == GENERIC_PROVIDER_FAILURE_MESSAGE
 
     @pytest.mark.asyncio
     async def test_empty_output_after_read_only_tool_propagates(
@@ -1968,7 +2000,10 @@ class TestCustomTools:
 
         result_messages = [ModelRequest(parts=[UserPromptPart(content="test")])]
         adapter._agent.run_stream_events = MagicMock(
-            return_value=make_stream_events(result_messages=result_messages)
+            return_value=make_stream_events(
+                result_messages=result_messages,
+                tool_results=[("band_send_message", "Message sent", "call-1")],
+            )
         )
 
         # Should not raise

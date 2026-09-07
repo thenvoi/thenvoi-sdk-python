@@ -10,7 +10,7 @@ import time as _time
 from collections import OrderedDict
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import ClassVar, Any, Callable, Literal, NamedTuple, NoReturn, Protocol
+from typing import ClassVar, Any, Callable, Literal, NamedTuple, Protocol
 
 from band_sdk_core import AgentFailure
 from pydantic import AliasChoices, BaseModel, Field, ValidationError, field_validator
@@ -19,8 +19,17 @@ from typing_extensions import Unpack
 
 from band.converters.codex import CodexHistoryConverter
 from band.converters.helpers import build_replay_messages
-from band.core.delivery import DeliveryFailedError, deliver_reply
-from band.core.protocols import FAILURE_CODE_TIMEOUT, AgentToolsProtocol
+from band.core.delivery import (
+    DeliveryFailedError,
+    deliver_reply,
+    reraise_delivery_cause,
+)
+from band.core.protocols import (
+    FAILURE_CODE_TIMEOUT,
+    GENERIC_PROVIDER_FAILURE_MESSAGE,
+    AgentToolsProtocol,
+    TurnResultAlreadyReported,
+)
 from band.core.simple_adapter import SimpleAdapter
 from band.core.types import (
     AgentInput,
@@ -79,16 +88,6 @@ def _image_content_items(result: dict[str, Any]) -> list[dict[str, Any]]:
         }
         for block in result["content"]
     ]
-
-
-def _reraise_delivery_cause(e: DeliveryFailedError) -> NoReturn:
-    """Band-side reply delivery failed, never a Codex provider failure.
-
-    Re-raises the cause (not this wrapper) so mark_failed/retry bookkeeping
-    keys off the real exception.
-    """
-    logger.exception("Codex reply delivery failed: %s", e.cause)
-    raise e.cause from None
 
 
 TransportKind = Literal["stdio", "ws"]
@@ -589,7 +588,7 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
                     args=command[1],
                 )
             except DeliveryFailedError as e:
-                _reraise_delivery_cause(e)
+                reraise_delivery_cause(e)
             if handled:
                 return
 
@@ -706,6 +705,12 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
                         turn_id=turn_id or None,
                         turn_start=_turn_start,
                     )
+                except TurnResultAlreadyReported:
+                    # A nested handler (e.g. the turn-timeout branch) already
+                    # reported this failure via send_failure; propagate it
+                    # without emitting a friendly _emit_turn_outcome reply or
+                    # a generic "Internal error" fallback.
+                    raise
                 except Exception:
                     logger.exception(
                         "Unexpected error during Codex turn event processing "
@@ -732,9 +737,19 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
                     duration_s=_turn_duration_s,
                 )
             except DeliveryFailedError as e:
-                _reraise_delivery_cause(e)
-            except Exception as e:
+                reraise_delivery_cause(e)
+            except TurnResultAlreadyReported:
+                raise
+            except CodexJsonRpcError as e:
+                # A structured RPC error from the app-server (e.g. "model not
+                # available") is safe, curated text -- unlike an arbitrary
+                # caught exception, it's worth showing verbatim.
                 await tools.send_failure(AgentFailure("codex", str(e)))
+                raise
+            except Exception:
+                await tools.send_failure(
+                    AgentFailure("codex", GENERIC_PROVIDER_FAILURE_MESSAGE)
+                )
                 raise
 
     async def _process_turn_events(
@@ -991,7 +1006,10 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
                         self._token_usage.pop(stale_thread, None)
                     for stale_room in stale_rooms:
                         self._clear_pending_approvals_for_room(stale_room)
-                    break
+                    await tools.send_failure(
+                        AgentFailure("codex", result.turn_error, "transport_closed")
+                    )
+                    raise TurnResultAlreadyReported(result.turn_error)
 
                 if event.method == "turn/completed":
                     turn_payload = (
@@ -1004,10 +1022,12 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
                         continue
                     result.turn_status = str(turn_payload.get("status") or "failed")
                     result.turn_error = self._extract_turn_error(turn_payload)
-                    # Phase 1: structured error for failed turns. Skipped when
-                    # an earlier "error" notification in this same turn
-                    # already reported one, so one incident isn't posted twice.
-                    if result.turn_status == "failed" and not failure_reported:
+                    if result.turn_status != "failed":
+                        break
+                    # Skipped when an earlier "error" notification in this same
+                    # turn already reported one, so one incident isn't posted
+                    # twice -- but the turn still fails either way.
+                    if not failure_reported:
                         await self._emit_structured_turn_error(
                             tools=tools,
                             turn_payload=turn_payload,
@@ -1015,7 +1035,7 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
                             thread_id=thread_id,
                             turn_id=turn_id,
                         )
-                    break
+                    raise TurnResultAlreadyReported(result.turn_error or "Turn failed")
         except asyncio.TimeoutError:
             logger.error(
                 "Codex turn timed out after %ss (thread=%s, turn=%s)",
@@ -1041,8 +1061,7 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
                     FAILURE_CODE_TIMEOUT,
                 )
             )
-            result.turn_status = "interrupted"
-            result.turn_error = "Turn timed out"
+            raise TurnResultAlreadyReported("Turn timed out")
         return result
 
     async def on_cleanup(self, room_id: str) -> None:

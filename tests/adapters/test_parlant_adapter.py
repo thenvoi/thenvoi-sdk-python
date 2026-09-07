@@ -15,6 +15,7 @@ import sys
 import pytest
 
 from band.adapters.parlant import PARLANT_PREAMBLE_TAG, ParlantAdapter
+from band.core.protocols import GENERIC_PROVIDER_FAILURE_MESSAGE
 from band.core.types import PlatformMessage
 
 
@@ -797,7 +798,7 @@ class TestErrorHandling:
         mock_tools.send_failure.assert_awaited_once()
         failure = mock_tools.send_failure.call_args.args[0]
         assert failure.provider == "parlant"
-        assert failure.message == "API error"
+        assert failure.message == GENERIC_PROVIDER_FAILURE_MESSAGE
 
     @pytest.mark.asyncio
     async def test_reports_error_on_session_init_failure(
@@ -829,7 +830,7 @@ class TestErrorHandling:
         mock_tools.send_failure.assert_awaited_once()
         failure = mock_tools.send_failure.call_args.args[0]
         assert failure.provider == "parlant"
-        assert "Session initialization failed" in failure.message
+        assert failure.message == GENERIC_PROVIDER_FAILURE_MESSAGE
 
     @pytest.mark.asyncio
     async def test_clears_tools_on_error(

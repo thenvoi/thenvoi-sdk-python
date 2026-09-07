@@ -23,6 +23,7 @@ from band.adapters.codex import (
     CodexAdapterConfig,
     PendingApproval,
 )
+from band.core.protocols import TurnResultAlreadyReported
 from band.core.types import AgentInput, Emit, HistoryProvider, PlatformMessage
 from band.integrations.codex import CodexJsonRpcError, RpcEvent
 from band.integrations.codex.types import (
@@ -982,20 +983,7 @@ class TestCodexAdapter:
 
     @pytest.mark.asyncio
     async def test_reasoning_effort_passed_in_turn_overrides(self) -> None:
-        events = [
-            _event_notification(
-                "turn/completed",
-                {
-                    "turn": {
-                        "id": "t1",
-                        "threadId": "th1",
-                        "status": "completed",
-                    },
-                    "text": "Done",
-                },
-            ),
-        ]
-        fake_client = FakeCodexClient(events=events)
+        fake_client = FakeCodexClient(events=[_turn_completed()])
         adapter = CodexAdapter(
             config=CodexAdapterConfig(
                 transport="ws",
@@ -1023,20 +1011,7 @@ class TestCodexAdapter:
 
     @pytest.mark.asyncio
     async def test_reasoning_effort_omitted_when_none(self) -> None:
-        events = [
-            _event_notification(
-                "turn/completed",
-                {
-                    "turn": {
-                        "id": "t1",
-                        "threadId": "th1",
-                        "status": "completed",
-                    },
-                    "text": "Done",
-                },
-            ),
-        ]
-        fake_client = FakeCodexClient(events=events)
+        fake_client = FakeCodexClient(events=[_turn_completed()])
         adapter = CodexAdapter(
             config=CodexAdapterConfig(transport="ws"),
             client_factory=lambda _config: fake_client,
@@ -1104,20 +1079,7 @@ class TestCodexAdapter:
 
     @pytest.mark.asyncio
     async def test_self_config_tools_registered_when_enabled(self) -> None:
-        events = [
-            _event_notification(
-                "turn/completed",
-                {
-                    "turn": {
-                        "id": "t1",
-                        "threadId": "th1",
-                        "status": "completed",
-                    },
-                    "text": "Done",
-                },
-            ),
-        ]
-        fake_client = FakeCodexClient(events=events)
+        fake_client = FakeCodexClient(events=[_turn_completed()])
         adapter = CodexAdapter(
             config=CodexAdapterConfig(transport="ws", enable_self_config_tools=True),
             client_factory=lambda _config: fake_client,
@@ -1145,20 +1107,7 @@ class TestCodexAdapter:
 
     @pytest.mark.asyncio
     async def test_self_config_tools_not_registered_when_disabled(self) -> None:
-        events = [
-            _event_notification(
-                "turn/completed",
-                {
-                    "turn": {
-                        "id": "t1",
-                        "threadId": "th1",
-                        "status": "completed",
-                    },
-                    "text": "Done",
-                },
-            ),
-        ]
-        fake_client = FakeCodexClient(events=events)
+        fake_client = FakeCodexClient(events=[_turn_completed()])
         adapter = CodexAdapter(
             config=CodexAdapterConfig(transport="ws", enable_self_config_tools=False),
             client_factory=lambda _config: fake_client,
@@ -1393,20 +1342,20 @@ class TestCodexAdapter:
         tools = ToolSchemaFakeTools()
 
         await adapter.on_started("Codex Agent", "A coding agent")
-        await adapter.on_message(
-            make_platform_message(),
-            tools,
-            CodexSessionState(),
-            participants_msg=None,
-            contacts_msg=None,
-            is_session_bootstrap=True,
-            room_id="room-1",
-        )
+        with pytest.raises(TurnResultAlreadyReported):
+            await adapter.on_message(
+                make_platform_message(),
+                tools,
+                CodexSessionState(),
+                participants_msg=None,
+                contacts_msg=None,
+                is_session_bootstrap=True,
+                room_id="room-1",
+            )
 
-        # Adapter should send a failure message mentioning the disconnect.
-        assert any(
-            "transport closed" in msg["content"].lower() for msg in tools.messages_sent
-        )
+        # Adapter should report a failure mentioning the disconnect.
+        failures = reported_failures(tools)
+        assert any("transport closed" in f["message"].lower() for f in failures)
 
     @pytest.mark.asyncio
     async def test_transport_closed_resets_client_state(self) -> None:
@@ -1426,15 +1375,16 @@ class TestCodexAdapter:
         tools = ToolSchemaFakeTools()
 
         await adapter.on_started("Codex Agent", "A coding agent")
-        await adapter.on_message(
-            make_platform_message(),
-            tools,
-            CodexSessionState(),
-            participants_msg=None,
-            contacts_msg=None,
-            is_session_bootstrap=True,
-            room_id="room-1",
-        )
+        with pytest.raises(TurnResultAlreadyReported):
+            await adapter.on_message(
+                make_platform_message(),
+                tools,
+                CodexSessionState(),
+                participants_msg=None,
+                contacts_msg=None,
+                is_session_bootstrap=True,
+                room_id="room-1",
+            )
 
         # After transport/closed, client state should be reset
         assert adapter._client is None
@@ -1464,15 +1414,16 @@ class TestCodexAdapter:
         adapter._room_threads["room-1"] = "old-thread-id"
         adapter._raw_history_by_room["room-1"] = [{"role": "user", "content": "hi"}]
 
-        await adapter.on_message(
-            make_platform_message(),
-            tools,
-            CodexSessionState(),
-            participants_msg=None,
-            contacts_msg=None,
-            is_session_bootstrap=False,
-            room_id="room-1",
-        )
+        with pytest.raises(TurnResultAlreadyReported):
+            await adapter.on_message(
+                make_platform_message(),
+                tools,
+                CodexSessionState(),
+                participants_msg=None,
+                contacts_msg=None,
+                is_session_bootstrap=False,
+                room_id="room-1",
+            )
 
         # Per-room state should be cleared so next turn starts fresh.
         assert "room-1" not in adapter._room_threads
@@ -1508,15 +1459,16 @@ class TestCodexAdapter:
             input_tokens=100, total_tokens=150
         )
 
-        await adapter.on_message(
-            make_platform_message(),
-            tools,
-            CodexSessionState(),
-            participants_msg=None,
-            contacts_msg=None,
-            is_session_bootstrap=False,
-            room_id="room-1",
-        )
+        with pytest.raises(TurnResultAlreadyReported):
+            await adapter.on_message(
+                make_platform_message(),
+                tools,
+                CodexSessionState(),
+                participants_msg=None,
+                contacts_msg=None,
+                is_session_bootstrap=False,
+                room_id="room-1",
+            )
 
         # Dead thread's usage entry must be gone even without a matching
         # on_cleanup (the room id can no longer look up the thread id).
@@ -1524,7 +1476,9 @@ class TestCodexAdapter:
 
     @pytest.mark.asyncio
     async def test_turn_timeout_sends_interrupt_and_clean_error(self) -> None:
-        """When recv_event times out, the adapter sends turn/interrupt and reports cleanly."""
+        """When recv_event times out, the adapter sends turn/interrupt, reports
+        the failure, and fails the turn so the platform retries -- same as
+        every sibling adapter's own turn-timeout handling."""
         # No events means FakeCodexClient raises asyncio.TimeoutError immediately.
         fake_client = FakeCodexClient(events=[])
         adapter = CodexAdapter(
@@ -1534,15 +1488,16 @@ class TestCodexAdapter:
         tools = ToolSchemaFakeTools()
 
         await adapter.on_started("Codex Agent", "A coding agent")
-        await adapter.on_message(
-            make_platform_message(),
-            tools,
-            CodexSessionState(),
-            participants_msg=None,
-            contacts_msg=None,
-            is_session_bootstrap=True,
-            room_id="room-1",
-        )
+        with pytest.raises(TurnResultAlreadyReported):
+            await adapter.on_message(
+                make_platform_message(),
+                tools,
+                CodexSessionState(),
+                participants_msg=None,
+                contacts_msg=None,
+                is_session_bootstrap=True,
+                room_id="room-1",
+            )
 
         # Adapter should have sent turn/interrupt with both identifiers.
         interrupt_requests = [
@@ -1552,11 +1507,10 @@ class TestCodexAdapter:
             ("turn/interrupt", {"threadId": "thr-1", "turnId": "turn-1"})
         ]
 
-        # Adapter should send a user-facing message about stopping.
-        assert any("stopped" in msg["content"].lower() for msg in tools.messages_sent)
+        # The turn fails the platform's turn, so no separate "I stopped..."
+        # chat reply goes out alongside the structured failure event.
+        assert not tools.messages_sent
 
-        # A timed-out turn is a reportable Codex failure, same as every
-        # sibling adapter's own turn-timeout handling.
         failures = reported_failures(tools)
         assert len(failures) == 1
         assert failures[0]["provider"] == "codex"
@@ -3447,15 +3401,16 @@ class TestHistoryInjection:
         await adapter.on_started("Agent", "An agent")
 
         msg = make_platform_message(room_id="room-1", content="do something")
-        await adapter.on_message(
-            msg,
-            tools,
-            CodexSessionState(),
-            None,
-            None,
-            is_session_bootstrap=False,
-            room_id="room-1",
-        )
+        with pytest.raises(TurnResultAlreadyReported):
+            await adapter.on_message(
+                msg,
+                tools,
+                CodexSessionState(),
+                None,
+                None,
+                is_session_bootstrap=False,
+                room_id="room-1",
+            )
 
         error_events = events_of_type(tools, "error")
         assert len(error_events) == 1
@@ -3641,15 +3596,16 @@ class TestStructuredErrors:
         tools = ToolSchemaFakeTools()
 
         await adapter.on_started("Agent", "A coding agent")
-        await adapter.on_message(
-            make_platform_message(),
-            tools,
-            CodexSessionState(),
-            participants_msg=None,
-            contacts_msg=None,
-            is_session_bootstrap=True,
-            room_id="room-1",
-        )
+        with pytest.raises(TurnResultAlreadyReported):
+            await adapter.on_message(
+                make_platform_message(),
+                tools,
+                CodexSessionState(),
+                participants_msg=None,
+                contacts_msg=None,
+                is_session_bootstrap=True,
+                room_id="room-1",
+            )
 
         failures = reported_failures(tools)
         assert len(failures) == 1
@@ -5749,6 +5705,7 @@ class TestSessionApprovalKeying:
                 "item/fileChange/requestApproval",
                 {"reason": "write something"},
             ),
+            _turn_completed(),
         ]
         fake_client = FakeCodexClient(events=events)
         adapter = CodexAdapter(
@@ -6028,7 +5985,7 @@ class TestSlashCommandCoverage:
 
         await adapter.on_started("Agent", "A coding agent")
         with (
-            caplog.at_level(logging.ERROR, logger="band.adapters.codex"),
+            caplog.at_level(logging.ERROR, logger="band.core.delivery"),
             pytest.raises(RuntimeError, match="platform rejected the message"),
         ):
             await adapter.on_message(
@@ -6044,7 +6001,7 @@ class TestSlashCommandCoverage:
         assert not tools.messages_sent
         assert not reported_failures(tools)
         assert any(
-            "Codex reply delivery failed" in record.message for record in caplog.records
+            "Reply delivery failed" in record.message for record in caplog.records
         )
 
     @pytest.mark.asyncio
@@ -6070,7 +6027,7 @@ class TestSlashCommandCoverage:
 
         await adapter.on_started("Agent", "A coding agent")
         with (
-            caplog.at_level(logging.ERROR, logger="band.adapters.codex"),
+            caplog.at_level(logging.ERROR, logger="band.core.delivery"),
             pytest.raises(RuntimeError, match="platform rejected the message"),
         ):
             await adapter.on_message(
@@ -6086,7 +6043,7 @@ class TestSlashCommandCoverage:
         assert not tools.messages_sent
         assert not reported_failures(tools)
         assert any(
-            "Codex reply delivery failed" in record.message for record in caplog.records
+            "Reply delivery failed" in record.message for record in caplog.records
         )
 
 
@@ -6148,15 +6105,16 @@ class TestMalformedPayloadTolerance:
         tools = ToolSchemaFakeTools()
         await adapter.on_started("Agent", "A coding agent")
 
-        await adapter.on_message(
-            make_platform_message(),
-            tools,
-            CodexSessionState(),
-            participants_msg=None,
-            contacts_msg=None,
-            is_session_bootstrap=True,
-            room_id="room-1",
-        )
+        with pytest.raises(TurnResultAlreadyReported):
+            await adapter.on_message(
+                make_platform_message(),
+                tools,
+                CodexSessionState(),
+                participants_msg=None,
+                contacts_msg=None,
+                is_session_bootstrap=True,
+                room_id="room-1",
+            )
 
         assert len(reported_failures(tools)) == 1
 
@@ -6187,15 +6145,16 @@ class TestMalformedPayloadTolerance:
         tools = ToolSchemaFakeTools()
         await adapter.on_started("Agent", "A coding agent")
 
-        await adapter.on_message(
-            make_platform_message(),
-            tools,
-            CodexSessionState(),
-            participants_msg=None,
-            contacts_msg=None,
-            is_session_bootstrap=True,
-            room_id="room-1",
-        )
+        with pytest.raises(TurnResultAlreadyReported):
+            await adapter.on_message(
+                make_platform_message(),
+                tools,
+                CodexSessionState(),
+                participants_msg=None,
+                contacts_msg=None,
+                is_session_bootstrap=True,
+                room_id="room-1",
+            )
 
         failures = reported_failures(tools)
         assert len(failures) == 1

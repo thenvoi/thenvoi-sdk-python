@@ -23,6 +23,10 @@ from a2a.types import (
 )
 
 from band.core.delivery import DeliveryFailedError
+from band.core.protocols import (
+    GENERIC_PROVIDER_FAILURE_MESSAGE,
+    TurnResultAlreadyReported,
+)
 from band.core.types import PlatformMessage
 from band.integrations.a2a import A2AAdapter, A2AAuth, A2ASessionState
 from band.integrations.a2a.adapter import _SSE_READ_TIMEOUT_S
@@ -338,18 +342,19 @@ class TestA2AAdapterMessageFlow:
     ) -> None:
         tools = FakeAgentTools()
 
-        await adapter._handle_event(
-            task_event(
-                make_task(
-                    TaskState.TASK_STATE_AUTH_REQUIRED,
-                    status_message="Please authenticate",
-                )
-            ),
-            tools,
-            "room-123",
-            "user-456",
-            "Test User",
-        )
+        with pytest.raises(TurnResultAlreadyReported):
+            await adapter._handle_event(
+                task_event(
+                    make_task(
+                        TaskState.TASK_STATE_AUTH_REQUIRED,
+                        status_message="Please authenticate",
+                    )
+                ),
+                tools,
+                "room-123",
+                "user-456",
+                "Test User",
+            )
 
         error_events = [
             event for event in tools.events_sent if event["message_type"] == "error"
@@ -407,7 +412,7 @@ class TestA2AAdapterMessageFlow:
             )
 
         assert tools.events_sent[-1]["message_type"] == "error"
-        assert "remote down" in tools.events_sent[-1]["content"]
+        assert tools.events_sent[-1]["content"] == GENERIC_PROVIDER_FAILURE_MESSAGE
 
     @pytest.mark.asyncio
     async def test_on_message_reraises_delivery_failure_without_reporting_it(
@@ -443,13 +448,16 @@ class TestA2AAdapterMessageFlow:
     ) -> None:
         tools = FakeAgentTools()
 
-        await adapter._handle_event(
-            task_event(make_task(TaskState.TASK_STATE_FAILED, status_message="boom")),
-            tools,
-            "room-123",
-            "user-456",
-            "Test User",
-        )
+        with pytest.raises(TurnResultAlreadyReported):
+            await adapter._handle_event(
+                task_event(
+                    make_task(TaskState.TASK_STATE_FAILED, status_message="boom")
+                ),
+                tools,
+                "room-123",
+                "user-456",
+                "Test User",
+            )
 
         error_events = [
             event for event in tools.events_sent if event["message_type"] == "error"

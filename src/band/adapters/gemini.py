@@ -25,7 +25,7 @@ except ImportError as e:
     ) from e
 
 from band.core.exceptions import BandConfigError
-from band.core.protocols import AgentToolsProtocol
+from band.core.protocols import GENERIC_PROVIDER_FAILURE_MESSAGE, AgentToolsProtocol
 from band.core.simple_adapter import SimpleAdapter
 from band.core.tool_filter import sanitize_tool_schema
 from band.core.types import (
@@ -80,7 +80,7 @@ def _to_agent_failure(e: Exception) -> AgentFailure:
     """
     if isinstance(e, ServerError):
         return AgentFailure("gemini", str(e), e.status, e.message)
-    return AgentFailure("gemini", str(e))
+    return AgentFailure("gemini", GENERIC_PROVIDER_FAILURE_MESSAGE)
 
 
 class GeminiAdapter(SimpleAdapter[GeminiMessages]):

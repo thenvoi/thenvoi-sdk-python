@@ -21,6 +21,7 @@ from band.adapters.letta import (
     RoomContext,
 )
 from band.converters.letta import LettaSessionState
+from band.core.protocols import TurnResultAlreadyReported
 from band.core.types import Emit
 from band.testing import FakeAgentTools, reported_failures
 from tests.adapters.lettakit import (
@@ -1274,15 +1275,16 @@ class TestAutoRelayDisabled:
         )
 
         tools = FakeAgentTools()
-        await adapter.on_message(
-            make_platform_message(),
-            tools,
-            LettaSessionState(),
-            None,
-            None,
-            is_session_bootstrap=False,
-            room_id="room-1",
-        )
+        with pytest.raises(TurnResultAlreadyReported):
+            await adapter.on_message(
+                make_platform_message(),
+                tools,
+                LettaSessionState(),
+                None,
+                None,
+                is_session_bootstrap=False,
+                room_id="room-1",
+            )
 
         assert len(tools.messages_sent) == 0
         error_events = [e for e in tools.events_sent if e["message_type"] == "error"]

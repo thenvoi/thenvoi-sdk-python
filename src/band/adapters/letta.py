@@ -13,8 +13,17 @@ from band_sdk_core import AgentFailure
 from typing_extensions import Unpack
 
 from band.converters.letta import LettaHistoryConverter, LettaSessionState
-from band.core.delivery import DeliveryFailedError, deliver_reply
-from band.core.protocols import FAILURE_CODE_TIMEOUT, AgentToolsProtocol
+from band.core.delivery import (
+    DeliveryFailedError,
+    deliver_reply,
+    reraise_delivery_cause,
+)
+from band.core.protocols import (
+    FAILURE_CODE_TIMEOUT,
+    GENERIC_PROVIDER_FAILURE_MESSAGE,
+    AgentToolsProtocol,
+    TurnResultAlreadyReported,
+)
 from band.core.simple_adapter import SimpleAdapter
 from band.core.types import (
     AdapterFeatures,
@@ -287,7 +296,9 @@ class LettaAdapter(SimpleAdapter[LettaSessionState]):
                     await self._ensure_agent(room_id, history, tools)
         except Exception as e:
             logger.exception("Room %s: Failed to prepare Letta session: %s", room_id, e)
-            await tools.send_failure(AgentFailure("letta", str(e)))
+            await tools.send_failure(
+                AgentFailure("letta", GENERIC_PROVIDER_FAILURE_MESSAGE)
+            )
             raise
 
         await self._handle_message(
@@ -423,16 +434,9 @@ class LettaAdapter(SimpleAdapter[LettaSessionState]):
                 timeout=self.config.turn_timeout_s,
             )
         except DeliveryFailedError as e:
-            # The agent answered; posting the reply to the room is what
-            # failed. Band-side delivery, never a Letta provider failure --
-            # re-raise the cause so mark_failed/retry bookkeeping keys off
-            # the real exception.
-            logger.exception(
-                "Room %s: Failed to deliver Letta agent's reply: %s",
-                room_id,
-                e.cause,
-            )
-            raise e.cause from None
+            reraise_delivery_cause(e)
+        except TurnResultAlreadyReported:
+            raise
         except asyncio.TimeoutError:
             logger.error(
                 "Room %s: Letta turn timed out after %ss",
@@ -449,7 +453,9 @@ class LettaAdapter(SimpleAdapter[LettaSessionState]):
             raise
         except Exception as e:
             logger.exception("Room %s: Error during Letta turn: %s", room_id, e)
-            await tools.send_failure(AgentFailure("letta", str(e)))
+            await tools.send_failure(
+                AgentFailure("letta", GENERIC_PROVIDER_FAILURE_MESSAGE)
+            )
             raise
         else:
             if room_ctx.pending_seed:
@@ -596,13 +602,12 @@ class LettaAdapter(SimpleAdapter[LettaSessionState]):
                 room_id,
                 self._mcp.send_message_tool,
             )
-            await tools.send_failure(
-                AgentFailure(
-                    "letta",
-                    f"Letta agent did not call {self._mcp.send_message_tool} "
-                    "(auto-relay disabled); its reply was dropped",
-                )
+            detail = (
+                f"Letta agent did not call {self._mcp.send_message_tool} "
+                "(auto-relay disabled); its reply was dropped"
             )
+            await tools.send_failure(AgentFailure("letta", detail))
+            raise TurnResultAlreadyReported(detail)
         else:
             final_text = "\n\n".join(final_text_parts)
             mentions = [reply_to_sender_id] if reply_to_sender_id else None

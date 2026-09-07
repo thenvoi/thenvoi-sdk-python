@@ -42,6 +42,7 @@ from band.runtime.tools import (
     missing_reply_error,
     mcp_tool_names,
 )
+from band.core.protocols import GENERIC_PROVIDER_FAILURE_MESSAGE
 from band.core.types import Capability, Emit, PlatformMessage, ToolEventKey
 from claude_agent_sdk._errors import CLIConnectionError
 from claude_agent_sdk.types import PermissionResultAllow, ToolPermissionContext
@@ -483,7 +484,7 @@ class TestErrorHandling:
             mock_tools.send_failure.assert_called_once()
             failure = mock_tools.send_failure.call_args.args[0]
             assert failure.provider == "claude_sdk"
-            assert "API Error" in failure.message
+            assert failure.message == GENERIC_PROVIDER_FAILURE_MESSAGE
 
 
 class TestCLIConnectionError:
@@ -564,7 +565,7 @@ class TestCLIConnectionError:
             mock_tools.send_failure.assert_called_once()
             failure = mock_tools.send_failure.call_args.args[0]
             assert failure.provider == "claude_sdk"
-            assert "Process dead" in failure.message
+            assert failure.message == GENERIC_PROVIDER_FAILURE_MESSAGE
 
     @pytest.mark.asyncio
     async def test_clears_session_id_on_cli_connection_error(
@@ -645,7 +646,7 @@ class TestCLIConnectionError:
         assert "room-123" not in adapter._session_ids
         errors = _error_events(mock_tools)
         assert len(errors) == 1
-        assert "ended without a result" in errors[0]
+        assert errors[0] == GENERIC_PROVIDER_FAILURE_MESSAGE
 
 
 class TestRoomToolsStorage:

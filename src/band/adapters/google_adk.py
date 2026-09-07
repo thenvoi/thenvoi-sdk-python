@@ -19,7 +19,7 @@ from band_sdk_core import AgentFailure
 from pydantic import ValidationError
 from typing_extensions import Unpack
 
-from band.core.protocols import AgentToolsProtocol
+from band.core.protocols import GENERIC_PROVIDER_FAILURE_MESSAGE, AgentToolsProtocol
 from band.core.simple_adapter import SimpleAdapter
 from band.core.tool_filter import sanitize_tool_schema
 from band.core.types import (
@@ -581,9 +581,11 @@ class GoogleADKAdapter(SimpleAdapter[GoogleADKMessages]):
                         "Room %s: ADK agent completed with final response",
                         room_id,
                     )
-        except Exception as e:
+        except Exception:
             logger.exception("Error running ADK agent in room %s", room_id)
-            await tools.send_failure(AgentFailure("google_adk", str(e)))
+            await tools.send_failure(
+                AgentFailure("google_adk", GENERIC_PROVIDER_FAILURE_MESSAGE)
+            )
             raise
         finally:
             # Emit before close so a close() failure can't drop the usage, but

@@ -44,6 +44,12 @@ GENERIC_PROVIDER_FAILURE_MESSAGE = (
 )
 
 
+class TurnResultAlreadyReported(Exception):
+    """A terminal turn failure that a nested handler already reported via
+    ``send_failure``. An adapter's outer ``except`` re-raises this without
+    reporting the same failure a second time."""
+
+
 def to_failure_event(failure: AgentFailure) -> tuple[str, dict[str, Any]]:
     """Shared shape every ``send_failure`` implementation posts as an `error` event.
 

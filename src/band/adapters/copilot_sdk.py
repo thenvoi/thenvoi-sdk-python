@@ -22,7 +22,13 @@ from band.converters.copilot_sdk import (
     CopilotSDKHistoryConverter,
     CopilotSDKSessionState,
 )
+from band.core.delivery import (
+    DeliveryFailedError,
+    deliver_reply,
+    reraise_delivery_cause,
+)
 from band.core.exceptions import BandConfigError
+from band.core.protocols import GENERIC_PROVIDER_FAILURE_MESSAGE
 from band.core.simple_adapter import SimpleAdapter
 from band.core.tool_filter import filter_tool_schemas
 from band.core.types import Capability, Emit, MessageType, ToolEventKey, TurnUsage
@@ -408,9 +414,11 @@ class CopilotSDKAdapter(SimpleAdapter[CopilotSDKSessionState]):
                 session, inject_text = await self._obtain_session(
                     room_id, history, tools, is_session_bootstrap=is_session_bootstrap
                 )
-            except Exception as exc:
+            except Exception:
                 logger.exception("Room %s: Copilot session setup failed", room_id)
-                await tools.send_failure(AgentFailure("copilot_sdk", str(exc)))
+                await tools.send_failure(
+                    AgentFailure("copilot_sdk", GENERIC_PROVIDER_FAILURE_MESSAGE)
+                )
                 raise
             prompt = self._compose_prompt(
                 msg,
@@ -431,12 +439,14 @@ class CopilotSDKAdapter(SimpleAdapter[CopilotSDKSessionState]):
             self._turn_state[room_id] = turn
             try:
                 final_text = await self._run_turn(session, prompt, turn)
-            except Exception as exc:
+            except Exception:
                 logger.exception("Room %s: Copilot turn failed", room_id)
                 # Abort any work the runtime is still doing for this turn and
                 # drop the session; the next message resumes it fresh by id.
                 await self._session_manager.evict_session(room_id)
-                await tools.send_failure(AgentFailure("copilot_sdk", str(exc)))
+                await tools.send_failure(
+                    AgentFailure("copilot_sdk", GENERIC_PROVIDER_FAILURE_MESSAGE)
+                )
                 raise
             finally:
                 self._turn_state.pop(room_id, None)
@@ -458,7 +468,12 @@ class CopilotSDKAdapter(SimpleAdapter[CopilotSDKSessionState]):
             # The turn may already have replied into the room; sending its
             # final text too would duplicate the reply.
             if final_text and not turn.replied_in_room:
-                await tools.send_message(final_text, mentions=[turn.sender_mention])
+                try:
+                    await deliver_reply(
+                        tools, final_text, mentions=[turn.sender_mention]
+                    )
+                except DeliveryFailedError as e:
+                    reraise_delivery_cause(e)
 
             await self._persist_session_id(room_id, tools)
 

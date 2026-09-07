@@ -19,11 +19,15 @@ import warnings
 import json
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import DEFAULT, AsyncMock, MagicMock
 
 import pytest
 from pydantic import BaseModel, Field
 
+from band.core.protocols import (
+    GENERIC_PROVIDER_FAILURE_MESSAGE,
+    TurnResultAlreadyReported,
+)
 from band.core.types import Capability, Emit, PlatformMessage
 from band.runtime.prompts import render_system_prompt
 
@@ -172,6 +176,24 @@ def mock_crewai_agent():
 
 
 @pytest.fixture
+def mock_crewai_agent_replied(mock_crewai_agent):
+    """``mock_crewai_agent`` whose ``kickoff_async`` also marks the turn as
+    replied, for tests that only care about kickoff/history/message
+    plumbing rather than the reply-tracking behavior itself (which has its
+    own dedicated tests under ``TestErrorHandling``)."""
+    module = importlib.import_module("band.adapters.crewai")
+
+    def _mark_replied(*args, **kwargs):
+        tracker = module._reply_tracker_var.get()
+        if tracker is not None:
+            tracker.replied = True
+        return DEFAULT
+
+    mock_crewai_agent.kickoff_async.side_effect = _mark_replied
+    return mock_crewai_agent
+
+
+@pytest.fixture
 def room_context(crewai_mocks, mock_tools):
     """Context manager fixture for setting up room context in tests.
 
@@ -304,11 +326,11 @@ class TestOnStarted:
 class TestOnMessage:
     @pytest.mark.asyncio
     async def test_initializes_history_on_bootstrap(
-        self, CrewAIAdapter, sample_message, mock_tools, mock_crewai_agent
+        self, CrewAIAdapter, sample_message, mock_tools, mock_crewai_agent_replied
     ):
         adapter = CrewAIAdapter()
         await adapter.on_started("TestBot", "Test bot")
-        adapter._crewai_agent = mock_crewai_agent
+        adapter._crewai_agent = mock_crewai_agent_replied
 
         await adapter.on_message(
             msg=sample_message,
@@ -324,11 +346,11 @@ class TestOnMessage:
 
     @pytest.mark.asyncio
     async def test_loads_existing_history(
-        self, CrewAIAdapter, sample_message, mock_tools, mock_crewai_agent
+        self, CrewAIAdapter, sample_message, mock_tools, mock_crewai_agent_replied
     ):
         adapter = CrewAIAdapter()
         await adapter.on_started("TestBot", "Test bot")
-        adapter._crewai_agent = mock_crewai_agent
+        adapter._crewai_agent = mock_crewai_agent_replied
 
         existing_history = [
             {"role": "user", "content": "[Bob]: Previous message"},
@@ -349,11 +371,11 @@ class TestOnMessage:
 
     @pytest.mark.asyncio
     async def test_calls_kickoff_async(
-        self, CrewAIAdapter, sample_message, mock_tools, mock_crewai_agent
+        self, CrewAIAdapter, sample_message, mock_tools, mock_crewai_agent_replied
     ):
         adapter = CrewAIAdapter()
         await adapter.on_started("TestBot", "Test bot")
-        adapter._crewai_agent = mock_crewai_agent
+        adapter._crewai_agent = mock_crewai_agent_replied
 
         await adapter.on_message(
             msg=sample_message,
@@ -365,11 +387,11 @@ class TestOnMessage:
             room_id="room-123",
         )
 
-        mock_crewai_agent.kickoff_async.assert_called_once()
+        mock_crewai_agent_replied.kickoff_async.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_replays_history_on_followup_turn(
-        self, CrewAIAdapter, sample_message, mock_tools, mock_crewai_agent
+        self, CrewAIAdapter, sample_message, mock_tools, mock_crewai_agent_replied
     ):
         """A non-bootstrap turn must replay accumulated in-session history.
 
@@ -381,7 +403,7 @@ class TestOnMessage:
         """
         adapter = CrewAIAdapter()
         await adapter.on_started("TestBot", "Test bot")
-        adapter._crewai_agent = mock_crewai_agent
+        adapter._crewai_agent = mock_crewai_agent_replied
 
         # Turn 1 (bootstrap): states something the agent must recall later.
         await adapter.on_message(
@@ -418,7 +440,9 @@ class TestOnMessage:
 
         # The second kickoff must carry the prior turn as replayed context, not
         # just the current message.
-        second_call_messages = mock_crewai_agent.kickoff_async.call_args_list[1][0][0]
+        second_call_messages = mock_crewai_agent_replied.kickoff_async.call_args_list[
+            1
+        ][0][0]
         blob = "\n".join(m["content"] for m in second_call_messages)
         assert "[Previous conversation:]" in blob
         assert "Hello, agent!" in blob  # turn-1 content replayed to the model
@@ -463,7 +487,7 @@ class TestErrorHandling:
         mock_tools.send_failure.assert_awaited_once()
         failure = mock_tools.send_failure.call_args.args[0]
         assert failure.provider == "crewai"
-        assert failure.message == "Agent Error"
+        assert failure.message == GENERIC_PROVIDER_FAILURE_MESSAGE
 
     @pytest.mark.asyncio
     async def test_reports_error_when_crewai_completes_without_reply(
@@ -478,15 +502,16 @@ class TestErrorHandling:
         await adapter.on_started("TestBot", "Test bot")
         adapter._crewai_agent = mock_crewai_agent
 
-        await adapter.on_message(
-            msg=sample_message,
-            tools=mock_tools,
-            history=[],
-            participants_msg=None,
-            contacts_msg=None,
-            is_session_bootstrap=True,
-            room_id="room-123",
-        )
+        with pytest.raises(TurnResultAlreadyReported):
+            await adapter.on_message(
+                msg=sample_message,
+                tools=mock_tools,
+                history=[],
+                participants_msg=None,
+                contacts_msg=None,
+                is_session_bootstrap=True,
+                room_id="room-123",
+            )
 
         mock_tools.send_failure.assert_awaited_once()
         failure = mock_tools.send_failure.call_args.args[0]
@@ -505,15 +530,16 @@ class TestErrorHandling:
         await adapter.on_started("TestBot", "Test bot")
         adapter._crewai_agent = mock_crewai_agent
 
-        await adapter.on_message(
-            msg=sample_message,
-            tools=mock_tools,
-            history=[],
-            participants_msg=None,
-            contacts_msg=None,
-            is_session_bootstrap=True,
-            room_id="room-123",
-        )
+        with pytest.raises(TurnResultAlreadyReported):
+            await adapter.on_message(
+                msg=sample_message,
+                tools=mock_tools,
+                history=[],
+                participants_msg=None,
+                contacts_msg=None,
+                is_session_bootstrap=True,
+                room_id="room-123",
+            )
 
         mock_tools.send_failure.assert_awaited_once()
         failure = mock_tools.send_failure.call_args.args[0]
@@ -692,7 +718,7 @@ class TestErrorHandling:
         mock_tools.send_failure.assert_awaited_once()
         failure = mock_tools.send_failure.call_args.args[0]
         assert failure.provider == "crewai"
-        assert failure.message == str(error)
+        assert failure.message == GENERIC_PROVIDER_FAILURE_MESSAGE
 
     @pytest.mark.asyncio
     async def test_raises_error_when_agent_not_initialized(
@@ -794,11 +820,11 @@ class TestAllowDelegation:
 class TestParticipantsUpdate:
     @pytest.mark.asyncio
     async def test_includes_participants_update_in_message(
-        self, CrewAIAdapter, sample_message, mock_tools, mock_crewai_agent
+        self, CrewAIAdapter, sample_message, mock_tools, mock_crewai_agent_replied
     ):
         adapter = CrewAIAdapter()
         await adapter.on_started("TestBot", "Test bot")
-        adapter._crewai_agent = mock_crewai_agent
+        adapter._crewai_agent = mock_crewai_agent_replied
 
         await adapter.on_message(
             msg=sample_message,
@@ -810,7 +836,7 @@ class TestParticipantsUpdate:
             room_id="room-123",
         )
 
-        call_args = mock_crewai_agent.kickoff_async.call_args
+        call_args = mock_crewai_agent_replied.kickoff_async.call_args
         messages = call_args[0][0]
 
         found = any("Alice joined" in str(m.get("content", "")) for m in messages)
@@ -820,11 +846,11 @@ class TestParticipantsUpdate:
 class TestContactsUpdate:
     @pytest.mark.asyncio
     async def test_includes_contacts_update_in_message(
-        self, CrewAIAdapter, sample_message, mock_tools, mock_crewai_agent
+        self, CrewAIAdapter, sample_message, mock_tools, mock_crewai_agent_replied
     ):
         adapter = CrewAIAdapter()
         await adapter.on_started("TestBot", "Test bot")
-        adapter._crewai_agent = mock_crewai_agent
+        adapter._crewai_agent = mock_crewai_agent_replied
 
         await adapter.on_message(
             msg=sample_message,
@@ -836,7 +862,7 @@ class TestContactsUpdate:
             room_id="room-123",
         )
 
-        call_args = mock_crewai_agent.kickoff_async.call_args
+        call_args = mock_crewai_agent_replied.kickoff_async.call_args
         messages = call_args[0][0]
 
         found = any(

@@ -17,7 +17,12 @@ from typing import ClassVar, TYPE_CHECKING, Any
 from band_sdk_core import AgentFailure
 from typing_extensions import Unpack
 
-from band.core.protocols import AgentToolsProtocol
+from band.core.delivery import (
+    DeliveryFailedError,
+    deliver_reply,
+    reraise_delivery_cause,
+)
+from band.core.protocols import GENERIC_PROVIDER_FAILURE_MESSAGE, AgentToolsProtocol
 from band.core.simple_adapter import SimpleAdapter
 from band.core.types import Capability, Emit, FeatureKwargs, PlatformMessage
 from band.integrations.parlant.server import running_parlant_server
@@ -391,7 +396,7 @@ class ParlantAdapter(SimpleAdapter[ParlantMessages]):
         except Exception as e:
             logger.error("Failed to get/create session for room %s: %s", room_id, e)
             await tools.send_failure(
-                AgentFailure("parlant", f"Session initialization failed: {e}")
+                AgentFailure("parlant", GENERIC_PROVIDER_FAILURE_MESSAGE)
             )
             raise
         session_id_str = str(session_id)
@@ -448,9 +453,13 @@ class ParlantAdapter(SimpleAdapter[ParlantMessages]):
                 sender_name=sender_name,
             )
 
+        except DeliveryFailedError as e:
+            reraise_delivery_cause(e)
         except Exception as e:
             logger.error("Error processing message: %s", e, exc_info=True)
-            await tools.send_failure(AgentFailure("parlant", str(e)))
+            await tools.send_failure(
+                AgentFailure("parlant", GENERIC_PROVIDER_FAILURE_MESSAGE)
+            )
             raise
         finally:
             # Clear tools after message processing
@@ -796,18 +805,10 @@ class ParlantAdapter(SimpleAdapter[ParlantMessages]):
                             room_id,
                             message_content[:100],
                         )
-                        try:
-                            await tools.send_message(
-                                message_content, mentions=[sender_name]
-                            )
-                            logger.info("Room %s: Message sent successfully", room_id)
-                        except Exception as e:
-                            logger.error(
-                                "Room %s: Error sending message: %s",
-                                room_id,
-                                e,
-                                exc_info=True,
-                            )
+                        await deliver_reply(
+                            tools, message_content, mentions=[sender_name]
+                        )
+                        logger.info("Room %s: Message sent successfully", room_id)
                     else:
                         logger.warning(
                             "Room %s: Empty message content in event",

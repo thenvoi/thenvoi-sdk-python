@@ -5,6 +5,8 @@ from __future__ import annotations
 import asyncio
 import json
 
+import httpx
+import pytest
 
 from band.adapters.opencode import OpencodeAdapter, OpencodeAdapterConfig
 from band.core.types import (
@@ -53,15 +55,16 @@ async def test_prompt_submission_failure_does_not_leave_room_stuck(
     adapter = make_adapter(fake_client)
 
     await adapter.on_started("OpenCode Agent", "A coding agent")
-    await adapter.on_message(
-        make_platform_message(content="first try"),
-        tools_protocol(tools),
-        OpencodeSessionState(),
-        participants_msg=None,
-        contacts_msg=None,
-        is_session_bootstrap=True,
-        room_id="room-1",
-    )
+    with pytest.raises(httpx.HTTPStatusError):
+        await adapter.on_message(
+            make_platform_message(content="first try"),
+            tools_protocol(tools),
+            OpencodeSessionState(),
+            participants_msg=None,
+            contacts_msg=None,
+            is_session_bootstrap=True,
+            room_id="room-1",
+        )
 
     await adapter.on_message(
         make_platform_message(content="second try"),
@@ -95,7 +98,8 @@ async def test_http_error_reports_status_code_as_failure_code(
     )
     adapter = make_adapter(fake_client)
 
-    await run_single_turn(adapter, tools)
+    with pytest.raises(httpx.HTTPStatusError):
+        await run_single_turn(adapter, tools)
 
     failures = reported_failures(tools)
     assert failures
