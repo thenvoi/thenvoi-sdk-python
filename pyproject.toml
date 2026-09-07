@@ -278,6 +278,8 @@ dev-crewai = [
     # Anthropic client: the baseline E2E conftest imports it at module load and
     # the LLM judge needs it. A thin client (pydantic <3), so no crewai conflict.
     "anthropic>=0.75.0",
+    # A2A e2e smokes import band.integrations.a2a at module load, no crewai conflict
+    "a2a-sdk>=1.1.2,<2",
     # Pretty E2E test output
     "rich>=13.0.0",
     # Development tools
@@ -306,6 +308,8 @@ dev-parlant = [
     # Anthropic client: the baseline E2E conftest imports it at module load and
     # the LLM judge needs it. A thin client (pydantic <3), so no parlant conflict.
     "anthropic>=0.75.0",
+    # A2A e2e smokes import band.integrations.a2a at module load, no parlant conflict
+    "a2a-sdk>=1.1.2,<2",
     # Pretty E2E test output
     "rich>=13.0.0",
     # Development tools
