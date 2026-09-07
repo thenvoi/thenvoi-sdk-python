@@ -134,6 +134,64 @@ async def test_reports_tool_events_when_enabled() -> None:
     assert json.loads(tool_results[0]["content"])["output"] == "ok"
 
 
+async def test_reports_tool_call_args_from_first_non_pending_frame(
+    make_adapter, tools
+) -> None:
+    """OpenCode's first frame for a tool part is always PENDING with an empty
+    ``input`` -- arguments only appear once the part moves past PENDING. The
+    single tool_call report (fired once per call_id) must land on that later
+    frame, not the empty first one.
+    """
+    fake_client = FakeOpencodeClient(
+        prompt_event_sequences=[
+            [
+                event_tool_part(
+                    "sess-1",
+                    "msg-4",
+                    tool="band_create_task",
+                    call_id="call-1",
+                    status="pending",
+                    input_data={},
+                ),
+                event_tool_part(
+                    "sess-1",
+                    "msg-4",
+                    tool="band_create_task",
+                    call_id="call-1",
+                    status="running",
+                    input_data={"subject": "write tests"},
+                ),
+                event_tool_part(
+                    "sess-1",
+                    "msg-4",
+                    tool="band_create_task",
+                    call_id="call-1",
+                    status="completed",
+                    input_data={"subject": "write tests"},
+                    output="task-1",
+                ),
+                event_session_idle("sess-1"),
+            ]
+        ]
+    )
+    adapter = make_adapter(fake_client, emit=Emit.TOOL_CALLS)
+
+    await adapter.on_started("OpenCode Agent", "A coding agent")
+    await adapter.on_message(
+        make_platform_message(),
+        tools_protocol(tools),
+        OpencodeSessionState(),
+        participants_msg=None,
+        contacts_msg=None,
+        is_session_bootstrap=True,
+        room_id="room-1",
+    )
+
+    tool_calls = [e for e in tools.events_sent if e["message_type"] == "tool_call"]
+    assert len(tool_calls) == 1
+    assert json.loads(tool_calls[0]["content"])["args"] == {"subject": "write tests"}
+
+
 async def test_preserves_falsy_tool_result_outputs_when_reporting(
     make_adapter, tools
 ) -> None:
