@@ -571,9 +571,9 @@ class TestErrorHandling:
         """CrewAI raising an empty final answer AFTER the agent already replied
         via band_send_message is non-fatal: no error event, no re-raise.
 
-        Regression: this adapter replies only through band_send_message, so
-        CrewAI's empty-final-answer ValueError fires on essentially every turn
-        -- including this successful one. Routes through the real
+        This adapter replies only through band_send_message, so CrewAI's
+        empty-final-answer ValueError fires on essentially every turn --
+        including this successful one. Routes through the real
         ``_mark_productive_work`` (not hand-set flags) so the test fails if a
         future change stops SEND_MESSAGE from marking a turn productive.
         """
