@@ -664,6 +664,7 @@ dev = [
     { name = "uvicorn" },
 ]
 dev-crewai = [
+    { name = "a2a-sdk" },
     { name = "anthropic" },
     { name = "band-testing-python" },
     { name = "crewai" },
@@ -684,6 +685,7 @@ dev-crewai = [
     { name = "tenacity" },
 ]
 dev-parlant = [
+    { name = "a2a-sdk" },
     { name = "anthropic" },
     { name = "band-testing-python" },
     { name = "httpx" },
@@ -758,6 +760,8 @@ strands = [
 requires-dist = [
     { name = "a2a-sdk", marker = "extra == 'a2a'", specifier = ">=1.1.2,<2" },
     { name = "a2a-sdk", marker = "extra == 'dev'", specifier = ">=1.1.2,<2" },
+    { name = "a2a-sdk", marker = "extra == 'dev-crewai'", specifier = ">=1.1.2,<2" },
+    { name = "a2a-sdk", marker = "extra == 'dev-parlant'", specifier = ">=1.1.2,<2" },
     { name = "a2a-sdk", extras = ["http-server"], marker = "extra == 'a2a-gateway'", specifier = ">=1.1.2,<2" },
     { name = "a2a-sdk", extras = ["http-server"], marker = "extra == 'a2a-gateway-demo'", specifier = ">=1.1.2,<2" },
     { name = "agent-client-protocol", marker = "extra == 'acp'", specifier = ">=0.11.0" },
