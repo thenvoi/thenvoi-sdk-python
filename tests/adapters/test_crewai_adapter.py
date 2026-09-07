@@ -571,20 +571,23 @@ class TestErrorHandling:
         """CrewAI raising an empty final answer AFTER the agent already replied
         via band_send_message is non-fatal: no error event, no re-raise.
 
-        Regression: CrewAI 1.14.3 raises ValueError("Invalid response from LLM
-        call - None or empty.") on its forced final-answer step. Because this
-        adapter replies through the tool, that fired on essentially every turn,
-        posting a spurious error event alongside each (successful) reply.
+        Regression: this adapter replies only through band_send_message, so
+        CrewAI's empty-final-answer ValueError fires on essentially every turn
+        -- including this successful one. Routes through the real
+        ``_mark_productive_work`` (not hand-set flags) so the test fails if a
+        future change stops SEND_MESSAGE from marking a turn productive.
         """
 
         module = importlib.import_module("band.adapters.crewai")
+        tools_module = importlib.import_module("band.integrations.crewai.tools")
 
-        async def _kickoff(_messages):
-            # Simulate band_send_message having succeeded earlier this turn.
-            tracker = module._reply_tracker_var.get()
-            if tracker is not None:
-                tracker.replied = True
-                tracker.any_tool_ran = True
+        async def _kickoff(_prompt):
+            tools_module._mark_productive_work(
+                module._reply_tracker_var.get(),
+                BandTool.SEND_MESSAGE,
+                json.dumps({"status": "success"}),
+                custom_terminal=False,
+            )
             raise ValueError(EMPTY_LLM_RESPONSE_ERROR)
 
         mock_crewai_agent.kickoff_async = AsyncMock(side_effect=_kickoff)
@@ -618,18 +621,21 @@ class TestErrorHandling:
         nothing left to say — CrewAI then raises ValueError("Invalid response
         from LLM call - None or empty.") on its forced final-answer step. Because
         a tool already executed successfully this turn, that empty answer is
-        benign: no error event, no re-raise.
+        benign: no error event, no re-raise. Routes through the real
+        ``_mark_productive_work`` (not hand-set flags) so the test fails if a
+        future change stops a terminal tool from marking a turn productive.
         """
 
         module = importlib.import_module("band.adapters.crewai")
+        tools_module = importlib.import_module("band.integrations.crewai.tools")
 
-        async def _kickoff(_messages):
-            # Simulate a non-reply tool (e.g. band_store_memory) having succeeded
-            # earlier this turn — tool_executed flips, replied does not.
-            tracker = module._reply_tracker_var.get()
-            if tracker is not None:
-                tracker.tool_executed = True
-                tracker.any_tool_ran = True
+        async def _kickoff(_prompt):
+            tools_module._mark_productive_work(
+                module._reply_tracker_var.get(),
+                BandTool.STORE_MEMORY,
+                json.dumps({"status": "success"}),
+                custom_terminal=False,
+            )
             raise ValueError(EMPTY_LLM_RESPONSE_ERROR)
 
         mock_crewai_agent.kickoff_async = AsyncMock(side_effect=_kickoff)
