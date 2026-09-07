@@ -823,7 +823,15 @@ class OpencodeAdapter(SimpleAdapter[OpencodeSessionState]):
         assert part.id is not None
         call_id = part.call_id or part.id
 
-        if room_state.mark_tool_call(call_id):
+        # OpenCode's first frame for a tool part is always PENDING with
+        # input={} -- arguments land on the next frame (RUNNING or later).
+        # Waiting past PENDING here is what makes the single report
+        # (mark_tool_call fires once) land on a frame that actually carries
+        # the arguments, instead of permanently losing them to an empty
+        # first snapshot.
+        if state.status != OpencodeToolStatus.PENDING and room_state.mark_tool_call(
+            call_id
+        ):
             await self._report_tool_call(room_state, tool_name, state, call_id)
 
         match state.status:
