@@ -321,6 +321,7 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
         reply_tracker: ReplyTracker | None = None,
     ) -> None:
         """Internal message processing logic."""
+        assert self._crewai_agent is not None, "on_message already checked this"
         if is_session_bootstrap:
             if history:
                 self._message_history[room_id] = [
@@ -337,39 +338,27 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
         elif room_id not in self._message_history:
             self._message_history[room_id] = []
 
-        messages = []
+        sections: list[str] = []
 
         if self._message_history.get(room_id):
             history_text = "\n".join(
                 f"{m['role']}: {m['content']}" for m in self._message_history[room_id]
             )
-            messages.append(
-                {
-                    "role": "user",
-                    "content": f"[Previous conversation:]\n{history_text}",
-                }
+            sections.append(
+                "[Earlier conversation in this room -- already handled, for "
+                f"context only. Do not repeat any action described in it:]\n{history_text}"
             )
 
         if participants_msg:
-            messages.append(
-                {
-                    "role": "user",
-                    "content": f"[System]: {participants_msg}",
-                }
-            )
+            sections.append(f"[System]: {participants_msg}")
             logger.info("Room %s: Participants updated", room_id)
 
         if contacts_msg:
-            messages.append(
-                {
-                    "role": "user",
-                    "content": f"[System]: {contacts_msg}",
-                }
-            )
+            sections.append(f"[System]: {contacts_msg}")
             logger.info("Room %s: Contacts broadcast received", room_id)
 
         user_message = msg.format_for_llm()
-        messages.append({"role": "user", "content": user_message})
+        sections.append(f"[New message -- act on this now:]\n{user_message}")
 
         self._message_history[room_id].append(
             {
@@ -390,12 +379,19 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
         # SUPPORTED_EMIT): result.usage_metrics is cumulative-lifetime, not
         # per-turn. Proper per-turn capture is deferred — don't add emit_usage here.
         try:
-            # Type ignore explanation: CrewAI's kickoff_async is typed to accept
-            # only a string prompt, but the implementation also accepts a list of
-            # message dicts (similar to OpenAI's messages format) for multi-turn
-            # context. This is documented behavior but the type stubs haven't been
-            # updated. See: https://docs.crewai.com/concepts/agents
-            result = await self._crewai_agent.kickoff_async(messages)  # type: ignore[arg-type]
+            # CrewAI's kickoff_async accepts str | list[dict], but a list is
+            # flattened internally into one role-blind "\n".join(...) of every
+            # message's content (crewai.agent.core.Agent._prepare_kickoff) --
+            # it does NOT preserve per-message turn/role structure the way a
+            # chat-completions API would. Passing a list here previously left
+            # an earlier turn's imperative ("do X, do not call any other
+            # tool") sitting unmarked next to the new turn's instruction, and
+            # models would sometimes replay the old instruction instead of the
+            # new one. Building the final prompt ourselves, with explicit
+            # "already handled" / "act on this now" markers, matches what
+            # CrewAI actually does with the input either way.
+            prompt = "\n\n".join(sections)
+            result = await self._crewai_agent.kickoff_async(prompt)
 
             if result and result.raw:
                 self._message_history[room_id].append(
