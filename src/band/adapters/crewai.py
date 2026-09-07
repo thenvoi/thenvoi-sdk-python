@@ -52,28 +52,29 @@ _reply_tracker_var: ContextVar[ReplyTracker | None] = ContextVar(
 )
 
 
-def _is_empty_final_answer(exc: Exception) -> bool:
-    """Whether ``exc`` is CrewAI signalling that the model returned no final text.
+# CrewAI offers no error type or code for an empty completion, so its message
+# is the only discriminator. One definition, matched here and faked in tests.
+EMPTY_LLM_RESPONSE_MARKER = "Invalid response from LLM call"
 
-    ``crewai.utilities.agent_utils`` raises a bare ``ValueError`` whenever an LLM
-    call comes back empty, final-answer step included. This agent answers only
-    through band_send_message and its system prompt says so, so the model has
-    nothing left to say once its tools have run: CrewAI raises on every turn
-    here. It marks a finished turn, not a failure. The message is the only
-    discriminator CrewAI offers — there is no error type or code to match on.
+
+def _is_empty_llm_response(exc: Exception) -> bool:
+    """Whether ``exc`` is CrewAI reporting that an LLM call came back empty.
+
+    ``crewai.utilities.agent_utils`` raises this bare ``ValueError`` for every
+    empty completion in its loop, not only the forced final-answer step — so a
+    match means "no text came back", never "the turn is healthy".
     """
-    return isinstance(exc, ValueError) and "Invalid response from LLM call" in str(exc)
+    return isinstance(exc, ValueError) and EMPTY_LLM_RESPONSE_MARKER in str(exc)
 
 
 def _silence_lite_agent_error_panel() -> None:
     """Deregister CrewAI's benign red "LiteAgent Failed" console panel.
 
-    The agent replies via the band_send_message tool, so CrewAI's post-tool step
-    returns an empty final answer and raises the "Invalid response from LLM call"
-    ValueError that on_message treats as a finished turn — yet its global console listener
-    prints an alarming panel anyway (regardless of verbose). Remove only that
-    handler; tracing and genuine errors are untouched. Idempotent (a later call
-    finds nothing) and best-effort (leave the panel if CrewAI internals move).
+    This agent answers only through band_send_message, so most turns end on an
+    empty completion and CrewAI's global console listener prints an alarming
+    panel anyway (regardless of verbose). Remove only that handler; tracing and
+    genuine errors are untouched. Idempotent (a later call finds nothing) and
+    best-effort (leave the panel if CrewAI internals move).
     """
     try:
         # event_listener is imported for its side effect: registering the handlers.
@@ -331,7 +332,7 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
         *,
         is_session_bootstrap: bool,
         room_id: str,
-        reply_tracker: ReplyTracker | None = None,
+        reply_tracker: ReplyTracker,
     ) -> None:
         """Internal message processing logic."""
         assert self._crewai_agent is not None, "on_message already checked this"
@@ -407,28 +408,34 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
             result = await self._crewai_agent.kickoff_async(prompt)
 
         except Exception as e:
-            if not _is_empty_final_answer(e):
+            # An empty response is benign only once some tool ran this turn --
+            # otherwise the model's very first call came back empty, which is
+            # indistinguishable from a genuine provider failure and must keep
+            # failing the delivery so the platform retries it.
+            if not (_is_empty_llm_response(e) and reply_tracker.any_tool_ran):
                 logger.error("Error processing message: %s", e, exc_info=True)
                 await self._report_error(tools, str(e))
                 raise
-            logger.debug("Room %s: CrewAI ended the turn with no final text", room_id)
+            # Keep the exception text: it is the only record that CrewAI raised,
+            # and this turn is no longer marked failed for the runtime to log.
+            logger.debug("Room %s: CrewAI returned no text: %s", room_id, e)
             result = None
 
-        if result and result.raw:
+        final_text = (result.raw or "") if result else ""
+        if final_text:
             self._message_history[room_id].append(
                 {
                     "role": "assistant",
-                    "content": result.raw,
+                    "content": final_text,
                 }
             )
 
-        # A reply that went out, or terminal work that landed, is the turn
-        # answering for itself. Only a turn that did neither leaves the room
-        # with nothing to show for it.
-        if not (
-            reply_tracker is not None
-            and (reply_tracker.replied or reply_tracker.tool_executed)
-        ):
+        if not reply_tracker.did_productive_work:
+            # Warn, not debug: nothing reached the room, and the delivery is
+            # still acked as processed, so this log is the only operator signal.
+            logger.warning(
+                "Room %s: CrewAI turn produced nothing for the room", room_id
+            )
             await self._report_error(
                 tools,
                 missing_reply_error(
@@ -441,14 +448,10 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
             )
 
         logger.info(
-            "Room %s: CrewAI agent completed (output_length=%s)",
+            "Room %s: CrewAI turn over for %s (output=%s chars, history=%s)",
             room_id,
-            len(result.raw) if result and result.raw else 0,
-        )
-
-        logger.debug(
-            "Message %s processed successfully (history now has %s messages)",
             msg.id,
+            len(final_text),
             len(self._message_history[room_id]),
         )
 

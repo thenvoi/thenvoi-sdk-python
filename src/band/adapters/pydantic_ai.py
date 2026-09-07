@@ -1032,9 +1032,10 @@ class PydanticAIAdapter(SimpleAdapter[PydanticAIMessages]):
             # other response the run cannot turn into output can still spend the
             # refused output budget. Once a terminal tool has run (a
             # band_send_message reply, a band_store_memory, ...) the work already went
-            # out, so that exhaustion is benign — mirror the crewai adapter and
-            # swallow it. Genuine no-response failures (no terminal tool ran — only
-            # read-only lookups or failed tools) still propagate.
+            # out, so that exhaustion is benign — swallow it. Genuine no-response
+            # failures (no terminal tool ran — only read-only lookups or failed
+            # tools) still propagate here, unlike the crewai adapter, which cannot
+            # tell them apart from the empty completion that ends its every turn.
             if tool_executed and _is_output_retries_exhausted(e):
                 logger.warning(
                     "Room %s: Pydantic AI exhausted its output retries after "

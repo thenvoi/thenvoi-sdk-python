@@ -137,9 +137,9 @@ async def test_recall_memory_across_memory_adapters(
     exclude=[
         ExcludedAdapter(
             Adapter.CREWAI,
-            "the second, post-reboot retrieval turn returns an empty completion "
-            "('Invalid response from LLM call - None or empty'), so the turn never "
-            "finishes; reproduced on every attempt, not a transient",
+            "the second, post-reboot retrieval turn reads the memory but ends on "
+            "an empty completion before band_send_message runs, so no reply ever "
+            "reaches the room; reproduced on every attempt, not a transient",
         )
     ],
     **MEMORY_AGENT,
