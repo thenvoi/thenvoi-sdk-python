@@ -417,10 +417,9 @@ class TestOnMessage:
 
         # The second kickoff must carry the prior turn as replayed context, not
         # just the current message.
-        second_call_messages = mock_crewai_agent.kickoff_async.call_args_list[1][0][0]
-        blob = "\n".join(m["content"] for m in second_call_messages)
-        assert "[Previous conversation:]" in blob
-        assert "Hello, agent!" in blob  # turn-1 content replayed to the model
+        prompt = mock_crewai_agent.kickoff_async.call_args_list[1][0][0]
+        assert "already handled" in prompt
+        assert "Hello, agent!" in prompt  # turn-1 content replayed to the model
 
 
 class TestOnCleanup:
@@ -799,10 +798,9 @@ class TestParticipantsUpdate:
         )
 
         call_args = mock_crewai_agent.kickoff_async.call_args
-        messages = call_args[0][0]
+        prompt = call_args[0][0]
 
-        found = any("Alice joined" in str(m.get("content", "")) for m in messages)
-        assert found
+        assert "Alice joined" in prompt
 
 
 class TestContactsUpdate:
@@ -825,12 +823,9 @@ class TestContactsUpdate:
         )
 
         call_args = mock_crewai_agent.kickoff_async.call_args
-        messages = call_args[0][0]
+        prompt = call_args[0][0]
 
-        found = any(
-            "@alice is now a contact" in str(m.get("content", "")) for m in messages
-        )
-        assert found
+        assert "@alice is now a contact" in prompt
 
 
 class TestContactAndMemoryToolRegistration:
