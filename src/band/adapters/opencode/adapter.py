@@ -1191,7 +1191,8 @@ class OpencodeAdapter(SimpleAdapter[OpencodeSessionState]):
         if room_state.tools is None:
             return
         output: Any
-        if state.status == OpencodeToolStatus.ERROR:
+        is_error = state.status == OpencodeToolStatus.ERROR
+        if is_error:
             output = {"error": state.error or "OpenCode tool failed"}
         else:
             output = state.reported_output
@@ -1203,6 +1204,7 @@ class OpencodeAdapter(SimpleAdapter[OpencodeSessionState]):
                         ToolEventKey.NAME: tool_name,
                         ToolEventKey.OUTPUT: output,
                         ToolEventKey.TOOL_CALL_ID: call_id,
+                        ToolEventKey.IS_ERROR: is_error,
                     }
                 ),
                 "tool_result",
