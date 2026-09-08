@@ -837,7 +837,9 @@ class OpencodeAdapter(SimpleAdapter[OpencodeSessionState]):
         match state.status:
             case OpencodeToolStatus.COMPLETED | OpencodeToolStatus.ERROR:
                 if room_state.mark_tool_result(call_id):
-                    await self._report_tool_result(room_state, state, call_id)
+                    await self._report_tool_result(
+                        room_state, tool_name, state, call_id
+                    )
 
     def _apply_part_delta(
         self, room_state: RoomState, event: MessagePartDeltaEvent
@@ -1182,6 +1184,7 @@ class OpencodeAdapter(SimpleAdapter[OpencodeSessionState]):
     async def _report_tool_result(
         self,
         room_state: RoomState,
+        tool_name: str,
         state: OpencodeToolState,
         call_id: str,
     ) -> None:
@@ -1197,6 +1200,7 @@ class OpencodeAdapter(SimpleAdapter[OpencodeSessionState]):
             await room_state.tools.send_event(
                 json.dumps(
                     {
+                        ToolEventKey.NAME: tool_name,
                         ToolEventKey.OUTPUT: output,
                         ToolEventKey.TOOL_CALL_ID: call_id,
                     }

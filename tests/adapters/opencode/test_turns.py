@@ -131,6 +131,7 @@ async def test_reports_tool_events_when_enabled() -> None:
     assert len(tool_calls) == 1
     assert len(tool_results) == 1
     assert json.loads(tool_calls[0]["content"])["name"] == "bash"
+    assert json.loads(tool_results[0]["content"])["name"] == "bash"
     assert json.loads(tool_results[0]["content"])["output"] == "ok"
 
 
