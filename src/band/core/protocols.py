@@ -82,10 +82,10 @@ async def send_event_safe(
     """Send a best-effort platform event, logging instead of raising on failure.
 
     For events whose loss is tolerable (a thought, a lifecycle/task marker),
-    unlike ``send_message``/``send_failure`` calls a caller depends on as a
-    control signal. Returns whether the event was actually accepted, so a
-    caller that only wants to update its own bookkeeping once delivery is
-    confirmed (e.g. marking a session id persisted) can act on it.
+    unlike a ``send_message`` call a caller depends on as a control signal.
+    Returns whether the event was actually accepted, so a caller that only
+    wants to update its own bookkeeping once delivery is confirmed (e.g.
+    marking a session id persisted) can act on it.
     """
     try:
         await tools.send_event(

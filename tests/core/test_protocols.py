@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import logging
+
 import pytest
 from band_sdk_core import AgentFailure
 
-from band.core.protocols import to_failure_event
+from band.core.protocols import send_event_safe, to_failure_event
+from band.testing.fake_tools import FakeAgentTools
 
 
 class TestToFailureEvent:
@@ -48,3 +51,51 @@ class TestToFailureEvent:
         assert content == "boom"
         assert metadata["failure"]["code"] is None
         assert metadata["failure"]["detail"] is None
+
+
+class TestSendEventSafe:
+    """send_event_safe is the shared best-effort event sender every migrated
+    adapter's non-critical telemetry (thoughts, task/lifecycle markers) goes
+    through -- a regression here silently drops events across every one of
+    them."""
+
+    async def test_forwards_a_successful_send_and_returns_true(self) -> None:
+        tools = FakeAgentTools()
+
+        sent = await send_event_safe(tools, "hello", "thought")
+
+        assert sent is True
+        assert tools.events_sent[0]["content"] == "hello"
+
+    async def test_swallows_a_send_event_failure_and_logs_at_the_given_level(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        tools = FakeAgentTools()
+        tools.send_event_error = RuntimeError("platform rejected the event")
+
+        with caplog.at_level(logging.DEBUG, logger="band.core.protocols"):
+            sent = await send_event_safe(
+                tools,
+                "hello",
+                "task",
+                log_label="widget event",
+                log_level=logging.DEBUG,
+            )
+
+        assert sent is False
+        assert tools.events_sent == []
+        record = next(r for r in caplog.records if r.name == "band.core.protocols")
+        assert record.levelno == logging.DEBUG
+        assert "widget event" in record.message
+
+    async def test_default_log_level_is_warning(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        tools = FakeAgentTools()
+        tools.send_event_error = RuntimeError("boom")
+
+        with caplog.at_level(logging.WARNING, logger="band.core.protocols"):
+            await send_event_safe(tools, "hello", "task")
+
+        record = next(r for r in caplog.records if r.name == "band.core.protocols")
+        assert record.levelno == logging.WARNING
