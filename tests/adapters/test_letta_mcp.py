@@ -531,11 +531,10 @@ class TestSelfHostedMCPLifecycle:
                 room_id="room-1",
             )
 
-        error_events = [e for e in tools.events_sent if e["message_type"] == "error"]
-        assert len(error_events) == 1
-        failure = reported_failures(tools)[0]
-        assert failure["provider"] == "letta"
-        assert failure["message"] == GENERIC_PROVIDER_FAILURE_MESSAGE
+        failures = reported_failures(tools)
+        assert len(failures) == 1
+        assert failures[0]["provider"] == "letta"
+        assert failures[0]["message"] == GENERIC_PROVIDER_FAILURE_MESSAGE
         mock_client.agents.messages.create.assert_not_called()
 
     @pytest.mark.asyncio
@@ -781,11 +780,10 @@ class TestSelfHostedMCPLifecycle:
                 room_id="room-1",
             )
 
-        error_events = [e for e in tools.events_sent if e["message_type"] == "error"]
-        assert len(error_events) == 1
-        failure = reported_failures(tools)[0]
-        assert failure["provider"] == "letta"
-        assert failure["message"] == GENERIC_PROVIDER_FAILURE_MESSAGE
+        failures = reported_failures(tools)
+        assert len(failures) == 1
+        assert failures[0]["provider"] == "letta"
+        assert failures[0]["message"] == GENERIC_PROVIDER_FAILURE_MESSAGE
         mock_client.agents.messages.create.assert_not_called()
 
     @pytest.mark.asyncio

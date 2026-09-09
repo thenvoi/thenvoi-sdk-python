@@ -250,12 +250,11 @@ class TestLettaAdapterOnMessagePerRoom:
                 room_id="room-1",
             )
 
-        error_events = [e for e in tools.events_sent if e["message_type"] == "error"]
-        assert len(error_events) == 1
-        assert "timed out" in error_events[0]["content"]
-        failure = reported_failures(tools)[0]
-        assert failure["provider"] == "letta"
-        assert failure["code"] == "timeout"
+        failures = reported_failures(tools)
+        assert len(failures) == 1
+        assert "timed out" in failures[0]["message"]
+        assert failures[0]["provider"] == "letta"
+        assert failures[0]["code"] == "timeout"
 
     @pytest.mark.asyncio
     async def test_generic_exception_reports_and_propagates(
