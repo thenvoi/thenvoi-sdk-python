@@ -438,6 +438,9 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
             )
 
         if not reply_tracker.did_productive_work:
+            logger.warning(
+                "Room %s: CrewAI turn produced nothing for the room", room_id
+            )
             detail = missing_reply_error(
                 "CrewAI",
                 detail=(
