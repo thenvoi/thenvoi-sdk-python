@@ -24,6 +24,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from pydantic import BaseModel, Field
 
+import band.adapters.crewai as crewai_adapter
 from band.adapters.crewai import EMPTY_LLM_RESPONSE_MARKER
 from band.core.types import Capability, Emit, PlatformMessage
 from band.runtime.prompts import render_system_prompt
@@ -754,8 +755,6 @@ class TestErrorHandling:
         for the retry to duplicate; the retry either behaves exactly like the
         first attempt would have or, as here, recovers and replies.
         """
-        module = importlib.import_module("band.adapters.crewai")
-
         mock_result = MagicMock()
         mock_result.raw = "Hello! I'm here to help."
 
@@ -766,7 +765,7 @@ class TestErrorHandling:
             calls += 1
             if calls == 1:
                 raise ValueError(EMPTY_LLM_RESPONSE_ERROR)
-            tracker = module._reply_tracker_var.get()
+            tracker = crewai_adapter._reply_tracker_var.get()
             if tracker is not None:
                 tracker.replied = True
             return mock_result
