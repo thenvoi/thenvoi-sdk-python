@@ -200,7 +200,7 @@ class TestContactTopicRaceAndReconciliation:
 
         topic = AgentTopicKind.Contacts.topic("agent-123")
         assert (
-            link._subscriptions.agent_topic_status(topic)
+            link._subscriptions_manager._subscriptions.agent_topic_status(topic)
             == AgentTopicStatus.NeedsReconciliation
         )
 

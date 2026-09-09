@@ -41,7 +41,11 @@ from band.platform.link import BandLink
 from band_sdk_core import AgentTopicStatus, DeadReason, SessionState, chat_room_topic
 
 from tests.conftest import make_message_event
-from tests.platform.conftest import AllTopicsExcept, AllTopicsJoined, cancelled_mid_await
+from tests.platform.conftest import (
+    AllTopicsExcept,
+    AllTopicsJoined,
+    cancelled_mid_await,
+)
 
 
 class TestBandLinkConstruction:
@@ -591,8 +595,12 @@ class TestBandLinkSubscriptionRaceAndReconciliation:
 
         link = BandLink(agent_id="agent-123", api_key="test-key")
         await link.connect()
-        link._rooms_needing_reconciliation.update({"room-1", "room-2"})
-        link._agent_topics_needing_reconciliation.add("agent_rooms:agent-123")
+        link._subscriptions_manager._rooms_needing_reconciliation.update(
+            {"room-1", "room-2"}
+        )
+        link._subscriptions_manager._agent_topics_needing_reconciliation.add(
+            "agent_rooms:agent-123"
+        )
 
         def swap_ws_mid_leave(room_id: str) -> None:
             link._ws = other_ws
@@ -606,13 +614,15 @@ class TestBandLinkSubscriptionRaceAndReconciliation:
         # reached once the staleness check caught the swap.
         assert mock_ws_client.leave_chat_room_channel.call_count == 1
         assert mock_ws_client.leave_room_participants_channel.call_count == 1
-        assert len(link._rooms_needing_reconciliation) == 1
+        assert len(link._subscriptions_manager._rooms_needing_reconciliation) == 1
 
         # The agent-topic drain runs next and finds a stale `ws` right away —
         # it never touches the topic at all.
         mock_ws_client.leave_agent_rooms_channel.assert_not_called()
         other_ws.leave_agent_rooms_channel.assert_not_called()
-        assert link._agent_topics_needing_reconciliation == {"agent_rooms:agent-123"}
+        assert link._subscriptions_manager._agent_topics_needing_reconciliation == {
+            "agent_rooms:agent-123"
+        }
 
     @patch("band.platform.link.WebSocketClient")
     async def test_subscribe_room_blocked_after_failed_rollback_until_reconnect(
@@ -727,7 +737,10 @@ class TestBandLinkSubscriptionRaceAndReconciliation:
         mock_ws_client.joined_topics.return_value = AllTopicsExcept({topic})
         await link._on_reconnected()
         mock_ws_client.leave_agent_rooms_channel.assert_called_once_with("agent-123")
-        assert link._subscriptions.agent_topic_status(topic) == AgentTopicStatus.Absent
+        assert (
+            link._subscriptions_manager._subscriptions.agent_topic_status(topic)
+            == AgentTopicStatus.Absent
+        )
 
         mock_ws_client.joined_topics.return_value = AllTopicsJoined()
         mock_ws_client.join_agent_rooms_channel.reset_mock()

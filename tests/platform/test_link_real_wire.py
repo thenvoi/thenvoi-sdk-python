@@ -119,7 +119,10 @@ async def test_agent_rooms_rejoin_failure_marks_topic_unjoined() -> None:
         await link.connect()
         await link.subscribe_agent_rooms("agent-123")
         assert (
-            link._subscriptions.is_agent_topic_joined("agent_rooms:agent-123") is True
+            link._subscriptions_manager._subscriptions.is_agent_topic_joined(
+                "agent_rooms:agent-123"
+            )
+            is True
         )
 
         reconnect_handled = spy_on_reconciliation_drain(link)
@@ -127,6 +130,9 @@ async def test_agent_rooms_rejoin_failure_marks_topic_unjoined() -> None:
         await asyncio.wait_for(reconnect_handled.wait(), timeout=5.0)
 
         assert (
-            link._subscriptions.is_agent_topic_joined("agent_rooms:agent-123") is False
+            link._subscriptions_manager._subscriptions.is_agent_topic_joined(
+                "agent_rooms:agent-123"
+            )
+            is False
         )
         assert "agent_rooms:agent-123" not in server.joined_topics
