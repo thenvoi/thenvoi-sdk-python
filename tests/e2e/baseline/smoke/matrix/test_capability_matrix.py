@@ -39,6 +39,7 @@ from tests.e2e.baseline.smoke.samples.sample_agents import (
     task_read_instruction,
     unique_marker,
 )
+from tests.e2e.baseline.scorecard import env_gated_skip
 from tests.e2e.baseline.settings import BaselineSettings
 from tests.e2e.baseline.toolkit.capture import CaptureFactory
 from tests.e2e.baseline.toolkit.judge import Verdict, format_transcript
@@ -57,7 +58,10 @@ JudgeFn = Callable[..., Awaitable[Verdict]]
 # so they cannot pass. Skips rather than fails (the ``GITHUB_TOKEN`` hosted-auth
 # smoke's rationale): on SaaS the flag is off by design, not misconfiguration,
 # and no key can turn it on -- this is optional extra coverage over the matrix.
-requires_file_transfer = pytest.mark.skipif(
+# ``env_gated_skip`` (not a plain ``skipif``) so the scorecard gate reports these
+# cells ``na`` rather than "missing" -- on GitHub CI this condition is permanent,
+# never a crashed/incomplete lane, so it must never redden the release gate.
+requires_file_transfer = env_gated_skip(
     not BaselineSettings().deployment.file_transfer,
     reason="E2E_FILE_TRANSFER is not true (ff_file_transfer is on-prem-only)",
 )
@@ -133,9 +137,9 @@ async def test_recall_memory_across_memory_adapters(
     exclude=[
         ExcludedAdapter(
             Adapter.CREWAI,
-            "the second, post-reboot retrieval turn returns an empty completion "
-            "('Invalid response from LLM call - None or empty'), so the turn never "
-            "finishes; reproduced on every attempt, not a transient",
+            "the second, post-reboot retrieval turn reads the memory but ends on "
+            "an empty completion before band_send_message runs, so no reply ever "
+            "reaches the room; reproduced on every attempt, not a transient",
         )
     ],
     **MEMORY_AGENT,

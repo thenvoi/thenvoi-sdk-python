@@ -30,10 +30,12 @@ from tests.e2e.baseline.agents import (
     per_adapter,
 )
 from tests.e2e.baseline.scorecard import (
+    ENV_GATED_MARKER,
     MASS_FAILURE_THRESHOLD,
     ScorecardCollector,
     ScorecardRow,
     digest_body,
+    env_gated_skip,
     failed_fraction,
     gate,
     gate_summary,
@@ -141,7 +143,12 @@ def test_na_rows_ignores_items_without_per_adapter_marker() -> None:
 
 
 def _report(
-    nodeid: str, when: str, *, outcome: str, reason: str | None = None
+    nodeid: str,
+    when: str,
+    *,
+    outcome: str,
+    reason: str | None = None,
+    keywords: tuple[str, ...] = (),
 ) -> object:
     longrepr = ("m.py", 1, f"Skipped: {reason}") if reason is not None else None
     return SimpleNamespace(
@@ -151,6 +158,7 @@ def _report(
         failed=outcome == "failed",
         passed=outcome == "passed",
         longrepr=longrepr,
+        keywords=frozenset(keywords),
     )
 
 
@@ -166,6 +174,30 @@ def test_outcome_row_setup_skip_captures_reason() -> None:
         _report("m.py::t[agno]", "setup", outcome="skipped", reason="lane 'core'")
     )
     assert (row.status, row.reason) == ("skip", "lane 'core'")
+
+
+def test_env_gated_skip_applies_both_skipif_and_marker() -> None:
+    @env_gated_skip(True, reason="flag is off")
+    def fn() -> None: ...
+
+    marks = {mark.name for mark in fn.pytestmark}  # type: ignore[attr-defined]
+    assert marks == {"skipif", ENV_GATED_MARKER}
+
+
+def test_outcome_row_env_gated_skip_reports_na_not_missing() -> None:
+    # A deployment flag that is permanently off in this environment (e.g. the SaaS
+    # E2E lanes' ff_file_transfer) must never read as "missing coverage" -- see
+    # ENV_GATED_MARKER.
+    _, row = outcome_row(
+        _report(
+            "m.py::t[anthropic]",
+            "setup",
+            outcome="skipped",
+            reason="E2E_FILE_TRANSFER is not true",
+            keywords=(ENV_GATED_MARKER,),
+        )
+    )
+    assert (row.status, row.reason) == ("na", "E2E_FILE_TRANSFER is not true")
 
 
 def test_outcome_row_setup_error_is_a_fail() -> None:

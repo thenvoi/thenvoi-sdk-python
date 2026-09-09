@@ -26,10 +26,10 @@ import argparse
 import json
 import logging
 import sys
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from dataclasses import asdict, dataclass, replace
 from pathlib import Path
-from typing import Literal
+from typing import Literal, TypeVar
 
 import pytest
 
@@ -49,6 +49,32 @@ _ADAPTER_IDS: frozenset[str] = frozenset(str(adapter) for adapter in Adapter)
 # per-lane scorecards are unioned, and an ``N/A`` is never overwritten by a ``skip``.
 Status = Literal["pass", "fail", "skip", "na"]
 _RANK: dict[Status, int] = {"skip": 0, "na": 1, "pass": 2, "fail": 3}
+
+# Tags a ``skipif`` whose condition is a deployment flag that is permanently off in
+# some environment (e.g. an on-prem-only capability, never on for SaaS CI) rather than
+# transiently unavailable. Without this, ``outcome_row`` reports the same ``skip``
+# status a lane-scoping or flaky skip would, and ``gate`` -- which cannot tell those
+# apart -- would call it "missing" forever: the cell can never pass in that
+# environment, so the release gate would stay red for a condition that is not a
+# regression. See ``env_gated_skip``.
+ENV_GATED_MARKER = "env_gated_skip"
+
+_F = TypeVar("_F", bound=Callable[..., object])
+
+
+def env_gated_skip(condition: bool, reason: str) -> Callable[[_F], _F]:
+    """``skipif``, tagged so ``outcome_row`` reports the skip as ``na`` (never
+    ``missing``) instead of a plain ``skip`` -- for a capability whose deployment
+    flag is structurally off in some environment, not one that merely hasn't run
+    yet. See ``ENV_GATED_MARKER``.
+    """
+    skip = pytest.mark.skipif(condition, reason=reason)
+    tag = getattr(pytest.mark, ENV_GATED_MARKER)
+
+    def decorator(fn: _F) -> _F:
+        return skip(tag(fn))
+
+    return decorator
 
 
 @dataclass(frozen=True)
@@ -128,10 +154,11 @@ def outcome_row(
     parametrized test carrying anything else (``test_send_event[thought]``) and the
     unparametrized tests (provisioning, user-ops, the registry guards) return ``None``.
     The verdict comes from the setup and call phases: a skip (lane scoping, E2E disabled,
-    or an in-body ``pytest.skip``) is ``skip``; a setup *error* (a failed fixture) or a
-    call failure is ``fail``; a passing call is ``pass``. Teardown reports and passing
-    setups carry no verdict and are ignored — so the accumulator's last-write-wins keeps
-    the call outcome, not a trailing teardown.
+    or an in-body ``pytest.skip``) is ``skip``, unless it carries ``ENV_GATED_MARKER``
+    (see ``env_gated_skip``), in which case it is ``na``; a setup *error* (a failed
+    fixture) or a call failure is ``fail``; a passing call is ``pass``. Teardown reports
+    and passing setups carry no verdict and are ignored — so the accumulator's
+    last-write-wins keeps the call outcome, not a trailing teardown.
     """
     if report.when not in ("setup", "call"):
         return None
@@ -140,8 +167,8 @@ def outcome_row(
         return None  # unparametrized, or a non-adapter parametrization
     test, adapter = key
     if report.skipped:
-        status: Status = "skip"
         reason = _skip_reason(report)
+        status: Status = "na" if ENV_GATED_MARKER in report.keywords else "skip"
     elif report.failed:
         status = "fail"
         reason = None

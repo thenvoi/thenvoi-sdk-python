@@ -1035,9 +1035,13 @@ class PydanticAIAdapter(SimpleAdapter[PydanticAIMessages]):
             # other response the run cannot turn into output can still spend the
             # refused output budget. Once a terminal tool has run (a
             # band_send_message reply, a band_store_memory, ...) the work already went
-            # out, so that exhaustion is benign — mirror the crewai adapter and
-            # swallow it. Genuine no-response failures (no terminal tool ran — only
-            # read-only lookups or failed tools) still surface and propagate.
+            # out, so that exhaustion is benign — swallow it. Every other exception —
+            # a different UnexpectedModelBehavior, or any other type now that this
+            # catches broadly for send_failure reporting — still surfaces and
+            # propagates. Unlike the crewai adapter, which cannot tell a genuine
+            # failure apart from the empty completion that ends its every turn,
+            # pydantic-ai raises the exhausted-retries case as its own distinct type,
+            # so the isinstance check (not just the message match) is load-bearing.
             if (
                 tool_executed
                 and isinstance(e, UnexpectedModelBehavior)

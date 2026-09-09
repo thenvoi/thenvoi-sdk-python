@@ -26,11 +26,18 @@ class ReplyTracker:
     """Mutable per-turn markers shared (by reference) with the tool wrappers.
 
     ``replied`` flips once ``band_send_message`` succeeds; ``tool_executed`` flips
-    once any terminal tool succeeds.
+    once any terminal tool succeeds; ``any_tool_ran`` flips on any tool call at
+    all, success or failure, terminal or not.
     """
 
     replied: bool = False
     tool_executed: bool = False
+    any_tool_ran: bool = False
+
+    @property
+    def did_productive_work(self) -> bool:
+        """Whether the turn left something behind for the room to show for it."""
+        return self.replied or self.tool_executed
 
 
 @dataclass(frozen=True)

@@ -24,12 +24,17 @@ from unittest.mock import DEFAULT, AsyncMock, MagicMock
 import pytest
 from pydantic import BaseModel, Field
 
+from band.adapters.crewai import EMPTY_LLM_RESPONSE_MARKER
 from band.core.protocols import (
     GENERIC_PROVIDER_FAILURE_MESSAGE,
     TurnResultAlreadyReported,
 )
 from band.core.types import Capability, Emit, PlatformMessage
 from band.runtime.prompts import render_system_prompt
+from band.runtime.tools import BandTool, missing_reply_error
+
+# The exact text CrewAI raises; the marker is the part the adapter matches on.
+EMPTY_LLM_RESPONSE_ERROR = f"{EMPTY_LLM_RESPONSE_MARKER} - None or empty."
 
 if TYPE_CHECKING:
     from band.adapters.crewai import CrewAIAdapter as CrewAIAdapterType
@@ -440,12 +445,9 @@ class TestOnMessage:
 
         # The second kickoff must carry the prior turn as replayed context, not
         # just the current message.
-        second_call_messages = mock_crewai_agent_replied.kickoff_async.call_args_list[
-            1
-        ][0][0]
-        blob = "\n".join(m["content"] for m in second_call_messages)
-        assert "[Previous conversation:]" in blob
-        assert "Hello, agent!" in blob  # turn-1 content replayed to the model
+        prompt = mock_crewai_agent_replied.kickoff_async.call_args_list[1][0][0]
+        assert "already handled" in prompt
+        assert "Hello, agent!" in prompt  # turn-1 content replayed to the model
 
 
 class TestOnCleanup:
@@ -588,20 +590,24 @@ class TestErrorHandling:
         """CrewAI raising an empty final answer AFTER the agent already replied
         via band_send_message is non-fatal: no error event, no re-raise.
 
-        Regression: CrewAI 1.14.3 raises ValueError("Invalid response from LLM
-        call - None or empty.") on its forced final-answer step. Because this
-        adapter replies through the tool, that fired on essentially every turn,
-        posting a spurious error event alongside each (successful) reply.
+        This adapter replies only through band_send_message, so CrewAI's
+        empty-final-answer ValueError fires on essentially every turn --
+        including this successful one. Routes through the real
+        ``_mark_productive_work`` (not hand-set flags) so the test fails if a
+        future change stops SEND_MESSAGE from marking a turn productive.
         """
 
         module = importlib.import_module("band.adapters.crewai")
+        tools_module = importlib.import_module("band.integrations.crewai.tools")
 
-        async def _kickoff(_messages):
-            # Simulate band_send_message having succeeded earlier this turn.
-            tracker = module._reply_tracker_var.get()
-            if tracker is not None:
-                tracker.replied = True
-            raise ValueError("Invalid response from LLM call - None or empty.")
+        async def _kickoff(_prompt):
+            tools_module._mark_productive_work(
+                module._reply_tracker_var.get(),
+                BandTool.SEND_MESSAGE,
+                json.dumps({"status": "success"}),
+                custom_terminal=False,
+            )
+            raise ValueError(EMPTY_LLM_RESPONSE_ERROR)
 
         mock_crewai_agent.kickoff_async = AsyncMock(side_effect=_kickoff)
 
@@ -634,18 +640,22 @@ class TestErrorHandling:
         nothing left to say — CrewAI then raises ValueError("Invalid response
         from LLM call - None or empty.") on its forced final-answer step. Because
         a tool already executed successfully this turn, that empty answer is
-        benign: no error event, no re-raise.
+        benign: no error event, no re-raise. Routes through the real
+        ``_mark_productive_work`` (not hand-set flags) so the test fails if a
+        future change stops a terminal tool from marking a turn productive.
         """
 
         module = importlib.import_module("band.adapters.crewai")
+        tools_module = importlib.import_module("band.integrations.crewai.tools")
 
-        async def _kickoff(_messages):
-            # Simulate a non-reply tool (e.g. band_store_memory) having succeeded
-            # earlier this turn — tool_executed flips, replied does not.
-            tracker = module._reply_tracker_var.get()
-            if tracker is not None:
-                tracker.tool_executed = True
-            raise ValueError("Invalid response from LLM call - None or empty.")
+        async def _kickoff(_prompt):
+            tools_module._mark_productive_work(
+                module._reply_tracker_var.get(),
+                BandTool.STORE_MEMORY,
+                json.dumps({"status": "success"}),
+                custom_terminal=False,
+            )
+            raise ValueError(EMPTY_LLM_RESPONSE_ERROR)
 
         mock_crewai_agent.kickoff_async = AsyncMock(side_effect=_kickoff)
 
@@ -665,6 +675,131 @@ class TestErrorHandling:
         )
 
         # No failure reported to the room.
+        mock_tools.send_failure.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_read_only_turn_with_empty_final_answer_completes(
+        self, CrewAIAdapter, sample_message, mock_tools, mock_crewai_agent
+    ):
+        """A turn whose only work was read-only must finish, not fail the delivery.
+
+        Told to run read tools and nothing else ("call band_list_tasks ... do not
+        call any other tool"), the agent does exactly that and stays silent:
+        fetching state is not terminal work, so the real marker leaves both
+        tracker flags down. Re-raising CrewAI's empty-response ValueError would
+        mark the delivery failed for a turn that did precisely what it was asked.
+        """
+        module = importlib.import_module("band.adapters.crewai")
+        tools_module = importlib.import_module("band.integrations.crewai.tools")
+
+        async def _kickoff(_prompt):
+            # Route through the real marker so the read-only classification --
+            # not a hand-set flag -- is what keeps this turn "unproductive".
+            tools_module._mark_productive_work(
+                module._reply_tracker_var.get(),
+                BandTool.LIST_TASKS,
+                json.dumps({"status": "success", "data": []}),
+                custom_terminal=False,
+            )
+            raise ValueError(EMPTY_LLM_RESPONSE_ERROR)
+
+        mock_crewai_agent.kickoff_async = AsyncMock(side_effect=_kickoff)
+
+        adapter = CrewAIAdapter()
+        await adapter.on_started("TestBot", "Test bot")
+        adapter._crewai_agent = mock_crewai_agent
+
+        # Must NOT raise — the delivery completes.
+        await adapter.on_message(
+            msg=sample_message,
+            tools=mock_tools,
+            history=[],
+            participants_msg=None,
+            contacts_msg=None,
+            is_session_bootstrap=True,
+            room_id="room-123",
+        )
+
+        # Exactly one failure reported, carrying the shared missing-reply
+        # wording -- the room hears about the missing reply, not CrewAI's
+        # internal error.
+        mock_tools.send_failure.assert_awaited_once()
+        failure = mock_tools.send_failure.call_args.args[0]
+        assert failure.provider == "crewai"
+        assert missing_reply_error("CrewAI") in failure.message
+
+    @pytest.mark.asyncio
+    async def test_empty_answer_with_no_tool_call_still_raises(
+        self, CrewAIAdapter, sample_message, mock_tools, mock_crewai_agent
+    ):
+        """An empty answer with zero tool activity is a genuine failure, not a
+        finished turn -- it must still fail the delivery so the platform retries.
+
+        Nothing distinguishes "the model correctly stopped after read-only
+        work" from "the very first LLM call came back empty" by the exception
+        alone -- both raise CrewAI's identical ValueError. ``any_tool_ran`` is
+        that distinction: it is the only turn where this adapter can rule out
+        a genuine no-response failure, so it is the only one that must not be
+        silently marked processed.
+        """
+        mock_crewai_agent.kickoff_async = AsyncMock(
+            side_effect=ValueError(EMPTY_LLM_RESPONSE_ERROR)
+        )
+
+        adapter = CrewAIAdapter()
+        await adapter.on_started("TestBot", "Test bot")
+        adapter._crewai_agent = mock_crewai_agent
+
+        with pytest.raises(ValueError, match=EMPTY_LLM_RESPONSE_ERROR):
+            await adapter.on_message(
+                msg=sample_message,
+                tools=mock_tools,
+                history=[],
+                participants_msg=None,
+                contacts_msg=None,
+                is_session_bootstrap=True,
+                room_id="room-123",
+            )
+
+        mock_tools.send_failure.assert_awaited_once()
+        failure = mock_tools.send_failure.call_args.args[0]
+        assert failure.provider == "crewai"
+        assert failure.message == GENERIC_PROVIDER_FAILURE_MESSAGE
+
+    @pytest.mark.asyncio
+    async def test_no_missing_reply_error_after_clean_tool_only_return(
+        self, CrewAIAdapter, sample_message, mock_tools, mock_crewai_agent
+    ):
+        """Terminal tool work answers for a turn even when kickoff returns cleanly.
+
+        The empty-response path is not the only ending without a reply: CrewAI
+        can also return normally after a tool-only turn. One rule judges both, so
+        neither posts a missing-reply error once terminal work has landed.
+        """
+        module = importlib.import_module("band.adapters.crewai")
+        mock_result = MagicMock()
+        mock_result.raw = "Stored it."
+
+        async def _kickoff(_prompt):
+            module._reply_tracker_var.get().tool_executed = True
+            return mock_result
+
+        mock_crewai_agent.kickoff_async = AsyncMock(side_effect=_kickoff)
+
+        adapter = CrewAIAdapter()
+        await adapter.on_started("TestBot", "Test bot")
+        adapter._crewai_agent = mock_crewai_agent
+
+        await adapter.on_message(
+            msg=sample_message,
+            tools=mock_tools,
+            history=[],
+            participants_msg=None,
+            contacts_msg=None,
+            is_session_bootstrap=True,
+            room_id="room-123",
+        )
+
         mock_tools.send_failure.assert_not_awaited()
 
     @pytest.mark.asyncio
@@ -837,10 +972,9 @@ class TestParticipantsUpdate:
         )
 
         call_args = mock_crewai_agent_replied.kickoff_async.call_args
-        messages = call_args[0][0]
+        prompt = call_args[0][0]
 
-        found = any("Alice joined" in str(m.get("content", "")) for m in messages)
-        assert found
+        assert "Alice joined" in prompt
 
 
 class TestContactsUpdate:
@@ -863,12 +997,9 @@ class TestContactsUpdate:
         )
 
         call_args = mock_crewai_agent_replied.kickoff_async.call_args
-        messages = call_args[0][0]
+        prompt = call_args[0][0]
 
-        found = any(
-            "@alice is now a contact" in str(m.get("content", "")) for m in messages
-        )
-        assert found
+        assert "@alice is now a contact" in prompt
 
 
 class TestContactAndMemoryToolRegistration:

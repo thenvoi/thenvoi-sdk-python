@@ -57,15 +57,29 @@ _reply_tracker_var: ContextVar[ReplyTracker | None] = ContextVar(
 )
 
 
+# CrewAI offers no error type or code for an empty completion, so its message
+# is the only discriminator. One definition, matched here and faked in tests.
+EMPTY_LLM_RESPONSE_MARKER = "Invalid response from LLM call"
+
+
+def _is_empty_llm_response(exc: Exception) -> bool:
+    """Whether ``exc`` is CrewAI reporting that an LLM call came back empty.
+
+    ``crewai.utilities.agent_utils`` raises this bare ``ValueError`` for every
+    empty completion in its loop, not only the forced final-answer step — so a
+    match means "no text came back", never "the turn is healthy".
+    """
+    return isinstance(exc, ValueError) and EMPTY_LLM_RESPONSE_MARKER in str(exc)
+
+
 def _silence_lite_agent_error_panel() -> None:
     """Deregister CrewAI's benign red "LiteAgent Failed" console panel.
 
-    The agent replies via the band_send_message tool, so CrewAI's post-tool step
-    returns an empty final answer and raises the "Invalid response from LLM call"
-    ValueError that on_message already swallows — yet its global console listener
-    prints an alarming panel anyway (regardless of verbose). Remove only that
-    handler; tracing and genuine errors are untouched. Idempotent (a later call
-    finds nothing) and best-effort (leave the panel if CrewAI internals move).
+    This agent answers only through band_send_message, so most turns end on an
+    empty completion and CrewAI's global console listener prints an alarming
+    panel anyway (regardless of verbose). Remove only that handler; tracing and
+    genuine errors are untouched. Idempotent (a later call finds nothing) and
+    best-effort (leave the panel if CrewAI internals move).
     """
     try:
         # event_listener is imported for its side effect: registering the handlers.
@@ -323,9 +337,10 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
         *,
         is_session_bootstrap: bool,
         room_id: str,
-        reply_tracker: ReplyTracker | None = None,
+        reply_tracker: ReplyTracker,
     ) -> None:
         """Internal message processing logic."""
+        assert self._crewai_agent is not None, "on_message already checked this"
         if is_session_bootstrap:
             if history:
                 self._message_history[room_id] = [
@@ -342,39 +357,27 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
         elif room_id not in self._message_history:
             self._message_history[room_id] = []
 
-        messages = []
+        sections: list[str] = []
 
         if self._message_history.get(room_id):
             history_text = "\n".join(
                 f"{m['role']}: {m['content']}" for m in self._message_history[room_id]
             )
-            messages.append(
-                {
-                    "role": "user",
-                    "content": f"[Previous conversation:]\n{history_text}",
-                }
+            sections.append(
+                "[Earlier conversation in this room -- already handled, for "
+                f"context only. Do not repeat any action described in it:]\n{history_text}"
             )
 
         if participants_msg:
-            messages.append(
-                {
-                    "role": "user",
-                    "content": f"[System]: {participants_msg}",
-                }
-            )
+            sections.append(f"[System]: {participants_msg}")
             logger.info("Room %s: Participants updated", room_id)
 
         if contacts_msg:
-            messages.append(
-                {
-                    "role": "user",
-                    "content": f"[System]: {contacts_msg}",
-                }
-            )
+            sections.append(f"[System]: {contacts_msg}")
             logger.info("Room %s: Contacts broadcast received", room_id)
 
         user_message = msg.format_for_llm()
-        messages.append({"role": "user", "content": user_message})
+        sections.append(f"[New message -- act on this now:]\n{user_message}")
 
         self._message_history[room_id].append(
             {
@@ -395,73 +398,66 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
         # SUPPORTED_EMIT): result.usage_metrics is cumulative-lifetime, not
         # per-turn. Proper per-turn capture is deferred — don't add emit_usage here.
         try:
-            # Type ignore explanation: CrewAI's kickoff_async is typed to accept
-            # only a string prompt, but the implementation also accepts a list of
-            # message dicts (similar to OpenAI's messages format) for multi-turn
-            # context. This is documented behavior but the type stubs haven't been
-            # updated. See: https://docs.crewai.com/concepts/agents
-            result = await self._crewai_agent.kickoff_async(messages)  # type: ignore[arg-type]
+            # CrewAI's kickoff_async accepts str | list[dict], but a list is
+            # flattened internally into one role-blind "\n".join(...) of every
+            # message's content (crewai.agent.core.Agent._prepare_kickoff) --
+            # it does NOT preserve per-message turn/role structure the way a
+            # chat-completions API would. Passing a list here previously left
+            # an earlier turn's imperative ("do X, do not call any other
+            # tool") sitting unmarked next to the new turn's instruction, and
+            # models would sometimes replay the old instruction instead of the
+            # new one. Building the final prompt ourselves, with explicit
+            # "already handled" / "act on this now" markers, matches what
+            # CrewAI actually does with the input either way.
+            prompt = "\n\n".join(sections)
+            result = await self._crewai_agent.kickoff_async(prompt)
 
-            if result and result.raw:
-                self._message_history[room_id].append(
-                    {
-                        "role": "assistant",
-                        "content": result.raw,
-                    }
+        except Exception as e:
+            # An empty response is benign only once some tool ran this turn --
+            # otherwise the model's very first call came back empty, which is
+            # indistinguishable from a genuine provider failure and must keep
+            # failing the delivery so the platform retries it.
+            if not (_is_empty_llm_response(e) and reply_tracker.any_tool_ran):
+                logger.error("Error processing message: %s", e, exc_info=True)
+                await tools.send_failure(
+                    AgentFailure("crewai", GENERIC_PROVIDER_FAILURE_MESSAGE)
                 )
+                raise
+            # Keep the exception text: it is the only record that CrewAI raised,
+            # and this turn is no longer marked failed for the runtime to log.
+            logger.debug("Room %s: CrewAI returned no text: %s", room_id, e)
+            result = None
 
-            if not (reply_tracker is not None and reply_tracker.replied):
-                detail = missing_reply_error(
-                    "CrewAI",
-                    detail=(
-                        "Repeated tool failures may also have exhausted "
-                        f"max_iter={self.max_iter}."
-                    ),
-                )
-                await tools.send_failure(AgentFailure("crewai", detail))
+        final_text = (result.raw or "") if result else ""
+        if final_text:
+            self._message_history[room_id].append(
+                {
+                    "role": "assistant",
+                    "content": final_text,
+                }
+            )
+
+        if not reply_tracker.did_productive_work:
+            detail = missing_reply_error(
+                "CrewAI",
+                detail=(
+                    "Repeated tool failures may also have exhausted "
+                    f"max_iter={self.max_iter}."
+                ),
+            )
+            await tools.send_failure(AgentFailure("crewai", detail))
+            if not reply_tracker.any_tool_ran:
+                # Some tool activity (even read-only) means the turn did what it
+                # was asked and correctly had nothing left to say -- report but
+                # don't fail the delivery. Only true silence, no tool call at
+                # all, is a genuine no-response failure worth a retry.
                 raise TurnResultAlreadyReported(detail)
 
-            logger.info(
-                "Room %s: CrewAI agent completed (output_length=%s)",
-                room_id,
-                len(result.raw) if result and result.raw else 0,
-            )
-
-        except TurnResultAlreadyReported:
-            raise
-        except Exception as e:
-            # CrewAI raises ValueError("Invalid response from LLM call - None or
-            # empty.") when its ReAct loop yields an empty final answer. In this
-            # adapter the agent acts via tools (band_send_message to reply,
-            # band_store_memory, etc.), so an empty final answer AFTER the agent
-            # already did productive work is benign noise — a reply went out, or a
-            # tool-only turn (e.g. a memory store the user told it not to follow
-            # with a message) completed and there is simply nothing left to say.
-            # Match that specific ValueError narrowly so genuine no-response
-            # failures (the LLM returned empty without doing anything) still
-            # surface as error events and propagate.
-            if (
-                reply_tracker is not None
-                and (reply_tracker.replied or reply_tracker.tool_executed)
-                and isinstance(e, ValueError)
-                and "Invalid response from LLM call" in str(e)
-            ):
-                logger.warning(
-                    "Room %s: CrewAI returned an empty final answer after the agent "
-                    "already did productive work this turn; treating as non-fatal: %s",
-                    room_id,
-                    e,
-                )
-                return
-            logger.error("Error processing message: %s", e, exc_info=True)
-            await tools.send_failure(
-                AgentFailure("crewai", GENERIC_PROVIDER_FAILURE_MESSAGE)
-            )
-            raise
-
-        logger.debug(
-            "Message %s processed successfully (history now has %s messages)",
+        logger.info(
+            "Room %s: CrewAI turn over for %s (output=%s chars, history=%s)",
+            room_id,
             msg.id,
+            len(final_text),
             len(self._message_history[room_id]),
         )
 
