@@ -22,12 +22,13 @@ from band.adapters.letta import (
     RoomContext,
 )
 from band.converters.letta import LettaSessionState
+from band.core.protocols import GENERIC_PROVIDER_FAILURE_MESSAGE
 from band.integrations.letta.prompts import (
     SEND_EVENT_TOOL_NAMES,
     SEND_MESSAGE_TOOL_NAMES,
 )
 from band.runtime.tools import BandTool
-from band.testing import FakeAgentTools
+from band.testing import FakeAgentTools, reported_failures
 from tests.adapters.lettakit import (
     make_assistant_message,
     make_fake_mcp_backend,
@@ -532,6 +533,9 @@ class TestSelfHostedMCPLifecycle:
 
         error_events = [e for e in tools.events_sent if e["message_type"] == "error"]
         assert len(error_events) == 1
+        failure = reported_failures(tools)[0]
+        assert failure["provider"] == "letta"
+        assert failure["message"] == GENERIC_PROVIDER_FAILURE_MESSAGE
         mock_client.agents.messages.create.assert_not_called()
 
     @pytest.mark.asyncio
@@ -779,6 +783,9 @@ class TestSelfHostedMCPLifecycle:
 
         error_events = [e for e in tools.events_sent if e["message_type"] == "error"]
         assert len(error_events) == 1
+        failure = reported_failures(tools)[0]
+        assert failure["provider"] == "letta"
+        assert failure["message"] == GENERIC_PROVIDER_FAILURE_MESSAGE
         mock_client.agents.messages.create.assert_not_called()
 
     @pytest.mark.asyncio

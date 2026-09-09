@@ -21,7 +21,10 @@ from band.adapters.letta import (
     RoomContext,
 )
 from band.converters.letta import LettaSessionState
-from band.core.protocols import TurnResultAlreadyReported
+from band.core.protocols import (
+    GENERIC_PROVIDER_FAILURE_MESSAGE,
+    TurnResultAlreadyReported,
+)
 from band.core.types import Emit
 from band.testing import FakeAgentTools, reported_failures
 from tests.adapters.lettakit import (
@@ -250,9 +253,41 @@ class TestLettaAdapterOnMessagePerRoom:
         error_events = [e for e in tools.events_sent if e["message_type"] == "error"]
         assert len(error_events) == 1
         assert "timed out" in error_events[0]["content"]
-        failure = error_events[0]["metadata"]["failure"]
+        failure = reported_failures(tools)[0]
         assert failure["provider"] == "letta"
         assert failure["code"] == "timeout"
+
+    @pytest.mark.asyncio
+    async def test_generic_exception_reports_and_propagates(
+        self, adapter_with_client: tuple[LettaAdapter, AsyncMock]
+    ) -> None:
+        """A bare exception from the Letta client (not a timeout, not a
+        delivery failure) must still surface via the generic fallback."""
+        adapter, mock_client = adapter_with_client
+        adapter._rooms["room-1"] = RoomContext(agent_id="agent-1")
+        mock_client.agents.messages.create.side_effect = ConnectionError(
+            "letta connection reset"
+        )
+
+        tools = FakeAgentTools()
+        msg = make_platform_message()
+        history = LettaSessionState()
+
+        with pytest.raises(ConnectionError, match="letta connection reset"):
+            await adapter.on_message(
+                msg,
+                tools,
+                history,
+                None,
+                None,
+                is_session_bootstrap=False,
+                room_id="room-1",
+            )
+
+        failure = reported_failures(tools)[0]
+        assert failure["provider"] == "letta"
+        assert failure["message"] == GENERIC_PROVIDER_FAILURE_MESSAGE
+        assert "letta connection reset" not in failure["message"]
 
     @pytest.mark.asyncio
     async def test_participants_and_contacts_injected(

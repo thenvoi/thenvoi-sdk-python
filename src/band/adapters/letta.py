@@ -59,6 +59,9 @@ __all__ = [
 
 logger = logging.getLogger(__name__)
 
+# AgentFailure.provider tag for every failure this adapter reports.
+_PROVIDER = "letta"
+
 
 @dataclass
 class RoomContext:
@@ -279,7 +282,7 @@ class LettaAdapter(SimpleAdapter[LettaSessionState]):
         if not self._client:
             logger.error("Letta client not initialized, dropping message %s", msg.id)
             message = "Letta adapter not initialized"
-            await tools.send_failure(AgentFailure("letta", message))
+            await tools.send_failure(AgentFailure(_PROVIDER, message))
             raise RuntimeError(message)
 
         # Lock only protects MCP/agent setup, not the full message path.
@@ -297,7 +300,7 @@ class LettaAdapter(SimpleAdapter[LettaSessionState]):
         except Exception as e:
             logger.exception("Room %s: Failed to prepare Letta session: %s", room_id, e)
             await tools.send_failure(
-                AgentFailure("letta", GENERIC_PROVIDER_FAILURE_MESSAGE)
+                AgentFailure(_PROVIDER, GENERIC_PROVIDER_FAILURE_MESSAGE)
             )
             raise
 
@@ -326,7 +329,7 @@ class LettaAdapter(SimpleAdapter[LettaSessionState]):
         if (room_ctx := await self._room_context(room_id, history, tools)) is None:
             logger.error("Room %s: No Letta agent context, dropping message", room_id)
             message = "Letta agent context unavailable"
-            await tools.send_failure(AgentFailure("letta", message))
+            await tools.send_failure(AgentFailure(_PROVIDER, message))
             raise RuntimeError(message)
 
         # Point the MCP resolver at this room's current tools for the
@@ -445,7 +448,7 @@ class LettaAdapter(SimpleAdapter[LettaSessionState]):
             )
             await tools.send_failure(
                 AgentFailure(
-                    "letta",
+                    _PROVIDER,
                     f"Letta agent response timed out after {self.config.turn_timeout_s}s",
                     FAILURE_CODE_TIMEOUT,
                 )
@@ -454,7 +457,7 @@ class LettaAdapter(SimpleAdapter[LettaSessionState]):
         except Exception as e:
             logger.exception("Room %s: Error during Letta turn: %s", room_id, e)
             await tools.send_failure(
-                AgentFailure("letta", GENERIC_PROVIDER_FAILURE_MESSAGE)
+                AgentFailure(_PROVIDER, GENERIC_PROVIDER_FAILURE_MESSAGE)
             )
             raise
         else:
@@ -606,7 +609,7 @@ class LettaAdapter(SimpleAdapter[LettaSessionState]):
                 f"Letta agent did not call {self._mcp.send_message_tool} "
                 "(auto-relay disabled); its reply was dropped"
             )
-            await tools.send_failure(AgentFailure("letta", detail))
+            await tools.send_failure(AgentFailure(_PROVIDER, detail))
             raise TurnResultAlreadyReported(detail)
         else:
             final_text = "\n\n".join(final_text_parts)
