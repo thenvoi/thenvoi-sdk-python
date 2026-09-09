@@ -30,7 +30,7 @@ from band.core.protocols import (
 from band.core.types import PlatformMessage
 from band.integrations.a2a import A2AAdapter, A2AAuth, A2ASessionState
 from band.integrations.a2a.adapter import _SSE_READ_TIMEOUT_S
-from band.testing import FakeAgentTools
+from band.testing import FakeAgentTools, reported_failures
 
 
 def make_platform_message(content: str = "Hello") -> PlatformMessage:
@@ -361,7 +361,7 @@ class TestA2AAdapterMessageFlow:
         ]
         assert error_events, "an auth-required task must produce an error event"
         assert error_events[-1]["content"] == "Please authenticate"
-        failure = error_events[-1]["metadata"]["failure"]
+        failure = reported_failures(tools)[-1]
         assert failure["provider"] == "a2a"
         assert failure["code"] == "TASK_STATE_AUTH_REQUIRED"
 
@@ -464,7 +464,7 @@ class TestA2AAdapterMessageFlow:
         ]
         assert error_events, "a failed task must produce an error event"
         assert error_events[-1]["content"] == "boom"
-        failure = error_events[-1]["metadata"]["failure"]
+        failure = reported_failures(tools)[-1]
         assert failure["provider"] == "a2a"
         assert failure["code"] == "TASK_STATE_FAILED"
 
