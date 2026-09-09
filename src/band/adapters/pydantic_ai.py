@@ -1088,6 +1088,9 @@ class PydanticAIAdapter(SimpleAdapter[PydanticAIMessages]):
         # either answered in plain text or said nothing at all. Surface it as an
         # error (mirrors the crewai adapter) instead of letting it vanish.
         if not tool_executed:
+            logger.warning(
+                "Room %s: Pydantic AI turn produced nothing for the room", room_id
+            )
             detail = missing_reply_error("Pydantic AI")
             await tools.send_failure(AgentFailure("pydantic_ai", detail))
             raise TurnResultAlreadyReported(detail)

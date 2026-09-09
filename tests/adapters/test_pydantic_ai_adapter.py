@@ -1787,8 +1787,7 @@ class TestEmptyFinalAnswer:
         self, sample_message, mock_tools, mock_pydantic_agent
     ):
         """A failure that isn't UnexpectedModelBehavior at all (a raw provider/API
-        error) must still surface as a failure and propagate — previously this
-        class of error had no except clause at all and vanished uncaught."""
+        error) must still surface as a failure and propagate, not vanish uncaught."""
         adapter = PydanticAIAdapter(model="openai:gpt-5.4")
         with patch.object(adapter, "_create_agent", return_value=mock_pydantic_agent):
             await adapter.on_started("TestBot", "Test bot")
