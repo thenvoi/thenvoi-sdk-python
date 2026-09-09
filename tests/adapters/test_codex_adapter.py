@@ -23,7 +23,10 @@ from band.adapters.codex import (
     CodexAdapterConfig,
     PendingApproval,
 )
-from band.core.protocols import TurnResultAlreadyReported
+from band.core.protocols import (
+    GENERIC_PROVIDER_FAILURE_MESSAGE,
+    TurnResultAlreadyReported,
+)
 from band.core.types import AgentInput, Emit, HistoryProvider, PlatformMessage
 from band.integrations.codex import CodexJsonRpcError, RpcEvent
 from band.integrations.codex.types import (
@@ -3611,6 +3614,73 @@ class TestStructuredErrors:
         assert len(failures) == 1
         assert failures[0]["code"] == "UsageLimitExceeded"
 
+    @pytest.mark.asyncio
+    async def test_structured_error_from_failed_turn_with_no_error_key(self) -> None:
+        """turn/completed with status=failed but no "error" key at all must
+        still report a failure before raising, not just claim it did."""
+        events = [
+            _event_notification(
+                "turn/completed",
+                {"turn": {"id": "turn-1", "status": "failed", "items": []}},
+            ),
+        ]
+        fake_client = FakeCodexClient(events=events)
+        adapter = CodexAdapter(
+            config=CodexAdapterConfig(transport="ws"),
+            client_factory=lambda _config: fake_client,
+        )
+        tools = ToolSchemaFakeTools()
+
+        await adapter.on_started("Agent", "A coding agent")
+        with pytest.raises(TurnResultAlreadyReported):
+            await adapter.on_message(
+                make_platform_message(),
+                tools,
+                CodexSessionState(),
+                participants_msg=None,
+                contacts_msg=None,
+                is_session_bootstrap=True,
+                room_id="room-1",
+            )
+
+        failures = reported_failures(tools)
+        assert len(failures) == 1
+        assert failures[0]["provider"] == "codex"
+
+    @pytest.mark.asyncio
+    async def test_generic_exception_reports_and_propagates(self) -> None:
+        """A bare exception outside Codex's structured-error paths (not a
+        CodexJsonRpcError, not a delivery/already-reported failure) must
+        still surface via the generic fallback and propagate."""
+        fake_client = FakeCodexClient(
+            events=[],
+            turn_start_error=RuntimeError("transport hiccup"),
+            turn_start_error_once=False,
+        )
+        adapter = CodexAdapter(
+            config=CodexAdapterConfig(transport="ws"),
+            client_factory=lambda _config: fake_client,
+        )
+        tools = ToolSchemaFakeTools()
+
+        await adapter.on_started("Agent", "A coding agent")
+        with pytest.raises(RuntimeError, match="transport hiccup"):
+            await adapter.on_message(
+                make_platform_message(),
+                tools,
+                CodexSessionState(),
+                participants_msg=None,
+                contacts_msg=None,
+                is_session_bootstrap=True,
+                room_id="room-1",
+            )
+
+        failures = reported_failures(tools)
+        assert len(failures) == 1
+        assert failures[0]["provider"] == "codex"
+        assert failures[0]["message"] == GENERIC_PROVIDER_FAILURE_MESSAGE
+        assert "transport hiccup" not in failures[0]["message"]
+
 
 # ===========================================================================
 # Phase 1: Enriched approvals & session-level acceptance
@@ -5965,9 +6035,8 @@ class TestSlashCommandCoverage:
     ) -> None:
         """/help's answer failing to post is Band-side delivery, not a Codex
         provider failure -- deliver_reply's DeliveryFailedError must be
-        recognized and left unreported here. codex.py's on_message had no
-        try/except at all before this PR, so the original cause must still
-        propagate (the message still fails/retries at the platform level),
+        recognized and left unreported here. The original cause still
+        propagates (the message still fails/retries at the platform level),
         just never misreported as a Codex AgentFailure."""
 
         class FailingSendMessageTools(ToolSchemaFakeTools):

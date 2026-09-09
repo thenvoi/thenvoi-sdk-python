@@ -28,7 +28,7 @@ from band.core.delivery import (
     reraise_delivery_cause,
 )
 from band.core.exceptions import BandConfigError
-from band.core.protocols import GENERIC_PROVIDER_FAILURE_MESSAGE
+from band.core.protocols import GENERIC_PROVIDER_FAILURE_MESSAGE, send_event_safe
 from band.core.simple_adapter import SimpleAdapter
 from band.core.tool_filter import filter_tool_schemas
 from band.core.types import Capability, Emit, MessageType, ToolEventKey, TurnUsage
@@ -460,6 +460,7 @@ class CopilotSDKAdapter(SimpleAdapter[CopilotSDKSessionState]):
             # Session errors raise out of send_and_wait, so a None here
             # with no room output means the model genuinely said nothing.
             if final_text is None and not turn.replied_in_room:
+                logger.warning("Room %s: Copilot turn produced no reply", room_id)
                 await tools.send_failure(
                     AgentFailure("copilot_sdk", "no assistant reply")
                 )
@@ -831,7 +832,7 @@ class CopilotSDKAdapter(SimpleAdapter[CopilotSDKSessionState]):
         invocation: ToolInvocation,
         arguments: dict[str, Any],
     ) -> None:
-        await self._send_event_safe(
+        await send_event_safe(
             room_tools,
             json.dumps(
                 {
@@ -851,7 +852,7 @@ class CopilotSDKAdapter(SimpleAdapter[CopilotSDKSessionState]):
         invocation: ToolInvocation,
         output: str,
     ) -> None:
-        await self._send_event_safe(
+        await send_event_safe(
             room_tools,
             json.dumps(
                 {
@@ -943,7 +944,7 @@ class CopilotSDKAdapter(SimpleAdapter[CopilotSDKSessionState]):
     async def _emit_thoughts(self, turn: TurnState, tools: AgentToolsProtocol) -> None:
         if Emit.THOUGHTS in self.features.emit:
             for reasoning in turn.reasonings.values():
-                await self._send_event_safe(tools, reasoning, MessageType.THOUGHT)
+                await send_event_safe(tools, reasoning, MessageType.THOUGHT)
 
     async def _persist_session_id(
         self, room_id: str, tools: AgentToolsProtocol
@@ -955,7 +956,7 @@ class CopilotSDKAdapter(SimpleAdapter[CopilotSDKSessionState]):
         """
         ids = self._ids(room_id)
         if ids.current and ids.persisted != ids.current:
-            sent = await self._send_event_safe(
+            sent = await send_event_safe(
                 tools,
                 "Copilot SDK session",
                 MessageType.TASK,
@@ -965,23 +966,3 @@ class CopilotSDKAdapter(SimpleAdapter[CopilotSDKSessionState]):
                 # Only mark persisted on success so a transient send failure
                 # is retried next turn instead of silently losing resume.
                 ids.persisted = ids.current
-
-    async def _send_event_safe(
-        self,
-        tools: AgentToolsProtocol,
-        content: str,
-        message_type: MessageType,
-        metadata: dict[str, Any] | None = None,
-    ) -> bool:
-        """Send a platform event, downgrading failures to a warning.
-
-        Returns True when the event was accepted by the platform.
-        """
-        try:
-            await tools.send_event(
-                content=content, message_type=message_type, metadata=metadata
-            )
-        except Exception as exc:
-            logger.warning("Failed to send %s event: %s", message_type, exc)
-            return False
-        return True

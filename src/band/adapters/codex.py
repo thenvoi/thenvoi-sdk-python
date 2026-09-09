@@ -29,6 +29,7 @@ from band.core.protocols import (
     GENERIC_PROVIDER_FAILURE_MESSAGE,
     AgentToolsProtocol,
     TurnResultAlreadyReported,
+    send_event_safe,
 )
 from band.core.simple_adapter import SimpleAdapter
 from band.core.types import (
@@ -644,7 +645,7 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
                     Emit.TASK_EVENTS in self.features.emit
                     and self.config.emit_turn_task_markers
                 ):
-                    await self._emit_event_safe(
+                    await send_event_safe(
                         tools,
                         content=self._build_task_event_content(
                             task_id=turn_id or None,
@@ -659,6 +660,7 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
                             "codex_room_id": room_id,
                         },
                         log_label="turn started task event",
+                        log_level=logging.DEBUG,
                     )
 
                 # Phase 2: Turn STARTED lifecycle event with input summary
@@ -667,7 +669,7 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
                     and Emit.TASK_EVENTS in self.features.emit
                 ):
                     input_summary = (msg.content or "")[:200]
-                    await self._emit_event_safe(
+                    await send_event_safe(
                         tools,
                         content=self._build_task_event_content(
                             task_id=turn_id or None,
@@ -685,6 +687,7 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
                             "codex_input_summary": input_summary,
                         },
                         log_label="turn started lifecycle event",
+                        log_level=logging.DEBUG,
                     )
 
                 # Reset per-turn token deltas for the new turn.
@@ -1192,7 +1195,7 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
                     self._room_threads[room_id] = thread_id
                     self._raw_history_by_room.pop(room_id, None)
                     if Emit.TASK_EVENTS in self.features.emit:
-                        await self._emit_event_safe(
+                        await send_event_safe(
                             tools,
                             content=self._build_task_event_content(
                                 task_id=thread_id,
@@ -1207,6 +1210,7 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
                                 "codex_resumed": True,
                             },
                             log_label="thread resumed task event",
+                            log_level=logging.DEBUG,
                         )
                     return thread_id
             except CodexJsonRpcError as exc:
@@ -1241,7 +1245,7 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
         self._room_threads[room_id] = thread_id
 
         if Emit.TASK_EVENTS in self.features.emit:
-            await self._emit_event_safe(
+            await send_event_safe(
                 tools,
                 content=self._build_task_event_content(
                     task_id=thread_id,
@@ -1257,6 +1261,7 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
                     "codex_transport": self.config.transport,
                 },
                 log_label="thread mapped task event",
+                log_level=logging.DEBUG,
             )
 
         return thread_id
@@ -1721,7 +1726,7 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
                 metadata["codex_duration_s"] = round(duration_s, 2)
             if has_usage:
                 metadata.update(usage.to_metadata())
-            await self._emit_event_safe(
+            await send_event_safe(
                 tools,
                 content=self._build_task_event_content(
                     task_id=turn_id,
@@ -1732,6 +1737,7 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
                 message_type="task",
                 metadata=metadata,
                 log_label="turn outcome task event",
+                log_level=logging.DEBUG,
             )
 
         # Phase 2: Enriched turn lifecycle events
@@ -2344,12 +2350,10 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
     ) -> None:
         """Emit a structured error event when turn/completed reports failure."""
         error = turn_payload.get("error")
-        if error is None:
-            return
         if not isinstance(error, dict):
-            # A falsy scalar (``""``, ``0``) has no useful message to carry;
-            # build_agent_failure's own fallback covers it uniformly instead
-            # of shipping a degenerate literal string like "False".
+            # A falsy scalar (``""``, ``0``, ``None``) has no useful message to
+            # carry; build_agent_failure's own fallback covers it uniformly
+            # instead of shipping a degenerate literal string like "None".
             error = {"message": str(error)} if error else {}
         await tools.send_failure(
             build_agent_failure(
@@ -3305,23 +3309,6 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
         if summary and summary != task:
             lines.append(f"Summary: {summary}")
         return "\n".join(lines)
-
-    async def _emit_event_safe(
-        self,
-        tools: AgentToolsProtocol,
-        *,
-        content: str,
-        message_type: str,
-        metadata: dict[str, Any],
-        log_label: str,
-    ) -> None:
-        """Send a best-effort platform event, downgrading a failure to a debug log."""
-        try:
-            await tools.send_event(
-                content=content, message_type=message_type, metadata=metadata
-            )
-        except Exception:
-            logger.debug("Failed to emit %s", log_label, exc_info=True)
 
     @staticmethod
     def _extract_local_command(content: str) -> tuple[str, str] | None:

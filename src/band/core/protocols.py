@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING, Any, Literal, Protocol, TypeVar, runtime_checkable
 
 from band_sdk_core import AgentFailure
 
 from band.core.content import has_visible_content
+
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from anthropic.types import ToolParam
@@ -65,6 +68,38 @@ def to_failure_event(failure: AgentFailure) -> tuple[str, dict[str, Any]]:
         else f"{failure.provider} failed without an error message."
     )
     return content, {"failure": failure.to_dict()}
+
+
+async def send_event_safe(
+    tools: "AgentToolsProtocol",
+    content: str,
+    message_type: str,
+    metadata: dict[str, Any] | None = None,
+    *,
+    log_label: str | None = None,
+    log_level: int = logging.WARNING,
+) -> bool:
+    """Send a best-effort platform event, logging instead of raising on failure.
+
+    For events whose loss is tolerable (a thought, a lifecycle/task marker),
+    unlike ``send_message``/``send_failure`` calls a caller depends on as a
+    control signal. Returns whether the event was actually accepted, so a
+    caller that only wants to update its own bookkeeping once delivery is
+    confirmed (e.g. marking a session id persisted) can act on it.
+    """
+    try:
+        await tools.send_event(
+            content=content, message_type=message_type, metadata=metadata
+        )
+    except Exception:
+        logger.log(
+            log_level,
+            "Failed to send %s event",
+            log_label or message_type,
+            exc_info=True,
+        )
+        return False
+    return True
 
 
 @runtime_checkable
