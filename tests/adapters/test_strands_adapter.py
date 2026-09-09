@@ -57,6 +57,7 @@ from band.testing import (  # noqa: E402
     ScriptedStrandsModel,
     ScriptedTurn,
     ToolTurn,
+    reported_failures,
 )
 
 _INPUT_TOKENS_PER_CALL = 7
@@ -144,10 +145,6 @@ def _alternates(history: list) -> bool:
     """Whether the transcript never puts two same-role turns in a row."""
     roles = [message["role"] for message in history]
     return all(first != second for first, second in zip(roles, roles[1:]))
-
-
-def _errors(tools: FakeAgentTools) -> list[str]:
-    return [e["content"] for e in tools.events_sent if e["message_type"] == "error"]
 
 
 class TestCustomToolWiring:
@@ -539,7 +536,9 @@ class TestTurnProductivity:
             await _run_message(adapter, tools)
 
         assert tools.messages_sent == []
-        assert len(_errors(tools)) == 1
+        failures = reported_failures(tools)
+        assert len(failures) == 1
+        assert failures[0]["provider"] == "strands"
         # The shared bridge returns a normalized, model-visible tool failure.
         assert any(
             text.startswith("Error executing band_send_message:")
@@ -586,7 +585,9 @@ class TestTurnProductivity:
 
         assert _tool_results(adapter)  # the lookup did run and succeed
         assert tools.messages_sent == []
-        assert "band_send_message" in _errors(tools)[0]
+        failure = reported_failures(tools)[0]
+        assert failure["provider"] == "strands"
+        assert "band_send_message" in failure["message"]
 
     @pytest.mark.asyncio
     async def test_invalid_tool_arguments_are_answered_not_raised(
@@ -649,7 +650,9 @@ class TestTurnFailure:
         assert usage[0]["metadata"][USAGE_METADATA_KEY]["input_tokens"] == (
             _INPUT_TOKENS_PER_CALL
         )
-        assert GENERIC_PROVIDER_FAILURE_MESSAGE in _errors(tools)[0]
+        failure = reported_failures(tools)[0]
+        assert failure["provider"] == "strands"
+        assert failure["message"] == GENERIC_PROVIDER_FAILURE_MESSAGE
 
 
 class TestUsageMapping:

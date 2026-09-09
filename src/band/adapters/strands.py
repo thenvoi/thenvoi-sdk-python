@@ -580,6 +580,9 @@ class StrandsAdapter(SimpleAdapter[StrandsMessages]):
             hooks=hooks,
         )
         if not hooks.terminal_fired:
+            logger.warning(
+                "Room %s: Strands turn produced nothing for the room", room_id
+            )
             detail = missing_reply_error("Strands")
             await tools.send_failure(AgentFailure("strands", detail))
             raise TurnResultAlreadyReported(detail)
