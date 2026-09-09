@@ -246,15 +246,7 @@ class BandLink:
         )
 
     async def subscribe_room(self, room_id: str) -> None:
-        """Subscribe to room messages and participants.
-
-        Blocked (a no-op, logged) while ``room_id`` is in
-        ``SubscriptionManager``'s reconciliation set — a prior
-        cancelled/ambiguous attempt's outcome is unresolved and must not be
-        retried on the same socket. Stays blocked until the next reconnect
-        drains it (see ``_drain_reconciliation``); see the design doc for
-        why.
-        """
+        """Subscribe to room messages and participants."""
         if not self._ws:
             raise RuntimeError("Not connected")
         await self._subscriptions_manager.subscribe_room(
@@ -290,12 +282,7 @@ class BandLink:
         await self._subscriptions_manager.unsubscribe_room(self._ws, room_id)
 
     async def unsubscribe_agent_contacts(self) -> None:
-        """Unsubscribe from agent contacts channel.
-
-        A true no-op when the topic was never joined — the tracker's
-        ``leave_agent_topic`` returns ``None`` in that case rather than
-        issuing a leave the transport would just reject.
-        """
+        """Unsubscribe from agent contacts channel."""
         if not self._ws:
             return
         await self._subscriptions_manager.unsubscribe_agent_contacts(

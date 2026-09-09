@@ -108,8 +108,9 @@ async def test_agent_rooms_rejoin_failure_marks_topic_unjoined() -> None:
     """Same rejoin-failure detection as the room test, for the single-topic
     agent channels. No public BandLink-level read exists for agent-topic
     membership (only ``is_room_subscribed`` does), so this reaches into
-    ``link._subscriptions`` -- justified since adding a public accessor with
-    no real caller besides this test would be speculative surface."""
+    ``link._subscriptions_manager._subscriptions`` -- justified since adding
+    a public accessor with no real caller besides this test would be
+    speculative surface."""
     async with fake_phoenix_server(
         join_outcomes={
             "agent_rooms:agent-123": [JoinOutcome.OK, JoinOutcome.REJECTED],
