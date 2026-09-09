@@ -491,11 +491,18 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
             )
             try:
                 return await agent.kickoff_async(prompt)
-            except Exception:
-                logger.warning(
-                    "Room %s: CrewAI's retry also came back empty; giving up",
-                    room_id,
-                )
+            except Exception as retry_exc:
+                if _is_empty_llm_response(retry_exc):
+                    logger.warning(
+                        "Room %s: CrewAI's retry also came back empty; giving up",
+                        room_id,
+                    )
+                else:
+                    logger.warning(
+                        "Room %s: CrewAI's retry failed with a different error: %s",
+                        room_id,
+                        retry_exc,
+                    )
                 raise
 
     async def _report_error(self, tools: AgentToolsProtocol, error: str) -> None:

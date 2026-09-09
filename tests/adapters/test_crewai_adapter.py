@@ -760,12 +760,8 @@ class TestErrorHandling:
         mock_result = MagicMock()
         mock_result.raw = "Hello! I'm here to help."
 
-        calls = 0
-
         async def _kickoff(_prompt):
-            nonlocal calls
-            calls += 1
-            if calls == 1:
+            if mock_crewai_agent.kickoff_async.call_count == 1:
                 raise ValueError(EMPTY_LLM_RESPONSE_ERROR)
             tracker = crewai_adapter._reply_tracker_var.get()
             if tracker is not None:
