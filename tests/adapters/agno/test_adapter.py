@@ -889,18 +889,17 @@ class TestRunFailureReporting:
                 room_id="room-A",
             )
 
-        errors = [e for e in tools.events_sent if e["message_type"] == "error"]
-        assert len(errors) == 1
+        failures = reported_failures(tools)
+        assert len(failures) == 1
         assert (
-            errors[0]["content"]
+            failures[0]["message"]
             == "Internal error while processing message; see agent logs."
         )
         # The exception text (which can carry secrets) must not leak to the room.
-        assert "secret-token" not in errors[0]["content"]
-        failure = reported_failures(tools)[0]
-        assert failure["provider"] == "agno"
+        assert "secret-token" not in failures[0]["message"]
+        assert failures[0]["provider"] == "agno"
         # A plain RuntimeError isn't a swallowed Agno run status -- no code.
-        assert failure["code"] is None
+        assert failures[0]["code"] is None
 
     async def test_error_status_run_is_raised_and_reported(
         self, make_started_adapter, tools
@@ -926,10 +925,10 @@ class TestRunFailureReporting:
                 room_id="room-A",
             )
 
-        errors = [e for e in tools.events_sent if e["message_type"] == "error"]
-        assert len(errors) == 1
-        assert "secret-token" not in errors[0]["content"]
-        assert errors[0]["metadata"]["failure"]["code"] == RunStatus.error.value
+        failures = reported_failures(tools)
+        assert len(failures) == 1
+        assert "secret-token" not in failures[0]["message"]
+        assert failures[0]["code"] == RunStatus.error.value
         # A failed turn must not be committed to the room transcript.
         assert not adapter._message_history.get("room-A")
 
@@ -956,10 +955,10 @@ class TestRunFailureReporting:
                 room_id="room-A",
             )
 
-        errors = [e for e in tools.events_sent if e["message_type"] == "error"]
-        assert len(errors) == 1
-        assert "secret-token" not in errors[0]["content"]
-        assert reported_failures(tools)[0]["code"] == RunStatus.error.value
+        failures = reported_failures(tools)
+        assert len(failures) == 1
+        assert "secret-token" not in failures[0]["message"]
+        assert failures[0]["code"] == RunStatus.error.value
         assert not adapter._message_history.get("room-A")
 
     async def test_error_event_failure_does_not_mask_original(
