@@ -825,45 +825,42 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
                     if self.config.stream_reasoning_events:
                         delta = params.get("delta", "")
                         item_id = str(params.get("itemId") or "")
-                        try:
-                            await tools.send_event(
-                                content=str(delta),
-                                message_type="thought",
-                                metadata={
-                                    "streaming": True,
-                                    "codex_item_id": item_id,
-                                    "codex_event_type": event.method,
-                                    "codex_room_id": room_id,
-                                    "codex_thread_id": thread_id,
-                                    "codex_turn_id": turn_id,
-                                },
-                            )
-                        except Exception:
-                            logger.debug(
-                                "Failed to stream reasoning delta",
-                                exc_info=True,
-                            )
+                        await send_event_safe(
+                            tools,
+                            content=str(delta),
+                            message_type="thought",
+                            metadata={
+                                "streaming": True,
+                                "codex_item_id": item_id,
+                                "codex_event_type": event.method,
+                                "codex_room_id": room_id,
+                                "codex_thread_id": thread_id,
+                                "codex_turn_id": turn_id,
+                            },
+                            log_label="reasoning delta",
+                            log_level=logging.DEBUG,
+                        )
                     continue
 
                 if event.method == "item/plan/delta":
                     if self.config.stream_plan_events:
                         delta = params.get("delta", "")
                         item_id = str(params.get("itemId") or "")
-                        try:
-                            await tools.send_event(
-                                content=str(delta),
-                                message_type="thought",
-                                metadata={
-                                    "streaming": True,
-                                    "subtype": "plan",
-                                    "codex_item_id": item_id,
-                                    "codex_room_id": room_id,
-                                    "codex_thread_id": thread_id,
-                                    "codex_turn_id": turn_id,
-                                },
-                            )
-                        except Exception:
-                            logger.debug("Failed to stream plan delta", exc_info=True)
+                        await send_event_safe(
+                            tools,
+                            content=str(delta),
+                            message_type="thought",
+                            metadata={
+                                "streaming": True,
+                                "subtype": "plan",
+                                "codex_item_id": item_id,
+                                "codex_room_id": room_id,
+                                "codex_thread_id": thread_id,
+                                "codex_turn_id": turn_id,
+                            },
+                            log_label="plan delta",
+                            log_level=logging.DEBUG,
+                        )
                     continue
 
                 # --- Phase 2: Plan step tracking ---
@@ -897,27 +894,24 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
                     ):
                         compacted_thread = str(params.get("threadId") or thread_id)
                         compacted_turn = str(params.get("turnId") or turn_id or "")
-                        try:
-                            await tools.send_event(
-                                content=self._build_task_event_content(
-                                    task_id=compacted_turn or None,
-                                    task="Codex context compaction",
-                                    status="completed",
-                                    summary=f"Thread: {compacted_thread}",
-                                ),
-                                message_type="task",
-                                metadata={
-                                    "codex_event_type": "context_compaction",
-                                    "codex_room_id": room_id,
-                                    "codex_thread_id": compacted_thread,
-                                    "codex_turn_id": compacted_turn or None,
-                                },
-                            )
-                        except Exception:
-                            logger.debug(
-                                "Failed to emit context compaction event",
-                                exc_info=True,
-                            )
+                        await send_event_safe(
+                            tools,
+                            content=self._build_task_event_content(
+                                task_id=compacted_turn or None,
+                                task="Codex context compaction",
+                                status="completed",
+                                summary=f"Thread: {compacted_thread}",
+                            ),
+                            message_type="task",
+                            metadata={
+                                "codex_event_type": "context_compaction",
+                                "codex_room_id": room_id,
+                                "codex_thread_id": compacted_thread,
+                                "codex_turn_id": compacted_turn or None,
+                            },
+                            log_label="context compaction event",
+                            log_level=logging.DEBUG,
+                        )
                     continue
 
                 # --- Phase 4: Aggregated diffs ---
@@ -944,26 +938,21 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
                             and self.config.stream_commentary_events
                         ):
                             # Stream as thought; exclude from final_text.
-                            try:
-                                await tools.send_event(
-                                    content=delta,
-                                    message_type="thought",
-                                    metadata={
-                                        "streaming": True,
-                                        "subtype": "commentary",
-                                        "codex_item_id": str(
-                                            params.get("itemId") or ""
-                                        ),
-                                        "codex_room_id": room_id,
-                                        "codex_thread_id": thread_id,
-                                        "codex_turn_id": turn_id,
-                                    },
-                                )
-                            except Exception:
-                                logger.debug(
-                                    "Failed to stream commentary delta",
-                                    exc_info=True,
-                                )
+                            await send_event_safe(
+                                tools,
+                                content=delta,
+                                message_type="thought",
+                                metadata={
+                                    "streaming": True,
+                                    "subtype": "commentary",
+                                    "codex_item_id": str(params.get("itemId") or ""),
+                                    "codex_room_id": room_id,
+                                    "codex_thread_id": thread_id,
+                                    "codex_turn_id": turn_id,
+                                },
+                                log_label="commentary delta",
+                                log_level=logging.DEBUG,
+                            )
                         else:
                             # When streaming is disabled, commentary accumulates
                             # into final_text for backward compatibility.
@@ -1638,29 +1627,24 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
                 logger.exception("Failed to send approval policy notification")
 
         if Emit.THOUGHTS in self.features.emit:
-            try:
-                await tools.send_event(
-                    content=(
-                        f"Codex approval request handled automatically ({decision})."
-                    ),
-                    message_type="thought",
-                    metadata={
-                        "codex_approval_method": event.method,
-                        "codex_approval_type": self._approval_type(event.method),
-                        "codex_approval_options": [
-                            "accept",
-                            "acceptForSession",
-                            "decline",
-                        ],
-                    },
-                )
-            except Exception:
-                # Best-effort telemetry — never fail the turn on thought
-                # emission failures.
-                logger.debug(
-                    "Failed to emit approval thought event",
-                    exc_info=True,
-                )
+            # Best-effort telemetry — never fail the turn on thought emission
+            # failures.
+            await send_event_safe(
+                tools,
+                content=(f"Codex approval request handled automatically ({decision})."),
+                message_type="thought",
+                metadata={
+                    "codex_approval_method": event.method,
+                    "codex_approval_type": self._approval_type(event.method),
+                    "codex_approval_options": [
+                        "accept",
+                        "acceptForSession",
+                        "decline",
+                    ],
+                },
+                log_label="approval thought event",
+                log_level=logging.DEBUG,
+            )
 
     @staticmethod
     def _turn_usage(usage: CodexTokenUsage | None) -> TurnUsage:
@@ -1762,19 +1746,19 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
                 lifecycle_metadata["codex_error"] = turn_error
             if has_usage:
                 lifecycle_metadata.update(usage.to_metadata())
-            try:
-                await tools.send_event(
-                    content=self._build_task_event_content(
-                        task_id=turn_id,
-                        task="Codex turn lifecycle",
-                        status=turn_status,
-                        summary=f"Duration: {duration_s:.1f}s | Thread: {thread_id}",
-                    ),
-                    message_type="task",
-                    metadata=lifecycle_metadata,
-                )
-            except Exception:
-                logger.debug("Failed to emit turn lifecycle event", exc_info=True)
+            await send_event_safe(
+                tools,
+                content=self._build_task_event_content(
+                    task_id=turn_id,
+                    task="Codex turn lifecycle",
+                    status=turn_status,
+                    summary=f"Duration: {duration_s:.1f}s | Thread: {thread_id}",
+                ),
+                message_type="task",
+                metadata=lifecycle_metadata,
+                log_label="turn lifecycle event",
+                log_level=logging.DEBUG,
+            )
 
         mention = [{"id": msg.sender_id, "name": msg.sender_name or msg.sender_type}]
 
@@ -2197,22 +2181,19 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
                 net_ctx = params.get("networkContext") or params.get("network_context")
                 if net_ctx:
                     approval_metadata["codex_network_context"] = net_ctx
-                try:
-                    await tools.send_event(
-                        content=self._build_task_event_content(
-                            task_id=token,
-                            task="Codex approval request",
-                            status="pending",
-                            summary=summary,
-                        ),
-                        message_type="task",
-                        metadata=approval_metadata,
-                    )
-                except Exception:
-                    logger.debug(
-                        "Failed to emit approval request task event",
-                        exc_info=True,
-                    )
+                await send_event_safe(
+                    tools,
+                    content=self._build_task_event_content(
+                        task_id=token,
+                        task="Codex approval request",
+                        status="pending",
+                        summary=summary,
+                    ),
+                    message_type="task",
+                    metadata=approval_metadata,
+                    log_label="approval request task event",
+                    log_level=logging.DEBUG,
+                )
             await tools.send_message(approval_msg, mentions=mention)
             decision_raw = await asyncio.wait_for(
                 pending.future,
@@ -2355,6 +2336,12 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
             # carry; build_agent_failure's own fallback covers it uniformly
             # instead of shipping a degenerate literal string like "None".
             error = {"message": str(error)} if error else {}
+        logger.error(
+            "Codex turn failed (thread=%s, turn=%s): %s",
+            thread_id,
+            turn_id,
+            error.get("message", ""),
+        )
         await tools.send_failure(
             build_agent_failure(
                 error, thread_id=thread_id, turn_id=turn_id, room_id=room_id
@@ -2379,24 +2366,24 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
         if not steps:
             return
         step_dicts = [{"step": s.step, "status": s.status} for s in steps]
-        try:
-            await tools.send_event(
-                content=self._build_task_event_content(
-                    task_id=turn_id,
-                    task="Codex plan",
-                    status="updated",
-                    summary=f"{len(steps)} steps",
-                ),
-                message_type="task",
-                metadata={
-                    "codex_plan_steps": step_dicts,
-                    "codex_room_id": room_id,
-                    "codex_thread_id": thread_id,
-                    "codex_turn_id": turn_id,
-                },
-            )
-        except Exception:
-            logger.debug("Failed to forward plan steps", exc_info=True)
+        await send_event_safe(
+            tools,
+            content=self._build_task_event_content(
+                task_id=turn_id,
+                task="Codex plan",
+                status="updated",
+                summary=f"{len(steps)} steps",
+            ),
+            message_type="task",
+            metadata={
+                "codex_plan_steps": step_dicts,
+                "codex_room_id": room_id,
+                "codex_thread_id": thread_id,
+                "codex_turn_id": turn_id,
+            },
+            log_label="plan steps",
+            log_level=logging.DEBUG,
+        )
 
     # ------------------------------------------------------------------
     # Phase 4: Token usage & diffs
@@ -2427,14 +2414,14 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
         metadata = usage.to_metadata()
         metadata["codex_thread_id"] = thread_id
         metadata["codex_room_id"] = room_id
-        try:
-            await tools.send_event(
-                content=usage.format_summary(),
-                message_type="task",
-                metadata=metadata,
-            )
-        except Exception:
-            logger.debug("Failed to emit token usage event", exc_info=True)
+        await send_event_safe(
+            tools,
+            content=usage.format_summary(),
+            message_type="task",
+            metadata=metadata,
+            log_label="token usage event",
+            log_level=logging.DEBUG,
+        )
 
     async def _forward_diff_event(
         self,
@@ -2490,19 +2477,19 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
             metadata["codex_diff_truncated"] = True
             metadata["codex_diff_original_length"] = original_length
             metadata["codex_diff_original_bytes"] = original_byte_length
-        try:
-            await tools.send_event(
-                content=self._build_task_event_content(
-                    task_id=turn_id,
-                    task="Codex diff",
-                    status="updated",
-                    summary=summary,
-                ),
-                message_type="task",
-                metadata=metadata,
-            )
-        except Exception:
-            logger.debug("Failed to forward diff event", exc_info=True)
+        await send_event_safe(
+            tools,
+            content=self._build_task_event_content(
+                task_id=turn_id,
+                task="Codex diff",
+                status="updated",
+                summary=summary,
+            ),
+            message_type="task",
+            metadata=metadata,
+            log_label="diff event",
+            log_level=logging.DEBUG,
+        )
 
     # ------------------------------------------------------------------
     # Phase 1: Approval audit trail
@@ -2563,27 +2550,27 @@ class CodexAdapter(SimpleAdapter[CodexSessionState]):
         """Emit a task event for an approval decision."""
         if Emit.TASK_EVENTS not in self.features.emit:
             return
-        try:
-            await tools.send_event(
-                content=self._build_task_event_content(
-                    task_id=str(entry.request_id),
-                    task="Codex approval",
-                    status=entry.decision,
-                    summary=entry.summary,
-                ),
-                message_type="task",
-                metadata={
-                    "codex_event_type": "approval_resolution",
-                    "codex_approval_method": entry.method,
-                    "codex_approval_decision": entry.decision,
-                    "codex_decided_by": entry.decided_by,
-                    "codex_session_level": entry.session_level,
-                    "codex_room_id": room_id,
-                    "codex_timestamp": entry.timestamp,
-                },
-            )
-        except Exception:
-            logger.debug("Failed to emit approval audit event", exc_info=True)
+        await send_event_safe(
+            tools,
+            content=self._build_task_event_content(
+                task_id=str(entry.request_id),
+                task="Codex approval",
+                status=entry.decision,
+                summary=entry.summary,
+            ),
+            message_type="task",
+            metadata={
+                "codex_event_type": "approval_resolution",
+                "codex_approval_method": entry.method,
+                "codex_approval_decision": entry.decision,
+                "codex_decided_by": entry.decided_by,
+                "codex_session_level": entry.session_level,
+                "codex_room_id": room_id,
+                "codex_timestamp": entry.timestamp,
+            },
+            log_label="approval audit event",
+            log_level=logging.DEBUG,
+        )
 
     async def _handle_local_command(
         self,
