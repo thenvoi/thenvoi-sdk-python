@@ -1112,8 +1112,8 @@ class TestSessionPersistence:
     async def test_reports_error_when_no_stored_session_to_retry(
         self, sample_message, mock_tools
     ):
-        """Previously a bare `raise` with zero report: no stored session id
-        means there is nothing to fall back to, so the failure must surface."""
+        """No stored session id means there is nothing to fall back to, so
+        the failure must surface without leaking the raw exception text."""
         adapter = ClaudeSDKAdapter()
         mock_manager = AsyncMock()
         mock_manager.get_or_create_session = AsyncMock(
@@ -1142,14 +1142,15 @@ class TestSessionPersistence:
         mock_tools.send_failure.assert_called_once()
         failure = mock_tools.send_failure.call_args.args[0]
         assert failure.provider == "claude_sdk"
-        assert "Session setup failed" in failure.message
+        assert failure.message == GENERIC_PROVIDER_FAILURE_MESSAGE
+        assert "Session setup failed" not in failure.message
 
     @pytest.mark.asyncio
     async def test_reports_error_when_fallback_session_also_fails(
         self, sample_message, mock_tools
     ):
-        """The fallback session-creation attempt was previously uncaught by
-        this scope entirely -- a failure there escaped with zero report."""
+        """A failure in the fallback session-creation attempt must surface
+        without leaking the raw exception text."""
         adapter = ClaudeSDKAdapter()
         mock_manager = AsyncMock()
         mock_manager.get_or_create_session = AsyncMock(
@@ -1178,7 +1179,8 @@ class TestSessionPersistence:
         mock_tools.send_failure.assert_called_once()
         failure = mock_tools.send_failure.call_args.args[0]
         assert failure.provider == "claude_sdk"
-        assert "Fresh session failed" in failure.message
+        assert failure.message == GENERIC_PROVIDER_FAILURE_MESSAGE
+        assert "Fresh session failed" not in failure.message
 
     @pytest.mark.asyncio
     async def test_task_event_failure_does_not_break_flow(self, mock_tools):
