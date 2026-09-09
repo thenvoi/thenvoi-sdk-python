@@ -10,7 +10,7 @@ from band_sdk_core import AgentFailure
 from band.core.exceptions import BandToolError
 from band.core.protocols import AgentToolsProtocol
 from band.runtime.tools import DEFAULT_FILE_CAPTION, serialize_tool_result
-from band.testing import FakeAgentTools
+from band.testing import FakeAgentTools, reported_failures
 from tests.content import BLANK_CONTENT_CASES
 
 
@@ -283,6 +283,37 @@ class TestSendFailure:
 
         with pytest.raises(RuntimeError, match="platform rejected the event"):
             await tools.send_event("task update", "task")
+
+
+class TestReportedFailures:
+    """reported_failures() is the shared projection every migrated adapter's
+    test suite uses to assert on a reported AgentFailure -- a regression here
+    would silently weaken failure assertions across the whole test suite."""
+
+    async def test_returns_each_reported_failure_in_order(self):
+        tools = FakeAgentTools()
+
+        await tools.send_failure(AgentFailure("codex", "first"))
+        await tools.send_failure(AgentFailure("letta", "second"))
+
+        failures = reported_failures(tools)
+
+        assert [f["message"] for f in failures] == ["first", "second"]
+        assert [f["provider"] for f in failures] == ["codex", "letta"]
+
+    async def test_ignores_a_plain_error_event_with_no_failure_metadata(self):
+        """A pre-migration send_event(..., "error") call carries no
+        ``failure`` metadata -- it must not be mistaken for a reported
+        AgentFailure."""
+        tools = FakeAgentTools()
+
+        await tools.send_event("legacy error text", "error")
+        await tools.send_failure(AgentFailure("codex", "structured failure"))
+
+        failures = reported_failures(tools)
+
+        assert len(failures) == 1
+        assert failures[0]["message"] == "structured failure"
 
 
 class TestParticipantOperations:
