@@ -259,12 +259,7 @@ class BandLink:
         )
 
     async def subscribe_agent_contacts(self, agent_id: str) -> None:
-        """
-        Subscribe to agent contact events.
-
-        Events: contact_request_received, contact_request_updated,
-                contact_added, contact_removed
-        """
+        """Subscribe to agent contact events."""
         if not self._ws:
             raise RuntimeError("Not connected")
         await self._subscriptions_manager.subscribe_agent_contacts(
