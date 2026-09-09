@@ -30,7 +30,7 @@ from band.adapters.agno import (
     _make_band_entrypoint,
 )
 from band.core.types import Capability, Emit, PlatformMessage
-from band.testing import FakeAgentTools
+from band.testing import FakeAgentTools, reported_failures
 
 from tests.adapters.agno.helpers import (
     CapturingModel,
@@ -897,7 +897,7 @@ class TestRunFailureReporting:
         )
         # The exception text (which can carry secrets) must not leak to the room.
         assert "secret-token" not in errors[0]["content"]
-        failure = errors[0]["metadata"]["failure"]
+        failure = reported_failures(tools)[0]
         assert failure["provider"] == "agno"
         # A plain RuntimeError isn't a swallowed Agno run status -- no code.
         assert failure["code"] is None
@@ -959,7 +959,7 @@ class TestRunFailureReporting:
         errors = [e for e in tools.events_sent if e["message_type"] == "error"]
         assert len(errors) == 1
         assert "secret-token" not in errors[0]["content"]
-        assert errors[0]["metadata"]["failure"]["code"] == RunStatus.error.value
+        assert reported_failures(tools)[0]["code"] == RunStatus.error.value
         assert not adapter._message_history.get("room-A")
 
     async def test_error_event_failure_does_not_mask_original(
