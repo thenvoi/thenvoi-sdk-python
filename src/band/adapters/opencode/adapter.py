@@ -20,7 +20,11 @@ from band.adapters.opencode.approvals import ApprovalPorts, RoomApprovals
 from band.adapters.opencode.config import OpencodeAdapterConfig
 from band.converters.opencode import OpencodeHistoryConverter
 from band.core.exceptions import BandConnectionError
-from band.core.protocols import FAILURE_CODE_TIMEOUT, AgentToolsProtocol
+from band.core.protocols import (
+    FAILURE_CODE_TIMEOUT,
+    GENERIC_PROVIDER_FAILURE_MESSAGE,
+    AgentToolsProtocol,
+)
 from band.core.simple_adapter import SimpleAdapter
 from band.core.types import (
     AdapterFeatures,
@@ -505,9 +509,7 @@ class OpencodeAdapter(SimpleAdapter[OpencodeSessionState]):
         except Exception:
             logger.exception("Unexpected OpenCode adapter failure in room %s", room_id)
             await tools.send_failure(
-                AgentFailure(
-                    "opencode", "OpenCode failed while processing the message."
-                )
+                AgentFailure("opencode", GENERIC_PROVIDER_FAILURE_MESSAGE)
             )
             raise
 
