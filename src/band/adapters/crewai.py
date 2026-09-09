@@ -56,11 +56,6 @@ _reply_tracker_var: ContextVar[ReplyTracker | None] = ContextVar(
 # is the only discriminator. One definition, matched here and faked in tests.
 EMPTY_LLM_RESPONSE_MARKER = "Invalid response from LLM call"
 
-# Bound on the in-process retry for a turn's very first LLM call coming back
-# empty (see _kickoff_with_empty_response_retry) -- one immediate retry, no
-# backoff, since nothing has run yet this turn and so nothing is duplicated.
-_EMPTY_RESPONSE_FIRST_CALL_RETRIES = 1
-
 
 def _is_empty_llm_response(exc: Exception) -> bool:
     """Whether ``exc`` is CrewAI reporting that an LLM call came back empty.
@@ -484,26 +479,24 @@ class CrewAIAdapter(SimpleAdapter[CrewAIMessages]):
         retry absorbs a single-call fluke instead of failing the whole
         delivery and leaving CrewAI to improvise on a cold redelivery.
         """
-        attempt = 0
-        while True:
+        try:
+            return await agent.kickoff_async(prompt)
+        except Exception as e:
+            if not (_is_empty_llm_response(e) and not reply_tracker.any_tool_ran):
+                raise
+            logger.info(
+                "Room %s: CrewAI's first LLM call came back empty before "
+                "any tool ran; retrying",
+                room_id,
+            )
             try:
                 return await agent.kickoff_async(prompt)
-            except Exception as e:
-                attempt += 1
-                retryable = (
-                    attempt <= _EMPTY_RESPONSE_FIRST_CALL_RETRIES
-                    and _is_empty_llm_response(e)
-                    and not reply_tracker.any_tool_ran
-                )
-                if not retryable:
-                    raise
-                logger.info(
-                    "Room %s: CrewAI's first LLM call came back empty before "
-                    "any tool ran; retrying (%s/%s)",
+            except Exception:
+                logger.warning(
+                    "Room %s: CrewAI's retry also came back empty; giving up",
                     room_id,
-                    attempt,
-                    _EMPTY_RESPONSE_FIRST_CALL_RETRIES,
                 )
+                raise
 
     async def _report_error(self, tools: AgentToolsProtocol, error: str) -> None:
         """Send error event (best effort)."""

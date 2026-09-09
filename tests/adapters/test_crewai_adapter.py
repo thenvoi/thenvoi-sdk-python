@@ -742,6 +742,8 @@ class TestErrorHandling:
             )
 
         mock_tools.send_event.assert_awaited_once()
+        # First call plus the one retry -- proves the retry actually happens
+        # before the final raise, not a bare pass-through of the first failure.
         assert mock_crewai_agent.kickoff_async.call_count == 2
 
     @pytest.mark.asyncio
@@ -787,6 +789,7 @@ class TestErrorHandling:
         )
 
         assert error_events(mock_tools) == []
+        # First call plus the one retry that recovered it.
         assert mock_crewai_agent.kickoff_async.call_count == 2
 
     @pytest.mark.asyncio
