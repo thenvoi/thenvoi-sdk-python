@@ -342,8 +342,7 @@ class TestErrorHandling:
     async def test_reports_error_when_graph_factory_yields_no_graph(
         self, sample_message, mock_tools, mock_llm, mock_checkpointer
     ):
-        """Previously uncaught entirely: graph-factory construction ran
-        outside the try, so a bad factory's RuntimeError escaped unreported."""
+        """A bad graph factory's RuntimeError must be reported, not escape unreported."""
         adapter = LangGraphAdapter(
             llm=mock_llm,
             checkpointer=mock_checkpointer,

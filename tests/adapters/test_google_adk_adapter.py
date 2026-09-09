@@ -970,8 +970,7 @@ class TestErrorHandling:
     async def test_reports_error_when_runner_construction_itself_fails(
         self, sample_message, mock_tools
     ):
-        """Previously uncaught entirely: _create_runner ran outside the try,
-        so a construction failure escaped with zero report."""
+        """A runner-construction failure must be reported, not escape uncaught."""
         adapter = GoogleADKAdapter()
         await adapter.on_started("TestBot", "Test bot")
 
