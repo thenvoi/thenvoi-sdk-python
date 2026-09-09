@@ -833,6 +833,73 @@ class TestErrorHandling:
         assert failure.message == GENERIC_PROVIDER_FAILURE_MESSAGE
 
     @pytest.mark.asyncio
+    async def test_send_message_failure_is_not_reported_as_provider_failure(
+        self, mock_parlant_server, mock_parlant_agent, sample_message, mock_tools
+    ):
+        """A Band-side send_message failure while delivering the reply must
+        propagate as itself, not get misreported as a Parlant provider failure.
+
+        ``deliver_reply`` wraps the ``send_message`` error in
+        ``DeliveryFailedError``; ``on_message``'s dedicated except branch must
+        re-raise the original cause before its generic ``except Exception``
+        (which reports ``send_failure``) ever sees it.
+        """
+        adapter = ParlantAdapter(
+            server=mock_parlant_server,
+            parlant_agent=mock_parlant_agent,
+            response_timeout=0.2,
+            response_poll=0.01,
+        )
+        adapter.agent_name = "TestBot"
+
+        agent_event = MagicMock()
+        agent_event.kind = "message"
+        agent_event.source = "ai_agent"
+        agent_event.offset = 2
+        agent_event.data = {"message": "Hello there!", "tags": []}
+
+        mock_app = MagicMock()
+        mock_app.sessions = AsyncMock()
+        mock_app.sessions.create = AsyncMock(return_value=MagicMock(id="session-123"))
+        mock_app.sessions.create_customer_message = AsyncMock(
+            return_value=MagicMock(offset=1)
+        )
+        mock_app.sessions.wait_for_more_events = AsyncMock(return_value=True)
+        mock_app.sessions.find_events = AsyncMock(return_value=[agent_event])
+        adapter._app = mock_app
+
+        mock_tools.send_message.side_effect = ConnectionError("band down")
+
+        mock_moderation = MagicMock()
+        mock_moderation.NONE = "none"
+
+        with patch.dict(
+            sys.modules,
+            {
+                "parlant.core.app_modules.sessions": MagicMock(
+                    Moderation=mock_moderation
+                ),
+                "parlant.core.sessions": MagicMock(
+                    EventSource=MagicMock(CUSTOMER="customer", AI_AGENT="ai_agent"),
+                    EventKind=MagicMock(MESSAGE="message"),
+                ),
+                "parlant.core.async_utils": MagicMock(Timeout=lambda x: x),
+            },
+        ):
+            with pytest.raises(ConnectionError, match="band down"):
+                await adapter.on_message(
+                    msg=sample_message,
+                    tools=mock_tools,
+                    history=[],
+                    participants_msg=None,
+                    contacts_msg=None,
+                    is_session_bootstrap=True,
+                    room_id="room-123",
+                )
+
+        mock_tools.send_failure.assert_not_awaited()
+
+    @pytest.mark.asyncio
     async def test_clears_tools_on_error(
         self, mock_parlant_server, mock_parlant_agent, sample_message, mock_tools
     ):
