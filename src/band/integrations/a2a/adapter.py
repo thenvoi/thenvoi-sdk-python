@@ -294,11 +294,12 @@ class A2AAdapter(SimpleAdapter[A2ASessionState]):
             return
 
         if state in TERMINAL_TASK_STATES:
-            error_text = self._get_status_text(task) or f"Task {state_name(state)}"
+            state_str = state_name(state)
+            error_text = self._get_status_text(task) or f"Task {state_str}"
             logger.warning(
-                "Task %s: peer A2A task ended in state %s", task.id, state_name(state)
+                "Task %s: peer A2A task ended in state %s", task.id, state_str
             )
-            await tools.send_failure(AgentFailure("a2a", error_text, state_name(state)))
+            await tools.send_failure(AgentFailure("a2a", error_text, state_str))
             raise TurnResultAlreadyReported(error_text)
 
     def _finalize_task(self, room_id: str, task_id: str) -> None:

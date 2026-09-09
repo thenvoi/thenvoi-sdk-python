@@ -356,14 +356,11 @@ class TestA2AAdapterMessageFlow:
                 "Test User",
             )
 
-        error_events = [
-            event for event in tools.events_sent if event["message_type"] == "error"
-        ]
-        assert error_events, "an auth-required task must produce an error event"
-        assert error_events[-1]["content"] == "Please authenticate"
-        failure = reported_failures(tools)[-1]
-        assert failure["provider"] == "a2a"
-        assert failure["code"] == "TASK_STATE_AUTH_REQUIRED"
+        failures = reported_failures(tools)
+        assert failures, "an auth-required task must produce an error event"
+        assert failures[-1]["message"] == "Please authenticate"
+        assert failures[-1]["provider"] == "a2a"
+        assert failures[-1]["code"] == "TASK_STATE_AUTH_REQUIRED"
 
     @pytest.mark.asyncio
     async def test_input_required_is_forwarded_and_persisted(
@@ -459,14 +456,11 @@ class TestA2AAdapterMessageFlow:
                 "Test User",
             )
 
-        error_events = [
-            event for event in tools.events_sent if event["message_type"] == "error"
-        ]
-        assert error_events, "a failed task must produce an error event"
-        assert error_events[-1]["content"] == "boom"
-        failure = reported_failures(tools)[-1]
-        assert failure["provider"] == "a2a"
-        assert failure["code"] == "TASK_STATE_FAILED"
+        failures = reported_failures(tools)
+        assert failures, "a failed task must produce an error event"
+        assert failures[-1]["message"] == "boom"
+        assert failures[-1]["provider"] == "a2a"
+        assert failures[-1]["code"] == "TASK_STATE_FAILED"
 
     @pytest.mark.asyncio
     async def test_working_status_text_is_narrated_as_thought(
